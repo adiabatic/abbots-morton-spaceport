@@ -18,6 +18,7 @@ The stages (`STAGES`):
 - `subset` records each lookup `Enricher.enrich` makes in the subset pack, `SubsetPack.row`, under `subset:` with its configuration and its code points, as the `config` and the `codepoints` it receives and the `SubsetRow` or None it returns. Its generated lines (`_subset_generated`), under `generated:` with the same two, look up each configuration's first and last window, the first window spelled each way `int(part, 16)` reads it (`_SUBSET_SPELLINGS`), its misspellings `pack_key` refuses (`_SUBSET_MISSPELLINGS`), strings that refuse or miss whatever the source (`_SUBSET_MISSES`), and a configuration the pack does not hold.
 - `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, the `mismatches` lines the call added to the enricher's list, and the unit's `primary_unit_projection`. Its generated lines (`_enrich_generated`) make both mismatch lines fire: a unit whose `new` has one cell token replaced, under `generated:new:<ordinal>`, and a unit enriched against a subset row with a renamed glyph, which the line carries as its `row`, under `generated:row:<ordinal>`. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
 - `scaffold` records each unit `_phase1_unit` drafts, under `scaffold:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the `ink_deltas` and the `final_class` (the change group, or None) the call drafts its fragment with, read from its projection, and as its value the `scaffold` that call's `unit_scaffold` returned, copied before `unit_to_json` gives it the final class, with the projection's `change_group` and `cluster`. Its generated lines (`_scaffold_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` to `build.config_badge`, under `badge:` and the subset, as the `configs` and, as the value, the `gate` and the `note`.
+- `expect` records each call to `drafts.expect_string`, under `string:` and a digest of the call, as the `codepoints`, `spans` and `junctions` it receives and, as its value, the expect string it returns; and each pin the drafter replays against the after font, the drafted pin through `Drafter.validate_semantics` and each any-of candidate `Drafter.draft_any_of` returns, replayed as the pin is, under `pin:` and a digest of the replay's inputs, as the `text`, the `expect` and the `features` and, as its value, the pin's parse or its error, its interpretations, the after font's row and the replay's verdict (`_expect_line`). Its generated lines (`_expect_generated`) add `expect_string` calls over every boundary and connector, and the replay of every pinned cell of the site pages and of an edge set of pins (`_expect_edges`).
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -66,7 +67,7 @@ import yaml
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.explain import ExplainReport
 from rebuild.pipeline.model import feature_config_token
-from rebuild.review import audit, build, ink, unit_cache, units_exec
+from rebuild.review import audit, build, drafts, ink, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import Drafter, corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, primary_unit_projection
@@ -82,6 +83,7 @@ from rebuild.review.subset_pack import (
 )
 from rebuild.review.unit_store import UnitStore
 from rebuild.review.units_exec import Record, compact, decode, encode
+from rebuild.validation.shaping import row_for
 
 REPO_ROOT = build.REPO_ROOT
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -105,6 +107,8 @@ HOOKS: dict[str, tuple[str, str]] = {
     "Drafter.draft_pin": ("rebuild.review.drafts", "Drafter.draft_pin"),
     "Drafter.draft_policy": ("rebuild.review.drafts", "Drafter.draft_policy"),
     "Drafter.draft_any_of": ("rebuild.review.drafts", "Drafter.draft_any_of"),
+    "Drafter.validate_semantics": ("rebuild.review.drafts", "Drafter.validate_semantics"),
+    "expect_string": ("rebuild.review.drafts", "expect_string"),
     "unit_to_json": ("rebuild.review.build", "unit_to_json"),
     "_fragment_bytes": ("rebuild.review.build", "_fragment_bytes"),
     "check_unit": ("rebuild.review.build", "check_unit"),
@@ -1142,6 +1146,230 @@ def _scaffold_generated(_source: Source) -> Iterator[Mapping[str, object]]:
             }
 
 
+def _digest_key(prefix: str, call: Mapping[str, object]) -> str:
+    return prefix + hashlib.sha1(compact(encode(call)).encode("ascii")).hexdigest()[:20]
+
+
+def _raising(call: Callable[[], object]) -> object:
+    """What `call` returns, or, when it raises ValueError or AssertionError, the exception's class name and message, which is what the replay gives a Python caller."""
+    try:
+        return call()
+    except (ValueError, AssertionError) as error:
+        return {"raised": type(error).__name__, "message": str(error)}
+
+
+def _expect_line(
+    drafter: Drafter, text: str, expect: str, features: dict[str, bool] | None, verdict: object
+) -> dict[str, object]:
+    """One `pin:` line of the `expect` stage: the replay's inputs, keyed by a digest of them, and as its value the pin's `parse` (its tokens and connections, or the ValueError's message), the `interpretations` `_expand_maybe_ligatures` expands it to, the `row` `row_for` shapes the text into with the drafter's after font under the replay's kern-neutral features, and the `verdict`, what `Drafter.validate_semantics` returned or raised (`_raising`). The interpretations and the row are None for a pin that does not parse, for which the replay shapes nothing."""
+    call = {"text": text, "expect": expect, "features": features}
+    ts = drafts._import_test_shaping()
+    try:
+        tokens, connections = ts.parse_expect(expect)
+    except ValueError as error:
+        parse, interpretations, row = str(error), None, None
+    else:
+        parse = (tokens, connections)
+        interpretations = ts._expand_maybe_ligatures(list(tokens), list(connections))
+        row = _raising(
+            lambda: row_for(drafter.after_shaper, drafter.after_classifier, text, ink.kern_neutral(features))
+        )
+    return {
+        "key": _digest_key("pin:", call),
+        **call,
+        "value": {"parse": parse, "interpretations": interpretations, "row": row, "verdict": verdict},
+    }
+
+
+def _expect_replay(args: tuple, kwargs: dict) -> Finisher:
+    drafter, text, expect = args[0], args[1], args[2]
+    features = args[3] if len(args) > 3 else kwargs.get("features")
+    return lambda result: _expect_line(drafter, text, expect, features, result)
+
+
+def _expect_any_of(args: tuple, kwargs: dict) -> Finisher:
+    drafter = args[0]
+    unit = (args[1] if len(args) > 1 else kwargs["enriched"]).unit
+    text = "".join(chr(value) for value in unit.codepoint_values)
+    features = drafts.features_dict(unit.configs) or None
+
+    def finish(result: object) -> list[Mapping[str, object]]:
+        assert isinstance(result, drafts.AnyOfDraft)
+        return [
+            _expect_line(
+                drafter,
+                text,
+                candidate,
+                features,
+                _raising(lambda candidate=candidate: drafter.validate_semantics(text, candidate, features)),
+            )
+            for candidate in result.candidates
+        ]
+
+    return finish
+
+
+def _expect_string_line(
+    values: object, spans: object, junctions: object, result: object
+) -> dict[str, object]:
+    call = {"codepoints": values, "spans": spans, "junctions": junctions}
+    return {"key": _digest_key("string:", call), **call, "value": result}
+
+
+def _expect_string(args: tuple, kwargs: dict) -> Finisher:
+    values = args[0] if args else kwargs["codepoint_values"]
+    spans = args[1] if len(args) > 1 else kwargs["spans"]
+    junctions = args[2] if len(args) > 2 else kwargs["junctions"]
+    return lambda result: _expect_string_line(values, spans, junctions, result)
+
+
+# The `expect` stage's generated `drafts.expect_string` inputs: every boundary token, every connector, the two letters whose display is not their name, and a three-letter span.
+_EXPECT_STRINGS: tuple[tuple[tuple[int, ...], tuple[tuple[int, int], ...], tuple[str, ...]], ...] = (
+    ((0x200C, 0xE652, 0xE679), ((0, 1), (1, 3)), ("break",)),
+    (
+        (0x00B7, 0xE650, 0x0020, 0xE664, 0xE65D),
+        ((0, 1), (1, 2), (2, 3), (3, 4), (4, 5)),
+        ("break", "y0", "y5", "y6"),
+    ),
+    ((0xE650, 0xE652, 0xE67A, 0xE653), ((0, 1), (1, 3), (3, 4)), ("y8", "break")),
+    ((0xE652, 0xE67A, 0xE679), ((0, 3),), ()),
+)
+
+_PEA, _TEA, _DAY, _IT, _UTTER, _ZWNJ, _VS1 = "", "", "", "", "", "‌", "︀"
+
+
+def _expect_edges() -> list[tuple[str, str, dict[str, bool] | None]]:
+    """The `expect` stage's generated pins, each a text, an expect string and the replay's features: every connector, ligature mode, variant assertion, escape and lozenge, every parse error with texts its message must quote (quotes, an unprintable character, a code point beyond the BMP, the whitespace `str.isspace` accepts and Rust's `char::is_whitespace` does not), and the replays the corpus does not reach (more than one maybe-ligature, variation selectors, ◊ZWNJ, `ss10`, texts too short or too long for the tokens, and an empty text)."""
+    word = _PEA + _TEA
+    pins = [
+        "",
+        "   ",
+        "·Pea ·Tea",
+        "·Pea~x~·Tea",
+        "·Pea ~b~ ·Tea",
+        "·Pea ~t~ ·Tea",
+        "·Pea ~6~ ·Tea",
+        "·Pea | ·Tea",
+        "·Pea |?| ·Tea",
+        "·Pea ? ·Tea",
+        "·Pea?·Tea",
+        "·Pea |? ·Tea",
+        "·Pea.half ·Tea.!half",
+        "·Pea.alt.!half.extended ·Tea.half.∅",
+        "·Pea.∅ ·Tea.∅",
+        "·Pea.∅.∅ ·Tea",
+        "·Pea.∅.half ·Tea",
+        "·Pea.Half ·Tea",
+        "·Pea.!Half ·Tea",
+        "·Pea. ·Tea",
+        "·pea ·Tea",
+        "Pea ·Tea",
+        "| ·Pea ·Tea",
+        "·Pea ·Tea |",
+        "·Pea ·Tea ~x~",
+        "·Pea ~y~ ·Tea",
+        "·Pea ·Tea",
+        "·Pea　~x~ ·Tea",
+        "·Pea\x1c·Tea",
+        "\x85·Pea ·Tea\x85",
+        "·Pea\t|\t·Tea",
+        "·Pea​·Tea",
+        "·Pea 'x'",
+        '·Pea "x\'"',
+        "·Pea ͸\x7f\U0001f600",
+        "·Pea+Tea",
+        "·Pea+tea",
+        "·Pea+Tea+Day",
+        "·Pea+??Tea",
+        "\\· ·Pea",
+        "\\x ·Tea",
+        f"\\{_PEA} ·Tea",
+        "\\",
+        "\\\n ·Tea",
+        "\\\U0001f600 ·Tea",
+        "◊space ·Tea",
+        "◊ZWNJ ·Tea",
+        "◊zwnj ·Tea",
+        "◊ ·Tea",
+        "◊space1 ·Tea",
+        "·-ing ·J'ai",
+        "·J’ai ·Jai",
+        "·Jay ·J'x",
+        "·Jaix ·Tea",
+        "·Tea+J’ai",
+    ]
+    edges: list[tuple[str, str, dict[str, bool] | None]] = [(word, pin, None) for pin in pins]
+    edges += [
+        ("", "", None),
+        ("", "·Pea", None),
+        (_PEA, "", None),
+        (_PEA, "·Pea ·Tea", None),
+        (_PEA, "·Tea", None),
+        (_TEA, "·Tea+Utter", None),
+        (_TEA + _UTTER, "·Tea+Utter", None),
+        (_TEA + _UTTER, "·Tea+Utter.∅", None),
+        (_TEA + _UTTER, "·Tea+?Utter", None),
+        (_TEA + _UTTER, "·Tea+|Utter", None),
+        (_TEA + _UTTER + _DAY + _UTTER, "·Tea+?Utter ·Day+|Utter", None),
+        (_TEA + _UTTER + _DAY + _UTTER, "·Tea+?Utter ~x~ ·Day+?Utter", None),
+        (_TEA + _UTTER + _DAY + _UTTER, "·Tea ·Utter ·Day ·Utter", None),
+        (_PEA + _IT + _TEA, "·Pea ~x~ ·It.half | ·Tea.alt", None),
+        (_PEA + _VS1 + _TEA, "·Pea ·Tea", None),
+        (_VS1 + _PEA + _TEA + _VS1, "·Pea | ·Tea", None),
+        (_PEA + _VS1 + _VS1, "·Pea", None),
+        (_PEA + _ZWNJ + _TEA, "·Pea | ◊ZWNJ | ·Tea", None),
+        (_PEA + _ZWNJ + _TEA, "·Pea ◊ZWNJ ·Tea", None),
+        (_PEA + " " + _TEA, "·Pea | ◊space | ·Tea", None),
+        (_PEA + "·" + _TEA, "·Pea | \\· | ·Tea", None),
+        (word, "·Pea | ·Tea", {"ss10": True}),
+        (word, "·Pea ·Tea", {"ss10": True}),
+        (word, "·Pea ·Tea", {"ss03": True, "ss05": True}),
+        (word, "·Pea ·Tea", {"kern": True}),
+        (word, "·Pea ·Tea", {}),
+        ("ab", "\\a | \\b", None),
+        ("a", "\\a \\b", None),
+    ]
+    return edges
+
+
+def _expect_generated(source: Source) -> Iterator[Mapping[str, object]]:
+    """The `expect` stage's generated lines: `drafts.expect_string` over `_EXPECT_STRINGS`, under `string:` and a digest of the call; and the replay of every pinned cell of the site pages, its whole text against its whole expect string under the cell's stylistic sets, and of `_expect_edges`, each under `pin:` and a digest of the replay's inputs (`_expect_line`), through a drafter over the source's after font."""
+    init = source.init
+    drafter = Drafter(
+        init["after_font"],
+        corpus_index=init["corpus_index"],
+        repo_root=init["repo_root"],
+        shaper_factory=ink.shaper_for,
+    )
+    ts = drafts._import_test_shaping()
+
+    def line(text: str, expect: str, features: dict[str, bool] | None) -> dict[str, object]:
+        verdict = _raising(lambda: drafter.validate_semantics(text, expect, features))
+        return _expect_line(drafter, text, expect, features, verdict)
+
+    try:
+        for values, spans, junctions in _EXPECT_STRINGS:
+            yield _expect_string_line(
+                values, spans, junctions, drafts.expect_string(values, spans, junctions)
+            )
+        for page in fingerprint.read_site_corpus(REPO_ROOT).values():
+            if page is None:
+                continue
+            collector = ts._DataExpectCollector()
+            collector.feed(page.decode("utf-8"))
+            for text, expect, _line, stylistic_set, _runs in collector.cells:
+                if expect is None:
+                    continue
+                features = (
+                    {f"ss{ss.zfill(2)}": True for ss in stylistic_set.split()} if stylistic_set else None
+                )
+                yield line(text, expect, features)
+        for text, expect, features in _expect_edges():
+            yield line(text, expect, features)
+    finally:
+        ink.release_shape_memos()
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -1178,6 +1406,15 @@ STAGES: dict[str, Stage] = {
         "scaffold",
         {"_phase1_unit": _scaffold_unit, "unit_scaffold": _scaffold_returned},
         _scaffold_generated,
+    ),
+    "expect": Stage(
+        "expect",
+        {
+            "expect_string": _expect_string,
+            "Drafter.validate_semantics": _expect_replay,
+            "Drafter.draft_any_of": _expect_any_of,
+        },
+        _expect_generated,
     ),
 }
 

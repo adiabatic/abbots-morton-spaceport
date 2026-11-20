@@ -496,7 +496,7 @@ pub struct Enricher<'a> {
 }
 
 /// The init's `LETTERS`, which must be a dict of code points to `str`.
-fn init_letters(init: &Init) -> Result<HashMap<u32, String>> {
+pub(crate) fn init_letters(init: &Init) -> Result<HashMap<u32, String>> {
     let Some(PyValue::Dict(entries)) = init.constant(LETTERS_NAME) else {
         return error(format!("the init's {LETTERS_NAME} is not a dict"));
     };

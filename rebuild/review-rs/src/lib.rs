@@ -5,8 +5,10 @@
 #![deny(unsafe_code)]
 
 pub mod change_groups;
+pub mod classify;
 pub mod config_fold;
 pub mod enrich;
+pub mod expect;
 pub mod explain;
 mod ffi;
 pub mod fontfacts;
