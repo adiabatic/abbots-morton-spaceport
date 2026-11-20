@@ -4,8 +4,11 @@
 
 #![deny(unsafe_code)]
 
-/// The format marker of the boundary between the build and the binary, carried by the init file whose frames and records § Boundary of `rebuild/CORPUS-UNITS-PORT-PLAN.md` describes.
-pub const WIRE_FORMAT: &str = "ams-review-units-init/1";
+pub mod pyfmt;
+pub mod wire;
+
+/// The format marker of the boundary between the build and the binary, carried by the init file whose frames and records § Boundary of `rebuild/CORPUS-UNITS-PORT-PLAN.md` describes ([`wire`]).
+pub const WIRE_FORMAT: &str = wire::INIT_FORMAT;
 
 /// What `ams-review version` prints: one `name<TAB>value` line for the wire format and one for the spec dump format the kernel reads (`ams_m1_kernel::SPEC_FORMAT`).
 pub fn version_text() -> String {

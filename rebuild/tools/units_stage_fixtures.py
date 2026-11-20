@@ -1,8 +1,14 @@
 """Record what the real Python corpus units worker's stages take and return, for the port of the units recompute to Rust (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Stage fixtures).
 
-`dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each unit in the record shape of the plan's § Batches in), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`encode`, `decode`). The wrappers record and return; they never change a value.
+`dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
 `selfcheck` runs the worker over a source twice, once as the build runs it and once with every hook point wrapped and every registered stage recording into a temporary directory, and fails unless both runs give the same projection digest and every projection either run returns comes back from the typed encoding's round trip equal to itself, compared type-strictly (`same`).
+
+`compare STAGE --stages DIR` builds the crate (`units_exec.ensure_built`), writes an init for the source the dump's `source.json` names (`source_init`, `units_exec.write_init`), runs `ams-review stage STAGE --init=<init> DIR/STAGE.ndjson`, and reports every key whose outputs the Rust answer does not reproduce, type-strictly, and every key either side lacks.
+
+The stages (`STAGES`):
+
+- `wire` records each unit `_phase1_unit` receives, as the `audit.Unit` fields that cross (`unit_value`), under `unit:<ordinal>`; the Rust side reads them back from the units file. Its generated lines are the init's values with the spec's runes and the dictionary's bytes, under `init`, and a verify frame with varied injections, under `verify`, which the line carries for the Rust side to read.
 
 The sources (`open_source`):
 
@@ -16,6 +22,7 @@ Run from the repository root:
     uv run python -m rebuild.tools.units_stage_fixtures dump --source mini --out var/rust-port/stages/mini
     uv run python -m rebuild.tools.units_stage_fixtures dump --source live --per-config 1 --out var/rust-port/stages/live
     uv run python -m rebuild.tools.units_stage_fixtures selfcheck --source mini
+    uv run python -m rebuild.tools.units_stage_fixtures compare wire --stages var/rust-port/stages/mini
 """
 
 from __future__ import annotations
@@ -41,7 +48,7 @@ from pathlib import Path
 from typing import IO
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import audit, build, unit_cache
+from rebuild.review import audit, build, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, load_spec
@@ -54,6 +61,7 @@ from rebuild.review.subset_pack import (
     write_pack_in_memory,
 )
 from rebuild.review.unit_store import UnitStore
+from rebuild.review.units_exec import Record, compact, decode, encode
 
 REPO_ROOT = build.REPO_ROOT
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -83,74 +91,9 @@ HOOKS: dict[str, tuple[str, str]] = {
 # --- the typed encoding -------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class Record:
-    """A dataclass or named tuple as the typed encoding carries it: its class name and its fields in declaration order."""
-
-    name: str
-    fields: tuple[tuple[str, object], ...]
-
-
-def encode(value: object) -> object:
-    """Return `value` in the typed JSON encoding `PyValue` reads: an int, a string, a boolean or None as itself, `{"tuple": [...]}`, `{"list": [...]}`, `{"dict": [[key, value], ...]}` in insertion order, `{"bytes": hex}`, `{"set": [...]}` for a set or frozenset with its members sorted by their encoded JSON text, and `{"record": [class name, [[field, value], ...]]}` for a dataclass, a named tuple or a `Record`. Any other type raises TypeError, a float and a subclass of a listed type among them, so nothing crosses as a value the encoding cannot give back."""
-    kind = type(value)
-    if value is None or kind is bool or kind is int or kind is str:
-        return value
-    if isinstance(value, Record):
-        return {"record": [value.name, [[name, encode(item)] for name, item in value.fields]]}
-    if isinstance(value, tuple) and hasattr(kind, "_fields"):
-        names = getattr(kind, "_fields")
-        return {"record": [kind.__name__, [[name, encode(item)] for name, item in zip(names, value)]]}
-    if isinstance(value, tuple) and kind is tuple:
-        return {"tuple": [encode(item) for item in value]}
-    if isinstance(value, list) and kind is list:
-        return {"list": [encode(item) for item in value]}
-    if isinstance(value, dict) and kind is dict:
-        return {"dict": [[encode(key), encode(item)] for key, item in value.items()]}
-    if isinstance(value, bytes) and kind is bytes:
-        return {"bytes": value.hex()}
-    if isinstance(value, (set, frozenset)) and kind in (set, frozenset):
-        return {"set": sorted((encode(item) for item in value), key=_text)}
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {
-            "record": [
-                kind.__name__,
-                [[item.name, encode(getattr(value, item.name))] for item in dataclasses.fields(value)],
-            ]
-        }
-    raise TypeError(f"the typed encoding has no form for a {kind.__qualname__}: {value!r:.200}")
-
-
-def decode(data: object) -> object:
-    """Return the value `encode` wrote as `data`, after a JSON round trip: tuples, lists, dicts and bytes as themselves, a set as a frozenset, and a record as a `Record`. Anything `encode` never writes raises ValueError."""
-    if data is None or type(data) in (bool, int, str):
-        return data
-    if type(data) is not dict or len(data) != 1:
-        raise ValueError(f"not a typed value: {data!r:.200}")
-    ((tag, body),) = data.items()
-    if tag == "tuple" and type(body) is list:
-        return tuple(decode(item) for item in body)
-    if tag == "list" and type(body) is list:
-        return [decode(item) for item in body]
-    if tag == "dict" and type(body) is list:
-        return {decode(key): decode(item) for key, item in body}
-    if tag == "bytes" and type(body) is str:
-        return bytes.fromhex(body)
-    if tag == "set" and type(body) is list:
-        return frozenset(decode(item) for item in body)
-    if tag == "record" and type(body) is list and len(body) == 2:
-        name, fields = body
-        return Record(name, tuple((field_name, decode(item)) for field_name, item in fields))
-    raise ValueError(f"not a typed value: {data!r:.200}")
-
-
-def _text(encoded: object) -> str:
-    return json.dumps(encoded, ensure_ascii=True, separators=(",", ":"))
-
-
 def same(left: object, right: object) -> bool:
     """Whether two values are equal under the typed encoding: of one kind (a tuple is not a list, a bool is not an int, a record matches a record of its class name and fields), a dict's entries in one order, and a set's members as a set."""
-    return _text(encode(left)) == _text(encode(right))
+    return compact(encode(left)) == compact(encode(right))
 
 
 # --- the sources --------------------------------------------------------------------------------
@@ -380,43 +323,15 @@ def open_source(name: str, per_config: int = 0, batches: int = 0, everything: bo
     raise SystemExit(f"unknown source {name!r}; the sources are {', '.join(SOURCES)}")
 
 
-# --- the units file -----------------------------------------------------------------------------
-
-
-def unit_record(unit: Unit) -> dict:
-    """Return one unit as the batch request carries it (the plan's § Batches in). The machine flags and the ink deltas do not cross, so a unit that carries deltas is refused rather than sent without them."""
-    if unit.ink_deltas:
-        raise ValueError(f"unit {unit.ordinal} carries ink deltas, which a materialized unit never does")
-    return {
-        "ordinal": unit.ordinal,
-        "codepoints": unit.codepoints,
-        "new": list(unit.new),
-        "class": unit.class_id,
-        "configs": list(unit.configs),
-        "kinds": list(unit.kinds),
-        "group": unit.group,
-        "exemplar": unit.exemplar,
-        "unit_id": unit.unit_id,
-        "input_key": unit.input_key,
-        "render_groups": [list(group) for group in unit.render_groups],
-        "no_verdict": unit.no_verdict,
-        "config_classes": [[config, class_id] for config, class_id in unit.config_classes.items()],
-        "duplicate_group": unit.duplicate_group,
-        "cluster": unit.cluster,
-        "ledger_class": unit.ledger_class,
-    }
+# --- the units file -------------------------------------------------------------------------------
 
 
 def write_units_file(source: Source, out: Path) -> None:
     """Write the source's handouts as `batch` request frames, one compact JSON line each, to `out/units.ndjson`, and its description to `out/source.json`."""
     with (out / UNITS_FILE).open("w", encoding="ascii") as handle:
         for index, handout in enumerate(source.handouts):
-            frame = {
-                "op": "batch",
-                "batch": index,
-                "units": [unit_record(unit) for unit in source.units(handout)],
-            }
-            handle.write(_text(frame) + "\n")
+            frame = units_exec.encode_batch(index, source.units(handout))
+            handle.write(compact(frame) + "\n")
     (out / SOURCE_FILE).write_text(json.dumps(source.describe(), indent=1) + "\n", encoding="ascii")
 
 
@@ -429,15 +344,73 @@ Recorder = Callable[[tuple, dict], Finisher | None]
 
 @dataclass(frozen=True)
 class Stage:
-    """One stage of the port: its recorders by hook name (`HOOKS`), and its generated inputs, which give the fields of each further line for a source."""
+    """One stage of the port: its recorders by hook name (`HOOKS`), its generated inputs, which give the fields of each further line for a source, and the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`."""
 
     name: str
     recorders: Mapping[str, Recorder]
     generated: Callable[[Source], Iterator[Mapping[str, object]]] | None = None
+    outputs: tuple[str, ...] = ("value",)
+
+
+def unit_value(unit: Unit) -> Record:
+    """The `audit.Unit` fields that cross the boundary (`units_exec.UNIT_FIELDS`), as the worker holds them, in the unit's declaration order: what the Rust side's unit record must read back as."""
+    return Record(
+        "Unit",
+        tuple(
+            (name, dict(unit.config_classes) if name == "config_classes" else getattr(unit, name))
+            for name, _wire in units_exec.UNIT_FIELDS
+        ),
+    )
+
+
+def _wire_unit(args: tuple, _kwargs: dict) -> Finisher:
+    unit = args[0]
+    key, value = f"unit:{unit.ordinal}", unit_value(unit)
+    return lambda _result: {"key": key, "value": value}
+
+
+# How many units of the first handout the `wire` stage's verify frame carries.
+WIRE_VERIFY_UNITS = 6
+
+
+def _wire_generated(source: Source) -> Iterator[Mapping[str, object]]:
+    """The `wire` stage's generated lines: the init's values as `units_exec.init_values` gives them, with each rune of the spec (its codepoint, sequence and stance names) and the preset dictionary's bytes, under `init`; and one verify frame over the first handout's first units, each with an injection that varies every field's kind, under `verify`."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(Path(source.init["spec_root"]))
+    runes = {name: (rune.codepoint, rune.sequence, tuple(rune.stances)) for name, rune in spec.runes.items()}
+    yield {
+        "key": "init",
+        "value": units_exec.init_values(source.init)
+        | {"spec": runes, "dictionary": source.init["dictionary"]},
+    }
+    items: list[tuple[Unit, tuple]] = []
+    for index, unit in enumerate(source.units(source.handouts[0][:WIRE_VERIFY_UNITS])):
+        primary_units = tuple(
+            (None if slot % 2 else f"{unit.input_key[:8]}-{slot}", slot == 1) for slot in range(index)
+        )
+        items.append(
+            (
+                unit,
+                (
+                    None if index % 2 else f"duplicate-{index}",
+                    unit.cluster if index % 2 else f"cluster-{index}",
+                    unit.class_id,
+                    primary_units,
+                ),
+            )
+        )
+    yield {
+        "key": "verify",
+        "frame": compact(units_exec.encode_verify(items)),
+        "value": [(unit_value(unit), injection) for unit, injection in items],
+    }
 
 
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
-STAGES: dict[str, Stage] = {}
+STAGES: dict[str, Stage] = {
+    "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
+}
 
 
 class _Sink:
@@ -450,7 +423,7 @@ class _Sink:
 
     def write(self, stage: str, origin: str, fields: Mapping[str, object]) -> None:
         line = {"from": origin} | {name: encode(value) for name, value in fields.items()}
-        self._handles[stage].write(_text(line) + "\n")
+        self._handles[stage].write(compact(line) + "\n")
 
     def close(self) -> None:
         for handle in self._handles.values():
@@ -552,12 +525,12 @@ def run_worker(source: Source) -> RunResult:
 
     def on_batch(projections: list, contract_errors: list[str]) -> None:
         for projection in projections:
-            text = _text(encode(projection))
+            text = compact(encode(projection))
             digest.update(text.encode("ascii") + b"\n")
             if not same(projection, decode(json.loads(text))):
                 result.unfaithful.append(projection.ordinal)
             result.units += 1
-        digest.update(_text(encode(contract_errors)).encode("ascii") + b"\n")
+        digest.update(compact(encode(contract_errors)).encode("ascii") + b"\n")
         result.contract_errors += len(contract_errors)
 
     pipe = _Pipe(source, on_batch)
@@ -652,6 +625,101 @@ def selfcheck(source: Source) -> bool:
     return ok
 
 
+def source_init(description: Mapping[str, object]) -> dict:
+    """The worker `init` of the source a dump's `source.json` names, built as `open_source` builds it but, for a live source, without loading the corpus, which the init does not read."""
+    name = description.get("source")
+    if name == "mini":
+        return _mini_source().init
+    if name == "live":
+        identical_classes = frozenset(
+            entry.id for entry in load_ledger(build.M1_LEDGER) if entry.ink_identical
+        )
+        return _worker_init(
+            build.M1_AFTER_FONT, build.M1_SUBSETS, build.M1_SUBSETS / PACK_NAME, REPO_ROOT, identical_classes
+        )
+    raise SystemExit(f"the dump names source {name!r}; the sources are {', '.join(SOURCES)}")
+
+
+# How many disagreements `compare` prints.
+EXAMPLES_SHOWN = 5
+
+
+def _answers(lines: Sequence[str], fields: Sequence[str], origin: str) -> dict[str, dict[str, object]]:
+    """Each line's `fields` decoded from the typed encoding, by the line's key; a key on two lines is refused."""
+    answers: dict[str, dict[str, object]] = {}
+    for line in lines:
+        record = json.loads(line)
+        key = record.get("key")
+        if not isinstance(key, str):
+            raise SystemExit(f"{origin}: a line has no key: {line[:200]}")
+        if key in answers:
+            raise SystemExit(f"{origin}: the key {key!r} is on two lines")
+        answers[key] = {name: decode(record[name]) for name in fields if name in record}
+    return answers
+
+
+def _difference(expected: object, actual: object) -> str:
+    left, right = compact(encode(expected)), compact(encode(actual))
+    offset = next(
+        (index for index, (x, y) in enumerate(zip(left, right)) if x != y), min(len(left), len(right))
+    )
+    start = max(0, offset - 80)
+    return f"at character {offset}:\n    python: …{left[start:offset + 80]}…\n    rust:   …{right[start:offset + 80]}…"
+
+
+def compare(stage: Stage, stages: Path) -> bool:
+    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every key it does not answer, and every key it answers that the dump does not hold. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
+    stage_file = stages / f"{stage.name}.ndjson"
+    if not stage_file.is_file():
+        raise SystemExit(f"{stage_file} is missing; dump --stage {stage.name} writes it")
+    description = json.loads((stages / SOURCE_FILE).read_text(encoding="ascii"))
+    expected = _answers(stage_file.read_text(encoding="ascii").splitlines(), stage.outputs, str(stage_file))
+    units_exec.ensure_built()
+    init = source_init(description)
+    with tempfile.TemporaryDirectory(prefix="units-stage-compare-") as scratch:
+        init_path = units_exec.write_init(init, Path(scratch))
+        process = units_exec.spawn(["stage", stage.name, f"--init={init_path}", str(stage_file)])
+        stdout, stderr = process.communicate()
+    if process.returncode != 0 or stderr:
+        print(
+            f"compare {stage.name}: ams-review exited {process.returncode}: "
+            + stderr.decode(errors="replace").strip(),
+            file=sys.stderr,
+        )
+        return False
+    actual = _answers(stdout.decode("utf-8").splitlines(), stage.outputs, f"ams-review stage {stage.name}")
+    missing = [key for key in expected if key not in actual]
+    extra = [key for key in actual if key not in expected]
+    differing = []
+    for key, fields in expected.items():
+        answer = actual.get(key)
+        if answer is None:
+            continue
+        for name in stage.outputs:
+            if name not in fields or name not in answer or not same(fields[name], answer[name]):
+                differing.append((key, name))
+    for label, keys in (("unanswered", missing), ("not in the dump", extra)):
+        if keys:
+            print(
+                f"compare {stage.name}: {len(keys):,} keys {label}, the first {keys[:EXAMPLES_SHOWN]}",
+                file=sys.stderr,
+            )
+    for key, name in differing[:EXAMPLES_SHOWN]:
+        print(
+            f"compare {stage.name}: {key} {name} differs "
+            + _difference(expected[key].get(name), actual[key].get(name)),
+            file=sys.stderr,
+        )
+    ok = not (missing or extra or differing)
+    print(
+        f"compare {stage.name} ({stages}): {len(expected):,} lines, {len(differing):,} differ, "
+        f"{len(missing):,} unanswered, {len(extra):,} not in the dump"
+        + ("; Rust reproduces every line" if ok else ""),
+        file=sys.stderr,
+    )
+    return ok
+
+
 def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source", choices=SOURCES, required=True)
     parser.add_argument("--per-config", type=int, default=0, metavar="K")
@@ -670,7 +738,13 @@ def main(argv: list[str] | None = None) -> int:
     dump_parser.add_argument("--out", type=Path, required=True)
     check_parser = commands.add_parser("selfcheck", help="check that the wrappers change nothing")
     _add_source_arguments(check_parser)
+    compare_parser = commands.add_parser("compare", help="check the Rust side of a stage against a dump")
+    compare_parser.add_argument("stage", metavar="STAGE")
+    compare_parser.add_argument("--stages", type=Path, required=True, metavar="DIR")
     args = parser.parse_args(argv)
+    if args.command == "compare":
+        (stage,) = _selected([args.stage])
+        return 0 if compare(stage, args.stages) else 1
     stages = _selected(args.stage) if args.command == "dump" else []
     source = open_source(args.source, args.per_config, args.batches, args.everything)
     if args.command == "dump":

@@ -1,12 +1,22 @@
 """Tests for the review crate under `rebuild/review-rs/`, the Rust engine of the review corpus build's unit recompute (`rebuild/CORPUS-UNITS-PORT-PLAN.md`).
 
-The crate is a sibling of the kernel crate, not a member of a Cargo workspace, so it has its own lock, and in its build that lock, not the kernel's, picks the versions of the kernel's dependencies. The lock-parity test keeps the kernel library the review engine links the same code the table build runs.
+The crate is a sibling of the kernel crate, not a member of a Cargo workspace, so it has its own lock, and in its build that lock, not the kernel's, picks the versions of the kernel's dependencies. The lock-parity test keeps the kernel library the review engine links the same code the table build runs. The rest test the engine interface, `rebuild/review/units_exec.py`: the switch, the typed encoding, the request frames and the vocabulary the init carries.
 """
 
 from __future__ import annotations
 
+import dataclasses
+import json
+import re
 import tomllib
 from pathlib import Path
+from typing import cast
+
+import pytest
+
+from rebuild.pipeline.model import CellId
+from rebuild.review import build, units_exec
+from rebuild.review.audit import Unit, UnitTable
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KERNEL_LOCK = REPO_ROOT / "rebuild" / "kernel-rs" / "Cargo.lock"
@@ -32,3 +42,99 @@ def test_every_package_both_locks_name_has_one_version():
         name: sorted(kernel[name] | review[name]) for name in shared if len(kernel[name] | review[name]) != 1
     }
     assert split == {}, f"the two crates' locks disagree on these packages' versions: {split}"
+
+
+def test_the_switch_reads_the_environment_and_the_build_runs_only_its_engines(monkeypatch):
+    """`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `python` by default, and refuses a value the switch does not know; the runner refuses an engine outside `ENGINES` before it starts anything."""
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    assert units_exec.engine() == "python"
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "cobol")
+    with pytest.raises(ValueError, match="cobol"):
+        units_exec.engine()
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
+    assert units_exec.engine() == "rust"
+    assert "rust" not in units_exec.ENGINES
+    with pytest.raises(ValueError, match="the rust units engine is not one the build runs"):
+        build._RecomputeRunner(
+            [],
+            1,
+            REPO_ROOT,
+            REPO_ROOT,
+            REPO_ROOT,
+            REPO_ROOT,
+            REPO_ROOT,
+            table=cast(UnitTable, None),
+            subset_pack=REPO_ROOT,
+            identical_classes=frozenset(),
+            corpus_index={},
+            dictionary=b"",
+        )
+
+
+def test_the_typed_encoding_gives_back_every_kind_it_writes():
+    value = {
+        "tuple": (1, -2, None, True, "\U0001f600"),
+        ("key", 1): [b"\x00\xff", frozenset({"b", "a"})],
+        "record": CellId("qsPea", "half", None, "y6", ("locked",)),
+    }
+    encoded = units_exec.encode(value)
+    decoded = cast(dict, units_exec.decode(json.loads(units_exec.compact(encoded))))
+    assert units_exec.compact(units_exec.encode(decoded)) == units_exec.compact(encoded)
+    assert decoded[("key", 1)] == [b"\x00\xff", frozenset({"a", "b"})]
+    assert decoded["record"] == units_exec.Record(
+        "CellId",
+        (
+            ("rune", "qsPea"),
+            ("stance", "half"),
+            ("entry", None),
+            ("exit", "y6"),
+            ("adjustments", ("locked",)),
+        ),
+    )
+    for refused in (1.5, ("a", 1.0), {"a": object()}):
+        with pytest.raises(TypeError):
+            units_exec.encode(refused)
+
+
+def test_a_unit_record_carries_the_fields_phase_one_reads_and_no_other():
+    """`UNIT_FIELDS` names `audit.Unit` fields in declaration order, without the machine flags or the deltas, and a batch frame's record holds exactly their wire names."""
+    declared = [item.name for item in dataclasses.fields(Unit)]
+    names = [name for name, _wire in units_exec.UNIT_FIELDS]
+    assert names == [name for name in declared if name in names]
+    assert not set(names) & {"ink_identical", "picture_identical", "junior_equivalent", "ink_deltas"}
+    unit = Unit(
+        codepoints="E650:0020",
+        baseline=("qsPea",),
+        new=("a", "b"),
+        class_id="c",
+        row_count=1,
+        configs=("default", "ss10"),
+        render_groups=(("default",), ("ss10",)),
+        config_classes={"default": "c", "ss10": "d"},
+        ordinal=4,
+    )
+    frame = units_exec.encode_batch(2, [unit])
+    assert frame["op"] == "batch" and frame["batch"] == 2
+    (record,) = frame["units"]
+    assert set(record) == {wire for _name, wire in units_exec.UNIT_FIELDS}
+    assert record["config_classes"] == [["default", "c"], ["ss10", "d"]]
+    verify = units_exec.encode_verify([(unit, ("g", None, "c", ((None, False), ("id", True))))])
+    assert verify["units"][0]["injection"] == {
+        "duplicate_group": "g",
+        "cluster": None,
+        "class": "c",
+        "primary_units": [[None, False], ["id", True]],
+    }
+    with pytest.raises(ValueError, match="ink deltas"):
+        units_exec.encode_batch(0, [dataclasses.replace(unit, ink_deltas={"default": "x"})])
+
+
+def test_the_vocabulary_resolves_and_the_engine_reads_the_same_names():
+    """Every `VOCABULARY` name is a constant the typed encoding can carry, and the crate's `wire::VOCABULARY`, the names the engine refuses an init without, is the same list."""
+    for name, value in units_exec.vocabulary().items():
+        assert units_exec.decode(json.loads(units_exec.compact(units_exec.encode(value)))) is not None, name
+    source = (REPO_ROOT / "rebuild" / "review-rs" / "src" / "wire.rs").read_text(encoding="utf-8")
+    block = re.search(r"pub const VOCABULARY: &\[&str\] = &\[(.*?)\];", source, re.S)
+    assert block is not None, "wire.rs no longer declares VOCABULARY"
+    assert tuple(re.findall(r'"([^"]+)"', block.group(1))) == units_exec.VOCABULARY
+    assert re.search(rf'pub const INIT_FORMAT: &str = "{re.escape(units_exec.INIT_FORMAT)}";', source)

@@ -46,7 +46,16 @@ from typing import BinaryIO, NoReturn, cast
 
 from rebuild.pipeline import fingerprint, output_sink, row_delta, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
-from rebuild.review import app_index, audit, audit_stream, facts, tablediff, unit_cache, unit_index
+from rebuild.review import (
+    app_index,
+    audit,
+    audit_stream,
+    facts,
+    tablediff,
+    unit_cache,
+    unit_index,
+    units_exec,
+)
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
@@ -1686,7 +1695,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 class _RecomputeRunner:
     """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), reading the ink under the `ConfigFold` it derives once, in the parent, as the pool starts or as the serial path first needs it (`_config_fold`), which every worker receives with its `init`. It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
 
-    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends.
+    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends. The engine is the one `units_exec.engine()` names, and the runner refuses one outside `units_exec.ENGINES`.
     """
 
     def __init__(
@@ -1707,6 +1716,11 @@ class _RecomputeRunner:
         corpus_index: dict,
         dictionary: bytes,
     ) -> None:
+        engine = units_exec.engine()
+        if engine not in units_exec.ENGINES:
+            raise ValueError(
+                f"the {engine} units engine is not one the build runs; it runs {', '.join(units_exec.ENGINES)}"
+            )
         self._recomputed = recomputed
         self._table = table
         self._identical_classes = identical_classes

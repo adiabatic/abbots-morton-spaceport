@@ -36,7 +36,8 @@ from rebuild.review import build, unit_cache
 from rebuild.review.audit import Unit
 from rebuild.review.build import _UnitProjection
 from rebuild.review.enrich import resolve_primary_unit_assignments
-from rebuild.tools.units_stage_fixtures import Source, _add_source_arguments, encode, open_source, same
+from rebuild.review.units_exec import encode
+from rebuild.tools.units_stage_fixtures import Source, _add_source_arguments, open_source, same
 
 REPORT_FORMAT = "ams-review-units-dual-run/1"
 REPORT_DIR = build.REPO_ROOT / "var" / "rust-port" / "dual-run"
