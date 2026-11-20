@@ -1,6 +1,6 @@
 """Tests for the review crate under `rebuild/review-rs/`, the Rust engine of the review corpus build's unit recompute (`rebuild/CORPUS-UNITS-PORT-PLAN.md`).
 
-The crate is a sibling of the kernel crate, not a member of a Cargo workspace, so it has its own lock, and in its build that lock, not the kernel's, picks the versions of the kernel's dependencies. The lock-parity test keeps the kernel library the review engine links the same code the table build runs. The rest test the engine interface, `rebuild/review/units_exec.py`: the switch, the typed encoding, the request frames and the vocabulary the init carries.
+The crate is a sibling of the kernel crate, not a member of a Cargo workspace, so it has its own lock, and in its build that lock, not the kernel's, picks the versions of the kernel's dependencies. The lock-parity test keeps the kernel library the review engine links the same code the table build runs. The rest test the engine interface, `rebuild/review/units_exec.py`: the switch, the typed encoding, the request frames, the vocabulary the init carries and the font facts, and the engine's HarfBuzz against uharfbuzz on the mini bundle.
 """
 
 from __future__ import annotations
@@ -13,17 +13,21 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import uharfbuzz
 from fontTools.ttLib import TTFont
 
 from rebuild.pipeline.model import CellId
 from rebuild.review import build, units_exec
-from rebuild.review.audit import Unit, UnitTable
-from rebuild.review.ink import InkComparator
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable
+from rebuild.review.ink import InkComparator, features_for, kern_neutral
 from rebuild.validation.classify import JunctionClassifier
+from rebuild.validation.shaping import Shaper
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 KERNEL_LOCK = REPO_ROOT / "rebuild" / "kernel-rs" / "Cargo.lock"
 REVIEW_LOCK = REPO_ROOT / "rebuild" / "review-rs" / "Cargo.lock"
+MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
+MINI_FONT = MINI / "M1.otf"
 
 
 def _locked_versions(lock: Path) -> dict[str, set[str]]:
@@ -185,3 +189,88 @@ def test_the_font_facts_hold_what_the_worker_reads_and_refuse_a_fractional_origi
     monkeypatch.setattr(units_exec.OutlineCache, "shape_key", lambda _self, _name: (b"\x01", 0.5, 0))
     with pytest.raises(ValueError, match="not an integer"):
         units_exec.font_facts(fonts)
+
+
+@pytest.fixture(scope="module")
+def mini_init(mini_bundle, tmp_path_factory) -> Path:
+    """The engine built and an init for the mini bundle written by `units_exec.write_init`, from the worker `init` `_RecomputeRunner` would hand a worker over the bundle with no identical classes and no site pages."""
+    units_exec.ensure_built()
+    init = {
+        "before_font": build.SITE_BEFORE_FONT,
+        "after_font": MINI_FONT,
+        "junior_font": build.SITE_JUNIOR_FONT,
+        "subset_dir": MINI,
+        "subset_pack": mini_bundle.subset_pack,
+        "repo_root": REPO_ROOT,
+        "spec_root": mini_bundle.spec_root,
+        "identical_classes": frozenset(),
+        "fold": build._config_fold(build.SITE_BEFORE_FONT, MINI_FONT),
+        "corpus_index": {},
+        "dictionary": build.FRAGMENT_DICTIONARY.read_bytes(),
+    }
+    return units_exec.write_init(init, tmp_path_factory.mktemp("mini-init"))
+
+
+def _run_stage(arguments: list[str]) -> tuple[int, str, str]:
+    process = units_exec.spawn(arguments)
+    stdout, stderr = process.communicate()
+    return process.returncode, stdout.decode("utf-8"), stderr.decode("utf-8", errors="replace")
+
+
+def _mini_texts() -> list[str]:
+    lines = (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()
+    column = lines[0].split("\t").index("codepoints")
+    return sorted(
+        {"".join(chr(int(value, 16)) for value in line.split("\t")[column].split(":")) for line in lines[1:]}
+    )
+
+
+def test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts(mini_init, tmp_path):
+    """The engine's HarfBuzz, through the `shape` stage, gives the glyph names, clusters and positions uharfbuzz gives through `Shaper.shape` for every mini text under each acceptance configuration's kern-neutral features on the site Senior font and the mini's `M1.otf`, and with only `kern` off on the site Junior font: the calls the worker makes. Every field of every glyph is compared, so the hand-written declarations' ABI is checked here."""
+    texts = _mini_texts()
+    calls = [
+        (font, text, kern_neutral(features_for(config)))
+        for font in (build.SITE_BEFORE_FONT, MINI_FONT)
+        for config in ACCEPTANCE_CONFIGS
+        for text in texts
+    ]
+    calls += [(build.SITE_JUNIOR_FONT, text, kern_neutral({})) for text in texts]
+    shapers = {font: Shaper(font) for font in (build.SITE_BEFORE_FONT, MINI_FONT, build.SITE_JUNIOR_FONT)}
+    stage_file = tmp_path / "shape.ndjson"
+    expected: dict[str, object] = {}
+    with stage_file.open("w", encoding="ascii") as handle:
+        for index, (font, text, features) in enumerate(calls):
+            key = f"shape:{index}"
+            expected[key] = units_exec.encode(shapers[font].shape(text, features))
+            line = {"key": key, "font": str(Path(font).resolve()), "text": text, "features": features}
+            handle.write(
+                units_exec.compact({name: units_exec.encode(value) for name, value in line.items()}) + "\n"
+            )
+    returncode, stdout, stderr = _run_stage(["stage", "shape", f"--init={mini_init}", str(stage_file)])
+    assert (returncode, stderr) == (0, "")
+    answers = {record["key"]: record["value"] for record in map(json.loads, stdout.splitlines())}
+    assert answers.keys() == expected.keys()
+    differing = [key for key, value in expected.items() if answers[key] != value]
+    assert (
+        not differing
+    ), f"{len(differing)} of {len(calls)} shapes differ, the first {calls[int(differing[0][6:])]!r}"
+
+
+def test_the_engine_links_the_harfbuzz_uharfbuzz_links_and_refuses_an_init_naming_another(
+    mini_init, tmp_path
+):
+    """`ams-review version` names uharfbuzz's HarfBuzz version, and an init that names another one is refused before anything is shaped."""
+    returncode, stdout, _stderr = _run_stage(["version"])
+    assert returncode == 0
+    linked = uharfbuzz.version_string()  # pyright: ignore[reportAttributeAccessIssue]
+    assert f"harfbuzz\t{linked}" in stdout.splitlines()
+    document = json.loads(mini_init.read_text(encoding="ascii"))
+    assert document["harfbuzz"] == linked
+    document["harfbuzz"] = "0.0.1"
+    other = tmp_path / "init.json"
+    other.write_text(units_exec.compact(document) + "\n", encoding="ascii")
+    stage_file = tmp_path / "shape.ndjson"
+    stage_file.write_text("", encoding="ascii")
+    returncode, stdout, stderr = _run_stage(["stage", "shape", f"--init={other}", str(stage_file)])
+    assert (returncode, stdout) == (1, "")
+    assert "HarfBuzz 0.0.1" in stderr and f"HarfBuzz {linked}" in stderr

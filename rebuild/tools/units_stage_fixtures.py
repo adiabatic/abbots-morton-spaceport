@@ -11,6 +11,7 @@ The stages (`STAGES`):
 - `wire` records each unit `_phase1_unit` receives, as the `audit.Unit` fields that cross (`unit_value`), under `unit:<ordinal>`; the Rust side reads them back from the units file. Its generated lines are the init's values with the spec's runes, the dictionary's bytes and the font facts, under `init`, and a verify frame with varied injections, under `verify`, which the line carries for the Rust side to read.
 - `pyfmt` records what the worker hashes and writes, each line an `input` value, the `format` it is written in (`PYFMT_FORMS`) and the text Python wrote: the ink diffs' repr (`_ink_readings`), the repr of the cluster key's head, `(configs, class)` (`_cluster_id_from_repr`), the carry projection's sorted-key JSON (`unit_cache.carry_projection`) and each fragment's shard bytes (`_fragment_bytes`), keyed by the form and a digest of the value. Its generated lines put an edge set to each form (`_pyfmt_edges`).
 - `yaml` records each record `Drafter.draft_policy` dumps, as the `input` its `yaml.safe_dump` call receives and the stripped text it ships, keyed by a digest of the record; a `safe_dump` call with other arguments than `draft_policy`'s (`YAML_DUMP_ARGUMENTS`) is refused. Its generated lines put an edge set to the same dump (`_yaml_edges`).
+- `shape` records each call that reaches HarfBuzz, `Shaper.shape` under the worker's memo (`ink._MemoizedShaper`), as the `font` it shapes with (the resolved path `ink.shaper_for` registers it under), the `text` and the `features` it receives and the `ShapeResult` it returns, keyed by a digest of the call.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -56,7 +57,7 @@ from typing import IO, Any, TypedDict
 import yaml
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import audit, build, unit_cache, units_exec
+from rebuild.review import audit, build, ink, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, load_spec
@@ -728,6 +729,28 @@ def _yaml_generated(_source: Source) -> Iterator[Mapping[str, object]]:
         yield {"key": f"yaml:edge:{index}", "input": value, "value": yaml_dump(value)}
 
 
+def _shaped_font(shaper: object) -> str:
+    """The resolved path of the font a worker shaper shapes with. Every shaper the worker shapes with comes from `ink.shaper_for`, whose registry keys it by that path; any other shaper is refused."""
+    for (path, _mtime, _size), registered in ink._shaper_registry.items():
+        if registered is shaper:
+            return path
+    raise ValueError("the shape stage records only shapers ink.shaper_for hands out")
+
+
+def _shape_line(font: str, text: str, features: object, result: object) -> dict[str, object]:
+    """One `shape` line: the call, keyed by a digest of its typed encoding, and the `ShapeResult` it returned."""
+    call = {"font": font, "text": text, "features": features}
+    digest = hashlib.sha1(compact(encode(call)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"shape:{digest}", **call, "value": result}
+
+
+def _shape_call(args: tuple, kwargs: dict) -> Finisher:
+    shaper, text = args[0], args[1]
+    features = args[2] if len(args) > 2 else kwargs.get("features")
+    font = _shaped_font(shaper)
+    return lambda result: _shape_line(font, text, features, result)
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -742,6 +765,7 @@ STAGES: dict[str, Stage] = {
         _pyfmt_generated,
     ),
     "yaml": Stage("yaml", {"yaml.safe_dump": _yaml_safe_dump}, _yaml_generated),
+    "shape": Stage("shape", {"Shaper.shape": _shape_call}),
 }
 
 

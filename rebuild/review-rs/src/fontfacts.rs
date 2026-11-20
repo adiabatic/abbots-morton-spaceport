@@ -132,7 +132,7 @@ impl Junctions {
 }
 
 /// One of the worker's three fonts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Side {
     Before,
     After,
