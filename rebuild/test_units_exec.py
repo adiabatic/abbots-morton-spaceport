@@ -423,3 +423,15 @@ def test_the_engines_agree_on_the_mini_s_ss10_copies(mini_bundle, tmp_path):
     assert disagreements == {}
     assert report.compared == report.handed_out == table.n
     assert report.verify_sample and report.verify_agreed == report.verify_sample
+
+
+def test_the_memory_fit_separates_the_process_from_its_threads():
+    """`--memory` fits `peak = process + threads × thread` to the Rust side's peak footprints by least squares, the two figures `artifact_cycle.CORPUS_UNITS_RS_PROCESS_BYTES` and `CORPUS_UNITS_RS_THREAD_BYTES` are set from, and refuses widths that cannot separate them."""
+    points = [(1, 450_000_000), (4, 600_000_000), (11, 950_000_000)]
+    assert units_dual_run.fit_memory(points) == (400_000_000, 50_000_000)
+    assert units_dual_run.fit_memory([(1, 440_000_000), (2, 470_000_000), (3, 520_000_000)]) == (
+        396_666_667,
+        40_000_000,
+    )
+    with pytest.raises(ValueError):
+        units_dual_run.fit_memory([(4, 600_000_000), (4, 610_000_000)])

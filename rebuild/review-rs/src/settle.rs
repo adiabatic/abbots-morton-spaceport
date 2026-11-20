@@ -1,6 +1,6 @@
 //! Settlement in process, as the Python worker reaches it through `Enricher.explain_units` (`rebuild/review/enrich.py`): the tokenizer (`settle.tokens_from_codepoints`), ligature formation against the §5.7 guard verdicts (`settle.form_ligatures`, `_ligature_order`, `guard_blocks`, `kernel_exec.guard_sweep`), the isolated overlay (`model.isolated_overlay_active`, `settle.isolated_overlay_traces`), and the position-by-position settlement `kernel_exec.settle_sequences` runs through `settle-cases` (`explain.explain_many`, `_report_of`), here through the kernel crate's own engine with no process between. `Enricher.formed_spans` reads the same formation.
 //!
-//! [`Settlement`] holds what every thread shares: the spec index, the guard verdicts parsed once from `ams_m1_kernel::guard::sweep`, the ligature order and the code point tables. A [`Settler`] holds one thread's engines, one per configuration, built as the kernel's `engine_for` builds them for `settle-cases`; [`Settler::release`] drops their memos at a batch's end, which changes no answer because every memo is a pure cache.
+//! [`Settlement`] holds what every thread shares: the spec index, the guard verdicts parsed once from `ams_m1_kernel::guard::sweep`, the ligature order and the code point tables. A [`Settler`] holds one thread's engines, one per configuration, built as the kernel's `engine_for` builds them for `settle-cases`; [`Settler::release`] drops the engines at a batch's end and the next text builds them afresh, which changes no answer because everything an engine keeps between texts is a pure cache. Dropping the engine rather than calling `Engine::release_memos` also drops the spare candidate lists it pools, which an explain-mode trace adds one to and nothing takes back, so a thread's footprint stays one batch's whatever the handouts it draws.
 //!
 //! A letter left is the engine's own settled record (`LeftContext::letter`) where Python writes the record into a case line that the kernel's `cases::parse_left` reads back; a boundary left is `LeftContext::boundary`. The `settle` stage shows the round trip lost nothing.
 //!
@@ -604,11 +604,9 @@ impl<'s> Settler<'s> {
         }
     }
 
-    /// Drop every engine's memos, at a batch's end.
+    /// Drop every engine, at a batch's end.
     pub fn release(&mut self) {
-        for engine in self.engines.values_mut() {
-            engine.release_memos();
-        }
+        self.engines.clear();
     }
 
     /// Settle one text under one configuration's features, `explain.explain_many` for one request: under the isolated overlay the raw tokens' overlay traces; otherwise the formed tokens settled position by position, a boundary settling to its boundary cell and resetting the left, and a letter settling through the configuration's engine against the left the previous letter settled into.

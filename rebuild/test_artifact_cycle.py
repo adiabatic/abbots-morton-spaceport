@@ -2762,6 +2762,24 @@ class TestTheCorpusBuildWidth:
         )
         assert unpooled == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, 4)
 
+    def test_the_rust_engine_fits_threads_beside_its_process(self):
+        """Under the Rust units engine the width is a thread count: CORPUS_UNITS_RS_THREAD_BYTES divides, and CORPUS_UNITS_RS_PROCESS_BYTES comes off the machine beside the parent, under the Python engine's cap, which stays the default."""
+        from rebuild.tools import memory_budget
+
+        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9, engine="rust") == (
+            ac.CORPUS_UNITS_RS_THREAD_BYTES,
+            ac.CORPUS_PARENT_BYTES + ac.CORPUS_UNITS_RS_PROCESS_BYTES,
+            8,
+        )
+        tight = (
+            ac.CORPUS_PARENT_BYTES + ac.CORPUS_UNITS_RS_PROCESS_BYTES + 3 * ac.CORPUS_UNITS_RS_THREAD_BYTES
+        )
+        total = tight + memory_budget.RESERVE_FLOOR_BYTES
+        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total, engine="rust") == 3
+        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total) == ac.corpus_job_budget(
+            skip_gates=True, ncores=12, total_bytes=total, engine="python"
+        )
+
     def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_worker(self):
         """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: the parent runs the units phase itself instead of handing it to a worker pool."""
         assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1

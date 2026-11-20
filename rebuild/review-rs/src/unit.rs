@@ -366,7 +366,7 @@ impl<'r> Worker<'r> {
         Ok(keys)
     }
 
-    /// Forget the shapes and the settlement memos held, at a batch's end (`release_shape_memos`).
+    /// Forget the shapes and the settlement engines held, at a batch's end (`release_shape_memos`).
     fn release(&mut self) {
         self.shaper.release();
         self.settler.release();
