@@ -1,0 +1,5 @@
+name = "GroupedSweeps"
+defaultTargets = ["GroupedSweeps"]
+
+[[lean_lib]]
+name = "GroupedSweeps"

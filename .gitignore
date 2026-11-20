@@ -20,6 +20,7 @@ wheels/
 /site/before/
 /site/scoped-anchor-review/
 /rebuild/kernel-rs/target/
+/rebuild/kernel-rs/proofs/.lake/
 
 # Scratch files, wiped freely between change sets
 tmp/

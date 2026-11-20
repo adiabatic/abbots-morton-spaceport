@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate kernel-proofs conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -164,6 +164,10 @@ kernel-check:
 
 # Run this around any kernel-semantics change; no cycle gate runs the crate's own test suite. It runs the crate's fmt, clippy, and test gate and nothing else, and takes seconds once the crate is built. The spec-ingest parity check runs in the contracts lane instead: rebuild/test_kernel_io.py echoes the live dump through `spec-echo`. There is no settlement differential and no fixpoint byte comparison here, because there is no second implementation to compare against. Settlement is checked by the crate's own tests, by gate:conform's HarfBuzz shaping against a per-window re-settle keyed on the raw window, and by the build's witness stage. It takes no settings, so it reads no ARGS.
 kernel-gate: kernel-check
+
+# Checks the Lean proofs about the grouped fourth-slot sweep (rebuild/kernel-rs/proofs), failing on any warning, an unfinished proof among them. It is run by hand: no gate runs it and no build needs Lean. It needs `elan` on the path, which fetches the Lean release that the directory's `lean-toolchain` pins. The directory's README.md says what is proved and what the model assumes.
+kernel-proofs:
+	cd rebuild/kernel-rs/proofs && lake build --wfail
 
 # The deep form of gate:conform: the font-vs-settle sweep at maximum length 5 or more, run by hand or overnight. ARGS='--max-length 6' goes deeper, ARGS='--status' asks whether it is due, ARGS='--targeted' shapes instead the texts the settle:bk1-la4 rules give (ARGS='--targeted --status' asks whether that is due), and ARGS='--jobs N' states a width, for debugging. rebuild/tools/deep_sweep.py's module docstring says which texts it shapes, which records it keeps and refreshes, and how it sizes its pool.
 conform-deep:
