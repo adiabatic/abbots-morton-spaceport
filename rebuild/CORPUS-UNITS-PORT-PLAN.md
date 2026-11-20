@@ -1,6 +1,6 @@
 # Corpus units port plan
 
-This plan moves the review corpus build's unit recompute into Rust: what one units-pool worker does per unit, `_corpus_worker` in `rebuild/review/build.py` and everything it calls. The parent stays in Python, Python stays the engine of record, and the Rust engine is opt-in until the owner flips the default.
+This plan moves the review corpus build's unit recompute into Rust: what one units-pool worker does per unit, `_corpus_worker` in `rebuild/review/build.py` and everything it calls. The parent stays in Python, Python stays the engine of record, and the Rust engine is the build's default, with the Python workers one switch away.
 
 The measurements behind it are in `var/keep/rust-port/profile-corpus-units.md`, and the HarfBuzz spike's notes, results, harness and Rust source are in `var/keep/rust-port/spike-harfbuzz/`; both are kept on the M4 Pro Mac mini and not checked in. The profile's split table says where worker wall time goes, its port-surface table lists the Python this plan mirrors, and its byte-identity section names the targets.
 
@@ -12,7 +12,7 @@ These are settled and are not reopened here.
 2. Shaping uses the real HarfBuzz library through FFI, and a test on our fonts and texts proves its identity with uharfbuzz.
 3. Settlement runs in process through the kernel crate's own engine, so the Rust path starts no `settle-cases` process.
 4. One Rust process with threads replaces the pool of Python workers and shares the fonts, the spec and the mapped subset pack.
-5. Python stays the engine of record. The Rust path is opt-in behind a switch, as commit f8e4d7bd offered the grouped sweep. No Python is deleted, and no existing test changes to fit the port.
+5. Python stays the engine of record. The Rust path is the default behind a switch that selects the Python workers instead, as commit f8e4d7bd offered the grouped sweep. No Python is deleted, and no existing test changes to fit the port.
 6. The acceptance gate is a dual run over every unit of the full corpus: every projection field equal, and every fragment equal after inflating. The deflated bytes need not match.
 7. The parent (load, plan, write, manifest, cache) stays in Python. It is the next candidate, so the boundary keeps that move open.
 
@@ -155,9 +155,9 @@ A deflated fragment is a zlib stream at level 1 against the preset dictionary, s
 
 ### The switch
 
-`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `python` or `rust` with `python` the default, and refuses any other value, as `kernel_exec` reads its semantics defaults. It is the only switch: a cycle opts in through its environment (`AMS_CORPUS_UNITS_ENGINE=rust make review-cycle`), and the `[t] review.build units` line of a pooled Rust build names it after the width (`jobs=N engine=rust`), while a Python build's line keeps the form `rebuild/test_review_build.py` pins. Only the pooled units phase and the verification sample change. The serial path (`--jobs 1`), which the byte-identity tests compare pooled builds against, and `--mode table-diff` stay in Python.
+`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `python` or `rust` with `rust` the default, and refuses any other value, as `kernel_exec` reads its semantics defaults. It is the only switch: a cycle selects the Python workers through its environment (`AMS_CORPUS_UNITS_ENGINE=python make review-cycle`), and the `[t] review.build units` line of a pooled Rust build names it after the width (`jobs=N engine=rust`), while a Python build's line keeps the form `rebuild/test_review_build.py` pins. Only the pooled units phase and the verification sample change. The serial path (`--jobs 1`), which the byte-identity tests compare pooled builds against, and `--mode table-diff` stay in Python whatever the switch says. A build whose `--jobs` is above one runs the switch's engine, which it passes to `_RecomputeRunner` and names in the unit store's stamp, and the Rust engine takes even a workload of one unit, so every unit such a build computes is the stamped engine's; a build at one job runs the Python code and stamps it. `artifact_cycle.corpus_job_budget` sizes the engine the switch names, so the build's `--jobs` default and the cycle's plan fit the Rust engine's threads by its own constants (`doc/parallelism.md`).
 
-Under the Rust engine the unit store's stamp gains one line, `units_engine`, a digest through `fingerprint.code_file_digest` of every file under `rebuild/review-rs/` outside `target/`, so `build.rs` and the HarfBuzz pin it holds count with the sources. `build.py` passes it through a new keyword argument of `unit_cache.environment_stamp` that adds nothing by default, so with the switch off every stamp keeps its bytes (`rebuild/test_alphabet_switch.py` pins the unit store's), a crate edit invalidates only a store the Rust engine wrote, and a store either engine wrote is a miss to the other. A new test checks that every kernel module the review crate names (`ams_m1_kernel::<module>`) is outside `unit_cache.KERNEL_NON_CORPUS_MODULES`, so the kernel code the engine runs is hashed into `corpus_code` already.
+When the Rust engine computes the units, the unit store's stamp gains one line, `units_engine`, a digest through `fingerprint.code_file_digest` of every file under `rebuild/review-rs/` outside `target/`, so `build.rs` and the HarfBuzz pin it holds count with the sources. `build.py` passes it through a new keyword argument of `unit_cache.environment_stamp` that adds nothing by default, so a Python build's stamp, a serial build's under either switch value among them, keeps its bytes (`rebuild/test_alphabet_switch.py` pins the unit store's), a crate edit invalidates only a store the Rust engine wrote, and a store either engine wrote is a miss to the other. A new test checks that every kernel module the review crate names (`ams_m1_kernel::<module>`) is outside `unit_cache.KERNEL_NON_CORPUS_MODULES`, so the kernel code the engine runs is hashed into `corpus_code` already.
 
 ### Toward the parent's port
 
@@ -465,7 +465,7 @@ Every `compare` command below runs from the repository root as `uv run python -m
 
 ## Open points
 
-- The default flip, and with it retiring the Python twin, is the owner's decision once the full dual run has passed; it is outside this plan. Until then every units-pipeline edit is written twice, which is the cost §14.1 records for a Python twin of settlement.
+- Retiring the Python twin is the owner's decision; it is outside this plan. Until then every units-pipeline edit is written twice, which is the cost §14.1 records for a Python twin of settlement.
 - The HarfBuzz source is fetched by `build.rs` and pinned by digest (§ HarfBuzz and outlines). Checking the source in under `rebuild/review-rs/` instead removes the network from a fresh checkout's first build and adds the source to the history for good; that trade is the owner's to make.
 - Once the engine is fast, the parent's serial loading of replies may bound the units phase. The dual-run report gives each side's wall time, and the `[t] review.build units` line gives the phase's; that measurement is what orders the parent's port.
-- The manifest's Stage B `review_code` hashes `units_exec.py` but not the crate, so while the engine is opt-in, `make verdict-ready` judges a Rust-built corpus by the Python sources. The unit store's `units_engine` line keeps a crate edit from serving stale units.
+- The manifest's Stage B `review_code` hashes `units_exec.py` but not the crate, so `make verdict-ready` judges a Rust-built corpus by the Python sources. The unit store's `units_engine` line keeps a crate edit from serving stale units.

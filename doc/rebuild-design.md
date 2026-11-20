@@ -573,7 +573,7 @@ Each pass is small and testable on its own, with an artifact that can be dumped 
 | `conform`      | The sweeps’ correctness burden (example-sequence generation, HarfBuzz diff)                                                                                                                                                              |
 | `review`       | build_check_html (evolves: table-diff rows, verdict exports)                                                                                                                                                                             |
 
-The review corpus build's unit recompute has a second engine in `rebuild/review-rs/`, the `ams-review` crate, which links the kernel library and HarfBuzz and runs the pooled units phase when `AMS_CORPUS_UNITS_ENGINE=rust` asks for it; `rebuild/review/units_exec.py` is its interface, the Python worker in `rebuild/review/build.py` stays the engine of record, and `rebuild/CORPUS-UNITS-PORT-PLAN.md` holds the boundary.
+The review corpus build's unit recompute has a second engine in `rebuild/review-rs/`, the `ams-review` crate, which links the kernel library and HarfBuzz and runs the pooled units phase by default; `AMS_CORPUS_UNITS_ENGINE=python` selects the Python workers instead, and a build at one job computes its units with the Python code under either value. `rebuild/review/units_exec.py` is the crate's interface, the Python worker in `rebuild/review/build.py` stays the engine of record, and `rebuild/CORPUS-UNITS-PORT-PLAN.md` holds the boundary.
 
 ### 14.1 The kernel crate: design facts from the port
 

@@ -2749,22 +2749,25 @@ class TestTheCorpusBuildWidth:
                 skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB
             ).startswith(f"{width} at ")
 
-    def test_the_pytest_pool_comes_off_the_machine_before_the_division(self):
-        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term, and the cap is the build lane's share less the parent. On nine cores the build lane holds five and the gate lane four. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
+    def test_the_pytest_pool_comes_off_the_machine_before_the_division(self, monkeypatch):
+        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term, and the cap is the build lane's share less the parent. On nine cores the build lane holds five and the gate lane four. The terms are the default engine's, the Rust engine's threads beside its process. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
+        from rebuild.review import units_exec
+
+        monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
         solo = ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
         unpooled = ac._corpus_fit_terms(skip_gates=False, skip_make_test=True, ncores=9)
-        assert solo == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, 8)
-        assert beside == (
-            ac.CORPUS_WORKER_BYTES,
-            ac.CORPUS_PARENT_BYTES + 4 * ac._font_suite_worker_bytes(),
-            4,
-        )
-        assert unpooled == (ac.CORPUS_WORKER_BYTES, ac.CORPUS_PARENT_BYTES, 4)
+        process = ac.CORPUS_PARENT_BYTES + ac.CORPUS_UNITS_RS_PROCESS_BYTES
+        assert solo == (ac.CORPUS_UNITS_RS_THREAD_BYTES, process, 8)
+        assert beside == (ac.CORPUS_UNITS_RS_THREAD_BYTES, process + 4 * ac._font_suite_worker_bytes(), 4)
+        assert unpooled == (ac.CORPUS_UNITS_RS_THREAD_BYTES, process, 4)
 
-    def test_the_rust_engine_fits_threads_beside_its_process(self):
-        """Under the Rust units engine the width is a thread count: CORPUS_UNITS_RS_THREAD_BYTES divides, and CORPUS_UNITS_RS_PROCESS_BYTES comes off the machine beside the parent, under the Python engine's cap, which stays the default."""
+    def test_the_rust_engine_fits_threads_beside_its_process(self, monkeypatch):
+        """Under the Rust units engine the width is a thread count: CORPUS_UNITS_RS_THREAD_BYTES divides, and CORPUS_UNITS_RS_PROCESS_BYTES comes off the machine beside the parent, under the Python engine's cap. Without an engine the width is the one the switch names, the Rust engine's when it is unset."""
+        from rebuild.review import units_exec
         from rebuild.tools import memory_budget
+
+        monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
 
         assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9, engine="rust") == (
             ac.CORPUS_UNITS_RS_THREAD_BYTES,
@@ -2776,6 +2779,8 @@ class TestTheCorpusBuildWidth:
         )
         total = tight + memory_budget.RESERVE_FLOOR_BYTES
         assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total, engine="rust") == 3
+        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total) == 3
+        monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
         assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total) == ac.corpus_job_budget(
             skip_gates=True, ncores=12, total_bytes=total, engine="python"
         )
@@ -4617,7 +4622,8 @@ def test_skip_make_test_frees_the_corpus_build_budget():
     assert _argv(by_name["corpus-build"])[-4:-2] == ["--jobs", str(solo_width)]
     rendered = _plan_text(plan)
     assert f"corpus-build --jobs              : {solo_width}" in rendered
-    assert f"less {format_gb(ac.CORPUS_PARENT_BYTES)} GB co-resident" in rendered
+    _per_unit, solo_coresident, _cap = ac._corpus_fit_terms(skip_gates=False, skip_make_test=True, ncores=10)
+    assert f"less {format_gb(solo_coresident)} GB co-resident" in rendered
     assert (
         "the build lane holds 5 of 10 cores (memory_budget.split_cores), so the corpus build is capped at 5 less its parent; gate:make-test skipped, so the other gates hold the gate lane and no pytest pool's bytes come off the machine's memory"
         in rendered
@@ -4629,12 +4635,12 @@ def test_skip_make_test_frees_the_corpus_build_budget():
     assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB)
     gated_by_name = {step.name: step for step in gated.steps}
     assert _argv(gated_by_name["corpus-build"])[-4:-2] == ["--jobs", str(gated_width)]
-    _per_unit, gated_coresident, _cap = ac._corpus_fit_terms(
+    gated_per_unit, gated_coresident, _cap = ac._corpus_fit_terms(
         skip_gates=False, skip_make_test=False, ncores=10
     )
     assert (
         f"corpus-build --jobs              : {gated_width}  (the build lane holds 5 of 10 cores (memory_budget.split_cores), so the corpus build is capped at 5 less its parent; gate:make-test's pool, 5 workers, holds the gate lane and its bytes come off the machine's memory beside the build's own parent; "
-        f"{gated_width} at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 4)"
+        f"{gated_width} at {format_gb(gated_per_unit)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 4)"
         in _plan_text(gated)
     )
 
@@ -4671,7 +4677,7 @@ def test_a_gated_corpus_build_is_offered_every_core_less_its_parent_for_an_idle_
     assert f"    corpus-build --jobs              : {lane}  (the build lane holds 9 of 18 cores" in rendered
     assert (
         "    corpus-build --gates-idle-jobs   : 17  (taken in place of --jobs when, as the units pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, or the suite is held until the pool finishes, which the driver signals by writing "
-        f"{marker}; every usable core less its parent; 17 at {format_gb(ac.CORPUS_WORKER_BYTES)} GB each"
+        f"{marker}; every usable core less its parent; 17 at {format_gb(ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=18)[0])} GB each"
     ) in rendered
 
     for unwidened in (

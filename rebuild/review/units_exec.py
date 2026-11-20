@@ -1,6 +1,6 @@
 """The units engine interface: the Python side of the review crate under `rebuild/review-rs/`, the Rust engine of the corpus build's unit recompute (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Boundary). It owns every format that crosses to the crate, in the pattern of `rebuild/pipeline/kernel_exec.py`: nothing pickled crosses, only files and compact JSON this module writes.
 
-`engine()` reads the switch, `AMS_CORPUS_UNITS_ENGINE`, at call time; `ENGINES` holds the engines the build runs, and `_RecomputeRunner` refuses any other. Under `rust` the build's pooled units phase and verification sample run on the crate, and `engine_stamp` gives the unit store's stamp the crate's digest. `ensure_built` builds the crate once per process under a relink lock in the crate's `target/`, held as `kernel_exec` holds its own, and `spawn` starts the binary with that lock held shared for the spawn only.
+`engine()` reads the switch, `AMS_CORPUS_UNITS_ENGINE`, at call time, `rust` when it is unset; `ENGINES` holds the engines the build runs, and `_RecomputeRunner` refuses any other. Under `rust` the build's pooled units phase and verification sample run on the crate, and `engine_stamp` gives the unit store's stamp the crate's digest. `ensure_built` builds the crate once per process under a relink lock in the crate's `target/`, held as `kernel_exec` holds its own, and `spawn` starts the binary with that lock held shared for the spawn only.
 
 `write_init` writes the init file (`INIT_FORMAT`) into a directory the caller holds, beside the spec dump, the font facts and the preset dictionary, from the `init` dict `_RecomputeRunner.__init__` hands a Python worker; `init_values` gives the values it carries as Python holds them. `write_font_facts` writes the font facts (`FONT_FACTS_FORMAT`), what the worker's outline caches, its junction classifier and its shapers' glyph names read from the three fonts, and `font_facts` gives them as Python holds them. `encode_batch` and `encode_verify` write the request frames, one unit record per `audit.Unit` (`unit_record`, `UNIT_FIELDS`). Values whose Python type the crate must keep, the vocabulary's among them, cross in the typed encoding (`encode`, `decode`), which the stage dumps of `rebuild/tools/units_stage_fixtures.py` use too.
 
@@ -101,8 +101,8 @@ class EngineRunError(RuntimeError):
 
 
 def engine() -> str:
-    """The units engine this process asks for: `AMS_CORPUS_UNITS_ENGINE`, read at call time, `python` when it is unset. A value outside `SWITCH_VALUES` raises ValueError."""
-    value = os.environ.get(ENGINE_VARIABLE, "python")
+    """The units engine this process asks for: `AMS_CORPUS_UNITS_ENGINE`, read at call time, `rust` when it is unset. A value outside `SWITCH_VALUES` raises ValueError."""
+    value = os.environ.get(ENGINE_VARIABLE, "rust")
     if value not in SWITCH_VALUES:
         raise ValueError(f"{ENGINE_VARIABLE}={value!r}; the units engines are {', '.join(SWITCH_VALUES)}")
     return value

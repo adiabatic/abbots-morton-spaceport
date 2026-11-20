@@ -56,14 +56,15 @@ def test_every_package_both_locks_name_has_one_version():
 
 
 def test_the_switch_reads_the_environment_and_the_build_runs_only_its_engines(monkeypatch):
-    """`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `python` by default, and refuses a value the switch does not know; the build runs both engines the switch names, and the runner refuses an engine outside `ENGINES` before it starts anything."""
+    """`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `rust` by default, and refuses a value the switch does not know; the build runs both engines the switch names, and the runner refuses an engine outside `ENGINES` before it starts anything."""
     monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
-    assert units_exec.engine() == "python"
+    assert units_exec.engine() == "rust"
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "cobol")
     with pytest.raises(ValueError, match="cobol"):
         units_exec.engine()
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
+    assert units_exec.engine() == "python"
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
-    assert units_exec.engine() == "rust"
     assert units_exec.ENGINES == units_exec.SWITCH_VALUES
     monkeypatch.setattr(units_exec, "ENGINES", ("python",))
     with pytest.raises(ValueError, match="the rust units engine is not one the build runs"):
@@ -303,7 +304,7 @@ def _tree(path: Path) -> dict[str, bytes]:
 def test_a_rust_build_writes_the_python_build_s_corpus_files(
     mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
 ):
-    """A pooled build under the Rust engine writes the serial Python build's corpus byte for byte, as `rebuild/test_unit_cache.py`'s serial-versus-parallel test compares a pooled Python build, once the unit store's `units_engine` line, which only says which engine wrote the store, is held out; its units line names the engine and it files the engine's `corpus-units-rs` pool record. A no-change rebuild under the engine reuses every unit, recomputes its verification sample through the engine's `verify`, and leaves the corpus as it was."""
+    """A pooled build under the Rust engine writes the serial Python build's corpus byte for byte, as `rebuild/test_unit_cache.py`'s serial-versus-parallel test compares a pooled Python build, once the unit store's `units_engine` line, which only says which engine wrote the store, is held out; its units line names the engine and it files the engine's `corpus-units-rs` pool record. A no-change rebuild under the engine reuses every unit, recomputes its verification sample through the engine's `verify`, and leaves the corpus as it was, and so does one whose sample is a single unit, which the engine takes too."""
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
     monkeypatch.setattr(units_exec, "engine_stamp", lambda: None)
     rust = tmp_path / "rust"
@@ -322,12 +323,17 @@ def test_a_rust_build_writes_the_python_build_s_corpus_files(
     verified = re.search(r"\tjobs=2 engine=rust \(recomputed=0, verified=(\d+) cached;", err)
     assert verified and int(verified.group(1)) == min(build.VERIFICATION_SAMPLE, total), err
     assert _tree(rust) == _tree(mini_corpus)
+    sample = build._verification_sample
+    monkeypatch.setattr(build, "_verification_sample", lambda cached, seed: sample(cached, seed, 1))
+    _build_mini(rust, mini_bundle, jobs=2)
+    assert "\tjobs=2 engine=rust (recomputed=0, verified=1 cached;" in capfd.readouterr().err
+    assert _tree(rust) == _tree(mini_corpus)
 
 
 def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
     mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
 ):
-    """Under the Python engine the unit store's stamp has no `units_engine` line and keeps the bytes it had before the switch existed; under the Rust engine it gains one, the digest of every file of the review crate outside `target/`, and nothing else moves. So a store the Python engine wrote is a miss to a Rust build, which names the line that moved."""
+    """Under the Python engine the unit store's stamp has no `units_engine` line and keeps the bytes it had before the switch existed; under the Rust engine it gains one, the digest of every file of the review crate outside `target/`, and nothing else moves. So a store the Python engine wrote is a miss to a Rust build, which names the line that moved. A build at one job computes its units with the Python code under either switch value and stamps them as the Python engine's, so it misses a store the Rust engine wrote."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         spec = load_spec(mini_bundle.spec_root)
@@ -344,7 +350,7 @@ def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
             units_engine=units_exec.engine_stamp(),
         ).lines
 
-    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     assert units_exec.engine_stamp() is None
     python = stamp()
     assert (
@@ -360,7 +366,7 @@ def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
         ).lines
     )
     assert not any(line.startswith("units_engine\t") for line in python)
-    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE)
     rust = stamp()
     added = [line for line in rust if line not in python]
     assert added == [f"units_engine\t{units_exec.engine_stamp()}"]
@@ -372,6 +378,10 @@ def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
     shutil.copytree(mini_corpus, rebuilt)
     capfd.readouterr()
     _build_mini(rebuilt, mini_bundle, jobs=2)
+    err = capfd.readouterr().err
+    assert re.search(r"unit cache: the stamp moved at [^\n]*units_engine", err), err
+    assert "reused 0 of" in err
+    _build_mini(rebuilt, mini_bundle, jobs=1)
     err = capfd.readouterr().err
     assert re.search(r"unit cache: the stamp moved at [^\n]*units_engine", err), err
     assert "reused 0 of" in err

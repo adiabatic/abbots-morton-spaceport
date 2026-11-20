@@ -1705,7 +1705,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 class _RecomputeRunner:
     """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), reading the ink under the `ConfigFold` it derives once, in the parent, as the pool starts or as the serial path first needs it (`_config_fold`), which every worker receives with its `init`. It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
 
-    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends. The engine is the one `units_exec.engine()` names, and the runner refuses one outside `units_exec.ENGINES`. Under the Rust engine the pool is one `units_exec.UnitsProcess` at the pool's width in threads instead of the spawn workers (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Where Python consumes the replies), driven with the same handouts in the same order (`_drive_engine`); the serial path stays in Python.
+    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends. The engine is `engine`, the one `units_exec.engine()` names when it is None, and the runner refuses one outside `units_exec.ENGINES`. Under the Rust engine the pool is one `units_exec.UnitsProcess` at the pool's width in threads instead of the spawn workers (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Where Python consumes the replies), driven with the same handouts in the same order (`_drive_engine`), and it takes a workload of one unit too, so every unit a build that stamps the engine computes is the engine's; the serial path stays in Python.
     """
 
     def __init__(
@@ -1725,8 +1725,9 @@ class _RecomputeRunner:
         identical_classes: frozenset[str],
         corpus_index: dict,
         dictionary: bytes,
+        engine: str | None = None,
     ) -> None:
-        engine = units_exec.engine()
+        engine = units_exec.engine() if engine is None else engine
         if engine not in units_exec.ENGINES:
             raise ValueError(
                 f"the {engine} units engine is not one the build runs; it runs {', '.join(units_exec.ENGINES)}"
@@ -1754,7 +1755,7 @@ class _RecomputeRunner:
         self.engine_note = ""
         # The verification sample is worker work too, and it is all of the work when the cache supplied every unit. Sizing the pool on the recomputed units alone would make a no-change rebuild recompute its sample in the parent, which already holds the corpus's table and store and would also build an enricher, its shapers and their memos. On a fully cached build the two measure alike: 200 units serially and across eight workers each took 4.9 s for the units phase, and the load phase set the build's peak either way.
         workload_size = max(len(recomputed), len(self._verify))
-        if jobs > 1 and workload_size > 1:
+        if jobs > 1 and workload_size > (0 if engine == "rust" else 1):
             nworkers = min(jobs, workload_size)
             self._handout = _handout_width(len(recomputed), nworkers)
             init = {
@@ -3746,6 +3747,8 @@ def _build_m1(
     draft_lines = fingerprint.draft_input_lines(repo_root, site_pages)
     corpus_index = corpus_index_from_pages(site_pages)
     del site_pages
+    # A build at one job computes its units in this process with the Python code whatever the switch says, so only a wider build runs the switch's engine and stamps it.
+    units_engine = units_exec.engine() if jobs > 1 else "python"
     environment = unit_cache.environment_stamp(
         repo_root,
         spec,
@@ -3756,7 +3759,7 @@ def _build_m1(
         subset_digests=subset_digests,
         identical_classes=identical_classes,
         draft_lines=draft_lines,
-        units_engine=units_exec.engine_stamp(),
+        units_engine=units_exec.engine_stamp() if units_engine == "rust" else None,
     )
     store = UnitStore(table.n, strings=table.strings, input_keys=loaded.input_keys)
     signature_environment, signature_stamps = loaded.environment, loaded.stamps
@@ -3946,6 +3949,7 @@ def _build_m1(
         identical_classes=identical_classes,
         corpus_index=corpus_index,
         dictionary=FRAGMENT_DICTIONARY.read_bytes(),
+        engine=units_engine,
     )
     try:
         signature_write: _SignatureWrite | None = None
@@ -5626,7 +5630,7 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=corpus_jobs,
-        help=f"per-unit worker budget for the corpus build; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one: every usable core less the parent, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores less the parent instead, `memory_budget.split_cores`, with `--gates-idle-jobs` for when the gate lane is idle) — on this machine {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one worker's own peak and the co-resident one is the parent that holds the whole corpus beside it. `--jobs 1` is serial, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
+        help=f"per-unit worker budget for the corpus build; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one: every usable core less the parent, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores less the parent instead, `memory_budget.split_cores`, with `--gates-idle-jobs` for when the gate lane is idle) — on this machine, for the units engine `AMS_CORPUS_UNITS_ENGINE` names (Rust when it is unset), {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one Rust thread's or one Python worker's own peak and the co-resident one is the parent that holds the whole corpus beside it, with the Rust engine's process. `--jobs 1` is serial, in Python under either engine, and it is the width a machine gets when the pooled shape does not fit; a deliberate `--jobs N` is also how a wider run gets measured, since a pooled build records its per-worker peaks for `make job-costs`.",
     )
     parser.add_argument(
         "--gates-idle-jobs",
