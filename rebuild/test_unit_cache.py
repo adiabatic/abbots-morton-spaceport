@@ -1015,6 +1015,7 @@ def test_both_pooled_hand_outs_go_through_the_configuration_sort_and_cover_their
     mini_bundle, tmp_path, capfd, monkeypatch
 ):
     """The parent applies the configuration sort at two call sites: the recomputed units in `_drive_phase1` and the verification sample in `verify`. The byte-identity tests above cannot detect a fault at either, because the corpus is the same bytes under any hand-out order, and a sampled unit that no worker receives goes unverified without changing a byte. So this test spies on the helper instead of replacing it. A cold two-worker build passes it every recomputed unit once. A cached rebuild over that corpus passes it no recomputed units and then the whole sample (every cached unit, up to `VERIFICATION_SAMPLE`). The units phase's `verified=` count equals the sample size, which checks that the contiguous shares `verify` cuts cover the whole sample and drop no tail past the last worker."""
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     handed: list[list] = []
     original = review_build._configuration_order
 
