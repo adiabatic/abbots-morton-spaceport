@@ -1,0 +1,21 @@
+[package]
+name = "ams-review"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "ams_review"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ams-review"
+path = "src/main.rs"
+
+[dependencies]
+ams-m1-kernel = { path = "../kernel-rs" }
+
+# The root package's profile compiles its path dependencies, so this copies the kernel crate's, under which the kernel library builds as it does for the table build.
+[profile.release]
+lto = true
+codegen-units = 1
