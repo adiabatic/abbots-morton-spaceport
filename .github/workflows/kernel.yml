@@ -1,0 +1,51 @@
+name: Kernel checks
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'rebuild/kernel-rs/**'
+      - '.github/workflows/kernel.yml'
+  pull_request:
+    paths:
+      - 'rebuild/kernel-rs/**'
+      - '.github/workflows/kernel.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The crate's fmt, clippy and test gate. It runs on macOS because that is what the fleet builds on.
+  gate:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Pinned so that a new clippy release cannot fail the gate on code nobody touched.
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.100.0 --profile minimal --component clippy,rustfmt
+          rustup default 1.100.0
+
+      - name: Run the kernel gate
+        run: make kernel-check
+
+  # The Lean proofs about the grouped sweep. elan fetches the release that rebuild/kernel-rs/proofs/lean-toolchain pins.
+  proofs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Check the proofs
+        run: make kernel-proofs

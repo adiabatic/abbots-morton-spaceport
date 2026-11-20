@@ -165,7 +165,7 @@ kernel-check:
 # Run this around any kernel-semantics change; no cycle gate runs the crate's own test suite. It runs the crate's fmt, clippy, and test gate and nothing else, and takes seconds once the crate is built. The spec-ingest parity check runs in the contracts lane instead: rebuild/test_kernel_io.py echoes the live dump through `spec-echo`. There is no settlement differential and no fixpoint byte comparison here, because there is no second implementation to compare against. Settlement is checked by the crate's own tests, by gate:conform's HarfBuzz shaping against a per-window re-settle keyed on the raw window, and by the build's witness stage. It takes no settings, so it reads no ARGS.
 kernel-gate: kernel-check
 
-# Checks the Lean proofs about the grouped fourth-slot sweep (rebuild/kernel-rs/proofs), failing on any warning, an unfinished proof among them. It is run by hand: no gate runs it and no build needs Lean. It needs `elan` on the path, which fetches the Lean release that the directory's `lean-toolchain` pins. The directory's README.md says what is proved and what the model assumes.
+# Checks the Lean proofs about the grouped fourth-slot sweep (rebuild/kernel-rs/proofs), failing on any warning, an unfinished proof among them. It is run by hand: no local gate runs it and no build needs Lean. It needs `elan` on the path, which fetches the Lean release that the directory's `lean-toolchain` pins. The directory's README.md says what is proved and what the model assumes.
 kernel-proofs:
 	cd rebuild/kernel-rs/proofs && lake build --wfail
 

@@ -572,6 +572,165 @@ mod tests {
         );
     }
 
+    /// A source without its test module: everything before the `#[cfg(test)]` that opens `mod tests`.
+    fn outside_tests(source: &str) -> &str {
+        source
+            .find("\n#[cfg(test)]\nmod tests {")
+            .map_or(source, |at| &source[..at])
+    }
+
+    /// The type an `impl` header names, from the text after `impl`: `Engine` for `<'i> Engine<'i> {`, `TraceKey` for ` Hash for TraceKey {`.
+    fn impl_type(header: &str) -> String {
+        let mut rest = header;
+        if rest.starts_with('<') {
+            let mut depth = 0;
+            for (at, c) in rest.char_indices() {
+                depth += match c {
+                    '<' => 1,
+                    '>' => -1,
+                    _ => 0,
+                };
+                if depth == 0 {
+                    rest = &rest[at + 1..];
+                    break;
+                }
+            }
+        }
+        let rest = rest.rsplit(" for ").next().unwrap_or(rest).trim_start();
+        let path: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == ':')
+            .collect();
+        path.rsplit("::").next().unwrap_or_default().to_string()
+    }
+
+    /// Every function with a body in a `cargo fmt`-clean source, as (`Type::name` for a method of an `impl` block or `name` otherwise, its text from the signature line through the line of its closing brace).
+    fn functions(source: &str) -> Vec<(String, String)> {
+        let lines: Vec<&str> = source.lines().collect();
+        let mut impls: Vec<(&str, String)> = Vec::new();
+        let mut found = Vec::new();
+        for (at, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            let indent = &line[..line.len() - trimmed.len()];
+            if impls
+                .last()
+                .is_some_and(|(open, _)| line.strip_prefix(open) == Some("}"))
+            {
+                impls.pop();
+            }
+            if let Some(header) = trimmed
+                .strip_prefix("impl")
+                .filter(|rest| rest.starts_with([' ', '<']) && !rest.ends_with("{}"))
+            {
+                impls.push((indent, impl_type(header)));
+                continue;
+            }
+            let Some(signature) = ["pub(crate) ", "pub(super) ", "pub ", ""]
+                .iter()
+                .find_map(|visibility| trimmed.strip_prefix(visibility)?.strip_prefix("fn "))
+            else {
+                continue;
+            };
+            let name: String = signature
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if !signature[name.len()..].starts_with(['(', '<']) {
+                continue;
+            }
+            let opened = lines[at..]
+                .iter()
+                .position(|line| line.ends_with('{') || line.ends_with(';'))
+                .map(|offset| at + offset)
+                .expect("a signature ends in a body or a semicolon");
+            if lines[opened].ends_with(';') {
+                continue;
+            }
+            let closed = if lines[opened].ends_with("{}") {
+                opened
+            } else {
+                let close = format!("{indent}}}");
+                opened
+                    + lines[opened..]
+                        .iter()
+                        .position(|line| *line == close)
+                        .expect("a function's body closes at its signature's indentation")
+            };
+            let name = match impls.last() {
+                Some((open, ty)) if indent.len() == open.len() + 4 => format!("{ty}::{name}"),
+                _ => name,
+            };
+            found.push((name, lines[at..=closed].join("\n")));
+        }
+        found
+    }
+
+    /// The text a pin hashes: every line that is neither blank nor a comment.
+    fn normalized(text: &str) -> String {
+        text.lines()
+            .filter(|line| {
+                let trimmed = line.trim();
+                !trimmed.is_empty() && !trimmed.starts_with("//")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn the_modeled_sources_match_their_pinned_digests() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pins = std::fs::read_to_string(root.join("proofs/modeled-sources.tsv"))
+            .expect("proofs/modeled-sources.tsv reads");
+        let mut failures = Vec::new();
+        let mut pinned_functions = Vec::new();
+        for pin in pins.lines() {
+            let fields: Vec<&str> = pin.split('\t').collect();
+            let [path, item, digest] = fields[..] else {
+                panic!("a pin is a path, an item and a digest, tab-separated: {pin}");
+            };
+            let source = std::fs::read_to_string(root.join(path)).expect("a modeled source reads");
+            let text = if item == "module" {
+                outside_tests(&source).to_string()
+            } else {
+                let name = item
+                    .strip_prefix("fn ")
+                    .expect("an item is `module` or `fn` and a function's name");
+                pinned_functions.push((path, name));
+                let matches: Vec<String> = functions(outside_tests(&source))
+                    .into_iter()
+                    .filter(|(found, _)| found == name)
+                    .map(|(_, text)| text)
+                    .collect();
+                let [text] = &matches[..] else {
+                    failures.push(format!(
+                        "{item} matches {} functions in {path}, not one",
+                        matches.len()
+                    ));
+                    continue;
+                };
+                text.clone()
+            };
+            let current = crate::sha256::digest_hex(normalized(&text).as_bytes());
+            if current != digest {
+                failures.push(format!(
+                    "{item} in {path} has changed since the Lean model of the grouped sweep was last compared with it: read rebuild/kernel-rs/proofs/README.md (what each definition stands for, and what the model assumes) against the new code, change the model and its proofs in rebuild/kernel-rs/proofs/ where what they say no longer holds, then replace the item's digest in rebuild/kernel-rs/proofs/modeled-sources.tsv with {current}"
+                ));
+            }
+        }
+        let engine =
+            std::fs::read_to_string(root.join("src/engine.rs")).expect("src/engine.rs reads");
+        for (name, text) in functions(outside_tests(&engine)) {
+            if text.contains("token::enter(")
+                && !pinned_functions.contains(&("src/engine.rs", name.as_str()))
+            {
+                failures.push(format!(
+                    "fn {name} in src/engine.rs calls token::enter, so it is a place the Lean model of the grouped sweep stands for: read rebuild/kernel-rs/proofs/README.md against it, then pin it in rebuild/kernel-rs/proofs/modeled-sources.tsv"
+                ));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
     #[test]
     fn a_token_compares_hashes_orders_and_prints_as_its_representation() {
         let index = crate::index::fixtures::mini();

@@ -10,9 +10,15 @@ A proof shows only that the stated theorem holds of the stated model. Whether th
 make kernel-proofs
 ```
 
-It needs [`elan`](https://github.com/leanprover/elan) on the path, which fetches the Lean release that `lean-toolchain` pins. The proofs use core Lean only. No gate runs this target, and no build needs Lean installed.
+It needs [`elan`](https://github.com/leanprover/elan) on the path, which fetches the Lean release that `lean-toolchain` pins. The proofs use core Lean only. No local gate runs this target, and no build needs Lean installed. GitHub Actions runs it, beside `make kernel-check`, on a push to `master` or a pull request that touches `rebuild/kernel-rs/` (`.github/workflows/kernel.yml`).
 
 The target fails on any warning, so it fails on a proof left unfinished. `GroupedSweeps/Axioms.lean` fails the build if a theorem comes to rest on an axiom beyond the ones it lists.
+
+## Checking the model against the crate
+
+`modeled-sources.tsv` pins the Rust items the model stands for most directly: the fourth-slot sweep, the grouped ask and its replay of a transcript, every function of `src/engine.rs` that calls `token::enter` (where a call becomes a recorded nested question or the recording ask itself), and `src/token.rs` outside its tests. Each line holds the source's path in the crate, the item (`fn Type::name` for a method, `module` for the file), and the SHA-256 of the item's text with its blank lines and comment lines left out.
+
+The crate's test `the_modeled_sources_match_their_pinned_digests`, in `src/token.rs`, fails in `make kernel-gate` when a pinned item's text changes, and when a function of `src/engine.rs` calls `token::enter` but has no line in the file. When it fails, read [What each definition stands for](#what-each-definition-stands-for) and [What the model assumes](#what-the-model-assumes) against the new code, change the model and its proofs here where what they say no longer holds, and then replace the item's digest with the one the failure prints. The test needs no Lean.
 
 ## What is proved
 
