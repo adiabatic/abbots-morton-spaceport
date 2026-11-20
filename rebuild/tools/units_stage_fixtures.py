@@ -19,6 +19,7 @@ The stages (`STAGES`):
 - `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, the `mismatches` lines the call added to the enricher's list, and the unit's `primary_unit_projection`. Its generated lines (`_enrich_generated`) make both mismatch lines fire: a unit whose `new` has one cell token replaced, under `generated:new:<ordinal>`, and a unit enriched against a subset row with a renamed glyph, which the line carries as its `row`, under `generated:row:<ordinal>`. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
 - `scaffold` records each unit `_phase1_unit` drafts, under `scaffold:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the `ink_deltas` and the `final_class` (the change group, or None) the call drafts its fragment with, read from its projection, and as its value the `scaffold` that call's `unit_scaffold` returned, copied before `unit_to_json` gives it the final class, with the projection's `change_group` and `cluster`. Its generated lines (`_scaffold_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` to `build.config_badge`, under `badge:` and the subset, as the `configs` and, as the value, the `gate` and the `note`.
 - `expect` records each call to `drafts.expect_string`, under `string:` and a digest of the call, as the `codepoints`, `spans` and `junctions` it receives and, as its value, the expect string it returns; and each pin the drafter replays against the after font, the drafted pin through `Drafter.validate_semantics` and each any-of candidate `Drafter.draft_any_of` returns, replayed as the pin is, under `pin:` and a digest of the replay's inputs, as the `text`, the `expect` and the `features` and, as its value, the pin's parse or its error, its interpretations, the after font's row and the replay's verdict (`_expect_line`). Its generated lines (`_expect_generated`) add `expect_string` calls over every boundary and connector, and the replay of every pinned cell of the site pages and of an edge set of pins (`_expect_edges`).
+- `schema` records each record the drafter's checkers check, `_SchemaValidator.check` on a `for_definition` checker, under `drafted:` and a digest of the call, as the `definition` the checker checks against and the `record` and, as its value, the verdict: whether `check` found no problem, which is all the drafter's output reads. Its generated lines (`_schema_generated`), under `generated:` and the same digest, check one drafted record of each shape and every policy record of the source's rune files against each of the drafter's definitions, and mutations of each against its own (`_schema_mutations`).
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -64,7 +65,7 @@ from typing import IO, Any, TypedDict
 
 import yaml
 
-from rebuild.pipeline import fingerprint
+from rebuild.pipeline import fingerprint, spec_load
 from rebuild.pipeline.explain import ExplainReport
 from rebuild.pipeline.model import feature_config_token
 from rebuild.review import audit, build, drafts, ink, unit_cache, units_exec
@@ -117,6 +118,7 @@ HOOKS: dict[str, tuple[str, str]] = {
     "carry_projection": ("rebuild.review.unit_cache", "carry_projection"),
     "yaml.safe_dump": ("yaml", "safe_dump"),
     "unit_scaffold": ("rebuild.review.build", "unit_scaffold"),
+    "_SchemaValidator.check": ("rebuild.pipeline.spec_load", "_SchemaValidator.check"),
 }
 
 
@@ -1370,6 +1372,160 @@ def _expect_generated(source: Source) -> Iterator[Mapping[str, object]]:
         ink.release_shape_memos()
 
 
+# The definitions `Drafter.__init__` builds its checkers for, each of which the `schema` stage's generated set checks every base record against.
+SCHEMA_DEFINITIONS = ("refuseRecord", "preferRecord", "contractRecord")
+# The definition each policy list of a rune file is checked against in the `schema` stage's generated set: a drafted contract record has an extend record's shape.
+SCHEMA_RUNE_LISTS = (
+    ("refuse", "refuseRecord"),
+    ("prefer", "preferRecord"),
+    ("contract", "contractRecord"),
+    ("extend", "contractRecord"),
+)
+# What the `schema` stage's mutations put in place of a value: every JSON kind, the Python kinds the schema must not take for one (a tuple, bytes, a frozenset), a dict with a key that is not a str, and strings near the schema's patterns and enums.
+SCHEMA_PROBES: tuple[object, ...] = (
+    None,
+    True,
+    False,
+    0,
+    1,
+    -1,
+    2,
+    "",
+    "x",
+    "\t",
+    "baseline",
+    "none",
+    "absolute",
+    "half",
+    "a-b",
+    "ss01",
+    "qsPea",
+    "qsPea\n",
+    "qsPea_qsTea",
+    "isolated",
+    b"x",
+    frozenset({"x"}),
+    [],
+    ["qsPea"],
+    ("qsPea",),
+    {},
+    {"family": "qsPea"},
+    {1: "x"},
+)
+# The keys the `schema` stage's mutations add to each dict that lacks them, each with a value of the shape its definition takes, and two the schema knows nowhere.
+SCHEMA_ADDITIONS: dict[object, object] = {
+    "id": "a-b",
+    "stance": "half",
+    "entry": "baseline",
+    "exit": "top",
+    "cell": {"exit": "none"},
+    "over": {"entry": "y6"},
+    "mode": "absolute",
+    "by": 1,
+    "trim": 2,
+    "why": "w",
+    "when": {"word": "isolated"},
+    "family": ["qsPea"],
+    "class": "c",
+    "except": [{"family": "qsTea"}],
+    "then": {"family": "qsTea"},
+    "self": {"entry": "live"},
+    "left": {"family": "qsPea"},
+    "right": {"family": "qsPea"},
+    "zz": 1,
+    2: "x",
+}
+# One drafted record of each shape the `schema` stage's run checks, with its definition, by the shape (`_schema_shape`): the drafted bases its generated set mutates, filled by the run that precedes the generators in `dump`.
+_SCHEMA_DRAFTED: dict[str, tuple[str, object]] = {}
+
+
+def _schema_shape(definition: str, record: object) -> str:
+    """A drafted record's definition and the record without its `why`, which names the unit and so differs on nearly every record."""
+    if isinstance(record, dict):
+        record = {key: value for key, value in record.items() if key != "why"}
+    return compact(encode([definition, record]))
+
+
+def _schema_line(origin: str, definition: str, record: object, problems: object) -> dict[str, object]:
+    call = {"definition": definition, "record": record}
+    assert isinstance(problems, list)
+    return {"key": _digest_key(f"{origin}:", call), **call, "value": not problems}
+
+
+def _schema_check(args: tuple, kwargs: dict) -> Finisher | None:
+    checker = args[0]
+    record = args[1] if len(args) > 1 else kwargs["value"]
+    definition = next((name for name, chosen in checker._definitions.items() if chosen is checker), None)
+    if definition is None:
+        return None
+    _SCHEMA_DRAFTED.setdefault(_schema_shape(definition, record), (definition, copy.deepcopy(record)))
+    return lambda problems: _schema_line("drafted", definition, record, problems)
+
+
+def _schema_variants(value: object) -> Iterator[object]:
+    """What the `schema` stage's mutations put in place of `value`: the probes, and variants of the value itself, near misses of a pattern for a string and the wrong container or length for a list."""
+    yield from SCHEMA_PROBES
+    if isinstance(value, str):
+        yield from (
+            value + "\n",
+            value + "\n\n",
+            value + "x",
+            "x" + value,
+            " " + value,
+            value.upper(),
+            value[:-1],
+        )
+    elif isinstance(value, list):
+        yield from (tuple(value), value + value[:1], value[1:], [value])
+    elif isinstance(value, dict):
+        yield [value]
+    elif isinstance(value, int) and not isinstance(value, bool):
+        yield from (value - 1, value + 1)
+
+
+def _schema_mutations(record: object) -> Iterator[object]:
+    """Every mutation of `record` the `schema` stage's generated set checks: at every place in it, the value replaced by each variant (`_schema_variants`), each dict entry and list item removed, and each addition (`SCHEMA_ADDITIONS`) a dict lacks added."""
+
+    def at(value: object, rebuilt: Callable[[object], object]) -> Iterator[object]:
+        for variant in _schema_variants(value):
+            yield rebuilt(variant)
+        if isinstance(value, dict):
+            for key, child in value.items():
+                yield rebuilt({other: item for other, item in value.items() if other != key})
+                yield from at(child, lambda new, key=key: rebuilt({**value, key: new}))
+            for key, addition in SCHEMA_ADDITIONS.items():
+                if key not in value:
+                    yield rebuilt({**value, key: addition})
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                yield rebuilt(value[:index] + value[index + 1 :])
+                yield from at(
+                    item, lambda new, index=index: rebuilt([*value[:index], new, *value[index + 1 :]])
+                )
+
+    yield from at(record, lambda new: new)
+
+
+def _schema_generated(source: Source) -> Iterator[Mapping[str, object]]:
+    """The `schema` stage's generated lines, each checked by the rune schema the source's worker reads, under `generated:` and a digest of the definition and the record: the bases, one drafted record of each shape the run checked (`_SCHEMA_DRAFTED`) and every policy record of the source's rune files (`SCHEMA_RUNE_LISTS`), each against every definition the drafter checks (`SCHEMA_DEFINITIONS`), and each base's mutations (`_schema_mutations`) against its own definition."""
+    schema_file = Path(source.init["repo_root"]) / "rebuild" / "schema" / "rune.schema.json"
+    schema = spec_load._load_schema(schema_file.parent, schema_file.name)
+    bases = list(_SCHEMA_DRAFTED.values())
+    for path in sorted((Path(source.init["spec_root"]) / "glyph_data" / "runes").glob("*.yaml")):
+        policy = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("policy") or {}
+        for name, definition in SCHEMA_RUNE_LISTS:
+            bases += [(definition, record) for record in policy.get(name) or ()]
+
+    def line(definition: str, record: object) -> dict[str, object]:
+        return _schema_line("generated", definition, record, schema.for_definition(definition).check(record))
+
+    for definition, record in bases:
+        for other in SCHEMA_DEFINITIONS:
+            yield line(other, record)
+        for mutated in _schema_mutations(record):
+            yield line(definition, mutated)
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -1416,6 +1572,7 @@ STAGES: dict[str, Stage] = {
         },
         _expect_generated,
     ),
+    "schema": Stage("schema", {"_SchemaValidator.check": _schema_check}, _schema_generated),
 }
 
 

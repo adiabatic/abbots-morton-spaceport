@@ -15,6 +15,7 @@ pub mod fontfacts;
 pub mod ink;
 pub mod pyfmt;
 pub mod scaffold;
+pub mod schema;
 pub mod settle;
 pub mod shape;
 pub mod subset_pack;
