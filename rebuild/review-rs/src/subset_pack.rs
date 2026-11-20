@@ -72,7 +72,7 @@ impl SubsetRow<'_> {
 }
 
 /// Python's `int(part, 16)` over the ASCII text `_PyUnicode_TransformDecimalAndSpaceToASCII` makes of `part`: a non-ASCII space becomes a space and a decimal digit of any script its ASCII digit. The text is optional whitespace, an optional sign, an optional `0x` with one underscore allowed after it, hex digits with single underscores between them, and optional whitespace, where whitespace is the six ASCII characters `Py_ISSPACE` accepts. Returns the sign and the magnitude, which saturates past `u64`, or None for text `int` refuses.
-fn python_hex_int(part: &str) -> Option<(bool, u64)> {
+pub(crate) fn python_hex_int(part: &str) -> Option<(bool, u64)> {
     let mut ascii = Vec::with_capacity(part.len());
     for letter in part.chars() {
         if u32::from(letter) < 127 {

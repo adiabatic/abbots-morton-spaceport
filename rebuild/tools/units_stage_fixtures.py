@@ -22,6 +22,7 @@ The stages (`STAGES`):
 - `schema` records each record the drafter's checkers check, `_SchemaValidator.check` on a `for_definition` checker, under `drafted:` and a digest of the call, as the `definition` the checker checks against and the `record` and, as its value, the verdict: whether `check` found no problem, which is all the drafter's output reads. Its generated lines (`_schema_generated`), under `generated:` and the same digest, check one drafted record of each shape and every policy record of the source's rune files against each of the drafter's definitions, and mutations of each against its own (`_schema_mutations`).
 - `draft` records each unit `_phase1_unit` drafts a full fragment for, under `draft:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the phase-1 `flags` the worker set on it, and as its value the fragment's `drafts`: the pin, the policy record or None, and the any-of record, each as its `to_json` writes it. A slim fragment, which the drafter skips, records nothing.
 - `fragment` records each unit `_phase1_unit` drafts, under `fragment:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, the phase-1 `flags` the worker set on it, and the `ink_deltas` and the `final_class` it drafts its fragment with, read from its projection, and as its value the fragment's shard bytes as the `_fragment_bytes` call its packer makes returned them (`fragment`, ASCII text), its `content_key` and its `id`. Its answer check (`_fragment_packed`) inflates the deflated fragment the Rust answer carries as `packed` through `zlib.decompressobj` with the source's preset dictionary, as `build._FragmentArena.read` inflates one, and requires the stream to end exactly where the bytes end and to give the Python fragment's bytes.
+- `check` records each fragment `_phase1_unit` checks, `check_unit` at `DRAFTED`, under `drafted:` and a digest of the fragment, as the `fragment` and, as its value, the error list. Its generated lines (`_check_generated`), under `generated:` and the same digest, mutate the smallest drafted fragment of each shape (`_check_shape`), generically (`_check_mutations`) and once or more for each predicate (`_check_extras`), and record the error list, or the class of the TypeError, AttributeError or ValueError the check raises, as `{"raised": name}`.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -61,7 +62,7 @@ import zlib
 from array import array
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from itertools import batched, combinations
+from itertools import batched, chain, combinations, product
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
 from typing import IO, Any, TypedDict
@@ -1624,6 +1625,389 @@ def _fragment_packed(
     return None
 
 
+# The smallest fragment of each shape (`_check_shape`) the `check` stage's run checks, by shape, with its encoded length: the bases its generated set mutates, filled by the run that precedes the generators in `dump`.
+_CHECK_DRAFTED: dict[str, tuple[int, dict]] = {}
+# How many levels below each top-level fragment key the `check` stage's generic mutations reach; a key not named here is only replaced or removed.
+CHECK_DEPTHS: dict[str, int] = {
+    "before": 2,
+    "after": 2,
+    "highlight": 2,
+    "pair": 1,
+    "pair_codepoints": 1,
+    "drafts": 3,
+    "config_gate": 2,
+    "render_groups": 2,
+    "boundary_marks": 2,
+    "ink_deltas": 1,
+    "notation_tokens": 1,
+    "configs": 1,
+    "kinds": 1,
+    "provenance": 1,
+}
+CHECK_PROBES: tuple[object, ...] = (
+    None,
+    True,
+    False,
+    0,
+    1,
+    -1,
+    "",
+    "x",
+    "\n",
+    [],
+    ["x"],
+    ("x",),
+    {},
+    {"x": 1},
+)
+# The exceptions `check_unit` raises on a malformed fragment, which the `check` stage records by class name.
+CHECK_RAISES = (TypeError, AttributeError, ValueError)
+
+
+def _check_shape(fragment: dict) -> str:
+    """What sorts a drafted fragment into a base of the `check` stage's generated set: its slimness, its machine flags and exemption, and whether it carries a pair, a policy draft, a ledger class and a config gate."""
+    drafted = fragment.get("drafts")
+    return compact(
+        encode(
+            [
+                audit.slim_fragment(fragment),
+                [fragment.get(check_id) is True for check_id in audit.MACHINE_CHECKS],
+                fragment.get("no_verdict") is True,
+                fragment.get("pair") is None,
+                not isinstance(drafted, dict) or drafted.get("policy") is None,
+                bool(fragment.get("ledger_class")),
+                fragment.get("config_gate") is None,
+            ]
+        )
+    )
+
+
+def _check_line(origin: str, fragment: dict) -> dict[str, object]:
+    try:
+        value: object = build.check_unit(fragment, at=(build.DRAFTED,))
+    except CHECK_RAISES as error:
+        value = {"raised": type(error).__name__}
+    return {"key": _digest_key(f"{origin}:", {"fragment": fragment}), "fragment": fragment, "value": value}
+
+
+def _check_unit(args: tuple, kwargs: dict) -> Finisher | None:
+    if len(args) != 1 or kwargs != {"at": (build.DRAFTED,)}:
+        return None
+    fragment = args[0]
+    text = compact(encode({"fragment": fragment}))
+    key = "drafted:" + hashlib.sha1(text.encode("ascii")).hexdigest()[:20]
+    shape = _check_shape(fragment)
+    held = _CHECK_DRAFTED.get(shape)
+    if held is None or len(text) < held[0]:
+        _CHECK_DRAFTED[shape] = (len(text), copy.deepcopy(fragment))
+    return lambda errors: {"key": key, "fragment": fragment, "value": errors}
+
+
+def _check_variants(value: object) -> Iterator[object]:
+    """What the `check` stage's generic mutations put in place of `value`: the probes, and variants of the value itself, near misses for a string, the wrong container, length or order for a list, a wrapped dict and a neighboring int."""
+    yield from CHECK_PROBES
+    if isinstance(value, str):
+        yield from (value + "\n", value + "x", value[:-1], value.upper(), value.lower())
+    elif isinstance(value, list):
+        yield from (tuple(value), value + value[:1], value[1:], value[::-1], [value])
+    elif isinstance(value, dict):
+        yield [value]
+    elif isinstance(value, int) and not isinstance(value, bool):
+        yield from (value - 1, value + 1)
+
+
+def _check_mutations(fragment: dict) -> Iterator[dict]:
+    """The `check` stage's generic mutations of `fragment`: each top-level entry removed, and at every place `CHECK_DEPTHS` reaches below it, the value replaced by each variant (`_check_variants`), each dict entry removed, and a list's first and last item removed."""
+
+    def at(value: object, rebuilt: Callable[[object], dict], depth: int) -> Iterator[dict]:
+        for variant in _check_variants(value):
+            yield rebuilt(variant)
+        if depth <= 0:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                yield rebuilt({other: item for other, item in value.items() if other != key})
+                yield from at(child, lambda new, key=key: rebuilt({**value, key: new}), depth - 1)
+        elif isinstance(value, list):
+            for index in sorted({0, len(value) - 1}) if value else ():
+                yield rebuilt(value[:index] + value[index + 1 :])
+                yield from at(
+                    value[index],
+                    lambda new, index=index: rebuilt([*value[:index], new, *value[index + 1 :]]),
+                    depth - 1,
+                )
+
+    for key, child in fragment.items():
+        yield {other: item for other, item in fragment.items() if other != key}
+        yield from at(child, lambda new, key=key: {**fragment, key: new}, CHECK_DEPTHS.get(key, 0))
+
+
+def _check_extras(fragment: dict) -> Iterator[dict]:
+    """The `check` stage's targeted mutations of `fragment`, one or more for each predicate the generic ones do not reach: ids and content keys `int(..., 16)` and the id pattern read in unusual ways, every combination of the machine flags and the exemption, mismatched deltas and ledger classes, config gates with their notes, render groups that do or do not partition the configs, iterables Python walks unexpectedly, junction tokens, spans, highlights, the slim keys on a slim fragment, and drafts whose members are malformed or whose any-of candidates do not parse."""
+
+    def put(**changes: object) -> dict:
+        return {**fragment, **changes}
+
+    unit_id = fragment.get("id")
+    if isinstance(unit_id, str):
+        for spelling in (
+            unit_id + "\n",
+            unit_id + "\n\n",
+            "\n" + unit_id,
+            "e" + unit_id[1:],
+            unit_id[:-1] + "0",
+            unit_id[:-1] + "l",
+            unit_id + "1",
+            unit_id[:-1],
+        ):
+            yield put(id=spelling)
+    stamp = fragment.get("content_key")
+    if isinstance(stamp, str):
+        for spelling in (
+            stamp.upper(),
+            stamp[:-1],
+            stamp + "0",
+            "g" + stamp[1:],
+            "0x" + stamp[2:],
+            "0X_" + stamp[3:],
+            " " + stamp[1:],
+            "　" + stamp[1:],
+            "-" + stamp[1:],
+            "+" + stamp[1:],
+            stamp[:4] + "_" + stamp[5:],
+            stamp[:4] + "__" + stamp[6:],
+            "_" + stamp[1:],
+            "٣" + stamp[1:],
+            "１" + stamp[1:],
+        ):
+            yield put(content_key=spelling)
+            try:
+                matching = unit_cache.unit_id_for(spelling)
+            except ValueError:
+                continue
+            yield put(content_key=spelling, id=matching)
+    for flags in product((True, False), repeat=4):
+        yield put(
+            **dict(zip(("ink_identical", "picture_identical", "junior_equivalent", "no_verdict"), flags))
+        )
+    configs = fragment.get("configs")
+    first = configs[0] if isinstance(configs, list) and configs else "default"
+    for deltas in (
+        {first: "d-" + "0" * 12},
+        {first: "d-" + "A" * 12},
+        {first: "d-" + "0" * 11},
+        {first: "d-" + "0" * 13},
+        {first: "e-" + "0" * 12},
+        {first: "d-" + "٣" * 12},
+        {"": "d-" + "0" * 12},
+        {"elsewhere": "d-" + "0" * 12},
+        {first: 5},
+        {1: "d-" + "0" * 12},
+        {},
+    ):
+        for ink_identical, picture_identical in ((True, False), (False, True), (False, False)):
+            yield put(ink_deltas=deltas, ink_identical=ink_identical, picture_identical=picture_identical)
+    for ledger in (fragment.get("class"), "other", "", 5):
+        for no_verdict in (True, False):
+            yield put(ledger_class=ledger, no_verdict=no_verdict)
+    yield put(batch=1)
+    for summary in ("Old: x", "New: a\nb", "New: ", "new: x", "New:x"):
+        yield put(summary=summary)
+    clause = {"feature": "ss03", "state": "on", "text": "with ss03 on"}
+    other = {"feature": "ss05", "state": "off", "text": "and ss05 off"}
+    for gate, note in (
+        ([clause], "with ss03 on"),
+        ([clause], "with ss03 on "),
+        ([clause, other], "with ss03 on and ss05 off"),
+        ([clause, other], "with ss03 on"),
+        ([{**clause, "state": "maybe"}], "with ss03 on"),
+        ([{**clause, "state": True}], "with ss03 on"),
+        ([{**clause, "feature": 3}], "with ss03 on"),
+        ([{**clause, "text": ""}], ""),
+        ([{**clause, "text": 5}], "with ss03 on"),
+        ([{"feature": "ss03", "state": "on"}], ""),
+        ([clause, "with ss03 on"], "with ss03 on"),
+        ([clause, None], "with ss03 on"),
+        ([{**clause, "text": 5}, None], "with ss03 on"),
+        ([[clause]], "with ss03 on"),
+        ([], None),
+        ((clause,), "with ss03 on"),
+    ):
+        yield put(config_gate=gate, config_note=note)
+    listed = list(configs) if isinstance(configs, list) else []
+    for groups in (
+        [{"configs": listed}, {"configs": listed}],
+        [{"configs": [*listed, "elsewhere"]}],
+        [{"configs": [*listed, *listed[:1]]}],
+        [{"configs": listed[::-1]}],
+        [{"configs": [["x"]]}],
+        [{"configs": [1, "a"]}],
+        [{"configs": []}],
+        [{"config": listed}],
+        [{"configs": tuple(listed)}],
+        ["configs"],
+    ):
+        yield put(render_groups=groups)
+    for unit_configs, grouped in (
+        (["b", "a"], ["a", "b"]),
+        ([2, 1], [1, 2]),
+        ([True, 2], [1, 2]),
+        ([1, "a"], ["a", 1]),
+        ([None, 1], [1, None]),
+        ([("b",), ("a",)], [("a",), ("b",)]),
+        ([("a", 1), ("a", "b")], [("a", 1), ("a", "b")]),
+        ([["a"]], [["a"]]),
+        (["a", "a"], ["a"]),
+        (["a"], ["a", "a"]),
+    ):
+        yield put(configs=unit_configs, render_groups=[{"configs": grouped}], ink_deltas={})
+    for marks in (
+        "ab",
+        {"index": 0},
+        5,
+        True,
+        b"ab",
+        [{"index": 0, "kind": "k"}],
+        [{"index": 0, "kind": "k", "x": 1, "y": 2}],
+        [["index", "kind", "x"]],
+    ):
+        yield put(boundary_marks=marks)
+    for codepoints in ("e650", "", "E650::E651", "E650:G", ":", None, 5, "E650 "):
+        yield put(codepoints=codepoints)
+    for entities in ("&#xE650", "E650;", "&#x;", None):
+        yield put(text_entities=entities)
+    for side in ("before", "after"):
+        record = fragment.get(side)
+        if not isinstance(record, dict) or not isinstance(record.get("junctions"), list):
+            continue
+        junctions = record["junctions"]
+        for token in ("y12", "y", "y٣", "y²", "y0+y5", "Y5", "absent", "lig", "break", "y-1", "y 5", 5, None):
+            yield put(**{side: {**record, "junctions": [token] * max(len(junctions), 1)}})
+        for name in ("glyphs", "cells", "extensions"):
+            if name in record:
+                yield put(**{side: {**record, name: "abc"}})
+                yield put(**{side: {**record, name: {"a": 1}}})
+    tokens = fragment.get("notation_tokens")
+    count = len(tokens) if isinstance(tokens, list) else 2
+    for pair in (
+        {"left": 1, "right": 1},
+        {"left": 2, "right": 1},
+        {"left": True, "right": 2},
+        {"left": "0", "right": 1},
+        {"left": 0},
+        None,
+        [0, 1],
+    ):
+        yield put(pair=pair)
+    for span in (
+        [0, count],
+        [0, count - 1],
+        [True, True],
+        [-1, 0],
+        [1, 0],
+        [0, 1, 2],
+        (0, 1),
+        None,
+        [0, "1"],
+    ):
+        yield put(pair_codepoints=span)
+        yield put(pair_codepoints=span, pair={"left": 0, "right": 1})
+        yield put(pair_codepoints=span, pair=None)
+    rect = {"x_min": 0, "x_max": 1, "advance_total": 2}
+    for broken in (
+        {"x_min": 5, "x_max": 1, "advance_total": 9},
+        {"x_min": 0, "x_max": 9, "advance_total": 1},
+        {"x_min": False, "x_max": True, "advance_total": 1},
+        {"x_min": 0, "x_max": 1},
+        {"x_min": 0, "x_max": 1, "advance_total": "2"},
+        {"x_min": -1, "x_max": -1, "advance_total": -1},
+    ):
+        yield put(highlight={"before": rect, "after": broken})
+        yield put(highlight={"before": broken, "after": rect})
+    yield put(highlight=[rect, rect])
+    for key, value in (
+        ("highlight", {"before": rect, "after": rect}),
+        ("explain", "x"),
+        ("drafts", {"pin": None, "policy": None, "any_of": None}),
+    ):
+        if key not in fragment:
+            yield put(**{key: value})
+    drafted = fragment.get("drafts")
+    if not isinstance(drafted, dict):
+        return
+
+    def draft(**changes: object) -> dict:
+        assert isinstance(drafted, dict)
+        return put(drafts={**drafted, **changes})
+
+    pin = drafted.get("pin")
+    for value in ("pin", ["pin"], 5):
+        yield draft(pin=value)
+    if isinstance(pin, dict):
+        for key, value in (
+            ("syntax", "fail"),
+            ("syntax", None),
+            ("semantics_after_font", "fail: x"),
+            ("attribute", "data-other"),
+            ("attribute", ""),
+            ("stylistic_set", 1),
+            ("stylistic_set", "ss03"),
+            ("expect", 5),
+        ):
+            yield draft(pin={**pin, key: value})
+    policy = drafted.get("policy")
+    if not isinstance(policy, dict):
+        policy = {
+            "file": "glyph_data/runes/qsPea.yaml",
+            "keypath": "policy.refuse[+]",
+            "suggested_record": "{}",
+            "decided_stage": "refuse",
+            "why_stub": "why",
+            "names_provenance": [],
+            "schema_valid": True,
+        }
+        yield draft(policy=policy)
+        yield draft(policy="policy")
+    names = policy.get("names_provenance")
+    named = list(names) if isinstance(names, list) else []
+    for key, value in (
+        ("keypath", "policy.other[+]"),
+        ("keypath", None),
+        ("schema_valid", False),
+        ("schema_valid", 1),
+        ("names_provenance", [*named, "elsewhere"]),
+        ("names_provenance", [["x"]]),
+        ("names_provenance", "x"),
+        ("names_provenance", []),
+        ("why_stub", ""),
+    ):
+        yield draft(policy={**policy, key: value})
+    yield put(provenance=[["x"]], drafts={**drafted, "policy": policy})
+    any_of = drafted.get("any_of")
+    if not isinstance(any_of, dict):
+        return
+    candidates = any_of.get("candidates")
+    offered = list(candidates) if isinstance(candidates, list) else []
+    expect = pin.get("expect") if isinstance(pin, dict) else None
+    for value in (offered + offered[:1], [1, True], [["x"]], [1], [None], [expect], [expect, expect], []):
+        yield draft(any_of={**any_of, "candidates": value})
+    for _text, edge, _features in _expect_edges():
+        yield draft(any_of={**any_of, "candidates": [*offered, edge]})
+        yield draft(pin=None, any_of={**any_of, "candidates": [edge]})
+    for key, value in (("text", ""), ("text", 5), ("features", []), ("features", None)):
+        yield draft(any_of={**any_of, key: value})
+    yield draft(any_of="any_of")
+    yield draft(pin=None)
+
+
+def _check_generated(_source: Source) -> Iterator[Mapping[str, object]]:
+    """The `check` stage's generated lines, under `generated:` and a digest of the fragment: the generic (`_check_mutations`) and targeted (`_check_extras`) mutations of the smallest drafted fragment of each shape the run checked (`_CHECK_DRAFTED`), each checked by `check_unit` at `DRAFTED`, with what it returns or the class of the exception it raises."""
+    for shape in sorted(_CHECK_DRAFTED):
+        base = _CHECK_DRAFTED[shape][1]
+        for mutated in chain(_check_mutations(base), _check_extras(base)):
+            yield _check_line("generated", mutated)
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -1677,6 +2061,7 @@ STAGES: dict[str, Stage] = {
         {"_phase1_unit": _fragment_unit, "_fragment_bytes": _fragment_bytes_returned},
         answer_checks={"packed": _fragment_packed},
     ),
+    "check": Stage("check", {"check_unit": _check_unit}, _check_generated),
 }
 
 

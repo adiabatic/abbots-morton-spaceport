@@ -5,6 +5,7 @@
 #![deny(unsafe_code)]
 
 pub mod change_groups;
+pub mod check;
 pub mod classify;
 pub mod config_fold;
 pub mod drafts;
