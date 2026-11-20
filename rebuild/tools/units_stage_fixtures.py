@@ -20,6 +20,7 @@ The stages (`STAGES`):
 - `scaffold` records each unit `_phase1_unit` drafts, under `scaffold:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the `ink_deltas` and the `final_class` (the change group, or None) the call drafts its fragment with, read from its projection, and as its value the `scaffold` that call's `unit_scaffold` returned, copied before `unit_to_json` gives it the final class, with the projection's `change_group` and `cluster`. Its generated lines (`_scaffold_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` to `build.config_badge`, under `badge:` and the subset, as the `configs` and, as the value, the `gate` and the `note`.
 - `expect` records each call to `drafts.expect_string`, under `string:` and a digest of the call, as the `codepoints`, `spans` and `junctions` it receives and, as its value, the expect string it returns; and each pin the drafter replays against the after font, the drafted pin through `Drafter.validate_semantics` and each any-of candidate `Drafter.draft_any_of` returns, replayed as the pin is, under `pin:` and a digest of the replay's inputs, as the `text`, the `expect` and the `features` and, as its value, the pin's parse or its error, its interpretations, the after font's row and the replay's verdict (`_expect_line`). Its generated lines (`_expect_generated`) add `expect_string` calls over every boundary and connector, and the replay of every pinned cell of the site pages and of an edge set of pins (`_expect_edges`).
 - `schema` records each record the drafter's checkers check, `_SchemaValidator.check` on a `for_definition` checker, under `drafted:` and a digest of the call, as the `definition` the checker checks against and the `record` and, as its value, the verdict: whether `check` found no problem, which is all the drafter's output reads. Its generated lines (`_schema_generated`), under `generated:` and the same digest, check one drafted record of each shape and every policy record of the source's rune files against each of the drafter's definitions, and mutations of each against its own (`_schema_mutations`).
+- `draft` records each unit `_phase1_unit` drafts a full fragment for, under `draft:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the phase-1 `flags` the worker set on it, and as its value the fragment's `drafts`: the pin, the policy record or None, and the any-of record, each as its `to_json` writes it. A slim fragment, which the drafter skips, records nothing.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace`, `str.isdigit` and `str.isdecimal` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -1526,6 +1527,30 @@ def _schema_generated(source: Source) -> Iterator[Mapping[str, object]]:
             yield line(definition, mutated)
 
 
+def _draft_unit(args: tuple, _kwargs: dict) -> Finisher:
+    unit = args[0]
+    key = f"draft:{unit.ordinal}"
+    record = compact(units_exec.unit_record(unit))
+
+    def finish(result: object) -> dict[str, object] | None:
+        assert isinstance(result, tuple)
+        projection, fragment = result[0], result[1]
+        if "drafts" not in fragment:
+            return None
+        return {
+            "key": key,
+            "record": record,
+            "flags": {
+                "ink_identical": projection.ink_identical,
+                "picture_identical": projection.picture_identical,
+                "junior_equivalent": projection.junior_equivalent,
+            },
+            "value": fragment["drafts"],
+        }
+
+    return finish
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -1573,6 +1598,7 @@ STAGES: dict[str, Stage] = {
         _expect_generated,
     ),
     "schema": Stage("schema", {"_SchemaValidator.check": _schema_check}, _schema_generated),
+    "draft": Stage("draft", {"_phase1_unit": _draft_unit}),
 }
 
 

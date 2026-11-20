@@ -7,6 +7,7 @@
 pub mod change_groups;
 pub mod classify;
 pub mod config_fold;
+pub mod drafts;
 pub mod enrich;
 pub mod expect;
 pub mod explain;
