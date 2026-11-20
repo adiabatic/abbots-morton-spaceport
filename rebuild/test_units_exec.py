@@ -1,6 +1,6 @@
 """Tests for the review crate under `rebuild/review-rs/`, the Rust engine of the review corpus build's unit recompute (`rebuild/CORPUS-UNITS-PORT-PLAN.md`).
 
-The crate is a sibling of the kernel crate, not a member of a Cargo workspace, so it has its own lock, and in its build that lock, not the kernel's, picks the versions of the kernel's dependencies. The lock-parity test keeps the kernel library the review engine links the same code the table build runs. The rest test the engine interface, `rebuild/review/units_exec.py`: the switch, the typed encoding, the request frames, the vocabulary the init carries and the font facts, and the engine's HarfBuzz against uharfbuzz on the mini bundle.
+The crate is a sibling of the kernel crate, not a member of a Cargo workspace, so it has its own lock, and in its build that lock, not the kernel's, picks the versions of the kernel's dependencies. The lock-parity test keeps the kernel library the review engine links the same code the table build runs. The rest test the engine interface, `rebuild/review/units_exec.py`: the switch, the typed encoding, the request frames, the vocabulary the init carries and the font facts, and the engine's HarfBuzz against uharfbuzz on the mini bundle. The last four test the engine behind the switch: a mini build under it writes the Python build's corpus, the unit store's stamp names the crate only under it, every kernel module it runs is stamped, and it agrees with the Python workers on the mini source's `ss10` copies. From the `opt-in-switch` task of the plan on, a change to the Python a stage mirrors fails these until the crate follows it.
 """
 
 from __future__ import annotations
@@ -8,7 +8,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import shutil
 import tomllib
+import warnings
 from pathlib import Path
 from typing import cast
 
@@ -17,9 +19,11 @@ import uharfbuzz
 from fontTools.ttLib import TTFont
 
 from rebuild.pipeline.model import CellId
-from rebuild.review import build, units_exec
+from rebuild.review import build, unit_cache, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable
+from rebuild.review.enrich import load_spec
 from rebuild.review.ink import InkComparator, features_for, kern_neutral
+from rebuild.tools import cycle_timings, units_dual_run, units_stage_fixtures
 from rebuild.validation.classify import JunctionClassifier
 from rebuild.validation.shaping import Shaper
 
@@ -52,7 +56,7 @@ def test_every_package_both_locks_name_has_one_version():
 
 
 def test_the_switch_reads_the_environment_and_the_build_runs_only_its_engines(monkeypatch):
-    """`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `python` by default, and refuses a value the switch does not know; the runner refuses an engine outside `ENGINES` before it starts anything."""
+    """`units_exec.engine()` reads `AMS_CORPUS_UNITS_ENGINE` at call time, `python` by default, and refuses a value the switch does not know; the build runs both engines the switch names, and the runner refuses an engine outside `ENGINES` before it starts anything."""
     monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
     assert units_exec.engine() == "python"
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "cobol")
@@ -60,7 +64,8 @@ def test_the_switch_reads_the_environment_and_the_build_runs_only_its_engines(mo
         units_exec.engine()
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
     assert units_exec.engine() == "rust"
-    assert "rust" not in units_exec.ENGINES
+    assert units_exec.ENGINES == units_exec.SWITCH_VALUES
+    monkeypatch.setattr(units_exec, "ENGINES", ("python",))
     with pytest.raises(ValueError, match="the rust units engine is not one the build runs"):
         build._RecomputeRunner(
             [],
@@ -274,3 +279,147 @@ def test_the_engine_links_the_harfbuzz_uharfbuzz_links_and_refuses_an_init_namin
     returncode, stdout, stderr = _run_stage(["stage", "shape", f"--init={other}", str(stage_file)])
     assert (returncode, stdout) == (1, "")
     assert "HarfBuzz 0.0.1" in stderr and f"HarfBuzz {linked}" in stderr
+
+
+def _build_mini(out: Path, mini_bundle, **kwargs) -> None:
+    build.build_m1(
+        out,
+        audit_path=MINI / "audit.tsv",
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI_FONT,
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
+        **kwargs,
+    )
+
+
+def _tree(path: Path) -> dict[str, bytes]:
+    return {
+        p.relative_to(path).as_posix(): p.read_bytes() for p in sorted(Path(path).rglob("*")) if p.is_file()
+    }
+
+
+def test_a_rust_build_writes_the_python_build_s_corpus_files(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """A pooled build under the Rust engine writes the serial Python build's corpus byte for byte, as `rebuild/test_unit_cache.py`'s serial-versus-parallel test compares a pooled Python build, once the unit store's `units_engine` line, which only says which engine wrote the store, is held out; its units line names the engine and it files the engine's `corpus-units-rs` pool record. A no-change rebuild under the engine reuses every unit, recomputes its verification sample through the engine's `verify`, and leaves the corpus as it was."""
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
+    monkeypatch.setattr(units_exec, "engine_stamp", lambda: None)
+    rust = tmp_path / "rust"
+    _build_mini(rust, mini_bundle, jobs=2)
+    assert _tree(rust) == _tree(mini_corpus)
+    err = capfd.readouterr().err
+    assert re.search(r"\[t\] review\.build units .*\tjobs=2 engine=rust \(recomputed=", err), err
+    records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
+    (record,) = [record for record in records if record["unit"] == "corpus-units-rs"]
+    assert (record["width"], list(record["worker_peak_rss_bytes"])) == (2, ["engine"])
+    assert record["worker_peak_rss_bytes"]["engine"] > 0 and record["worker_reading"] == "footprint"
+    _build_mini(rust, mini_bundle, jobs=2)
+    err = capfd.readouterr().err
+    total = json.loads((rust / "manifest.json").read_text(encoding="utf-8"))["totals"]["units"]
+    assert f"reused {total:,} of {total:,} units from the cache" in err
+    verified = re.search(r"\tjobs=2 engine=rust \(recomputed=0, verified=(\d+) cached;", err)
+    assert verified and int(verified.group(1)) == min(build.VERIFICATION_SAMPLE, total), err
+    assert _tree(rust) == _tree(mini_corpus)
+
+
+def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """Under the Python engine the unit store's stamp has no `units_engine` line and keeps the bytes it had before the switch existed; under the Rust engine it gains one, the digest of every file of the review crate outside `target/`, and nothing else moves. So a store the Python engine wrote is a miss to a Rust build, which names the line that moved."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(mini_bundle.spec_root)
+
+    def stamp() -> tuple[str, ...]:
+        return unit_cache.environment_stamp(
+            REPO_ROOT,
+            spec,
+            MINI,
+            build.SITE_BEFORE_FONT,
+            build.SITE_JUNIOR_FONT,
+            "helpers",
+            identical_classes=(),
+            units_engine=units_exec.engine_stamp(),
+        ).lines
+
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    assert units_exec.engine_stamp() is None
+    python = stamp()
+    assert (
+        python
+        == unit_cache.environment_stamp(
+            REPO_ROOT,
+            spec,
+            MINI,
+            build.SITE_BEFORE_FONT,
+            build.SITE_JUNIOR_FONT,
+            "helpers",
+            identical_classes=(),
+        ).lines
+    )
+    assert not any(line.startswith("units_engine\t") for line in python)
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
+    rust = stamp()
+    added = [line for line in rust if line not in python]
+    assert added == [f"units_engine\t{units_exec.engine_stamp()}"]
+    assert [line for line in rust if line not in added] == list(python)
+    paths = [path.relative_to(units_exec.CRATE).as_posix() for path in units_exec.crate_paths()]
+    assert {"Cargo.toml", "Cargo.lock", "build.rs", "src/lib.rs", "src/ffi.rs"} <= set(paths)
+    assert not any(path.startswith("target/") for path in paths)
+    rebuilt = tmp_path / "rebuilt"
+    shutil.copytree(mini_corpus, rebuilt)
+    capfd.readouterr()
+    _build_mini(rebuilt, mini_bundle, jobs=2)
+    err = capfd.readouterr().err
+    assert re.search(r"unit cache: the stamp moved at [^\n]*units_engine", err), err
+    assert "reused 0 of" in err
+
+
+def test_every_kernel_module_the_review_crate_names_is_stamped():
+    """The Rust engine runs the kernel library in process, so each kernel module the review crate names (`ams_m1_kernel::<module>`) must be in the unit store's `corpus_code` closure (`unit_cache.corpus_code_paths`), outside `unit_cache.KERNEL_NON_CORPUS_MODULES`, or a kernel edit could leave a store the engine wrote serving stale units."""
+    named: set[str] = set()
+    for path in sorted((units_exec.CRATE / "src").rglob("*.rs")):
+        source = path.read_text(encoding="utf-8")
+        named.update(re.findall(r"\bams_m1_kernel::([a-z_][a-z0-9_]*)", source))
+        for group in re.findall(r"\bams_m1_kernel::\{([^}]*)\}", source):
+            named.update(re.findall(r"(?:^|,)\s*([a-z_][a-z0-9_]*)", group))
+    assert named, "the review crate names no kernel module"
+    kernel = REPO_ROOT / "rebuild" / "kernel-rs" / "src"
+    stamped = set(unit_cache.corpus_code_paths(REPO_ROOT))
+    unstamped = {}
+    for module in sorted(named):
+        files = [path for path in (kernel / f"{module}.rs", kernel / module / "mod.rs") if path.is_file()]
+        assert files, f"the review crate names ams_m1_kernel::{module}, which has no file under {kernel}"
+        if files[0] not in stamped or files[0].name in unit_cache.KERNEL_NON_CORPUS_MODULES:
+            unstamped[module] = files[0].relative_to(REPO_ROOT).as_posix()
+    assert (
+        unstamped == {}
+    ), f"kernel modules the Rust units engine runs but the unit store does not stamp: {unstamped}"
+
+
+def test_the_engines_agree_on_the_mini_s_ss10_copies(mini_bundle, tmp_path):
+    """The Python workers and the Rust engine, run side by side by the dual-run harness over the mini source's `ss10` copies (`units_stage_fixtures._ss10_copy`), agree on every projection field, every inflated fragment, every handout's contract errors and the verification sample under its comparator. The bundle holds no `ss10` row, so these copies are what reach the isolated overlay, the `ss10` gate, the `ss10` subset rows and the Junior check, which the mini build above never shows the engine."""
+    table, store, identical_classes = units_stage_fixtures._load_table(
+        MINI / "audit.tsv", mini_bundle.ledger, mini_bundle.spec_root, MINI_FONT, tmp_path, recompute_all=True
+    )
+    handouts = units_stage_fixtures._queue_handouts(range(table.n, 2 * table.n))
+    source = units_stage_fixtures.Source(
+        name="mini",
+        init=units_stage_fixtures._worker_init(
+            MINI_FONT, MINI, mini_bundle.subset_pack, mini_bundle.spec_root, identical_classes
+        ),
+        table=table,
+        store=store,
+        handouts=handouts,
+        corpus_units=table.n,
+        chosen=list(range(len(handouts))),
+        selection={},
+    )
+    report = units_dual_run.Report()
+    units_dual_run.run(source, ("python", "rust"), 2, 2, None, report)
+    disagreements = {name: tally.examples[:1] for name, tally in report.fields.items() if tally.disagreements}
+    assert disagreements == {}
+    assert report.compared == report.handed_out == table.n
+    assert report.verify_sample and report.verify_agreed == report.verify_sample

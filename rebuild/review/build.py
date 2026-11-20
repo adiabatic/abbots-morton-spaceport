@@ -42,7 +42,7 @@ from dataclasses import dataclass, field, replace
 from functools import lru_cache, partial
 from itertools import batched, chain, combinations
 from pathlib import Path
-from typing import BinaryIO, NoReturn, cast
+from typing import BinaryIO, NoReturn, Protocol, cast
 
 from rebuild.pipeline import fingerprint, output_sink, row_delta, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
@@ -125,7 +125,7 @@ from rebuild.review.enrich import (
     text_entities,
 )
 from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
-from rebuild.review.unit_store import Address, UnitStore
+from rebuild.review.unit_store import Address, RecomputedProjection, UnitStore
 from rebuild.tools import console, memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import (
@@ -1089,6 +1089,15 @@ class _UnitProjection:
     raw_length: int = 0
 
 
+class _PackedProjection(RecomputedProjection, Protocol):
+    """A recomputed projection with its deflated fragment and that fragment's shard length, as `_load_recomputed` reads it: a Python worker's `_UnitProjection` or the Rust engine's `units_exec.RustProjection`."""
+
+    @property
+    def packed(self) -> bytes: ...
+    @property
+    def raw_length(self) -> int: ...
+
+
 def _config_fold(before_font: Path, after_font: Path) -> ConfigFold:
     """Derive, over the two fonts, which of the configurations a unit can hold (`audit.ACCEPTANCE_CONFIGS`) take `default`'s shapes for a window that holds none of their trigger letters (`feature_reach.derive_fold`), and print the line that names them and every configuration shaped in every window, with the check it failed. The runner derives it once, in the parent, and hands it to every worker."""
     fold = derive_fold((before_font, after_font), ACCEPTANCE_CONFIGS)
@@ -1628,12 +1637,12 @@ def _keep_contract_errors(kept: list[str], found: Sequence[str]) -> None:
         kept.extend(found[:room])
 
 
-def _record_corpus_pool(width: int, peaks: dict[str, int]) -> None:
-    """Write one kind:"pool" record for a finished corpus pool under its own unit name, so `make job-costs` can compare CORPUS_WORKER_BYTES with the workers that ran. Every reading is a peak footprint (`peak_rss.peak_footprint_self_bytes`): each worker's as it answered the stop, and the parent's own as the controller's. It never raises, because failing to write the journal is not a reason to fail a corpus build. A build without a pool writes nothing; the parent's resident peak is the `corpus-build` step peak the cycle already records."""
+def _record_corpus_pool(width: int, peaks: dict[str, int], unit: str = "corpus") -> None:
+    """Write one kind:"pool" record for a finished corpus pool under its own unit name, so `make job-costs` can compare CORPUS_WORKER_BYTES with the workers that ran: `corpus` for the Python workers and `corpus-units-rs` for the Rust engine, whose one process reads as one worker at its thread count. Every reading is a peak footprint (`peak_rss.peak_footprint_self_bytes`): each worker's as it answered the stop, and the parent's own as the controller's. It never raises, because failing to write the journal is not a reason to fail a corpus build. A build without a pool writes nothing; the parent's resident peak is the `corpus-build` step peak the cycle already records."""
     if not peaks:
         return
     record_pool(
-        "corpus",
+        unit,
         width=width,
         worker_peaks=peaks,
         controller_peak_bytes=peak_footprint_self_bytes(),
@@ -1653,7 +1662,7 @@ def _configuration_order(recomputed: Sequence[int], table: UnitTable) -> array:
 
 
 def _load_recomputed(
-    store: UnitStore, table: UnitTable, arena: _FragmentArena, projection: _UnitProjection
+    store: UnitStore, table: UnitTable, arena: _FragmentArena, projection: _PackedProjection
 ) -> None:
     """Load one recomputed unit's projection into the store at its ordinal, with the unit's ledger exemption read from the table, and move its deflated fragment into `arena`, whose address becomes the unit's source. The projection is the only way the id, the machine flags and the fragment pass from the worker to the parent, and the store and the arena hold them from here on."""
     address = arena.add(projection.packed, projection.raw_length)
@@ -1695,7 +1704,7 @@ def _phase_timing(label: str, started: float, note: str = "") -> None:
 class _RecomputeRunner:
     """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), reading the ink under the `ConfigFold` it derives once, in the parent, as the pool starts or as the serial path first needs it (`_config_fold`), which every worker receives with its `init`. It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
 
-    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends. The engine is the one `units_exec.engine()` names, and the runner refuses one outside `units_exec.ENGINES`.
+    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends. The engine is the one `units_exec.engine()` names, and the runner refuses one outside `units_exec.ENGINES`. Under the Rust engine the pool is one `units_exec.UnitsProcess` at the pool's width in threads instead of the spawn workers (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Where Python consumes the replies), driven with the same handouts in the same order (`_drive_engine`); the serial path stays in Python.
     """
 
     def __init__(
@@ -1739,6 +1748,9 @@ class _RecomputeRunner:
         self._fold: ConfigFold | None = None
         self._procs: list = []
         self._conns: list = []
+        self._engine: units_exec.UnitsProcess | None = None
+        # What the units line adds after the width: the Rust engine's name when it ran the pool, and nothing for the Python engine, whose line keeps its form.
+        self.engine_note = ""
         # The verification sample is worker work too, and it is all of the work when the cache supplied every unit. Sizing the pool on the recomputed units alone would make a no-change rebuild recompute its sample in the parent, which already holds the corpus's table and store and would also build an enricher, its shapers and their memos. On a fully cached build the two measure alike: 200 units serially and across eight workers each took 4.9 s for the units phase, and the load phase set the build's peak either way.
         workload_size = max(len(recomputed), len(self._verify))
         if jobs > 1 and workload_size > 1:
@@ -1757,6 +1769,11 @@ class _RecomputeRunner:
                 "corpus_index": corpus_index,
                 "dictionary": dictionary,
             }
+            if engine == "rust":
+                self._engine = units_exec.UnitsProcess(init, nworkers)
+                self.engine_note = " engine=rust"
+                memory_tally.mark("units pool started")
+                return
             ctx = multiprocessing.get_context("spawn")
             for index in range(nworkers):
                 parent_conn, child_conn = ctx.Pipe()
@@ -1769,7 +1786,9 @@ class _RecomputeRunner:
 
     def phase1(self, store: UnitStore) -> None:
         """Enrich and draft every recomputed unit, loading each projection into `store` at its ordinal as it arrives (`_load_recomputed`). The parent holds no projection past the reply that carried it and no unit record past the hand-out that materialized it: the recomputed units are ordinals, and a `Unit` is built from the table and the store (`UnitTable.unit`) for each batch sent to a worker, or one at a time on the serial path. Pooled, each worker deflates its batches' fragments and replies per batch with projections carrying them, which are loaded here as they arrive (`_drive_phase1`), with at most one reply per worker in flight. Serial, the same loop runs here with one packer over the arena's dictionary, at the enricher's batch width with the memo released after each batch. Either way the EnrichedUnit is freed by the time its batch closes."""
-        if self._conns:
+        if self._engine is not None:
+            self._drive_engine(self._engine, store)
+        elif self._conns:
             self._drive_phase1(store)
         elif self._recomputed:
             comparator, oracle, enricher, drafter = self._in_process()
@@ -1798,8 +1817,8 @@ class _RecomputeRunner:
 
     @property
     def pooled(self) -> bool:
-        """Whether this runner drives a worker pool, in which case the parent spends the units phase waiting in `wait` instead of shaping."""
-        return bool(self._conns)
+        """Whether this runner drives a worker pool or the Rust engine, in which case the parent spends the units phase waiting on replies instead of shaping."""
+        return bool(self._conns) or self._engine is not None
 
     def _count(self, done: int) -> None:
         console.progress(done, len(self._recomputed), PHASE1_UNITS, file=sys.stderr)
@@ -1844,6 +1863,38 @@ class _RecomputeRunner:
                 else:
                     waiting.remove(conn)
 
+    def _drive_engine(self, engine: units_exec.UnitsProcess, store: UnitStore) -> None:
+        """`_drive_phase1` for the Rust engine: the same handouts in the same order, at most one per engine thread in flight, each reply's projections loaded into `store` and its errors into `contract_errors` as it arrives, and the next handout sent in its place. An `error` frame, or the engine's output ending, raises `units_exec.EngineRunError` here."""
+        table = self._table
+        handouts = enumerate(batched(_configuration_order(self._recomputed, table), self._handout))
+        in_flight = 0
+
+        def hand() -> None:
+            nonlocal in_flight
+            handout = next(handouts, None)
+            if handout is not None:
+                index, batch = handout
+                engine.send_batch(index, tuple(table.unit(ordinal, store) for ordinal in batch))
+                in_flight += 1
+
+        for _thread in range(engine.threads):
+            hand()
+        done = 0
+        while in_flight:
+            reply = engine.read_reply()
+            if reply[0] != "batch":
+                raise units_exec.EngineRunError(f"the units engine answered a batch with {reply[0]}")
+            in_flight -= 1
+            _op, _batch, projections, errors = reply
+            del reply
+            for projection in projections:
+                _load_recomputed(store, table, self.arena, projection)
+            _keep_contract_errors(self.contract_errors, errors)
+            done += len(projections)
+            del projections
+            self._count(done)
+            hand()
+
     def _config_fold(self) -> ConfigFold:
         """Return the build's `ConfigFold`, derived on first use (`_config_fold` at module level, which prints its line), so a build whose pool and serial path have nothing to recompute or verify neither reads the fonts' layout tables nor prints the line."""
         if self._fold is None:
@@ -1881,7 +1932,15 @@ class _RecomputeRunner:
         keys: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {}
         if not self._verify:
             return keys
-        if self._conns:
+        if self._engine is not None:
+            by_ordinal = {unit.ordinal: unit for unit in self._verify}
+            ordered = _configuration_order(list(by_ordinal), self._table)
+            keys.update(
+                self._engine.verify(
+                    [(by_ordinal[ordinal], injections[by_ordinal[ordinal].unit_id]) for ordinal in ordered]
+                )
+            )
+        elif self._conns:
             by_ordinal = {unit.ordinal: unit for unit in self._verify}
             ordered = _configuration_order(list(by_ordinal), self._table)
             shares = batched(
@@ -1915,7 +1974,15 @@ class _RecomputeRunner:
         return keys
 
     def stop_workers(self) -> None:
-        """Stop every worker, collect each one's peak, join the processes, and write the pool record. A second call does nothing. It also runs from `close`, in a `finally`, so the failing path matters most. A phase that raises inside its recv loop leaves the later connections holding that phase's replies (a `batch` with its payload, and the `ok` after it). The stop reply is tagged `peak`, and this loop drains whatever is queued ahead of it: reading a phase's payload as a peak would raise out of the `finally`, hide the worker's traceback, and skip the join below with spawn workers still running."""
+        """Stop every worker, collect each one's peak, join the processes, and write the pool record. A second call does nothing. It also runs from `close`, in a `finally`, so the failing path matters most. A phase that raises inside its recv loop leaves the later connections holding that phase's replies (a `batch` with its payload, and the `ok` after it). The stop reply is tagged `peak`, and this loop drains whatever is queued ahead of it: reading a phase's payload as a peak would raise out of the `finally`, hide the worker's traceback, and skip the join below with spawn workers still running. The Rust engine is stopped with its `stop` frame and its peak filed as the `corpus-units-rs` pool's one worker; `close` kills an engine this has not stopped, since only a failing build leaves one running."""
+        if self._engine is not None:
+            engine, self._engine = self._engine, None
+            try:
+                peak = engine.stop()
+            finally:
+                engine.close()
+            _record_corpus_pool(engine.threads, {"engine": peak}, unit="corpus-units-rs")
+            memory_tally.mark("units pool stopped")
         peaks: dict[str, int] = {}
         for index, conn in enumerate(self._conns):
             try:
@@ -1942,7 +2009,10 @@ class _RecomputeRunner:
         self._conns = []
 
     def close(self) -> None:
-        """Stop the pool if `stop_workers` has not, and free the arena. The write has returned or raised by the time this runs, so nothing reads the arena after it."""
+        """Stop the pool if `stop_workers` has not, kill the Rust engine if it has not stopped it, and free the arena. The write has returned or raised by the time this runs, so nothing reads the arena after it."""
+        if self._engine is not None:
+            self._engine.close()
+            self._engine = None
         self.stop_workers()
         self.arena.clear()
 
@@ -3678,6 +3748,7 @@ def _build_m1(
         subset_digests=subset_digests,
         identical_classes=identical_classes,
         draft_lines=draft_lines,
+        units_engine=units_exec.engine_stamp(),
     )
     store = UnitStore(table.n, strings=table.strings, input_keys=loaded.input_keys)
     signature_environment, signature_stamps = loaded.environment, loaded.stamps
@@ -3990,7 +4061,7 @@ def _build_m1(
         _phase_timing(
             "review.build units",
             phase,
-            f"jobs={units_jobs} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()}; {signature_note})",
+            f"jobs={units_jobs}{runner.engine_note} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()}; {signature_note})",
         )
 
         # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emissions`): a recomputed one from the runner's arena, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the arena belongs to the runner, which frees it once the write is done.
