@@ -9,6 +9,7 @@ mod ffi;
 pub mod fontfacts;
 pub mod ink;
 pub mod pyfmt;
+pub mod settle;
 pub mod shape;
 pub mod wire;
 

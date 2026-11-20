@@ -582,11 +582,16 @@ impl Init {
         ])
     }
 
-    /// Read the files the init names: the spec dump through the kernel's parser, the font facts, the preset dictionary's bytes, and the rune schema as JSON.
-    pub fn files(&self) -> Result<InitFiles> {
+    /// Read the spec dump the init names through the kernel's parser.
+    pub fn read_spec(&self) -> Result<Spec> {
         let spec_text = String::from_utf8(read_file(&self.spec, "the spec dump")?)
             .map_err(|_| WireError(format!("the spec dump {} is not UTF-8", self.spec)))?;
-        let spec = parse_spec(&spec_text).map_err(|failure| WireError(failure.to_string()))?;
+        parse_spec(&spec_text).map_err(|failure| WireError(failure.to_string()))
+    }
+
+    /// Read the files the init names: the spec dump through the kernel's parser, the font facts, the preset dictionary's bytes, and the rune schema as JSON.
+    pub fn files(&self) -> Result<InitFiles> {
+        let spec = self.read_spec()?;
         let facts = FontFacts::read(&self.font_facts)?;
         let dictionary = read_file(&self.dictionary, "the preset dictionary")?;
         let rune_schema = serde_json::from_slice(&read_file(&self.rune_schema, "the rune schema")?)

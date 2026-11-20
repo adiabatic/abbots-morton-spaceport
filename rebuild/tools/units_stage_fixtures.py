@@ -13,6 +13,7 @@ The stages (`STAGES`):
 - `yaml` records each record `Drafter.draft_policy` dumps, as the `input` its `yaml.safe_dump` call receives and the stripped text it ships, keyed by a digest of the record; a `safe_dump` call with other arguments than `draft_policy`'s (`YAML_DUMP_ARGUMENTS`) is refused. Its generated lines put an edge set to the same dump (`_yaml_edges`).
 - `shape` records each call that reaches HarfBuzz, `Shaper.shape` under the worker's memo (`ink._MemoizedShaper`), as the `font` it shapes with (the resolved path `ink.shaper_for` registers it under), the `text` and the `features` it receives and the `ShapeResult` it returns, keyed by a digest of the call.
 - `ink` records each unit `_phase1_unit` reads, under `ink:<ordinal>`, as its `text` and `configs` and, as its value, the repr of the diffs its `_ink_readings` call returns, the three machine flags, `ink_deltas` and the diffs digest from the projection. Its generated lines put every distinct text of a unit that holds `ss10` to the Junior oracle directly (`_ink_generated`), under `junior:` and a digest of the text, with the oracle's tracking-free Junior pieces and its answer for `ss10` alone.
+- `settle` records each unit `Enricher.explain_units` settles, under `settle:` with its first configuration and its code points, as the `codepoints` and the `config` and, as its value, the `ExplainReport`'s code points, features and positions, each position's trace whole; and each text `Enricher.formed_spans` forms, under `spans:` and its code points, as the `codepoints` and the spans it returns.
 
 `unicode-tables` writes `rebuild/review-rs/src/pyfmt/unicode_tables.rs`, the code point ranges this CPython's `str.isprintable`, `str.isspace` and `str.isdigit` accept, and with `--check` writes nothing and fails when the file differs from what it would write.
 
@@ -87,6 +88,7 @@ HOOKS: dict[str, tuple[str, str]] = {
     "_phase1_unit": ("rebuild.review.build", "_phase1_unit"),
     "_ink_readings": ("rebuild.review.build", "_ink_readings"),
     "Enricher.explain_units": ("rebuild.review.enrich", "Enricher.explain_units"),
+    "Enricher.formed_spans": ("rebuild.review.enrich", "Enricher.formed_spans"),
     "Enricher.enrich": ("rebuild.review.enrich", "Enricher.enrich"),
     "Drafter.draft_pin": ("rebuild.review.drafts", "Drafter.draft_pin"),
     "Drafter.draft_policy": ("rebuild.review.drafts", "Drafter.draft_policy"),
@@ -350,8 +352,8 @@ def write_units_file(source: Source, out: Path) -> None:
 
 # --- stages and the wrapped run -----------------------------------------------------------------
 
-# A recorder sees one call's positional and keyword arguments before the call runs and returns None, to record nothing, or a finisher, which receives the call's result and returns the fields of the line to record, or None.
-Finisher = Callable[[object], Mapping[str, object] | None]
+# A recorder sees one call's positional and keyword arguments before the call runs and returns None, to record nothing, or a finisher, which receives the call's result and returns the fields of the line to record, a list of such fields for a call that records one line per item, or None.
+Finisher = Callable[[object], Mapping[str, object] | list[Mapping[str, object]] | None]
 Recorder = Callable[[tuple, dict], Finisher | None]
 
 
@@ -818,6 +820,37 @@ def _ink_generated(source: Source) -> Iterator[Mapping[str, object]]:
         ink.release_shape_memos()
 
 
+def _settle_units(args: tuple, kwargs: dict) -> Finisher:
+    units = tuple(args[1] if len(args) > 1 else kwargs["units"])
+
+    def finish(result: object) -> list[Mapping[str, object]]:
+        assert isinstance(result, list) and len(result) == len(units)
+        return [
+            {
+                "key": f"settle:{unit.configs[0]}:{unit.codepoints}",
+                "codepoints": unit.codepoint_values,
+                "config": unit.configs[0],
+                "value": Record(
+                    "ExplainReport",
+                    (
+                        ("codepoints", report.codepoints),
+                        ("features", report.features),
+                        ("positions", report.positions),
+                    ),
+                ),
+            }
+            for unit, report in zip(units, result)
+        ]
+
+    return finish
+
+
+def _settle_spans(args: tuple, kwargs: dict) -> Finisher:
+    values = tuple(args[1] if len(args) > 1 else kwargs["codepoint_values"])
+    key = "spans:" + ":".join(f"{value:04X}" for value in values)
+    return lambda result: {"key": key, "codepoints": values, "value": result}
+
+
 # The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
 STAGES: dict[str, Stage] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
@@ -834,6 +867,9 @@ STAGES: dict[str, Stage] = {
     "yaml": Stage("yaml", {"yaml.safe_dump": _yaml_safe_dump}, _yaml_generated),
     "shape": Stage("shape", {"Shaper.shape": _shape_call}),
     "ink": Stage("ink", {"_phase1_unit": _ink_unit, "_ink_readings": _ink_diffs}, _ink_generated),
+    "settle": Stage(
+        "settle", {"Enricher.explain_units": _settle_units, "Enricher.formed_spans": _settle_spans}
+    ),
 }
 
 
@@ -899,7 +935,8 @@ def _wrapper(original: Callable, recorders: list[tuple[str, Recorder]], sink: _S
         for name, finish in finishers:
             fields = finish(result)
             if fields is not None and sink is not None:
-                sink.write(name, "run", fields)
+                for line in fields if isinstance(fields, list) else [fields]:
+                    sink.write(name, "run", line)
         return result
 
     return call
