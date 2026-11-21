@@ -1,12 +1,15 @@
 //! The ink-signature store as the Python build holds, reads and writes it (`unit_cache.SignatureArrays`, `write_signature_arrays`, `signature_miss_note`; `rebuild/CORPUS-PARENT-PORT-PLAN.md` § Containers and § Reading what Python wrote): the prior store's keys in one sorted column beside their 32-byte digests and a hit bit an entry, the misses shaped before the stream and the late ones it shapes itself in two more, the new store's lines merged from them in key order, and the store written as one gzip stream at level 1 through its staging file. A store reads as absent on any read error but `zlib.error`, which Python's readers do not catch, so it fails the load ([`StoreError`]), as does JSON Python reads into a value the reader does not hold.
 //!
-//! [`stage_signature_store`] is the `signature-store` stage of the stage fixtures.
+//! A window's signature text ([`signature_text`], `build.signature_text`) is what the misses' shaping hands [`InkComparator::signature`].
+//!
+//! [`stage_signature_store`] is the `signature-store` stage of the stage fixtures, and [`stage_signature`] the `signature` stage.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use ams_m1_kernel::emit::json_string;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
 
@@ -14,10 +17,14 @@ use crate::corpus::audit::{integer, items, stage_line, text};
 use crate::corpus::gzip::{GzipError, GzipReader, GzipWriter, MTIME, PART_LEVEL};
 use crate::corpus::input::{BuildInput, Stamp};
 use crate::corpus::sink::staging_path;
+use crate::corpus::stream::parse_window;
+use crate::fontfacts::{FontFacts, Side};
 use crate::fragment::sha256_hex;
+use crate::ink::{self, InkComparator};
 use crate::pyfmt::repr::repr;
 use crate::pyfmt::{PyValue, json};
-use crate::wire::{Result, WireError, error};
+use crate::shape::{Fonts, Shaper};
+use crate::wire::{Init, Result, WireError, error};
 
 /// The header key of the audit's identity the store was written over (`unit_cache.AUDIT_IDENTITY_KEY`).
 pub const AUDIT_IDENTITY_KEY: &str = "audit_identity";
@@ -1011,6 +1018,81 @@ pub fn stage_signature_store(
     answered
 }
 
+/// `build.signature_text`: the text a window's ink signature is taken over, its code points as characters. A code point that is no Unicode scalar value is refused, since no text the shaper reads holds one.
+pub fn signature_text(window: &str) -> Result<String> {
+    parse_window(window)?
+        .into_iter()
+        .map(|point| {
+            u32::try_from(point)
+                .ok()
+                .and_then(char::from_u32)
+                .ok_or_else(|| {
+                    WireError(format!(
+                        "the window {window:?} holds {point:#X}, which is no Unicode scalar value"
+                    ))
+                })
+        })
+        .collect()
+}
+
+/// The `signature` stage: for each line of `stage_file`, the signature of its `input`, a `pair`'s text or a `late` or `window` line's window as [`signature_text`] gives its text, under its configuration, shaped over the before and after fonts of the build input's units init through one [`Shaper`] ([`InkComparator::signature`]), written as one `{"key", "signature", "value"}` line in the typed encoding with the signature as Python holds it and its digest ([`Signature::digest`](crate::ink::Signature::digest)) as hex.
+pub fn stage_signature(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    let input = BuildInput::read(input_path)?;
+    let init = Init::read(Path::new(&input.units_init))?;
+    let facts = FontFacts::read(&init.font_facts)?;
+    let fonts = Fonts::open(&init, &facts).map_err(|failure| WireError(failure.0))?;
+    let pixel_size = ink::pixel_size(&init).map_err(|failure| WireError(failure.0))?;
+    let comparator = InkComparator::new(&facts, pixel_size, Side::Before, Side::After);
+    let mut shaper = Shaper::new(&fonts, &facts);
+    let file = File::open(stage_file)
+        .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
+    for line in BufReader::new(file).lines() {
+        let line =
+            line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
+        let record: Value = serde_json::from_str(&line)
+            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
+        let Some(key) = record["key"].as_str() else {
+            return error(format!("a stage line has no key: {line:.200}"));
+        };
+        let typed = |field: &str| {
+            PyValue::from_typed(&record[field])
+                .map_err(|failure| WireError(format!("{key}: the {field}: {failure}")))
+        };
+        let inputs = typed("input")?;
+        let [subject, config] = items(&inputs, "the input")? else {
+            return error(format!(
+                "{key}: the input is not a subject and a configuration"
+            ));
+        };
+        let (subject, config) = (
+            text(subject, "the subject")?,
+            text(config, "the configuration")?,
+        );
+        let shaped = match typed("form")? {
+            PyValue::Str(form) if form == "pair" => subject.to_owned(),
+            PyValue::Str(form) if form == "late" || form == "window" => signature_text(subject)?,
+            other => return error(format!("{key}: no signature form {other:?}")),
+        };
+        let signature = comparator
+            .signature(&mut shaper, &shaped, config)
+            .map_err(|failure| WireError(format!("{key}: {failure}")))?;
+        let digest: String = signature
+            .digest(&facts)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        writeln!(
+            out,
+            "{{\"key\":{},\"signature\":{},\"value\":{}}}",
+            json_string(key),
+            signature.to_py(&facts).to_typed(),
+            PyValue::str(&digest).to_typed()
+        )
+        .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1037,6 +1119,16 @@ mod tests {
 
     fn filled(byte: u8) -> [u8; 32] {
         [byte; 32]
+    }
+
+    #[test]
+    fn a_window_s_signature_text_is_its_code_points_as_characters() {
+        assert_eq!(
+            signature_text("E650:0020:1F600").expect("a window"),
+            "\u{E650} \u{1F600}"
+        );
+        assert!(signature_text("E650:D800").is_err());
+        assert!(signature_text("E650:110000").is_err());
     }
 
     #[test]

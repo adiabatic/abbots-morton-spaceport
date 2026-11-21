@@ -14,6 +14,7 @@ The build's stages (`BUILD_STAGES`):
 - `audit-layout` is a boundary stage that records the build's `audit.audit_layout` call (`_layout_found`, hooked where `build` imports it) under `layout`: what it finds, an `audit.AuditLayout` of the sections, the reason or none and the byte the base's rows start at, which the Rust side finds again over the audit its build input names, read through the descriptors it inherits. Its generated lines (`_audit_layout_generated`) are keyed by a digest of their input, the path messages name and each part's blob with its member index, and valued what `audit_layout` finds or `("raised", class, message)` for its `ValueError` and `MemberError`; every part's bytes are kept once under their sha256 in `audit-layout.blobs/` beside the stage file (`AUDIT_LAYOUT_BLOBS`). They cover single files (`_layout_plain_cases`: no header, headers that end in a carriage return, are not UTF-8 or are another, sections in order and out of it, a stray row at each place in a section, rows past several line probes, configurations that are not UTF-8) and audits under a head (`_layout_head_cases`: the mini audit as `oracle.AuditWriter` writes it, a plain base with segments held as gzip members, plain segments, a folded base, then segments and header members made by hand that fail each check).
 - `stream` is a boundary stage that walks the audit again in lockstep (`audit_stream.lockstep`) over the descriptors, sections and family keys of the build's stream (`_stream_walked`, hooked where `build` imports `stream_workload`), a window a unit (`WalkedBoundary`): its record under `value` (`_stream_record`: the window, its rows as the walk yields them, its family lines, whether it holds siblings, each row's signature key as `%016x` and the input key of its lines in order), and how the walk ended under `end`, `("done",)` or `("raised", class, message)` for an `OrderBreak` or a `MemberError`; and, when the build runs its key-only read, that read's `audit_stream.window_ranges` call under `ranges` (`_ranges_split`): its count and each range with its walk, the windows it holds, the sha256 of their `(window, rows)` entries and how it ended (`_walk_digest`). Its generated lines (`_stream_generated`) are keyed by a digest of their input, each part's blob with its member index, the sections `audit.audit_layout` finds over them and the counts `STREAM_SPLITS`, and valued every window's record, how the walk ended, and the ranges each count splits the windows into with each range's walk, or what the split raised; every part's bytes are kept once under their sha256 in `stream.blobs/` beside the stage file (`STREAM_BLOBS`). They walk `audit-layout`'s generated audits that are in sorted sections, the stream's own (`_stream_plain_cases`: windows shared across configurations with and without siblings, every kind of break inside a section, windows that are not canonical, and a section past `audit_stream.READ_BYTES`; `_stream_head_cases`: segments that supersede, remove, revive and add rows, unknown configurations across parts, segment lines of every refused kind, a segment section past `audit_stream.SEGMENT_READ_BYTES`, member sections that break or fail, and a base held as members past a read), and two audits whose last section runs past its part (`_stream_truncated`).
 - `signature-store` records the ink-signature store as the build loads, follows and writes it, each line keyed by its origin, its `form` and a digest of its `input`: `load`, each `unit_cache.SignatureArrays.load` call, with what the store's path held (`("missing",)`, `("directory",)` or `("file", sha256)`) and the stamp's value, valued `("none",)` or `("columns", count, keys, digests, header)` with the sha256 of the keys as 8-byte big-endian words and of the digests (`_store_columns`); `miss-note`, each `unit_cache.signature_miss_note` call, with what the path held and the stamp's value, lines and detail, valued `("note", note)`; `trace`, a store the stage follows from its making (`SignatureArrays()` or a load) through every call on it the stage names (`SIGNATURE_CALLS`, nested calls among them), recorded at each `unchanged`, with its origin and its calls, keys and digests as hex, valued the calls' results and its new lines' count and sha256 (`_store_lines`); and `write`, each `unit_cache.write_signature_arrays` call, on a pooled build's write thread or inline, with the store's trace up to its last `unchanged`, the stamp's header fields (`unit_cache._stamp_header`), the stamps and what the store's path and its staging file held, valued `("written", target, staging)` with what each holds after. Every store's bytes are kept once under their sha256 in `signature-store.blobs/` beside the stage file (`SIGNATURE_STORE_BLOBS`). Its generated lines (`_signature_store_generated`) load stores Python writes, short and past one read of the body, headers of every kind the load drops or passes, bodies of every kind of line it drops and gzip files it reads, drops or raises on (`_signature_load_cases`); note stores missing, unreadable, matching and moved in each of the ways a stamp's lines and detail record (`_signature_note_cases`); trace every call's cases, the merge of hits, misses and late misses and the stamps' `==` (`_signature_traces`); and write stores under a stamp with its lines and a bare value, with stamps and without, stamps that take the header's own keys, a staging file left behind, an empty store and one past the gzip writer's buffer (`_signature_writes`).
+- `signature` records each ink signature the build shapes, keyed by its origin, its `form` and a digest of its `input` (`_shaped_line`): `pair`, each `(text, configuration)` pair a `build._shape_misses` call shapes, serially or on its pool, and `late`, each `(window, configuration)` a `build._LateShaper` call shapes rather than finds in the store, with the signature `ink.InkComparator.signature` gives, shaped again by the recorder over the call's fonts, as its `signature` and the digest the build gave, which must be that signature's `ink.signature_digest`, as its `value`. Its generated lines (`_signature_generated`) are every window of the source's audit (`_source_windows`) under each of `ACCEPTANCE_CONFIGS`, as the form `window`, shaped over the dump's units init's before and after fonts.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3777,6 +3778,8 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     },
     "unit_cache.write_signature_arrays": ("rebuild.review.unit_cache", "write_signature_arrays"),
     "unit_cache.signature_miss_note": ("rebuild.review.unit_cache", "signature_miss_note"),
+    "build._shape_misses": ("rebuild.review.build", "_shape_misses"),
+    "build._LateShaper.__call__": ("rebuild.review.build", "_LateShaper.__call__"),
 }
 
 
@@ -7928,6 +7931,86 @@ def _signature_store_generated(source: BuildSource) -> Iterator[Mapping[str, obj
             )
 
 
+SIGNATURE_STAGE = "signature"
+_SHAPE_MISSES = inspect.signature(build._shape_misses)
+_LATE_SHAPE = inspect.signature(build._LateShaper.__call__)
+
+
+def _shaped_line(
+    comparator: ink.InkComparator, origin: str, form: str, inputs: tuple[str, str], digest: str | None = None
+) -> dict[str, object]:
+    """One `signature` line, keyed by its origin, its form and a digest of its input: the text, for a `pair`, or the window, whose text `build.signature_text` gives, for a `late` or a `window`, and the configuration, with the signature `comparator` gives as its `signature` and that signature's digest (`ink.signature_digest`) as its `value`. A `digest` the build gave for the same input that is not that digest raises ValueError."""
+    subject, config = inputs
+    text = subject if form == "pair" else build.signature_text(subject)
+    signature = comparator.signature(text, config)
+    value = ink.signature_digest(signature)
+    if digest is not None and digest != value:
+        raise ValueError(f"the build gave {digest} for {inputs!r} and the signature digests to {value}")
+    key = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {
+        "key": f"{origin}:{form}:{key}",
+        "form": form,
+        "input": inputs,
+        "signature": signature,
+        "value": value,
+    }
+
+
+def _misses_shaped(args: tuple, kwargs: dict) -> Finisher:
+    """A `build._shape_misses` call: each pair it shapes, with the digest it gives the pair, shaped again here for its signature."""
+    arguments = _SHAPE_MISSES.bind(*args, **kwargs).arguments
+    pairs = [tuple(pair) for pair in arguments["pairs"]]
+    fonts = (arguments["before_font"], arguments["after_font"])
+
+    def finish(result: object) -> list[Mapping[str, object]]:
+        assert isinstance(result, tuple), f"_shape_misses returned {result!r:.80}"
+        comparator = ink.InkComparator(*fonts)
+        return [
+            _shaped_line(comparator, "run", "pair", pair, digest)
+            for pair, digest in zip(pairs, result[0], strict=True)
+        ]
+
+    return finish
+
+
+def _late_shaped(args: tuple, kwargs: dict) -> Finisher:
+    """A `build._LateShaper` call that shapes its window, which only a wrong skip of the key-only read gives: the window and the configuration, with the digest it gives them."""
+    arguments = _LATE_SHAPE.bind(*args, **kwargs).arguments
+    shaper = arguments["self"]
+    shaped = shaper.shaped
+    inputs = (arguments["window"], arguments["config"])
+
+    def finish(result: object) -> Mapping[str, object] | None:
+        if shaper.shaped == shaped:
+            return None
+        assert isinstance(result, bytes), f"_LateShaper returned {result!r:.80}"
+        return _shaped_line(ink.InkComparator(*shaper._fonts), "run", "late", inputs, result.hex())
+
+    return finish
+
+
+def _source_windows(audit_path: Path) -> list[str]:
+    """Every window of the audit at `audit_path` in window order, as the stream walks it (`audit_stream.lockstep`)."""
+    parts = audit.AuditParts(audit_path)
+    try:
+        layout = audit.audit_layout(parts.descriptors, audit_path, parts.members)
+        if layout.sections is None:
+            raise SystemExit(f"{audit_path} is not in sorted sections ({layout.why}), so no stream walks it")
+        return [window for window, _rows in audit_stream.lockstep(parts.descriptors, layout.sections)]
+    finally:
+        parts.close()
+
+
+def _signature_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `signature` stage's generated lines: every window of the source's audit under each of `ACCEPTANCE_CONFIGS`, shaped over the before and after fonts of the dump's units init."""
+    document = json.loads((source.out / BUILD_INPUT_FILE).read_text(encoding="ascii"))
+    fonts = json.loads(Path(document["units_init"]).read_text(encoding="utf-8"))["fonts"]
+    comparator = ink.InkComparator(fonts["before"], fonts["after"])
+    for window in _source_windows(source.case.inputs.audit):
+        for config in ACCEPTANCE_CONFIGS:
+            yield _shaped_line(comparator, "generated", "window", (window, config))
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -8020,6 +8103,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
             "unit_cache.signature_miss_note": _signature_noted,
         },
         _signature_store_generated,
+        run="build",
+    ),
+    SIGNATURE_STAGE: Stage(
+        SIGNATURE_STAGE,
+        {"build._shape_misses": _misses_shaped, "build._LateShaper.__call__": _late_shaped},
+        _signature_generated,
+        outputs=("signature", "value"),
         run="build",
     ),
 }

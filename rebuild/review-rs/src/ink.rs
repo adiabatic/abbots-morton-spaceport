@@ -1,4 +1,4 @@
-//! The ink readings of a unit as the Python worker takes them (`rebuild/review/ink.py`): `InkComparator`'s placed pieces ([`InkComparator::named_run`], [`InkComparator::run_ink`], [`InkComparator::ink_pieces`], [`InkComparator::junior_pieces`]), its identity checks, and `config_diff` up to its picture path ([`InkComparator::config_diff`], [`picture_diff`]); `delta_digest` ([`delta_digest`]); `JuniorOracle.approves` ([`JuniorOracle`]); and `build._ink_readings` with the flag lines at the top of `build._phase1_unit` ([`InkReader`]).
+//! The ink readings of a unit as the Python worker takes them (`rebuild/review/ink.py`): `InkComparator`'s placed pieces ([`InkComparator::named_run`], [`InkComparator::run_ink`], [`InkComparator::ink_pieces`], [`InkComparator::junior_pieces`]), its signature and `signature_digest` over the signature's marshal version 2 bytes ([`InkComparator::signature`], [`Signature::digest`]), its identity checks, and `config_diff` up to its picture path ([`InkComparator::config_diff`], [`picture_diff`]); `delta_digest` ([`delta_digest`]); `JuniorOracle.approves` ([`JuniorOracle`]); and `build._ink_readings` with the flag lines at the top of `build._phase1_unit` ([`InkReader`]).
 //!
 //! A piece is placed from the font facts, never from an outline: its shape is the glyph's interned shape and its position is the pen position plus the glyph's offsets and its shape's own-frame origin. A window with a piece that has no pixel picture takes the outline-level delta (`InkComparator._piece_diff`), which this engine does not build: such a window is refused with an error that says so, and the unit is the Python engine's (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Byte-identity hazards).
 //!
@@ -12,6 +12,7 @@ use std::rc::Rc;
 
 use ams_m1_kernel::emit::json_string;
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 
 use crate::config_fold::ConfigFold;
 use crate::fontfacts::{FontFacts, ShapeId, Side};
@@ -210,6 +211,15 @@ impl<'f> InkComparator<'f> {
         Ok(pieces.into_iter().map(|named| named.piece).collect())
     }
 
+    /// `signature`: both sides' `run_ink` under one configuration, the rendered outcome the ink-duplicate merge groups by.
+    pub fn signature(&self, shaper: &mut Shaper, text: &str, config: &str) -> Result<Signature> {
+        let features = Features::for_config(Some(config));
+        Ok(Signature {
+            before: self.run_ink(shaper, self.before, text, &features)?,
+            after: self.run_ink(shaper, self.after, text, &features)?,
+        })
+    }
+
     /// `ink_pieces`: one side's placed pieces without their origins, sorted.
     pub fn ink_pieces(
         &self,
@@ -390,6 +400,95 @@ pub fn picture_diff(before: &[Vec<Cell>], after: &[Vec<Cell>]) -> Diff {
     }
 }
 
+/// One `InkComparator.signature`: the before and after sides' placed pieces in run order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Signature {
+    pub before: Vec<Piece>,
+    pub after: Vec<Piece>,
+}
+
+impl Signature {
+    /// The signature as Python holds it: a pair of tuples of `(shape key, x, y, origin x)`.
+    pub fn to_py(&self, facts: &FontFacts) -> PyValue {
+        let side = |pieces: &[Piece]| {
+            PyValue::Tuple(
+                pieces
+                    .iter()
+                    .map(|piece| {
+                        PyValue::Tuple(vec![
+                            PyValue::Bytes(facts.shape(piece.shape).key.to_vec()),
+                            PyValue::Int(piece.x),
+                            PyValue::Int(piece.y),
+                            PyValue::Int(piece.origin_x),
+                        ])
+                    })
+                    .collect(),
+            )
+        };
+        PyValue::Tuple(vec![side(&self.before), side(&self.after)])
+    }
+
+    /// `marshal.dumps(signature, 2)`: version 2 has no back references, so the bytes are a function of the value alone.
+    pub fn marshal(&self, facts: &FontFacts) -> Vec<u8> {
+        let mut out = Vec::new();
+        marshal_tuple(&mut out, 2);
+        for pieces in [&self.before, &self.after] {
+            marshal_tuple(&mut out, pieces.len());
+            for piece in pieces {
+                marshal_tuple(&mut out, 4);
+                marshal_bytes(&mut out, &facts.shape(piece.shape).key);
+                for value in [piece.x, piece.y, piece.origin_x] {
+                    marshal_int(&mut out, value);
+                }
+            }
+        }
+        out
+    }
+
+    /// `ink.signature_digest`: the sha256 of the signature's marshal version 2 bytes.
+    pub fn digest(&self, facts: &FontFacts) -> [u8; 32] {
+        Sha256::digest(self.marshal(facts)).into()
+    }
+}
+
+/// A marshal tuple's head: `(` and its length as a little-endian 4-byte int.
+fn marshal_tuple(out: &mut Vec<u8>, len: usize) {
+    out.push(b'(');
+    out.extend_from_slice(&marshal_length(len).to_le_bytes());
+}
+
+/// A marshal `bytes`: `s`, its length as a little-endian 4-byte int, and the bytes.
+fn marshal_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.push(b's');
+    out.extend_from_slice(&marshal_length(bytes.len()).to_le_bytes());
+    out.extend_from_slice(bytes);
+}
+
+fn marshal_length(len: usize) -> u32 {
+    u32::try_from(len).expect("a marshalled length fits in 32 bits")
+}
+
+/// A marshal `int`: `i` and a little-endian 4-byte int for a value within 32 bits, otherwise `l`, the count of its 15-bit digits signed as the value is, and the digits of its magnitude, least significant first, each a little-endian 2-byte int.
+fn marshal_int(out: &mut Vec<u8>, value: i64) {
+    if let Ok(small) = i32::try_from(value) {
+        out.push(b'i');
+        out.extend_from_slice(&small.to_le_bytes());
+        return;
+    }
+    let mut magnitude = value.unsigned_abs();
+    let mut digits = Vec::new();
+    while magnitude != 0 {
+        digits.push((magnitude & 0x7fff) as u16);
+        magnitude >>= 15;
+    }
+    let count = i32::try_from(digits.len()).expect("an i64 has at most five 15-bit digits");
+    out.push(b'l');
+    out.extend_from_slice(&(if value < 0 { -count } else { count }).to_le_bytes());
+    for digit in digits {
+        out.extend_from_slice(&digit.to_le_bytes());
+    }
+}
+
 /// `ink.JuniorOracle`: the Junior font against the after font, and the Junior letter tracking the parent derived (`junior_tracking`).
 pub struct JuniorOracle<'f> {
     comparator: InkComparator<'f>,
@@ -472,6 +571,16 @@ impl UnitInk {
     }
 }
 
+/// The grid a piece's picture lies on, the init's `PIXEL_SIZE`, which must be a positive int.
+pub fn pixel_size(init: &Init) -> Result<i64> {
+    match init.constant(PIXEL_SIZE_NAME) {
+        Some(PyValue::Int(size)) if *size > 0 => Ok(*size),
+        other => Err(InkError(format!(
+            "the init's {PIXEL_SIZE_NAME} is {other:?}, not a positive int"
+        ))),
+    }
+}
+
 /// The worker's ink readers: the before-against-after comparator, the Junior oracle and the configuration fold, over the init's facts.
 pub struct InkReader<'f> {
     comparator: InkComparator<'f>,
@@ -482,14 +591,7 @@ pub struct InkReader<'f> {
 impl<'f> InkReader<'f> {
     /// The readers the init describes: the grid from its `PIXEL_SIZE`, the Junior tracking and the fold. An init whose `IDENTITY_DIFF` is not `((), (), 0)` is refused, since every reading tests for that sentinel.
     pub fn new(init: &Init, facts: &'f FontFacts) -> Result<Self> {
-        let pixel_size = match init.constant(PIXEL_SIZE_NAME) {
-            Some(PyValue::Int(size)) if *size > 0 => *size,
-            other => {
-                return Err(InkError(format!(
-                    "the init's {PIXEL_SIZE_NAME} is {other:?}, not a positive int"
-                )));
-            }
-        };
+        let pixel_size = pixel_size(init)?;
         let identity = Diff::identity().to_py();
         if init.constant(IDENTITY_DIFF_NAME) != Some(&identity) {
             return Err(InkError(format!(
@@ -827,6 +929,60 @@ mod tests {
         );
         let digest = sha1_hex(b"(((0, 1),), (), -2)");
         assert_eq!(delta_digest(&diff), format!("d-{}", &digest[..12]));
+    }
+
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    #[test]
+    fn ints_marshal_as_python_s_marshal_writes_them_at_version_2() {
+        let mut out = Vec::new();
+        marshal_tuple(&mut out, 7);
+        for value in [
+            i64::MIN,
+            i64::MAX,
+            -(1 << 31),
+            (1 << 31) - 1,
+            1 << 31,
+            -1,
+            0,
+        ] {
+            marshal_int(&mut out, value);
+        }
+        assert_eq!(
+            hex(&out),
+            "28070000006cfbffffff000000000000000008006c05000000ff7fff7fff7fff7f0700690000008069ffffff7f6c0300000000000000020069ffffffff6900000000"
+        );
+    }
+
+    #[test]
+    fn a_signature_digests_as_python_s_signature_digest() {
+        let facts = facts();
+        let pea = |x, y, origin_x| Piece {
+            origin_x,
+            ..piece(&facts, Side::Before, "qsPea", x, y)
+        };
+        let signature = Signature {
+            before: vec![pea(0, 0, 0), pea(50, -150, 0)],
+            after: vec![pea(1 << 31, -(1 << 31) - 1, 1 << 45)],
+        };
+        assert_eq!(
+            hex(&signature.digest(&facts)),
+            "3039f162251b35b14e5f1815c8ddb6f9b5fc9ecb79b43e7ffab367843005d414"
+        );
+        let empty = Signature {
+            before: vec![],
+            after: vec![],
+        };
+        assert_eq!(
+            hex(&empty.marshal(&facts)),
+            "280200000028000000002800000000"
+        );
+        assert_eq!(
+            hex(&empty.digest(&facts)),
+            "b2ba84b7eac0b43c2a5e51dc7fdb370e0b8645eeaa7df483afe4de4632dad394"
+        );
     }
 
     #[test]
