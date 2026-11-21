@@ -290,7 +290,7 @@ fn is_delta_digest(value: &PyValue) -> bool {
 }
 
 /// `unit_cache.is_content_id`: `u-` or `e-` and [`ID_SYMBOLS`] base58 symbols, matched as `re.match` matches `^...$`, whose `$` also matches before a final newline.
-fn is_content_id(value: Option<&PyValue>) -> bool {
+pub(crate) fn is_content_id(value: Option<&PyValue>) -> bool {
     let Some(PyValue::Str(text)) = value else {
         return false;
     };

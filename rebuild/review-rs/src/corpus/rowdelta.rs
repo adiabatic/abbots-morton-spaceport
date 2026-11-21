@@ -114,9 +114,9 @@ impl std::fmt::Display for ReadError {
 impl std::error::Error for ReadError {}
 
 /// An exception a parse raises and catches, written as its `!r` writes it.
-struct Raised {
-    class: &'static str,
-    message: String,
+pub(crate) struct Raised {
+    pub(crate) class: &'static str,
+    pub(crate) message: String,
 }
 
 impl Raised {
@@ -133,7 +133,7 @@ impl Raised {
 }
 
 /// Why a value does not read: what Python raises, or a value Python reads that the reader does not hold.
-enum Unread {
+pub(crate) enum Unread {
     Raised(Raised),
     Unheld(String),
 }
@@ -148,14 +148,14 @@ fn value_repr(value: &PyValue) -> String {
 }
 
 /// `str(value)`: a `str` itself, anything else its `repr`.
-fn py_str(value: &PyValue) -> String {
+pub(crate) fn py_str(value: &PyValue) -> String {
     match value {
         PyValue::Str(text) => text.clone(),
         other => value_repr(other),
     }
 }
 
-fn type_name(value: &PyValue) -> &'static str {
+pub(crate) fn type_name(value: &PyValue) -> &'static str {
     match value {
         PyValue::None => "NoneType",
         PyValue::Bool(_) => "bool",
@@ -266,7 +266,7 @@ fn ascii_literal(text: &str) -> Vec<u8> {
 }
 
 /// `int(value)` for a value `json.loads` gives: an int, a bool, or a `str` CPython reads at base 10 ([`ascii_literal`]).
-fn py_int(value: &PyValue) -> std::result::Result<i64, Unread> {
+pub(crate) fn py_int(value: &PyValue) -> std::result::Result<i64, Unread> {
     match value {
         PyValue::Int(number) => Ok(*number),
         PyValue::Bool(flag) => Ok(i64::from(*flag)),

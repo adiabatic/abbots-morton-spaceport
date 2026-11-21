@@ -22,6 +22,7 @@ The build's stages (`BUILD_STAGES`):
 - `workload` is a boundary stage that records what the build's stream returns (`audit.stream_workload`, hooked where `build` imports it, `_workload_streamed`), as `workload_boundary` lays it out: a unit a merged unit in load order, the unit `UnitTable.unit` materializes without a store beside its liveness, survivor, config rank, row of the id columns and input key (`_workload_unit`); a column each for the string table, the pools in id order, the tuple ranks, the window values, the window index's ordinals and keys, the pre-merge units and the compaction, and each class's ordinals (`UnitTable.rows_by_class`); and lines for the pools' sizes, the window index's shape, the merge's stats, the audit's rows, the ledger classes the units reach, the classes present and the change groups' counts.
 - `premerge` is a boundary stage that records the pre-merge snapshot once the build rebases it onto the merge (`facts.PremergeSnapshot.rebase`, `_premerge_rebased`), as `premerge_boundary` lays it out: a unit a pre-merge unit in capture order, its row of the snapshot's columns with its grain as `PremergeSnapshot.grains` yields it; and lines for the identical classes and each column's length.
 - `load` is a boundary stage that records what the build's load gives the plan (`build._load_corpus`, `_corpus_loaded`), as `load_boundary` lays it out: a unit a merged unit in load order as the `workload` stage holds it, a column over the pre-merge snapshot's rows, and lines for the source the load took, the key-only read's facts, the ink-signature store's counts and new lines, the stamps, the signature stamp, the merge's stats, the held audit's parts and the console lines the load printed, read from standard error while it ran.
+- `store-records` records each unit store record the build parses, writes and slices, and each call it makes on a record's key or id, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `parsed`, each `unit_cache._parsed_cached_unit` call, with the record and the parts it trusts, valued `("parsed", record)`, `("unheld",)` for a record holding a type `CachedUnit.to_record` never writes (`_parsed_held`), or, for a generated record, `("raised", kind)`, `unreadable` for what `unit_cache.StoreUnreadable` wraps and `failed` for what fails the build (`_parsed_outcome`); `record-line`, each `unit_cache.record_line` call, with its `CachedUnit` and the line; `prior-record`, each `unit_cache.prior_record_or_none` call, with the line and the `PriorRecord`, None or `("unheld",)` (`_prior_value`); `named`, each `unit_cache.named_ordinal` call, with the line and the key it names, read by the same function over `_KeyProbe` in place of the build's index; and `id-word`, `primary-units-crc` and `content-id`, each `unit_cache.id_word`, `primary_units_crc` and `is_content_id` call, with its argument and what it gave. Its generated lines (`_store_records_generated`) parse, write, slice and name a synthetic record (`_synthetic_record`) and a sample of the dump's prior store (`_sampled_records`), put each form to its edges over the synthetic record (`_parsed_edges`, `_record_line_edges`, `_prior_record_edges`, `_named_edges`), and put ids, primary units and values to the edges of the three calls.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3826,6 +3827,18 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "audit._merge_members": ("rebuild.review.audit", "_merge_members"),
     "facts.PremergeSnapshot.rebase": ("rebuild.review.facts", "PremergeSnapshot.rebase"),
     "build._load_corpus": ("rebuild.review.build", "_load_corpus"),
+    **{
+        f"unit_cache.{name}": ("rebuild.review.unit_cache", name)
+        for name in (
+            "_parsed_cached_unit",
+            "record_line",
+            "prior_record_or_none",
+            "named_ordinal",
+            "id_word",
+            "primary_units_crc",
+            "is_content_id",
+        )
+    },
 }
 
 
@@ -9576,6 +9589,565 @@ def _corpus_loaded(_args: tuple, _kwargs: dict) -> Finisher:
     return finish
 
 
+STORE_RECORDS_STAGE = "store-records"
+# The store-record functions the `store-records` recorders and generated lines run themselves, taken before any build wraps them.
+_PARSED_CACHED_UNIT = unit_cache._parsed_cached_unit
+_RECORD_LINE = unit_cache.record_line
+_PRIOR_RECORD_OR_NONE = unit_cache.prior_record_or_none
+_NAMED_ORDINAL = unit_cache.named_ordinal
+_ID_WORD = unit_cache.id_word
+_PRIMARY_UNITS_CRC = unit_cache.primary_units_crc
+_IS_CONTENT_ID = unit_cache.is_content_id
+_PARSED_CACHED_UNIT_SIGNATURE = inspect.signature(unit_cache._parsed_cached_unit)
+_RECORD_LINE_SIGNATURE = inspect.signature(unit_cache.record_line)
+_PRIOR_RECORD_SIGNATURE = inspect.signature(unit_cache.prior_record_or_none)
+_NAMED_ORDINAL_SIGNATURE = inspect.signature(unit_cache.named_ordinal)
+# What a parse raises that fails the build rather than the store (`unit_cache._STORE_ERRORS` holds what the plan takes as a store that stops reading).
+_RECORD_FAILURES = (IndexError, AttributeError)
+# The shard part the generated record's address names, which its generated parses trust or not.
+RECORDS_PART = "units/a-class.x000.json"
+
+
+def _records_line(origin: str, form: str, inputs: object, value: object) -> dict[str, object]:
+    """One `store-records` line, keyed by its origin, its form and a digest of its input, with what Python gave as its `value`."""
+    return {
+        "key": f"{origin}:{form}:{_columns_digest(inputs)}",
+        "form": form,
+        "input": inputs,
+        "value": value,
+    }
+
+
+def _held_int(value: object) -> bool:
+    return type(value) is int and -(2**63) <= value < 2**63
+
+
+def _held_pair(value: object) -> bool:
+    return type(value) is tuple and len(value) == 2 and all(_held_int(item) for item in value)
+
+
+def _held_texts(values: Iterable[object]) -> bool:
+    return all(type(value) is str for value in values)
+
+
+def _held_optional_text(value: object) -> bool:
+    return value is None or type(value) is str
+
+
+def _held_address(address: object) -> bool:
+    return address is None or (
+        type(address) is tuple and type(address[0]) is str and _held_int(address[1]) and _held_int(address[2])
+    )
+
+
+def _parsed_held(parsed: unit_cache.ParsedCachedUnit) -> bool:
+    """Whether every field of a parsed record but `junction_rects`, which the Rust record keeps as the line holds it, has the type `CachedUnit.to_record` writes it in, which the Rust record holds."""
+    return (
+        _held_texts(
+            (
+                parsed.key,
+                parsed.prior_id,
+                parsed.prior_class,
+                parsed.content_key,
+                parsed.diffs_digest,
+                parsed.cluster,
+                parsed.change_group,
+                parsed.ledger_class,
+                *parsed.ink_deltas,
+                *parsed.ink_deltas.values(),
+                *parsed.mismatches,
+                *parsed.after_cells,
+                *parsed.after_junctions,
+                *parsed.before_glyphs,
+                *parsed.before_junctions,
+            )
+        )
+        and all(
+            type(flag) is bool
+            for flag in (
+                parsed.slim,
+                parsed.ink_identical,
+                parsed.picture_identical,
+                parsed.junior_equivalent,
+                parsed.exemplar,
+                parsed.no_verdict,
+            )
+        )
+        and _held_address(parsed.address)
+        and all(
+            pair is None or _held_pair(pair)
+            for pair in (
+                parsed.pair_codepoints,
+                parsed.pair,
+                *parsed.after_spans,
+                *parsed.before_spans,
+                *parsed.junction_pairs,
+            )
+        )
+        and _held_optional_text(parsed.duplicate_group)
+        and _held_optional_text(parsed.policy_file)
+        and all(_held_optional_text(unit) for unit, _suppressed in parsed.primary_units)
+        and _held_int(parsed.inflated)
+    )
+
+
+def _parsed_value(parsed: object) -> tuple:
+    assert isinstance(parsed, unit_cache.ParsedCachedUnit), f"_parsed_cached_unit returned {parsed!r:.80}"
+    return ("parsed", parsed) if _parsed_held(parsed) else ("unheld",)
+
+
+def _parsed_outcome(record: object, trusted: frozenset[str]) -> tuple:
+    """What `_parsed_cached_unit` gives for a record: `("parsed", record)`, `("unheld",)` for a record the Rust side does not hold (`_parsed_held`), or `("raised", kind)`, `unreadable` for what `unit_cache.StoreUnreadable` wraps and `failed` for what fails the build."""
+    try:
+        parsed = _PARSED_CACHED_UNIT(record, trusted, {}, False)  # pyright: ignore[reportArgumentType]
+    except unit_cache._STORE_ERRORS:
+        return ("raised", "unreadable")
+    except _RECORD_FAILURES:
+        return ("raised", "failed")
+    return _parsed_value(parsed)
+
+
+def _prior_value(record: object) -> object:
+    """A `prior_record_or_none` result as a `prior-record` line holds it: the record, None, or `("unheld",)` for a record whose class, duplicate group or address the Rust record does not hold."""
+    if record is None:
+        return None
+    assert isinstance(record, unit_cache.PriorRecord), f"prior_record_or_none returned {record!r:.80}"
+    held = (
+        type(record.class_id) is str
+        and _held_optional_text(record.duplicate_group)
+        and _held_address(record.address)
+        and _held_int(record.inflated)
+    )
+    return record if held else ("unheld",)
+
+
+class _KeyProbe:
+    """A stand-in for the `columns.KeyIndex` that `unit_cache.named_ordinal` asks, answering with the key it is asked for, so a `named` line holds the key a store line names without the build's index."""
+
+    def find(self, key: bytes) -> bytes:
+        return bytes(key)
+
+
+def _named_key(line: bytes) -> bytes | None:
+    return _NAMED_ORDINAL(_KeyProbe(), line)  # pyright: ignore[reportArgumentType, reportReturnType]
+
+
+def _records_parsed(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache._parsed_cached_unit` call, with the record it gave."""
+    arguments = _PARSED_CACHED_UNIT_SIGNATURE.bind(*args, **kwargs).arguments
+    inputs = (arguments["record"], frozenset(arguments["trusted"]))
+    return lambda result: _records_line("run", "parsed", inputs, _parsed_value(result))
+
+
+def _records_lined(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.record_line` call, with the line it wrote."""
+    record = _RECORD_LINE_SIGNATURE.bind(*args, **kwargs).arguments["record"]
+    return lambda result: _records_line("run", "record-line", record, result)
+
+
+def _records_sliced(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.prior_record_or_none` call, with the record it sliced."""
+    line = bytes(_PRIOR_RECORD_SIGNATURE.bind(*args, **kwargs).arguments["line"])
+    return lambda result: _records_line("run", "prior-record", line, _prior_value(result))
+
+
+def _records_named(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.named_ordinal` call, with the key the line names, which the recorder reads with the same function over `_KeyProbe`."""
+    line = bytes(_NAMED_ORDINAL_SIGNATURE.bind(*args, **kwargs).arguments["line"])
+    named = _named_key(line)
+    return lambda _result: _records_line("run", "named", line, named)
+
+
+def _records_called(form: str) -> Recorder:
+    """A one-argument `unit_cache` call (`id_word`, `primary_units_crc`, `is_content_id`), recorded under `form` with its argument and what it gave."""
+
+    def record(args: tuple, kwargs: dict) -> Finisher:
+        (value,) = (*args, *kwargs.values())
+        return lambda result: _records_line("run", form, value, result)
+
+    return record
+
+
+def _synthetic_record() -> dict:
+    """A store record in `to_record`'s order with every part a line can hold: deltas for two configurations, a judged pair, junctions with their rects, primary units with and without an id, a mismatch line of non-ASCII text, quotes, a backslash and control characters, and a deflated fragment's four-element address in `RECORDS_PART`."""
+    return {
+        "key": "0123456789abcdef" * 4,
+        "id": "u-c36hWTyMBQB",
+        "class": "a-class",
+        "content_key": "d177b592" * 8,
+        "slim": False,
+        "ink_identical": False,
+        "picture_identical": False,
+        "junior_equivalent": False,
+        "ink_deltas": {"default": "d-34947e8c5c7e", "ss03": "d-ad268abf61a7"},
+        "diffs_digest": "758a49a9fc8b39929a64a42262b19fc93d93d8ea",
+        "cluster": "c-33bad1c7",
+        "change_group": "",
+        "ledger_class": "",
+        "pair_codepoints": [0, 1],
+        "proj": {
+            "pair": [0, 1],
+            "after_spans": [[0, 1], [1, 2]],
+            "after_cells": ["qsMay/loop/None/x-height/", "·Pea 𝄞"],
+            "after_junctions": ["y5"],
+            "before_spans": [[0, 2]],
+            "before_glyphs": ["qsMay"],
+            "before_junctions": [],
+        },
+        "junctions": [
+            {
+                "pair": [1, 2],
+                "before": {"x_min": 300, "x_max": 750, "advance_total": 750},
+                "after": {"x_min": 300, "x_max": 650, "advance_total": 650},
+            }
+        ],
+        "mismatches": ['·Tea ~b~ ·Oy: "quoted" \\ \x01\x7f'],
+        "duplicate_group": "e-f8P2bEFApF9",
+        "exemplar": False,
+        "no_verdict": False,
+        "primary_units": [[None, False], ["u-DuyicL6fVGo", True]],
+        "policy_file": "glyph_data/runes/qsMay.yaml",
+        "address": [RECORDS_PART, 1, 5064, 9000],
+    }
+
+
+def _record_bytes(record: Mapping[str, object]) -> bytes:
+    return (json.dumps(record) + "\n").encode()
+
+
+def _store_record_lines(source: BuildSource) -> list[bytes]:
+    """The record lines of the dump's prior store in its materialized order, or none when the prior holds no store that reads."""
+    try:
+        opened = unit_cache.open_store(source.out / DUMP_PRIOR)
+    except unit_cache.StoreUnreadable:
+        return []
+    if opened is None:
+        return []
+    try:
+        return [line for _place, line in opened.lines()]
+    finally:
+        opened.close()
+
+
+def _sampled_records(lines: Sequence[bytes]) -> list[bytes]:
+    """The first of the store's lines and the first that holds each part a record can hold or leave out: junctions, primary units, mismatch lines, no judged pair, a slim fragment, no address and a deflated fragment's address."""
+    tests: tuple[Callable[[dict], bool], ...] = (
+        lambda record: True,
+        lambda record: bool(record["junctions"]),
+        lambda record: bool(record["primary_units"]),
+        lambda record: bool(record["mismatches"]),
+        lambda record: record["pair_codepoints"] is None,
+        lambda record: bool(record["slim"]),
+        lambda record: record["address"] is None,
+        lambda record: record["address"] is not None and len(record["address"]) == 4,
+    )
+    records = [json.loads(line) for line in lines]
+    chosen = {next((line for line, record in zip(lines, records) if test(record)), None) for test in tests}
+    return [line for line in lines if line in chosen]
+
+
+def _cached_unit_of(record: Mapping) -> unit_cache.CachedUnit:
+    """The `CachedUnit` whose line (`record_line`) is the line `record` was read from."""
+    address = record["address"]
+    pair = record["pair_codepoints"]
+    return unit_cache.CachedUnit(
+        key=record["key"],
+        prior_id=record["id"],
+        prior_class=record["class"],
+        content_key=record["content_key"],
+        slim=record["slim"],
+        address=None if address is None else (address[0], address[1], address[2]),
+        ink_identical=record["ink_identical"],
+        picture_identical=record["picture_identical"],
+        junior_equivalent=record["junior_equivalent"],
+        ink_deltas=record["ink_deltas"],
+        diffs_digest=record["diffs_digest"],
+        cluster=record["cluster"],
+        change_group=record["change_group"],
+        ledger_class=record["ledger_class"],
+        pair_codepoints=None if pair is None else (pair[0], pair[1]),
+        proj=record["proj"],
+        junctions=record["junctions"],
+        mismatches=record["mismatches"],
+        duplicate_group=record["duplicate_group"],
+        exemplar=record["exemplar"],
+        no_verdict=record["no_verdict"],
+        primary_units=record["primary_units"],
+        policy_file=record["policy_file"],
+        inflated=address[3] if address is not None and len(address) == 4 else 0,
+    )
+
+
+def _changed(record: Mapping, **changes: object) -> dict:
+    """A copy of `record` with `changes` set in place, a `proj` change named `proj_<key>`, and a field changed to `_ABSENT` removed."""
+    changed = copy.deepcopy(dict(record))
+    for name, value in changes.items():
+        target, key = (
+            (changed["proj"], name.removeprefix("proj_")) if name.startswith("proj_") else (changed, name)
+        )
+        if value is _ABSENT:
+            target.pop(key, None)
+        else:
+            target[key] = value
+    return changed
+
+
+def _parsed_edges(record: Mapping) -> Iterator[tuple[object, frozenset[str]]]:
+    """Records that put each value `_parsed_cached_unit` reads to every kind Python takes, keeps or raises on, and records whose exceptions race, each with the parts it is parsed as trusting: none, the address's part and another."""
+    trusts = (frozenset(), frozenset({RECORDS_PART}), frozenset({"units/other.json"}))
+    for trusted in trusts:
+        yield record, trusted
+    part = RECORDS_PART
+    for address in (
+        _ABSENT,
+        None,
+        [],
+        0,
+        "",
+        False,
+        [part, 1, 2],
+        [part, 1, 2, 0],
+        [part, "12", " 3 ", "4_0"],
+        [part, "x", 1],
+        [part, None, 1],
+        [part, 1, 2, [3]],
+        [part, 1],
+        [part, 1, 2, 3, 4],
+        {"a": 1, "b": 2, "c": 3},
+        5,
+        True,
+        [["x"], 1, 2],
+        [7, 1, 2],
+        [part, 1, "9" * 20],
+        [part, 1, "9" * 5000],
+    ):
+        for trusted in trusts[:2]:
+            yield _changed(record, address=address), trusted
+    for address in ("abc", "ab9", "a99"):
+        for trusted in (frozenset(), frozenset({"a"})):
+            yield _changed(record, address=address), trusted
+    edges: list[dict[str, object]] = [
+        *({name: _ABSENT} for name in record if name != "address"),
+        *({f"proj_{name}": _ABSENT} for name in record["proj"]),
+        *(
+            {"pair_codepoints": pair}
+            for pair in (None, [], [5, 6], [5, 6, 7], [5], "ab", {"a": 1}, 7, [True, 2], [[1], 2])
+        ),
+        {"class": 5},
+        {"class": "·Pea 𝄞"},
+        {"key": 5},
+        {"id": None},
+        {"content_key": 5},
+        {"slim": 1},
+        {"exemplar": None},
+        {"no_verdict": "yes"},
+        {"duplicate_group": None},
+        {"duplicate_group": 5},
+        {"policy_file": None},
+        {"policy_file": []},
+        *({"ink_deltas": deltas} for deltas in ({}, [], None, "x", {"default": 5})),
+        {"diffs_digest": 5},
+        {"cluster": None},
+        {"change_group": []},
+        {"ledger_class": "·"},
+        *(
+            {"primary_units": units}
+            for units in (
+                [],
+                [[None, False]],
+                [["u-x", 1]],
+                [["u-x", 0, 1]],
+                "ab",
+                "",
+                [[5, True]],
+                ["ab"],
+                7,
+                [7],
+                {"ab": 1},
+            )
+        ),
+        *({"mismatches": lines} for lines in ([], "ab", 5, [5], {"k": 1})),
+        *({"proj": proj} for proj in ([], "x", None, {})),
+        *({"proj_pair": pair} for pair in (None, [], [1, 2], [1, 2, 3], [1], [[1], 2], ["a", "b"])),
+        *(
+            {f"proj_{name}": spans}
+            for name in ("after_spans", "before_spans")
+            for spans in ([], [[1, 2], [3]], [[1, [2]]], [{"a": 1}], [5], "ab", [["a", "b"]], 5)
+        ),
+        *(
+            {f"proj_{name}": names}
+            for name in ("after_cells", "before_junctions")
+            for names in ([], [5], "ab", 5, [None])
+        ),
+        *(
+            {"junctions": junctions}
+            for junctions in (
+                [],
+                5,
+                ["x"],
+                [{"pair": [1]}],
+                [{}],
+                [{"pair": [1, 2]}, {}],
+                [{"pair": [1]}, {}],
+                [{"pair": "ab"}],
+            )
+        ),
+        {"class": 5, "ink_deltas": []},
+        {"ink_deltas": [], "cluster": 5},
+        {"slim": 1, "pair_codepoints": [5]},
+        {"slim": 1, "diffs_digest": 5},
+        {"pair_codepoints": [5], "proj_after_cells": _ABSENT},
+        {"address": [part, 1], "key": 5},
+        {"key": 5, "junctions": [{"pair": [1]}]},
+    ]
+    for changes in edges:
+        yield _changed(record, **changes), frozenset({part})
+    yield [1, 2], frozenset()
+
+
+def _record_line_edges(record: Mapping) -> Iterator[unit_cache.CachedUnit]:
+    """`CachedUnit`s that write each part of a line both ways: with and without an address and a deflated length, a judged pair, a duplicate group, a policy file, primary units and deltas, and text of every kind `json.dumps` escapes."""
+    cached = _cached_unit_of(record)
+    yield cached
+    for changes in (
+        {"address": None, "inflated": 0},
+        {"inflated": 0},
+        {"pair_codepoints": None},
+        {"duplicate_group": None},
+        {"policy_file": None},
+        {"primary_units": []},
+        {"ink_deltas": {}},
+        {"slim": True, "exemplar": True, "no_verdict": True},
+        {"prior_class": "·Pea 𝄞", "mismatches": ['\x00\x1f\x7f  "\\/', ""]},
+        {"proj": {}, "junctions": []},
+    ):
+        yield dataclasses.replace(cached, **changes)
+
+
+def _prior_record_edges(line: bytes) -> Iterator[bytes]:
+    """Lines that put `prior_record_or_none`'s slicing to each seam it finds or misses and each value it reads: the address's tail in every shape `record_address` reads or refuses, the patched fields' values and keys, the class and the id."""
+    cut = line.rindex(b', "address": ')
+    for tail in (
+        b"null}\n",
+        b'["p", 1, 2]}\n',
+        b'["p", 1, 2, 3]}\n',
+        b'["p", 1, 2, 0]}\n',
+        b'["p", 1]}\n',
+        b'["p", 1, 2, 3, 4]}\n',
+        b'"abc"}\n',
+        b'"a9"}\n',
+        b'"a99"}\n',
+        b"5}\n",
+        b"[[1], 2, 3]}\n",
+        b"[null, 2, 3]}\n",
+        b'["p", "7", " 8 "]}\n',
+        b'["p", "x", 1]}\n',
+        b'{"a": 1, "b": 2, "c": 3}}\n',
+        b'["p", 1, 99999999999999999999]}\n',
+        b'["p", 1, 2]}  \r\n',
+        b'["p", 1, 2]}',
+        b'["p", 1, 2]',
+        b"",
+    ):
+        yield line[:cut] + b', "address": ' + tail
+    text = line.decode("ascii")
+    for old, new in (
+        (', "duplicate_group": ', ', "duplicate_grp": '),
+        (', "policy_file": ', ', "policy_fyle": '),
+        ('"class": "a-class"', '"class": 5'),
+        ('"class": "a-class"', '"class": "\\u00b7Pea"'),
+        ('"class": "a-class"', '"klass": "a-class"'),
+        ('"id": "u-c36hWTyMBQB"', '"id": "u-c36hWTyMBQ\\u00b7"'),
+        ('"exemplar": false', '"exemplar": 1'),
+        ('"exemplar": false', '"exemplar": tru'),
+        ('"exemplar": false', '"exemplr": false'),
+        ('"no_verdict": false', '"no_verdict": []'),
+        ('"duplicate_group": "e-f8P2bEFApF9"', '"duplicate_group": 5'),
+        ('"duplicate_group": "e-f8P2bEFApF9"', '"duplicate_group": null'),
+        ('"primary_units": [[null, false], ["u-DuyicL6fVGo", true]]', '"primary_units": []'),
+        ('"primary_units": [[null, false], ["u-DuyicL6fVGo", true]]', '"primary_units": "\\u00b7"'),
+    ):
+        yield text.replace(old, new, 1).encode("ascii")
+    yield line.replace(b"u-c36hWTyMBQB", "u-c36hWTyMBQ·".encode(), 1)
+    yield b'{"key": "00"}\n'
+    yield b""
+
+
+def _named_edges(line: bytes) -> Iterator[bytes]:
+    """Lines whose `key` field is every kind `named_ordinal` reads or refuses: long, short and odd runs of hex digits, uppercase, other letters, non-ASCII bytes, and lines without the prefix."""
+    prefix = unit_cache._KEY_PREFIX
+    digits = line[len(prefix) : len(prefix) + 64]
+    yield from (b"", prefix, prefix + digits.upper(), prefix + digits[:62], prefix + digits[:63])
+    yield from (prefix + digits[:62] + b'"', prefix + b"g" * 64, prefix + "é".encode() * 32)
+    yield from (b'{"key":"' + digits, b" " + prefix + digits, prefix + digits + b"ff")
+
+
+def _store_records_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `store-records` stage's generated lines: the synthetic record (`_synthetic_record`) and a sample of the dump's prior store (`_sampled_records`), each parsed, written, sliced and named, with each form's edges over the synthetic record (`_parsed_edges`, `_record_line_edges`, `_prior_record_edges`, `_named_edges`), and ids, primary units and values at the edges of `id_word`, `primary_units_crc` and `is_content_id`."""
+    synthetic = _synthetic_record()
+    lines = [_record_bytes(synthetic), *_sampled_records(_store_record_lines(source))]
+    records = [json.loads(line) for line in lines]
+    for record in records:
+        address = record["address"]
+        for trusted in (frozenset(), frozenset({address[0]} if address else ())):
+            yield _records_line("generated", "parsed", (record, trusted), _parsed_outcome(record, trusted))
+    for record, trusted in _parsed_edges(synthetic):
+        yield _records_line("generated", "parsed", (record, trusted), _parsed_outcome(record, trusted))
+    for cached in (*map(_cached_unit_of, records[1:]), *_record_line_edges(synthetic)):
+        yield _records_line("generated", "record-line", cached, _RECORD_LINE(cached))
+    for line in (*lines, *_prior_record_edges(lines[0])):
+        yield _records_line("generated", "prior-record", line, _prior_value(_PRIOR_RECORD_OR_NONE(line)))
+    for line in (*lines, *_named_edges(lines[0])):
+        yield _records_line("generated", "named", line, _named_key(line))
+    top = unit_cache.base58_64("f" * 16)
+    above = top[:-1] + unit_cache.BASE58_ALPHABET[unit_cache.BASE58_ALPHABET.index(top[-1]) + 1]
+    ids = [record["id"] for record in records]
+    for unit_id in (
+        *ids,
+        "u-11111111111",
+        f"u-{top}",
+        f"u-{above}",
+        "u-zzzzzzzzzzz",
+        "e-c36hWTyMBQB",
+        "u-c36hWTyMBQ",
+        "u-c36hWTyMBQBB",
+        "u-c36hWTyMBQ0",
+        "u-c36hWTyMBQ·",
+        "U-c36hWTyMBQB",
+        "u_c36hWTyMBQB",
+        "",
+    ):
+        yield _records_line("generated", "id-word", unit_id, _ID_WORD(unit_id))
+    for units in (
+        *(record["primary_units"] for record in records),
+        [],
+        [[None, False]],
+        [["·", False]],
+        None,
+        "",
+        0,
+        "x",
+        [[]],
+        {"a": [1]},
+    ):
+        crc = _PRIMARY_UNITS_CRC(units)  # pyright: ignore[reportArgumentType]
+        yield _records_line("generated", "primary-units-crc", units, crc)
+    for value in (
+        *ids,
+        "u-c36hWTyMBQB\n",
+        "u-c36hWTyMBQB\n\n",
+        "e-f8P2bEFApF9",
+        "x-f8P2bEFApF9",
+        "u-c36hWTyMBQ0",
+        "u-c36hWTyMBQ",
+        "u-c36hWTyMBQ·",
+        5,
+        None,
+        ["u-c36hWTyMBQB"],
+    ):
+        yield _records_line("generated", "content-id", value, _IS_CONTENT_ID(value))
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -9732,6 +10304,20 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         PREMERGE_STAGE, {"facts.PremergeSnapshot.rebase": _premerge_rebased}, run="build", kind="boundary"
     ),
     LOAD_STAGE: Stage(LOAD_STAGE, {"build._load_corpus": _corpus_loaded}, run="build", kind="boundary"),
+    STORE_RECORDS_STAGE: Stage(
+        STORE_RECORDS_STAGE,
+        {
+            "unit_cache._parsed_cached_unit": _records_parsed,
+            "unit_cache.record_line": _records_lined,
+            "unit_cache.prior_record_or_none": _records_sliced,
+            "unit_cache.named_ordinal": _records_named,
+            "unit_cache.id_word": _records_called("id-word"),
+            "unit_cache.primary_units_crc": _records_called("primary-units-crc"),
+            "unit_cache.is_content_id": _records_called("content-id"),
+        },
+        _store_records_generated,
+        run="build",
+    ),
 }
 
 
