@@ -1,4 +1,4 @@
-"""The two shapers the compiled M1 font is read through. `Shaper` is HarfBuzz over the font. `IsolatedOverlayShaper` is the overlay configuration's output computed without shaping, from `isolated_overlay_labels` over `isolated_overlay_tokens`. The conformance sweep in rebuild/pipeline/conform.py shapes every text through them, and the oracle's position comparison in rebuild/pipeline/oracle_positions.py shapes its rows through them.
+"""The two shapers the compiled M1 font is read through. `Shaper` is HarfBuzz over the font. `IsolatedOverlayShaper` is the overlay configuration's output computed without shaping, from `isolated_overlay_labels` over `isolated_overlay_tokens`. The conformance sweep in rebuild/pipeline/conform.py shapes every text through them with the font's `kern` feature on, and the oracle's position comparison in rebuild/pipeline/oracle_positions.py shapes its rows through them with it off (`kern=False`), so the position comparison stays kern-neutral.
 
 They live apart from conform.py so that the position comparison's import closure, which `oracle_cache.POSITION_CODE_PATHS` names, holds the shapers and not the settlement walk, the settle memo, the crate driver, or the row store. An edit to one of those therefore keeps every stored position whose settled stream did not change (rebuild/pipeline/oracle_cache.py). rebuild/test_oracle_code_closure.py checks that the position comparison reaches none of them.
 """
@@ -26,8 +26,8 @@ class Shaper:
         self._outline_cache: dict[str, tuple] = {}
         self._buffer = hb.Buffer()
 
-    def _shaped(self, text: str, features: frozenset[str]):
-        """Shape `text` into this shaper's one reused buffer and return it. `shape` and `positions` both read from here, so they see the same slots. Because the buffer is reused, a shaper must not be shared across threads, and each caller copies what it needs before the next call clears the buffer."""
+    def _shaped(self, text: str, features: frozenset[str], kern: bool = True):
+        """Shape `text` into this shaper's one reused buffer and return it, with the `kern` feature on (HarfBuzz's default) or, with `kern` False, off. `shape` and `positions` both read from here, so they see the same slots. Because the buffer is reused, a shaper must not be shared across threads, and each caller copies what it needs before the next call clears the buffer."""
         hb = self._hb
         buf = self._buffer
         buf.clear_contents()
@@ -35,11 +35,14 @@ class Shaper:
         buf.cluster_level = hb.BufferClusterLevel.MONOTONE_CHARACTERS
         buf.add_str(text)
         buf.guess_segment_properties()
-        hb.shape(self.hb_font, buf, {tag: True for tag in features})
+        settings = {tag: True for tag in features}
+        if not kern:
+            settings["kern"] = False
+        hb.shape(self.hb_font, buf, settings)
         return buf
 
-    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
-        buf = self._shaped(text, features)
+    def shape(self, text: str, features: frozenset[str], kern: bool = True) -> list[dict]:
+        buf = self._shaped(text, features, kern)
         return [
             {
                 "name": self.tt.getGlyphName(info.codepoint),
@@ -52,9 +55,9 @@ class Shaper:
             for info, pos in zip(buf.glyph_infos, buf.glyph_positions)
         ]
 
-    def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
+    def positions(self, text: str, features: frozenset[str], kern: bool = True) -> list[tuple[int, int, int]]:
         """Each slot's `(x_offset, y_offset, x_advance)` from the same shaping `shape` performs. The position comparison reads nothing else, and skipping the per-slot fontTools name lookup is what makes this cheaper than `shape`."""
-        buf = self._shaped(text, features)
+        buf = self._shaped(text, features, kern)
         return [(pos.x_offset, pos.y_offset, pos.x_advance) for pos in buf.glyph_positions]
 
     def advance(self, glyph_name: str) -> int:
@@ -86,7 +89,7 @@ def isolated_overlay_tokens(spec: ResolvedSpec, text: str) -> list[settle.RightT
 
 
 class IsolatedOverlayShaper:
-    """HarfBuzz's output under the overlay, computed without shaping: each letter becomes its copy, each boundary character its glyph, and each slot sits at zero offset with its `hmtx` advance. The position comparison uses it for the overlay configuration. That is valid because the conformance sweep checks every overlay text up to `OVERLAY_MAX_LENGTH` against this output, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The font lowers the namer dot before a Short copy, but this class always names it `periodcentered`. The constructor therefore raises when the two dot glyphs have different advances, since pen positions would then depend on more than the text."""
+    """HarfBuzz's output under the overlay with `kern` off, computed without shaping: each letter becomes its copy, each boundary character its glyph, and each slot sits at zero offset with its `hmtx` advance. The position comparison uses it for the overlay configuration. That is valid because the conformance sweep checks every overlay text up to `OVERLAY_MAX_LENGTH` against this output, and cursive attachment is pairwise, so a glyph no pair moves is moved by no text. The font lowers the namer dot before a Short copy, but this class always names it `periodcentered`. The constructor therefore raises when the two dot glyphs have different advances, since pen positions would then depend on more than the text."""
 
     def __init__(self, font_path: Path, spec: ResolvedSpec):
         from fontTools.ttLib import TTFont
@@ -105,7 +108,7 @@ class IsolatedOverlayShaper:
         """The glyph label of each slot of `text` under the overlay, which `shape` and `positions` both use."""
         return isolated_overlay_labels(self.spec, isolated_overlay_tokens(self.spec, text))
 
-    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+    def shape(self, text: str, features: frozenset[str], kern: bool = False) -> list[dict]:
         labels = self._labels(text)
         return [
             {
@@ -119,6 +122,8 @@ class IsolatedOverlayShaper:
             for cluster, name in enumerate(labels)
         ]
 
-    def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
-        """Each slot's position from the same labels `shape` uses: zero offset and the glyph's `hmtx` advance."""
+    def positions(
+        self, text: str, features: frozenset[str], kern: bool = False
+    ) -> list[tuple[int, int, int]]:
+        """Each slot's position from the same labels `shape` uses: zero offset and the glyph's `hmtx` advance, which is HarfBuzz's position with `kern` off. The only caller, the oracle's position comparison, asks for that; `kern` is accepted for `Shaper`'s signature and ignored."""
         return [(0, 0, self._advances[name]) for name in self._labels(text)]

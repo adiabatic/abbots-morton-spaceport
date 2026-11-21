@@ -133,6 +133,7 @@ class SweepPlan:
     memo_windows: int
     trigger_runes: Mapping[str, frozenset[str]] = field(default_factory=dict)
     unconfined: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    kern_sides: conform.KernSides | None = None
 
 
 def window_bound(
@@ -625,6 +626,7 @@ def plan_sweep(max_length: int, memo_windows: int) -> SweepPlan:
         )
     glyphs = run_m1.mint_cell_glyphs(spec, serialized)
     del serialized
+    kern_sides = build_kern_sides()
     started = time.perf_counter()
     bounds = unit_window_bounds(spec, glyphs, max_length)
     heaviest = max(bounds, key=lambda symbol: bounds[symbol])
@@ -641,7 +643,19 @@ def plan_sweep(max_length: int, memo_windows: int) -> SweepPlan:
         memo_windows=memo_windows,
         trigger_runes=trigger_runes,
         unconfined=unconfined,
+        kern_sides=kern_sides,
     )
+
+
+def build_kern_sides() -> conform.KernSides:
+    """Return the kern assignment the build compiled rebuild/out/m1/M1.otf from (`conform.load_kern_sides` over `kern-classes.json`), which every swept break is checked against, or stop with an error when the build left none that reads."""
+    path = run_m1.OUT_DIR / conform.KERN_CLASSES_JSON
+    try:
+        return conform.load_kern_sides(path)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit(
+            f"{path} is missing or does not read ({error}) — a finished build writes it beside the font; run `make artifact-cycle` first"
+        ) from None
 
 
 _COUNTERS: tuple[MutableSequence[int], MutableSequence[int], MutableSequence[float]] | None = None
@@ -680,6 +694,7 @@ def _unit_worker(
     guard_verdicts,
     memo_windows: int,
     slot: int,
+    kern_sides: conform.KernSides | None = None,
 ):
     """Run one unit's sweep in its own process, over the texts that contain one of `triggers` when there are any, with a settlement unit's walk releasing its windows before they pass `memo_windows`, storing its count of texts shaped in its `slot` of the shared array after each chunk, and return the result with the process's peak footprint (`peak_rss.peak_footprint_self_bytes`), read just before it returns."""
     result = conform.conformance_config_worker(
@@ -693,6 +708,7 @@ def _unit_worker(
         last=last,
         triggers=triggers,
         max_windows=memo_windows,
+        kern_sides=kern_sides,
     )
     return result, peak_rss.peak_footprint_self_bytes()
 
@@ -792,6 +808,7 @@ def run_sweep(
             guard_verdicts,
             plan.memo_windows,
             slot,
+            plan.kern_sides,
         ),
     )
     triggers = {unit.config: unit.triggers for unit in units if unit.triggers}
@@ -926,6 +943,7 @@ class TargetedPlan:
     slices: tuple[tuple[str, ...], ...]
     windows: int
     memo_windows: int
+    kern_sides: conform.KernSides | None = None
 
 
 def plan_targeted(memo_windows: int) -> TargetedPlan:
@@ -940,6 +958,7 @@ def plan_targeted(memo_windows: int) -> TargetedPlan:
             f"the stamped window enumerations under {run_m1.OUT_DIR} are missing, unreadable, or were built from other sources than the ones on disk — run `make artifact-cycle` first"
         )
     glyphs = run_m1.mint_cell_glyphs(spec, serialized)
+    kern_sides = build_kern_sides()
     texts = targeted_texts(spec, serialized)
     del serialized
     units, slices = targeted_units(conform.spec_alphabet(spec), texts.groups)
@@ -951,6 +970,7 @@ def plan_targeted(memo_windows: int) -> TargetedPlan:
         slices=slices,
         windows=max((sum(map(len, unit_texts)) for unit_texts in slices), default=0),
         memo_windows=memo_windows,
+        kern_sides=kern_sides,
     )
 
 
@@ -963,8 +983,9 @@ def _texts_worker(
     guard_verdicts,
     memo_windows: int,
     slot: int,
+    kern_sides: conform.KernSides | None = None,
 ):
-    """Run one targeted unit in its own process: settle `texts` in order through a `conform._SettledWindowWalk` whose horizon is the longest of them and whose windows are released before they pass `memo_windows`, and give each the per-text checks `conform._conformance_config` gives a settlement configuration's text, `conform.check_split_buffer` where it holds a splitter, `conform.check_oracle`, and `conform.check_join_gaps`. Store the count of texts shaped in the unit's `slot` after each chunk of `conform.TEXT_CHUNK`, and return the result with the process's peak footprint. It lives here and not as a mode of `conform._conformance_config` because conform.py is in the tables' stamp and the oracle's row-code closure, which an edit there invalidates."""
+    """Run one targeted unit in its own process: settle `texts` in order through a `conform._SettledWindowWalk` whose horizon is the longest of them and whose windows are released before they pass `memo_windows`, and give each the per-text checks `conform._conformance_config` gives a settlement configuration's text, `conform.check_split_buffer` where it holds a splitter, `conform.check_oracle`, `conform.check_join_gaps`, and, given `kern_sides`, `conform.check_break_advances`. Store the count of texts shaped in the unit's `slot` after each chunk of `conform.TEXT_CHUNK`, and return the result with the process's peak footprint. It lives here and not as a mode of `conform._conformance_config` because conform.py is in the tables' stamp and the oracle's row-code closure, which an edit there invalidates."""
     store = _counter_writer(slot)
     shaper = conform.Shaper(Path(font_path))
     features = features_for_config(config)
@@ -990,10 +1011,16 @@ def _texts_worker(
             shaped = shaper.shape(text, features)
             result.shaping_runs += 1
             if splitters.intersection(text):
-                conform.check_split_buffer(text, config, features, shaper, shaped, divergences, splitters)
+                conform.check_split_buffer(
+                    text, config, features, shaper, shaped, divergences, splitters, kern_sides
+                )
             conform.check_oracle(text, config, shaped, names, divergences, modes)
             if anchors_of is not None:
                 conform.check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
+            if kern_sides is not None:
+                conform.check_break_advances(
+                    text, config, shaper, shaped, anchors_of, kern_sides, divergences
+                )
         result.sequences += len(chunk)
         if store is not None:
             store(result.sequences)
@@ -1023,6 +1050,7 @@ def run_targeted(
             guard_verdicts,
             plan.memo_windows,
             slot,
+            plan.kern_sides,
         ),
     )
     results = []

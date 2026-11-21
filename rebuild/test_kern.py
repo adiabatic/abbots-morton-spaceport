@@ -7,17 +7,21 @@ The alphabet: ·It is a one-pixel bar; ·No has a `loop` and a `flipped` stance 
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 import yaml
 
-from rebuild.pipeline import geometry, kern, kernel_io, spec_load, surface
+from rebuild.pipeline import conform, emit_gpos, geometry, kern, kernel_io, spec_load, surface
 from rebuild.pipeline.model import CellId, ResolvedSpec, ss10_copy_name
 from rebuild.pipeline.settle import cell_label
-from rebuild.pipeline.table import JoinRow, JoinTable
+from rebuild.pipeline.table import DecisionTable, JoinRow, JoinTable
 
 REGISTRY = """\
 heights: {baseline: 0, x-height: 5, y6: 6, top: 8}
@@ -35,6 +39,11 @@ families:
   qsIt: {codepoint: 0xE670}
   qsUtter: {codepoint: 0xE67A}
 """
+
+REGISTRY_WITH_ZWNJ = REGISTRY.replace(
+    "  space: {codepoint: 0x0020, splits_runs: true}\n",
+    "  space: {codepoint: 0x0020, splits_runs: true}\n  zwnj: {codepoint: 0x200C, splits_runs: true}\n",
+)
 
 
 def _rune(name: str, codepoint: int | None, stances: dict, **rest) -> dict:
@@ -145,9 +154,12 @@ def _alphabet() -> dict[str, dict]:
 
 
 def load(
-    tmp_path: Path, kerns: dict[str, list[dict]] | None = None, alphabet: dict[str, dict] | None = None
+    tmp_path: Path,
+    kerns: dict[str, list[dict]] | None = None,
+    alphabet: dict[str, dict] | None = None,
+    registry_text: str = REGISTRY,
 ) -> ResolvedSpec:
-    """Load the alphabet with each named rune's `kern:` block set to the given records."""
+    """Load the alphabet with each named rune's `kern:` block set to the given records, over `registry_text` (the test registry, which has no ZWNJ token, by default)."""
     runes_dir = tmp_path / "runes"
     runes_dir.mkdir(exist_ok=True)
     for name, document in (alphabet or _alphabet()).items():
@@ -155,7 +167,7 @@ def load(
         body = {**document, "kern": records} if records else document
         (runes_dir / f"{name}.yaml").write_text(yaml.safe_dump(body, sort_keys=False))
     registry = tmp_path / "script.yaml"
-    registry.write_text(REGISTRY)
+    registry.write_text(registry_text)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", spec_load.SpecWarning)
         return spec_load.load_spec(runes_dir, registry, spec_load.DEFAULT_SCHEMA_DIR)
@@ -603,3 +615,201 @@ class TestKerningStaysOutOfTheKernel:
         parsed = kernel_io.spec_of(kernel_io.spec_json(kerned))
         assert parsed.runes["qsIt"].kern.records == ()
         assert kernel_io.spec_json(parsed) == kernel_io.spec_json(kerned)
+
+
+def zwnj_tables(
+    spec: ResolvedSpec,
+    rows: dict[str, list[tuple[CellId, CellId, str]]],
+    before: dict[str, list[CellId]],
+    after: dict[str, list[CellId]],
+) -> dict[str, tuple[DecisionTable, JoinTable]]:
+    """Each configuration's join table beside a decision table whose head lists `before` and `after` as the cells settled beside a ZWNJ."""
+    joins = tables(spec, {config: rows.get(config, []) for config in {*rows, *before, *after}})
+    return {
+        config: (
+            DecisionTable(
+                config=config,
+                zwnj_before=frozenset(cell_label(spec, one) for one in before.get(config, ())),
+                zwnj_after=frozenset(cell_label(spec, one) for one in after.get(config, ())),
+            ),
+            table,
+        )
+        for config, table in joins.items()
+    }
+
+
+def realized(spec: ResolvedSpec, cells) -> dict:
+    return {
+        one: geometry.realize(spec, surface.resolve_cell(spec, one), name=cell_label(spec, one))
+        for one in cells
+    }
+
+
+TEA_FULL_LOCKED = cell("qsTea", "full", None, None, "locked")
+
+
+class TestTheZwnjPairs:
+    def test_every_cell_before_a_zwnj_meets_every_cell_after_one(self, tmp_path):
+        spec = load(tmp_path, {"qsNo": [{"right": {"family": "qsTea"}, "by": -1}]})
+        rows = breaks((IT, TEA_FULL))
+        built = zwnj_tables(spec, rows, {"default": [NO_LOOP, IT]}, {"default": [TEA_FULL_LOCKED]})
+        resolution = kern.resolve(spec, built, realized(spec, {IT, TEA_FULL, NO_LOOP, TEA_FULL_LOCKED}))
+        members = {member for pair in resolution.pairs for member in pair.members}
+        assert {(NO_LOOP, TEA_FULL_LOCKED), (IT, TEA_FULL_LOCKED), (IT, TEA_FULL)} <= members
+        assert values(resolution)[("qsNo", "qsTea")] == -1
+        (pair,) = [pair for pair in resolution.pairs if pair.leading.rune == "qsNo"]
+        assert pair.configs == ("default",) and pair.members == ((NO_LOOP, TEA_FULL_LOCKED),)
+
+    def test_a_locked_follower_takes_the_side_of_its_twin(self, tmp_path):
+        spec = load(tmp_path)
+        built = zwnj_tables(spec, breaks((IT, TEA_FULL)), {"default": [IT]}, {"default": [TEA_FULL_LOCKED]})
+        resolution = kern.resolve(spec, built, realized(spec, {IT, TEA_FULL, TEA_FULL_LOCKED}))
+        assert resolution.following[TEA_FULL_LOCKED] == resolution.following[TEA_FULL]
+
+    @pytest.mark.parametrize("empty", ["before", "after", "both"])
+    def test_a_head_that_lists_no_cell_on_one_side_of_a_zwnj_is_refused_when_a_letter_can_settle_there(
+        self, tmp_path, empty
+    ):
+        """A registry with the ZWNJ token and an alphabet with a letter settle a cell on each side of a ZWNJ, so an empty list means the crate missed them, and every pair across a ZWNJ would go unkerned."""
+        spec = load(tmp_path, registry_text=REGISTRY_WITH_ZWNJ)
+        assert kern.zwnj_reachable(spec)
+        rows = breaks((IT, TEA_FULL))
+        before = {"default": [] if empty in ("before", "both") else [IT]}
+        after = {"default": [] if empty in ("after", "both") else [TEA_FULL_LOCKED]}
+        built = zwnj_tables(spec, rows, before, after)
+        with pytest.raises(kern.KernInternalError, match="lists no cell"):
+            kern.resolve(spec, built, realized(spec, {IT, TEA_FULL, TEA_FULL_LOCKED}))
+
+    def test_an_empty_zwnj_list_stands_when_the_registry_has_no_zwnj_token(self, tmp_path):
+        """The test registry has no ZWNJ token, so no letter can settle beside one, and a head with no ZWNJ cells adds no breaks and raises nothing."""
+        spec = load(tmp_path)
+        assert not kern.zwnj_reachable(spec)
+        rows = breaks((IT, TEA_FULL))
+        built = zwnj_tables(spec, rows, {"default": []}, {"default": []})
+        resolution = kern.resolve(spec, built, realized(spec, {IT, TEA_FULL}))
+        assert {member for pair in resolution.pairs for member in pair.members} == {(IT, TEA_FULL)}
+
+    def test_a_head_that_lists_no_zwnj_cells_is_refused(self, tmp_path):
+        spec = load(tmp_path)
+        rows = breaks((IT, TEA_FULL))
+        built = {"default": (DecisionTable(config="default"), tables(spec, rows)["default"])}
+        with pytest.raises(kern.KernInternalError, match="lists no ZWNJ cells"):
+            kern.resolve(spec, built, glyphs(spec, rows))
+
+    def test_a_cell_beside_a_zwnj_with_a_live_side_facing_it_is_refused(self, tmp_path):
+        spec = load(tmp_path)
+        exiting = cell("qsIt", "sole", None, "baseline")
+        built = zwnj_tables(spec, breaks((IT, TEA_FULL)), {"default": [exiting]}, {"default": [TEA_FULL]})
+        with pytest.raises(kern.KernInternalError, match="live exit"):
+            kern.resolve(spec, built, realized(spec, {IT, TEA_FULL, exiting}))
+
+    def test_member_values_hold_each_kerned_break(self, tmp_path):
+        spec = load(tmp_path, {"qsNo": [{"right": {"family": "qsTea"}, "by": -1}]})
+        built = zwnj_tables(
+            spec, breaks((IT, TEA_FULL)), {"default": [NO_LOOP]}, {"default": [TEA_FULL_LOCKED]}
+        )
+        resolution = kern.resolve(spec, built, realized(spec, {IT, TEA_FULL, NO_LOOP, TEA_FULL_LOCKED}))
+        assert resolution.member_values() == {(NO_LOOP, TEA_FULL_LOCKED): -1}
+
+
+class TestTheKernPlan:
+    def _resolution(self, tmp_path, kerns):
+        spec = load(tmp_path, kerns)
+        rows = breaks((NO_LOOP, IT), (NO_FLIPPED, IT), (NO_LOOP, TEA_FULL), (IT, TEA_FULL), (IT, NO_LOOP))
+        cells = realized(spec, {IT, NO_LOOP, NO_FLIPPED, TEA_FULL})
+        return spec, kern.resolve(spec, tables(spec, rows), cells), cells
+
+    def test_leading_sides_with_one_row_share_a_rule_pair_and_the_relation_is_every_member(self, tmp_path):
+        spec, resolution, cells = self._resolution(
+            tmp_path,
+            {"qsNo": [{"right": {"family": "qsIt"}, "by": -1}]},
+        )
+        plan = emit_gpos.kern_plan(resolution, cells)
+        (rule,) = plan.rules
+        assert rule.value == -50
+        assert set(rule.lead) == {"qsNo.loop", "qsNo.flipped"}
+        assert rule.follow == ("qsIt.sole",)
+        assert plan.relation() == {
+            (cells[left].name, cells[right].name): pair.by * emit_gpos.PIXEL
+            for pair in resolution.pairs
+            if pair.by
+            for left, right in pair.members
+        }
+        text = emit_gpos.emit_kern(plan)
+        assert f"pos {rule.lead_class}' lookup m1_kern_value_m50 {rule.follow_class};" in text
+        assert f"pos {rule.lead_class}' lookup m1_kern_value_m50 uni200C {rule.follow_class};" in text
+        assert "uni200C uni200C" not in text
+        assert plan.behavior_classes() == emit_gpos.KERN_BEHAVIOR_CLASSES
+
+    def test_a_plan_with_no_kerned_pair_emits_no_kern_feature(self, tmp_path):
+        _spec, resolution, cells = self._resolution(tmp_path, {})
+        plan = emit_gpos.kern_plan(resolution, cells)
+        assert plan.rules == () and plan.behavior_classes() == ()
+        assert emit_gpos.emit_kern(plan) == ""
+        assert emit_gpos.emit_gpos(cells, kern=plan) == emit_gpos.emit_gpos(cells)
+
+    def test_a_follower_with_a_curs_entry_anchor_is_refused_with_what_to_change(self, tmp_path):
+        _spec, resolution, cells = self._resolution(
+            tmp_path, {"qsNo": [{"right": {"family": "qsIt"}, "by": -1}]}
+        )
+        anchored = {
+            one: dataclasses.replace(record, entry_curs_only=(0, 0)) if one == IT else record
+            for one, record in cells.items()
+        }
+        with pytest.raises(emit_gpos.KernPlanError, match="selectable: true"):
+            emit_gpos.kern_plan(resolution, anchored)
+
+    def test_a_leading_glyph_with_an_exit_anchor_is_refused(self, tmp_path):
+        _spec, resolution, cells = self._resolution(
+            tmp_path, {"qsNo": [{"right": {"family": "qsIt"}, "by": -1}]}
+        )
+        exiting = {
+            one: dataclasses.replace(record, exit=(3, 0)) if one == NO_LOOP else record
+            for one, record in cells.items()
+        }
+        with pytest.raises(emit_gpos.KernPlanError, match="live exit"):
+            emit_gpos.kern_plan(resolution, exiting)
+
+
+class TestTheClassesDocument:
+    def test_the_document_names_every_glyph_s_sides_and_each_kerned_pair(self, tmp_path):
+        spec = load(tmp_path, {"qsNo": [{"right": {"family": "qsIt"}, "by": -1}]})
+        rows = breaks((NO_LOOP, IT), (IT, NO_LOOP))
+        cells = realized(spec, {IT, NO_LOOP})
+        resolution = kern.resolve(spec, tables(spec, rows), cells)
+        kern.write_classes(resolution, cells, tmp_path)
+        document = json.loads((tmp_path / kern.KERN_CLASSES_JSON).read_text())
+        assert document["format"] == kern.KERN_CLASSES_FORMAT == conform.KERN_CLASSES_FORMAT
+        assert document["leading"] == {"qsIt.sole": "qsIt", "qsNo.loop": "qsNo"}
+        assert document["values"] == [["qsNo", "qsIt", -1], ["qsIt", "qsNo", 0]]
+        sides = conform.load_kern_sides(tmp_path / kern.KERN_CLASSES_JSON)
+        assert sides.value("qsNo.loop", "qsIt.sole") == -50
+        assert sides.value("qsIt.sole", "qsNo.loop") == 0
+        assert sides.value("qsIt.sole", "qsTea.full") is None
+
+    def test_a_break_missing_from_the_stage_s_list_is_a_kern_side_divergence_though_both_glyphs_have_sides(
+        self, tmp_path
+    ):
+        """The stage is handed `·No ·It` and `·It ·No` but not `·It ·It`, so ·It has a leading side and a following side, each from another break, and the two never face. HarfBuzz shaping `·It ·It` reaches that break, which the conformance sweep reports as `kern-side` instead of reading it as an unkerned facing pair."""
+        spec = load(tmp_path, {"qsNo": [{"right": {"family": "qsIt"}, "by": -1}]})
+        rows = breaks((NO_LOOP, IT), (IT, NO_LOOP))
+        cells = realized(spec, {IT, NO_LOOP})
+        kern.write_classes(kern.resolve(spec, tables(spec, rows), cells), cells, tmp_path)
+        sides = conform.load_kern_sides(tmp_path / kern.KERN_CLASSES_JSON)
+        assert "qsIt.sole" in sides.leading and "qsIt.sole" in sides.following
+        assert sides.value("qsIt.sole", "qsIt.sole") is None
+
+        advances = {"qsIt.sole": 100, "qsNo.loop": 250}
+        shaper = cast(conform.Shaper, SimpleNamespace(advance=advances.__getitem__))
+
+        def slot(name: str, index: int) -> dict:
+            return {"name": name, "cluster": index, "x_advance": advances[name], "x_offset": 0, "y_offset": 0}
+
+        divergences: list = []
+        shaped = [slot("qsIt.sole", 0), slot("qsIt.sole", 1)]
+        conform.check_break_advances("\ue670\ue670", "default", shaper, shaped, None, sides, divergences)
+        assert [divergence.kind for divergence in divergences] == ["kern-side"]
+        kept: list = []
+        unkerned = [slot("qsIt.sole", 0), slot("qsNo.loop", 1)]
+        conform.check_break_advances("\ue670\ue666", "default", shaper, unkerned, None, sides, kept)
+        assert kept == []

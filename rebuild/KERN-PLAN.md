@@ -1,6 +1,6 @@
 # Kerning plan (design §12)
 
-This is the design record for the rebuild's kerning: the `kern:` block of a rune file, the stage that resolves it, the GPOS lookup it compiles to, and the editor view of the review app that writes it. Its inputs are design §12 and the kerning section of `doc/core-idea.md`. §9 orders the work, and its first step is built: the schema key, the loader, the kern stage with its three errors, and `kern.tsv`.
+This is the design record for the rebuild's kerning: the `kern:` block of a rune file, the stage that resolves it, the GPOS lookup it compiles to, and the editor view of the review app that writes it. Its inputs are design §12 and the kerning section of `doc/core-idea.md`. §9 orders the work, and its first two steps are built: the schema key, the loader, the kern stage with its three errors and `kern.tsv`, then the GPOS lookup, the kern-only rebuild, and the gates of §7.
 
 ## 1. The rulings this plan is built on
 
@@ -42,7 +42,7 @@ kern:
 | `by`                          | Whole pixels, signed                                            | Negative tightens                                                             |
 | `why`                         | The author's rationale                                          | Written only from a note the author types; AGENTS.md's `why:` rule covers it  |
 
-A record never names a boundary. A space, a text edge, and the namer dot are not runes, and a ZWNJ is invisible to kerning (§5).
+A record never names a boundary. A space, a text edge, and the namer dot are not runes, and a ZWNJ is invisible to kerning: a pair across one kerns as the same two cells kern side by side (§5).
 
 **What a record matches.** A record matches a pair of adjacent settled cells when the pair is a break, the left cell is this rune's and fits the record's own-side keys, and the right cell fits `right`. A break is a pair whose left cell has no live exit and whose right cell has no live entry; the join table holds no other kind of break and no join with a declined facing side, and the kern stage asserts both.
 
@@ -59,31 +59,35 @@ Most cells of a rune look the same from one side: an entry state changes nothing
 - A **side** of a rune is a maximal set of its cells that the record grammar can select together and whose facing edge is the same pixel for pixel: for the leading side, cells with no live exit and the same ink-to-advance distance on every row; for the following side, cells with no live entry and the same leftmost ink on every row.
 - Each side has a **name**: the coarsest own-side pattern (`family`, then `stance`, then the join state, then `bitmap`) that selects exactly its cells among the rune's cells on that side.
 - Cells the grammar cannot tell apart (they differ only in an extension, contraction, or trim amount) are one side even when their edges differ. The coverage table marks such a side, and the editor draws each of its drawings.
-- A **facing pair** is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration or under the ss10 overlay. Under ss10 every ordered pair of letters is a reachable break, and a letter's `.ss10` copy is a member of the side its source cell is in, so most ss10 pairs fall into a facing pair settlement already reaches. A pair of letters whose isolated shapes always join under settlement gets a facing pair only ss10 reaches.
+- A **facing pair** is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration, across a ZWNJ, or under the ss10 overlay.
+- **Across a ZWNJ** every cell that settles immediately before a ZWNJ meets every cell that settles immediately after one: a window whose first right slot is a boundary reads nothing past it, and the window after a ZWNJ reads nothing before it. The cell after a ZWNJ is the `.locked` copy of a word-initial cell (for a rune with no entry on any stance, the word-initial cell itself), drawn and spaced as that cell is, so it falls on the following side its twin is on. Many such pairs meet nowhere else, such as a letter before a ligature it always joins mid-word, and they get facing pairs only a ZWNJ reaches.
+- **Under ss10** every ordered pair of letters is a reachable break, and a letter's `.ss10` copy is a member of the side its source cell is in, so most ss10 pairs fall into a facing pair settlement already reaches. A pair of letters whose isolated shapes always join under settlement gets a facing pair only ss10 reaches.
 
-The editor's rows, the coverage table's rows, and the classes of the GPOS lookup are all facing pairs. A record may be broader than one facing pair and never narrower: one that gives two cells of a side different values is the error `E-KERN-NARROWER`.
+The editor's rows and the coverage table's rows are facing pairs, and every class of the GPOS lookup is a union of whole sides (§5). A record may be broader than one facing pair and never narrower: one that gives two cells of a side different values is the error `E-KERN-NARROWER`.
 
 ## 4. The kern stage
 
-`rebuild/pipeline/kern.py` runs after the tables exist and the cell glyphs are minted. It reads the spec's kern records, the break rows of every `joins-<config>.tsv`, the letters' ss10 copies, and the realized bitmaps, and writes under `rebuild/out/m1/`:
+`rebuild/pipeline/kern.py` runs in the glyph chain once the tables exist and the cell glyphs are minted, before the defect gates. It reads the spec's kern records, the break rows of every `joins-<config>.tsv`, the cells each configuration settles beside a ZWNJ, the letters' ss10 copies, and the realized bitmaps. No join row crosses a boundary, so the crate records the ZWNJ cells in each configuration's windows head (`zwnj_before` and `zwnj_after`, the crate's `fold::zwnj_cells`), outside both table digests since they follow from the window rows, and the stage takes their product as that configuration's breaks. It writes under `rebuild/out/m1/`:
 
 - **`kern.tsv`**, the coverage table: one row per facing pair, with both side names, the value, the record that decides it (file and key path), and the configurations that reach it. It is diff-stable, so a new stance that inherits a letter-wide value shows up as added rows in a commit's diff.
-- **`kern-inventory.json`**, the editor's data: every reachable glyph's ink and advance, the sides, the facing pairs with their member cell pairs, the joined pairs of the same two runes, and for each a witness text with its settled cells and pen positions.
-- The class assignment `emit_gpos` compiles (§5).
+- **`kern-classes.json`**, the assignment the font is compiled from: each glyph's leading and following side and every facing pair's value, 0 included, so a shaped break whose two sides are no facing pair shows a break missing from the stage's list. The glyph chain writes it once read-back has passed, so it always describes the font beside it, and the conformance sweep checks every shaped break against it (§7).
+- **`kern-inventory.json`**, the editor's data: every reachable glyph's ink and advance, the sides, the facing pairs with their member cell pairs, the joined pairs of the same two runes, and for each a witness text with its settled cells and pen positions (§9's third step).
 
-It raises `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, and `E-KERN-NARROWER`, and it hands the defect gates each break's kerned offset, so the off-anchor contact check (design §9) overlays a kerned pair where the font draws it and reports an overlap as `E-CONTACT`.
+It raises `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, and `E-KERN-NARROWER`, and it hands the defect gates each kerned break's value (`KernResolution.member_values`), so the off-anchor contact check (design §9) places a kerned break where the font draws it, and an overlap there is `E-CONTACT`, appealable through the allow list under a signature that names the kern (`contact:L:R:overlap:kern-2`), so a bless at one value does not cover a deeper kern of the same pair. Ink that only touches side by side across a break is no error.
 
-**Kerning stays out of the kernel.** `spec_load` parses `kern` into records that the kernel's spec dump does not carry, and the table stamp's data half (`fingerprint.tables_value`) leaves the key out of each rune's digest. A kern edit therefore reuses the tables on disk, and `run_m1` re-emits GPOS, compiles, and reads the font back without running the crate. The freshness fingerprint carries the parsed `kern` blocks as a component of their own, and the review corpus does not depend on it (§7).
+**Kerning stays out of the kernel and out of every key but the build's.** `spec_load` parses `kern` into records that the kernel's spec dump does not carry, and `fingerprint.rune_file_digest` leaves the block out, so a kern edit moves neither the tables' stamp, nor the `data` component, nor the family keys of the oracle row cache, the settle memo, the string replay, the deep replay or the review unit cache. Each rune's kern block reaches the run_m1 skip key through a line of its own (`fingerprint.kern_lines`). When only those lines move since the last green build, and the Stage A record shows that the summaries on disk are a passing run's over the other inputs, the cycle runs `run_m1 --kern-only` (`artifact_cycle.kern_only_rebuild`): the glyph chain alone over the tables on disk, the kern stage, the defect gates, the emission, the compile and read-back, and no string replay, witness stage, shipped-order walk, Manual-pin gate or oracle, whose inputs the edit did not touch. It runs the chain beside the build and replaces the build's files only once read-back passes, so a failed kern edit leaves the prior font in place and the next pass is a kern-only rebuild again (`run_m1.kern_only_run`).
 
-The join table's `kern` column holds no information under this design: the crate drops it, and `table.py` and `rebuild/review/tablediff.py` with it.
+**The review corpus does not depend on kerning.** It shapes with `kern` off and the app renders with `font-kerning: none`, so a kern edit changes no unit. Its freshness compares its copied after font with `M1.otf` without the `kern` feature's lookups (`fingerprint.kern_blind_font_digest`), and the GPOS wiring its stores key on leaves the kern lookups out (`fingerprint.gpos_kern_blind_wiring`), so the corpus and `make verdict-ready` stay current through a kern-only rebuild.
 
 ## 5. Compilation
 
-`emit_gpos` writes one class-based pair lookup (PairPos format 2) under the `kern` feature. Its first-glyph classes are the leading sides with at least one nonzero row and its second-glyph classes are the following sides; a value is `by` pixels of x-advance on the first glyph. A letter's `.ss10` copy is in the classes of the side its source cell is in.
+`emit_gpos.kern_plan` turns the stage's resolution into one chained-context lookup (GPOS type 8) under the `kern` feature, defined after the `curs` lookups. A value is `by` pixels of x-advance on the first glyph, applied through a single-adjustment value lookup, one per distinct value.
 
-- **The lookup cannot move a join.** A glyph with a live exit is in no first-glyph class and a glyph with a live entry is in no second-glyph class. Read-back checks this on the written font: no glyph in the lookup's coverage carries an exit anchor in any `curs` lookup, and no glyph in a nonzero second class carries an entry anchor.
-- **A ZWNJ needs no rule.** HarfBuzz skips a ZWNJ when it matches GPOS input, so the pair lookup kerns across one. The conformance sweep checks this on every swept text that holds a ZWNJ, and the CoreText smoke set gains a ZWNJ case. A shaper that does not read through gets contextual rows (GPOS type 8) for the same values, which the old font's ZWNJ kern shows work.
-- **Read-back** expects GPOS to register `curs` and `kern`, and compares the lookup's classes and values with the stage's assignment.
+- **Why it is not a pair lookup.** HarfBuzz skips a ZWNJ when it matches GPOS input, so a pair lookup (PairPos) kerns across one; CoreText does not skip it, so the same lookup leaves the pair unkerned in Safari and every other CoreText client, against the ruling that a break at a ZWNJ looks like any other break. Contextual rows beside a pair lookup would kern such a pair twice in HarfBuzz. So each kerned case is a rule for the adjacent pair followed by a rule with one explicit `uni200C` between the two glyphs: a shaper applies the first rule of a lookup that matches, HarfBuzz matches the adjacent rule across a ZWNJ and never reaches the second, and CoreText matches the second. A pair across two or more ZWNJs kerns in HarfBuzz alone.
+- **The rules.** The leading sides whose rows (each following side with its value) are the same form one input class, and for each value of that row one rule pair reaches the union of the following sides that take it. feaLib picks each subtable's format. A letter's `.ss10` copy is in the classes of the side its source cell is in.
+- **The lookup cannot move a join.** A glyph with a live exit is in no input class and a glyph with a live entry is in no lookahead class. `kern_plan` refuses a plan that breaks this, and a following glyph with a cursive entry anchor, which a `selectable: false` entry row gives every cell of its stance, with a message saying what to change. Read-back checks the same property on the written font: no glyph the lookup adjusts carries an exit anchor in any `curs` lookup, and no glyph it reads after one carries an entry anchor.
+- **No kerned pair, no feature.** Only facing pairs whose value is not 0 are compiled, so with none the font has no `kern` feature.
+- **Read-back** expects GPOS to register exactly `curs` when the plan has no rule and `curs` and `kern` otherwise. It rebuilds the (first glyph, second glyph) to value relation from the compiled rules and their value lookups, once for the adjacent rules and once for the one-ZWNJ rules, and compares each with the plan's.
 
 ## 6. The editor
 
@@ -107,16 +111,19 @@ The editor is the `#view=kern` view of the review app. `rebuild/review/README.md
 
 ## 7. Gates
 
-| Gate or check                     | Under kerning                                                                                                                                   |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Read-back's GPOS feature list     | Expects `curs` and `kern`, and the no-anchor property of §5                                                                                     |
-| `conform.check_join_gaps`         | Unchanged; it is the proof that no kern reaches a join                                                                                          |
-| The conformance sweep's positions | At every break of every swept text, the shaped advance equals the cell's advance plus the coverage table's value                                |
-| `conform.check_split_buffer`      | A text split at a ZWNJ equals its segments shaped alone once the kern across the split is added; a split at a space is unchanged                |
-| The ss10 overlay's case           | Every pair is unformed and unjoined, and each slot's advance is its `hmtx` advance plus the coverage table's value                              |
-| The oracle's position comparison  | Stays kern-neutral: it shapes the new font with `kern` off and keeps normalizing the old font's kerns away                                      |
-| The review build                  | Stays kern-neutral under `REVIEW-PLAN.md`'s rule, so a kern edit makes no unit stale and the corpus's freshness leaves the `kern` component out |
-| `defects._check_contact`          | Places a break at its kerned offset                                                                                                             |
+| Gate or check                    | Under kerning                                                                                                                                                                                                                                                                                       |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The kern stage                   | Raises the three `E-KERN-` errors, and `KernInternalError` on a broken break invariant, a windows head that lists no ZWNJ cells, or a cell beside a ZWNJ with a live side facing it                                                                                                                 |
+| `emit_gpos.kern_plan`            | Refuses a plan that would adjust a glyph with an exit anchor or read one with an entry anchor after it (`KernPlanError`)                                                                                                                                                                            |
+| Read-back's GPOS checks          | Expects exactly `curs`, or `curs` and `kern` when the plan has a rule; compares both rule shapes' relation with the plan's and checks the no-anchor property of §5                                                                                                                                  |
+| `conform.check_join_gaps`        | Unchanged; the kern lookup runs after the `curs` lookups, so a kern that reached a join would open a gap here                                                                                                                                                                                       |
+| `conform.check_break_advances`   | At every slot of every swept text that does not exit into a join, `x_advance − x_offset` is the glyph's `hmtx` advance plus the value `kern-classes.json` gives it and the glyph after it, ZWNJ slots skipped; a shaped break between letters with no facing pair there is a `kern-side` divergence |
+| `conform.check_split_buffer`     | A text split at a ZWNJ equals its segments shaped alone once the kern across the split is taken off the slot before it; a split at a space is unchanged                                                                                                                                             |
+| The ss10 overlay's case          | Every pair is unformed and unjoined, and each slot sits at zero offset with its `hmtx` advance plus its kern                                                                                                                                                                                        |
+| The conformance sweep's key      | Gains the kern lookup's rule shapes as behavior classes, so the sweep runs when the lookup appears or changes form; a kern edit that changes values alone leaves the key, and read-back checks the values on every build                                                                            |
+| The oracle's position comparison | Stays kern-neutral: it shapes the new font with `kern` off and keeps normalizing the old font's kerns away                                                                                                                                                                                          |
+| The review build                 | Stays kern-neutral, so a kern edit makes no unit stale, and the corpus's freshness compares the fonts without their kern lookups                                                                                                                                                                    |
+| `defects._check_contact`         | Places each break a kern record moves at its kerned offset, the breaks across a ZWNJ and the overlay's pairs included; an overlap is `E-CONTACT`, side-by-side contact is not                                                                                                                       |
 
 ## 8. Carrying the old kerning over
 
@@ -131,13 +138,13 @@ The pairs the importer sets are listed in `var/kern/imported.json`, and the edit
 
 ## 9. Order of work
 
-1. The schema key, the loader, the kern stage with its three errors, and `kern.tsv`. The font is unchanged.
-2. The GPOS lookup, the table reuse for a kern-only edit, and the gates of §7.
+1. Built: the schema key, the loader, the kern stage with its three errors, and `kern.tsv`.
+2. Built: the GPOS lookup, the kern-only rebuild, and the gates of §7.
 3. `kern-inventory.json` and the editor view, reading only.
 4. The write route, the block writer, the journal, and undo.
 5. The importer and the carried-over marks.
 
-Each step ends with `make test-rebuild`, an M1 build, and `make artifact-cycle`; step 2 adds `make kernel-gate` for the dropped column.
+Each step ends with `make test-rebuild`, an M1 build, and `make artifact-cycle`; a step that changes the crate adds `make kernel-gate`.
 
 ## 10. Open questions
 

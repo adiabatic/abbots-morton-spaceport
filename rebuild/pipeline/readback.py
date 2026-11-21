@@ -6,6 +6,8 @@ On the same bytes it checks that the two word-boundary glyphs are inert. No subs
 
 It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_anchorless_copies`). The ss10 input substitution covers every letter cmap glyph, and no `.ss10` copy has its own cmap entry, appears in any formation sequence, marker line, ZWNJ lock class, or settlement input, or carries a cursive anchor. So under ss10 nothing forms, settles, or attaches. That is why the overlay configuration needs no settlement table, why gate:conform's sweep covers it with texts of at most two letters, and why the oracle can compare it against the bare stream at the copies' `hmtx` advances.
 
+It checks the `kern` feature against the kern plan (`_check_kern`): GPOS registers `curs` alone when the plan has no rule and `curs` and `kern` otherwise; the kern lookup's adjacent rules and its one-ZWNJ rules each give exactly the plan's (first glyph, second glyph) to value relation through their value lookups; and no glyph the lookup adjusts has an exit anchor, and no glyph it reads after one has an entry anchor, so the lookup cannot move a join.
+
 The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and reassembling each input glyph's ordered rules into the plan's (`_reassemble`). The packer refines every rule into disjoint pieces over its family's atoms (`pack_gsub._refine`), so a plan rule is matched to a run of consecutive font rules with its outcome that lie inside it, miss each other, together cover it, and hold `uni200C` wherever it does short of the farthest slot on a side, since HarfBuzz skips a ZWNJ that a context slot does not hold. Pieces that overlap, that leave part of the plan rule uncovered, that sit out of order, or that drop such a `uni200C` are divergences. The reassembly never calls the packer's refinement, which would then be checking itself. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the packed settlement lookup arrives as format 2, with a format-3 subtable for any rule the packer keeps whole, beside any format-2 subtable feaLib wrote itself.
 
 `verify_font` does not raise on a divergence. It collects messages and reports `pass`, the first `MAX_DIVERGENCES` messages, and the total count. `run_m1` writes the report to `readback_summary.json` and then raises `ReadbackError` naming that total, so the evidence survives the failure. The GSUB offset budget is reported the same way: `gsub_offset_budget` reads the uint16 subtable-offset headroom from the raw table bytes of this same parse, the report records it under `checked["gsub_budget"]`, and headroom below `SUBTABLE_OFFSET_HEADROOM_FLOOR` is a divergence. An actual overflow cannot ship, because fontTools' save fails on an overflow of a lookup's subtable-offset array, so the floor is an early warning. In the Extension-wrapped settlement lookup each subtable costs a 2-byte offset entry plus an 8-byte ExtensionSubst record, so the 16,384-byte floor sits about 1,600 subtables short of the overflow. The floor has twice caught a font that fontTools would have saved without error: the depth-4 rules, which led `m1_settle` to use Extension, and the simulated-prospect table, which led to `pack_gsub`. Those two catches are why it stays at this value.
@@ -21,10 +23,18 @@ import json
 import struct
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, cast
+from typing import Any, Mapping, Sequence, cast
 
 from rebuild.pipeline import pack_gsub
-from rebuild.pipeline.emit_gpos import CURS_HEIGHT_YS, Anchor, Registration
+from rebuild.pipeline.emit_gpos import (
+    CURS_HEIGHT_YS,
+    KERN_FEATURE,
+    ZWNJ_GLYPH,
+    Anchor,
+    KernPlan,
+    Registration,
+    value_lookup_name,
+)
 from rebuild.pipeline.emit_gsub import GsubPlan, SettleRule
 
 MAX_DIVERGENCES = 50
@@ -94,7 +104,17 @@ def _unwrapped(lookup: Any) -> list[Any]:
 
 
 def _records_of(rule: Any) -> tuple[tuple[int, int], ...]:
-    return tuple((record.SequenceIndex, record.LookupListIndex) for record in rule.SubstLookupRecord or [])
+    """The (sequence index, lookup index) records of a chained-context rule, GSUB's `SubstLookupRecord` or GPOS's `PosLookupRecord`."""
+    records = getattr(rule, "SubstLookupRecord", None)
+    if records is None:
+        records = getattr(rule, "PosLookupRecord", None)
+    return tuple((record.SequenceIndex, record.LookupListIndex) for record in records or [])
+
+
+def _either(node: Any, gsub_name: str, gpos_name: str) -> Any:
+    """The field a GSUB chained-context table names `gsub_name` and its GPOS counterpart names `gpos_name`."""
+    value = getattr(node, gsub_name, None)
+    return value if value is not None else getattr(node, gpos_name, None)
 
 
 def _class_sets(class_defs: Mapping[str, int], all_glyphs: frozenset[str]) -> dict[int, frozenset[str]]:
@@ -145,7 +165,7 @@ def _ligature_map(lookup: Any) -> dict[tuple[str, ...], str] | None:
 
 
 def _chain_rows(lookup: Any, all_glyphs: frozenset[str]) -> tuple[list[_ChainRow], list[str]]:
-    """Every chained-context rule the lookup holds, in subtable order, from any of the three subtable formats. feaLib compiles each ruleset in whichever format is smallest, so a stage's format on disk can differ from the form its FEA was written in. A format-2 class 0 resolves to its OpenType meaning: every glyph in the font's glyph order that the ClassDef does not name."""
+    """Every chained-context rule the lookup holds, in subtable order, from any of the three subtable formats, in GSUB (type 6) or GPOS (type 8). feaLib compiles each ruleset in whichever format is smallest, so a stage's format on disk can differ from the form its FEA was written in. A format-2 class 0 resolves to its OpenType meaning: every glyph in the font's glyph order that the ClassDef does not name."""
     rows: list[_ChainRow] = []
     problems: list[str] = []
     for index, subtable in enumerate(_unwrapped(lookup)):
@@ -161,11 +181,13 @@ def _chain_rows(lookup: Any, all_glyphs: frozenset[str]) -> tuple[list[_ChainRow
             )
         elif subtable_format == 1:
             coverage = subtable.Coverage.glyphs
-            for position, rule_set in enumerate(subtable.ChainSubRuleSet or []):
+            for position, rule_set in enumerate(
+                _either(subtable, "ChainSubRuleSet", "ChainPosRuleSet") or []
+            ):
                 if rule_set is None:
                     continue
                 lead = frozenset({coverage[position]})
-                for rule in rule_set.ChainSubRule:
+                for rule in _either(rule_set, "ChainSubRule", "ChainPosRule") or []:
                     rows.append(
                         _ChainRow(
                             backtrack=tuple(frozenset({glyph}) for glyph in rule.Backtrack or []),
@@ -179,11 +201,13 @@ def _chain_rows(lookup: Any, all_glyphs: frozenset[str]) -> tuple[list[_ChainRow
             backtrack_sets = _class_sets(subtable.BacktrackClassDef.classDefs, all_glyphs)
             input_sets = _class_sets(subtable.InputClassDef.classDefs, all_glyphs)
             lookahead_sets = _class_sets(subtable.LookAheadClassDef.classDefs, all_glyphs)
-            for input_class, class_set in enumerate(subtable.ChainSubClassSet or []):
+            for input_class, class_set in enumerate(
+                _either(subtable, "ChainSubClassSet", "ChainPosClassSet") or []
+            ):
                 if class_set is None:
                     continue
                 lead = input_sets.get(input_class, frozenset()) & covered
-                for rule in class_set.ChainSubClassRule:
+                for rule in _either(class_set, "ChainSubClassRule", "ChainPosClassRule") or []:
                     rows.append(
                         _ChainRow(
                             backtrack=tuple(
@@ -779,16 +803,25 @@ def _anchor_pair(anchor: Any) -> Anchor:
     return None if anchor is None else (anchor.XCoordinate, anchor.YCoordinate)
 
 
+def _gpos_tags(kern: KernPlan | None) -> list[str]:
+    """The GPOS feature tags the plan implies, in the sorted order feaLib writes them: `curs`, and `kern` when the kern plan has a rule."""
+    return ["curs", KERN_FEATURE] if kern is not None and kern.rules else ["curs"]
+
+
 def _check_cursive(
     gpos: Any,
     cursive: Mapping[int, Mapping[str, Registration]],
     divergences: list[str],
+    kern: KernPlan | None = None,
 ) -> dict[str, int]:
-    """Check that GPOS has one `curs` lookup per registered height that has any anchors, in height order, each a format-1 CursivePos whose entry and exit records equal the emitter's registrations for every glyph."""
+    """Check that GPOS registers exactly the features the plan implies (`_gpos_tags`) and has one `curs` lookup per registered height that has any anchors, in height order, each a format-1 CursivePos whose entry and exit records equal the emitter's registrations for every glyph."""
     counts: dict[str, int] = {}
     tags = [record.FeatureTag for record in gpos.FeatureList.FeatureRecord or []]
-    if tags != ["curs"]:
-        divergences.append(f"feature list: GPOS registers {tags}, expected exactly curs")
+    expected_tags = _gpos_tags(kern)
+    if tags != expected_tags:
+        divergences.append(
+            f"feature list: GPOS registers {tags}, expected exactly {' and '.join(expected_tags)}"
+        )
         return counts
     indices = _feature_indices(gpos)["curs"]
     heights = [y for y in CURS_HEIGHT_YS if cursive.get(y)]
@@ -840,12 +873,162 @@ def _check_cursive(
     return counts
 
 
+def _single_values(lookup: Any) -> dict[str, int] | None:
+    """The x-advance each glyph of a single-adjustment lookup gets, or None when the lookup holds anything but single adjustments that set the x-advance alone."""
+    values: dict[str, int] = {}
+    subtables = _unwrapped(lookup)
+    if not subtables:
+        return None
+    for subtable in subtables:
+        if type(subtable).__name__ != "SinglePos" or subtable.ValueFormat != 0x0004:
+            return None
+        glyphs = list(subtable.Coverage.glyphs)
+        if subtable.Format == 1:
+            for glyph in glyphs:
+                values.setdefault(glyph, subtable.Value.XAdvance)
+        else:
+            for glyph, value in zip(glyphs, subtable.Value):
+                values.setdefault(glyph, value.XAdvance)
+    return values
+
+
+def _anchored_glyphs(gpos: Any) -> tuple[frozenset[str], frozenset[str]]:
+    """The glyphs any cursive-attachment subtable gives a non-NULL entry anchor, and those it gives a non-NULL exit anchor."""
+    entries: set[str] = set()
+    exits: set[str] = set()
+    for lookup in gpos.LookupList.Lookup or []:
+        for subtable in _unwrapped(lookup):
+            if type(subtable).__name__ != "CursivePos":
+                continue
+            for glyph, record in zip(subtable.Coverage.glyphs, subtable.EntryExitRecord or []):
+                if record.EntryAnchor is not None:
+                    entries.add(glyph)
+                if record.ExitAnchor is not None:
+                    exits.add(glyph)
+    return frozenset(entries), frozenset(exits)
+
+
+def _relation_text(pairs: Sequence[tuple[tuple[str, str], int | None]]) -> str:
+    return ", ".join(f"{lead}|{follow}={value}" for (lead, follow), value in pairs[:5])
+
+
+def _check_kern(gpos: Any, plan: KernPlan | None, all_glyphs: frozenset[str], divergences: list[str]) -> dict:
+    """Check the `kern` feature against the kern plan (rebuild/KERN-PLAN.md section 5). With no rule in the plan the font carries no `kern` feature, which `_check_cursive`'s feature list checks. Otherwise the feature holds one chained-context lookup, defined after every `curs` lookup, whose rules each adjust their one input glyph through a single-adjustment value lookup registered in no feature, before either one following glyph (the adjacent shape) or `uni200C` and then one following glyph (the one-ZWNJ shape). Read-back rebuilds, rule by rule and first match first, the (first glyph, second glyph) to value relation each shape gives, the value being the x-advance the value lookup gives the first glyph, and compares each with the plan's relation. It also checks that the lookup cannot move a join: no glyph it adjusts has an exit anchor in any cursive lookup, and no glyph it reads after an adjusted one has an entry anchor."""
+    if plan is None or not plan.rules:
+        return {}
+    stage = "kern"
+    indices = _feature_indices(gpos)
+    kern_indices = indices.get(KERN_FEATURE, [])
+    if len(kern_indices) != 1:
+        divergences.append(f"{stage}: the kern feature carries lookups {kern_indices}, expected exactly one")
+        return {}
+    index = kern_indices[0]
+    curs_indices = indices.get("curs", [])
+    if curs_indices and index <= max(curs_indices):
+        divergences.append(
+            f"lookup order: the kern lookup is {index}, but curs lookups {curs_indices} are defined after it"
+        )
+    lookups = list(gpos.LookupList.Lookup or [])
+    lookup = _lookup_at(lookups, index)
+    if lookup is None:
+        divergences.append(f"{stage}: registered as lookup {index}, which the lookup list does not hold")
+        return {}
+    rows, problems = _chain_rows(lookup, all_glyphs)
+    for problem in problems:
+        divergences.append(f"{stage}: {problem}")
+    if problems:
+        return {}
+    registered = {lookup_index for found in indices.values() for lookup_index in found}
+    value_maps: dict[int, dict[str, int] | None] = {}
+    adjacent: dict[tuple[str, str], int] = {}
+    across: dict[tuple[str, str], int] = {}
+    adjusted: set[str] = set()
+    followers: set[str] = set()
+    shapes = {"adjacent": 0, "one-zwnj": 0}
+    for row_index, row in enumerate(rows):
+        lookahead = row.lookahead
+        if len(lookahead) == 1:
+            shape, relation, follow = "adjacent", adjacent, lookahead[0]
+        elif len(lookahead) == 2 and lookahead[0] == frozenset({ZWNJ_GLYPH}):
+            shape, relation, follow = "one-zwnj", across, lookahead[1]
+        else:
+            divergences.append(
+                f"{stage}: rule {row_index} reads {_slots_text(lookahead)} after its input, which is neither a following glyph nor uni200C and one"
+            )
+            continue
+        if row.backtrack or len(row.input) != 1 or len(row.records) != 1 or row.records[0][0] != 0:
+            divergences.append(
+                f"{stage}: rule {row_index} is not one input glyph adjusted by one value lookup with no backtrack"
+            )
+            continue
+        value_index = row.records[0][1]
+        if value_index in registered:
+            divergences.append(
+                f"{stage}: rule {row_index} invokes lookup {value_index}, which a feature registers"
+            )
+        if value_index not in value_maps:
+            target = _lookup_at(lookups, value_index)
+            value_maps[value_index] = None if target is None else _single_values(target)
+        values = value_maps[value_index]
+        if values is None:
+            divergences.append(
+                f"{stage}: rule {row_index} invokes lookup {value_index}, which is not a single adjustment of the x-advance"
+            )
+            continue
+        shapes[shape] += 1
+        followers |= follow
+        for lead in row.input[0]:
+            adjusted.add(lead)
+            value = values.get(lead)
+            if value is None:
+                divergences.append(
+                    f"{stage}: rule {row_index} adjusts {lead}, which its value lookup {value_index} does not cover"
+                )
+                continue
+            for glyph in follow:
+                relation.setdefault((lead, glyph), value)
+    expected = plan.relation()
+    for shape, relation in (("adjacent", adjacent), ("one-zwnj", across)):
+        if relation == expected:
+            continue
+        missing = sorted((pair, expected[pair]) for pair in set(expected) - set(relation))
+        extra = sorted((pair, relation[pair]) for pair in set(relation) - set(expected))
+        moved = sorted(
+            (pair, relation[pair])
+            for pair in set(relation) & set(expected)
+            if relation[pair] != expected[pair]
+        )
+        divergences.append(
+            f"{stage} ({shape}): {len(relation)} kerned pairs, expected {len(expected)}; missing {_relation_text(missing)}; unplanned {_relation_text(extra)}; other values {_relation_text(moved)}"
+        )
+    entries, exits = _anchored_glyphs(gpos)
+    exiting = sorted(adjusted & exits)
+    if exiting:
+        divergences.append(
+            f"{stage}: the lookup adjusts glyphs with an exit anchor, which could move a join: {exiting[:5]}"
+        )
+    entering = sorted((followers - {ZWNJ_GLYPH}) & entries)
+    if entering:
+        divergences.append(
+            f"{stage}: the lookup reads glyphs with an entry anchor after an adjusted glyph, which could move a join: {entering[:5]}"
+        )
+    return {
+        "rules": len(rows),
+        "adjacent_rules": shapes["adjacent"],
+        "one_zwnj_rules": shapes["one-zwnj"],
+        "value_lookups": len(value_maps),
+        "pairs": len(adjacent),
+        "values": [value_lookup_name(value) for value in plan.values],
+    }
+
+
 def verify_font(
     font_path: Path,
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
+    kern: KernPlan | None = None,
 ) -> dict:
-    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the boundary glyphs, the overlay's isolation, the GSUB offset budget, and the settlement lookup's largest packed group. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
+    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the kern lookup against `kern` (`_check_kern`; with no plan or a plan with no rule the font must carry no `kern` feature), the boundary glyphs, the overlay's isolation, the GSUB offset budget, and the settlement lookup's largest packed group. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
@@ -940,7 +1123,8 @@ def verify_font(
             _check_script_list(gpos, "GPOS", divergences)
             checked["gpos_features"] = len(gpos.FeatureList.FeatureRecord or [])
             checked["gpos_lookups_flag_checked"] = _check_lookup_flags(gpos, "GPOS", divergences)
-            checked["cursive_anchors"] = _check_cursive(gpos, cursive, divergences)
+            checked["cursive_anchors"] = _check_cursive(gpos, cursive, divergences, kern)
+            checked["kern"] = _check_kern(gpos, kern, all_glyphs, divergences)
             if plan.ss10_input:
                 checked["anchorless_copies"] = _check_anchorless_copies(
                     gpos, frozenset(plan.ss10_input.values()), divergences

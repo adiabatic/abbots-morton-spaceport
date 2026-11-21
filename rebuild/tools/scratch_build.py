@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, oracle, readback, row_delta
+from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, kern, oracle, readback, row_delta
 from rebuild.pipeline import run_m1
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.spec_load import (
@@ -59,19 +59,22 @@ class FontBuild:
     tables: dict[str, tuple]
     cell_glyphs: dict
     readback: dict
+    kerned: kern.KernResolution | None = None
 
 
 def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> FontBuild:
-    """Build `spec`'s tables for `build_configs` into `out_dir`, compile `M1.otf` there, read it back, and write `readback_summary.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence."""
+    """Build `spec`'s tables for `build_configs` into `out_dir`, resolve the kern records (`kern.run_stage`, which writes `kern.tsv` there), compile `M1.otf` there with its kern lookup, read it back, and write `readback_summary.json` and `kern-classes.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence, and what the kern stage raises."""
     out_dir.mkdir(parents=True, exist_ok=True)
     tables, _digests = run_m1.build_tables(spec, out_dir, configs=build_configs)
 
     cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
     bare, copies, ss10_copies = run_m1.mint_raw_glyphs(spec)
     dots = run_m1.namer_dot_glyphs()
+    kerned = kern.run_stage(spec, tables, cell_glyphs, out_dir, ss10_copies)
+    kern_plan = emit_gpos.kern_plan(kerned, cell_glyphs)
 
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
-    gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **copies}, spec=spec)
+    gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **copies}, spec=spec, kern=kern_plan)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     all_glyphs = {**cell_glyphs, **bare, **copies, **dots}
     font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
@@ -80,13 +83,15 @@ def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> F
         font_path,
         gsub_plan,
         emit_gpos.cursive_registrations({**cell_glyphs, **bare, **copies}, spec=spec),
+        kern=kern_plan,
     )
     (out_dir / "readback_summary.json").write_text(json.dumps(readback_report, indent=2) + "\n")
     if not readback_report["pass"]:
         raise readback.ReadbackError(
             f"{readback_report['divergence_count']} read-back divergence(s) between the scratch font and the plan; see {out_dir / 'readback_summary.json'}"
         )
-    return FontBuild(tables=tables, cell_glyphs=cell_glyphs, readback=readback_report)
+    kern.write_classes(kerned, cell_glyphs, out_dir)
+    return FontBuild(tables=tables, cell_glyphs=cell_glyphs, readback=readback_report, kerned=kerned)
 
 
 def build_and_oracle(
@@ -100,7 +105,7 @@ def build_and_oracle(
             target.write_bytes(gz.read_bytes())
     spec = load_spec(runes_dir, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
     built = build_font(spec, out_dir, build_configs)
-    defect_report = run_m1._run_defect_gates(spec, built.tables, built.cell_glyphs)
+    defect_report = run_m1._run_defect_gates(spec, built.tables, built.cell_glyphs, built.kerned)
 
     report = oracle.compare_against_baseline(
         spec,

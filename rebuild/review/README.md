@@ -26,7 +26,7 @@ The review server uses port 7294, so it can run at the same time as `make serve`
 
 ### Kerning is disabled
 
-Both columns render with kerning off: the sample cells set `font-kerning: none`, which combines with each row's `font-feature-settings`. Every comparison the build makes (the review facts' ink-identity counts, highlight x-ranges, boundary-mark positions, pin checks) shapes with `kern: False` in both fonts (`ink.kern_neutral`). The rebuild emits no kerning until the kerning milestone (`doc/rebuild-design.md` §12), so the old font's kern feature would only add noise to before-and-after comparisons. Kern differences get their own review at that milestone. Turning kerning off changes nothing in the after font today; the setting is explicit so that it still applies after §12.
+Both columns render with kerning off: the sample cells set `font-kerning: none`, which combines with each row's `font-feature-settings`. Every comparison the build makes (the review facts' ink-identity counts, highlight x-ranges, boundary-mark positions, pin checks) shapes with `kern: False` in both fonts (`ink.kern_neutral`). The corpus compares settlement and joins, and kerning stays out of it (rebuild/KERN-PLAN.md §4): neither font's kerning enters a before-and-after comparison, and a kern edit changes no unit.
 
 ### Keyboard map
 

@@ -72,7 +72,7 @@ def run_font_conformance(
     jobs: int = 1,
     summary_name: str = "conform_summary.json",
 ) -> dict:
-    """Run the exhaustive font-versus-settlement sweep: the per-edit sweep at `max_length` 4 over every settlement configuration, the overlay configuration at `conform.OVERLAY_MAX_LENGTH` whatever `max_length` is, and a hand run past `conform.SWEEP_MAX_LENGTH` through `--conform-max-length`. `make conform-deep` does not call it: `rebuild/tools/deep_sweep.py` runs its own pool. The tables under `out_dir` are read only for the glyph inventory `run_m1.mint_cell_glyphs` needs to name settled cells and read their anchors. The sweep itself takes no table, because it checks HarfBuzz's behavior against the kernel's, and read-back has already checked that the font holds the rules the build planned. A stamp mismatch stops with an error instead of rebuilding: the enumeration costs a whole kernel fan-out, and an inventory built here could describe runes that have since changed. The split-buffer check runs as part of this sweep, on every text that contains a splitter.
+    """Run the exhaustive font-versus-settlement sweep: the per-edit sweep at `max_length` 4 over every settlement configuration, the overlay configuration at `conform.OVERLAY_MAX_LENGTH` whatever `max_length` is, and a hand run past `conform.SWEEP_MAX_LENGTH` through `--conform-max-length`. `make conform-deep` does not call it: `rebuild/tools/deep_sweep.py` runs its own pool. The tables under `out_dir` are read only for the glyph inventory `run_m1.mint_cell_glyphs` needs to name settled cells and read their anchors, and `kern-classes.json` beside the font for the kern assignment every shaped break is checked against (`load_build_kern_sides`). The sweep itself takes no table, because it checks HarfBuzz's behavior against the kernel's, and read-back has already checked that the font holds the rules the build planned. A stamp mismatch stops with an error instead of rebuilding: the enumeration costs a whole kernel fan-out, and an inventory built here could describe runes that have since changed. The split-buffer check runs as part of this sweep, on every text that contains a splitter.
 
     Above `jobs` 1 the sweep runs in units (`_pooled_conformance`): the ss10 overlay whole and each settlement configuration once per symbol of the alphabet (`sweep_units`), one spawn process each. The serial path sweeps each configuration whole inside `conform.run_conformance`, and both write the same summary. The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself.
 
@@ -91,6 +91,7 @@ def run_font_conformance(
         )
     decisions: Mapping[str, DecisionTable | tuple[DecisionTable, ...]] = serialized
     print(f"[t] load_tables {time.perf_counter() - start:.1f}s", flush=True)
+    kern_sides = load_build_kern_sides(out_dir)
     cell_glyphs = run_m1.mint_cell_glyphs(spec, decisions)
     settle_memos = (
         conform.settle_memo_files(out_dir, spec, memo_inputs)
@@ -98,7 +99,7 @@ def run_font_conformance(
         else {}
     )
     if jobs > 1:
-        report = _pooled_conformance(spec, out_dir, max_length, jobs, cell_glyphs, settle_memos)
+        report = _pooled_conformance(spec, out_dir, max_length, jobs, cell_glyphs, settle_memos, kern_sides)
         report.write(out_dir / summary_name)
     else:
         report = conform.run_conformance(
@@ -109,6 +110,7 @@ def run_font_conformance(
             out_dir=out_dir,
             summary_name=summary_name,
             settle_memos=settle_memos,
+            kern_sides=kern_sides,
         )
     summary = {
         "sequences": report.sequences,
@@ -122,6 +124,17 @@ def run_font_conformance(
             f"{divergence.config} {':'.join(f'{ord(ch):04X}' for ch in divergence.text)} position {divergence.position} [{divergence.kind}] expected {divergence.expected} got {divergence.got}"
         )
     return summary
+
+
+def load_build_kern_sides(out_dir: Path) -> conform.KernSides:
+    """Return the kern assignment the build compiled the font under `out_dir` from (`conform.load_kern_sides` over `kern-classes.json`), which the sweep checks every shaped break against, or stop with an error when the build left none that reads: the glyph chain writes it beside the font once read-back passes, so a font without one was not written by a build that finished."""
+    path = out_dir / conform.KERN_CLASSES_JSON
+    try:
+        return conform.load_kern_sides(path)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise SystemExit(
+            f"{path} is missing or does not read ({error}) — the sweep checks every shaped break against the kern assignment the font was compiled from, which a finished build writes beside it; run `uv run python -m rebuild.pipeline.run_m1` (or a cycle pass) first"
+        ) from None
 
 
 def run_manual_pin_gate(out_dir: Path = run_m1.OUT_DIR, spec: ResolvedSpec | None = None) -> dict:
@@ -358,12 +371,21 @@ def _conformance_unit(
     settle_memo: conform.SettleMemoFile | None,
     memo_to: str | None = None,
     spec_path: Path | None = None,
+    kern_sides: conform.KernSides | None = None,
 ) -> tuple[conform.ConformanceConfigResult, int, oracle.Shipped | None]:
     """Run one unit of the pooled conformance sweep in a pool worker (`conform.conformance_config_worker` with `last`) and return the result, its peak footprint (`peak_rss.peak_footprint_self_bytes`), so the parent can write the `conform-sweep` pool record, and the segment that holds the unit's fresh settle memo windows. The unit ships those windows (`conform.MemoReach.fresh`) into the POSIX shared memory segment `memo_to` names (`oracle.ship`), the parent hands the segment to its configuration's absorb, and the result's reach keeps only their counts, so no block reaches the parent on a pickled message. `spec_path` names the parent's dump of `spec`, which the unit's settle calls read (`kernel_exec.adopt_spec_dump`), so it writes no `spec.json`. The pool runs one unit per process, so the reading is this unit's own. It is a footprint rather than a resident peak because every settlement unit of a configuration maps the same settle memo parts, whose clean pages the page cache holds once however many units touch them, while each unit's resident peak counts them again. The peak is returned in a tuple instead of as a field on the result because conform.py is in `oracle_cache.ORACLE_ROW_CODE_PATHS`, and an edit there would invalidate every settle memo and row store."""
     if spec_path is not None:
         kernel_exec.adopt_spec_dump(spec, spec_path)
     result = conform.conformance_config_worker(
-        spec, font_path, config, max_length, glyphs, guard_verdicts, settle_memo, last=last
+        spec,
+        font_path,
+        config,
+        max_length,
+        glyphs,
+        guard_verdicts,
+        settle_memo,
+        last=last,
+        kern_sides=kern_sides,
     )
     shipped: oracle.Shipped | None = None
     reach = result.memo_reach
@@ -542,6 +564,7 @@ def _pooled_conformance(
     jobs: int,
     glyphs: Mapping[CellId, GlyphRecord],
     settle_memos: Mapping[str, conform.SettleMemoFile],
+    kern_sides: conform.KernSides | None = None,
 ) -> conform.ConformReport:
     """Sweep every unit of `sweep_units` at `max_length`, `jobs` at a time, one spawn process per unit (`run_m1._spawn_pool` with `max_tasks_per_child=1`), and return the merged report; `run_font_conformance` writes it.
 
@@ -591,6 +614,7 @@ def _pooled_conformance(
                         None if memo is None else replace(memo, returns_fresh=True),
                         None if memo is None else segments.name(slot),
                         spec_path,
+                        kern_sides,
                     )
                     running[future] = (unit.config, slot)
 
@@ -1228,7 +1252,10 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
     console.phase("defect_gates")
     start = time.perf_counter()
     cell_glyphs = run_m1.mint_cell_glyphs(spec, base.tables)
-    defect_fields = run_m1._defect_summary_fields(run_m1._run_defect_gates(spec, base.tables, cell_glyphs))
+    kerned = run_m1.resolve_kern(spec, base.tables, cell_glyphs)
+    defect_fields = run_m1._defect_summary_fields(
+        run_m1._run_defect_gates(spec, base.tables, cell_glyphs, kerned)
+    )
     print(f"[t] defect_gates {time.perf_counter() - start:.1f}s", flush=True)
     pipeline_summary.update(defect_fields)
     _retract_stage_a(out_dir)
@@ -1296,7 +1323,7 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
 
 
 def _retract_stage_a(out_dir: Path) -> None:
-    """Delete the Stage A record under `out_dir`. Each run_m1 path captures the record's values (`fingerprint.stage_a`) before it reads an input, and calls this immediately before its first write under `out_dir`: the pre-gate guards' subset refilter when the subset tables are stale (`_run_pregate_guards` hands it to `baseline_subset.ensure_fresh`), and otherwise the table build (`run_m1.run`) on a build and the defect fields of pipeline_summary.json on a `--gates-only` pass. A build then writes the tables, M1.otf, the summaries and the audit; a `--gates-only` pass writes the gate summaries and the audit. The corpus build copies the record into its manifest, and the artifact cycle trusts a matching record beside the audit, the subset tables and M1.otf (`artifact_cycle.m1_stage_a_current`). So a run that writes under `out_dir` and then stops, fails a gate or raises before `_settle_stage_a` leaves no record to vouch for what it left: a corpus built over it carries null Stage A values, which `make verdict-ready` refuses, and the next cycle skips neither run_m1 nor the corpus build. A run that a check refuses, or that fails, before its first write (a pre-gate guard over fresh subset tables, `gates_only_base`, a rune that does not load) has changed nothing the record vouches for, so it leaves the record as well: deleting it would keep the next cycle from skipping run_m1 and the corpus build once the edit is fixed or reverted, though no artifact changed."""
+    """Delete the Stage A record under `out_dir`. Each run_m1 path captures the record's values (`fingerprint.stage_a`) before it reads an input, and calls this immediately before its first write under `out_dir`: the pre-gate guards' subset refilter when the subset tables are stale (`_run_pregate_guards` hands it to `baseline_subset.ensure_fresh`), and otherwise the table build (`run_m1.run`) on a build and the defect fields of pipeline_summary.json on a `--gates-only` pass. A build then writes the tables, M1.otf, the summaries and the audit; a `--gates-only` pass writes the gate summaries and the audit. The corpus build copies the record into its manifest, and the artifact cycle trusts a matching record beside the audit, the subset tables and M1.otf (`artifact_cycle.m1_stage_a_current`). So a run that writes under `out_dir` and then stops, fails a gate or raises before `_settle_stage_a` leaves no record to vouch for what it left: a corpus built over it carries null Stage A values, which `make verdict-ready` refuses, and the next cycle skips neither run_m1 nor the corpus build. A run that a check refuses, or that fails, before its first write (a pre-gate guard over fresh subset tables, `gates_only_base`, a rune that does not load) has changed nothing the record vouches for, so it leaves the record as well: deleting it would keep the next cycle from skipping run_m1 and the corpus build once the edit is fixed or reverted, though no artifact changed. A `--kern-only` pass never deletes it: it runs only over a record that matches the sources, and replaces nothing the record vouches for but the font's `kern` lookup, which the corpus does not read (`run_m1.kern_only_run`)."""
     (Path(out_dir) / fingerprint.STAGE_A_FILENAME).unlink(missing_ok=True)
 
 
@@ -1358,6 +1385,11 @@ def main(argv: list[str] | None = None) -> None:
         help="re-run the defect gate, the Manual-pin gate and the oracle against the M1.otf and tables already on disk, rewriting the defect fields of pipeline_summary.json, the gate summaries and divergence-audit.tsv, and writing the Stage A record, which it deletes just before its first write, only once those gates pass over a prior green build of the same build-side inputs; refuses when those tables were built from other sources than the ones on disk, and records run_m1's green when everything that moved since the last green build is comparison-side",
     )
     parser.add_argument(
+        "--kern-only",
+        action="store_true",
+        help="recompile the font over the tables already on disk after an edit that moved only runes' kern blocks: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back, keeping the prior green build's Manual-pin and oracle summaries; refuses as --gates-only does, and records run_m1's green when everything that moved since the last green build is a kern block",
+    )
+    parser.add_argument(
         "--fresh-oracle-cache",
         action="store_true",
         help="derive every row rather than serving any from the oracle's per-row verdict stores, and write fresh ones over them; under --gates-only, which may not write a build input, it declines to read the stores and leaves them where they are",
@@ -1413,6 +1445,11 @@ def main(argv: list[str] | None = None) -> None:
     if args.gates_only:
         with _recording_failure(started):
             run_gates_only(out_dir=run_m1.OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
+        return
+
+    if args.kern_only:
+        with _recording_failure(started):
+            run_m1.kern_only_run(started=started)
         return
 
     if args.conform_only:

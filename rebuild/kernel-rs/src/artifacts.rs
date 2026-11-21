@@ -175,12 +175,12 @@ fn intern<'t>(names: &mut HashMap<&'t str, Rc<str>>, text: &'t str) -> Rc<str> {
 /// `JoinTable.write_tsv`.
 pub fn join_tsv(joins: &JoinTable) -> String {
     let mut out = format!("# join table, config {}\n", joins.config);
-    out.push_str("left\tright\tjunction\textension\tkern\n");
+    out.push_str("left\tright\tjunction\textension\n");
     for row in &joins.rows {
         let _ = writeln!(
             out,
-            "{}\t{}\t{}\t{}\t{}",
-            row.left, row.right, row.junction, row.extension, row.kern
+            "{}\t{}\t{}\t{}",
+            row.left, row.right, row.junction, row.extension
         );
     }
     out
@@ -201,7 +201,7 @@ fn sorted_cells<'a>(index: &SpecIndex, cells: &'a [CellId]) -> Vec<&'a CellId> {
 
 /// Writes the uncompressed windows payload to `path`: a head line with the format marker and a JSON head, then, with no `previous` rows, the column line and one row per enumerated window, and with them, the rows that differ, merged by key.
 ///
-/// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, `certificates`, `imports`, `fold_order`, and `buckets`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles; a guard rule's list starts with [`crate::certificate::GUARD_MARKER`] and the configuration it settles under. `imports` holds the windows the table took from other configurations ([`crate::crossconfig`]), in key order, each as its six labels, its outcome, and the configuration it is live in. `fold_order`, the build's configurations in the order the emitter folds them, and `buckets`, one per rule in rule order, are where the exchange expects the emitter to ship the rules ([`crate::crossconfig::Spellings::fold_order`], [`crate::crossconfig::rule_buckets`]), which `emit_gsub._fold_rules` checks; both are empty outside a table build. These four are left out of `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules; the rules an import shapes are in both digests.
+/// The head's keys, in order, are `config`, `inputs` (the fingerprint of the sources the table was built from), `identity_guard_rules`, `cited_provenance`, `cells`, `deep_classes`, `rules`, `certificates`, `imports`, `fold_order`, `buckets`, `zwnj_before`, and `zwnj_after`. The set-valued ones are sorted here. `table.read_windows` reads the keys by name. `certificates` holds one token list per rule, in rule order: the strings from [`crate::certificate`] that should make each rule fire, which `run_m1`'s witness stage settles; a guard rule's list starts with [`crate::certificate::GUARD_MARKER`] and the configuration it settles under. `imports` holds the windows the table took from other configurations ([`crate::crossconfig`]), in key order, each as its six labels, its outcome, and the configuration it is live in. `fold_order`, the build's configurations in the order the emitter folds them, and `buckets`, one per rule in rule order, are where the exchange expects the emitter to ship the rules ([`crate::crossconfig::Spellings::fold_order`], [`crate::crossconfig::rule_buckets`]), which `emit_gsub._fold_rules` checks; both are empty outside a table build. These four are left out of `table.table_digest` and `table.windows_digest` because they are evidence about the rules, not part of the rules; the rules an import shapes are in both digests. `zwnj_before` and `zwnj_after` are the cells settled immediately before and after a ZWNJ ([`crate::fold::zwnj_cells`]), which `rebuild/pipeline/kern.py` takes as the breaks a ZWNJ separates; they are a function of the window rows, which both digests cover, so neither digest reads them.
 ///
 /// With `previous`, the configuration's previous rows ([`row_merge::KeyedMerge`]), its own rows are merged against them in key order and only the rows that differ are written, each as a segment row: `+\t<row>` for a key the previous rows lack or hold with another outcome, and `-\t<six key fields>` for a key they hold that this table lacks. A row that is the same is written not at all. The table's own rows must strictly ascend by key, as every part's do, and a refusal names what failed. There is no size test: however many rows differ, they are all written as rows that differ.
 ///
@@ -367,9 +367,19 @@ fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inpu
         .iter()
         .map(|bucket| bucket.to_string())
         .collect();
+    let zwnj_before: Vec<String> = decision
+        .zwnj_before
+        .iter()
+        .map(|label| json_string(label))
+        .collect();
+    let zwnj_after: Vec<String> = decision
+        .zwnj_after
+        .iter()
+        .map(|label| json_string(label))
+        .collect();
     let _ = write!(
         out,
-        "{{\"config\":{},\"inputs\":{},\"identity_guard_rules\":{},\"cited_provenance\":[{}],\"cells\":[{}],\"deep_classes\":[{}],\"rules\":[{}],\"certificates\":[{}],\"imports\":[{}],\"fold_order\":[{}],\"buckets\":[{}]}}",
+        "{{\"config\":{},\"inputs\":{},\"identity_guard_rules\":{},\"cited_provenance\":[{}],\"cells\":[{}],\"deep_classes\":[{}],\"rules\":[{}],\"certificates\":[{}],\"imports\":[{}],\"fold_order\":[{}],\"buckets\":[{}],\"zwnj_before\":[{}],\"zwnj_after\":[{}]}}",
         json_string(&decision.config),
         json_string(inputs),
         decision.identity_guard_rules,
@@ -380,7 +390,9 @@ fn head_into(out: &mut String, index: &SpecIndex, decision: &DecisionTable, inpu
         certificates.join(","),
         imports.join(","),
         fold_order.join(","),
-        buckets.join(",")
+        buckets.join(","),
+        zwnj_before.join(","),
+        zwnj_after.join(",")
     );
 }
 
@@ -471,8 +483,8 @@ pub fn table_digest(index: &SpecIndex, decision: &DecisionTable, joins: &JoinTab
         line.clear();
         let _ = writeln!(
             &mut line,
-            "{}\t{}\t{}\t{}\t{}",
-            row.left, row.right, row.junction, row.extension, row.kern
+            "{}\t{}\t{}\t{}",
+            row.left, row.right, row.junction, row.extension
         );
         digest.update(line.as_bytes());
     }

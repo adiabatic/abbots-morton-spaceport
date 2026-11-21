@@ -1405,6 +1405,7 @@ class TestConformFanIn:
         last=None,
         triggers=frozenset(),
         max_windows=None,
+        kern_sides=None,
     ):
         """A deterministic sweep that shapes nothing: every text of the configuration's lengths that ends in `last` (every text without it) is a sequence costing the configuration's own count of shaping runs, and every text ending in the configuration's own symbol diverges, so a merge that misordered the units or the configurations would write a different report. The per-edit sweep shapes every text in every configuration, so no unit gets trigger letters, and its walks share a settle memo, so none gets a window ceiling."""
         assert not triggers and max_windows is None
@@ -1443,6 +1444,7 @@ class TestConformFanIn:
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
         monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: {})
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, decisions: {})
+        monkeypatch.setattr(run_m1_gates, "load_build_kern_sides", lambda out_dir: None)
         monkeypatch.setattr(conform, "settle_memo_files", lambda out_dir, spec, inputs: {})
         monkeypatch.setattr(conform, "Shaper", lambda font_path: object())
         monkeypatch.setattr(conform, "spec_alphabet", lambda spec: self.ALPHABET)
@@ -1635,7 +1637,17 @@ class TestConformFanIn:
         ran: list[str] = []
 
         def unit(
-            spec, font_path, config, last, max_length, glyphs, guard_verdicts, settle_memo, memo_to, spec_path
+            spec,
+            font_path,
+            config,
+            last,
+            max_length,
+            glyphs,
+            guard_verdicts,
+            settle_memo,
+            memo_to,
+            spec_path,
+            kern_sides=None,
         ):
             ran.append(config)
             if config in conform.OVERLAY_CONFIGS:
@@ -1868,10 +1880,11 @@ class TestGatesOnly:
         monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
         monkeypatch.setattr(run_m1.table_module, "read_join_tsv", lambda path: f"joins {path.name}")
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
+        monkeypatch.setattr(run_m1, "resolve_kern", lambda spec, tables, cell_glyphs: None)
         monkeypatch.setattr(
             run_m1,
             "_run_defect_gates",
-            lambda spec, tables, cell_glyphs: ran.append("defects")
+            lambda spec, tables, cell_glyphs, kerned=None: ran.append("defects")
             or (defects.DefectReport() if report is None else report),
         )
 
@@ -2412,3 +2425,137 @@ class TestGatesOnly:
         run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert fingerprint.read_stage_a(tmp_path) is None
         assert "Stage A record not written" in capsys.readouterr().out
+
+
+class TestKernOnly:
+    """`--kern-only` recompiles the font over the build on disk after an edit that moved only kern blocks. It stands on a Stage A record that matches the sources, which it carries forward and never writes, and it runs the glyph chain beside rebuild/out/m1, replacing the build's files only once read-back has passed."""
+
+    def _world(self, monkeypatch, tmp_path, *, stage_a=True, oracle_summary=None):
+        """A build under `tmp_path / "m1"`: a font, the three summaries (the oracle's from `oracle_summary`, a passing one by default), and a Stage A record matching the sources when `stage_a` is set. The green before the kern edit is recorded, and the sources now differ from it in one kern line."""
+        out = tmp_path / "m1"
+        out.mkdir()
+        monkeypatch.setattr(run_m1, "OUT_DIR", out)
+        monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda repo_root: dict(STAGE_A))
+        if stage_a:
+            fingerprint.write_stage_a(out, STAGE_A)
+        files = {name: out / f"{name}_summary.json" for name in cycle_paths.M1_SUMMARY_FILES}
+        monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+        (out / "M1.otf").write_bytes(b"old font")
+        (out / "kern-classes.json").write_text("old classes\n")
+        files["pipeline"].write_text(json.dumps({"defect_errors": [], "font": str(out / "M1.otf")}) + "\n")
+        files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 4, "replayed": 4}))
+        files["oracle"].write_text(json.dumps(oracle_summary or {"unmatched": 3, "multi_matched": 0}))
+        monkeypatch.setattr(run_m1, "tables_inputs", lambda: "fp")
+        monkeypatch.setattr(
+            run_m1_gates,
+            "gates_only_base",
+            lambda out_dir, inputs: run_m1_gates.GatesOnlyBase(tables={}, pipeline_summary={}),
+        )
+        monkeypatch.setattr(run_m1, "load_default_spec", lambda: object())
+        monkeypatch.setattr(run_m1, "head_commit", lambda: None)
+        monkeypatch.setattr(run_m1, "_collect_glyph_chain", lambda: None)
+        store = tmp_path / "run-m1-green.json"
+        monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
+        monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-now")
+        monkeypatch.setattr(
+            ac, "run_m1_skip_files", lambda root=None: {"glyph_data/runes/qsNo.yaml#kern": "k2"}
+        )
+        ac.record_green(store, "fp-prior", files={"glyph_data/runes/qsNo.yaml#kern": "k1"})
+        return out, files, store
+
+    def _chain(self, monkeypatch, ran, *, error=None):
+        """Stubs the glyph chain: it writes a new font, kern assignment and summary into the directory it is handed, then raises `error` when one is given, as a kern error or a read-back divergence would after the compile."""
+
+        def chain(spec, tables, out_dir, commit):
+            ran.append(out_dir)
+            (out_dir / "M1.otf").write_bytes(b"new font")
+            (out_dir / "kern-classes.json").write_text("new classes\n")
+            if error is not None:
+                raise error
+            summary = {"defect_errors": [], "font": str(out_dir / "M1.otf")}
+            (out_dir / "pipeline_summary.json").write_text(json.dumps(summary))
+            return summary
+
+        monkeypatch.setattr(run_m1, "_run_glyph_chain", chain)
+
+    def _snapshot(self, out):
+        return {path.name: path.read_bytes() for path in sorted(out.iterdir())}
+
+    @pytest.mark.parametrize("why", ["absent", "other-sources"])
+    def test_it_refuses_a_build_whose_stage_a_record_does_not_stand_and_writes_none(
+        self, monkeypatch, tmp_path, why
+    ):
+        """After a gates-only pass whose green and record were declined (`absent`), or a record written over sources since edited (`other-sources`), the summaries and the audit beside it are not known to be a passing run's over these inputs. The pass refuses before it reads anything else, writes no record, and runs no chain."""
+        out, _files, store = self._world(monkeypatch, tmp_path, stage_a=why == "other-sources")
+        if why == "other-sources":
+            fingerprint.write_stage_a(out, {**STAGE_A, "data": "before the edit"})
+        ran: list = []
+        self._chain(monkeypatch, ran)
+        before = self._snapshot(out)
+        with pytest.raises(SystemExit, match="Stage A record"):
+            run_m1.kern_only_run(started=time.perf_counter())
+        assert ran == []
+        assert self._snapshot(out) == before
+        record = ac.read_green_record(store)
+        assert record is not None and record["fingerprint"] == "fp-prior"
+
+    def test_it_never_re_evaluates_a_red_rerun_s_oracle_summary(self, monkeypatch, tmp_path):
+        """A gates-only rerun that went red at the oracle left its red summary and deleted the record; with the ledger reverted and a kern block edited, the pass refuses instead of re-evaluating that summary, so the cycle's full build replaces it."""
+        self._world(monkeypatch, tmp_path, stage_a=False, oracle_summary={"unmatched": 3, "multi_matched": 2})
+        ran: list = []
+        self._chain(monkeypatch, ran)
+        with pytest.raises(SystemExit, match="Stage A record"):
+            run_m1.kern_only_run(started=time.perf_counter())
+        assert ran == []
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            run_m1.kern.KernError([("E-KERN-UNMATCHED", "qsNo.yaml:kern[0] matches no break")]),
+            run_m1.readback.ReadbackError("1 read-back divergence(s)"),
+            run_m1.emit_gpos.KernPlanError("qsTea.half has an entry anchor"),
+        ],
+        ids=["kern-error", "readback", "kern-plan"],
+    )
+    def test_a_failed_chain_changes_nothing_under_the_build_and_leaves_the_next_pass_a_kern_only_rebuild(
+        self, monkeypatch, tmp_path, error
+    ):
+        """The chain runs beside the build, so a failure after the compile leaves the prior font beside the summaries that describe it and the Stage A record still matching: the next cycle plans a kern-only rebuild again once the record is fixed. The red keeps the prior green, which is over other content."""
+        out, _files, store = self._world(monkeypatch, tmp_path)
+        ran: list = []
+        self._chain(monkeypatch, ran, error=error)
+        before = self._snapshot(out)
+        with pytest.raises(SystemExit):
+            run_m1.kern_only_run(started=time.perf_counter())
+        assert ran == [run_m1.kern_only_staging()]
+        assert self._snapshot(out) == before
+        assert fingerprint.read_stage_a(out) == STAGE_A
+        record = ac.read_green_record(store)
+        assert record is not None and record["fingerprint"] == "fp-prior"
+
+    def test_a_passing_chain_replaces_the_build_s_files_and_carries_the_record_forward(
+        self, monkeypatch, tmp_path
+    ):
+        out, files, store = self._world(monkeypatch, tmp_path)
+        record_bytes = (out / fingerprint.STAGE_A_FILENAME).read_bytes()
+        ran: list = []
+        self._chain(monkeypatch, ran)
+        run_m1.kern_only_run(started=time.perf_counter())
+        assert (out / "M1.otf").read_bytes() == b"new font"
+        assert (out / "kern-classes.json").read_text() == "new classes\n"
+        assert json.loads(files["pipeline"].read_text())["font"] == str(out / "M1.otf")
+        assert (out / fingerprint.STAGE_A_FILENAME).read_bytes() == record_bytes
+        assert not run_m1.kern_only_staging().exists()
+        record = ac.read_green_record(store)
+        assert record is not None and record["fingerprint"] == "fp-now"
+
+    def test_a_stage_a_input_edited_while_it_ran_publishes_nothing(self, monkeypatch, tmp_path):
+        out, _files, _store = self._world(monkeypatch, tmp_path)
+        ran: list = []
+        self._chain(monkeypatch, ran)
+        calls = iter([dict(STAGE_A), {**STAGE_A, "data": "edited mid-run"}])
+        monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda repo_root: next(calls))
+        before = self._snapshot(out)
+        with pytest.raises(SystemExit, match="changed while --kern-only ran"):
+            run_m1.kern_only_run(started=time.perf_counter())
+        assert self._snapshot(out) == before

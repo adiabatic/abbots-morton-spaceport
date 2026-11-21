@@ -6,6 +6,8 @@
 
 The extension-band check is coarse because a join row does not say which extend record applied. A junction with a positive summed extension is checked against every band that an extend record on either rune declares at the junction's side and height, whatever its `when:`. An extension below every band, or on a junction where no record declares a band, is an error. Any other extension outside every band is a flag.
 
+E-CONTACT places a break where the font draws it: the left glyph's compiled advance less the Senior tightening's pixel, plus the kern stage's value for the pair (`kern.KernResolution.member_values`, passed as `kern`). Only an ink overlap at a break is reported; ink that touches side by side across a break is not. A break overlaps only when a kern pulls it in, and its signature names that kern (`contact:L:R:overlap:kern-2`), so an allow-list entry blesses the overlap at one value and a deeper kern of the same pair is reported again; a join's signatures are unchanged. The breaks a kern record moves that no join row records (the pairs across a ZWNJ and the ss10 overlay's pairs) are checked the same way, from the cell records `glyphs` holds and the overlay source records the stage realized (`extra_records`).
+
 E-ANCHOR is checked only here. `_check_anchors` checks the live, non-exempt sides of every realized record against the drawing that record ships. `_check_coverage_only_anchors` checks the `selectable: false` rows, which realize into no cell, against their stance's base drawing. A row's `x_off_convention` flag exempts that side alone, and a `trim` adjustment exempts the side it trimmed. An `anchor:` signature in the allow set blesses an E-ANCHOR finding like any other.
 
 The dead-policy check splits unexercised records by scope. A record is exercised when its provenance is cited. The settlement engine cites the provenance of every record that fired while tabulating a configuration (refusals that removed a candidate, including inside the lookahead closure, unlocks that granted a capability, row scopes that admitted a side, and extends, contracts, prefers, and resolves that shaped a committed cell), and the table exposes them as `DecisionTable.cited_provenance`. Rule and join-row provenance strings are added to the cited set too. An unexercised record is waiting on unmigrated letters when one of its `when:` conditions names only families that are not modeled runes. A row scope is waiting on unmigrated letters when every one of its conditions names only such families. Otherwise the record or scope is unused: it waits on no unmigrated letter and still never fires. `run_m1` writes both lists to `pipeline_summary.json`, as `waiting_on_unmigrated` and `unused_records`, and neither fails the build.
@@ -193,8 +195,12 @@ def _check_joins(
     spec: ResolvedSpec,
     tables_by_config: Mapping,
     glyphs: Mapping[CellId, GlyphRecord],
+    kern: Mapping[tuple[CellId, CellId], int] | None = None,
+    extra_records: Mapping[CellId, GlyphRecord] | None = None,
 ) -> None:
+    kern = kern or {}
     seen: set[tuple] = set()
+    checked_breaks: set[tuple[CellId, CellId]] = set()
     index = _endpoint_index(glyphs)
     for config, value in tables_by_config.items():
         _decision, joins = _decision_and_joins(value)
@@ -231,7 +237,24 @@ def _check_joins(
                         )
                 _check_band(report, allow, spec, left, right, join, extension)
             if left_record is not None and right_record is not None:
-                _check_contact(report, allow, left_record, right_record, join)
+                if join is None:
+                    checked_breaks.add((left, right))
+                _check_contact(
+                    report,
+                    allow,
+                    left_record,
+                    right_record,
+                    join,
+                    0 if join is not None else kern.get((left, right), 0),
+                )
+    records = {**(extra_records or {}), **glyphs}
+    for (left, right), value in sorted(kern.items(), key=lambda item: (repr(item[0][0]), repr(item[0][1]))):
+        if (left, right) in checked_breaks:
+            continue
+        left_record = records.get(left)
+        right_record = records.get(right)
+        if left_record is not None and right_record is not None:
+            _check_contact(report, allow, left_record, right_record, None, value)
 
 
 def _check_band(report, allow, spec: ResolvedSpec, left: CellId, right: CellId, join, extension: int) -> None:
@@ -273,7 +296,8 @@ def _check_band(report, allow, spec: ResolvedSpec, left: CellId, right: CellId, 
     )
 
 
-def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -> None:
+def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join, kern: int = 0) -> None:
+    """Overlay the two records at their offset in the font and report ink they share as E-CONTACT. A join is placed by its anchors, and side-by-side ink at any row other than the junction row is reported too. A break is placed at the left's compiled advance plus `kern`, the kern stage's value for the pair, and only an overlap is reported. A kerned break's signature ends in its kern (`contact:L:R:overlap:kern-2`), so a bless covers the overlap at that kern and not at a deeper one; a join's signature and an unkerned break's carry none."""
     if join is not None:
         if left.exit is None or right.entry is None:
             return
@@ -286,18 +310,19 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join) -
             else len(max(left.bitmap, key=len, default="")) + 2
         )
         offset = (
-            advance - 1
+            advance - 1 + kern
         )  # tools/build_font.py compiles a Senior Quikscript letter with no explicit advance one pixel narrower than width + 2
         junction_y = None
     left_ink = geometry.ink_cells(left)
     right_ink = geometry.ink_cells(right, x_origin=offset)
     overlap = left_ink & right_ink
     if overlap:
+        kerned = f":kern{kern:+d}" if join is None and kern else ""
         _report(
             report,
             allow,
             "E-CONTACT",
-            f"contact:{left.name}:{right.name}:overlap",
+            f"contact:{left.name}:{right.name}:overlap{kerned}",
             f"{left.name} + {right.name}: ink overlap at {sorted(overlap)[:4]}",
             error=True,
         )
@@ -403,12 +428,15 @@ def run_gates(
     tables_by_config: Mapping,
     glyphs: Mapping[CellId, GlyphRecord],
     allow: frozenset[str] = frozenset(),
+    kern: Mapping[tuple[CellId, CellId], int] | None = None,
+    extra_records: Mapping[CellId, GlyphRecord] | None = None,
 ) -> DefectReport:
+    """Run every gate. `kern` maps each break a kern record moves to its value in pixels (`kern.KernResolution.member_values`) and `extra_records` holds the records of the cells such a break names that `glyphs` does not (the overlay's source cells the kern stage realized), so E-CONTACT places every kerned break where the font draws it."""
     report = DefectReport()
     _check_dangle(report, allow, glyphs)
     _check_anchors(report, allow, glyphs)
     _check_coverage_only_anchors(report, allow, spec)
-    _check_joins(report, allow, spec, tables_by_config, glyphs)
+    _check_joins(report, allow, spec, tables_by_config, glyphs, kern, extra_records)
     _check_dead_policy(report, spec, tables_by_config)
     report.notes.append(
         f"gates ran over {len(glyphs)} glyphs and {len(tables_by_config)} configurations; "

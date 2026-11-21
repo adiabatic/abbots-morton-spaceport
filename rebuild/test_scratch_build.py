@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, oracle, readback, run_m1
+from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, kern, oracle, readback, run_m1
 from rebuild.tools import scratch_build
 
 
@@ -94,7 +94,10 @@ def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_repo
     monkeypatch.setattr(emit_gpos, "emit_gpos", lambda *args, **rest: "")
     monkeypatch.setattr(emit_gpos, "cursive_registrations", lambda *args, **rest: {})
     monkeypatch.setattr(compile_font, "build_mini_font", lambda glyphs, fea, path: path)
-    monkeypatch.setattr(readback, "verify_font", lambda *args: {"pass": True})
+    monkeypatch.setattr(readback, "verify_font", lambda *args, **rest: {"pass": True})
+    monkeypatch.setattr(kern, "run_stage", lambda *args, **rest: None)
+    monkeypatch.setattr(kern, "write_classes", lambda *args, **rest: None)
+    monkeypatch.setattr(emit_gpos, "kern_plan", lambda *args, **rest: None)
     monkeypatch.setattr(oracle, "compare_against_baseline", compare_against_baseline)
     scratch_build.main(["glyph_data/runes", str(tmp_path / "out"), *narrowing])
     assert seen == {"build": build, "oracle": walked}

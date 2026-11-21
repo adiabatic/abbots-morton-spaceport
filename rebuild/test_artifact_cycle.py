@@ -3743,6 +3743,7 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "skip_conform": False,
         "skip_run_m1": False,
         "rerun_gates_only": False,
+        "rerun_kern_only": False,
         "skip_corpus": False,
         "refresh_assets": False,
         "promote_corpus": None,
@@ -5150,8 +5151,8 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
     assert not ac.comparison_side_label("baseline-default.tsv.gz")
 
 
-def test_every_run_m1_label_is_stamped_the_toolchain_or_comparison_side(tmp_path):
-    """Every label in the run_m1 key must be covered by the tables' stamp or named by `comparison_side_label`; otherwise a gates-only rerun would reuse artifacts that no longer match that input. The one exception is uv.lock, which is neither, so a change to it prevents a gates-only rerun. A new key line that fits neither group fails this test."""
+def test_every_run_m1_label_is_stamped_the_toolchain_kern_or_comparison_side(tmp_path):
+    """Every label in the run_m1 key must be covered by the tables' stamp, named by `comparison_side_label`, or be a rune's kern line (`kern_side_label`); otherwise a gates-only rerun or a kern-only rebuild would reuse artifacts that no longer match that input. The one exception is uv.lock, which is none of them, so a change to it prevents both. A new key line that fits no group fails this test."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -5163,10 +5164,15 @@ def test_every_run_m1_label_is_stamped_the_toolchain_or_comparison_side(tmp_path
     assert [
         label
         for label in labels
-        if label not in stamped and label != "uv.lock" and not ac.comparison_side_label(label)
+        if label not in stamped
+        and label != "uv.lock"
+        and not ac.comparison_side_label(label)
+        and not ac.kern_side_label(label)
     ] == []
     assert stamped & set(labels)
     assert [label for label in labels if ac.comparison_side_label(label)]
+    assert [label for label in labels if ac.kern_side_label(label)]
+    assert not stamped & {label for label in labels if ac.kern_side_label(label)}
     assert "uv.lock" in labels
 
 
@@ -6446,6 +6452,23 @@ def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, cap
     assert "--gates-only" not in out
 
 
+@pytest.mark.parametrize("stage_a", ["current", "retracted-by-a-red-rerun", "declined"])
+def test_main_plans_a_kern_only_rebuild_only_over_a_stage_a_record_that_stands(
+    tmp_path, monkeypatch, capsys, stage_a
+):
+    """Only a kern line moved since the last green, and the build a gates-only rerun reads is on disk. A kern-only rebuild keeps the Manual-pin and oracle summaries and the audit it finds, so it is planned only when the Stage A record matches the sources, which shows a passing run over these inputs wrote them. After a gates-only rerun that went red at the oracle (its ledger edit since reverted), the summaries on disk are that red run's and the record is gone; after a gates-only pass whose green and record were declined, the audit may describe other sources. Either way the pass rebuilds, instead of re-evaluating a stale red summary on every later pass until `--fresh`."""
+    _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsNo.yaml#kern")
+    monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: stage_a == "current")
+    assert ac.main(["--dry-run"]) == 0
+    out = capsys.readouterr().out
+    if stage_a == "current":
+        assert "--kern-only" in _step_lines(out, "run_m1")
+        assert _full_build_step(out) is None
+    else:
+        assert "--kern-only" not in out
+        assert _full_build_step(out) is not None
+
+
 def test_main_takes_neither_mode_under_fresh(tmp_path, monkeypatch, capsys):
     """--fresh disables both modes. It covers the case no input fingerprint can detect: an artifact on disk that is wrong for some other reason."""
     _comparison_side_drift(tmp_path, monkeypatch)
@@ -6641,6 +6664,112 @@ def test_do_run_m1_gates_only_spares_the_summary_that_pass_rewrites(monkeypatch,
     assert record is not None
     assert record["fingerprint"] == "fp-live"
     assert record["files"] == {"rebuild/m1-divergences.yaml": "d2"}
+
+
+def _kern_only_world(monkeypatch, tmp_path):
+    """A rebuild/out/m1 under `tmp_path` holding a passing build's three summaries, a green over the prior kern line, and the live key and files with that kern line moved; the tables' stamp and the Stage A record match. Returns the summary paths and the green record's path."""
+    files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
+    monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
+    green = tmp_path / "run-m1-green.json"
+    monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
+    monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"glyph_data/runes/qsNo.yaml#kern": "k2"})
+    monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
+    monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
+    ac.record_green(green, "fp-prior", files={"glyph_data/runes/qsNo.yaml#kern": "k1"})
+    files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4211}))
+    files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
+    files["oracle"].write_text(json.dumps({"unmatched": 3, "multi_matched": 0}))
+    return files, green
+
+
+def _run_kern_only_child(spawn):
+    report = ac.CycleReport()
+    return ac._do_run_m1(
+        report,
+        spawn=spawn,
+        emit=ac._Emitter(),
+        registry=ac._ChildRegistry(),
+        argv=["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--kern-only"],
+        kern_only=True,
+        record=True,
+        fingerprint="fp-live",
+    )
+
+
+def test_do_run_m1_kern_only_deletes_no_summary_and_records_the_green_its_child_earns(monkeypatch, tmp_path):
+    """A kern-only child publishes its pipeline_summary.json only once read-back has passed (`run_m1._publish_kern_only`), so the pass deletes no summary before the spawn, and the Manual-pin and oracle summaries stand. It spawns as `RUN_M1_KERN_ONLY_STEP`, and its green is recorded when only kern lines moved since the prior green."""
+    files, green = _kern_only_world(monkeypatch, tmp_path)
+    survivors: list[str] = []
+    spawned: list[str] = []
+
+    def kern_only(name, argv, **kwargs):
+        spawned.append(name)
+        survivors.extend(sorted(key for key, path in files.items() if path.exists()))
+        files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4212}))
+        return _step("run_m1", 0)
+
+    gate = _run_kern_only_child(kern_only)
+    assert survivors == ["manual_pins", "oracle", "pipeline"]
+    assert spawned == [ac.RUN_M1_KERN_ONLY_STEP]
+    assert gate is not None and gate.ok
+    record = ac.read_green_record(green)
+    assert record is not None and record["fingerprint"] == "fp-live"
+
+
+def test_a_failed_kern_only_child_is_red_and_leaves_the_next_pass_a_kern_only_rebuild(monkeypatch, tmp_path):
+    """A kern-only child that fails at the kern stage or the read-back publishes nothing, so the prior build's summaries stay beside the prior font. Its nonzero exit is filed red even though those summaries pass, the prior green stands, and the next pass, the one that fixes the kern record, plans a kern-only rebuild again over the same build."""
+    files, green = _kern_only_world(monkeypatch, tmp_path)
+    before = {name: path.read_bytes() for name, path in files.items()}
+
+    def failing(name, argv, **kwargs):
+        return _step("run_m1", 1, stdout="E-KERN-UNMATCHED: qsNo.yaml:kern[0] matches no break\n")
+
+    gate = _run_kern_only_child(failing)
+    assert gate is not None and not gate.ok
+    assert {name: path.read_bytes() for name, path in files.items()} == before
+    record = ac.read_green_record(green)
+    assert record is not None and record["fingerprint"] == "fp-prior"
+    assert ac.kern_only_rebuild(record, ac.run_m1_skip_files(tmp_path)) == ["glyph_data/runes/qsNo.yaml#kern"]
+
+
+def test_a_kern_only_child_green_is_not_recorded_over_a_stage_a_record_that_does_not_stand(
+    monkeypatch, tmp_path
+):
+    files, green = _kern_only_world(monkeypatch, tmp_path)
+    monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: False)
+
+    def kern_only(name, argv, **kwargs):
+        files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4212}))
+        return _step("run_m1", 0)
+
+    gate = _run_kern_only_child(kern_only)
+    assert gate is not None and gate.ok
+    record = ac.read_green_record(green)
+    assert record is not None and record["fingerprint"] == "fp-prior"
+
+
+def test_a_kern_only_rebuild_is_planned_only_when_every_moved_label_is_a_kern_line():
+    """`kern_only_rebuild` is the kern counterpart of `gates_only_rerun`: it names the moved labels when every one is a rune's kern line, and None when there is no prior record, nothing moved, or anything else moved. A kern line is not comparison-side, since the font must be compiled again."""
+    prior = {"files": {"glyph_data/runes/qsNo.yaml#kern": "k1", "glyph_data/runes/qsNo.yaml": "r1"}}
+    kern_moved = {"glyph_data/runes/qsNo.yaml#kern": "k2", "glyph_data/runes/qsNo.yaml": "r1"}
+    both_moved = {"glyph_data/runes/qsNo.yaml#kern": "k2", "glyph_data/runes/qsNo.yaml": "r2"}
+    assert ac.kern_only_rebuild(prior, kern_moved) == ["glyph_data/runes/qsNo.yaml#kern"]
+    assert ac.kern_only_rebuild(prior, both_moved) is None
+    assert ac.kern_only_rebuild(prior, prior["files"]) is None
+    assert ac.kern_only_rebuild(None, kern_moved) is None
+    assert not ac.comparison_side_label("glyph_data/runes/qsNo.yaml#kern")
+    assert ac.gates_only_rerun(prior, kern_moved) is None
+
+
+def test_a_kern_only_plan_spawns_the_kern_only_child_and_sizes_no_fanout():
+    plan = _plan(rerun_kern_only=True, run_m1_note="kern")
+    assert plan.rerun_kern_only and not plan.rerun_gates_only
+    assert plan.argv("run_m1")[-1] == "--kern-only"
+    assert plan.describe("run_m1") == ac.STEP_DESCRIPTIONS[ac.RUN_M1_KERN_ONLY_STEP]
+    rendered = "\n".join(ac.render_plan(plan))
+    assert "kern-only rebuild" in rendered
+    assert not _plan(rerun_kern_only=True, rerun_gates_only=True).rerun_kern_only
 
 
 def test_do_run_m1_a_full_build_clears_the_summary_a_gates_only_rerun_keeps(monkeypatch, tmp_path):

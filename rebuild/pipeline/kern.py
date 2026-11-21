@@ -1,9 +1,10 @@
-"""The kern stage (rebuild/KERN-PLAN.md sections 2 to 4, `doc/rebuild-design.md` §12): it resolves the runes' `kern:` records over the pairs of settled cells that do not join, and writes the coverage table `kern.tsv`. Nothing here reaches GSUB or GPOS yet, so the font is unchanged.
+"""The kern stage (rebuild/KERN-PLAN.md sections 2 to 4, `doc/rebuild-design.md` §12): it resolves the runes' `kern:` records over the pairs of settled cells that do not join, and writes the coverage table `kern.tsv`. `emit_gpos.kern_plan` turns the resolution into the font's `kern` lookup, and the defect gates place each kerned break where the font draws it (`member_values`).
 
-`run_m1` calls `run_stage` once the tables exist and the cell glyphs are minted. Its inputs:
+`run_m1` calls `run_stage` once the tables exist and the cell glyphs are minted, before the defect gates. Its inputs:
 
 - The spec's kern records (`model.KernBlock`), which `spec_load` parses and checks, and which the kernel's spec dump leaves out.
 - The join tables of every settlement configuration, as the build parsed them from `joins-<config>.tsv`. `check_join_rows` asserts over every row the invariant the design rests on: a row is a `break` exactly when its left cell has no live exit and its right cell has no live entry. A violation raises `KernInternalError` naming the row.
+- The pairs a ZWNJ separates, which no join row records. Each configuration's windows head lists the cells settled immediately before a ZWNJ and the cells settled immediately after one (`table.DecisionTable.zwnj_before` and `zwnj_after`, from the crate's `fold::zwnj_cells`), and every cell of the first set meets every cell of the second across a ZWNJ in some text, so `zwnj_breaks` takes their product as that configuration's breaks. A cell after a ZWNJ is the `.locked` copy of a word-initial cell (or, for a rune with no entry on any stance, the word-initial cell itself), drawn and spaced as that cell is, so it lands on the following side its twin is on whenever both meet a break. A head that does not list the ZWNJ cells, or lists none on one side although the spec can settle a letter beside a ZWNJ (`zwnj_reachable`), or a cell before a ZWNJ with a live exit or after one with a live entry, raises `KernInternalError`.
 - The letters' ss10 copies (`run_m1.mint_raw_glyphs`). Under the isolated overlay nothing forms or joins, so every ordered pair of letters is a break between their copies (`ss10_breaks`). A copy is drawn from its letter's isolated cell (`geometry.isolated_cell`) with its anchors stripped, so the stage treats the copy as that cell: it is a member of the cell's sides, records match it as they match the cell, and its pairs carry each overlay configuration (`overlay_configs`). A copy whose isolated cell has a live exit would break that rule, and raises `KernInternalError`; no rune draws one.
 - The realized glyph records, which give each cell its ink and its advance as `tools/build_font.py` compiles them: the drawing's width plus `INK_X_OFFSET` blank pixels on each side, less the Senior tightening's pixel (`SENIOR_TIGHTENING`).
 
@@ -11,7 +12,7 @@
 
 **Side names** spell the keys a record would use, in brackets after the rune: `qsNo` for the rune as a whole, `qsNo[flipped]` for a stance, `qsGay[sole entry=baseline]` or `qsGay[sole exit=none]` for a state of a stance on the leading or the following side, and `qsTea[half exit=x-height bitmap=padded-left-1]` for a bound drawing. A side split off at the last level with no bound drawing keeps its state's name, so `qsOut_qsTea[sole entry=baseline]` beside `qsOut_qsTea[sole entry=baseline bitmap=low-bend]` is the state's cells less the bound ones.
 
-**Facing pairs.** A facing pair is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration or under the overlay. `resolve` keeps each one's configurations and its member cell pairs.
+**Facing pairs.** A facing pair is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration, across a ZWNJ, or under the overlay. `resolve` keeps each one's configurations and its member cell pairs.
 
 **Matching and precedence** (KERN-PLAN §2). A record in rune R's block matches a break when the left cell is R's and fits the record's `stance`, `entry` and `bitmap`, and the right cell fits `right`: its `family` and `class` (a predicate class, or a group of the record's own rune, by the loader's resolved membership), its settled `stance`, its `exit` state and its bound drawing, and none of its `except` entries. A right-facing family is literal, so a ligature follower is named explicitly. A record's match set is every break it matches, the breaks it reaches through an inheriting ligature included. Among the records that match a break, the one whose match set lies inside every other's decides, and values never add. Two matching records with different values whose match sets are equal, or neither of which lies inside the other, are `E-KERN-INCOMPARABLE`; two with one value never conflict, and either may be reported as the decider.
 
@@ -21,12 +22,15 @@
 
 **`kern.tsv`** has a comment line, a column line, then one row per facing pair: the leading rune, the leading side's name, the following rune, the following side's name, `by` (0 when no record matches), the deciding record's provenance (empty when none, with ` (inherited)` after a record a ligature inherits, and comma-separated when one value comes from several records), the configurations that reach the pair (settlement configurations in table order, then the overlay), and which of the two sides is `mixed` (`leading`, `following`, both joined by a comma, or empty). Rows are sorted by the leading rune in code-point order with each ligature after its lead (`rune_order_key`), then the leading side's name, the following rune and the following side's name. The file is written only when its bytes change (`output_sink.write_output`).
 
-`KernResolution` holds what a GPOS class assignment and the editor's inventory need: each settled cell's leading and following side, each `.ss10` copy's source cell, and every facing pair with its value, deciders, configurations and members. `glyph_sides` maps glyph names to sides, copies included.
+**`kern-classes.json`** (`classes_document`, written by `write_classes` once read-back has passed) is the assignment the font was compiled from, in the form the conformance sweep reads: each glyph's leading side and following side by name, and every facing pair with its value, 0 included, as `[leading side, following side, by]`. The sweep checks every shaped break against it (`conform.KernSides`): a break between two glyphs whose sides form no facing pair there is a break the stage never reached, even when each glyph has its sides from other breaks.
+
+`KernResolution` holds what a GPOS class assignment and the editor's inventory need: each settled cell's leading and following side, each `.ss10` copy's source cell, every facing pair with its value, deciders, configurations and members, and the records `resolve` realized for overlay source cells no settlement reaches. `glyph_sides` maps glyph names to sides, copies included, and `member_values` gives each member break of a kerned facing pair its value, which the defect gates place the pair at (`defects.run_gates`). `emit_gpos.kern_plan` builds the GPOS lookup's classes from them.
 """
 
 from __future__ import annotations
 
 import itertools
+import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +49,10 @@ from rebuild.pipeline.model import (
 from rebuild.pipeline.settle import cell_label
 
 KERN_TSV = "kern.tsv"
+KERN_CLASSES_JSON = "kern-classes.json"
+# The registry's name for the ZWNJ boundary token (rebuild/script.yaml), which `labels` turns into the `uni200C` label the crate's ZWNJ cells are found by.
+ZWNJ_TOKEN = "zwnj"
+KERN_CLASSES_FORMAT = "ams-m1-kern-classes/2"
 TSV_COMMENT = "# kern table: one row per facing pair (rebuild/KERN-PLAN.md section 3)"
 TSV_COLUMNS = ("leading", "leading_side", "following", "following_side", "by", "record", "configs", "mixed")
 
@@ -69,7 +77,7 @@ class KernError(Exception):
 
 
 class KernInternalError(AssertionError):
-    """An invariant the kern stage rests on does not hold: a join row that breaks while a facing side is live, or joins while one is not; a join row naming a cell no glyph was minted for; or an ss10 copy drawn from a cell with a live side."""
+    """An invariant the kern stage rests on does not hold: a join row that breaks while a facing side is live, or joins while one is not; a join row or a ZWNJ cell naming a cell no glyph was minted for; a windows head that lists no ZWNJ cells; a cell before a ZWNJ with a live exit or after one with a live entry; or an ss10 copy drawn from a cell with a live side."""
 
 
 @dataclass(frozen=True)
@@ -129,6 +137,7 @@ class KernResolution:
     following: Mapping[CellId, Side]
     ss10_sources: Mapping[str, CellId]
     pairs: tuple[FacingPair, ...]
+    realized: Mapping[CellId, GlyphRecord] = field(default_factory=dict)
 
     def glyph_sides(self, glyphs: Mapping[CellId, GlyphRecord]) -> tuple[dict[str, Side], dict[str, Side]]:
         """Return each glyph name's leading side and following side: the settled cells' glyphs under `glyphs`, and each `.ss10` copy under the sides of the cell it copies."""
@@ -141,6 +150,10 @@ class KernResolution:
             if source in self.following:
                 following[copy] = self.following[source]
         return leading, following
+
+    def member_values(self) -> dict[CellPair, int]:
+        """Return each member break of every facing pair whose value is not 0, with that value."""
+        return {member: pair.by for pair in self.pairs if pair.by for member in pair.members}
 
 
 def _ink_rows(record: GlyphRecord) -> list[tuple[int, int, int]]:
@@ -234,6 +247,10 @@ def _joins_of(entry: object) -> object:
     return entry[1] if isinstance(entry, (tuple, list)) else entry
 
 
+def _decision_of(entry: object) -> object | None:
+    return entry[0] if isinstance(entry, (tuple, list)) else None
+
+
 def check_join_rows(
     tables: Mapping[str, object], cells_by_label: Mapping[str, CellId]
 ) -> dict[CellPair, list[str]]:
@@ -256,6 +273,59 @@ def check_join_rows(
                     f"{config} join row {row.left}\t{row.right}\t{row.junction}: a row is a break exactly when its left cell has no live exit and its right cell has no live entry (rebuild/KERN-PLAN.md section 2)"
                 )
             if is_break:
+                configs = breaks.setdefault((left, right), [])
+                if config not in configs:
+                    configs.append(config)
+    return breaks
+
+
+def zwnj_reachable(spec: ResolvedSpec) -> bool:
+    """Return whether the spec can settle a letter beside a ZWNJ: its registry has the ZWNJ boundary token (`ZWNJ_TOKEN`) and its alphabet has a letter. A text of one letter and a ZWNJ then settles a cell before the ZWNJ, and a ZWNJ and one letter a cell after it, so every configuration's head lists at least one of each. Only a registry without the token, such as a test alphabet's, gives a spec that cannot."""
+    return ZWNJ_TOKEN in spec.registry.boundary_tokens and any(
+        rune.codepoint is not None for rune in spec.runes.values()
+    )
+
+
+def zwnj_breaks(
+    tables: Mapping[str, object], cells_by_label: Mapping[str, CellId], reachable: bool = True
+) -> dict[CellPair, list[str]]:
+    """Return the breaks a ZWNJ separates, each cell pair with the configurations it occurs in: per configuration, every cell its windows head lists before a ZWNJ against every cell it lists after one (the module docstring says why the product is exact). A configuration handed a join table alone, with no decision table, contributes none. `reachable` says whether the spec can settle a letter beside a ZWNJ at all (`zwnj_reachable`); when it can, every head lists cells on both sides. Raises `KernInternalError` for a decision table whose head does not list the ZWNJ cells, or lists none on one side when `reachable` is set, a label no minted glyph carries, a cell before a ZWNJ with a live exit, or a cell after one with a live entry."""
+    breaks: dict[CellPair, list[str]] = {}
+    for config, entry in tables.items():
+        decision = _decision_of(entry)
+        if decision is None:
+            continue
+        before_labels = getattr(decision, "zwnj_before", None)
+        after_labels = getattr(decision, "zwnj_after", None)
+        if before_labels is None or after_labels is None:
+            raise KernInternalError(
+                f"{config}'s windows head lists no ZWNJ cells; the tables were written by a crate that predates them, so rebuild them (run_m1 --fresh-tables)"
+            )
+        if reachable and not (before_labels and after_labels):
+            empty = " and ".join(
+                where for where, labels in (("before", before_labels), ("after", after_labels)) if not labels
+            )
+            raise KernInternalError(
+                f"{config}'s windows head lists no cell {empty} a ZWNJ, though the registry has the ZWNJ token and the alphabet has letters, so some letter settles beside one; the crate's ZWNJ cells (fold::zwnj_cells) missed them, and every pair across a ZWNJ would go unkerned"
+            )
+        sides: list[list[CellId]] = []
+        for where, labels in (("before", before_labels), ("after", after_labels)):
+            cells = []
+            for label in sorted(labels):
+                cell = cells_by_label.get(label)
+                if cell is None:
+                    raise KernInternalError(
+                        f"{config}: the cell {label} settles {where} a ZWNJ, but no minted glyph is that cell"
+                    )
+                live = cell.exit if where == "before" else cell.entry
+                if live is not None:
+                    raise KernInternalError(
+                        f"{config}: {label} settles {where} a ZWNJ with a live {'exit' if where == 'before' else 'entry'}; a ZWNJ is a boundary, so a cell beside one has no live side facing it"
+                    )
+                cells.append(cell)
+            sides.append(cells)
+        for left in sides[0]:
+            for right in sides[1]:
                 configs = breaks.setdefault((left, right), [])
                 if config not in configs:
                     configs.append(config)
@@ -389,17 +459,19 @@ def resolve(
     glyphs: Mapping[CellId, GlyphRecord],
     ss10_copies: Mapping[str, str] | None = None,
 ) -> KernResolution:
-    """Resolve the spec's kern records over the breaks of `tables` and the overlay's pairs of `ss10_copies`, as the module docstring says, and return the sides and facing pairs. Raises `KernError` with every `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE` found, or with every `E-KERN-NARROWER` once those are clear, and `KernInternalError` when an invariant fails."""
+    """Resolve the spec's kern records over the breaks of `tables` (the join rows' breaks and the pairs a ZWNJ separates) and the overlay's pairs of `ss10_copies`, as the module docstring says, and return the sides and facing pairs. Raises `KernError` with every `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE` found, or with every `E-KERN-NARROWER` once those are clear, and `KernInternalError` when an invariant fails."""
     records_by_cell = dict(glyphs)
     cells_by_label = {record.name: cell for cell, record in glyphs.items()}
     breaks = check_join_rows(tables, cells_by_label)
     overlay, ss10_sources = ss10_breaks(spec, ss10_copies or {})
-    for pair, configs in overlay.items():
-        known = breaks.setdefault(pair, [])
-        known.extend(config for config in configs if config not in known)
+    for extra in (zwnj_breaks(tables, cells_by_label, zwnj_reachable(spec)), overlay):
+        for pair, configs in extra.items():
+            known = breaks.setdefault(pair, [])
+            known.extend(config for config in configs if config not in known)
+    realized: dict[CellId, GlyphRecord] = {}
     for source in ss10_sources.values():
         if source not in records_by_cell:
-            records_by_cell[source] = geometry.realize(
+            realized[source] = records_by_cell[source] = geometry.realize(
                 spec, surface.resolve_cell(spec, source), name=cell_label(spec, source)
             )
 
@@ -414,6 +486,7 @@ def resolve(
         following=following,
         ss10_sources=ss10_sources,
         pairs=_facing_pairs(spec, ordered, breaks, leading, following, values, config_order),
+        realized=realized,
     )
 
 
@@ -643,6 +716,23 @@ def kern_tsv(resolution: KernResolution) -> str:
             )
         )
     return "\n".join(lines) + "\n"
+
+
+def classes_document(resolution: KernResolution, glyphs: Mapping[CellId, GlyphRecord]) -> dict:
+    """Return `kern-classes.json`'s document, as the module docstring says, over the settled cells' glyphs `glyphs` and the `.ss10` copies."""
+    leading, following = resolution.glyph_sides(glyphs)
+    return {
+        "format": KERN_CLASSES_FORMAT,
+        "leading": {name: side.name for name, side in sorted(leading.items())},
+        "following": {name: side.name for name, side in sorted(following.items())},
+        "values": [[pair.leading.name, pair.following.name, pair.by] for pair in resolution.pairs],
+    }
+
+
+def write_classes(resolution: KernResolution, glyphs: Mapping[CellId, GlyphRecord], out_dir: Path) -> None:
+    """Write `kern-classes.json` under `out_dir`, leaving the file in place when its bytes come out the same."""
+    text = json.dumps(classes_document(resolution, glyphs), indent=1) + "\n"
+    output_sink.write_output(Path(out_dir) / KERN_CLASSES_JSON, text, keep_if_equal=True)
 
 
 def run_stage(

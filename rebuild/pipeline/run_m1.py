@@ -2,7 +2,7 @@
 
 First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources, as the rows that differ from the previous build's where there is one. `--conform-only` takes its glyph inventory from that enumeration's head file and stops with an error when it is stale or missing. Each configuration's windows head is committed on a background pool once its payload is written. A bare run runs the crate only when its input has moved since the last green run: when the table-reuse record a green run leaves under rebuild/out/m1 holds the same key (`table_reuse_lines`: the spec dump, the binary, the crate's sources and the roster, the table build's driver in this file, the configurations and the mode flags) and every table file still has the raw digest it records, the build re-stamps each configuration's head file with this run's sources instead, and its tables are byte for byte what the crate would write (`build_tables`). Every later stage below runs over them as over a build's, the string replay and the shipped-order walk included.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the defect gates under the reviewed allow-list, runs the kern stage (rebuild/pipeline/kern.py, which writes `kern.tsv` and emits nothing into the font), emits GSUB and GPOS (also writing `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, and runs read-back (rebuild/pipeline/readback.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the kern stage (rebuild/pipeline/kern.py, which writes `kern.tsv`), runs the defect gates under the reviewed allow-list with every kerned break at its kerned offset, emits GSUB and GPOS (the kern lookup among them, and `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, runs read-back (rebuild/pipeline/readback.py), and writes `kern-classes.json`, the kern lookup's classes the conformance sweep checks shaped breaks against. Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
 `full_run` then runs the Manual-pin gate and the oracle (rebuild/pipeline/run_m1_gates.py). The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memos only after the witness stage, which reads them and writes none, has returned. `full_run` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import filecmp
 import functools
 import gc
 import glob
@@ -1111,10 +1112,26 @@ def _run_defect_gates(
     spec: ResolvedSpec,
     tables: Mapping[str, tuple],
     cell_glyphs: Mapping[CellId, GlyphRecord],
+    kerned: kern.KernResolution | None = None,
 ) -> defects.DefectReport:
-    """Run the `doc/rebuild-design.md` §9 defect gates (`defects.run_gates`) over one build's tables and minted glyphs, under the reviewed allow-list. The build and `--gates-only` both call it; `--gates-only` runs it over the tables and glyphs on disk. The allow-list is in no stamp and no fingerprint component, so blessing a signature re-runs this gate without a rebuild."""
+    """Run the `doc/rebuild-design.md` §9 defect gates (`defects.run_gates`) over one build's tables and minted glyphs, under the reviewed allow-list, with every break a kern record moves placed at its kerned offset (`kerned`, the kern stage's resolution). The build, `--kern-only` and `--gates-only` all call it; `--gates-only` runs it over the tables and glyphs on disk and resolves the kern records itself. The allow-list is in no stamp and no fingerprint component, so blessing a signature re-runs this gate without a rebuild."""
     allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
-    return defects.run_gates(spec, tables, cell_glyphs, allow=allow)
+    return defects.run_gates(
+        spec,
+        tables,
+        cell_glyphs,
+        allow=allow,
+        kern=kerned.member_values() if kerned is not None else None,
+        extra_records=kerned.realized if kerned is not None else None,
+    )
+
+
+def resolve_kern(
+    spec: ResolvedSpec, tables: Mapping[str, tuple], cell_glyphs: Mapping[CellId, GlyphRecord]
+) -> kern.KernResolution:
+    """Resolve the kern records over one build's tables and minted glyphs, with the letters' ss10 copies (`kern.resolve`), writing nothing: what `--gates-only` hands its defect gate, so a contact bless is checked at the offsets the build placed kerned breaks at."""
+    _bare, _copies, ss10_copies = mint_raw_glyphs(spec)
+    return kern.resolve(spec, tables, cell_glyphs, ss10_copies)
 
 
 def _defect_summary_fields(report: defects.DefectReport) -> dict:
@@ -1387,7 +1404,7 @@ def _collect_glyph_chain() -> None:
 def _run_glyph_chain(
     spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: Path, commit: str | None
 ) -> dict:
-    """Run the glyph chain over one build's tables: minting, the defect gates, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the feature emission, the compile and read-back, then write `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
+    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`), the compile and read-back, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it) and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -1395,21 +1412,26 @@ def _run_glyph_chain(
     dots = namer_dot_glyphs()
     console.timing("glyph_minting", time.perf_counter() - start)
 
-    console.phase("defect_gates")
-    start = time.perf_counter()
-    defect_report = _run_defect_gates(spec, tables, cell_glyphs)
-    console.timing("defect_gates", time.perf_counter() - start)
-
     console.phase("kern")
     start = time.perf_counter()
     kern_resolution = kern.run_stage(spec, tables, cell_glyphs, out_dir, ss10_copies)
-    console.timing("kern", time.perf_counter() - start, f"facing_pairs={len(kern_resolution.pairs)}")
+    kern_plan = emit_gpos.kern_plan(kern_resolution, cell_glyphs)
+    console.timing(
+        "kern",
+        time.perf_counter() - start,
+        f"facing_pairs={len(kern_resolution.pairs)} kern_rules={len(kern_plan.rules)}",
+    )
+
+    console.phase("defect_gates")
+    start = time.perf_counter()
+    defect_report = _run_defect_gates(spec, tables, cell_glyphs, kern_resolution)
+    console.timing("defect_gates", time.perf_counter() - start)
 
     console.phase("emit_gsub_gpos")
     start = time.perf_counter()
     curs_glyphs = {**cell_glyphs, **bare, **copies}
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
-    classes = emit_gsub.behavior_classes(gsub_plan)
+    classes = sorted({*emit_gsub.behavior_classes(gsub_plan), *kern_plan.behavior_classes()})
     (out_dir / "behavior_classes.json").write_text(
         json.dumps(
             {"format": emit_gsub.BEHAVIOR_CLASSES_FORMAT, "classes": list(classes)},
@@ -1417,7 +1439,7 @@ def _run_glyph_chain(
         )
         + "\n"
     )
-    gpos_fea = emit_gpos.emit_gpos(curs_glyphs, spec=spec)
+    gpos_fea = emit_gpos.emit_gpos(curs_glyphs, spec=spec, kern=kern_plan)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     console.timing("emit_gsub_gpos", time.perf_counter() - start)
 
@@ -1430,7 +1452,7 @@ def _run_glyph_chain(
     console.phase("readback")
     start = time.perf_counter()
     readback_report = readback.verify_font(
-        font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec)
+        font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec), kern=kern_plan
     )
     output_sink.write_output(
         out_dir / "readback_summary.json", json.dumps(readback_report, indent=2) + "\n", keep_if_equal=True
@@ -1442,6 +1464,7 @@ def _run_glyph_chain(
         raise readback.ReadbackError(
             f"{readback_report['divergence_count']} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
         )
+    kern.write_classes(kern_resolution, cell_glyphs, out_dir)
 
     summary = {
         "configs": list(tables),
@@ -1449,6 +1472,8 @@ def _run_glyph_chain(
         "settled_cell_glyphs": len(cell_glyphs),
         "total_glyphs": len(all_glyphs),
         "gsub_rule_count": gsub_plan.rule_count,
+        "kern_facing_pairs": len(kern_resolution.pairs),
+        "kern_rules": len(kern_plan.rules),
         **_defect_summary_fields(defect_report),
         "font": str(font_path),
     }
@@ -2377,6 +2402,135 @@ def full_run(
     run_m1_gates._record_cli_check(gate, started)
     if not gate.ok:
         raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
+
+
+def kern_only_staging() -> Path:
+    """The directory a `--kern-only` pass runs the glyph chain into, beside `OUT_DIR` (`kern_only_run` says why). A pass empties it first, and leaves what a failed chain wrote there, its read-back summary among them, until the next pass."""
+    return OUT_DIR.with_name(OUT_DIR.name + "-kern-only")
+
+
+def _publish_kern_only(staging: Path, summary: dict) -> dict:
+    """Move what a passing kern-only glyph chain wrote under `staging` into `OUT_DIR`, and return the summary as published, which names the font at its place there. When any file's bytes change, pipeline_summary.json is deleted first and written last, so a pass killed partway leaves no summary beside a font it does not describe, and the next cycle refuses the build as a gates-only rerun's base (`run_m1_gates.gates_only_base`) and rebuilds. A file whose bytes are unchanged is left in place."""
+    published = {**summary, "font": str(OUT_DIR / "M1.otf")}
+    summary_path = OUT_DIR / "pipeline_summary.json"
+    staged = sorted(path for path in staging.iterdir() if path.is_file() and path.name != summary_path.name)
+    changed = [
+        path
+        for path in staged
+        if not (OUT_DIR / path.name).is_file() or not filecmp.cmp(path, OUT_DIR / path.name, shallow=False)
+    ]
+    if changed:
+        summary_path.unlink(missing_ok=True)
+        for path in changed:
+            output_sink.replace_output(OUT_DIR / path.name, source=path)
+    output_sink.replace_output(summary_path, json.dumps(published, indent=2) + "\n", keep_if_equal=True)
+    shutil.rmtree(staging, ignore_errors=True)
+    return published
+
+
+def kern_only_run(*, started: float) -> None:
+    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks (`artifact_cycle.kern_only_rebuild`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, `behavior_classes.json`, M1.otf and `pipeline_summary.json`. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
+
+    It stands on the Stage A record, which it carries forward and never writes. It refuses unless the record under `OUT_DIR` matches the sources on disk before it reads anything else (`artifact_cycle.m1_stage_a_current`): a run writes that record only once its gates pass, and every run that rewrites the gate summaries or the audit deletes it first, so a matching record shows that the Manual-pin and oracle summaries and the audit beside it are a passing run's over these Stage A inputs. Without it those summaries may be a red rerun's, or the audit may describe other sources, and only a full build can say. It also reads the build a `--gates-only` pass reads and refuses the same way (`run_m1_gates.gates_only_base`), and refuses when either summary does not read.
+
+    The glyph chain runs into `kern_only_staging()`, and its files replace the build's only once read-back has passed (`_publish_kern_only`). So a kern error, an emission or compile error, or a read-back divergence is recorded red and leaves `OUT_DIR` as it was: the prior font beside the summaries that describe it, and the Stage A record still matching, so the next cycle plans a kern-only rebuild again once the edit is fixed. Nothing the record vouches for changes: the corpus reads the font without its `kern` lookup (`fingerprint.kern_blind_font_digest`), and the rest of the font comes from the same tables, runes and code. A Stage A input that moves while the pass runs may have reached the staged font, so the pass then publishes nothing and stops red. Once published, the gate is evaluated over the new summary and the standing two; run_m1's green is recorded only when no input but kern lines moved since the last green (`artifact_cycle.kern_only_rebuild`), and otherwise the pass says which input kept it from recording one. It lives here, inside the tables' stamp like `full_run`, because it writes build artifacts.
+    """
+    from rebuild.pipeline import run_m1_gates
+    from rebuild.tools.artifact_cycle import (
+        evaluate_run_m1_gate,
+        kern_only_rebuild,
+        kern_side_label,
+        moved_input_labels,
+        read_green_record,
+        run_m1_skip_files,
+        run_m1_skip_fingerprint,
+    )
+    from rebuild.tools.cycle_paths import M1_SUMMARY_FILES, RUN_M1_GREEN
+
+    def run_m1_key() -> str:
+        return run_m1_skip_fingerprint(REPO_ROOT)
+
+    stage = fingerprint.stage_a(REPO_ROOT)
+    if fingerprint.read_stage_a(OUT_DIR) != stage:
+        run_m1_gates._exit_red(
+            f"--kern-only carries the Stage A record under {OUT_DIR} forward, and that record is missing or names other sources than the ones on disk, so the Manual-pin and oracle summaries and the audit beside it are not known to be a passing run's over these inputs; run a full build (`uv run python -m rebuild.pipeline.run_m1`)",
+            started,
+        )
+    base = run_m1_gates.gates_only_base(OUT_DIR, tables_inputs())
+    if isinstance(base, str):
+        run_m1_gates._exit_red(
+            f"--kern-only recompiles the font over the build on disk, and refuses this one: {base}", started
+        )
+    prior: dict[str, dict] = {}
+    for name in ("manual_pins", "oracle"):
+        path = M1_SUMMARY_FILES[name]
+        try:
+            loaded = json.loads(path.read_text())
+        except OSError, ValueError:
+            loaded = None
+        if not isinstance(loaded, dict):
+            run_m1_gates._exit_red(
+                f"no readable {path} — a kern-only rebuild keeps the prior green build's Manual-pin and oracle summaries, and this build has none; run `uv run python -m rebuild.pipeline.run_m1` first",
+                started,
+            )
+        prior[name] = loaded
+    spec = load_default_spec()
+    before = run_m1_key()
+    record = read_green_record(RUN_M1_GREEN)
+    current = run_m1_skip_files(REPO_ROOT)
+    staging = kern_only_staging()
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    console.phase("run_total")
+    start = time.perf_counter()
+    try:
+        staged = _run_glyph_chain(spec, base.tables, staging, head_commit())
+    except (
+        kern.KernError,
+        kern.KernInternalError,
+        emit_gpos.KernPlanError,
+        compile_font.GroupTooLargeError,
+        readback.ReadbackError,
+        emit_gsub.EmitError,
+    ) as error:
+        run_m1_gates._exit_red(
+            f"{error} (nothing under {OUT_DIR} changed; the chain's output is under {staging})",
+            started,
+            status="FAILED",
+            key=before,
+        )
+    _collect_glyph_chain()
+    if fingerprint.stage_a(REPO_ROOT) != stage:
+        run_m1_gates._exit_red(
+            f"a Stage A input changed while --kern-only ran, so the font under {staging} may not be the Stage A record's; nothing under {OUT_DIR} changed",
+            started,
+            status="FAILED",
+            key=before,
+        )
+    summary = _publish_kern_only(staging, staged)
+    console.timing("run_total", time.perf_counter() - start, rss_token(process_peak_rss_bytes()))
+    console.say(json.dumps(summary, indent=2))
+    gate = evaluate_run_m1_gate(summary, prior["manual_pins"], prior["oracle"])
+    run_m1_gates._record_cli_check(gate, started)
+    if not gate.ok:
+        run_m1_gates._settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
+        raise SystemExit("; ".join(gate.failures) + "; see pipeline_summary.json")
+    if kern_only_rebuild(record, current) is not None:
+        run_m1_gates._settle_green(
+            RUN_M1_GREEN, before, True, run_m1_key, "run_m1", files_of=lambda: run_m1_skip_files(REPO_ROOT)
+        )
+        return
+    labels = moved_input_labels(record, current) or []
+    offenders = [label for label in labels if not kern_side_label(label)]
+    if offenders:
+        why = f"these inputs other than kern blocks moved since the last green M1 build, so only a full build can record a green over them: {', '.join(offenders)}"
+    elif record is None:
+        why = "there is no prior green M1 build for this pass to stand on"
+    elif not isinstance(record.get("files"), dict):
+        why = "the last green M1 build predates the per-file record this decision is taken over"
+    else:
+        why = "nothing has moved since the last green M1 build, so that green already stands"
+    console.warn(f"run_m1: green, but this pass recorded no green — {why}")
 
 
 def cli() -> None:

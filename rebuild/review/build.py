@@ -4239,13 +4239,9 @@ def _settlement_explain(entry: tablediff.SettlementDiffEntry) -> str:
 def _join_explain(entry: tablediff.JoinDiffEntry) -> str:
     lines = [f"join diff ({entry.bucket}), config {entry.config}", f"  pair: {entry.key.label()}"]
     if entry.old is not None:
-        lines.append(
-            f"    old: junction {entry.old.junction}, extension {entry.old.extension}, kern {entry.old.kern}"
-        )
+        lines.append(f"    old: junction {entry.old.junction}, extension {entry.old.extension}")
     if entry.new is not None:
-        lines.append(
-            f"    new: junction {entry.new.junction}, extension {entry.new.extension}, kern {entry.new.kern}"
-        )
+        lines.append(f"    new: junction {entry.new.junction}, extension {entry.new.extension}")
     return "\n".join(lines)
 
 

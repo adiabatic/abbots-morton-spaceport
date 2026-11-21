@@ -28,7 +28,7 @@ BUCKET_SUMMARY = {
     "added": "Rows only the new tables have: behavior the baseline never produced.",
     "removed": "Rows only the baseline tables have: behavior the new tables no longer produce.",
     "regrouped": "Rows removed and added for one config and input, shown together as one regrouped row.",
-    "changed": "Rows in both tables whose outcome, junction, extension or kern differs.",
+    "changed": "Rows in both tables whose outcome, junction or extension differs.",
     "provenance-only": "Rows that behave the same and differ only in which rule is credited; low priority.",
 }
 
@@ -36,7 +36,7 @@ BUCKET_WHY = {
     "added": "Settlement/join rows present only in the new tables: behavior the baseline never produced.",
     "removed": "Rows present only in the baseline tables: behavior the new tables no longer produce.",
     "regrouped": "A re-partitioned context: removals and additions sharing (config, input), rendered as one regrouped row.",
-    "changed": "Rows whose key exists in both tables with a different outcome, junction, extension, or kern.",
+    "changed": "Rows whose key exists in both tables with a different outcome, junction, or extension.",
     "provenance-only": "Settlement rows whose behavior is identical and only the provenance attribution moved — low priority.",
 }
 
@@ -84,7 +84,6 @@ class JoinKey:
 class JoinValue:
     junction: str
     extension: int
-    kern: int
 
 
 @dataclass(kw_only=True)
@@ -150,14 +149,18 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
 
 
 def load_joins(path: Path) -> dict[JoinKey, JoinValue]:
+    """Read a join table (`table.JOIN_COLUMNS`) into its rows. A table a build wrote before the join table lost its `kern` column (always 0, since kerning reaches no join row) carries a fifth field, which is ignored, so a baseline build directory from that time still diffs."""
     rows: dict[JoinKey, JoinValue] = {}
     config = _config_from_path(path, "joins-")
     with open(path, encoding="utf-8") as handle:
         for line in handle:
             if line.startswith("#") or line.startswith("left\t") or not line.strip():
                 continue
-            left, right, junction, extension, kern = line.rstrip("\n").split("\t")
-            rows[JoinKey(config, left, right)] = JoinValue(junction, int(extension), int(kern))
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) not in (4, 5):
+                raise ValueError(f"{path}: a join row has {len(fields)} fields, not 4: {line.rstrip()}")
+            left, right, junction, extension = fields[:4]
+            rows[JoinKey(config, left, right)] = JoinValue(junction, int(extension))
     return rows
 
 

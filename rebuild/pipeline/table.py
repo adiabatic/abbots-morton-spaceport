@@ -10,7 +10,7 @@ Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by 
 
 A row is joint when either §6.1 flag applies: the final tiebreak broke a ranking tie between candidates that differ in junction, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
 
-The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells, the witness stage's certificates, the windows the table imported from other configurations, which the string replay's narrowing reads, and where the crate's exchange expects the emitter to ship each rule (`fold_order`, `buckets`), which `emit_gsub._fold_rules` checks against the order it ships. Neither digest in this module reads the certificates, the imports or that expectation, because they are evidence about the rules, not part of what the rules say.
+The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells, the witness stage's certificates, the windows the table imported from other configurations, which the string replay's narrowing reads, where the crate's exchange expects the emitter to ship each rule (`fold_order`, `buckets`), which `emit_gsub._fold_rules` checks against the order it ships, and the cells settled immediately before and after a ZWNJ (`zwnj_before`, `zwnj_after`, the crate's `fold::zwnj_cells`), whose product is the set of pairs a ZWNJ separates and which the kern stage reads as breaks, since no join row crosses a boundary. Neither digest in this module reads the certificates, the imports, that expectation or the ZWNJ cells: the first three are evidence about the rules, not part of what the rules say, and the ZWNJ cells are a function of the window rows the digests already cover.
 
 Each configuration's windows artifact is held in two files and the segment format (`rebuild/pipeline/row_delta.py`), all written by `run_m1.build_tables`:
 
@@ -126,7 +126,6 @@ class JoinRow:
     right: str
     junction: str  # a height name or "break"
     extension: int
-    kern: int = 0
 
 
 @dataclass
@@ -151,6 +150,10 @@ class DecisionTable:
     buckets: tuple[int, ...] = (
         ()
     )  # each rule's place in `emit_gsub._ordered_settle_rules`' sort as the crate's exchange computes it (crossconfig.rs `bucket`), in rule order; the emitter checks each
+    zwnj_before: frozenset[str] | None = (
+        None  # the labels of the cells settled immediately before a ZWNJ (the crate's `fold::zwnj_cells`); None for a head that lists none
+    )
+    zwnj_after: frozenset[str] | None = None  # the labels of the cells settled immediately after a ZWNJ
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:
@@ -221,14 +224,14 @@ class JoinTable:
     rows: tuple[JoinRow, ...] = ()
 
     def write_tsv(self, path: Path) -> None:
-        lines = [f"# join table, config {self.config}", "left\tright\tjunction\textension\tkern"]
+        lines = [f"# join table, config {self.config}", "left\tright\tjunction\textension"]
         for row in self.rows:
-            lines.append("\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))))
+            lines.append("\t".join((row.left, row.right, row.junction, str(row.extension))))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n")
 
 
-JOIN_COLUMNS = ("left", "right", "junction", "extension", "kern")
+JOIN_COLUMNS = ("left", "right", "junction", "extension")
 
 
 def read_join_tsv(path: Path) -> JoinTable:
@@ -243,8 +246,8 @@ def read_join_tsv(path: Path) -> JoinTable:
         fields = line.split("\t")
         if len(fields) != len(JOIN_COLUMNS):
             raise ValueError(f"{path}: line {number} has {len(fields)} fields, expected {len(JOIN_COLUMNS)}")
-        left, right, junction, extension, kern = fields
-        rows.append(JoinRow(left, right, junction, int(extension), int(kern)))
+        left, right, junction, extension = fields
+        rows.append(JoinRow(left, right, junction, int(extension)))
     return JoinTable(config=lines[0].removeprefix("# join table, config "), rows=tuple(rows))
 
 
@@ -474,6 +477,8 @@ def _windows_of(handle: IO[str] | _LineSource, windows: bool, name: str) -> tupl
         imports=tuple(tuple(fields) for fields in head.get("imports", ())),
         fold_order=tuple(head.get("fold_order", ())),
         buckets=tuple(head.get("buckets", ())),
+        zwnj_before=frozenset(head["zwnj_before"]) if "zwnj_before" in head else None,
+        zwnj_after=frozenset(head["zwnj_after"]) if "zwnj_after" in head else None,
         _cells=frozenset(
             CellId(rune, stance, entry, exit_, tuple(adjustments))
             for rune, stance, entry, exit_, adjustments in head["cells"]
@@ -575,7 +580,6 @@ def _table_digest_parts(decision: DecisionTable, joins: JoinTable, rows: Iterabl
                     join_row.right,
                     join_row.junction,
                     str(join_row.extension),
-                    str(join_row.kern),
                 )
             ).encode()
             + b"\n"

@@ -534,14 +534,10 @@ def _freshness_check(
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
-    try:
-        on_disk = fingerprint.file_sha256(after)
-    except OSError:
-        on_disk = None
-    if on_disk != recorded_sha:
+    if not fingerprint.after_font_current(Path(review_dir) / "fonts" / "after.otf", recorded_sha, after):
         return {
             "level": "fail",
-            "detail": "The corpus's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this corpus was built, so the review app is serving last build's font.",
+            "detail": "The corpus's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on, outside its kern lookup, since this corpus was built, so the review app is serving last build's font.",
             "remedy": artifact_cycle_remedy,
             "components": components,
         }

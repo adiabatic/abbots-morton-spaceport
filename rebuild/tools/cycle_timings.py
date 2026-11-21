@@ -74,6 +74,7 @@ PASS_WRITE_CEILING_BYTES: dict[str, int | None] = {
     "full-replay": None,
     "narrowed": None,
     "gates-only": None,
+    "kern-only": None,
     "corpus-only": None,
     "verdict-only": None,
     "tests-only": None,
@@ -360,7 +361,7 @@ def previous_pass_alphabet(host: str, runs: Iterable[Mapping]) -> Mapping | None
 def write_class(run: Mapping, steps: Iterable[Mapping], previous: Mapping | None = None) -> str | None:
     """Return the write class of one cycle pass, the first of `PASS_WRITE_CEILING_BYTES`'s classes that applies, from its run line, its step lines and `previous`, the `alphabet` record of this host's latest pass that finished ok (`previous_pass_alphabet`), or None when none does. A pass is checked against the class of change it is, because a pass writes in proportion to what it changes.
 
-    `letter-batch` comes first: the run line's `alphabet` record (`alphabet_record`) and `previous` name different alphabets, as they do across a letter batch's `M1_ALPHABET` edit. The record is the alphabet the subset tables were last filtered to, so a batch whose refilter ran in a run_m1 before the pass is one too. A pass without a record, or without a `previous`, takes its class from the rules below. The step lines' phase entries come next. `full-replay`: a `[t] replay_strings` line says the string replay walked every text (`scope=full`), as after a crate or structure edit. `narrowed`: it walked only the changed runes' texts (`scope=narrowed`), as after a rune edit. The run line's plan block decides the rest. `gates-only`: a gates-only rerun (`rerun_gates_only`). On a pass that skipped run_m1, `corpus-only` when the corpus moved (a corpus build, a promotion or an assets refresh), `verdict-only` when a verdict-update step ran, `tests-only` when the only heavy work was a test gate (`HEAVY_GATE_STEPS`), and `nothing` when no heavy gate ran either (gate:js, review-facts and the job-costs steps run on every pass). None: a run line without a plan block, or a pass that is no letter batch and ran run_m1 whose lines name no replay scope, because it stopped before the replay or predates the token.
+    `letter-batch` comes first: the run line's `alphabet` record (`alphabet_record`) and `previous` name different alphabets, as they do across a letter batch's `M1_ALPHABET` edit. The record is the alphabet the subset tables were last filtered to, so a batch whose refilter ran in a run_m1 before the pass is one too. A pass without a record, or without a `previous`, takes its class from the rules below. The step lines' phase entries come next. `full-replay`: a `[t] replay_strings` line says the string replay walked every text (`scope=full`), as after a crate or structure edit. `narrowed`: it walked only the changed runes' texts (`scope=narrowed`), as after a rune edit. The run line's plan block decides the rest. `gates-only`: a gates-only rerun (`rerun_gates_only`). `kern-only`: a kern-only rebuild (`rerun_kern_only`). On a pass that skipped run_m1, `corpus-only` when the corpus moved (a corpus build, a promotion or an assets refresh), `verdict-only` when a verdict-update step ran, `tests-only` when the only heavy work was a test gate (`HEAVY_GATE_STEPS`), and `nothing` when no heavy gate ran either (gate:js, review-facts and the job-costs steps run on every pass). None: a run line without a plan block, or a pass that is no letter batch and ran run_m1 whose lines name no replay scope, because it stopped before the replay or predates the token.
     """
     current = _alphabet_digest(run.get("alphabet"))
     if current is not None and _alphabet_digest(previous) not in (None, current):
@@ -381,6 +382,8 @@ def write_class(run: Mapping, steps: Iterable[Mapping], previous: Mapping | None
         return None
     if plan.get("rerun_gates_only") is True:
         return "gates-only"
+    if plan.get("rerun_kern_only") is True:
+        return "kern-only"
     if plan.get("skip_run_m1") is not True:
         return None
     if plan.get("skip_corpus") is False or plan.get("promote_corpus") or plan.get("refresh_assets") is True:

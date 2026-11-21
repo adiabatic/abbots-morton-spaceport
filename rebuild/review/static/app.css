@@ -1666,7 +1666,7 @@ details.group {
 .qs,
 .qs-plain {
   line-height: 1.4;
-  /* The rebuild has no kerning yet, so the old font's kerning would only add noise to the comparison. This combines with the inline font-feature-settings the app sets for each render group. */
+  /* Kerning stays out of the review corpus (rebuild/KERN-PLAN.md §4), so both fonts render without it, as the build shapes them. This combines with the inline font-feature-settings the app sets for each render group. */
   font-kerning: none;
   -webkit-font-smoothing: none;
   font-smooth: never;

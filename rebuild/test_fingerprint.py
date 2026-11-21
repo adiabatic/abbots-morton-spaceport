@@ -469,8 +469,8 @@ KERNED_RUNE = textwrap.dedent("""\
     """)
 
 
-def test_a_kern_edit_moves_the_run_key_and_the_rune_digest_but_not_the_tables_stamp(tmp_path):
-    """A rune's `kern:` block reaches no table stage: the kernel's spec dump leaves it out, and only rebuild/pipeline/kern.py, which runs after the tables exist, reads it. So `tables_value` hashes each rune without it (`rune_table_digest`), while the `data` component, the run_m1 skip key and the per-family digest still move, and a build still runs and rewrites `kern.tsv`. Rewording a kern record's `why` moves nothing, like every other `why`."""
+def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_path):
+    """A rune's `kern:` block reaches no table, settlement, oracle row or review unit, so `rune_file_digest` and `rune_explain_digest` leave it out and every key built from them stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_m1 skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The rebuild suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
     root = _fake_repo(tmp_path)
     rune = root / "glyph_data" / "runes" / "qsPea.yaml"
     rune.write_text(KERNED_RUNE)
@@ -479,22 +479,35 @@ def test_a_kern_edit_moves_the_run_key_and_the_rune_digest_but_not_the_tables_st
         return (
             fingerprint.tables_value(root),
             fingerprint.data_value(root),
-            artifact_cycle.run_m1_skip_fingerprint(root),
             fingerprint.rune_file_digest(rune),
-            fingerprint.rune_table_digest(rune),
+            fingerprint.rune_explain_digest(rune),
+            artifact_cycle.run_m1_skip_fingerprint(root),
+            fingerprint.rune_kern_digest(rune),
+            fingerprint.rune_document_digest(rune),
         )
 
     before = keys()
+    lines_before = artifact_cycle.run_m1_skip_files(root)
     rune.write_text(KERNED_RUNE.replace("by: -2", "by: -1, why: A rationale"))
     edited = keys()
-    assert edited[0] == before[0] and edited[4] == before[4]
-    assert all(edited[index] != before[index] for index in (1, 2, 3))
+    assert edited[:4] == before[:4]
+    assert all(edited[index] != before[index] for index in (4, 5, 6))
+    moved = artifact_cycle.moved_input_labels({"files": lines_before}, artifact_cycle.run_m1_skip_files(root))
+    assert moved == ["glyph_data/runes/qsPea.yaml#kern"]
+    assert (
+        artifact_cycle.kern_only_rebuild({"files": lines_before}, artifact_cycle.run_m1_skip_files(root))
+        == moved
+    )
     rune.write_text(KERNED_RUNE.replace("by: -2", "by: -1, why: Another rationale"))
     assert keys() == edited
     rune.write_text(KERNED_RUNE.replace("kern:\n- {right: {family: qsBay}, by: -2}\n", ""))
-    assert fingerprint.tables_value(root) == before[0]
+    assert fingerprint.tables_value(root) == before[0] and fingerprint.data_value(root) == before[1]
     rune.write_text(KERNED_RUNE.replace("stances: {}", "stances: {edited: {}}"))
     assert fingerprint.tables_value(root) != before[0]
+    assert (
+        artifact_cycle.kern_only_rebuild({"files": lines_before}, artifact_cycle.run_m1_skip_files(root))
+        is None
+    )
 
 
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):

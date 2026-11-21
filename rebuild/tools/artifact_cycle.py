@@ -38,19 +38,21 @@ The verdict-update skip also requires the corpus build to skip, which is what ma
 
 Every other heavy stage skips on the same principle: a content fingerprint over the stage's input closure, and a green record written only after that content passed.
 
-- run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) while the Stage A record beside its artifacts matches the sources on disk (`m1_stage_a_current`), and re-evaluates its gate from the summary JSONs on disk.
+- run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus each rune's kern line, the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) while the Stage A record beside its artifacts matches the sources on disk (`m1_stage_a_current`), and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the conformance sweep tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep's maximum length (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `contracts_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose inputs changed runs only the tests the diff reaches and those it cannot rule out, and a skip also requires the extra paths the recorded closures name to keep their bytes (`contracts_closure.prepare_run`); rebuild.tools.contracts_closure owns that selection and the run lifecycle. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
 - corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the autosave stays aligned. When the live corpus does not match but a corpus built beside it does (a complete rebuild/out/review.next a stopped pass left, the last cycle summary's `plan.review_out`, or var/staged-review), the land swaps that directory in with its stores instead of a rebuild (`promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the swap keeps the `generated_at` a rebuild could reset.
 - The review-facts step has no key and never skips: it reads the corpus build's review-facts.json sidecar and regenerates one small checked-in file in milliseconds, writing it only when its bytes change.
 
-The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches the sources on disk (`m1_stage_a_current`). A run writes that record only once its gates pass, so a matching record sits beside the audit that a passing run over these Stage A inputs wrote and the subset tables that run checked fresh, and the rerun reproduces both byte for byte and writes back the same record (`m1_stage_a_current` says why, and names the two gaps where it does not): the corpus reads nothing the pass changes. That happens on a contact-allow bless, since the allow-list is in no Stage A component.
+The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun or a kern-only rebuild when the Stage A record on disk already matches the sources on disk (`m1_stage_a_current`). A kern-only rebuild writes a new M1.otf, which differs from the corpus's copy only in its `kern` lookup; the corpus shapes and renders with `kern` off and compares the two fonts without it (`fingerprint.after_font_current`), so the corpus stays as it is. A run writes that record only once its gates pass, so a matching record sits beside the audit that a passing run over these Stage A inputs wrote and the subset tables that run checked fresh, and the rerun reproduces both byte for byte and writes back the same record (`m1_stage_a_current` says why, and names the two gaps where it does not): the corpus reads nothing the pass changes. That happens on a contact-allow bless, since the allow-list is in no Stage A component.
 
 Conform's skip is decided after run_m1 finishes, from the key the artifacts it left carry. A mode that leaves the emitted lookup's shapes, the compile code and the shaper at the last green key skips the sweep, whether run_m1 skipped, reran only its gates, or rebuilt, and the skip is recorded as proved because a matching green covers this exact content. Computing the key only after run_m1 has finished also means an M1 rebuild cannot invalidate it during the cycle. The preflight can decide it before the pass only in the mode where run_m1 skipped, so nothing will change; that is the mode --dry-run can predict. On a gates-only rerun or a rebuild the printed plan shows the conform lane as undecided (`run?`), because only a finished run_m1 knows what the artifacts are, so a plan that shows the sweep may end in a pass that skips it.
 
 Green records are written only when the key still matches after the work ran, and a red result whose key matches its record deletes the record. --fresh runs everything regardless.
 
 Between the run_m1 skip and a full rebuild there is a third mode, the gates-only rerun. When the per-file diff against the run_m1 green is confined to comparison-side inputs (the alias map, the divergence ledger, the contact allow-list, the kern sidecar, the code `fingerprint.COMPARISON_CODE_MODULES` names, and the baselines and their subsets, all outside the tables' stamp; `comparison_side_label` lists them and argues each) and rebuild/out/m1 holds the build the rerun reads (`m1_gates_only_base_present`, the check `run_m1_gates.gates_only_base` makes: the tables carrying that stamp, M1.otf, pipeline_summary.json and the join tables), the cycle spawns `run_m1 --gates-only` instead of a build. It re-runs the defect gate, the Manual-pin gate and the oracle over the tables and font on disk, matches the oracle's rows against the ledgers again, and enumerates nothing. That pass records a green over the new inputs, so the next cycle skips run_m1, though what it checks does not show that the tables and M1.otf on disk are a passing build's (`run_m1_gates.run_gates_only` names the gaps). `uv.lock` is not comparison-side, because a fontTools or uharfbuzz bump can change the font's bytes and what the shaper does with them, so a toolchain bump rebuilds.
+
+A fourth mode is the kern-only rebuild. When the diff against the run_m1 green is confined to runes' kern lines (`kern_side_label`: a rune's `kern` block is in the run_m1 skip key through `fingerprint.kern_lines` and in no other key), rebuild/out/m1 holds the build a gates-only rerun would read, and its Stage A record matches the sources on disk (`m1_stage_a_current`), the cycle spawns `run_m1 --kern-only`. It runs the glyph chain alone over the tables on disk (`run_m1.kern_only_run`): the kern stage, the defect gates at the kerned offsets, the GSUB and GPOS emission, the compile and read-back. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle read nothing a kern block feeds, so their summaries stand, and the pass records a green over the new inputs as a gates-only rerun does (`kern_only_rebuild`). The matching Stage A record is what shows those summaries are a passing run's over these inputs, so without it the cycle rebuilds. The child carries that record forward and publishes its files only once read-back passes, so a kern-only child that fails leaves the prior build, its summaries and the record in place, and the next pass plans a kern-only rebuild again.
 
 The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild moves the byte ranges the tab reads, appending changed fragments to overflow parts, folding classes and rewriting the sidecars' addresses, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass seeds rebuild/out/review.next with a copy-on-write clone of the served corpus (`corpus-seed`, `landing.clone_tree`), builds there (`--out`), links the live store's file into its scratch directory under the store's lock as the snapshot and the prepared store (`store-snapshot`), and runs the verdict update against the prepared store (`--autosave`, `--prepared-from`), which it holds in memory from its first merge and writes once, in the layout the land writes, when a merge changed it, journaling nothing, since the land journals the store it lands; it fuses the carry into its first merge, so a merging pass writes no carried file, and writes both fill files beside the prepared store (`--duplicate-out`, `--standing-out`), so a merging pass leaves none of them at the repository root. Every writer of the store and of those two names replaces its file by rename, so no write reaches the live store through a link. The land (`rebuild.review.landing`) then swaps the new corpus in and puts the prepared store in place in one short section under the store's lock, laying the saves made during the pass over the prepared store, renaming the prepared store into place as its result when no save landed during the pass, or leaves the store in place when the verdict update changed nothing and those saves give back the store as it stands (`landing`'s module docstring says when), and runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
@@ -385,7 +387,7 @@ def make_test_gate_argv(*, force: bool) -> list[str]:
     return ["make", "test", "FORCE=1"] if force else ["make", "test"]
 
 
-M1_ARTIFACT_NAMES = ("M1.otf", "divergence-audit.tsv.head", "inputs_fingerprint.json")
+M1_ARTIFACT_NAMES = ("M1.otf", "kern-classes.json", "divergence-audit.tsv.head", "inputs_fingerprint.json")
 REBUILD_GATE_HARNESS_PATHS = (
     "README.md",
     "doc/glyph-names.md",
@@ -404,7 +406,7 @@ REBUILD_GATE_HARNESS_PATHS = (
 
 
 def _closure_digest(root: Path, rel: str) -> str:
-    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_file_digest`, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a changed pin re-runs the lane and the lock's copy of the project version does not; no test reads the project's own block, and the pinned packages decide the environment the lane runs in. A version bump still re-runs the whole lane, because it rewrites pyproject.toml, a global label (`contracts_closure.GLOBAL_LABELS`) hashed raw. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, statuses, `no_verdict`, `match` and the exemplar keys, never the text of a `why`, `title`, `summary` or `note`; `audit.load_ledger` checks only that a title and summary are present and nonempty, and the digest keeps which prose keys each entry has. The only live readers of that text are the corpus's sidebar, class header and explain panel, and the standing fill, and both are keyed elsewhere: the ledger's prose in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `verdict_update_skip_fingerprint`, which hashes the file raw for that reason."""
+    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_document_digest`, which keeps the `kern` block's records, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a changed pin re-runs the lane and the lock's copy of the project version does not; no test reads the project's own block, and the pinned packages decide the environment the lane runs in. A version bump still re-runs the whole lane, because it rewrites pyproject.toml, a global label (`contracts_closure.GLOBAL_LABELS`) hashed raw. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, statuses, `no_verdict`, `match` and the exemplar keys, never the text of a `why`, `title`, `summary` or `note`; `audit.load_ledger` checks only that a title and summary are present and nonempty, and the digest keeps which prose keys each entry has. The only live readers of that text are the corpus's sidebar, class header and explain panel, and the standing fill, and both are keyed elsewhere: the ledger's prose in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `verdict_update_skip_fingerprint`, which hashes the file raw for that reason."""
     from rebuild.pipeline import fingerprint
 
     prose_insensitive = {
@@ -414,7 +416,7 @@ def _closure_digest(root: Path, rel: str) -> str:
     }
     digest = prose_insensitive.get(rel)
     if digest is None and rel.startswith("glyph_data/runes/") and rel.endswith(".yaml"):
-        digest = fingerprint.rune_file_digest
+        digest = fingerprint.rune_document_digest
     if digest is None:
         return _sha256_path(root / rel)
     try:
@@ -428,7 +430,7 @@ def _subset_tables(root: Path) -> list[Path]:
 
 
 def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
-    """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (each data input by its prose-insensitive digest, `fingerprint.data_lines`), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
+    """Return the per-file `label\\tdigest` lines behind `run_m1_skip_fingerprint`: every data input and pipeline module individually (each data input by its prose-insensitive digest, `fingerprint.data_lines`, which leaves out every rune's `kern` block), one line per rune for its `kern` block alone (`fingerprint.kern_lines`, labeled `<rune label>#kern`), the contact allow-list by its own prose-insensitive digest, the full baselines as one value, the oracle's subset tables, and uv.lock by its dependency pins (`fingerprint.lock_digest`, which ignores the project's own version block, so a version bump leaves the line unchanged and a fontTools or uharfbuzz bump changes it). The green record stores these lines, so a skip miss can name which input changed, and the pass can check whether every changed label is comparison-side (`comparison_side_label`) and rerun the gates over the artifacts on disk instead of rebuilding them.
 
     The allow-list is here and in no fingerprint component. Only the defect gate reads it, so a bless must change this key and should not change the corpus's stamp or drop the unit cache. A missing allow-list contributes no line, as `path_lines` drops a missing file.
 
@@ -437,6 +439,7 @@ def run_m1_skip_lines(root: Path = ROOT) -> list[str]:
     from rebuild.pipeline import fingerprint, spec_load
 
     lines = fingerprint.data_lines(root)
+    lines += fingerprint.kern_lines(root)
     allow = root / fingerprint.CONTACT_ALLOW_LABEL
     if allow.is_file():
         lines.append(f"{fingerprint.CONTACT_ALLOW_LABEL}\t{fingerprint.contact_allow_digest(allow)}")
@@ -510,6 +513,21 @@ def comparison_side_label(label: str) -> bool:
     return label in fingerprint.COMPARISON_CODE_MODULES
 
 
+def kern_side_label(label: str) -> bool:
+    """Return whether one `run_m1_skip_lines` label is a rune's kern line (`fingerprint.kern_lines`): the one input that changes the font's `kern` lookup and nothing the tables, the settlement, the oracle or the review corpus reads. It is not comparison-side, because the font must be compiled again."""
+    from rebuild.pipeline import fingerprint
+
+    return label.endswith(fingerprint.KERN_LINE_SUFFIX)
+
+
+def kern_only_rebuild(record: dict | None, current: dict[str, str]) -> list[str] | None:
+    """Return the labels that changed since the last green M1 build when every one is a kern line (`kern_side_label`), and None otherwise: no green record, nothing changed, or another input moved. The cycle then plans `run_m1 --kern-only`, which recompiles the font over the tables on disk, and the pass uses this to decide whether it may record a green. The kern blocks feed no table, no settlement, no oracle row and no review unit (`fingerprint.rune_file_digest` leaves them out), so a prior green over every other input vouches for everything but the font, which the child rebuilds and reads back. The same second check as a gates-only rerun's applies: the tables on disk must carry the stamp of the sources on disk (`m1_tables_stamped`), checked before and after the child. A third is its own: the Stage A record must match the sources on disk (`m1_stage_a_current`), before the plan and before and after the child, because the child keeps the Manual-pin and oracle summaries and the audit it finds, and only a matching record shows they are a passing run's. A red gates-only rerun or a declined Stage A record leaves none, and the cycle then rebuilds instead of re-evaluating what is there."""
+    moved = moved_input_labels(record, current)
+    if moved is None:
+        return None
+    return moved if all(kern_side_label(label) for label in moved) else None
+
+
 def gates_only_rerun(record: dict | None, current: dict[str, str]) -> list[str] | None:
     """Return the labels that changed since the last green M1 build when every one is comparison-side, and None otherwise. The cycle uses this to plan a gates-only rerun, and the pass uses it to decide whether it may record a green. None means no gates-only rerun in three cases: there is no green record, nothing changed (the plain skip's case), or a build-side input changed and the tables must be rebuilt.
 
@@ -545,7 +563,7 @@ def m1_table_head_names() -> list[str]:
 
 
 def m1_artifacts_present(root: Path = ROOT) -> bool:
-    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, the artifacts the corpus build reads, and every settlement configuration's windows head and head file (`m1_table_head_names`). It is the plain skip's predicate only. Two of those summaries (manual_pins_summary.json and oracle_summary.json), the audit and the Stage A record are files a gates-only rerun writes without reading, so it is planned on what it reads instead (`m1_gates_only_base_present`). An M1 build and a gates-only pass each delete the Stage A record immediately before their first write here and write it back only once their gates pass, so after one that wrote here and then stopped or failed this is False and the plain skip is refused; the pass then reruns the gates or rebuilds, as `gates_only_rerun` decides."""
+    """Return whether rebuild/out/m1 still holds everything a skipped run_m1 must leave: the three gate summaries the skip re-evaluates the gate from, the artifacts the corpus build reads, the kern assignment gate:conform checks the font against (`kern-classes.json`), and every settlement configuration's windows head and head file (`m1_table_head_names`). It is the plain skip's predicate only. Two of those summaries (manual_pins_summary.json and oracle_summary.json), the audit and the Stage A record are files a gates-only rerun writes without reading, so it is planned on what it reads instead (`m1_gates_only_base_present`). An M1 build and a gates-only pass each delete the Stage A record immediately before their first write here and write it back only once their gates pass, so after one that wrote here and then stopped or failed this is False and the plain skip is refused; the pass then reruns the gates or rebuilds, as `gates_only_rerun` decides."""
     m1 = root / "rebuild" / "out" / "m1"
     names = [
         *(path.name for path in cycle_paths.M1_SUMMARY_FILES.values()),
@@ -570,7 +588,7 @@ def m1_gates_only_base_present() -> bool:
 
 
 def m1_stage_a_current(root: Path = ROOT) -> bool:
-    """Return whether the Stage A record under rebuild/out/m1 matches what a pass over the sources on disk would write. An M1 build and a gates-only pass each delete the record before they rewrite anything there, and write back the values they captured before reading their inputs only once their gates pass and those values still hold (`run_m1_gates._settle_stage_a`); a gates-only pass also needs a prior green with no build-side input moved since it (`run_m1_gates.run_gates_only`). So a matching record shows that the audit beside it was written, and the subset tables beside it checked fresh (`baseline_subset.ensure_fresh`), by a run whose gates passed over these Stage A inputs (unless one was edited and reverted while that run ran, which `run_m1_gates._settle_stage_a` cannot see), and that the tables and M1.otf are the ones that run built, or checked over a green build's build-side inputs (`run_m1_gates.run_gates_only` names the gaps in what such a check shows).
+    """Return whether the Stage A record under rebuild/out/m1 matches what a pass over the sources on disk would write. A kern-only rebuild runs only over a matching record and carries it forward, since it rewrites nothing the record vouches for but the font's `kern` lookup, which the corpus does not read (`run_m1.kern_only_run`). An M1 build and a gates-only pass each delete the record before they rewrite anything there, and write back the values they captured before reading their inputs only once their gates pass and those values still hold (`run_m1_gates._settle_stage_a`); a gates-only pass also needs a prior green with no build-side input moved since it (`run_m1_gates.run_gates_only`). So a matching record shows that the audit beside it was written, and the subset tables beside it checked fresh (`baseline_subset.ensure_fresh`), by a run whose gates passed over these Stage A inputs (unless one was edited and reverted while that run ran, which `run_m1_gates._settle_stage_a` cannot see), and that the tables and M1.otf are the ones that run built, or checked over a green build's build-side inputs (`run_m1_gates.run_gates_only` names the gaps in what such a check shows).
 
     The plain run_m1 skip requires it, so when run_m1 skips it always holds. On a gates-only rerun it decides before the pass runs whether the corpus can skip. The rerun reads the same Stage A inputs as the run that wrote the record, with that exception, and the same tables and font, since every run that rewrites those deletes the record first. Every build-side input the green's key names (`run_m1_skip_lines`) is in a Stage A component except uv.lock, so the rerun also reads them over that run's build-side inputs, but for uv.lock. A gates-only pass writes the record only under the uv.lock of the green it stands on, and a build that records its green built under the uv.lock that green names. A passing build whose green is declined still writes the record, though: the cycle declines it when the child's pre-gate refilter rewrites the subset tables after the cycle computed the key it settles against, and a hand build declines it when its key moves while it runs (uv.lock put back after the build began, say). The last green is then an older one, and when that build ran under another uv.lock than the older green's, a gates-only rerun standing on that green finds the record current: the corpus skips, and the rerun checks, under the green's uv.lock, a font another uv.lock built. Of the comparison-side inputs (`comparison_side_label`), two are outside every Stage A component: the contact allow-list, which only the defect gate reads, and the subset tables, which the pre-gate refilter writes only from what Stage A covers (the source baselines, and the alphabet and filter code in `pipeline_code`) and gzips without a timestamp, so they come out byte for byte the same. So, outside that uv.lock gap and an edit reverted while the record's run ran, the rerun writes the same audit and the same record, and the corpus build, which reads the audit, the subset tables, M1.otf and the record from this directory, finds nothing changed.
     """
@@ -892,7 +910,7 @@ def corpus_build_skippable(
 
     The outputs the manifest does not name, the per-unit index, both app sidecars and the unit store, must each be stamped for the manifest beside them, not merely present. They are written after the manifest and outside it, the unit store after the rest, so a build interrupted between the two, or a manifest rewritten by something that does not rewrite them, leaves every shard present and files that describe a corpus that no longer exists. A skip on shard existence alone would then serve that corpus indefinitely, and a skip on the sidecars alone would keep a corpus whose deflated fragments (#618's change 35) only a current store can place, which no reader of fragments could read. `corpus_complete` checks the stamps through `app_index.outputs_not_current`, the check `make verdict-ready`'s freshness check makes too, so a skip means a rebuild would reproduce this corpus's content in full.
 
-    The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this corpus was built changes nothing the comparison above sees, while the corpus still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf, and comparing that sha with the current M1.otf shows the skip is not passing over a newer font.
+    The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this corpus was built changes nothing the comparison above sees, while the corpus still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf. The skip compares that copy with the current M1.otf by `fingerprint.kern_blind_font_digest`, after checking that the copy still has the sha the manifest records: the corpus shapes and renders with `kern` off, so a font that differs only in its `kern` lookup gives it the same units, and a kern edit leaves the corpus as it is.
 
     `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a corpus built beside it, and the pass's land swaps that directory in when it matches. A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
     """
@@ -928,7 +946,9 @@ def corpus_build_skippable(
         return False
     if not isinstance(after_sha, str):
         return False
-    if after_sha != _sha256_path(root / "rebuild" / "out" / "m1" / "M1.otf"):
+    if not fingerprint.after_font_current(
+        corpus / "fonts" / "after.otf", after_sha, root / "rebuild" / "out" / "m1" / "M1.otf"
+    ):
         return False
     return corpus_complete(corpus)
 
@@ -1204,6 +1224,7 @@ def conform_gate_argv(jobs: int, max_length: int = CONFORM_MAX_LENGTH_DEFAULT) -
 STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
+    "run_m1:kern-only": "Recompiles the font over the tables already on disk after a kern edit: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back. Taken when only runes' kern blocks moved since the last green build, which no table, settlement or oracle row reads.",
     "corpus-seed": "Clones the served corpus to rebuild/out/review.next, copy-on-write, so the build beside it starts from the served corpus's shards and stores without writing a byte the open tab reads. A complete review.next a stopped pass left is kept as the seed instead.",
     "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cached units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read, into rebuild/out/review.next beside the served corpus (in place only on a first run), then its unit store, while store-snapshot and the verdict update run beside it; the land waits for it.",
     "assets-refresh": "Overwrites each served copy of the review app's JS, CSS, and HTML whose bytes changed, leaving the others in place, and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
@@ -1260,6 +1281,7 @@ class Plan:
     make_test_fingerprint: str | None = None
     skip_run_m1: bool = False
     rerun_gates_only: bool = False
+    rerun_kern_only: bool = False
     run_m1_note: str = ""
     run_m1_fingerprint: str | None = None
     fresh: bool = False
@@ -2029,6 +2051,7 @@ def build_plan(
     total_bytes: int | None = None,
     skip_run_m1: bool = False,
     rerun_gates_only: bool = False,
+    rerun_kern_only: bool = False,
     run_m1_note: str = "",
     run_m1_fingerprint: str | None = None,
     fresh: bool = False,
@@ -2260,6 +2283,7 @@ def build_plan(
         make_test_fingerprint=make_test_fingerprint,
         skip_run_m1=skip_run_m1,
         rerun_gates_only=rerun_gates_only and not skip_run_m1,
+        rerun_kern_only=rerun_kern_only and not skip_run_m1 and not rerun_gates_only,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fingerprint,
         fresh=fresh,
@@ -2336,6 +2360,16 @@ def build_plan(
                 run_m1_note,
                 lane="build",
                 describe=step_description(RUN_M1_GATES_ONLY_STEP),
+            )
+        )
+    elif plan.rerun_kern_only:
+        plan.steps.append(
+            Step(
+                "run_m1",
+                ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--kern-only"],
+                run_m1_note,
+                lane="build",
+                describe=step_description(RUN_M1_KERN_ONLY_STEP),
             )
         )
     else:
@@ -2919,12 +2953,21 @@ def _overlap_note(pools: list[str]) -> str:
     return f"CO-RESIDENT with {' and '.join(pools)} (overlap policy)"
 
 
+def _no_fanout(plan: Plan) -> str:
+    """The note that stands in for the table build's and the string replay's widths on a pass whose run_m1 enumerates and replays nothing, or the empty string."""
+    if plan.rerun_gates_only:
+        return "not passed (gates-only rerun)"
+    if plan.rerun_kern_only:
+        return "not passed (kern-only rebuild)"
+    return ""
+
+
 def _render_concurrency(plan: Plan) -> list[str]:
     if plan.skip_gates:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.kernel_threads} and --replay-threads {'not passed (gates-only rerun)' if plan.rerun_gates_only else plan.replay_threads}, corpus-build --jobs {plan.corpus_jobs} ({plan.corpus_reason}), corpus-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {_no_fanout(plan) or plan.kernel_threads} and --replay-threads {_no_fanout(plan) or plan.replay_threads}, corpus-build --jobs {plan.corpus_jobs} ({plan.corpus_reason}), corpus-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
     t0_lane = (
         "gate:js"
@@ -3004,18 +3047,18 @@ def _render_concurrency(plan: Plan) -> list[str]:
         else:
             lines.append("                                       no other heavy pool running, so no queueing")
     lines.append(f"    run_m1 sweeps --jobs             : {plan.sweep_jobs}  ({plan.sweep_reason})")
-    if plan.rerun_gates_only:
+    if plan.rerun_gates_only or plan.rerun_kern_only:
         lines.append(
-            "    run_m1 --kernel-threads          : not passed (a gates-only rerun enumerates nothing, so there is no fan-out to size)"
+            f"    run_m1 --kernel-threads          : not passed (a {'gates-only rerun' if plan.rerun_gates_only else 'kern-only rebuild'} enumerates nothing, so there is no fan-out to size)"
         )
     else:
         lines.append(f"    run_m1 --kernel-threads          : {plan.kernel_threads}  ({plan.kernel_reason})")
         lines.append(
             f"    run_m1 --scratch-beside-default  : {plan.scratch_beside_default}  (at most this many of the heaviest deltas enumerated from scratch beside default, in whole tiers of equal unlocking-rune count, as many as the table build's booking at that width still fits with each booked at SCRATCH_PEAK_BYTES{'' if plan.scratch_beside_default else '; none fits, so every delta waits for default and reads its memo'})"
         )
-    if plan.rerun_gates_only:
+    if plan.rerun_gates_only or plan.rerun_kern_only:
         lines.append(
-            "    run_m1 --replay-threads          : not passed (a gates-only rerun replays nothing, so there is no wave to size)"
+            f"    run_m1 --replay-threads          : not passed (a {'gates-only rerun' if plan.rerun_gates_only else 'kern-only rebuild'} replays nothing, so there is no wave to size)"
         )
     else:
         lines.append(
@@ -3385,8 +3428,9 @@ def classify_rebuild_output(stdout: str, returncode: int, check: str) -> CheckRe
 _NO_SUMMARIES_REASONS = ("run_m1 did not write all three summary files",)
 
 RUN_M1_GATES_ONLY_STEP = "run_m1:gates-only"
+RUN_M1_KERN_ONLY_STEP = "run_m1:kern-only"
 
-STEP_ALIASES = {RUN_M1_GATES_ONLY_STEP: "run_m1"}
+STEP_ALIASES = {RUN_M1_GATES_ONLY_STEP: "run_m1", RUN_M1_KERN_ONLY_STEP: "run_m1"}
 
 
 def _summary_object(path: Path) -> dict | None:
@@ -3486,6 +3530,7 @@ def _do_run_m1(
     skip: bool = False,
     skip_note: str = "",
     gates_only: bool = False,
+    kern_only: bool = False,
     record: bool = False,
     fingerprint: str | None = None,
     timings: CycleTimings | None = None,
@@ -3494,23 +3539,30 @@ def _do_run_m1(
 
     With `gates_only`, the child is `run_m1 --gates-only` over the tables and font on disk. It rewrites the defect fields of `pipeline_summary.json` in place and exits with an error when that file is missing, so it is the one summary not deleted before the spawn. Its green rests on a prior green build with only comparison-side changes since (`gates_only_rerun`; a failed run never vouches for the artifacts it left) and tables stamped before and after the child runs (`m1_tables_stamped`). Its stop is filed from the red it reported (`_reported_red`), never from that summary, which a refusal before the defect gate leaves as the build wrote it. The cycle is the sole green-record writer for its children, and a nonzero exit overrides passing summaries. The child spawns as `RUN_M1_GATES_ONLY_STEP`, not `run_m1`, because `make cycle-timings ARGS='--by-step'` groups rows by step name and host, and a gates-only run of a few seconds recorded as `run_m1` would distort the figures for a full M1 build.
 
+    With `kern_only`, the child is `run_m1 --kern-only`, which recompiles the font over the tables on disk after an edit that moved only runes' kern blocks. No summary is deleted before the spawn: the child runs its glyph chain beside rebuild/out/m1 and replaces the font, the kern files and `pipeline_summary.json` only once read-back has passed, deleting that summary first and writing it last (`run_m1._publish_kern_only`), and it keeps the Manual-pin and oracle summaries, whose inputs the edit did not move. So a child that fails leaves the prior font beside the summaries that describe it, and its nonzero exit files a red whatever those summaries say, while the next pass can plan a kern-only rebuild again; a child killed while it publishes leaves no pipeline summary, which is filed as a missing summary and makes the next pass rebuild. Its green rests on a prior green build with only kern lines moved since (`kern_only_rebuild`), tables stamped before and after the child runs, as a gates-only rerun's does, and a Stage A record matching the sources before and after it (`m1_stage_a_current`). It spawns as `RUN_M1_KERN_ONLY_STEP`.
+
     Every path, the skip included, records a check line in the timings journal, because a skip is an evaluation of this build's summaries. The child records none of its own, because it inherits CYCLE_RUN_ENV; it prints the result it would have recorded on a `console.CHECK` line instead. A full build whose records name what stopped it (a string replay that found the tables incomplete, the defect gate or the Manual-pin gate; `_gate_that_stopped_a_full_build` says when they do) is recorded red with that failure. Any other child that left a summary missing, or exited nonzero despite passing summaries, is recorded with the red it reported (`_reported_red`), a refusal before any gate included, and one that reported none with `_NO_SUMMARIES_REASONS` or its exit code. When every summary is present, one that does not parse to an object is recorded red naming the file (`_unreadable_summary_red`), on the skip path too. A run that left a summary missing is filed as above even when another summary does not parse, so a gates-only child killed while it rewrote pipeline_summary.json keeps `_NO_SUMMARIES_REASONS`. The cycle's failure list gets the same text in every case.
     """
-    step = RUN_M1_GATES_ONLY_STEP if gates_only else "run_m1"
+    step = RUN_M1_GATES_ONLY_STEP if gates_only else RUN_M1_KERN_ONLY_STEP if kern_only else "run_m1"
     result: _StepResult | None = None
     replay_before: int | None = None
     gates_only_eligible = False
     if skip:
         emit.step_skipped("run_m1", f"{skip_note}; evaluating the gate from the recorded summaries")
     else:
-        if gates_only and record and fingerprint is not None:
+        if (gates_only or kern_only) and record and fingerprint is not None:
             prior = read_green_record(cycle_paths.RUN_M1_GREEN)
             current = run_m1_skip_files(ROOT)
-            gates_only_eligible = gates_only_rerun(prior, current) is not None and m1_tables_stamped()
-        if not gates_only:
+            rerun = gates_only_rerun if gates_only else kern_only_rebuild
+            gates_only_eligible = (
+                rerun(prior, current) is not None
+                and m1_tables_stamped()
+                and (gates_only or m1_stage_a_current(ROOT))
+            )
+        if not gates_only and not kern_only:
             replay_before = _replay_record_mtime()
         for name, path in cycle_paths.M1_SUMMARY_FILES.items():
-            if gates_only and name == "pipeline":
+            if kern_only or (gates_only and name == "pipeline"):
                 continue
             path.unlink(missing_ok=True)
         result = spawn(step, argv, emit=emit, registry=registry, stream=False)
@@ -3528,7 +3580,7 @@ def _do_run_m1(
         if unreadable:
             stopped = _unreadable_summary_red("run_m1", unreadable)
         elif result is not None:
-            if not gates_only:
+            if not gates_only and not kern_only:
                 stopped = _gate_that_stopped_a_full_build(missing, replay_before)
             if stopped is None:
                 stopped = _reported_red(result.stdout, "run_m1")
@@ -3576,10 +3628,14 @@ def _do_run_m1(
         if not gate.ok:
             settle_green(cycle_paths.RUN_M1_GREEN, fingerprint, False, lambda: run_m1_skip_fingerprint(ROOT))
         elif not skip:
-            if gates_only and (not gates_only_eligible or not m1_tables_stamped()):
+            if (gates_only or kern_only) and (
+                not gates_only_eligible
+                or not m1_tables_stamped()
+                or (kern_only and not m1_stage_a_current(ROOT))
+            ):
                 emit.note(
                     "run_m1",
-                    "run_m1 gates-only green, but the prior build or tables stamp does not permit reusing these artifacts — green not recorded",
+                    f"run_m1 {'gates-only' if gates_only else 'kern-only'} green, but the prior build or tables stamp does not permit reusing these artifacts — green not recorded",
                 )
             elif not settle_green(
                 cycle_paths.RUN_M1_GREEN,
@@ -4611,6 +4667,7 @@ def _run_cycle(
             skip=plan.skip_run_m1,
             skip_note=plan.run_m1_note,
             gates_only=plan.rerun_gates_only,
+            kern_only=plan.rerun_kern_only,
             record=plan.record_greens,
             fingerprint=plan.run_m1_fingerprint,
             timings=timings,
@@ -5230,9 +5287,9 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "carry_out": _as_str(plan.carry_out),
             "do_merge": plan.do_merge,
             "conform_max_length": plan.conform_max_length,
-            "kernel_threads": None if plan.rerun_gates_only else plan.kernel_threads,
-            "scratch_beside_default": None if plan.rerun_gates_only else plan.scratch_beside_default,
-            "replay_threads": None if plan.rerun_gates_only else plan.replay_threads,
+            "kernel_threads": None if _no_fanout(plan) else plan.kernel_threads,
+            "scratch_beside_default": None if _no_fanout(plan) else plan.scratch_beside_default,
+            "replay_threads": None if _no_fanout(plan) else plan.replay_threads,
             "sweep_jobs": plan.sweep_jobs if plan.runs("run_m1") else None,
             "corpus_jobs": plan.corpus_jobs if plan.runs("corpus-build") else None,
             "corpus_gates_idle_jobs": plan.corpus_gates_idle_jobs if plan.runs("corpus-build") else None,
@@ -5254,6 +5311,7 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "skip_conform": plan.skip_conform,
             "skip_run_m1": plan.skip_run_m1,
             "rerun_gates_only": plan.rerun_gates_only,
+            "rerun_kern_only": plan.rerun_kern_only,
             "skip_corpus": plan.skip_corpus,
             "refresh_assets": plan.refresh_assets,
             "promote_corpus": _as_str(plan.promote_corpus),
@@ -5782,6 +5840,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
     run_m1_fp = run_m1_skip_fingerprint(ROOT)
     skip_run_m1 = False
     rerun_gates_only = False
+    rerun_kern_only = False
     run_m1_note = ""
     skip_corpus = False
     refresh_assets = False
@@ -5812,17 +5871,24 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         elif green is not None:
             current = run_m1_skip_files(ROOT)
             rerunnable = gates_only_rerun(green, current)
+            kerned = kern_only_rebuild(green, current)
             if rerunnable is not None and m1_gates_only_base_present():
                 rerun_gates_only = True
                 run_m1_note = (
                     f"only comparison-side inputs moved since the last green M1 build ({capped_labels(rerunnable)}); "
                     "the tables and font are reused and the gates re-run over them; --fresh overrides"
                 )
+            elif kerned is not None and m1_gates_only_base_present() and m1_stage_a_current(ROOT):
+                rerun_kern_only = True
+                run_m1_note = (
+                    f"only kern blocks moved since the last green M1 build ({capped_labels(kerned)}); "
+                    "the font is recompiled over the tables on disk, and every other gate's green stands; --fresh overrides"
+                )
             else:
                 note = moved_inputs_note(green, current)
                 if note is not None:
                     run_m1_note = f"inputs moved since its last green: {note}"
-    if skip_run_m1 or (rerun_gates_only and m1_stage_a_current(ROOT)):
+    if skip_run_m1 or ((rerun_gates_only or rerun_kern_only) and m1_stage_a_current(ROOT)):
         if args.review_out is None and not first_run:
             if corpus_build_skippable(ROOT):
                 skip_corpus = True
@@ -5931,6 +5997,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         review_out=args.review_out,
         skip_run_m1=skip_run_m1,
         rerun_gates_only=rerun_gates_only,
+        rerun_kern_only=rerun_kern_only,
         run_m1_note=run_m1_note,
         run_m1_fingerprint=run_m1_fp,
         fresh=args.fresh,

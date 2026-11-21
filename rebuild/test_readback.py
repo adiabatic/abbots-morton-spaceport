@@ -2,6 +2,7 @@
 
 import dataclasses
 import math
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -11,12 +12,16 @@ from rebuild.pipeline import (
     conform,
     emit_gpos,
     emit_gsub,
+    fingerprint,
     fixtures,
+    geometry,
+    kern,
     kernel_exec,
     readback,
     run_m1,
     shapers,
 )
+from rebuild.pipeline.model import KernBlock, KernFollower, KernRecord
 from rebuild.tools import cycle_timings as ct
 
 CONFIGS = ("default", "ss03")
@@ -824,3 +829,156 @@ class TestCorruptions:
         report = _corrupted_report(built, tmp_path, "short-coverage", mutate)
         assert not report["pass"]
         assert _named(report, "cursive y0:")
+
+
+KERN_RECORDS = {
+    "qsPea": (KernRecord(rune="qsPea", right=KernFollower(family=("qsIt", "qsLow", "qsDay")), by=-1),),
+    "qsIt": (KernRecord(rune="qsIt", right=KernFollower(family=("qsPea",)), by=-1),),
+}
+IT, PEA, ZWNJ = chr(0xE670), chr(0xE650), "‌"
+
+
+@pytest.fixture(scope="module")
+def kerned(tmp_path_factory):
+    """The mini fixture with two kern records, compiled twice from one set of tables: with the kern lookup and without it. The mini ·May's isolated cell keeps an exit, which the kern stage refuses for an ss10 copy, so only the letters whose isolated cells have no live side take part in the overlay's pairs here."""
+    base = fixtures.mini_spec()
+    runes = {
+        name: (
+            dataclasses.replace(rune, kern=KernBlock(records=KERN_RECORDS[name], inherits=rune.kern.inherits))
+            if name in KERN_RECORDS
+            else rune
+        )
+        for name, rune in base.runes.items()
+    }
+    spec = dataclasses.replace(base, runes=runes)
+    tables: dict[str, tuple] = {
+        config: kernel_exec.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
+    }
+    cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
+    bare, copies, ss10_copies = run_m1.mint_raw_glyphs(spec)
+    dots = run_m1.namer_dot_glyphs()
+    sources = {
+        name: copy
+        for name, copy in ss10_copies.items()
+        if geometry.isolated_cell(spec, name).entry is None
+        and geometry.isolated_cell(spec, name).exit is None
+    }
+    resolution = kern.resolve(spec, tables, cell_glyphs, sources)
+    plan = emit_gpos.kern_plan(resolution, cell_glyphs)
+    curs_glyphs = {**cell_glyphs, **bare, **copies}
+    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
+    directory = tmp_path_factory.mktemp("m1-kern")
+    fonts = {}
+    for name, kern_plan in (("kerned", plan), ("plain", None)):
+        fonts[name] = compile_font.build_mini_font(
+            {**curs_glyphs, **dots},
+            gsub_plan.fea_text + "\n" + emit_gpos.emit_gpos(curs_glyphs, spec=spec, kern=kern_plan),
+            directory / f"M1{name.title()}.otf",
+        )
+    kern.write_classes(resolution, cell_glyphs, directory)
+    return SimpleNamespace(
+        spec=spec,
+        plan=plan,
+        gsub_plan=gsub_plan,
+        cursive=emit_gpos.cursive_registrations(curs_glyphs, spec=spec),
+        fonts=fonts,
+        cell_glyphs=cell_glyphs,
+        sides=conform.load_kern_sides(directory / kern.KERN_CLASSES_JSON),
+    )
+
+
+class TestTheKernLookup:
+    def test_a_kerned_build_reads_back_clean_in_both_rule_shapes(self, kerned):
+        report = readback.verify_font(
+            kerned.fonts["kerned"], kerned.gsub_plan, kerned.cursive, kern=kerned.plan
+        )
+        assert report["pass"], report["divergences"]
+        checked = report["checked"]["kern"]
+        assert checked["pairs"] == len(kerned.plan.relation()) > 0
+        assert checked["adjacent_rules"] == checked["one_zwnj_rules"] == len(kerned.plan.rules)
+
+    def test_read_back_expects_the_kern_feature_exactly_when_the_plan_has_a_rule(self, kerned):
+        plain = readback.verify_font(
+            kerned.fonts["plain"], kerned.gsub_plan, kerned.cursive, kern=kerned.plan
+        )
+        assert any("expected exactly curs and kern" in line for line in plain["divergences"])
+        unexpected = readback.verify_font(kerned.fonts["kerned"], kerned.gsub_plan, kerned.cursive)
+        assert any("expected exactly curs" in line for line in unexpected["divergences"])
+        clean = readback.verify_font(
+            kerned.fonts["plain"], kerned.gsub_plan, kerned.cursive, kern=emit_gpos.KernPlan()
+        )
+        assert clean["pass"], clean["divergences"]
+
+    def test_a_wrong_value_is_reported_for_both_rule_shapes(self, kerned, tmp_path):
+        from fontTools.ttLib import TTFont
+
+        font = TTFont(str(kerned.fonts["kerned"]))
+        for lookup in font["GPOS"].table.LookupList.Lookup:
+            for subtable in lookup.SubTable:
+                subtable = getattr(subtable, "ExtSubTable", subtable)
+                if type(subtable).__name__ == "SinglePos" and subtable.Format == 1:
+                    subtable.Value.XAdvance -= 50
+        corrupted = tmp_path / "corrupted.otf"
+        font.save(str(corrupted))
+        report = readback.verify_font(corrupted, kerned.gsub_plan, kerned.cursive, kern=kerned.plan)
+        assert not report["pass"]
+        assert any(line.startswith("kern (adjacent)") for line in report["divergences"])
+        assert any(line.startswith("kern (one-zwnj)") for line in report["divergences"])
+
+    def test_harfbuzz_kerns_a_break_once_adjacent_across_one_zwnj_and_under_ss10(self, kerned):
+        shaper = conform.Shaper(kerned.fonts["kerned"])
+        none = frozenset()
+        plain = shaper.shape(IT + PEA, none, kern=False)[0]["x_advance"]
+        assert shaper.shape(IT + PEA, none)[0]["x_advance"] == plain - 50
+        assert shaper.shape(IT + ZWNJ + PEA, none)[0]["x_advance"] == plain - 50
+        assert shaper.shape(IT + ZWNJ + " " + PEA, none)[0]["x_advance"] == plain
+        assert shaper.shape(IT + ZWNJ, none)[0]["x_advance"] == plain
+        ss10 = frozenset({"ss10"})
+        copy = shaper.shape(IT + PEA, ss10, kern=False)[0]["x_advance"]
+        assert shaper.shape(IT + PEA, ss10)[0]["x_advance"] == copy - 50
+        assert shaper.shape(IT + ZWNJ + PEA, ss10)[0]["x_advance"] == copy - 50
+
+    def test_the_sweep_checks_every_break_against_the_compiled_assignment(self, kerned):
+        spec = kerned.spec
+        glyphs = kerned.cell_glyphs
+
+        def sweep(sides):
+            return conform._conformance_config(
+                conform.Shaper(kerned.fonts["kerned"]),
+                spec,
+                "default",
+                conform.spec_alphabet(spec),
+                conform.splitting_boundary_chars(spec),
+                {cell: record.name for cell, record in glyphs.items()},
+                conform.anchors_in_font_units({record.name: record for record in glyphs.values()}),
+                3,
+                None,
+                kern_sides=sides,
+            )
+
+        assert sweep(kerned.sides).divergences_by_kind == {}
+        unkerned = conform.KernSides(
+            kerned.sides.leading, kerned.sides.following, {pair: 0 for pair in kerned.sides.values}
+        )
+        assert set(sweep(unkerned).divergences_by_kind) >= {"kern", "split"}
+        uncovered = conform.KernSides({}, kerned.sides.following, kerned.sides.values)
+        assert "kern-side" in sweep(uncovered).divergences_by_kind
+        dropped = min(pair for pair, value in kerned.sides.values.items() if value == 0)
+        missing = conform.KernSides(
+            kerned.sides.leading,
+            kerned.sides.following,
+            {pair: value for pair, value in kerned.sides.values.items() if pair != dropped},
+        )
+        assert set(missing.leading.values()) >= {dropped[0]} and set(missing.following.values()) >= {
+            dropped[1]
+        }
+        assert "kern-side" in sweep(missing).divergences_by_kind
+
+    def test_the_kern_lookup_moves_no_kern_blind_key(self, kerned):
+        plain, kerned_font = kerned.fonts["plain"], kerned.fonts["kerned"]
+        assert fingerprint.after_font_glyph_digests(plain) == fingerprint.after_font_glyph_digests(
+            kerned_font
+        )
+        assert fingerprint.kern_blind_font_digest(plain) == fingerprint.kern_blind_font_digest(kerned_font)
+        assert fingerprint.font_content_digest(plain) != fingerprint.font_content_digest(kerned_font)
+        assert fingerprint.after_font_current(kerned_font, fingerprint.file_sha256(kerned_font), plain)

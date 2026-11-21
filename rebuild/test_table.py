@@ -205,7 +205,6 @@ def test_join_rows_carry_junction_and_summed_extension(default_tables):
         in joins.rows
     )
     assert any(row.junction == "break" and row.extension == 0 for row in joins.rows)
-    assert all(row.kern == 0 for row in joins.rows)
 
 
 def test_tsv_artifacts_are_diff_stable(default_tables, tmp_path):
@@ -218,7 +217,7 @@ def test_tsv_artifacts_are_diff_stable(default_tables, tmp_path):
     joins_path = tmp_path / "joins.tsv"
     joins.write_tsv(joins_path)
     lines = joins_path.read_text().splitlines()
-    assert lines[1] == "left\tright\tjunction\textension\tkern"
+    assert lines[1] == "left\tright\tjunction\textension"
     assert lines[2:] == sorted(lines[2:])
 
 

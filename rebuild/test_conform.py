@@ -3283,11 +3283,11 @@ class _SilentShaper:
     def __init__(self):
         self.shaped: list[str] = []
 
-    def shape(self, text: str, features: frozenset[str]) -> list[dict]:
+    def shape(self, text: str, features: frozenset[str], kern: bool = True) -> list[dict]:
         self.shaped.append(text)
         return []
 
-    def positions(self, text: str, features: frozenset[str]) -> list[tuple[int, int, int]]:
+    def positions(self, text: str, features: frozenset[str], kern: bool = True) -> list[tuple[int, int, int]]:
         self.shaped.append(text)
         return []
 
@@ -6099,3 +6099,148 @@ class TestSettleMemoFile:
         assert third.walk_many(texts) == expected
         assert third.stale_windows == 0
         assert third.memo_windows == len(first.windows) - len(naming) + ranged.fresh_windows
+
+
+class _KernShaper:
+    """A stand-in Shaper for the kern checks: two letters `a` and `b` with locked copies, the space glyph HarfBuzz shows a ZWNJ or a space as, `hmtx` advances from `ADVANCES`, outlines named by the glyph's base name (a locked copy has its bare letter's bitmap), and each segment's shaped run looked up in `segments`."""
+
+    ADVANCES = {"a": 250, "a.locked": 250, "b": 300, "b.locked": 300, "space": 350}
+
+    def __init__(self, segments: Mapping[str, list[dict]] | None = None):
+        self.segments = dict(segments or {})
+
+    def advance(self, name: str) -> int:
+        return self.ADVANCES[name]
+
+    def outline_signature(self, name: str) -> tuple:
+        return (name.split(".")[0],)
+
+    def shape(self, text: str, features: frozenset[str], kern: bool = True) -> list[dict]:
+        return [dict(glyph) for glyph in self.segments[text]]
+
+
+def _slot(name: str, cluster: int, advance: int, offset: int = 0) -> dict:
+    return {"name": name, "cluster": cluster, "x_advance": advance, "x_offset": offset, "y_offset": 0}
+
+
+class TestTheKernChecks:
+    """The conformance checks that read the kern assignment the font was compiled from: `a` before `b` is a facing pair kerned by one pixel (-50 units), `b` before `a` is a facing pair with no kern, and `a` before `a` and `b` before `b` are no facing pair, though each glyph has both sides."""
+
+    ZWNJ = conform.ZWNJ
+
+    @pytest.fixture
+    def sides(self, tmp_path):
+        path = tmp_path / conform.KERN_CLASSES_JSON
+        path.write_text(
+            json.dumps(
+                {
+                    "format": conform.KERN_CLASSES_FORMAT,
+                    "leading": {"a": "lead-a", "a.locked": "lead-a", "b": "lead-b", "b.locked": "lead-b"},
+                    "following": {
+                        "a": "follow-a",
+                        "a.locked": "follow-a",
+                        "b": "follow-b",
+                        "b.locked": "follow-b",
+                    },
+                    "values": [["lead-a", "follow-b", -1], ["lead-b", "follow-a", 0]],
+                }
+            )
+        )
+        return conform.load_kern_sides(path)
+
+    def test_the_format_is_the_one_the_kern_stage_writes(self):
+        from rebuild.pipeline import kern
+
+        assert conform.KERN_CLASSES_FORMAT == kern.KERN_CLASSES_FORMAT
+        assert conform.KERN_CLASSES_JSON == kern.KERN_CLASSES_JSON
+
+    def test_a_document_in_another_format_does_not_load(self, tmp_path):
+        path = tmp_path / "kern-classes.json"
+        path.write_text(
+            json.dumps({"format": "something-else/1", "leading": {}, "following": {}, "values": []})
+        )
+        with pytest.raises(ValueError, match="not a"):
+            conform.load_kern_sides(path)
+
+    def test_a_value_is_the_facing_pairs_kern_in_font_units_and_none_for_sides_that_never_face(self, sides):
+        assert sides.value("a", "b") == -50
+        assert sides.value("a.locked", "b.locked") == -50
+        assert sides.value("b", "a") == 0
+        assert sides.value("a", "a") is None
+        assert sides.value("b", "b.locked") is None
+        assert sides.value("x", "b") is None
+        assert sides.value("a", "x") is None
+
+    @pytest.mark.parametrize(
+        ("text", "shaped", "kinds"),
+        [
+            ("pb", [_slot("a", 0, 200), _slot("b", 1, 300)], []),
+            ("pb", [_slot("a", 0, 250), _slot("b", 1, 300)], ["kern"]),
+            ("bp", [_slot("b", 0, 300), _slot("a", 1, 250)], []),
+            ("bp", [_slot("b", 0, 250), _slot("a", 1, 250)], ["kern"]),
+            ("p‌b", [_slot("a", 0, 200), _slot("space", 1, 0), _slot("b.locked", 2, 300)], []),
+            ("p‌b", [_slot("a", 0, 250), _slot("space", 1, 0), _slot("b.locked", 2, 300)], ["kern"]),
+            ("p b", [_slot("a", 0, 250), _slot("space", 1, 350), _slot("b", 2, 300)], []),
+            ("p b", [_slot("a", 0, 200), _slot("space", 1, 350), _slot("b", 2, 300)], ["kern"]),
+            ("p‌", [_slot("a", 0, 250), _slot("space", 1, 0)], []),
+            ("px", [_slot("a", 0, 250), _slot("x", 1, 300)], ["kern-side"]),
+            ("pp", [_slot("a", 0, 250), _slot("a", 1, 250)], ["kern-side"]),
+        ],
+        ids=[
+            "kerned",
+            "kern-missing",
+            "unkerned",
+            "unkerned-moved",
+            "across-zwnj",
+            "across-zwnj-missing",
+            "across-space",
+            "across-space-kerned",
+            "zwnj-at-the-end",
+            "no-side",
+            "sides-that-never-face",
+        ],
+    )
+    def test_every_slot_outside_a_join_advances_by_hmtx_plus_its_kern(self, sides, text, shaped, kinds):
+        divergences: list = []
+        conform.check_break_advances(
+            text, "default", cast(conform.Shaper, _KernShaper()), shaped, None, sides, divergences
+        )
+        assert [divergence.kind for divergence in divergences] == kinds
+
+    def test_a_slot_that_exits_into_a_join_is_left_to_the_gap_check(self, sides):
+        """An `a` whose exit meets `b`'s entry at one height is a join, so its advance is the cursive attachment's, whatever the kern assignment says."""
+        anchors = {"a": {"exit": (250, 0)}, "b": {"entry": (0, 0)}}
+        divergences: list = []
+        shaped = [_slot("a", 0, 250), _slot("b", 1, 250, -50)]
+        conform.check_break_advances(
+            "pb", "default", cast(conform.Shaper, _KernShaper()), shaped, anchors.get, sides, divergences
+        )
+        assert divergences == []
+
+    def test_a_split_compares_the_slot_before_a_zwnj_with_its_kern_taken_off(self, sides):
+        """The kern reaches across the ZWNJ in the whole buffer and not in the segment shaped alone, so the comparison takes it off; without the assignment the same buffer is a split divergence."""
+        shaper = cast(conform.Shaper, _KernShaper({"p": [_slot("a", 0, 250)], "b": [_slot("b", 0, 300)]}))
+        shaped = [_slot("a", 0, 200), _slot("space", 1, 0), _slot("b.locked", 2, 300)]
+        kept: list = []
+        conform.check_split_buffer("p‌b", "default", frozenset(), shaper, shaped, kept, kern_sides=sides)
+        assert kept == []
+        blind: list = []
+        conform.check_split_buffer("p‌b", "default", frozenset(), shaper, shaped, blind)
+        assert [divergence.kind for divergence in blind] == ["split"]
+
+    @pytest.mark.parametrize(
+        ("text", "shaped", "kinds"),
+        [
+            ("pb", [_slot("a", 0, 200), _slot("b", 1, 300)], []),
+            ("pb", [_slot("a", 0, 250), _slot("b", 1, 300)], ["overlay-position"]),
+            ("p‌b", [_slot("a", 0, 200), _slot("space", 1, 0), _slot("b", 2, 300)], []),
+            ("px", [_slot("a", 0, 250), _slot("x", 1, 300)], ["kern-side"]),
+        ],
+        ids=["kerned", "kern-missing", "across-zwnj", "no-side"],
+    )
+    def test_an_overlay_slot_sits_at_its_hmtx_advance_plus_its_kern(self, sides, text, shaped, kinds):
+        divergences: list = []
+        conform.check_isolated_positions(
+            text, "ss10", cast(conform.Shaper, _KernShaper()), shaped, divergences, sides
+        )
+        assert [divergence.kind for divergence in divergences] == kinds
