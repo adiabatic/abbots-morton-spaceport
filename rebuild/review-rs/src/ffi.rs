@@ -1,4 +1,4 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]), and its resident peak and resident set, which the build's phase lines carry ([`peak_rss_self_bytes`], [`resident_bytes`]); and the descriptors a parent passes the process, taken as files ([`inherited_files`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]), the plain compressor and decompressor the corpus build's containers are written and read with ([`Compressor`], [`Inflater`]), its CRC-32 ([`crc32_of`]) and its version ([`zlib_version`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]), and its resident peak and resident set, which the build's phase lines carry ([`peak_rss_self_bytes`], [`resident_bytes`]); and the descriptors a parent passes the process, taken as files ([`inherited_files`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check and the `containers` stage guard zlib's by inflating every deflated fragment through Python's `zlib` and by reproducing every container the Python build writes.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
@@ -439,7 +439,14 @@ impl z_stream {
 const Z_OK: c_int = 0;
 const Z_STREAM_END: c_int = 1;
 const Z_BUF_ERROR: c_int = -5;
+const Z_NO_FLUSH: c_int = 0;
+const Z_SYNC_FLUSH: c_int = 2;
 const Z_FINISH: c_int = 4;
+const Z_DEFLATED: c_int = 8;
+const DEF_MEM_LEVEL: c_int = 8;
+const Z_DEFAULT_STRATEGY: c_int = 0;
+/// The most a zlib call takes or gives at once, its `uInt` lengths' range.
+const ZLIB_SPAN: usize = c_uint::MAX as usize;
 
 #[link(name = "z")]
 unsafe extern "C" {
@@ -450,33 +457,245 @@ unsafe extern "C" {
         version: *const c_char,
         stream_size: c_int,
     ) -> c_int;
+    fn deflateInit2_(
+        strm: *mut z_stream,
+        level: c_int,
+        method: c_int,
+        window_bits: c_int,
+        mem_level: c_int,
+        strategy: c_int,
+        version: *const c_char,
+        stream_size: c_int,
+    ) -> c_int;
     fn deflateSetDictionary(strm: *mut z_stream, dictionary: *const u8, length: c_uint) -> c_int;
     fn deflateCopy(dest: *mut z_stream, source: *mut z_stream) -> c_int;
     fn deflateBound(strm: *mut z_stream, source_length: c_ulong) -> c_ulong;
     fn deflate(strm: *mut z_stream, flush: c_int) -> c_int;
     fn deflateEnd(strm: *mut z_stream) -> c_int;
+    fn inflateInit2_(
+        strm: *mut z_stream,
+        window_bits: c_int,
+        version: *const c_char,
+        stream_size: c_int,
+    ) -> c_int;
+    fn inflate(strm: *mut z_stream, flush: c_int) -> c_int;
+    fn inflateEnd(strm: *mut z_stream) -> c_int;
+    fn crc32(crc: c_ulong, buf: *const u8, len: c_uint) -> c_ulong;
 }
 
-/// One initialized deflate stream on the heap, where zlib's state points back at it, ended once when dropped.
-struct Stream(NonNull<z_stream>);
+/// The linked zlib's version, `zlibVersion()`, which Python's `zlib.ZLIB_RUNTIME_VERSION` reads from the library it loads.
+pub fn zlib_version() -> String {
+    // SAFETY: zlibVersion returns a static NUL-terminated string.
+    unsafe { CStr::from_ptr(zlibVersion()) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// zlib's CRC-32 of `bytes` continued from `crc`, as `zlib.crc32(bytes, crc)` computes it.
+pub fn crc32_of(crc: u32, bytes: &[u8]) -> u32 {
+    let mut value = c_ulong::from(crc);
+    for piece in bytes.chunks(ZLIB_SPAN) {
+        // SAFETY: `piece` is a live buffer of the length passed, which fits a `uInt`.
+        value = unsafe { crc32(value, piece.as_ptr(), piece.len() as c_uint) };
+    }
+    u32::try_from(value).expect("a CRC-32 fits 32 bits")
+}
+
+fn stream_size() -> c_int {
+    c_int::try_from(std::mem::size_of::<z_stream>()).expect("a z_stream's size fits")
+}
+
+/// One initialized deflate or inflate stream on the heap, where zlib's state points back at it, ended once when dropped.
+struct Stream {
+    raw: NonNull<z_stream>,
+    inflating: bool,
+}
 
 impl Stream {
-    /// A zeroed stream on the heap for zlib to initialize; dropping it before zlib has initialized it frees it without ending it.
+    /// A zeroed stream on the heap for zlib to initialize as a compressor; dropping it before zlib has initialized it frees it without ending it.
     fn allocate() -> Self {
-        Self(NonNull::from(Box::leak(Box::new(z_stream::zeroed()))))
+        Self::zeroed(false)
+    }
+
+    /// A zeroed stream on the heap for zlib to initialize as a decompressor.
+    fn allocate_inflating() -> Self {
+        Self::zeroed(true)
+    }
+
+    fn zeroed(inflating: bool) -> Self {
+        Self {
+            raw: NonNull::from(Box::leak(Box::new(z_stream::zeroed()))),
+            inflating,
+        }
     }
 
     fn raw(&self) -> *mut z_stream {
-        self.0.as_ptr()
+        self.raw.as_ptr()
     }
 }
 
 impl Drop for Stream {
     fn drop(&mut self) {
-        // SAFETY: the stream was leaked from a Box in `allocate` and is owned here; deflateEnd ignores a stream zlib never initialized (its state is NULL) and frees an initialized one's state once.
+        // SAFETY: the stream was leaked from a Box in `zeroed` and is owned here; deflateEnd and inflateEnd ignore a stream zlib never initialized (its state is NULL) and free an initialized one's state once.
         unsafe {
-            deflateEnd(self.raw());
+            if self.inflating {
+                inflateEnd(self.raw());
+            } else {
+                deflateEnd(self.raw());
+            }
             drop(Box::from_raw(self.raw()));
+        }
+    }
+}
+
+/// A deflate stream as `zlib.compressobj(level, DEFLATED, window_bits, 8, 0)` makes one, the stream `zlib.compress(data, level, window_bits)` deflates through too: raw deflate for `window_bits` −15, the gzip framing for 31 and the zlib framing for 15, with zlib's default memory level and strategy and no dictionary. zlib writes the same stream however its input is cut into calls, so [`Compressor::compress`] may be handed the input in any pieces.
+pub struct Compressor {
+    stream: Stream,
+}
+
+// SAFETY: the stream is owned here and reached only through `&mut self`; moving it to another thread is safe.
+unsafe impl Send for Compressor {}
+
+impl Compressor {
+    /// A compressor at `level` with `window_bits`, refusing parameters zlib refuses.
+    pub fn new(level: i32, window_bits: i32) -> Result<Self, String> {
+        let stream = Stream::allocate();
+        // SAFETY: the stream is zeroed and pinned on the heap; zlib reads the version string and keeps no pointer to it.
+        let status = unsafe {
+            deflateInit2_(
+                stream.raw(),
+                level,
+                Z_DEFLATED,
+                window_bits,
+                DEF_MEM_LEVEL,
+                Z_DEFAULT_STRATEGY,
+                zlibVersion(),
+                stream_size(),
+            )
+        };
+        if status != Z_OK {
+            return Err(format!(
+                "zlib cannot start a compressor at level {level} with window bits {window_bits} (status {status})"
+            ));
+        }
+        Ok(Self { stream })
+    }
+
+    /// Deflate `input` with no flush, as `compressobj.compress` does, and append what zlib writes to `out`.
+    pub fn compress(&mut self, input: &[u8], out: &mut Vec<u8>) -> Result<(), String> {
+        for piece in input.chunks(ZLIB_SPAN) {
+            self.run(piece, Z_NO_FLUSH, out)?;
+        }
+        Ok(())
+    }
+
+    /// End the stream, as `compressobj.flush()` does, and append what zlib writes to `out`.
+    pub fn finish(&mut self, out: &mut Vec<u8>) -> Result<(), String> {
+        self.run(&[], Z_FINISH, out)
+    }
+
+    fn run(&mut self, input: &[u8], flush: c_int, out: &mut Vec<u8>) -> Result<(), String> {
+        let raw = self.stream.raw();
+        // SAFETY: the stream is initialized and owned here; `next_in` and `next_out` describe live buffers of `avail_in` and `avail_out` bytes while deflate runs, and the output is cut to what zlib wrote.
+        unsafe {
+            (*raw).next_in = input.as_ptr();
+            (*raw).avail_in = input.len() as c_uint;
+            loop {
+                out.reserve((input.len() / 2).clamp(1 << 12, 1 << 20));
+                let written = out.len();
+                let offered = (out.capacity() - written).min(ZLIB_SPAN) as c_uint;
+                (*raw).next_out = out.as_mut_ptr().add(written);
+                (*raw).avail_out = offered;
+                let status = deflate(raw, flush);
+                out.set_len(written + (offered - (*raw).avail_out) as usize);
+                match status {
+                    Z_STREAM_END => return Ok(()),
+                    Z_OK | Z_BUF_ERROR => {
+                        if flush != Z_FINISH && (*raw).avail_out != 0 {
+                            return Ok(());
+                        }
+                    }
+                    _ => return Err(format!("zlib cannot deflate the input (status {status})")),
+                }
+            }
+        }
+    }
+}
+
+/// `data` deflated whole, as `zlib.compress(data, level, wbits=window_bits)` deflates it.
+pub fn compress(data: &[u8], level: i32, window_bits: i32) -> Result<Vec<u8>, String> {
+    let mut compressor = Compressor::new(level, window_bits)?;
+    let mut out = Vec::with_capacity(data.len() / 2 + 64);
+    compressor.compress(data, &mut out)?;
+    compressor.finish(&mut out)?;
+    Ok(out)
+}
+
+/// How one [`Inflater::inflate`] call ended: zlib's status and message, how much input it took and how much output it gave.
+pub struct Inflated {
+    /// zlib's status: 0 (`Z_OK`), 1 (`Z_STREAM_END`), −5 (`Z_BUF_ERROR`) or an error.
+    pub status: i32,
+    /// The stream's message, which zlib sets with an error.
+    pub message: Option<String>,
+    pub consumed: usize,
+    pub produced: usize,
+}
+
+impl Inflated {
+    /// The end of the stream was reached.
+    pub fn ended(&self) -> bool {
+        self.status == Z_STREAM_END
+    }
+
+    /// zlib reported an error: any status but `Z_OK`, `Z_STREAM_END` and `Z_BUF_ERROR`, which only says no progress was possible.
+    pub fn failed(&self) -> bool {
+        !matches!(self.status, Z_OK | Z_STREAM_END | Z_BUF_ERROR)
+    }
+}
+
+/// An inflate stream as `zlib.decompressobj(window_bits)` makes one: raw deflate for −15, the gzip framing, checked against its CRC-32 and length trailer, for 31, and the zlib framing for 15.
+pub struct Inflater {
+    stream: Stream,
+}
+
+// SAFETY: the stream is owned here and reached only through `&mut self`; moving it to another thread is safe.
+unsafe impl Send for Inflater {}
+
+impl Inflater {
+    /// A decompressor with `window_bits`, refusing parameters zlib refuses.
+    pub fn new(window_bits: i32) -> Result<Self, String> {
+        let stream = Stream::allocate_inflating();
+        // SAFETY: the stream is zeroed and pinned on the heap; zlib reads the version string and keeps no pointer to it.
+        let status =
+            unsafe { inflateInit2_(stream.raw(), window_bits, zlibVersion(), stream_size()) };
+        if status != Z_OK {
+            return Err(format!(
+                "zlib cannot start a decompressor with window bits {window_bits} (status {status})"
+            ));
+        }
+        Ok(Self { stream })
+    }
+
+    /// One `inflate` call with `Z_SYNC_FLUSH`, the flush `decompressobj.decompress` passes, over `input` into `output`, each cut to a `uInt`'s range.
+    pub fn inflate(&mut self, input: &[u8], output: &mut [u8]) -> Inflated {
+        let raw = self.stream.raw();
+        let offered_in = input.len().min(ZLIB_SPAN) as c_uint;
+        let offered_out = output.len().min(ZLIB_SPAN) as c_uint;
+        // SAFETY: the stream is initialized and owned here; `next_in` and `next_out` describe live buffers of `avail_in` and `avail_out` bytes while inflate runs, and zlib's message, when set, is a static NUL-terminated string.
+        unsafe {
+            (*raw).next_in = input.as_ptr();
+            (*raw).avail_in = offered_in;
+            (*raw).next_out = output.as_mut_ptr();
+            (*raw).avail_out = offered_out;
+            let status = inflate(raw, Z_SYNC_FLUSH);
+            let message = (!(*raw).msg.is_null())
+                .then(|| CStr::from_ptr((*raw).msg).to_string_lossy().into_owned());
+            Inflated {
+                status,
+                message,
+                consumed: (offered_in - (*raw).avail_in) as usize,
+                produced: (offered_out - (*raw).avail_out) as usize,
+            }
         }
     }
 }
@@ -556,8 +775,7 @@ impl Deflater {
     pub fn primed(level: i32, dictionary: &[u8]) -> Result<Self, String> {
         let length = c_uint::try_from(dictionary.len())
             .map_err(|_| "the dictionary is too long".to_string())?;
-        let size =
-            c_int::try_from(std::mem::size_of::<z_stream>()).expect("a z_stream's size fits");
+        let size = stream_size();
         let pool = Box::new(BufferPool {
             free: RefCell::new(Vec::new()),
         });
@@ -791,6 +1009,28 @@ mod tests {
                 .expect_err("again")
                 .contains("already taken")
         );
+    }
+
+    #[test]
+    fn zlib_checksums_deflates_and_inflates_as_its_reference_values_say() {
+        assert_eq!(crc32_of(0, b"123456789"), 0xcbf4_3926);
+        assert_eq!(crc32_of(crc32_of(0, b"1234"), b"56789"), 0xcbf4_3926);
+        assert!(zlib_version().starts_with("1."), "{}", zlib_version());
+        let plain = b"abcabcabcabc".repeat(1000);
+        let packed = compress(&plain, 1, -15).expect("deflates");
+        assert!(packed.len() < plain.len() / 10);
+        let mut inflater = Inflater::new(-15).expect("inflater");
+        let mut out = vec![0; plain.len() + 1];
+        let step = inflater.inflate(&packed, &mut out);
+        assert!(step.ended() && !step.failed());
+        assert_eq!(
+            (step.consumed, &out[..step.produced]),
+            (packed.len(), &plain[..])
+        );
+        let mut broken = Inflater::new(-15).expect("inflater");
+        let step = broken.inflate(&[0xff; 8], &mut out);
+        assert!(step.failed());
+        assert_eq!(step.message.as_deref(), Some("invalid block type"));
     }
 
     #[test]

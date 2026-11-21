@@ -6,6 +6,7 @@ The build's stages (`BUILD_STAGES`):
 
 - `build-input` is a boundary stage that records no hooked call: `build_dump` records the values it writes `build.json` from, a line a field under `input:<field>`, and the size of each audit part the build holds under `audit.held`, which the Rust side reads through the descriptors it inherits.
 - `sink` records each `output_sink.write_output`, `replace_output` and `note_rewritten` call the build makes (`_sink_call`), keyed by its origin, the call and a digest of its inputs: the target's name, what it `held` before the call, the `payload` as its kind and the sha256 of the bytes the call writes (a writer's read from the target once it has run, or the bytes the call kept), the `sha256` a writer is kept against, `keep_if_equal` and the state of the counts file the call found (`counts_file`); and as its outputs what the call `returned`, the `counts` lines it appended and what it left at the target, `after`. Every file's bytes are kept once under their sha256 in `sink.blobs/` beside the stage file (`SINK_BLOBS`), from which the Rust side sets each target up again in a scratch directory and makes the call itself. Its generated lines (`_sink_cases`) put every call and payload kind to missing, equal, differing, FIFO, directory and linked targets, with and without the compare, with each state of the counts file, and `output_sink.replacing`, which the build reaches only through `row_delta.StreamedPart`.
+- `containers` records each zlib and gzip container the build writes into a file and each deflated fragment it reads back, keyed by its origin, its `framing` and a digest of its inputs, with its `output`: a `gzip.GzipFile` stream opened for writing into a file (`gzipfile`: its name, level and mtime, followed from its opening to its close, and each write's size), a `gzip.compress` member (`compress`: a locator block's or an index member's), a `unit_index._Members` sink (`members`: its member size and threads), a fragment's `unit_index.deflate_fragment` (`raw`) and an `inflate_fragment` that returns (`inflate-fragment`: the stored bytes and the length); each writer's output is the written bytes' sha256 and length, and a `read` line beside it reads those bytes whole as `gzip.GzipFile` does, and a deflated fragment's `inflate-fragment` line reads it back at its length. Every input is kept once under its sha256 in `containers.blobs/` beside the stage file (`CONTAINER_BLOBS`) and named by that digest and a length, the blob's first bytes. Its generated lines (`_containers_generated`) cover every name, level and mtime over inputs from nothing to past `INDEX_MEMBER_BYTES` cut into uneven writes, each member boundary, `inflate_fragment`'s refusals, the gzip reader's tolerances and refusals, the member readers' `zlib.decompressobj` loop (`member-read`, `_member_steps`) and `zlib.crc32` (`crc32`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -62,23 +63,26 @@ import functools
 import gzip
 import hashlib
 import importlib
+import io
 import inspect
 import json
 import os
 import pickle
+import random
 import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import unicodedata
 import warnings
 import zlib
 from array import array
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
-from itertools import batched, chain, combinations, product
+from itertools import batched, chain, combinations, cycle, product
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
 from typing import IO, Any, TypedDict
@@ -90,6 +94,7 @@ from rebuild.pipeline.explain import ExplainReport
 from rebuild.pipeline.kernel_exec import KERNEL_ALLOCATOR_ENVIRONMENT
 from rebuild.pipeline.model import feature_config_token
 from rebuild.review import (
+    app_index,
     audit,
     build,
     corpus_exec,
@@ -2147,6 +2152,7 @@ class _Sink:
         self._written: dict[str, dict[object, bytes]] = {stage.name: {} for stage in stages}
         self._kinds = {stage.name: stage.kind for stage in stages}
         self._every = every
+        self._lock = threading.Lock()
 
     def record(
         self, stage: str, recorded: Mapping[str, object] | list[Mapping[str, object]] | Boundary
@@ -2165,13 +2171,14 @@ class _Sink:
         text = compact({"from": origin} | {name: encode(value) for name, value in fields.items()})
         digest = hashlib.sha1(text.encode("ascii")).digest()
         key = fields.get("key")
-        written = self._written[stage]
-        if key in written:
-            if written[key] != digest:
-                raise ValueError(f"the {stage} stage recorded two different lines under the key {key!r}")
-            return
-        written[key] = digest
-        self._handles[stage].write(text + "\n")
+        with self._lock:
+            written = self._written[stage]
+            if key in written:
+                if written[key] != digest:
+                    raise ValueError(f"the {stage} stage recorded two different lines under the key {key!r}")
+                return
+            written[key] = digest
+            self._handles[stage].write(text + "\n")
 
     def close(self) -> None:
         for handle in self._handles.values():
@@ -3667,6 +3674,15 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "output_sink.write_output": ("rebuild.pipeline.output_sink", "write_output"),
     "output_sink.replace_output": ("rebuild.pipeline.output_sink", "replace_output"),
     "output_sink.note_rewritten": ("rebuild.pipeline.output_sink", "note_rewritten"),
+    "gzip.GzipFile.__init__": ("gzip", "GzipFile.__init__"),
+    "gzip.GzipFile.write": ("gzip", "GzipFile.write"),
+    "gzip.GzipFile.close": ("gzip", "GzipFile.close"),
+    "gzip.compress": ("gzip", "compress"),
+    "unit_index._Members.__init__": ("rebuild.review.unit_index", "_Members.__init__"),
+    "unit_index._Members.write": ("rebuild.review.unit_index", "_Members.write"),
+    "unit_index._Members.__exit__": ("rebuild.review.unit_index", "_Members.__exit__"),
+    "unit_index.deflate_fragment": ("rebuild.review.unit_index", "deflate_fragment"),
+    "unit_index.inflate_fragment": ("rebuild.review.unit_index", "inflate_fragment"),
 }
 
 
@@ -4098,6 +4114,504 @@ def _sink_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
                 )
 
 
+CONTAINERS_STAGE = "containers"
+# The `containers` stage's directory, beside its stage file, of the bytes its lines name by sha256: each container's input and each file a reader reads.
+CONTAINER_BLOBS = "containers.blobs"
+# The blob directory of the build whose `containers` stage records, for the length of that build (`_container_blobs_at`).
+_CONTAINER_BLOBS_AT: list[Path] = []
+# Held while a blob is written, since the index's members are deflated, and recorded, on the build's threads.
+_CONTAINER_LOCK = threading.Lock()
+_GZIP_INIT = inspect.signature(gzip.GzipFile.__init__)
+_GZIP_COMPRESS = inspect.signature(gzip.compress)
+_INFLATE_FRAGMENT = inspect.signature(unit_index.inflate_fragment)
+# The length of the generated inputs' common source, past two of the index's members.
+CONTAINER_BULK_BYTES = 2 * unit_index.INDEX_MEMBER_BYTES + 5
+# The buffer `gzip.GzipFile` gathers its writes in before it deflates them, which typeshed does not declare.
+GZIP_WRITE_BUFFER: int = gzip._WRITE_BUFFER_SIZE  # pyright: ignore[reportAttributeAccessIssue]
+# The write sizes a generated stream's input is cut into, in turn: one byte, a few, a page less three, `gzip.GzipFile`'s write buffer (`GZIP_WRITE_BUFFER`), which a write of its size fills and a write one longer bypasses, nothing, an odd size and a little less than the buffer.
+CONTAINER_CUTS = (
+    1,
+    7,
+    4093,
+    GZIP_WRITE_BUFFER,
+    GZIP_WRITE_BUFFER + 1,
+    0,
+    65537,
+    GZIP_WRITE_BUFFER - 5,
+)
+# The generated input lengths of the writers: nothing, a few bytes, less than `gzip.GzipFile`'s write buffer, past it, and past one of the index's members.
+CONTAINER_LENGTHS = (0, 5, 200_000, GZIP_WRITE_BUFFER + 3, unit_index.INDEX_MEMBER_BYTES + 1)
+# The names a generated `gzip.GzipFile` stream is opened under: each name the build's streams carry, and names with no name byte, with a Latin-1 one, with one outside Latin-1, with a directory and with only the suffix.
+CONTAINER_NAMES = (
+    unit_cache.STORE_NAME + output_sink.STAGING_SUFFIX,
+    unit_cache.SIGNATURE_STORE_NAME,
+    app_index.APP_INDEX_NAME + output_sink.STAGING_SUFFIX,
+    app_index.LOCATOR_NAME + output_sink.STAGING_SUFFIX,
+    f"{unit_cache.STORE_NAME}.3.2.delta",
+    f"{unit_index.INDEX_NAME}.3.1.delta",
+    "",
+    "caf\xe9.tsv.gz",
+    "Šumava.gz",
+    "out/inner.tsv.gz",
+    ".gz",
+)
+# The levels a generated container is written at: the two the build writes at (`app_index.COMPRESS_LEVEL` and every other writer's 1) and 9, whose header flag differs. Level 0 is left out: its stored blocks fall where the compressor's calls cut the input and the output, so not even two Python writers agree on it, and the build never writes it.
+CONTAINER_LEVELS = (1, app_index.COMPRESS_LEVEL, 9)
+# A mtime other than the build's 0, which a generated stream and member carry once.
+CONTAINER_MTIME = 1_700_000_000
+
+
+@dataclass
+class _OpenContainer:
+    """A container write the `containers` stage follows from its opening to its close: its settings, what was written to it, write by write, the file it writes, which holds only its bytes, and the handle to flush before that file is read."""
+
+    settings: dict[str, object]
+    writes: list[bytes]
+    path: Path
+    handle: IO[bytes]
+
+
+# The `gzip.GzipFile` streams and `unit_index._Members` sinks open for writing, by `id`.
+_OPEN_CONTAINERS: dict[int, _OpenContainer] = {}
+
+
+@contextlib.contextmanager
+def _container_blobs_at(directory: Path) -> Iterator[None]:
+    _CONTAINER_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _CONTAINER_BLOBS_AT.pop()
+        _OPEN_CONTAINERS.clear()
+
+
+def _held(blobs: Path, data: bytes, within: bytes | None = None) -> tuple[str, int]:
+    """A `containers` line's input: the sha256 of the blob that holds `data` and its length, the blob being `data` or, given `within`, the bytes `data` begins."""
+    if within is not None:
+        assert within.startswith(data)
+    with _CONTAINER_LOCK:
+        return _blob_into(blobs, data if within is None else within), len(data)
+
+
+def _written(data: bytes) -> tuple[str, str, int]:
+    return ("bytes", hashlib.sha256(data).hexdigest(), len(data))
+
+
+def _gzip_read(data: bytes) -> tuple:
+    """What `gzip.GzipFile` reads from `data` whole: `_written` of its bytes, or `("raised", class, message)`."""
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(data), mode="rb") as stream:
+            plain = stream.read()
+    except (EOFError, gzip.BadGzipFile, zlib.error) as error:
+        return ("raised", type(error).__name__, str(error))
+    return _written(plain)
+
+
+def _fragment_inflated(stored: bytes, length: int | None) -> tuple:
+    try:
+        return _written(unit_index.inflate_fragment(stored, length))
+    except ValueError as error:
+        return ("raised", "ValueError", str(error))
+
+
+def _member_steps(data: bytes, wbits: int, piece: int, max_length: int) -> tuple:
+    """The member readers' loop (`audit_stream._MemberReader`, `row_delta._Inflating`) over `data` read `piece` bytes at a time by one `zlib.decompressobj(wbits)`: each call inflates what the last left unconsumed, or the next read, at most `max_length` bytes, until the stream ends or nothing is left. Each call's output, unconsumed and unused lengths; then the sha256 and length of what the stream gave, whether it ended and what follows it, or the `zlib.error`'s text."""
+    inflater = zlib.decompressobj(wbits)
+    steps: list[tuple[int, int, int]] = []
+    plain = bytearray()
+    at = 0
+    pending = b""
+    while not inflater.eof:
+        if not pending and at < len(data):
+            pending = data[at : at + max(piece, 1)]
+            at += len(pending)
+        try:
+            out = inflater.decompress(pending, max_length)
+        except zlib.error as error:
+            return ("raised", "error", str(error), tuple(steps))
+        pending = inflater.unconsumed_tail
+        plain += out
+        steps.append((len(out), len(pending), len(inflater.unused_data)))
+        if not out and not pending and at >= len(data):
+            break
+    return (
+        "member",
+        hashlib.sha256(plain).hexdigest(),
+        len(plain),
+        inflater.eof,
+        len(inflater.unused_data),
+        tuple(steps),
+    )
+
+
+def _container_line(
+    origin: str, framing: str, inputs: Mapping[str, object], output: tuple
+) -> dict[str, object]:
+    """One `containers` line, keyed by its origin, its framing and a digest of its inputs, with its `output`."""
+    fields = {"framing": framing, **inputs}
+    digest = hashlib.sha1(compact(encode(fields)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{origin}:{framing}:{digest}", **fields, "output": output}
+
+
+def _read_line(origin: str, blobs: Path, data: bytes) -> dict[str, object]:
+    """A `read` line: `data` read whole as a gzip file."""
+    return _container_line(origin, "read", {"input": _held(blobs, data)}, _gzip_read(data))
+
+
+def _written_file(handle: object) -> tuple[Path, IO[bytes]]:
+    """The file a container is written into and the handle to flush before it is read: the handle itself, or the one a `row_delta._Counting` passes its bytes to."""
+    inner = getattr(handle, "_handle", handle)
+    name = getattr(inner, "name", None)
+    if not isinstance(name, str):
+        raise ValueError(f"the containers stage cannot find the file {handle!r} writes")
+    return Path(name), inner  # pyright: ignore[reportReturnType]
+
+
+def _closed_lines(
+    origin: str, framing: str, opened: _OpenContainer, blobs: Path
+) -> list[Mapping[str, object]]:
+    """The lines of a container write that closed: the writer's, its settings, input and write sizes with the file's bytes, and a `read` line over that file."""
+    if not opened.handle.closed:
+        opened.handle.flush()
+    data = opened.path.read_bytes()
+    plain = b"".join(opened.writes)
+    inputs = {
+        **opened.settings,
+        "input": _held(blobs, plain),
+        "writes": tuple(len(piece) for piece in opened.writes),
+    }
+    return [_container_line(origin, framing, inputs, _written(data)), _read_line(origin, blobs, data)]
+
+
+def _gzip_opened(args: tuple, kwargs: dict) -> Finisher:
+    """Follow a `gzip.GzipFile` opened for writing into a file, from its name, level and mtime; one over memory (`build._SidecarLines`) writes no file the Rust build writes."""
+    bound = _GZIP_INIT.bind(*args, **kwargs)
+    bound.apply_defaults()
+    arguments = bound.arguments
+
+    def finish(_result: object) -> None:
+        stream = arguments["self"]
+        if stream.mode != gzip.WRITE or isinstance(stream.fileobj, io.BytesIO):
+            return None
+        if arguments["mtime"] is None or not isinstance(stream.name, str):
+            raise ValueError("the containers stage records a gzip stream with a fixed mtime and a str name")
+        if stream.myfileobj is not None:
+            path, handle = Path(stream.name), stream.myfileobj
+        else:
+            path, handle = _written_file(stream.fileobj)
+        settings: dict[str, object] = {
+            "name": os.path.basename(stream.name),
+            "level": arguments["compresslevel"],
+            "mtime": arguments["mtime"],
+        }
+        _OPEN_CONTAINERS[id(stream)] = _OpenContainer(settings, [], path, handle)
+        return None
+
+    return finish
+
+
+def _container_write(args: tuple, kwargs: dict) -> None:
+    """Keep what a followed container is written, write by write."""
+    opened = _OPEN_CONTAINERS.get(id(args[0]))
+    if opened is not None:
+        opened.writes.append(bytes(args[1] if len(args) > 1 else next(iter(kwargs.values()))))
+    return None
+
+
+def _gzip_closing(args: tuple, kwargs: dict) -> Finisher | None:
+    opened = _OPEN_CONTAINERS.pop(id(args[0]), None)
+    if opened is None or args[0].fileobj is None:
+        return None
+    blobs = _CONTAINER_BLOBS_AT[-1]
+    return lambda _result: _closed_lines("run", "gzipfile", opened, blobs)
+
+
+def _members_opened(args: tuple, kwargs: dict) -> Finisher:
+    """Follow a `unit_index._Members` sink, from its member size and its threads, into the file it writes."""
+
+    def finish(_result: object) -> None:
+        sink = args[0]
+        settings: dict[str, object] = {
+            "member_bytes": sink._member_bytes,
+            "member_threads": unit_index.INDEX_DEFLATE_THREADS,
+        }
+        _OPEN_CONTAINERS[id(sink)] = _OpenContainer(settings, [], *_written_file(sink._raw))
+        return None
+
+    return finish
+
+
+def _members_exiting(args: tuple, kwargs: dict) -> Finisher | None:
+    opened = _OPEN_CONTAINERS.pop(id(args[0]), None)
+    if opened is None or (len(args) > 1 and args[1] is not None):
+        return None
+    blobs = _CONTAINER_BLOBS_AT[-1]
+    return lambda _result: _closed_lines("run", "members", opened, blobs)
+
+
+def _gzip_compressed(args: tuple, kwargs: dict) -> Finisher:
+    """A `gzip.compress` member, a locator block's or an index member's, with a `read` line over it."""
+    bound = _GZIP_COMPRESS.bind(*args, **kwargs)
+    bound.apply_defaults()
+    data, level, mtime = (
+        bytes(bound.arguments["data"]),
+        bound.arguments["compresslevel"],
+        bound.arguments["mtime"],
+    )
+    if mtime is None:
+        raise ValueError("the containers stage records a gzip member with a fixed mtime")
+    blobs = _CONTAINER_BLOBS_AT[-1]
+
+    def finish(result: object) -> list[Mapping[str, object]]:
+        assert isinstance(result, bytes)
+        inputs = {"level": level, "mtime": mtime, "input": _held(blobs, data)}
+        return [
+            _container_line("run", "compress", inputs, _written(result)),
+            _read_line("run", blobs, result),
+        ]
+
+    return finish
+
+
+def _fragment_deflated(args: tuple, kwargs: dict) -> Finisher:
+    """A fragment's raw deflate, with an `inflate-fragment` line over it at its length."""
+    body = bytes(args[0] if args else kwargs["body"])
+    blobs = _CONTAINER_BLOBS_AT[-1]
+
+    def finish(result: object) -> list[Mapping[str, object]]:
+        assert isinstance(result, bytes)
+        inflated = {"input": _held(blobs, result), "length": len(body)}
+        return [
+            _container_line("run", "raw", {"input": _held(blobs, body)}, _written(result)),
+            _container_line("run", "inflate-fragment", inflated, _fragment_inflated(result, len(body))),
+        ]
+
+    return finish
+
+
+def _fragment_inflating(args: tuple, kwargs: dict) -> Finisher:
+    """A deflated fragment the build reads back, with the length it checks it against; a read that raises fails the build, so the stage records only the reads that return."""
+    bound = _INFLATE_FRAGMENT.bind(*args, **kwargs)
+    bound.apply_defaults()
+    stored, length = bytes(bound.arguments["stored"]), bound.arguments["length"]
+    blobs = _CONTAINER_BLOBS_AT[-1]
+
+    def finish(result: object) -> dict[str, object]:
+        assert isinstance(result, bytes)
+        inputs = {"input": _held(blobs, stored), "length": length}
+        return _container_line("run", "inflate-fragment", inputs, _written(result))
+
+    return finish
+
+
+def _container_bulk() -> bytes:
+    """`CONTAINER_BULK_BYTES` of text-like lines with a run of random bytes inside, the same on every call, which the generated inputs take prefixes of."""
+    rng = random.Random(CONTAINERS_STAGE)
+    words = ["".join(rng.choices("abcdefghijklmnopqrstuvwxyz\xb7", k=rng.randint(1, 9))) for _ in range(512)]
+    text = " ".join(rng.choices(words, k=CONTAINER_BULK_BYTES // 5))
+    lines = "\n".join(text[start : start + 97] for start in range(0, len(text), 97)).encode("utf-8")
+    bulk = lines[: 1 << 20] + rng.randbytes(100_000) + lines[1 << 20 :]
+    assert len(bulk) >= CONTAINER_BULK_BYTES
+    return bulk[:CONTAINER_BULK_BYTES]
+
+
+def _uneven(data: bytes) -> list[bytes]:
+    """`data` cut into `CONTAINER_CUTS`' sizes in turn."""
+    pieces: list[bytes] = []
+    at = 0
+    for size in cycle(CONTAINER_CUTS):
+        if at >= len(data):
+            return pieces
+        pieces.append(data[at : at + size])
+        at += size
+    return pieces
+
+
+def _gzip_file_bytes(name: str, level: int, mtime: int, pieces: Sequence[bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename=name, fileobj=buffer, mode="wb", compresslevel=level, mtime=mtime) as stream:
+        for piece in pieces:
+            stream.write(piece)
+    return buffer.getvalue()
+
+
+def _members_bytes(pieces: Sequence[bytes]) -> bytes:
+    buffer = io.BytesIO()
+    with unit_index._Members(buffer) as sink:
+        for piece in pieces:
+            sink.write(piece)
+    return buffer.getvalue()
+
+
+def _crafted_member(flags: int, fields: bytes, plain: bytes) -> bytes:
+    """A gzip member written by hand: `flags` and the optional fields `fields` after the fixed header, then `plain` deflated with its trailer."""
+    header = b"\x1f\x8b\x08" + bytes([flags]) + b"\0\0\0\0\0\xff"
+    trailer = zlib.crc32(plain).to_bytes(4, "little") + len(plain).to_bytes(4, "little")
+    return header + fields + zlib.compress(plain, 1, wbits=-15) + trailer
+
+
+def _flipped(data: bytes, at: int) -> bytes:
+    changed = bytearray(data)
+    changed[at] ^= 1
+    return bytes(changed)
+
+
+def _containers_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `containers` stage's generated lines: `gzip.GzipFile` streams under each name, at each level, over inputs to past one index member, cut into uneven writes, and at another mtime; `gzip.compress` members likewise; the index's members over inputs on both sides of each member boundary, whole and cut; fragments' raw deflate; `inflate_fragment` over a fragment at, short of and past its length, cut short, followed by bytes, and over bytes that do not inflate; whole-file reads of concatenated members, NUL padding, trailing bytes, every truncation, a bad CRC, a bad length, bad deflate data, another method and every header flag; the member readers' loop over whole, limited, trailed, cut and damaged members; and CRC-32s."""
+    blobs = source.out / CONTAINER_BLOBS
+    bulk = _container_bulk()
+
+    def held(data: bytes) -> tuple[str, int]:
+        return _held(blobs, data, bulk if bulk.startswith(data) else None)
+
+    def gzip_file(name: str, level: int, mtime: int, data: bytes, pieces: Sequence[bytes], read: bool):
+        output = _gzip_file_bytes(name, level, mtime, pieces)
+        inputs = {
+            "name": name,
+            "level": level,
+            "mtime": mtime,
+            "input": held(data),
+            "writes": tuple(len(piece) for piece in pieces),
+        }
+        yield _container_line("generated", "gzipfile", inputs, _written(output))
+        if read:
+            yield _read_line("generated", blobs, output)
+
+    small = bulk[:300]
+    for name in CONTAINER_NAMES:
+        yield from gzip_file(name, 1, 0, small, [small], name == CONTAINER_NAMES[0])
+    yield from gzip_file(unit_cache.SIGNATURE_STORE_NAME, 1, CONTAINER_MTIME, small, [small], True)
+    for level in CONTAINER_LEVELS:
+        for length in CONTAINER_LENGTHS:
+            data = bulk[:length]
+            read = length < unit_index.INDEX_MEMBER_BYTES or level == 1
+            yield from gzip_file(unit_cache.SIGNATURE_STORE_NAME, level, 0, data, _uneven(data), read)
+    for level in CONTAINER_LEVELS:
+        for length in CONTAINER_LENGTHS:
+            data = bulk[:length]
+            output = gzip.compress(data, compresslevel=level, mtime=0)
+            inputs = {"level": level, "mtime": 0, "input": held(data)}
+            yield _container_line("generated", "compress", inputs, _written(output))
+    inputs = {"level": 6, "mtime": CONTAINER_MTIME, "input": held(small)}
+    yield _container_line(
+        "generated",
+        "compress",
+        inputs,
+        _written(gzip.compress(small, compresslevel=6, mtime=CONTAINER_MTIME)),
+    )
+    member = unit_index.INDEX_MEMBER_BYTES
+    large_members = b""
+    for length in (0, 5, member - 1, member, member + 1, 2 * member + 5):
+        data = bulk[:length]
+        for pieces in ([data] if data else [], _uneven(data)):
+            output = _members_bytes(pieces)
+            inputs = {
+                "member_bytes": member,
+                "member_threads": unit_index.INDEX_DEFLATE_THREADS,
+                "input": held(data),
+                "writes": tuple(len(piece) for piece in pieces),
+            }
+            yield _container_line("generated", "members", inputs, _written(output))
+            yield _read_line("generated", blobs, output)
+            if length == member + 1:
+                large_members = output
+    for length in CONTAINER_LENGTHS[:3]:
+        data = bulk[:length]
+        output = unit_index.deflate_fragment(data)
+        yield _container_line("generated", "raw", {"input": held(data)}, _written(output))
+    body = bulk[:2000]
+    stored = unit_index.deflate_fragment(body)
+    empty = unit_index.deflate_fragment(b"")
+    for data, length in (
+        (stored, None),
+        (stored, 2000),
+        (stored, 1999),
+        (stored, 2001),
+        (stored, 0),
+        (stored[:-1], None),
+        (stored[:-1], 2000),
+        (stored[: len(stored) // 2], 2000),
+        (stored + b"x", None),
+        (stored + b"x", 2000),
+        (b"\xff" * 20, None),
+        (b"", None),
+        (b"", 0),
+        (empty, 0),
+        (empty, None),
+    ):
+        inputs = {"input": _held(blobs, data), "length": length}
+        yield _container_line("generated", "inflate-fragment", inputs, _fragment_inflated(data, length))
+    one = _gzip_file_bytes("one.tsv.gz", 1, 0, [small])
+    two = gzip.compress(bulk[300:700], compresslevel=6, mtime=0)
+    plain = bulk[:400]
+    deflated = zlib.compress(plain, 1, wbits=-15)
+    reads = [
+        one,
+        two,
+        one + two,
+        one + b"\0\0\0",
+        one + b"\0\0\0" + two,
+        one + b"\0x",
+        one + b"\x1f",
+        one + b"\x1f\x8b",
+        one + b"ab",
+        one + b"'\"",
+        one + b"x'",
+        one + b"\\\t",
+        b"",
+        b"\0",
+        b"\0\0",
+        _flipped(one, len(one) - 8),
+        _flipped(one, len(one) - 4),
+        b"\x1f\x8b\x08\0\0\0\0\0\x04\xff" + b"\xff" * 20,
+        b"\x1f\x8b\x07" + one[3:],
+        _crafted_member(4, b"\x03\0abc", plain),
+        _crafted_member(16, b"a note\0", plain),
+        _crafted_member(2, b"\x12\x34", plain),
+        _crafted_member(2 | 4 | 8 | 16, b"\x01\0zname\0note\0\x12\x34", plain),
+        _crafted_member(0xE0, b"", plain),
+        b"\x1f\x8b\x08\x08\0\0\0\0\0\xffname",
+        b"\x1f\x8b\x08\x04\0\0\0\0\0\xff\x05\0ab",
+        b"\x1f\x8b\x08\0\0\0\0\0\0\xff" + deflated[:-2],
+        large_members,
+    ]
+    reads += [
+        one[:cut] for cut in (1, 2, 5, 9, 10, 12, len(one) - 9, len(one) - 8, len(one) - 4, len(one) - 1)
+    ]
+    for data in reads:
+        yield _read_line("generated", blobs, data)
+    member_plain = bulk[:5000]
+    single = gzip.compress(member_plain, compresslevel=1, mtime=0)
+    raw = unit_index.deflate_fragment(member_plain)
+    large_member = gzip.compress(bulk[:member], compresslevel=1, mtime=0)
+    for data, wbits, piece, max_length in (
+        (single, 31, len(single), 0),
+        (single, 31, 7, 0),
+        (single, 31, 7, 10),
+        (single, 31, len(single), 100),
+        (single + b"tail", 31, len(single) + 4, 0),
+        (single + b"tail", 31, 7, 10),
+        (single + b"tail", 31, len(single), 4999),
+        (single[:-3], 31, 7, 0),
+        (_flipped(single, len(single) - 8), 31, 64, 0),
+        (_flipped(single, len(single) - 4), 31, 64, 0),
+        (one, 31, 64, 0),
+        (b"", 31, 1, 0),
+        (b"\xff" * 10, 31, 4, 0),
+        (raw + b"zz", -15, 9, 33),
+        (large_member, 31, 1 << 16, 1 << 20),
+    ):
+        inputs = {"input": held(data), "wbits": wbits, "piece": piece, "max_length": max_length}
+        yield _container_line(
+            "generated", "member-read", inputs, _member_steps(data, wbits, piece, max_length)
+        )
+    for length in CONTAINER_LENGTHS:
+        for start in (0, 0xDEADBEEF):
+            data = bulk[:length]
+            inputs = {"input": held(data), "start": start}
+            yield _container_line("generated", "crc32", inputs, ("crc32", zlib.crc32(data, start)))
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -4106,6 +4620,23 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         {hook: _sink_call(hook) for hook in _SINK_SIGNATURES},
         _sink_generated,
         outputs=("returned", "counts", "after"),
+        run="build",
+    ),
+    CONTAINERS_STAGE: Stage(
+        CONTAINERS_STAGE,
+        {
+            "gzip.GzipFile.__init__": _gzip_opened,
+            "gzip.GzipFile.write": _container_write,
+            "gzip.GzipFile.close": _gzip_closing,
+            "gzip.compress": _gzip_compressed,
+            "unit_index._Members.__init__": _members_opened,
+            "unit_index._Members.write": _container_write,
+            "unit_index._Members.__exit__": _members_exiting,
+            "unit_index.deflate_fragment": _fragment_deflated,
+            "unit_index.inflate_fragment": _fragment_inflating,
+        },
+        _containers_generated,
+        outputs=("output",),
         run="build",
     ),
 }
@@ -4297,6 +4828,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
     sink = _Sink(out, stages, source.every) if stages else None
     if any(stage.name == SINK_STAGE for stage in stages):
         shutil.rmtree(out / SINK_BLOBS, ignore_errors=True)
+    if any(stage.name == CONTAINERS_STAGE for stage in stages):
+        shutil.rmtree(out / CONTAINER_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -4308,7 +4841,11 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                 if any(stage.name == BUILD_INPUT_STAGE for stage in stages):
                     sink.record(BUILD_INPUT_STAGE, build_input_boundary(values, held))
                 _clone_tree(prior, built)
-                with wrapped(stages, sink, BUILD_HOOKS), _sink_blobs_at(out / SINK_BLOBS):
+                with (
+                    wrapped(stages, sink, BUILD_HOOKS),
+                    _sink_blobs_at(out / SINK_BLOBS),
+                    _container_blobs_at(out / CONTAINER_BLOBS),
+                ):
                     _build_here(source, built)
         shutil.rmtree(scratch)
         if sink is not None:
@@ -4364,7 +4901,11 @@ def build_selfcheck(source: str, scenario: str) -> bool:
         sink = _Sink(built.out, stages, built.every)
         try:
             _clone_tree(_build_prior(built), recorded)
-            with wrapped(stages, sink, BUILD_HOOKS), _sink_blobs_at(built.out / SINK_BLOBS):
+            with (
+                wrapped(stages, sink, BUILD_HOOKS),
+                _sink_blobs_at(built.out / SINK_BLOBS),
+                _container_blobs_at(built.out / CONTAINER_BLOBS),
+            ):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:
             sink.close()
