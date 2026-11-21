@@ -242,7 +242,7 @@ impl Iterator for StoreBaseLines<'_> {
     }
 }
 
-type Lines<'a, T> = Box<dyn Iterator<Item = std::result::Result<T, ReadError>> + 'a>;
+pub(crate) type Lines<'a, T> = Box<dyn Iterator<Item = std::result::Result<T, ReadError>> + 'a>;
 
 /// A unit store's materialized record lines in order, each with its place (`unit_index.store_lines`): the base's alone for a store with no head or no segment, else the base and the segments merged by place.
 fn store_lines<'a>(
@@ -842,7 +842,7 @@ fn narrow(value: u64) -> std::result::Result<u32, Thrown> {
 
 /// An exception the live-fragment iterator raises, by the class its callers test, or a value Python reads that the reader does not hold.
 #[derive(Debug)]
-enum Thrown {
+pub(crate) enum Thrown {
     /// `OSError` or a subclass.
     Os(String),
     /// `ValueError` or a subclass, `unit_index.LayoutError` among them.
@@ -1106,7 +1106,7 @@ fn find(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
 }
 
 /// The units index open for reading (`unit_index.OpenIndex`): its header, its head (None for the single file) and its parts.
-struct OpenIndex {
+pub(crate) struct OpenIndex {
     header: Vec<(PyValue, PyValue)>,
     head: Option<Head>,
     files: Vec<File>,
@@ -1114,7 +1114,7 @@ struct OpenIndex {
 
 impl OpenIndex {
     /// `OpenIndex.lines`: the base's lines past its header line, or the base and the segments merged by key.
-    fn lines(&self, output: &str) -> Lines<'_, Vec<u8>> {
+    pub(crate) fn lines(&self, output: &str) -> Lines<'_, Vec<u8>> {
         let base = base_rows(&self.files[0]);
         match &self.head {
             Some(head) if !head.segments.is_empty() => {
@@ -1138,7 +1138,10 @@ impl OpenIndex {
 }
 
 /// `unit_index.open_index`: the index's head and parts, or the single file read by its inline header; None when there is neither. What `_current` catches is an `OSError` or a `ValueError` here.
-fn open_index(corpus: &Path, names: &ScanNames) -> std::result::Result<Option<OpenIndex>, Thrown> {
+pub(crate) fn open_index(
+    corpus: &Path,
+    names: &ScanNames,
+) -> std::result::Result<Option<OpenIndex>, Thrown> {
     if let Some(head) = read_head(corpus, &names.index_name)? {
         let files = open_parts(corpus, &head, false)?;
         let PyValue::Dict(header) = head.stamps.clone() else {

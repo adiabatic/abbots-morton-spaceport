@@ -35,6 +35,7 @@ The build's stages (`BUILD_STAGES`):
 - `emit` records each unit the write receives, each `build._emission` call (`_emitted`), under `unit:<ordinal>`: its kind, `fragment` for a fragment the write serializes or `bytes` for a cached fragment's stored bytes, its unit id, content key and policy file, the sha256 of the bytes the write takes from it, the config note the write keeps for it, and, for stored bytes, their address and the identity that stands in for the fragment (`_emission_value`). The Rust side runs the build through the routing and emits every unit of every class in shard order.
 - `check-patched` records each fragment the write checks, `check_unit` at `PATCHED` as `build._CorpusCheck.unit` calls it (`_patched_checked`), under `patched:` and a digest of the fragment, as the `fragment` and, as its value, the error list. Its generated lines (`_check_patched_generated`), under `generated:` and the same digest, mutate the smallest patched fragment of each shape (`_patched_shape`), generically over the keys the check reads (`PATCHED_DEPTHS`) and once or more for each predicate (`_patched_extras`), and record the error list, or the class of the exception the check raises, as `{"raised": name}`.
 - `corpus-check` records the write's corpus check (`build._CorpusCheck`) as its checkers run, fed and folded. Each chunk a run checker hands over (`take_facts`) is a line under `chunk:`, the class's id and the units of it fed before: the class record it opened (`class_start`) or None, each unit it was fed (`unit`) with whether the cache supplied it, whether it closed the class (`class_end`), and the ids among its units the checker keeps identities for (`identity_for`), or None when it keeps every unit's; valued the facts it handed over, `_CorpusCheck._FACTS` by name without the underscore (`_check_facts`). Each `finish` of the checker that folds the chunks (`absorb`) is a line under `finish:`, with the chunk keys it absorbed in order and the manifest, valued the facts it folded and the errors `finish` returns. The Rust side feeds the chunks in order to one checker over the build input's settings and folds the named chunks into a fresh one for each finish. Its generated lines (`_corpus_check_generated`) finish each folding again over the manifest with each predicate broken (`_manifest_mutations`), under `generated:finish:`, and run small cases of their own through a run checker and a folding one (`_check_cases`, over `_check_base`), under `generated:case:` with their settings, chunks and manifest, each predicate made to fail, to pass a value Python reads as equal and to raise, a raise valued `{"raised": name}`.
+- `sidecar-lines` records each run of the write's sidecar lines (`build._SidecarLines`) under `run:<n>`: its `open` (`_sidecars_opened`), with whether it copies the previous sidecars forward, valued whether each cursor opened to lines; each top-level `unit` and `cached` call (`_sidecar_unit`, `_sidecar_cached`) under `call:<n>`, with the fragment, or the cached unit's id, stored bytes, inflated length and identity, and the span and place, valued the events the call made in order, each cursor's `take` (`unit_index.LineCursor.take`) with the id and what it returned and each line written to a sidecar (`gzip.GzipFile.write`, `app_index.LocatorBlocks.add`), as lengths and sha256s, beside the run's counts after it; and its `close` (`_sidecars_closed`), valued the counts, the locator blocks' table entries and the digests of the lines each sidecar holds. Fragments, stored bytes and corpora are kept once under their sha256 in `sidecar-lines.blobs/` beside the stage file (`SIDECAR_LINES_BLOBS`). The Rust side replays each run's calls over the dump's prior corpus, or a generated run's own corpus made again from the blobs. Its generated lines (`_sidecar_lines_generated`) replay each build run that copied lines forward over corpora without copy-forward, without either sidecar, with a gap in either, with an index segment and with an index cut short (`_sidecar_variants`); project fragments with each field dropped and set to each kind of value (`generated:line:`); copy lines forward through every seam's edge (`generated:copy:`); take from cursors over sidecars that are missing, empty, not gzip, cut short or followed by other bytes, and over the prior's index as a head, a single file and without its head or its part (`generated:cursor:`); and cut locator rows into blocks across classes and block edges and refuse rows that do not ascend (`generated:locator:`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3903,6 +3904,12 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._CorpusCheck.take_facts": ("rebuild.review.build", "_CorpusCheck.take_facts"),
     "build._CorpusCheck.absorb": ("rebuild.review.build", "_CorpusCheck.absorb"),
     "build._CorpusCheck.finish": ("rebuild.review.build", "_CorpusCheck.finish"),
+    **{
+        f"build._SidecarLines.{name}": ("rebuild.review.build", f"_SidecarLines.{name}")
+        for name in ("__init__", "unit", "cached", "close")
+    },
+    "app_index.LocatorBlocks.add": ("rebuild.review.app_index", "LocatorBlocks.add"),
+    "unit_index.LineCursor.take": ("rebuild.review.unit_index", "LineCursor.take"),
 }
 
 
@@ -13886,6 +13893,687 @@ def _check_case_value(held: _CheckCase) -> object:
     return _check_outcome(check)
 
 
+SIDECAR_LINES_STAGE = "sidecar-lines"
+# The `sidecar-lines` stage's directory, beside its stage file, of the bytes its lines name by sha256: each fragment a run projects, as its typed encoding's compact text, each cached fragment's stored bytes, and each file of a generated run's or cursor's corpus.
+SIDECAR_LINES_BLOBS = "sidecar-lines.blobs"
+# The blob directory of the build whose `sidecar-lines` stage records, for the length of that build (`_sidecar_blobs_at`).
+_SIDECAR_BLOBS_AT: list[Path] = []
+_SIDECAR_INIT = inspect.signature(build._SidecarLines.__init__)
+_SIDECAR_UNIT = inspect.signature(build._SidecarLines.unit)
+_SIDECAR_CACHED = inspect.signature(build._SidecarLines.cached)
+# The sidecar each of a run's writers holds the lines of, by the attribute `_SidecarLines` holds it under, and each cursor by the name a `take` event gives it.
+_SIDECAR_WRITERS = {
+    "_index": unit_index.INDEX_NAME,
+    "_app": app_index.APP_INDEX_NAME,
+    "_locator": app_index.LOCATOR_ROWS_NAME,
+}
+_SIDECAR_CURSORS = {"_index_cursor": "index", "_app_cursor": "app"}
+
+
+@dataclass
+class _SidecarFollowed:
+    """One `build._SidecarLines` the stage follows: the prefix of its lines' keys, the events of the top-level call in progress (None between calls), how many top-level calls it has finished, and, for a run of the build's, each call's inputs, which the generated runs replay."""
+
+    prefix: str
+    events: list[tuple] | None = None
+    count: int = 0
+    copy_forward: bool = False
+    calls: list[dict[str, object]] = field(default_factory=list)
+
+
+# Each followed run by its `_SidecarLines`' id; the run each of its writers and cursors belongs to and the name it carries, by the object's id; the build's runs in the order they opened; and the prefix and corpus a generated replay names its run by, which the build leaves empty.
+_SIDECAR_RUNS: dict[int, _SidecarFollowed] = {}
+_SIDECAR_OWNERS: dict[int, tuple[_SidecarFollowed, str]] = {}
+_SIDECAR_RECORDED: list[_SidecarFollowed] = []
+_SIDECAR_PLACE: list[tuple[str, dict[str, str]]] = []
+
+
+@contextlib.contextmanager
+def _sidecar_blobs_at(directory: Path) -> Iterator[None]:
+    _SIDECAR_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _SIDECAR_BLOBS_AT.pop()
+        _SIDECAR_RUNS.clear()
+        _SIDECAR_OWNERS.clear()
+
+
+def _sidecar_digest(data: bytes) -> tuple[int, str]:
+    return len(data), hashlib.sha256(data).hexdigest()
+
+
+def _sidecar_forget(lines: build._SidecarLines) -> None:
+    """Stop following `lines`, its writers and its cursors."""
+    _SIDECAR_RUNS.pop(id(lines), None)
+    for attribute in (*_SIDECAR_WRITERS, *_SIDECAR_CURSORS):
+        _SIDECAR_OWNERS.pop(id(getattr(lines, attribute, None)), None)
+
+
+def _sidecars_opened(args: tuple, kwargs: dict) -> Finisher:
+    """`build._SidecarLines.__init__`: an `open` line under the run's prefix, `run:<n>` for the build's runs, with whether the run copies the previous sidecars forward and the corpus a generated run's cursors read (None for the build's, whose cursors read the dump's prior corpus), valued whether each cursor, the units index's and the app index's, opened to lines."""
+    bound = _SIDECAR_INIT.bind(*args, **kwargs)
+    bound.apply_defaults()
+    lines = bound.arguments["self"]
+    copy_forward = bool(bound.arguments["copy_forward"])
+
+    def finish(_result: object) -> Mapping[str, object]:
+        if _SIDECAR_PLACE:
+            prefix, held = _SIDECAR_PLACE[-1]
+            corpus: dict[str, str] | None = held
+            run = _SidecarFollowed(prefix, copy_forward=copy_forward)
+        else:
+            run = _SidecarFollowed(f"run:{len(_SIDECAR_RECORDED) + 1}", copy_forward=copy_forward)
+            corpus = None
+            _SIDECAR_RECORDED.append(run)
+        _SIDECAR_RUNS[id(lines)] = run
+        for attribute, name in (*_SIDECAR_WRITERS.items(), *_SIDECAR_CURSORS.items()):
+            held_by = getattr(lines, attribute)
+            if held_by is not None:
+                _SIDECAR_OWNERS[id(held_by)] = (run, name)
+        cursors = tuple(
+            getattr(lines, attribute) is not None and getattr(lines, attribute)._lines is not None
+            for attribute in _SIDECAR_CURSORS
+        )
+        return {"key": f"{run.prefix}:open", "copy_forward": copy_forward, "corpus": corpus, "value": cursors}
+
+    return finish
+
+
+def _sidecar_call(run: _SidecarFollowed, lines: build._SidecarLines, inputs: dict[str, object]) -> Finisher:
+    run.events = []
+
+    def finish(_result: object) -> Mapping[str, object]:
+        events, run.events = run.events, None
+        run.count += 1
+        if not _SIDECAR_PLACE:
+            run.calls.append(inputs)
+        return {
+            "key": f"{run.prefix}:call:{run.count}",
+            **inputs,
+            "value": (events, (lines.human, lines.machine, lines.copied_forward)),
+        }
+
+    return finish
+
+
+def _sidecar_fragment_blob(fragment: object) -> str:
+    return _blob_into(_SIDECAR_BLOBS_AT[-1], compact(encode(fragment)).encode("ascii"))
+
+
+def _sidecar_unit(args: tuple, kwargs: dict) -> Finisher | None:
+    """`build._SidecarLines.unit` called by the write, not from `cached`'s fallback, whose events belong to the `cached` call: a `call:<n>` line with the fragment, kept in the blob directory as its typed encoding (`_sidecar_fragment_blob`), its span and its place, valued the events the call made, each cursor's `take` with what it returned and each line written with the sidecar it went to, as their lengths and sha256s, and the run's counts after it."""
+    bound = _SIDECAR_UNIT.bind(*args, **kwargs)
+    lines = bound.arguments["self"]
+    run = _SIDECAR_RUNS.get(id(lines))
+    if run is None or run.events is not None:
+        return None
+    inputs: dict[str, object] = {
+        "call": "unit",
+        "fragment": _sidecar_fragment_blob(bound.arguments["fragment"]),
+        "span": tuple(bound.arguments["span"]),
+        "order": bound.arguments["order"],
+        "batch": bound.arguments["batch"],
+    }
+    return _sidecar_call(run, lines, inputs)
+
+
+def _sidecar_cached(args: tuple, kwargs: dict) -> Finisher | None:
+    """`build._SidecarLines.cached`: a `call:<n>` line with the emission's unit id, its stored bytes, kept in the blob directory, the inflated length its source records and the identity that stands in for the fragment, its span and its place, valued as `_sidecar_unit`'s lines are."""
+    bound = _SIDECAR_CACHED.bind(*args, **kwargs)
+    lines = bound.arguments["self"]
+    run = _SIDECAR_RUNS.get(id(lines))
+    if run is None:
+        return None
+    emission: build._Emission = bound.arguments["emission"]
+    assert emission.body is not None and emission.source is not None
+    inputs: dict[str, object] = {
+        "call": "cached",
+        "unit_id": emission.unit_id,
+        "body": _blob_into(_SIDECAR_BLOBS_AT[-1], emission.body),
+        "inflated": emission.source.inflated,
+        "identity": copy.deepcopy(emission.identity),
+        "span": tuple(bound.arguments["span"]),
+        "order": bound.arguments["order"],
+        "batch": bound.arguments["batch"],
+    }
+    return _sidecar_call(run, lines, inputs)
+
+
+def _sidecar_event(owner: object, event: Callable[[str], tuple]) -> None:
+    held = _SIDECAR_OWNERS.get(id(owner))
+    if held is not None and held[0].events is not None:
+        held[0].events.append(event(held[1]))
+
+
+def _sidecar_gzip_write(args: tuple, _kwargs: dict) -> None:
+    _sidecar_event(args[0], lambda name: ("write", name, *_sidecar_digest(bytes(args[1]))))
+
+
+def _sidecar_locator_add(args: tuple, _kwargs: dict) -> None:
+    _sidecar_event(args[0], lambda name: ("write", name, *_sidecar_digest(bytes(args[1]))))
+
+
+def _sidecar_take(args: tuple, _kwargs: dict) -> Finisher | None:
+    cursor, value = args[0], args[1]
+    if id(cursor) not in _SIDECAR_OWNERS:
+        return None
+
+    def finish(line: object) -> None:
+        taken = None if line is None else _sidecar_digest(line)  # pyright: ignore[reportArgumentType]
+        _sidecar_event(cursor, lambda name: ("take", name, value, taken))
+
+    return finish
+
+
+def _sidecars_closed(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`build._SidecarLines.close`: a `close` line valued the run's counts, its locator blocks' table entries, and the length and sha256 of its index lines and app-index lines as they inflate and of its locator rows as the gzip members they are; the compressed size the Python run holds them at (`held`) is not compared, since the Rust build holds them on disk."""
+    lines = args[0]
+    run = _SIDECAR_RUNS.get(id(lines))
+    if run is None:
+        return None
+
+    def finish(result: object) -> Mapping[str, object]:
+        closed, held = result  # pyright: ignore[reportGeneralTypeIssues]
+        _sidecar_forget(lines)
+        return {
+            "key": f"{run.prefix}:close",
+            "value": {
+                "human": closed.human,
+                "machine": closed.machine,
+                "copied_forward": closed.copied_forward,
+                "blocks": closed.blocks,
+                "index": _sidecar_digest(gzip.decompress(held[unit_index.INDEX_NAME])),
+                "app": _sidecar_digest(gzip.decompress(held[app_index.APP_INDEX_NAME])),
+                "rows": _sidecar_digest(held[app_index.LOCATOR_ROWS_NAME]),
+            },
+        }
+
+    return finish
+
+
+class _SidecarCollector(_Sink):
+    """What a generated replay's wrapped calls record, kept in order rather than written."""
+
+    def __init__(self) -> None:
+        self.lines: list[Mapping[str, object]] = []
+
+    def record(
+        self,
+        stage: str,
+        recorded: Mapping[str, object] | list[Mapping[str, object]] | Boundary | WalkedBoundary,
+    ) -> None:
+        if isinstance(recorded, Boundary | WalkedBoundary):
+            raise TypeError(f"the {stage} stage records call lines, not {recorded!r:.80}")
+        self.lines.extend(recorded if isinstance(recorded, list) else [recorded])
+
+
+def _sidecar_corpus(directory: Path, blobs: Path) -> dict[str, str]:
+    """Every file under `directory`, by its path there, kept in `blobs` under its sha256."""
+    return {
+        path.relative_to(directory).as_posix(): _blob_into(blobs, path.read_bytes())
+        for path in sorted(directory.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _sidecar_replayed(lines: build._SidecarLines, inputs: Mapping[str, Any], blobs: Path) -> None:
+    """Make one recorded top-level call on `lines` again, its fragment or stored bytes read back from `blobs`."""
+    span, order, batch = tuple(inputs["span"]), inputs["order"], inputs["batch"]
+    if inputs["call"] == "unit":
+        fragment = decode(json.loads((blobs / inputs["fragment"]).read_text(encoding="ascii")))
+        lines.unit(fragment, span, order, batch)  # pyright: ignore[reportArgumentType]
+        return
+    unit_id = inputs["unit_id"]
+    source = unit_cache.PriorFragment("", 0, 0, unit_id, None, True, inputs["inflated"])
+    emission = build._Emission(
+        unit_id,
+        "",
+        None,
+        body=(blobs / inputs["body"]).read_bytes(),
+        source=source,
+        identity=copy.deepcopy(inputs["identity"]),
+    )
+    lines.cached(emission, span, order, batch)  # pyright: ignore[reportArgumentType]
+
+
+def _sidecar_replay(
+    prefix: str, directory: Path, copy_forward: bool, calls: Sequence[Mapping[str, Any]], blobs: Path
+) -> list[Mapping[str, object]]:
+    """Run `calls` through a `build._SidecarLines` over `directory` with the stage's recorders wrapped, as the build's run made them, and return the lines they record under `prefix`, with the files of `directory` kept in `blobs` as the run's corpus. A call that raises ends the run with a line valued `{"raised": name}`."""
+    collector = _SidecarCollector()
+    _SIDECAR_PLACE.append((prefix, _sidecar_corpus(directory, blobs)))
+    try:
+        with _sidecar_blobs_at(blobs), wrapped([BUILD_STAGES[SIDECAR_LINES_STAGE]], collector, BUILD_HOOKS):
+            lines = build._SidecarLines(directory, copy_forward=copy_forward)
+            try:
+                for number, inputs in enumerate(calls, 1):
+                    try:
+                        _sidecar_replayed(lines, inputs, blobs)
+                    except Exception as error:
+                        raised = {"raised": type(error).__name__}
+                        collector.lines.append({"key": f"{prefix}:call:{number}", **inputs, "value": raised})
+                        return collector.lines
+                lines.close()
+            finally:
+                lines.release()
+                _sidecar_forget(lines)
+    finally:
+        _SIDECAR_PLACE.pop()
+    return collector.lines
+
+
+def _gzipped_lines(lines: Iterable[bytes]) -> bytes:
+    return gzip.compress(b"".join(lines), compresslevel=1, mtime=0)
+
+
+def _app_lines(prior: Path) -> list[bytes]:
+    with gzip.open(app_index.artifact_path(prior, app_index.APP_INDEX_NAME), "rb") as stream:
+        return list(stream)
+
+
+def _index_files(prior: Path, directory: Path) -> None:
+    for path in prior.glob(f"{unit_index.INDEX_NAME}*"):
+        shutil.copyfile(path, directory / path.name)
+
+
+def _materialized_lines(prior: Path) -> tuple[dict, list[bytes]]:
+    """The prior units index's header and its record lines as `unit_index.OpenIndex.lines` gives them, each with the place its part holds."""
+    opened = unit_index.open_index(prior)
+    assert opened is not None, prior
+    with opened:
+        return opened.header, list(opened.lines())
+
+
+def _sidecar_variants(
+    prior: Path, run: _SidecarFollowed
+) -> Iterator[tuple[str, bool, Callable[[Path], None]]]:
+    """The generated corpora a run of the build's that copied lines forward is replayed over, each with whether the replay copies forward and how its directory is filled: no copy-forward; no units index; no app index; a single-file index lacking a middle cached unit's line; an app index lacking a middle cached human unit's row; an index under a head with a segment that adds a line after the first cached unit's and drops the last cached unit's; and a single-file index cut short."""
+    cached = [inputs for inputs in run.calls if inputs["call"] == "cached"]
+    human = [inputs for inputs in cached if inputs["order"] is not None and inputs["batch"] is not None]
+    app = _app_lines(prior)
+    header, index = _materialized_lines(prior)
+    head_line = (json.dumps(header) + "\n").encode()
+
+    def lines_without(lines: list[bytes], unit_id: object) -> list[bytes]:
+        prefix = f'{{"id": {json.dumps(unit_id)}, '.encode()
+        return [line for line in lines if not line.startswith(prefix)]
+
+    def with_app(directory: Path) -> None:
+        app_index.artifact_path(directory, app_index.APP_INDEX_NAME).write_bytes(_gzipped_lines(app))
+
+    yield "no-copy-forward", False, lambda _directory: None
+
+    def index_missing(directory: Path) -> None:
+        with_app(directory)
+
+    yield "index-missing", True, index_missing
+    yield "app-missing", True, lambda directory: _index_files(prior, directory)
+    middle = cached[len(cached) // 2]["unit_id"]
+
+    def index_gap(directory: Path) -> None:
+        unit_index.index_path(directory).write_bytes(
+            _gzipped_lines([head_line, *lines_without(index, middle)])
+        )
+        with_app(directory)
+
+    yield "index-gap", True, index_gap
+    if human:
+        missing = human[len(human) // 2]["unit_id"]
+
+        def app_gap(directory: Path) -> None:
+            _index_files(prior, directory)
+            app_index.artifact_path(directory, app_index.APP_INDEX_NAME).write_bytes(
+                _gzipped_lines([app[0], *lines_without(app[1:], missing)])
+            )
+
+        yield "app-gap", True, app_gap
+
+    def index_segment(directory: Path) -> None:
+        _index_files(prior, directory)
+        shutil.copyfile(prior / "manifest.json", directory / "manifest.json")
+        first, last = cached[0]["unit_id"], cached[-1]["unit_id"]
+        changed: list[bytes] = []
+        for line in lines_without(index, last):
+            changed.append(line)
+            if line.startswith(f'{{"id": {json.dumps(first)}, '.encode()):
+                changed.append(line.replace(json.dumps(first).encode(), json.dumps(f"{first}0").encode(), 1))
+        unit_index.write_index_lines(directory, changed)
+        (directory / "manifest.json").unlink()
+        with_app(directory)
+
+    yield "index-segment", True, index_segment
+
+    def index_truncated(directory: Path) -> None:
+        whole = _gzipped_lines([head_line, *index])
+        unit_index.index_path(directory).write_bytes(whole[: len(whole) * 2 // 3])
+        with_app(directory)
+
+    yield "index-truncated", True, index_truncated
+
+
+def _sidecar_runs_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """Each run of the build's that copied a cached unit's lines forward, replayed over each corpus of `_sidecar_variants` (`_sidecar_replay`), its lines keyed `generated:run:<variant>:<n>`."""
+    blobs = source.out / SIDECAR_LINES_BLOBS
+    prior = source.out / DUMP_PRIOR
+    for number, run in enumerate(_SIDECAR_RECORDED, 1):
+        if not run.copy_forward or not any(inputs["call"] == "cached" for inputs in run.calls):
+            continue
+        for name, copy_forward, fill in _sidecar_variants(prior, run):
+            with tempfile.TemporaryDirectory(prefix="sidecar-lines-stage-") as scratch:
+                directory = Path(scratch)
+                fill(directory)
+                yield from _sidecar_replay(
+                    f"generated:run:{name}:{number}", directory, copy_forward, run.calls, blobs
+                )
+
+
+def _sidecar_outcome(call: Callable[[], bytes]) -> object:
+    try:
+        return call()
+    except Exception as error:
+        return {"raised": type(error).__name__}
+
+
+# The fragment the `sidecar-lines` stage's generated projections change one field of at a time.
+SIDECAR_FRAGMENT: dict[str, object] = {
+    "id": "u-1",
+    "class": "A",
+    "ledger_class": "A",
+    "group": "qsPea:qsTea",
+    "duplicate_group": "e-1",
+    "cluster": "c-1",
+    "notation": "·Pea ~b~ ·Tea",
+    "notation_tokens": ["·Pea", "~b~", "·Tea"],
+    "codepoints": "E650:E652",
+    "pair": {"left": 0, "right": 1},
+    "pair_codepoints": "E650:E652",
+    "boundary_marks": [{"at": 1}],
+    "secondary_junctions": [{"primary_unit": "u-2"}],
+    "configs": ["default", "ss03"],
+    "config_gate": "ss03",
+    "config_note": "only ss03",
+    "config_classes": {"default": "A"},
+    "config_class_note": None,
+    "render_groups": [{"configs": ["default"]}, {"configs": ["ss03"]}],
+    "summary": "a summary",
+    "exemplar": True,
+    "kinds": ["join"],
+    "ink_identical": False,
+    "picture_identical": False,
+    "junior_equivalent": False,
+    "ink_deltas": {"default": "d-1"},
+    "no_verdict": False,
+    "content_key": "k-1",
+    "provenance": [{"rune": "qsPea"}],
+    "before": {"glyphs": ["qsPea"], "junctions": [1]},
+    "after": {"cells": [[0, 1]], "junctions": []},
+    "drafts": {"policy": {"file": "runes/qsPea.yaml", "keypath": "a.b", "suggested_record": {"x": 1}}},
+}
+# The values the generated projections put in a field, which reach `or []`, `len`, `.get` and subscripting with each kind of value.
+SIDECAR_VALUES: tuple[object, ...] = (
+    None,
+    False,
+    True,
+    0,
+    5,
+    "",
+    "abc",
+    '·Pea ü 😀   \x00\x1f\x7f "\\',
+    [],
+    [1, "x"],
+    (),
+    {},
+    {"a": 1, "b": None},
+    {"glyphs": "g", "cells": None, "junctions": [2]},
+)
+
+
+def _sidecar_fragments() -> Iterator[tuple[str, dict[str, object]]]:
+    """Each generated projection's fragment: `SIDECAR_FRAGMENT`, with each field dropped, set to each of `SIDECAR_VALUES`, and the policy draft given every shape."""
+    yield "base", dict(SIDECAR_FRAGMENT)
+    for name in SIDECAR_FRAGMENT:
+        yield f"drop:{name}", {key: value for key, value in SIDECAR_FRAGMENT.items() if key != name}
+        for index, value in enumerate(SIDECAR_VALUES):
+            yield f"set:{name}:{index}", {**SIDECAR_FRAGMENT, name: value}
+    for index, policy in enumerate(
+        (
+            None,
+            {},
+            {"file": "f"},
+            {"keypath": "k"},
+            {"file": "f", "keypath": "k"},
+            {"file": None, "keypath": 3, "suggested_record": [1]},
+            ["file"],
+            "policy",
+            7,
+        )
+    ):
+        yield f"policy:{index}", {**SIDECAR_FRAGMENT, "drafts": {"policy": policy}}
+    yield "id-unicode", {**SIDECAR_FRAGMENT, "id": "u-ü"}
+
+
+# The places and spans the generated projections take each fragment at.
+SIDECAR_PLACES: tuple[tuple[int | None, int | None, tuple[int, int, int, int]], ...] = (
+    (3, 1, (0, 10, 20, 0)),
+    (None, None, (2, 0, 7, 0)),
+    (0, None, (1, 5, 9, 40)),
+    (None, 2, (0, 1, 1, 1)),
+)
+# The unit id the generated copy-forwards give each line they rewrite.
+SIDECAR_COPY_ID = "u-9"
+
+
+def _sidecar_lines_of(
+    fragment: dict[str, object], order: int | None, batch: int | None, span: tuple[int, int, int, int]
+) -> dict[str, object]:
+    part, start, length, inflated = span
+    deflated = bool(inflated)
+    return {
+        "index": _sidecar_outcome(lambda: unit_index.index_line(fragment, order=order, batch=batch)),
+        "app": _sidecar_outcome(
+            lambda: app_index.app_line(
+                fragment,
+                part,
+                start,
+                length,
+                order=order,  # pyright: ignore[reportArgumentType]
+                batch=batch,  # pyright: ignore[reportArgumentType]
+                deflated=deflated,
+            )
+        ),
+        "locator": _sidecar_outcome(
+            lambda: app_index.locator_line(fragment, part, start, length, deflated=deflated)
+        ),
+    }
+
+
+def _sidecar_copy_lines(source_lines: Sequence[bytes]) -> Iterator[tuple[str, bytes]]:
+    """The lines the generated copy-forwards rewrite: the first index line and app-index row the build's cursors took, and lines made to reach every seam's edge."""
+    for index, line in enumerate(source_lines):
+        yield f"taken:{index}", line
+    row = app_index.app_line(dict(SIDECAR_FRAGMENT), 1, 2, 3, order=4, batch=5)
+    yield "index-base", unit_index.index_line(dict(SIDECAR_FRAGMENT), order=4, batch=0)
+    yield "index-segment", unit_index._cut(unit_index.index_line(dict(SIDECAR_FRAGMENT)))
+    yield "index-no-class", b'{"id": "u-1", "order": 1}\n'
+    yield "app-row", row
+    yield "app-deflated", app_index.app_line(dict(SIDECAR_FRAGMENT), 1, 2, 3, order=4, batch=5, deflated=True)
+    yield "app-no-shard-part", row.replace(b', "shard_part": ', b', "shard": ')
+    yield "app-shard-part-first", b'{"id": "u-1", "shard_part": 1, "x": 2, "class": "A"}\n'
+    yield "app-shard-part-twice", row[:-2] + b', "shard_part": 9}\n'
+
+
+def _sidecar_cursor_cases(prior: Path) -> Iterator[tuple[str, str, dict[str, bytes], list[str]]]:
+    """The generated cursors, each a sidecar it reads, `app` or `index`, the files of its corpus and the ids taken in order: app indexes missing, empty, not gzip, header-only, with rows taken in order, skipped, out of order and missed, with a prefix collision and a non-ASCII id, cut short and followed by bytes that are not gzip; units indexes over the dump's prior corpus, as a single file, under a head missing its part, and absent."""
+    app_name = app_index.APP_INDEX_NAME
+    head = b'{"format": "x"}\n'
+    rows = [f'{{"id": "u-{number}", "class": "A"}}\n'.encode() for number in range(1, 400)]
+    yield "app-missing", "app", {}, ["u-1"]
+    yield "app-empty", "app", {app_name: b""}, ["u-1"]
+    yield "app-not-gzip", "app", {app_name: b"hello\n"}, ["u-1"]
+    yield "app-header", "app", {app_name: _gzipped_lines([head])}, ["u-1", "u-2"]
+    yield "app-rows", "app", {app_name: _gzipped_lines([head, *rows])}, ["u-1", "u-3", "u-2", "u-5"]
+    yield "app-missed", "app", {app_name: _gzipped_lines([head, *rows])}, ["u-2", "u-0", "u-3"]
+    yield "app-header-no-newline", "app", {app_name: _gzipped_lines([b'{"format": "x"}'])}, ["u-1"]
+    collide = [b'{"id": "u-1x", "class": "A"}\n', b'{"id": "u-1", "class": "A"}\n']
+    yield "app-prefix", "app", {app_name: _gzipped_lines([head, *collide])}, ["u-1", "u-1x"]
+    unicode = [b'{"id": "u-\xc3\xbc", "class": "A"}\n', rows[0]]
+    yield "app-unicode", "app", {app_name: _gzipped_lines([head, *unicode])}, ["u-ü", "u-1"]
+    whole = gzip.compress(b"".join([head, *rows]), compresslevel=6, mtime=0)
+    yield "app-truncated", "app", {app_name: whole[: len(whole) // 2]}, ["u-1", "u-399"]
+    yield "app-trailing", "app", {app_name: whole + b"not gzip"}, ["u-1", "u-399", "u-400"]
+    index_files = {
+        path.name: path.read_bytes()
+        for path in sorted(prior.glob(f"{unit_index.INDEX_NAME}*"))
+        if path.is_file()
+    }
+    header, index = _materialized_lines(prior) if unit_index.index_is_current(prior) else ({}, [])
+    if index:
+        ids = [unit_index.line_id(line) for line in index]
+        taken = [*ids[:3], *ids[len(ids) // 2 : len(ids) // 2 + 2], "u-none", ids[-1]]
+        yield "index-prior", "index", index_files, taken
+        single = _gzipped_lines([(json.dumps(header) + "\n").encode(), *index])
+        yield "index-single", "index", {unit_index.INDEX_NAME: single}, [ids[0], ids[-1]]
+        headless = {name: data for name, data in index_files.items() if not name.endswith(".head")}
+        yield "index-headless", "index", headless, ids[:1]
+        partless = {name: data for name, data in index_files.items() if name.endswith(".head")}
+        yield "index-partless", "index", partless, ids[:1]
+    yield "index-missing", "index", {}, ["u-1"]
+
+
+def _sidecar_cursor_value(which: str, directory: Path, takes: Sequence[str]) -> dict[str, object]:
+    cursor = (
+        unit_index.LineCursor.over_index(directory)
+        if which == "index"
+        else unit_index.LineCursor(app_index.artifact_path(directory, app_index.APP_INDEX_NAME))
+    )
+    results: list[object] = []
+    opened = cursor._lines is not None
+    try:
+        for value in takes:
+            try:
+                results.append(cursor.take(value))
+            except Exception as error:
+                results.append({"raised": type(error).__name__})
+                break
+    finally:
+        cursor.close()
+    return {"opened": opened, "results": results}
+
+
+def _sidecar_locator_cases() -> Iterator[tuple[str, list[tuple[str, str | None]]]]:
+    """The generated locator blocks' rows, each an id and a class: none; one class across several blocks and at a block's edges; classes that change, come back with lower ids and are None; and ids that repeat or fall within a block, across a block's edge and after a class change back."""
+    ids = [f"u-{number:05d}" for number in range(2500)]
+    rows = app_index.LOCATOR_BLOCK_ROWS
+    yield "empty", []
+    yield "one-class", [(unit_id, "A") for unit_id in ids]
+    yield "block", [(unit_id, "A") for unit_id in ids[:rows]]
+    yield "block-and-one", [(unit_id, "A") for unit_id in ids[: rows + 1]]
+    yield "classes", [
+        *((unit_id, "A") for unit_id in ids[10:13]),
+        *((unit_id, "B") for unit_id in ids[:2]),
+        *((unit_id, "A") for unit_id in ids[:2]),
+        *((unit_id, None) for unit_id in ids[5:8]),
+    ]
+    yield "descending", [(ids[3], "A"), (ids[1], "A")]
+    yield "repeated", [(ids[3], "A"), (ids[3], "A")]
+    yield "descending-across-blocks", [*((unit_id, "A") for unit_id in ids[1 : rows + 1]), (ids[0], "A")]
+    yield "descending-in-none", [(ids[2], None), (ids[1], None)]
+
+
+def _sidecar_locator_value(rows: Sequence[tuple[str, str | None]]) -> object:
+    held = io.BytesIO()
+    blocks = app_index.LocatorBlocks(held)
+    try:
+        for index, (unit_id, class_id) in enumerate(rows):
+            blocks.add(
+                app_index.locator_line(
+                    {"id": unit_id, "class": class_id},
+                    index % 3,
+                    index * 100,
+                    50 + index,
+                    deflated=index % 4 == 0,
+                )
+            )
+        entries = blocks.close()
+    except ValueError as error:
+        return {"raised": type(error).__name__, "message": str(error)}
+    return {"blocks": entries, "rows": _sidecar_digest(held.getvalue())}
+
+
+def _sidecar_lines_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `sidecar-lines` stage's generated lines: the build's runs replayed over other corpora (`_sidecar_runs_generated`); each fragment of `_sidecar_fragments` projected at each of `SIDECAR_PLACES` (`generated:line:`), valued its index line, app-index row and locator row or `{"raised": name}`; each line of `_sidecar_copy_lines` copied forward at those places (`generated:copy:`), the units index's way and, at a place with an order and a batch, the app index's; each cursor of `_sidecar_cursor_cases` (`generated:cursor:`), valued whether it opened to lines and each take's line, or what it raised; and each row set of `_sidecar_locator_cases` cut into blocks (`generated:locator:`), valued the table entries and the rows' length and sha256, or the refusal and its message."""
+    blobs = source.out / SIDECAR_LINES_BLOBS
+    yield from _sidecar_runs_generated(source)
+    for name, fragment in _sidecar_fragments():
+        for place, (order, batch, span) in enumerate(SIDECAR_PLACES):
+            yield {
+                "key": f"generated:line:{name}:{place}",
+                "fragment": fragment,
+                "span": span,
+                "order": order,
+                "batch": batch,
+                "value": _sidecar_lines_of(fragment, order, batch, span),
+            }
+    for name, line in _sidecar_copy_lines(_sidecar_taken_lines(source)):
+        for place, (order, batch, span) in enumerate(SIDECAR_PLACES):
+            part, start, length, inflated = span
+            value: dict[str, object] = {
+                "index": _sidecar_outcome(
+                    lambda: unit_index.copy_forward_index_line(
+                        line, unit_id=SIDECAR_COPY_ID, order=order, batch=batch
+                    )
+                )
+            }
+            if order is not None and batch is not None:
+                value["app"] = _sidecar_outcome(
+                    lambda: app_index.copy_forward_app_line(
+                        line,
+                        unit_id=SIDECAR_COPY_ID,
+                        order=order,  # pyright: ignore[reportArgumentType]
+                        batch=batch,  # pyright: ignore[reportArgumentType]
+                        part=part,
+                        start=start,
+                        length=length,
+                        deflated=bool(inflated),
+                    )
+                )
+            yield {
+                "key": f"generated:copy:{name}:{place}",
+                "line": line,
+                "unit_id": SIDECAR_COPY_ID,
+                "span": span,
+                "order": order,
+                "batch": batch,
+                "value": value,
+            }
+    for name, which, files, takes in _sidecar_cursor_cases(source.out / DUMP_PRIOR):
+        with tempfile.TemporaryDirectory(prefix="sidecar-lines-cursor-") as scratch:
+            directory = Path(scratch)
+            for file_name, data in files.items():
+                (directory / file_name).write_bytes(data)
+            yield {
+                "key": f"generated:cursor:{name}",
+                "which": which,
+                "corpus": {file_name: _blob_into(blobs, data) for file_name, data in files.items()},
+                "takes": takes,
+                "value": _sidecar_cursor_value(which, directory, takes),
+            }
+    for name, rows in _sidecar_locator_cases():
+        yield {"key": f"generated:locator:{name}", "rows": rows, "value": _sidecar_locator_value(rows)}
+
+
+def _sidecar_taken_lines(source: BuildSource) -> list[bytes]:
+    """The first units-index line and the first app-index row of the dump's prior corpus, the lines the build's cursors take from, where it holds them."""
+    prior = source.out / DUMP_PRIOR
+    taken: list[bytes] = []
+    if unit_index.index_is_current(prior):
+        taken.extend(_materialized_lines(prior)[1][:1])
+    if app_index.artifact_is_current(prior, app_index.APP_INDEX_NAME, app_index.APP_INDEX_FORMAT):
+        taken.extend(_app_lines(prior)[1:2])
+    return taken
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -14136,6 +14824,20 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _corpus_check_generated,
         run="build",
     ),
+    SIDECAR_LINES_STAGE: Stage(
+        SIDECAR_LINES_STAGE,
+        {
+            "build._SidecarLines.__init__": _sidecars_opened,
+            "build._SidecarLines.unit": _sidecar_unit,
+            "build._SidecarLines.cached": _sidecar_cached,
+            "build._SidecarLines.close": _sidecars_closed,
+            "gzip.GzipFile.write": _sidecar_gzip_write,
+            "app_index.LocatorBlocks.add": _sidecar_locator_add,
+            "unit_index.LineCursor.take": _sidecar_take,
+        },
+        _sidecar_lines_generated,
+        run="build",
+    ),
 }
 
 
@@ -14345,6 +15047,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / SHARDS_BLOBS, ignore_errors=True)
     if any(stage.name == PRIOR_READ_STAGE for stage in stages):
         shutil.rmtree(out / PRIOR_READ_BLOBS, ignore_errors=True)
+    if any(stage.name == SIDECAR_LINES_STAGE for stage in stages):
+        shutil.rmtree(out / SIDECAR_LINES_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -14365,6 +15069,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _signature_store_blobs_at(out / SIGNATURE_STORE_BLOBS),
                     _shards_blobs_at(out / SHARDS_BLOBS),
                     _prior_read_blobs_at(out / PRIOR_READ_BLOBS),
+                    _sidecar_blobs_at(out / SIDECAR_LINES_BLOBS),
                     _columns_following(),
                     _unit_store_following(),
                 ):
@@ -14432,6 +15137,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _signature_store_blobs_at(built.out / SIGNATURE_STORE_BLOBS),
                 _shards_blobs_at(built.out / SHARDS_BLOBS),
                 _prior_read_blobs_at(built.out / PRIOR_READ_BLOBS),
+                _sidecar_blobs_at(built.out / SIDECAR_LINES_BLOBS),
                 _columns_following(),
                 _unit_store_following(),
             ):
