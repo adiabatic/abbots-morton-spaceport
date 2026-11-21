@@ -17,7 +17,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::audit::stage_line;
 use super::input::{BuildInput, Widths};
-use super::signatures::dump_prior;
+use super::signatures::{SignatureArrays, dump_prior};
 use super::store::{LoadAddress, PrimaryRows, Recomputed, UnitStore};
 use super::table::{
     ColumnDigest, UNIT_PREFIX, Unit, UnitStoreView, UnitTable, stage_units as stage_unit_lines,
@@ -470,6 +470,11 @@ impl Drive {
         })
     }
 
+    /// The arena the recomputed fragments went to.
+    pub fn arena(&self) -> &Arena {
+        &self.arena
+    }
+
     /// The pool's width, 0 when it has none.
     pub fn threads(&self) -> usize {
         self.pool.as_ref().map_or(0, Pool::threads)
@@ -709,10 +714,11 @@ fn units_lines(
     )
 }
 
-/// What a stage holds once the build has run through phase 1 ([`through_units`]): the table, the places in the ledger of the classes the load reached, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
+/// What a stage holds once the build has run through phase 1 ([`through_units`]): the table, the places in the ledger of the classes the load reached, the ink-signature store as the load left it, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
 pub struct UnitsRun {
     pub table: UnitTable,
     pub classes_present: Vec<usize>,
+    pub signatures: SignatureArrays,
     pub planned: Planned,
     pub drive: Drive,
     pub printed: Vec<u8>,
@@ -767,6 +773,7 @@ pub fn through_units<T>(
         then(&mut UnitsRun {
             table,
             classes_present: loaded.workload.classes_present,
+            signatures: loaded.signatures,
             planned,
             drive,
             printed,

@@ -2119,13 +2119,13 @@ fn directory_value(directory: &Path) -> Result<PyValue> {
 }
 
 /// The stage file's lines: the `unit:<ordinal>` ordinals it asks for, whether the build's run recorded any line, and each generated line's key and input.
-struct StageLines {
-    units: HashSet<usize>,
-    ran: bool,
-    generated: Vec<(String, PyValue)>,
+pub(crate) struct StageLines {
+    pub(crate) units: HashSet<usize>,
+    pub(crate) ran: bool,
+    pub(crate) generated: Vec<(String, PyValue)>,
 }
 
-fn stage_lines(stage_file: &Path) -> Result<StageLines> {
+pub(crate) fn stage_lines(stage_file: &Path) -> Result<StageLines> {
     let read =
         |failure: io::Error| WireError(format!("cannot read {}: {failure}", stage_file.display()));
     let mut lines = StageLines {

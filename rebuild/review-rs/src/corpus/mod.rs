@@ -4,7 +4,7 @@
 //!
 //! The build's plan phase is here too ([`plan_phase`]), as `build._build_m1` runs it after the load: the unit store made over the load's units and input keys, the prior unit store scanned and every unit it can reuse loaded, the records it cannot reuse kept by id, a store that stops reading partway answered by a restart over an emptied store, and the verification sample drawn from the reused units ([`Planned`]). [`stage_plan`] is the `plan` stage of the stage fixtures.
 //!
-//! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches.
+//! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches, the duplicate groups and the primary units, to the verification and its stale check.
 
 pub mod audit;
 pub mod columns;
@@ -169,7 +169,7 @@ impl Loaded {
 }
 
 /// A count with a comma every three digits, as Python's `f"{count:,}"` writes it.
-fn thousands(count: usize) -> String {
+pub(crate) fn thousands(count: usize) -> String {
     let digits = count.to_string();
     let mut written = String::with_capacity(digits.len() + digits.len() / 3);
     for (at, digit) in digits.chars().enumerate() {

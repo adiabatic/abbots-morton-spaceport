@@ -28,6 +28,7 @@ The build's stages (`BUILD_STAGES`):
 - `plan` is a boundary stage that records what the plan gives the units phase, from `build._build_m1`'s locals as the plan's line is printed (`build._phase_timing`, `_plan_timed`), as `plan_boundary` lays it out: a unit a row of the unit store as the `store-load` stage reads one, a column over the prior records the store keeps by id and one over the recomputed ordinals, and lines for the store plan, the prior shards, the count reused, the verification sample with the units materialized for it, the plan's note and the console lines the plan printed, read from standard error between the load's line and the plan's.
 - `units` is a boundary stage that records the unit store once phase 1 has loaded every recomputed unit (`build._RecomputeRunner.phase1`, `_units_drafted`), as `units_boundary` lays it out: a unit a row of the store as the `store-load` stage reads one, a source in the arena as its part, its length and the sha256 of its deflated bytes, and lines for the drafting-time errors the runner kept, sorted, the count and the last of the `[progress]` lines phase 1 printed, its other console lines, and the arena's fragment count, deflated bytes, shard bytes and note.
 - `triage` is a boundary stage that records the whole-corpus passes from the change-group promotion to the batches, from `build._build_m1`'s locals once `audit.assign_batches` returns (`_batches_assigned`), as `triage_boundary` lays it out: a unit its final class, unmatched group, exemplar flag, place in the triage index and batch, and lines for the classes in manifest order, each class's section in the order the build met the classes, a column over the triage order and the batch count.
+- `passes` is a boundary stage that records the whole-corpus passes from the duplicate groups through the stale check, from `build._build_m1`'s locals as the units phase's line is printed (`build._phase_timing`, `_passes_timed`), as `passes_boundary` lays it out: a unit its duplicate group, cluster and primary units, and lines for the duplicate-group count, a column over the classes' rows, the secondary-junction counts, the verification's keys, sorted, the re-settlement mismatches and the units phase's note. Its generated lines (`_passes_generated`) put duplicate-group keys over one configuration and several, a judged pair and None, and text `repr` quotes and escapes to `unit_cache.duplicate_group_id_for`.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -11929,6 +11930,82 @@ def _batches_assigned(_args: tuple, _kwargs: dict) -> Finisher:
     return lambda batches: triage_boundary(_build_locals(), batches)
 
 
+PASSES_STAGE = "passes"
+# The keys of the `passes` stage's lines beside its units: the duplicate-group count, the classes' rows, the secondary-junction counts, the verification's keys, the mismatches and the units phase's note.
+PASSES_DUPLICATE_GROUPS_KEY = "duplicate_groups"
+PASSES_BY_CLASS = "by_class"
+PASSES_JUNCTIONS_KEY = "secondary_junctions"
+PASSES_VERIFIED_KEY = "verified"
+PASSES_MISMATCHES_KEY = "mismatches"
+PASSES_NOTE_KEY = "note"
+_UNITS_PHASE = "review.build units"
+
+
+def _passes_reading(
+    table: UnitTable, store: UnitStore, ordinal: int
+) -> tuple[str | None, str | None, tuple[tuple[str | None, bool], ...]]:
+    """One unit as the `passes` stage reads it: its duplicate group and cluster from the table, and its primary units from the store, a `(primary unit, suppressed)` pair a secondary junction."""
+    return table.duplicate_group(ordinal), table.cluster(ordinal), store.primary_units(ordinal)
+
+
+def passes_boundary(held: Mapping[str, Any], note: str) -> Boundary:
+    """The `passes` boundary over `build._build_m1`'s locals as the units phase's line is printed, once the stale check has passed (`held`): a unit as `_passes_reading` reads it; the duplicate-group count; a column over the classes' rows, a `(class, ordinals)` pair a class in the order they first appear along the triage order; the secondary-junction counts as their items; the verification's keys, each `(id, content key, ink deltas)`, sorted, since the order the recomputations answer in reaches no output; the mismatches; and the units phase's note."""
+    table: UnitTable = held["table"]
+    store: UnitStore = held["store"]
+    verified: Mapping[str, tuple[str, Sequence[Sequence[str]]]] = held["verified"]
+    return Boundary(
+        table.n,
+        {"value": functools.partial(_passes_reading, table, store)},
+        [
+            {"key": PASSES_DUPLICATE_GROUPS_KEY, "value": held["duplicate_group_count"]},
+            column_line(
+                PASSES_BY_CLASS,
+                ((class_id, tuple(members)) for class_id, members in held["by_class"].items()),
+            ),
+            {"key": PASSES_JUNCTIONS_KEY, "value": list(held["secondary_junction_counts"].items())},
+            {
+                "key": PASSES_VERIFIED_KEY,
+                "value": sorted(
+                    (unit_id, key, tuple(tuple(pair) for pair in deltas))
+                    for unit_id, (key, deltas) in verified.items()
+                ),
+            },
+            {"key": PASSES_MISMATCHES_KEY, "value": list(held["mismatches"])},
+            {"key": PASSES_NOTE_KEY, "value": note},
+        ],
+    )
+
+
+def _passes_timed(args: tuple, kwargs: dict) -> Finisher | None:
+    """A `build._phase_timing` call recorded for the `passes` boundary: the units phase's line, which `build._build_m1` prints once the stale check has passed, records the boundary over its locals (`passes_boundary`) with the line's note. Every other phase's line records nothing."""
+    arguments = _PHASE_TIMING.bind(*args, **kwargs).arguments
+    if arguments["label"] != _UNITS_PHASE:
+        return None
+    boundary = passes_boundary(_build_locals(), arguments["note"])
+    return lambda _result: boundary
+
+
+def _passes_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `passes` stage's generated lines: duplicate-group keys as `build._build_m1` builds them, over one configuration and several, as the table's tuple and as a list, with a judged pair and with None, an empty class and digest, and a class and digest that `repr` must quote and escape, each under `generated:duplicate-group:<n>` with the id `unit_cache.duplicate_group_id_for` gives its repr."""
+    one = (ACCEPTANCE_CONFIGS[0],)
+    several = tuple(ACCEPTANCE_CONFIGS)
+    keys: list[tuple[object, ...]] = [
+        (one, None, audit.UNMATCHED_CLASS, ""),
+        (one, (0xE650, 0xE67A), "tea-utter", "0f" * 32),
+        (several, None, "per-unit-class", "ab" * 32),
+        (several, (0xE666, 0xE652), "class", "digest"),
+        (list(several), (0xE652, 0xE67A), "class", "digest"),
+        ((), None, "", ""),
+        (one, (1, 2), '·Tea ~b~ ·Utter\'s "class"', "back\\slash\ttab\x7fé\U0001f600"),
+    ]
+    for index, key in enumerate(keys):
+        yield {
+            "key": f"generated:duplicate-group:{index}",
+            "input": key,
+            "value": unit_cache.duplicate_group_id_for(repr(key)),
+        }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -12127,6 +12204,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     ),
     TRIAGE_STAGE: Stage(
         TRIAGE_STAGE, {"build.assign_batches": _batches_assigned}, run="build", kind="boundary"
+    ),
+    PASSES_STAGE: Stage(
+        PASSES_STAGE,
+        {"build._phase_timing": _passes_timed},
+        _passes_generated,
+        run="build",
+        kind="boundary",
     ),
 }
 

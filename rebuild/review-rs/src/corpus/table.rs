@@ -1407,6 +1407,14 @@ impl UnitTable {
         self.unmatched_group[ordinal] = self.strings.id(group_id);
     }
 
+    pub fn set_duplicate_group(&mut self, ordinal: usize, duplicate_group: Option<&str>) {
+        self.duplicate_group[ordinal] = self.strings.optional(duplicate_group);
+    }
+
+    pub fn set_cluster(&mut self, ordinal: usize, cluster: Option<&str>) {
+        self.cluster[ordinal] = self.strings.optional(cluster);
+    }
+
     /// Set the unit's place in the triage index and its batch, [`NONE`] for a unit outside it (`UnitTable.set_order_batch`).
     pub fn set_order_batch(&mut self, ordinal: usize, order: Option<u32>, batch: Option<u32>) {
         self.order[ordinal] = order.unwrap_or(NONE);
