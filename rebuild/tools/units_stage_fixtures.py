@@ -23,6 +23,7 @@ The build's stages (`BUILD_STAGES`):
 - `premerge` is a boundary stage that records the pre-merge snapshot once the build rebases it onto the merge (`facts.PremergeSnapshot.rebase`, `_premerge_rebased`), as `premerge_boundary` lays it out: a unit a pre-merge unit in capture order, its row of the snapshot's columns with its grain as `PremergeSnapshot.grains` yields it; and lines for the identical classes and each column's length.
 - `load` is a boundary stage that records what the build's load gives the plan (`build._load_corpus`, `_corpus_loaded`), as `load_boundary` lays it out: a unit a merged unit in load order as the `workload` stage holds it, a column over the pre-merge snapshot's rows, and lines for the source the load took, the key-only read's facts, the ink-signature store's counts and new lines, the stamps, the signature stamp, the merge's stats, the held audit's parts and the console lines the load printed, read from standard error while it ran.
 - `store-records` records each unit store record the build parses, writes and slices, and each call it makes on a record's key or id, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `parsed`, each `unit_cache._parsed_cached_unit` call, with the record and the parts it trusts, valued `("parsed", record)`, `("unheld",)` for a record holding a type `CachedUnit.to_record` never writes (`_parsed_held`), or, for a generated record, `("raised", kind)`, `unreadable` for what `unit_cache.StoreUnreadable` wraps and `failed` for what fails the build (`_parsed_outcome`); `record-line`, each `unit_cache.record_line` call, with its `CachedUnit` and the line; `prior-record`, each `unit_cache.prior_record_or_none` call, with the line and the `PriorRecord`, None or `("unheld",)` (`_prior_value`); `named`, each `unit_cache.named_ordinal` call, with the line and the key it names, read by the same function over `_KeyProbe` in place of the build's index; and `id-word`, `primary-units-crc` and `content-id`, each `unit_cache.id_word`, `primary_units_crc` and `is_content_id` call, with its argument and what it gave. Its generated lines (`_store_records_generated`) parse, write, slice and name a synthetic record (`_synthetic_record`) and a sample of the dump's prior store (`_sampled_records`), put each form to its edges over the synthetic record (`_parsed_edges`, `_record_line_edges`, `_prior_record_edges`, `_named_edges`), and put ids, primary units and values to the edges of the three calls.
+- `store-load` follows each `unit_store.UnitStore` the build makes from its making (`_unit_store_followed`), each call a line keyed by the store's name, `run:store:<serial>`, and the call's place: `new` with its size and the input-key column it takes, then each call `STORE_FOLLOWED` names, the loads (`load_projection`, its projection as `_projection_value` lays it out, and `load_cached`), the prior records and their seal, the prior lines, the input-key index and the setters the whole-corpus passes and the write call, each with its arguments, valued what `_unit_store_after` reads of the store after it: a load's row and every accessor that takes only the ordinal (`_store_reading`), a setter's field read back. Its generated lines (`_store_load_generated`) replay each store the build made into a store of their own, checking every value against the build's, and continue the trace of each one whose rows were all loaded (`_store_script`): the id index and every id's ordinal, every row read, and its record line, `cached_as_is` and `predicted_unchanged` asked under its own fields and changed ones (`_patched_cases`), some rows' fields set and read again, the store emptied and each setter's refusal; then generated stores (`_store_cases`) load projections and records of every shape, put each refusal of a load to its text and each column to its width at both ends (`_projection_refusals`), and refuse a repeated id, a short input-key column and a repeated input key.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -126,6 +127,7 @@ from rebuild.review import (
     landing,
     unit_cache,
     unit_index,
+    unit_store,
     units_exec,
 )
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, Unit, UnitTable, load_ledger
@@ -3837,6 +3839,23 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
             "id_word",
             "primary_units_crc",
             "is_content_id",
+        )
+    },
+    **{
+        f"unit_store.UnitStore.{method}": ("rebuild.review.unit_store", f"UnitStore.{method}")
+        for method in (
+            "__init__",
+            "load_projection",
+            "load_cached",
+            "add_prior_record",
+            "seal_prior_records",
+            "set_prior_line",
+            "input_key_index",
+            "set_primary_units",
+            "set_written_span",
+            "set_written_part",
+            "set_policy_file",
+            "set_config_note",
         )
     },
 }
@@ -10148,6 +10167,900 @@ def _store_records_generated(source: BuildSource) -> Iterator[Mapping[str, objec
         yield _records_line("generated", "content-id", value, _IS_CONTENT_ID(value))
 
 
+STORE_LOAD_STAGE = "store-load"
+# The `UnitStore` methods the `store-load` stage follows on each store from its making, by the op its lines name them: every method the build calls that changes a store, and `input_key_index`.
+STORE_FOLLOWED = {
+    "__init__": "new",
+    "load_projection": "load-projection",
+    "load_cached": "load-cached",
+    "add_prior_record": "add-prior-record",
+    "seal_prior_records": "seal",
+    "set_prior_line": "set-prior-line",
+    "input_key_index": "input-key-index",
+    "set_primary_units": "set-primary-units",
+    "set_written_span": "set-written-span",
+    "set_written_part": "set-written-part",
+    "set_policy_file": "set-policy-file",
+    "set_config_note": "set-config-note",
+}
+_UNIT_STORE_SIGNATURES = {name: inspect.signature(getattr(UnitStore, name)) for name in STORE_FOLLOWED}
+_UNIT_STORE_LOCK = threading.Lock()
+# What a store call raises that a `store-load` line records as its value.
+_UNIT_STORE_RAISES = (
+    ValueError,
+    IndexError,
+    KeyError,
+    TypeError,
+    OverflowError,
+    SystemExit,
+    columns.RepeatedKey,
+)
+# The fields of a primary-unit projection's rows, as `unit_store.PrimaryUnitRows` names them.
+_UNIT_STORE_ROWS = (
+    "codepoint_values",
+    "ink_identical",
+    "picture_identical",
+    "pair",
+    "after_spans",
+    "after_cells",
+    "after_junctions",
+    "before_spans",
+    "before_glyphs",
+    "before_junctions",
+    "junction_pairs",
+)
+# How many units with junctions, and how many units in all, the scripted continuation of a build's store changes before reading them again.
+STORE_SCRIPT_UNITS = 4
+
+
+@dataclass
+class _UnitStoreTrace:
+    """A unit store the `store-load` stage follows: the store, held so that its `id` is not reused while the build runs; its name in the lines, `run:store:<serial>`; the thread that made it, the only one whose calls on it the stage takes in order; and each call it recorded with the value the call was given, which the stage's generated lines replay into a store of their own."""
+
+    held: UnitStore
+    name: str
+    thread: int
+    calls: list[tuple[tuple, object]] = field(default_factory=list)
+
+
+# The stores the stage follows, by `id`, for the length of a build, and every store it followed, in making order, until its generated lines replay them (`_unit_store_following`).
+_UNIT_STORE_TRACES: dict[int, _UnitStoreTrace] = {}
+_UNIT_STORE_RUNS: list[_UnitStoreTrace] = []
+
+
+@contextlib.contextmanager
+def _unit_store_following() -> Iterator[None]:
+    with _UNIT_STORE_LOCK:
+        _UNIT_STORE_TRACES.clear()
+        _UNIT_STORE_RUNS.clear()
+    try:
+        yield
+    finally:
+        with _UNIT_STORE_LOCK:
+            _UNIT_STORE_TRACES.clear()
+
+
+def _projection_value(projection: Any) -> Record:
+    """A recomputed unit's projection as a `store-load` line holds it: the fields `unit_store.RecomputedProjection` names, the ink deltas as pairs and the rows as `unit_store.PrimaryUnitRows` names them, each value as the projection holds it."""
+    rows = projection.primary_unit_projection
+    return Record(
+        "Recomputed",
+        (
+            ("ordinal", projection.ordinal),
+            ("unit_id", projection.unit_id),
+            ("input_key", projection.input_key),
+            ("content_key", projection.content_key),
+            ("ink_identical", projection.ink_identical),
+            ("picture_identical", projection.picture_identical),
+            ("junior_equivalent", projection.junior_equivalent),
+            ("ink_deltas", [tuple(pair) for pair in projection.ink_deltas]),
+            ("diffs_digest", projection.diffs_digest),
+            ("cluster", projection.cluster),
+            ("change_group", projection.change_group),
+            ("ledger_class", projection.ledger_class),
+            ("pair_codepoints", projection.pair_codepoints),
+            (
+                "primary_unit_projection",
+                Record("PrimaryUnitRows", tuple((name, getattr(rows, name)) for name in _UNIT_STORE_ROWS)),
+            ),
+            ("junction_rects", [tuple(rect) for rect in projection.junction_rects]),
+            ("mismatches", list(projection.mismatches)),
+        ),
+    )
+
+
+def _unit_store_encoded(call: tuple) -> tuple:
+    if call[0] == "load-projection":
+        return (call[0], _projection_value(call[1]), *call[2:])
+    return call
+
+
+def _unit_store_raised(error: BaseException) -> tuple:
+    """A refused call's value: `("raised", "RepeatedKey", first, second)`, or the exception's class and message."""
+    if isinstance(error, columns.RepeatedKey):
+        return ("raised", "RepeatedKey", error.first, error.second)
+    return ("raised", type(error).__name__, str(error))
+
+
+def _written_value(store: UnitStore, ordinal: int) -> tuple:
+    return ("written", store.written_address(ordinal), store.written_inflated(ordinal))
+
+
+def _store_reading(store: UnitStore, ordinal: int) -> dict[str, object]:
+    """What the stage reads of one row after a call: every accessor that takes only the ordinal, by name, the id word as 16 hex digits."""
+    return {
+        "loaded": store.loaded(ordinal),
+        "flags": store.flags(ordinal),
+        "invisible": store.invisible(ordinal),
+        "machine_flags": store.machine_flags(ordinal),
+        "machine_approved": store.machine_approved(ordinal),
+        "machine_check": store.machine_check(ordinal),
+        "id_word": f"{store.id_word(ordinal):016x}",
+        "unit_id": store.unit_id(ordinal),
+        "content_key": store.content_key_hex(ordinal),
+        "input_key": store.input_key_hex(ordinal),
+        "diffs_digest": store.diffs_digest(ordinal),
+        "cluster": store.cluster(ordinal),
+        "change_group": store.change_group(ordinal),
+        "ledger_class": store.ledger_class(ordinal),
+        "pair_codepoints": store.pair_codepoints(ordinal),
+        "cell_pair": store.cell_pair(ordinal),
+        "cached_class": store.cached_class(ordinal),
+        "cached_duplicate_group": store.cached_duplicate_group(ordinal),
+        "policy_file": store.policy_file(ordinal),
+        "config_note": store.config_note(ordinal),
+        "ink_deltas": store.ink_deltas(ordinal),
+        "codepoints": store.codepoints(ordinal),
+        "mismatches": store.mismatches(ordinal),
+        "source": store.source(ordinal),
+        "written": _written_value(store, ordinal),
+        "junction_count": store.junction_count(ordinal),
+        "junction_pairs": store.junction_pairs(ordinal),
+        "primary_unit_projection": store.primary_unit_projection(ordinal),
+        "projection": store.projection(ordinal),
+        "primary_unit_projection_record": store.primary_unit_projection_record(ordinal),
+        "junction_rects": store.junction_rects(ordinal),
+        "primary_unit_ordinals": store.primary_unit_ordinals(ordinal),
+        "primary_units": store.primary_units(ordinal),
+        "primary_units_record": store.primary_units_record(ordinal),
+        "cached_primary_units": store.cached_primary_units(ordinal),
+        "shard_length": store.shard_length(ordinal),
+        "prior_line": store.prior_line(ordinal),
+        "prior_address": store.prior_address(ordinal),
+        "prior_fragment": store.prior_fragment(ordinal),
+    }
+
+
+def _sealed_records(store: UnitStore) -> list[tuple]:
+    """The store's kept prior records in its order: each one's id word as 16 hex digits, its part, start, length, inflated length, class, duplicate group, flag bits and primary units' CRC-32."""
+    return [
+        (
+            f"{store._by_id_words[at]:016x}",
+            store._by_id_parts[store._by_id_part[at]],
+            store._by_id_start[at],
+            store._by_id_len[at],
+            store._by_id_inflated[at],
+            store._table[store._by_id_class[at]],
+            store._optional(store._by_id_group[at]),
+            store._by_id_bits[at],
+            store._by_id_units[at],
+        )
+        for at in range(len(store._by_id_words))
+    ]
+
+
+def _unit_store_invoke(store: UnitStore, call: tuple) -> object:
+    """Make one call of a `store-load` trace on `store` and return what it gave."""
+    op, *args = call
+    if op == "load-projection":
+        projection, no_verdict, ordinal, address, length = args
+        return store.load_projection(
+            projection, no_verdict=no_verdict, ordinal=ordinal, address=address, length=length
+        )
+    if op == "load-cached":
+        ordinal, cached, codepoints, found = args
+        return store.load_cached(ordinal, cached, codepoints=codepoints, found=found)
+    if op == "patched":
+        ordinal, class_id, group, exemplar, no_verdict = args
+        patched = {
+            "class_id": class_id,
+            "duplicate_group": group,
+            "exemplar": exemplar,
+            "no_verdict": no_verdict,
+        }
+        return (
+            store.cached_as_is(ordinal, **patched),
+            store.predicted_unchanged(ordinal, **patched),
+            unit_cache.record_line(store.cached_unit(ordinal, **patched)),
+        )
+    if op == "read":
+        return None
+    if op == "primary-unit-ids":
+        return sorted(store.primary_unit_ids())
+    if op == "windows":
+        return list(store.windows())
+    methods: dict[str, Callable[..., object]] = {
+        "add-prior-record": store.add_prior_record,
+        "seal": store.seal_prior_records,
+        "set-prior-line": store.set_prior_line,
+        "input-key-index": store.input_key_index,
+        "set-input-key": store.set_input_key,
+        "set-primary-units": store.set_primary_units,
+        "set-written-span": store.set_written_span,
+        "set-written-part": store.set_written_part,
+        "set-written-address": store.set_written_address,
+        "set-policy-file": store.set_policy_file,
+        "set-config-note": store.set_config_note,
+        "rebase-source": store.rebase_source,
+        "index": store.index,
+        "ordinal-of": store.ordinal_of,
+        "prior-record-count": store.prior_record_count,
+        "emptied": store.emptied,
+    }
+    return methods[op](*args)
+
+
+def _unit_store_after(store: UnitStore, call: tuple, result: Any) -> object:
+    """A store call's value, from the store after it and what it gave: a load's row and what `_store_reading` reads of it, a setter's field read back, and the index, the kept prior records and the store an emptied one is, as the stage writes each."""
+    op = call[0]
+    ordinal: int = call[1] if len(call) > 1 else -1
+    if op in ("load-projection", "load-cached"):
+        return ("loaded", result, _store_reading(store, result))
+    if op == "add-prior-record":
+        return ("added", store.prior_record_count())
+    if op == "seal":
+        return ("sealed", _sealed_records(store))
+    if op == "set-prior-line":
+        return ("line", store.prior_line(ordinal))
+    if op == "input-key-index":
+        return ("built", _KEY_INDEX_BYTES(result))
+    if op == "set-input-key":
+        return ("input-key", store.input_key_hex(ordinal))
+    if op == "set-primary-units":
+        return ("set", store.primary_unit_ordinals(ordinal))
+    if op in ("set-written-span", "set-written-part", "set-written-address"):
+        return _written_value(store, ordinal)
+    if op == "set-policy-file":
+        return ("policy", store.policy_file(ordinal))
+    if op == "set-config-note":
+        return ("note", store.config_note(ordinal))
+    if op == "rebase-source":
+        return ("source", store.source(ordinal))
+    if op == "index":
+        words, ordinals = result
+        return ("indexed", [f"{word:016x}" for word in words], list(ordinals))
+    if op == "ordinal-of":
+        return ("ordinal", result)
+    if op == "read":
+        return _store_reading(store, ordinal)
+    if op == "patched":
+        return ("patched", *result)
+    if op == "emptied":
+        return ("emptied", result.n, bytes(result._input_keys), sum(result._loaded))
+    return result
+
+
+def _unit_store_run(store: UnitStore | None, call: tuple) -> tuple[object, UnitStore | None]:
+    """Make one call of a `store-load` trace outside the build: its value, a refusal's `_unit_store_raised`, and the store the trace follows after it, a new one for `new`. A key index it builds is released, as the build releases its own, so the store's input-key column can be copied."""
+    if call[0] == "new":
+        _op, n, keys = call
+        try:
+            made = UnitStore(n, input_keys=None if keys is None else bytearray(keys))
+        except _UNIT_STORE_RAISES as error:
+            return _unit_store_raised(error), None
+        return ("made", n), made
+    if store is None:
+        raise RuntimeError(f"a store-load trace calls {call[0]} before it makes a store")
+    try:
+        result = _unit_store_invoke(store, call)
+    except _UNIT_STORE_RAISES as error:
+        return _unit_store_raised(error), store
+    value = _unit_store_after(store, call, result)
+    if isinstance(result, columns.KeyIndex):
+        result.release()
+    return value, store
+
+
+def _unit_store_line(name: str, index: int, call: tuple, value: object) -> dict[str, object]:
+    return {
+        "key": f"{name}:{index}",
+        "form": "store",
+        "input": (name, index, _unit_store_encoded(call)),
+        "value": value,
+    }
+
+
+def _unit_store_step(trace: _UnitStoreTrace, call: tuple, value: object) -> dict[str, object]:
+    """The line of a followed store's next call, kept for the trace's replay; a call on another thread than the one that made it is refused, since the calls' order in the lines would not be the order they ran in."""
+    with _UNIT_STORE_LOCK:
+        if threading.get_ident() != trace.thread:
+            raise RuntimeError(f"the store-load stage follows {trace.name}, which a second thread calls")
+        index = len(trace.calls)
+        trace.calls.append((call, value))
+    return _unit_store_line(trace.name, index, call, value)
+
+
+def _unit_store_followed(method: str) -> Recorder:
+    """Follow a unit store from its making (`__init__`, a `new` line with its size and the input-key column it takes, or None), then each call on it `STORE_FOLLOWED` names, with its arguments in the method's order and what `_unit_store_after` reads of the store after it."""
+    op = STORE_FOLLOWED[method]
+    signature = _UNIT_STORE_SIGNATURES[method]
+
+    def record(args: tuple, kwargs: dict) -> Finisher | None:
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+        arguments = dict(bound.arguments)
+        made = arguments.pop("self")
+        if method == "__init__":
+            keys = arguments["input_keys"]
+            call: tuple = ("new", arguments["n"], None if keys is None else bytes(keys))
+
+            def finish(_result: object) -> Mapping[str, object]:
+                with _UNIT_STORE_LOCK:
+                    trace = _UnitStoreTrace(made, f"run:store:{len(_UNIT_STORE_RUNS)}", threading.get_ident())
+                    _UNIT_STORE_TRACES[id(made)] = trace
+                    _UNIT_STORE_RUNS.append(trace)
+                return _unit_store_step(trace, call, ("made", call[1]))
+
+            return finish
+        trace = _UNIT_STORE_TRACES.get(id(made))
+        if trace is None or trace.held is not made:
+            return None
+        values = list(arguments.values())
+        if method == "set_primary_units":
+            values[1] = [tuple(entry) for entry in values[1]]
+        followed = (op, *values)
+        return lambda result: _unit_store_step(trace, followed, _unit_store_after(made, followed, result))
+
+    return record
+
+
+def _patched_cases(store: UnitStore, ordinal: int) -> list[tuple]:
+    """The class, duplicate group, exemplar and exemption a `patched` line asks a row's record under: the ones its fragment was written with, from its store record or its kept prior record, then a moved class and group with the exemplar flipped, then the exemption flipped."""
+    flags = store.flags(ordinal)
+    index = None if flags.cached else store._prior_index(ordinal)
+    if flags.cached:
+        own = (
+            store.cached_class(ordinal) or "",
+            store.cached_duplicate_group(ordinal),
+            flags.exemplar,
+            flags.no_verdict,
+        )
+    elif index is not None:
+        bits = store._by_id_bits[index]
+        own = (
+            store._table[store._by_id_class[index]],
+            store._optional(store._by_id_group[index]),
+            bool(bits & unit_store.PRIOR_EXEMPLAR),
+            bool(bits & unit_store.PRIOR_NO_VERDICT),
+        )
+    else:
+        own = ("a-class", None, False, False)
+    class_id, group, exemplar, no_verdict = own
+    return [
+        own,
+        (f"{class_id}-moved", None if group else "e-moved", not exemplar, no_verdict),
+        (class_id, group, exemplar, not no_verdict),
+    ]
+
+
+def _scripted_target(store: UnitStore, ordinal: int, at: int) -> tuple[int | str | None, bool]:
+    """A primary unit the scripted continuation assigns a row's junction: none, an ordinal suppressed or not, or an id, by the junction's place."""
+    n = store.n
+    kind = (ordinal + at) % 4
+    if kind == 0:
+        return (None, False)
+    if kind == 1:
+        return ((ordinal * 7 + at + 1) % n, True)
+    if kind == 2:
+        return (store.unit_id((ordinal * 3 + at + 2) % n), False)
+    return ((ordinal + at) % n, False)
+
+
+def _store_script(store: UnitStore) -> Iterator[tuple]:
+    """The calls the stage makes on a replayed store once the build's own end: the id index and every id's ordinal beside ids no unit has, the kept prior records' count, the primary units' ids and the windows, every row read and its record asked under `_patched_cases`; then some rows' primary units, written addresses, policy files, config notes, prior lines, sources and input keys set and read again, and the store emptied; and last the refusals, some of which leave a row partly written, as Python does."""
+    n = store.n
+    yield ("index",)
+    for ordinal in range(n):
+        yield ("ordinal-of", store.unit_id(ordinal))
+    top = unit_cache.base58_64("f" * 16)
+    for unit_id in ("u-11111111111", f"u-{top}", "e-11111111111", "", "u-1111111111", "u-1111111111l"):
+        yield ("ordinal-of", unit_id)
+    yield ("prior-record-count",)
+    yield ("primary-unit-ids",)
+    yield ("windows",)
+    for ordinal in range(n):
+        yield ("read", ordinal)
+        for case in _patched_cases(store, ordinal):
+            yield ("patched", ordinal, *case)
+    yield ("input-key-index",)
+    junctioned = [ordinal for ordinal in range(n) if store.junction_count(ordinal)][:STORE_SCRIPT_UNITS]
+    for ordinal in junctioned:
+        yield (
+            "set-primary-units",
+            ordinal,
+            [_scripted_target(store, ordinal, at) for at in range(store.junction_count(ordinal))],
+        )
+        yield ("read", ordinal)
+        yield ("patched", ordinal, *_patched_cases(store, ordinal)[0])
+    yield ("primary-unit-ids",)
+    for ordinal in range(min(n, STORE_SCRIPT_UNITS)):
+        yield (
+            "set-written-address",
+            ordinal,
+            (f"units/class-{ordinal % 2}.json", 11 * ordinal, 100 + ordinal),
+            0 if ordinal % 2 else 9000 + ordinal,
+        )
+        yield ("set-policy-file", ordinal, (None, "", "glyph_data/runes/qsMay.yaml", "·Pea")[ordinal % 4])
+        yield ("set-config-note", ordinal, ("ss01 only", None, "", "·")[ordinal % 4])
+        yield ("set-prior-line", ordinal, 3 * ordinal)
+        if store.source(ordinal) is not None:
+            yield ("rebase-source", ordinal, 5 * ordinal)
+        yield ("set-input-key", ordinal, store.input_key_hex(ordinal).upper())
+        yield ("read", ordinal)
+        for case in _patched_cases(store, ordinal):
+            yield ("patched", ordinal, *case)
+    yield ("emptied",)
+    if junctioned:
+        ordinal = junctioned[0]
+        rest = [(None, False)] * (store.junction_count(ordinal) - 1)
+        yield ("set-primary-units", ordinal, [(None, False), *rest, (None, False)])
+        yield ("set-primary-units", ordinal, [*rest, (n + 3, False)])
+        yield ("set-primary-units", ordinal, [*rest, (-1, True)])
+        yield ("set-primary-units", ordinal, [*rest, ("u-11111111111", True)])
+        yield ("read", ordinal)
+    yield ("set-written-span", 0, 0, 2**32, 0)
+    yield ("set-written-span", 0, -1, 1, 0)
+    yield ("set-input-key", 0, "zz")
+    yield ("set-input-key", 0, "ab")
+    yield ("rebase-source", 0, -1)
+    yield ("set-prior-line", 0, -1)
+    yield ("read", 0)
+
+
+def _store_continued(trace: _UnitStoreTrace) -> Iterator[Mapping[str, object]]:
+    """Replay a store the build made, checking that each call gives the value the build's gave, and, when every row of it was loaded, continue its trace with `_store_script`'s calls."""
+    store: UnitStore | None = None
+    for call, value in trace.calls:
+        replayed, store = _unit_store_run(store, call)
+        if replayed != value:
+            raise RuntimeError(
+                f"replaying {trace.name}'s {call[0]} gave {replayed!r:.300}, not the build's {value!r:.300}"
+            )
+    if store is None or store.n == 0 or not all(store._loaded):
+        return
+    index = len(trace.calls)
+    for call in _store_script(store):
+        value, store = _unit_store_run(store, call)
+        yield _unit_store_line(trace.name, index, call, value)
+        index += 1
+
+
+STORE_CONTENT_KEY = hashlib.sha256(b"store-load").hexdigest()
+STORE_INPUT_KEY = hashlib.sha256(b"store-load input").hexdigest()
+STORE_EDGE = {"x_min": 300, "x_max": 750, "advance_total": 750}
+
+
+@dataclass(frozen=True)
+class _StoreRows:
+    """A primary-unit projection's rows as the units engine's reply holds them (`units_exec.RustPrimaryUnitRows`), for the stage's generated loads."""
+
+    codepoint_values: tuple[int, ...] = (0xE650, 0xE670)
+    ink_identical: bool = False
+    picture_identical: bool = False
+    pair: list[int] | None = field(default_factory=lambda: [0, 1])
+    after_spans: list[list[int]] = field(default_factory=lambda: [[0, 1], [1, 2]])
+    after_cells: list[str] = field(default_factory=lambda: ["qsMay/loop/None/x-height/", "·Pea 𝄞"])
+    after_junctions: list[str] = field(default_factory=lambda: ["y5"])
+    before_spans: list[list[int]] = field(default_factory=lambda: [[0, 2]])
+    before_glyphs: list[str] = field(default_factory=lambda: ["qsMay"])
+    before_junctions: list[str] = field(default_factory=list)
+    junction_pairs: list[list[int]] = field(default_factory=lambda: [[1, 2]])
+
+
+@dataclass(frozen=True)
+class _StoreProjection:
+    """A recomputed unit's projection as the units engine's reply holds it (`units_exec.RustProjection`), for the stage's generated loads."""
+
+    ordinal: int = 0
+    unit_id: str = unit_cache.unit_id_for(STORE_CONTENT_KEY)
+    input_key: str = STORE_INPUT_KEY
+    content_key: str = STORE_CONTENT_KEY
+    ink_identical: bool = False
+    picture_identical: bool = False
+    junior_equivalent: bool = False
+    ink_deltas: list[tuple[str, str]] = field(
+        default_factory=lambda: [("default", "d-34947e8c5c7e"), ("ss03", "d-ad268abf61a7")]
+    )
+    diffs_digest: str = "758a49a9fc8b39929a64a42262b19fc93d93d8ea"
+    cluster: str = "c-33bad1c7"
+    change_group: str = ""
+    ledger_class: str = ""
+    pair_codepoints: list[int] | None = field(default_factory=lambda: [0, 1])
+    primary_unit_projection: _StoreRows = field(default_factory=_StoreRows)
+    junction_rects: list[tuple[list[int], dict, dict]] = field(
+        default_factory=lambda: [
+            ([1, 2], dict(STORE_EDGE), {"x_min": 300, "x_max": 650, "advance_total": 650})
+        ]
+    )
+    mismatches: list[str] = field(default_factory=lambda: ['·Tea ~b~ ·Oy: "quoted" \\ \x01\x7f'])
+
+
+def _keyed(content: str, **changes: Any) -> _StoreProjection:
+    """The generated projection under the content key the sha256 of `content` is, whose id it takes, with `changes`."""
+    key = hashlib.sha256(content.encode()).hexdigest()
+    return dataclasses.replace(
+        _StoreProjection(), content_key=key, unit_id=unit_cache.unit_id_for(key), **changes
+    )
+
+
+def _rows(**changes: Any) -> _StoreProjection:
+    """The generated projection with `changes` made to its rows."""
+    return _StoreProjection(primary_unit_projection=dataclasses.replace(_StoreRows(), **changes))
+
+
+def _edged(edge: object, pair: list[int] | None = None) -> list[tuple[list[int], object, dict]]:
+    """The generated projection's junction rects with `edge` as the junction's after edge, at `pair`."""
+    return [([1, 2] if pair is None else pair, dict(STORE_EDGE), edge)]  # pyright: ignore[reportReturnType]
+
+
+def _keys(*keys: str | None) -> bytes:
+    return b"".join(bytes(32) if key is None else bytes.fromhex(key) for key in keys)
+
+
+def _cached_record(**changes: object) -> unit_cache.ParsedCachedUnit:
+    """The generated store record under `STORE_CONTENT_KEY`, parsed as the plan parses it with its part trusted, with `changes` made to the record first."""
+    record: dict[str, object] = {
+        "key": STORE_INPUT_KEY,
+        "id": unit_cache.unit_id_for(STORE_CONTENT_KEY),
+        "class": "a-class",
+        "content_key": STORE_CONTENT_KEY,
+        "slim": False,
+        "ink_identical": False,
+        "picture_identical": False,
+        "junior_equivalent": False,
+        "ink_deltas": {"default": "d-34947e8c5c7e", "ss03": "d-ad268abf61a7"},
+        "diffs_digest": "758a49a9fc8b39929a64a42262b19fc93d93d8ea",
+        "cluster": "c-33bad1c7",
+        "change_group": "",
+        "ledger_class": "",
+        "pair_codepoints": [0, 1],
+        "proj": {
+            "pair": [0, 1],
+            "after_spans": [[0, 1], [1, 2]],
+            "after_cells": ["qsMay/loop/None/x-height/", "·Pea 𝄞"],
+            "after_junctions": ["y5"],
+            "before_spans": [[0, 2]],
+            "before_glyphs": ["qsMay"],
+            "before_junctions": [],
+        },
+        "junctions": [
+            {
+                "pair": [1, 2],
+                "before": dict(STORE_EDGE),
+                "after": {"x_min": 300, "x_max": 650, "advance_total": 650},
+            }
+        ],
+        "mismatches": ["·Pea"],
+        "duplicate_group": "e-f8P2bEFApF9",
+        "exemplar": False,
+        "no_verdict": False,
+        "primary_units": [["u-DuyicL6fVGo", True]],
+        "policy_file": "glyph_data/runes/qsMay.yaml",
+        "address": [RECORDS_PART, 1, 5064, 9000],
+    }
+    record.update(changes)
+    return _PARSED_CACHED_UNIT(record, frozenset({RECORDS_PART}), {}, False)
+
+
+def _prior_record(content: str, **changes: object) -> unit_cache.PriorRecord:
+    """A kept prior record for the unit under the content key the sha256 of `content` is, with `changes`."""
+    fields: dict[str, Any] = {
+        "unit_id": unit_cache.unit_id_for(hashlib.sha256(content.encode()).hexdigest()),
+        "class_id": "a-class",
+        "duplicate_group": None,
+        "exemplar": False,
+        "no_verdict": False,
+        "primary_units": unit_cache.primary_units_crc([[None, False]]),
+        "address": ("units/a-class.x000.json", 10, 20),
+        "inflated": 900,
+    }
+    fields.update(changes)
+    return unit_cache.PriorRecord(**fields)
+
+
+def _projection_refusals() -> Iterator[tuple[str, _StoreProjection, int | None, object, int]]:
+    """The generated loads of one projection into a fresh store, each its name, the projection, the ordinal, the address and the length: one at each refusal `load_projection` makes, each column's width at both ends, and the keys, rects and deltas in each shape Python reads or refuses."""
+    base = _StoreProjection()
+    fragment = unit_cache.PriorFragment(
+        "units/a-class.x000.json", 3, 40, base.unit_id, base.content_key, byte_copied=True, inflated=900
+    )
+    key = STORE_CONTENT_KEY
+    yield "no-ordinal", dataclasses.replace(base, ordinal=-1), None, None, 0
+    yield "ink-flags", dataclasses.replace(base, ink_identical=True), None, None, 0
+    yield "outside", base, 2, None, 0
+    yield "negative", base, -1, None, 0
+    yield "content-key-hex", dataclasses.replace(base, content_key="zz" + key[2:]), None, None, 0
+    yield "content-key-odd", dataclasses.replace(base, content_key=key + "a"), None, None, 0
+    yield "content-key-short", dataclasses.replace(base, content_key=key[:62]), None, None, 0
+    yield "content-key-upper", dataclasses.replace(base, content_key=key.upper()), None, None, 0
+    yield "content-key-led", dataclasses.replace(base, content_key=" " + key), None, None, 0
+    led = dataclasses.replace(base, content_key=" " + key, unit_id=unit_cache.unit_id_for(" " + key))
+    yield "content-key-led-id", led, None, None, 0
+    yield "content-key-gap", dataclasses.replace(base, content_key=key[:4] + " " + key[4:]), None, None, 0
+    yield "input-key-odd", dataclasses.replace(base, input_key="abc"), None, None, 0
+    spaced = " ".join(STORE_INPUT_KEY[at : at + 2] for at in range(0, 64, 2))
+    yield "input-key-spaced", dataclasses.replace(base, input_key=spaced), None, None, 0
+    yield "unit-id", dataclasses.replace(base, unit_id="u-11111111111"), None, None, 0
+    yield "after-row", _rows(after_cells=["qsMay/loop/None/x-height/"]), None, None, 0
+    yield "before-row", _rows(before_junctions=["x"]), None, None, 0
+    yield "rect-count", dataclasses.replace(base, junction_rects=[]), None, None, 0
+    yield "rect-pair", dataclasses.replace(
+        base, junction_rects=_edged(dict(STORE_EDGE), [2, 1])
+    ), None, None, 0
+    yield "rect-pair-bool", dataclasses.replace(
+        base, junction_rects=_edged(dict(STORE_EDGE), [True, 2])
+    ), None, None, 0
+    reordered = {"x_max": 750, "x_min": 300, "advance_total": 750}
+    yield "rect-keys", dataclasses.replace(base, junction_rects=_edged(reordered)), None, None, 0
+    yield "rect-extra-key", dataclasses.replace(
+        base, junction_rects=_edged({**STORE_EDGE, "y": 1})
+    ), None, None, 0
+    named = ["x_min", "x_max", "advance_total"]
+    yield "rect-list", dataclasses.replace(base, junction_rects=_edged(named)), None, None, 0
+    yield "rect-string", dataclasses.replace(base, junction_rects=_edged("xyz")), None, None, 0
+    yield "rect-int", dataclasses.replace(base, junction_rects=_edged(5)), None, None, 0
+    for index, value in enumerate(("650", " -7 ", None, "3x", True, 2**31, -(2**31) - 1, [1])):
+        edge = {**STORE_EDGE, "x_max": value}
+        yield f"rect-value-{index}", dataclasses.replace(base, junction_rects=_edged(edge)), None, None, 0
+    yield "pair-wide", dataclasses.replace(base, pair_codepoints=[0, 128]), None, None, 0
+    yield "pair-low", dataclasses.replace(base, pair_codepoints=[-129, 0]), None, None, 0
+    yield "cell-pair-wide", _rows(pair=[200, 1]), None, None, 0
+    yield "codepoint-wide", _rows(codepoint_values=(0x10000,)), None, None, 0
+    yield "codepoint-low", _rows(codepoint_values=(-1,)), None, None, 0
+    yield "span-wide", _rows(after_spans=[[0, 70000], [1, 2]]), None, None, 0
+    yield "span-low", _rows(before_spans=[[-1, 2]]), None, None, 0
+    wide_pair = dataclasses.replace(
+        _rows(junction_pairs=[[1, 300]]), junction_rects=_edged(dict(STORE_EDGE), [1, 300])
+    )
+    yield "junction-pair-wide", wide_pair, None, None, 0
+    many = [(f"c{index}", "d") for index in range(256)]
+    yield "deltas-many", dataclasses.replace(base, ink_deltas=many), None, None, 0
+    yield "codepoints-many", _rows(codepoint_values=tuple(range(256))), None, None, 0
+    rows_many = _rows(
+        after_spans=[[index, index + 1] for index in range(256)],
+        after_cells=[f"cell{index}" for index in range(256)],
+        after_junctions=[f"y{index}" for index in range(255)],
+    )
+    yield "rows-many", rows_many, None, None, 0
+    yield "length-wide", base, None, None, 2**32
+    yield "length-low", base, None, None, -1
+    yield "address-low", base, None, ("arena", -1, 4), 0
+    yield "address-wide", base, None, ("arena", 0, 2**32), 0
+    yield "fragment-wide", base, None, dataclasses.replace(fragment, inflated=2**32), 0
+    repeated = [("default", "a"), ("ss03", "b"), ("default", "c")]
+    yield "deltas-repeated", dataclasses.replace(base, ink_deltas=repeated), None, None, 0
+    empty_rows = _StoreRows(
+        codepoint_values=(),
+        pair=None,
+        after_spans=[],
+        after_cells=[],
+        after_junctions=[],
+        before_spans=[],
+        before_glyphs=[],
+        before_junctions=[],
+        junction_pairs=[],
+    )
+    empty = _keyed(
+        "empty",
+        ink_deltas=[],
+        pair_codepoints=None,
+        primary_unit_projection=empty_rows,
+        junction_rects=[],
+        mismatches=[],
+    )
+    yield "empty", empty, None, None, 0
+
+
+def _store_cases() -> Iterator[tuple[str, list[tuple]]]:
+    """The generated stores, each its name and its calls: loads of every shape a projection and a record take, read back, asked for their records, given primary units and indexed; each refusal of a load (`_projection_refusals`), of the index and of the prior records; the store's own refusal of a short input-key column and its key index's of a repeated key; and an unloaded row read."""
+    base = _StoreProjection()
+    fragment = unit_cache.PriorFragment(
+        "units/a-class.x000.json", 3, 40, base.unit_id, base.content_key, byte_copied=True, inflated=900
+    )
+    one, zero = _keyed("one"), _keyed("zero")
+    zero_rows = dataclasses.replace(_StoreRows(), ink_identical=True, pair=None)
+    yield "projections", [
+        ("new", 3, _keys(None, None, STORE_INPUT_KEY)),
+        ("load-projection", dataclasses.replace(base, ordinal=2), True, None, ("arena", 7, 40), 120),
+        (
+            "load-projection",
+            _keyed("one", junior_equivalent=True, pair_codepoints=None, mismatches=[]),
+            False,
+            1,
+            dataclasses.replace(fragment, unit_id=one.unit_id, content_key=one.content_key),
+            4000,
+        ),
+        (
+            "load-projection",
+            _keyed(
+                "zero",
+                ink_identical=True,
+                primary_unit_projection=zero_rows,
+                input_key=hashlib.sha256(b"zero").hexdigest(),
+            ),
+            False,
+            0,
+            dataclasses.replace(fragment, byte_copied=False, inflated=0),
+            0,
+        ),
+        ("index",),
+        *(("ordinal-of", projection.unit_id) for projection in (base, one, zero)),
+        ("set-primary-units", 2, [(0, False)]),
+        ("set-primary-units", 1, [(zero.unit_id, False)]),
+        ("primary-unit-ids",),
+        *(("read", ordinal) for ordinal in range(3)),
+        *(("patched", ordinal, "a-class", None, False, False) for ordinal in range(3)),
+        ("input-key-index",),
+        ("windows",),
+        ("emptied",),
+    ]
+    yield "projection-twice", [
+        ("new", 2, None),
+        ("load-projection", base, False, None, None, 0),
+        ("read", 0),
+        ("load-projection", base, False, None, None, 0),
+        ("index",),
+        ("ordinal-of", base.unit_id),
+    ]
+    for name, projection, ordinal, address, length in _projection_refusals():
+        yield f"projection-{name}", [
+            ("new", 2, None),
+            ("load-projection", projection, False, ordinal, address, length),
+            ("read", 0),
+        ]
+    yield "held-key", [
+        ("new", 2, _keys(hashlib.sha256(b"other").hexdigest(), None)),
+        ("load-projection", base, False, None, None, 0),
+    ]
+    yield "held-same-key", [
+        ("new", 2, _keys(STORE_INPUT_KEY, None)),
+        ("load-projection", base, False, None, None, 0),
+        ("read", 0),
+    ]
+    cached = _cached_record()
+    walked = unit_cache.PriorFragment(
+        "units/a-class.json", 99, 41, cached.prior_id, cached.content_key, byte_copied=False, inflated=0
+    )
+    flagged = _cached_record(
+        key=hashlib.sha256(b"flags").hexdigest(),
+        slim=True,
+        ink_identical=True,
+        exemplar=True,
+        no_verdict=True,
+        duplicate_group=None,
+        policy_file=None,
+        pair_codepoints=None,
+        mismatches=[],
+        primary_units=[["", False]],
+        address=[RECORDS_PART, 7, 30],
+    )
+    patched = (("a-class", "e-f8P2bEFApF9", False, False), ("a-class", None, True, True))
+    yield "cached", [
+        ("new", 3, None),
+        ("load-cached", 0, cached, (0xE650, 0xE670), None),
+        (
+            "load-cached",
+            1,
+            dataclasses.replace(cached, key=hashlib.sha256(b"walked").hexdigest()),
+            (0xE650,),
+            walked,
+        ),
+        ("load-cached", 2, flagged, (0xE650, 0xE670, 0xE651), None),
+        *(("read", ordinal) for ordinal in range(3)),
+        ("set-primary-units", 0, [(2, True)]),
+        *(("patched", ordinal, *case) for ordinal in range(3) for case in patched),
+        ("index",),
+    ]
+    named = ["x_min", "x_max", "advance_total"]
+    cached_refusals: list[tuple[str, unit_cache.ParsedCachedUnit, unit_cache.PriorFragment | None]] = [
+        ("unlocated", _cached_record(address=None), None),
+        ("other-unit", cached, dataclasses.replace(walked, unit_id="u-11111111111")),
+        ("no-stamp", cached, dataclasses.replace(walked, content_key=None)),
+        ("other-stamp", cached, dataclasses.replace(walked, content_key=STORE_INPUT_KEY)),
+        ("units-count", _cached_record(primary_units=[]), None),
+        ("no-before", _cached_record(junctions=[{"pair": [1, 2], "after": dict(STORE_EDGE)}]), None),
+        (
+            "edge-list",
+            _cached_record(junctions=[{"pair": [1, 2], "before": named, "after": dict(STORE_EDGE)}]),
+            None,
+        ),
+        ("pair-wide", _cached_record(pair_codepoints=[0, 200]), None),
+        ("inflated-wide", _cached_record(address=[RECORDS_PART, 1, 5064, 2**32]), None),
+    ]
+    for name, record, found in cached_refusals:
+        yield f"cached-{name}", [
+            ("new", 2, None),
+            ("load-cached", 0, record, (0xE650, 0xE670), found),
+            ("read", 0),
+        ]
+    asked = (("a-class", None, False, False), ("b-class", None, False, False), ("a-class", None, False, True))
+    yield "prior-records", [
+        ("new", 2, None),
+        ("load-projection", base, False, None, None, 0),
+        ("add-prior-record", _prior_record("zz", address=None)),
+        (
+            "add-prior-record",
+            _prior_record("yy", class_id="b-class", duplicate_group="e-group", exemplar=True),
+        ),
+        ("add-prior-record", _prior_record("store-load")),
+        (
+            "add-prior-record",
+            _prior_record("xx", address=("units/b-class.json", 0, 7), no_verdict=True, inflated=0),
+        ),
+        ("add-prior-record", _prior_record("ww", primary_units=0)),
+        ("seal",),
+        ("seal",),
+        ("prior-record-count",),
+        ("read", 0),
+        *(("patched", 0, *case) for case in asked),
+        ("load-projection", one, False, 1, None, 0),
+        ("read", 1),
+        ("patched", 1, "a-class", None, False, False),
+        ("set-primary-units", 0, [(1, False)]),
+        ("patched", 0, "a-class", None, False, False),
+    ]
+    yield "prior-record-refusals", [
+        ("new", 1, None),
+        ("add-prior-record", _prior_record("zz", unit_id="e-11111111111")),
+        ("prior-record-count",),
+        ("add-prior-record", _prior_record("zz", address=("units/a.json", 2**32, 1))),
+        ("prior-record-count",),
+    ]
+    twin = dataclasses.replace(base, input_key=hashlib.sha256(b"twin").hexdigest())
+    yield "index-repeat", [
+        ("new", 2, None),
+        ("load-projection", base, False, None, None, 0),
+        ("load-projection", twin, False, 1, None, 0),
+        ("index",),
+        ("ordinal-of", base.unit_id),
+        ("set-primary-units", 0, [(base.unit_id, False)]),
+    ]
+    yield "short-keys", [("new", 2, bytes(10))]
+    yield "repeated-keys", [("new", 2, _keys(STORE_INPUT_KEY, STORE_INPUT_KEY)), ("input-key-index",)]
+    yield "unloaded", [
+        ("new", 1, None),
+        ("read", 0),
+        ("windows",),
+        ("primary-unit-ids",),
+        ("prior-record-count",),
+        ("input-key-index",),
+        ("emptied",),
+        ("set-input-key", 0, STORE_INPUT_KEY),
+        ("read", 0),
+    ]
+
+
+def _store_load_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `store-load` stage's generated lines: each store the build made, replayed and continued (`_store_continued`), then the generated stores (`_store_cases`). A generated store's read of a row is left out after a refused load, which leaves the row partly written, as Python does, where its side columns no longer line up."""
+    with _UNIT_STORE_LOCK:
+        runs = list(_UNIT_STORE_RUNS)
+        _UNIT_STORE_RUNS.clear()
+    for trace in runs:
+        yield from _store_continued(trace)
+    for name, calls in _store_cases():
+        store: UnitStore | None = None
+        refused = False
+        index = 0
+        for call in calls:
+            if call[0] == "read" and refused:
+                continue
+            value, store = _unit_store_run(store, call)
+            if call[0].startswith("load-"):
+                refused = value[0] == "raised"  # pyright: ignore[reportIndexIssue]
+            yield _unit_store_line(f"generated:store:{name}", index, call, value)
+            index += 1
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -10316,6 +11229,12 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
             "unit_cache.is_content_id": _records_called("content-id"),
         },
         _store_records_generated,
+        run="build",
+    ),
+    STORE_LOAD_STAGE: Stage(
+        STORE_LOAD_STAGE,
+        {f"unit_store.UnitStore.{method}": _unit_store_followed(method) for method in STORE_FOLLOWED},
+        _store_load_generated,
         run="build",
     ),
 }
@@ -10540,6 +11459,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _row_delta_write_blobs_at(out / ROW_DELTA_WRITE_BLOBS),
                     _signature_store_blobs_at(out / SIGNATURE_STORE_BLOBS),
                     _columns_following(),
+                    _unit_store_following(),
                 ):
                     _build_here(source, built)
         shutil.rmtree(scratch)
@@ -10604,6 +11524,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _row_delta_write_blobs_at(built.out / ROW_DELTA_WRITE_BLOBS),
                 _signature_store_blobs_at(built.out / SIGNATURE_STORE_BLOBS),
                 _columns_following(),
+                _unit_store_following(),
             ):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:
