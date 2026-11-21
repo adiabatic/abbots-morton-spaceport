@@ -1,8 +1,8 @@
-//! The drafting-time half of the §7 contract check: `build.check_unit` at `DRAFTED` in its `m1-audit` mode, the only form the worker runs ([`ContractCheck::check_drafted`]), with `build._is_delta_digest`, `unit_cache.is_content_id`, `subset_pack.is_junction_token`, `audit.machine_approved` and `audit.slim_fragment`.
+//! The per-unit §7 contract check, `build.check_unit` in its `m1-audit` mode, in its two subsets: at `DRAFTED`, the form the worker runs ([`ContractCheck::check_drafted`]), with `build._is_delta_digest`, `unit_cache.is_content_id`, `subset_pack.is_junction_token`, `audit.machine_approved` and `audit.slim_fragment`; and at `PATCHED`, the form the corpus build's write runs over each fragment it patches ([`PatchedCheck::check`]).
 //!
 //! The check reads a fragment as the [`PyValue`] it is, whatever its shape, so where it reads Python's truthiness, `len`, iteration, hashing, `==`, sorting, `int(..., 16)` or `.get` on a value that is not a dict, it answers as Python does: the same error list, or a raise where Python raises ([`CheckError::raised`]).
 //!
-//! [`stage_check`] is the `check` stage of the stage fixtures.
+//! [`stage_check`] is the `check` stage of the stage fixtures, and [`stage_check_patched`] the build's `check-patched` stage.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -12,6 +12,7 @@ use std::path::Path;
 use ams_m1_kernel::emit::json_string;
 use serde_json::Value;
 
+use crate::corpus::input::BuildInput;
 use crate::expect::ExpectParser;
 use crate::fragment::{BASE58_ALPHABET, ID_SYMBOLS, SLIM_OMITTED_KEYS_NAME, lookup, py_eq};
 use crate::pyfmt::repr::{repr, repr_str};
@@ -46,6 +47,7 @@ const POLICY_KEYS: [&str; 5] = [
     "why_stub",
 ];
 const POLICY_KEYPATHS: [&str; 3] = ["policy.refuse[+]", "policy.prefer[+]", "policy.contract[+]"];
+const JUNCTION_KEYS: [&str; 4] = ["pair", "before", "after", "primary_unit"];
 
 /// A check that raises where Python raises, with the exception's class name, or a failure Python never meets, with none.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -355,6 +357,24 @@ struct Needs {
 }
 
 impl Needs {
+    /// The empty list for `fragment`, named by `unit.get("id", "<missing>")`, which raises AttributeError for a value that is not a dict.
+    fn of(fragment: &PyValue) -> Result<Self> {
+        if !matches!(fragment, PyValue::Dict(_)) {
+            return raise(
+                "AttributeError",
+                format!("{} has no attribute 'get'", fragment.kind()),
+            );
+        }
+        let identifier = match lookup(fragment, "id") {
+            Some(value) => text_of(value)?,
+            None => "<missing>".to_owned(),
+        };
+        Ok(Self {
+            identifier,
+            errors: Vec::new(),
+        })
+    }
+
     fn need(&mut self, condition: bool, message: impl fmt::Display) {
         if !condition {
             self.errors
@@ -431,21 +451,8 @@ impl ContractCheck {
 
     /// `check_unit(fragment, at=(DRAFTED,))` in `m1-audit` mode: the errors in Python's order, or the raise Python meets first.
     pub fn check_drafted(&self, fragment: &PyValue) -> Result<Vec<String>> {
-        if !matches!(fragment, PyValue::Dict(_)) {
-            return raise(
-                "AttributeError",
-                format!("{} has no attribute 'get'", fragment.kind()),
-            );
-        }
+        let mut n = Needs::of(fragment)?;
         let unit = Some(fragment);
-        let identifier = match lookup(fragment, "id") {
-            Some(value) => text_of(value)?,
-            None => "<missing>".to_owned(),
-        };
-        let mut n = Needs {
-            identifier,
-            errors: Vec::new(),
-        };
         let approving = self
             .machine_checks
             .iter()
@@ -977,10 +984,150 @@ impl ContractCheck {
     }
 }
 
-/// The `check` stage: for each line of `stage_file`, check its `fragment` and write one `{"key", "value"}` line, the value the error list, or `{"raised": name}` where Python raises, in the typed encoding. A failure Python never meets stops the stage.
-pub fn stage_check(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path).or_else(|failure| engine(failure.0))?;
-    let check = ContractCheck::new(&init)?;
+/// `build.check_unit(fragment, "m1-audit", at=(PATCHED,))` over the build input's `MACHINE_CHECKS`: the predicates over the fields `patch_fragment` assigns after the whole-corpus passes, the duplicate group, the cluster and the secondary junctions with their primary units.
+pub struct PatchedCheck {
+    machine_checks: Vec<String>,
+}
+
+impl PatchedCheck {
+    /// The check over the machine checks in their order.
+    pub fn new(machine_checks: Vec<String>) -> Self {
+        Self { machine_checks }
+    }
+
+    /// The check over the build input's vocabulary.
+    pub fn of(input: &BuildInput) -> Result<Self> {
+        let Some(PyValue::Tuple(items)) = input.constant(MACHINE_CHECKS_NAME) else {
+            return engine(format!(
+                "the build input's {MACHINE_CHECKS_NAME} is not a tuple"
+            ));
+        };
+        let machine_checks = items
+            .iter()
+            .map(|item| match item {
+                PyValue::Str(text) => Ok(text.clone()),
+                other => engine(format!(
+                    "the build input's {MACHINE_CHECKS_NAME} holds {}, not a str",
+                    other.kind()
+                )),
+            })
+            .collect::<Result<_>>()?;
+        Ok(Self::new(machine_checks))
+    }
+
+    /// `check_unit(fragment, "m1-audit", at=(PATCHED,))`: the errors in Python's order, or the raise Python meets first.
+    pub fn check(&self, fragment: &PyValue) -> Result<Vec<String>> {
+        let mut n = Needs::of(fragment)?;
+        let unit = Some(fragment);
+        let approving = self
+            .machine_checks
+            .iter()
+            .any(|check| is_true(get(unit, check)));
+        let human = !approving && !is_true(get(unit, "no_verdict"));
+        let pair = get(unit, "pair");
+
+        n.need(
+            has(fragment, "duplicate_group"),
+            "duplicate_group must be present",
+        );
+        let duplicate_group = get(unit, "duplicate_group");
+        n.need(
+            is_none(duplicate_group)
+                || matches!(duplicate_group, Some(PyValue::Str(text)) if text.starts_with("e-")),
+            "duplicate_group must be null or an e- group id",
+        );
+        if human {
+            n.need(
+                is_str(duplicate_group),
+                "human units must carry a duplicate group id",
+            );
+        } else {
+            n.need(
+                is_none(duplicate_group),
+                "machine-approved and no-verdict units must carry duplicate_group null",
+            );
+        }
+        n.need(has(fragment, "cluster"), "cluster must be present");
+        let cluster = get(unit, "cluster");
+        n.need(
+            is_none(cluster)
+                || matches!(cluster, Some(PyValue::Str(text)) if text.starts_with("c-")),
+            "cluster must be null or a c-XXXXXXXX signature id",
+        );
+        if human {
+            n.need(
+                is_str(cluster),
+                "human units must carry a cluster signature id",
+            );
+        } else {
+            n.need(
+                is_none(cluster),
+                "machine-approved and no-verdict units must carry cluster null",
+            );
+        }
+
+        let junctions = get(unit, "secondary_junctions");
+        if is_none(junctions) {
+            return Ok(n.errors);
+        }
+        n.need(
+            nonempty_list(junctions),
+            "secondary_junctions must be null or a nonempty list",
+        );
+        n.need(
+            !is_true(get(unit, "ink_identical")) && !is_true(get(unit, "picture_identical")),
+            "ink-identical and picture-identical units must not carry secondary_junctions",
+        );
+        let Some(PyValue::List(junctions)) = junctions else {
+            return Ok(n.errors);
+        };
+        for (index, junction) in junctions.iter().enumerate() {
+            let label = format!("secondary_junctions[{index}]");
+            if !(matches!(junction, PyValue::Dict(_))
+                && JUNCTION_KEYS.iter().all(|key| has(junction, key)))
+            {
+                n.need(
+                    false,
+                    format_args!("{label} must carry pair/before/after/primary_unit"),
+                );
+                continue;
+            }
+            let junction = Some(junction);
+            let junction_pair = get(junction, "pair");
+            n.need(
+                is_dict(junction_pair)
+                    && matches!(
+                        (int_of(get(junction_pair, "left")), int_of(get(junction_pair, "right"))),
+                        (Some(left), Some(right)) if left < right
+                    ),
+                format_args!("{label}.pair must be {{left, right}} with left < right"),
+            );
+            if is_dict(pair) && is_dict(junction_pair) {
+                n.need(
+                    !(same(get(junction_pair, "left"), get(pair, "left"))
+                        && same(get(junction_pair, "right"), get(pair, "right"))),
+                    format_args!("{label} must not duplicate the primary pair"),
+                );
+            }
+            n.need_rect(get(junction, "before"), &format!("{label}.before"));
+            n.need_rect(get(junction, "after"), &format!("{label}.after"));
+            let primary_unit = get(junction, "primary_unit");
+            n.need(
+                is_none(primary_unit)
+                    || matches!(primary_unit, Some(PyValue::Str(text)) if text.starts_with("u-")),
+                format_args!("{label}.primary_unit must be null or a unit id"),
+            );
+        }
+        Ok(n.errors)
+    }
+}
+
+/// Answer each line of `stage_file` with `check` over its `fragment`: one `{"key", "value"}` line, the value the error list, or `{"raised": name}` where Python raises, in the typed encoding. A failure Python never meets stops the stage.
+fn check_lines(
+    stage_file: &Path,
+    out: &mut impl Write,
+    check: impl Fn(&PyValue) -> Result<Vec<String>>,
+) -> Result<()> {
     let file = std::fs::File::open(stage_file)
         .or_else(|failure| engine(format!("cannot read {}: {failure}", stage_file.display())))?;
     for line in std::io::BufReader::new(file).lines() {
@@ -994,7 +1141,7 @@ pub fn stage_check(init_path: &Path, stage_file: &Path, out: &mut impl Write) ->
         };
         let fragment = PyValue::from_typed(&line["fragment"])
             .or_else(|failure| engine(format!("{key}: {failure}")))?;
-        let value = match check.check_drafted(&fragment) {
+        let value = match check(&fragment) {
             Ok(errors) => PyValue::List(errors.into_iter().map(PyValue::Str).collect()),
             Err(CheckError {
                 raised: Some(kind), ..
@@ -1010,6 +1157,24 @@ pub fn stage_check(init_path: &Path, stage_file: &Path, out: &mut impl Write) ->
         .or_else(|failure| engine(format!("cannot write a stage line: {failure}")))?;
     }
     Ok(())
+}
+
+/// The `check` stage: each line's `fragment` checked at `DRAFTED` over the init's vocabulary and glyph names ([`ContractCheck::check_drafted`]).
+pub fn stage_check(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    let init = Init::read(init_path).or_else(|failure| engine(failure.0))?;
+    let check = ContractCheck::new(&init)?;
+    check_lines(stage_file, out, |fragment| check.check_drafted(fragment))
+}
+
+/// The build's `check-patched` stage: each line's `fragment` checked at `PATCHED` over the build input's machine checks ([`PatchedCheck::check`]).
+pub fn stage_check_patched(
+    input_path: &Path,
+    stage_file: &Path,
+    out: &mut impl Write,
+) -> Result<()> {
+    let input = BuildInput::read(input_path).or_else(|failure| engine(failure.0))?;
+    let check = PatchedCheck::of(&input)?;
+    check_lines(stage_file, out, |fragment| check.check(fragment))
 }
 
 #[cfg(test)]
@@ -1064,6 +1229,70 @@ mod tests {
         for token in ["y", "Y5", "y0+y5", "y-1", "brk"] {
             assert!(!is_junction_token(&PyValue::str(token)), "{token}");
         }
+    }
+
+    #[test]
+    fn the_patched_check_reads_the_scaffold_and_each_secondary_junction() {
+        let check = PatchedCheck::new(vec!["ink_identical".to_owned()]);
+        let dict = |entries: Vec<(&str, PyValue)>| {
+            PyValue::Dict(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| (PyValue::str(key), value))
+                    .collect(),
+            )
+        };
+        let pair = |left, right| {
+            dict(vec![
+                ("left", PyValue::Int(left)),
+                ("right", PyValue::Int(right)),
+            ])
+        };
+        let rect = dict(vec![
+            ("x_min", PyValue::Int(0)),
+            ("x_max", PyValue::Int(1)),
+            ("advance_total", PyValue::Int(2)),
+        ]);
+        let junction = dict(vec![
+            ("pair", pair(0, 1)),
+            ("before", rect.clone()),
+            ("after", rect),
+            ("primary_unit", PyValue::None),
+        ]);
+        let fragment = dict(vec![
+            ("id", PyValue::str("u-x")),
+            ("pair", pair(0, 1)),
+            ("duplicate_group", PyValue::str("e-x")),
+            ("cluster", PyValue::str("c-x")),
+            (
+                "secondary_junctions",
+                PyValue::List(vec![junction, PyValue::Int(5)]),
+            ),
+        ]);
+        assert_eq!(
+            check.check(&fragment),
+            Ok(vec![
+                "unit u-x: secondary_junctions[0] must not duplicate the primary pair".to_owned(),
+                "unit u-x: secondary_junctions[1] must carry pair/before/after/primary_unit"
+                    .to_owned(),
+            ])
+        );
+        let machine = dict(vec![
+            ("ink_identical", PyValue::Bool(true)),
+            ("cluster", PyValue::None),
+        ]);
+        assert_eq!(
+            check.check(&machine),
+            Ok(vec![
+                "unit <missing>: duplicate_group must be present".to_owned(),
+            ])
+        );
+        assert_eq!(
+            check
+                .check(&PyValue::List(Vec::new()))
+                .map_err(|failure| failure.raised),
+            Err(Some("AttributeError"))
+        );
     }
 
     #[test]

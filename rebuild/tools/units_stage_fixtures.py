@@ -33,6 +33,7 @@ The build's stages (`BUILD_STAGES`):
 - `shards` records each class the write's shard writer (`build._ShardWriter`) writes, from its `open` to its `close`, under `class:<id>`: its input the cap (None, the build's `SHARD_PART_BYTES`), the parts the class appends to as the build's directory held them when it opened, and each call made on the writer (`open`, `holds`, `keep`, `add_bytes`, which `add` makes too, and `close`) with its arguments, a fragment as the sha256 of its bytes; its value each call's result, the close's parts, total and pending renames with each staged part's size and sha256, and the counters the class moved (`_shard_closed`). Every fragment and held part is kept once under its sha256 in `shards.blobs/` beside the stage file (`SHARDS_BLOBS`), from which the Rust side makes the held parts again, as clones, in a scratch directory and replays the calls there. Its generated lines (`_shards_generated`, `_shard_cases`) replay writers of their own under small caps through `_shard_replay`, which also takes, commits, aborts and lists what a writer staged, and deletes staged parts by class ids that are wildcards themselves (`build._discard_runs`).
 - `prior-read` records each read the write makes of a fragment it emits, keyed by its origin, its `form` and a digest of its `input`: `read`, `read-bytes` and `same-bytes`, each `unit_cache.PriorFragmentReader.read`, `read_bytes` and `same_bytes` call (`_prior_reading`), with the part it opens as the reader's directory held it (`_prior_held`), its address (`_prior_located`) and, for `same-bytes`, the body it compares, valued `("fragment", value)`, `("bytes", sha256)` or `("same", flag)` (`_prior_given`); and `arena`, each `build._FragmentArena.read` call (`_arena_read`), with the arena's dictionary, the span's bytes and the address, valued `("fragment", value)`. Every part, body, span and dictionary is kept once under its sha256 in `prior-read.blobs/` beside the stage file (`PRIOR_READ_BLOBS`), from which the Rust side makes each line's parts again in a scratch directory, or places its span at its start in an arena of its own, and makes the read there. Its generated lines (`_prior_read_generated`, `_prior_read_cases`) read plain and deflated fragments, as bytes and compared, under their own address and moved ones, and arena spans under their own dictionary and others, through every refusal of the reader's, each refusal valued `("raised", "ValueError", message)`, `("os-error", errno)` or, where `json.loads` refuses the bytes, `("undecoded",)` (`_prior_outcome`).
 - `emit` records each unit the write receives, each `build._emission` call (`_emitted`), under `unit:<ordinal>`: its kind, `fragment` for a fragment the write serializes or `bytes` for a cached fragment's stored bytes, its unit id, content key and policy file, the sha256 of the bytes the write takes from it, the config note the write keeps for it, and, for stored bytes, their address and the identity that stands in for the fragment (`_emission_value`). The Rust side runs the build through the routing and emits every unit of every class in shard order.
+- `check-patched` records each fragment the write checks, `check_unit` at `PATCHED` as `build._CorpusCheck.unit` calls it (`_patched_checked`), under `patched:` and a digest of the fragment, as the `fragment` and, as its value, the error list. Its generated lines (`_check_patched_generated`), under `generated:` and the same digest, mutate the smallest patched fragment of each shape (`_patched_shape`), generically over the keys the check reads (`PATCHED_DEPTHS`) and once or more for each predicate (`_patched_extras`), and record the error list, or the class of the exception the check raises, as `{"raised": name}`.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -1866,8 +1867,10 @@ def _check_variants(value: object) -> Iterator[object]:
         yield from (value - 1, value + 1)
 
 
-def _check_mutations(fragment: dict) -> Iterator[dict]:
-    """The `check` stage's generic mutations of `fragment`: each top-level entry removed, and at every place `CHECK_DEPTHS` reaches below it, the value replaced by each variant (`_check_variants`), each dict entry removed, and a list's first and last item removed."""
+def _check_mutations(
+    fragment: dict, depths: Mapping[str, int] = CHECK_DEPTHS, only: Collection[str] | None = None
+) -> Iterator[dict]:
+    """The `check` stage's generic mutations of `fragment`: each top-level entry removed, and at every place `depths` reaches below it, the value replaced by each variant (`_check_variants`), each dict entry removed, and a list's first and last item removed. With `only`, only the top-level entries it names are mutated."""
 
     def at(value: object, rebuilt: Callable[[object], dict], depth: int) -> Iterator[dict]:
         for variant in _check_variants(value):
@@ -1888,8 +1891,10 @@ def _check_mutations(fragment: dict) -> Iterator[dict]:
                 )
 
     for key, child in fragment.items():
+        if only is not None and key not in only:
+            continue
         yield {other: item for other, item in fragment.items() if other != key}
-        yield from at(child, lambda new, key=key: {**fragment, key: new}, CHECK_DEPTHS.get(key, 0))
+        yield from at(child, lambda new, key=key: {**fragment, key: new}, depths.get(key, 0))
 
 
 def _check_extras(fragment: dict) -> Iterator[dict]:
@@ -3890,6 +3895,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     },
     "build._FragmentArena.read": ("rebuild.review.build", "_FragmentArena.read"),
     "build._emission": ("rebuild.review.build", "_emission"),
+    "build.check_unit": ("rebuild.review.build", "check_unit"),
 }
 
 
@@ -13082,6 +13088,163 @@ def _emission_value(emission: build._Emission, table: UnitTable, ordinal: int) -
     )
 
 
+CHECK_PATCHED_STAGE = "check-patched"
+# The smallest fragment of each shape (`_patched_shape`) the `check-patched` stage's build checks, by shape, with its encoded length: the bases its generated set mutates, filled by the build that precedes the generators in `build_dump`.
+_CHECK_PATCHED: dict[str, tuple[int, dict]] = {}
+# The fragment keys `check_unit` reads at `PATCHED`, which are the only ones the stage's generic mutations change, and how many levels below each they reach.
+PATCHED_DEPTHS: dict[str, int] = {
+    "id": 0,
+    **{check_id: 0 for check_id in audit.MACHINE_CHECKS},
+    "no_verdict": 0,
+    "duplicate_group": 0,
+    "cluster": 0,
+    "pair": 1,
+    "secondary_junctions": 3,
+}
+PATCHED_RECT = {"x_min": 0, "x_max": 1, "advance_total": 2}
+PATCHED_JUNCTION = {
+    "pair": {"left": 0, "right": 1},
+    "before": PATCHED_RECT,
+    "after": PATCHED_RECT,
+    "primary_unit": "u-1",
+}
+
+
+def _patched_shape(fragment: dict) -> str:
+    """What sorts a patched fragment into a base of the `check-patched` stage's generated set: its machine flags and exemption, and whether it carries a pair, secondary junctions, and a junction without a primary unit."""
+    junctions = fragment.get("secondary_junctions")
+    return compact(
+        encode(
+            [
+                [fragment.get(check_id) is True for check_id in audit.MACHINE_CHECKS],
+                fragment.get("no_verdict") is True,
+                fragment.get("pair") is None,
+                junctions is None,
+                isinstance(junctions, list)
+                and any(
+                    isinstance(junction, dict) and junction.get("primary_unit") is None
+                    for junction in junctions
+                ),
+            ]
+        )
+    )
+
+
+def _patched_line(origin: str, fragment: object) -> dict[str, object]:
+    try:
+        value: object = build.check_unit(
+            fragment,  # pyright: ignore[reportArgumentType]
+            "m1-audit",
+            at=(build.PATCHED,),
+        )
+    except CHECK_RAISES as error:
+        value = {"raised": type(error).__name__}
+    return {"key": _digest_key(f"{origin}:", {"fragment": fragment}), "fragment": fragment, "value": value}
+
+
+def _patched_checked(args: tuple, kwargs: dict) -> Finisher | None:
+    """`build.check_unit` at `PATCHED`, as `_CorpusCheck.unit` calls it in the write: the fragment under `patched:` and a digest of it, valued the error list. The smallest fragment of each shape is kept as a base of the generated set (`_CHECK_PATCHED`)."""
+    if len(args) != 2 or args[1] != "m1-audit" or kwargs != {"at": (build.PATCHED,)}:
+        return None
+    fragment = args[0]
+    text = compact(encode({"fragment": fragment}))
+    shape = _patched_shape(fragment)
+    held = _CHECK_PATCHED.get(shape)
+    if held is None or len(text) < held[0]:
+        _CHECK_PATCHED[shape] = (len(text), copy.deepcopy(fragment))
+    key = "patched:" + hashlib.sha1(text.encode("ascii")).hexdigest()[:20]
+    return lambda errors: {"key": key, "fragment": fragment, "value": errors}
+
+
+def _patched_extras(fragment: dict) -> Iterator[object]:
+    """The `check-patched` stage's targeted mutations of `fragment`, one or more for each predicate the generic ones do not reach: values that are not a dict, ids of every kind `str` writes, every combination of the machine flags and the exemption with duplicate groups and clusters of each kind, secondary-junction lists of every shape on units that are and are not ink- or picture-identical, junction pairs against primary pairs, broken rectangles and primary units of each kind."""
+
+    def put(**changes: object) -> dict:
+        return {**fragment, **changes}
+
+    yield from ([fragment], "fragment", None, 5)
+    for unit_id in (None, 5, True, ["u-1"], ("u-1",), {"id": 1}, "<missing>", "u-ü"):
+        yield put(id=unit_id, duplicate_group=5, cluster=5)
+    for flags in product((True, False), repeat=4):
+        for group, cluster in product((None, "e-1", "E-1", 5), (None, "c-1", "C-1", 5)):
+            yield put(
+                **dict(zip((*audit.MACHINE_CHECKS, "no_verdict"), flags)),
+                duplicate_group=group,
+                cluster=cluster,
+            )
+    junction = PATCHED_JUNCTION
+    for junctions in (
+        None,
+        [],
+        (),
+        "x",
+        5,
+        junction,
+        [junction],
+        (junction,),
+        [junction, junction],
+        [junction, "x"],
+        [junction, None],
+        [[junction]],
+        *([{key: value for key, value in junction.items() if key != dropped}] for dropped in junction),
+        [{**junction, "extra": 1}],
+        [junction, {**junction, "pair": None}],
+    ):
+        for ink_identical, picture_identical in ((False, False), (True, False), (False, True), (1, None)):
+            yield put(
+                secondary_junctions=junctions,
+                ink_identical=ink_identical,
+                picture_identical=picture_identical,
+            )
+    for junction_pair in (
+        {"left": 0, "right": 1},
+        {"left": 1, "right": 1},
+        {"left": 2, "right": 1},
+        {"left": True, "right": 2},
+        {"left": "0", "right": 1},
+        {"left": 0},
+        {"right": 1},
+        {},
+        None,
+        [0, 1],
+        5,
+    ):
+        for primary_pair in (
+            {"left": 0, "right": 1},
+            {"left": False, "right": 1},
+            {"left": 0},
+            {},
+            {"left": 0, "right": 2},
+            None,
+            [0, 1],
+            "pair",
+        ):
+            yield put(pair=primary_pair, secondary_junctions=[{**junction, "pair": junction_pair}])
+    for broken in (
+        {"x_min": 5, "x_max": 1, "advance_total": 9},
+        {"x_min": 0, "x_max": 9, "advance_total": 1},
+        {"x_min": False, "x_max": True, "advance_total": 1},
+        {"x_min": 0, "x_max": 1},
+        {"x_min": 0, "x_max": 1, "advance_total": "2"},
+        {"x_min": -1, "x_max": -1, "advance_total": -1},
+        None,
+        [PATCHED_RECT],
+        "rect",
+    ):
+        for side in ("before", "after"):
+            yield put(secondary_junctions=[{**junction, side: broken}])
+    for primary_unit in (None, "u-", "u-1", "e-1", "U-1", "", 5, ["u-1"]):
+        yield put(secondary_junctions=[{**junction, "primary_unit": primary_unit}])
+
+
+def _check_patched_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `check-patched` stage's generated lines, under `generated:` and a digest of the fragment: the generic mutations of the keys the check reads (`_check_mutations` over `PATCHED_DEPTHS`) and the targeted ones (`_patched_extras`) of the smallest patched fragment of each shape the build checked (`_CHECK_PATCHED`), each checked by `check_unit` at `PATCHED`, with what it returns or the class of the exception it raises."""
+    for shape in sorted(_CHECK_PATCHED):
+        base = _CHECK_PATCHED[shape][1]
+        for mutated in chain(_check_mutations(base, PATCHED_DEPTHS, PATCHED_DEPTHS), _patched_extras(base)):
+            yield _patched_line("generated", mutated)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -13313,6 +13476,12 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         run="build",
     ),
     EMIT_STAGE: Stage(EMIT_STAGE, {"build._emission": _emitted}, run="build"),
+    CHECK_PATCHED_STAGE: Stage(
+        CHECK_PATCHED_STAGE,
+        {"build.check_unit": _patched_checked},
+        _check_patched_generated,
+        run="build",
+    ),
 }
 
 
