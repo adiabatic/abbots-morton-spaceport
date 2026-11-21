@@ -27,6 +27,7 @@ The build's stages (`BUILD_STAGES`):
 - `scan` is a boundary stage that records the plan's reads of the prior unit store, each where the build makes it: from `unit_cache.open_store`, the store as it opened under `open`, `("none",)` or `("opened", stamps, head)` with the head's document (`_store_opened`); from `unit_cache.scan_store`, walked again over handles of its own before the build reads a line (`_store_scanned`, `_reopened`), a unit a line in the store's materialized order, its place, the ordinal whose input key it names, its parsed record and the sha256 of its bytes (`_scanned_value`), and the `scan` line, whether it parses named lines, the parts it trusts and how it ended (`_scan_failure`); from `unit_cache.locate_prior_fragments`, the wanted records and where the walk placed them under `locate` (`_located_value`, id words as `%016x`); from `unit_cache.scan_marked`, scanned again before it runs, a `marked:<place>` line a record it parses and the `marked` line; from `unit_cache.LocatedFragments.find`, each placement the plan looks up under `find:` and the class and id; and from `unit_cache.store_miss_note`, `rederiving_moved` and `adopt_single_file`, the note, the decision and the head's document. Its generated lines (`_scan_generated`), on the mini only, open, scan and scan again at marked places the dump's prior store and stores made from it, under a segment, as a single file, cut short, corrupted, with no header line and with lines of every shape the scan skips or refuses, and heads and single files that do not open (`_scan_store_cases`); ask which parts recorded sizes trust, the manifest's identity over manifests of every kind, the miss note over stamps that match and that moved in each way it names, whether a re-deriving label moved, and adopt single files (`_scan_stamp_cases`); and walk the prior corpus with every store record wanted, through its store, its index and its parts as each is taken away or does not read, and a corpus whose deflated fragment only its store places (`_scan_locate_cases`). Every file is kept once under its sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`).
 - `plan` is a boundary stage that records what the plan gives the units phase, from `build._build_m1`'s locals as the plan's line is printed (`build._phase_timing`, `_plan_timed`), as `plan_boundary` lays it out: a unit a row of the unit store as the `store-load` stage reads one, a column over the prior records the store keeps by id and one over the recomputed ordinals, and lines for the store plan, the prior shards, the count reused, the verification sample with the units materialized for it, the plan's note and the console lines the plan printed, read from standard error between the load's line and the plan's.
 - `units` is a boundary stage that records the unit store once phase 1 has loaded every recomputed unit (`build._RecomputeRunner.phase1`, `_units_drafted`), as `units_boundary` lays it out: a unit a row of the store as the `store-load` stage reads one, a source in the arena as its part, its length and the sha256 of its deflated bytes, and lines for the drafting-time errors the runner kept, sorted, the count and the last of the `[progress]` lines phase 1 printed, its other console lines, and the arena's fragment count, deflated bytes, shard bytes and note.
+- `triage` is a boundary stage that records the whole-corpus passes from the change-group promotion to the batches, from `build._build_m1`'s locals once `audit.assign_batches` returns (`_batches_assigned`), as `triage_boundary` lays it out: a unit its final class, unmatched group, exemplar flag, place in the triage index and batch, and lines for the classes in manifest order, each class's section in the order the build met the classes, a column over the triage order and the batch count.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3871,6 +3872,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     },
     "build._phase_timing": ("rebuild.review.build", "_phase_timing"),
     "build._RecomputeRunner.phase1": ("rebuild.review.build", "_RecomputeRunner.phase1"),
+    "build.assign_batches": ("rebuild.review.build", "assign_batches"),
 }
 
 
@@ -11814,7 +11816,7 @@ def _build_locals() -> Mapping[str, Any]:
     frame = sys._getframe(1)
     while frame is not None and frame.f_code is not build._build_m1.__code__:
         frame = frame.f_back
-    assert frame is not None, "the plan's line is printed by build._build_m1"
+    assert frame is not None, "the hooked call is made from build._build_m1"
     return frame.f_locals
 
 
@@ -11886,6 +11888,45 @@ def _units_drafted(args: tuple, _kwargs: dict) -> Finisher:
         return units_boundary(runner, store, printed.lines())
 
     return finish
+
+
+TRIAGE_STAGE = "triage"
+# The keys of the `triage` stage's lines beside its units: the classes in manifest order, each class's section, the triage order's column and the batch count.
+TRIAGE_CLASSES_KEY = "classes"
+TRIAGE_SECTIONS_KEY = "sections"
+TRIAGE_ORDER = "order"
+TRIAGE_BATCHES_KEY = "batches"
+
+
+def _triage_reading(table: UnitTable, ordinal: int) -> tuple[str, str, bool, int | None, int | None]:
+    """One unit as the `triage` stage reads it from the table: its final class, its unmatched group, its exemplar flag, and its place in the triage index and its batch, each None for a unit outside the index."""
+    return (
+        table.class_id(ordinal),
+        table.unmatched_group(ordinal),
+        table.exemplar(ordinal),
+        table.order(ordinal),
+        table.batch(ordinal),
+    )
+
+
+def triage_boundary(held: Mapping[str, Any], batches: object) -> Boundary:
+    """The `triage` boundary over `build._build_m1`'s locals once `assign_batches` has numbered the human units (`held`): a unit as `_triage_reading` reads it; the classes in manifest order; each class's section, in the order the build met the classes before sorting them; a column over the triage order; and the batch count."""
+    table: UnitTable = held["table"]
+    return Boundary(
+        table.n,
+        {"value": functools.partial(_triage_reading, table)},
+        [
+            {"key": TRIAGE_CLASSES_KEY, "value": list(held["classes"])},
+            {"key": TRIAGE_SECTIONS_KEY, "value": list(held["sections"].items())},
+            column_line(TRIAGE_ORDER, held["order"]),
+            {"key": TRIAGE_BATCHES_KEY, "value": batches},
+        ],
+    )
+
+
+def _batches_assigned(_args: tuple, _kwargs: dict) -> Finisher:
+    """`audit.assign_batches` as `build._build_m1` calls it, recorded as the `triage` boundary once it returns the batch count (`triage_boundary`)."""
+    return lambda batches: triage_boundary(_build_locals(), batches)
 
 
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
@@ -12083,6 +12124,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     PLAN_STAGE: Stage(PLAN_STAGE, {"build._phase_timing": _plan_timed}, run="build", kind="boundary"),
     UNITS_STAGE: Stage(
         UNITS_STAGE, {"build._RecomputeRunner.phase1": _units_drafted}, run="build", kind="boundary"
+    ),
+    TRIAGE_STAGE: Stage(
+        TRIAGE_STAGE, {"build.assign_batches": _batches_assigned}, run="build", kind="boundary"
     ),
 }
 

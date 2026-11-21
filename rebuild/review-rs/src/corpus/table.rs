@@ -1389,6 +1389,38 @@ impl UnitTable {
         Some(self.batch[ordinal]).filter(|&value| value != NONE)
     }
 
+    /// Each row's class id in [`UnitTable::strings`].
+    pub fn class_ids(&self) -> &[u32] {
+        &self.class
+    }
+
+    /// Each row's group id in [`UnitTable::strings`].
+    pub fn group_ids(&self) -> &[u32] {
+        &self.group
+    }
+
+    pub fn set_class(&mut self, ordinal: usize, class_id: &str) {
+        self.class[ordinal] = self.strings.id(class_id);
+    }
+
+    pub fn set_unmatched_group(&mut self, ordinal: usize, group_id: &str) {
+        self.unmatched_group[ordinal] = self.strings.id(group_id);
+    }
+
+    /// Set the unit's place in the triage index and its batch, [`NONE`] for a unit outside it (`UnitTable.set_order_batch`).
+    pub fn set_order_batch(&mut self, ordinal: usize, order: Option<u32>, batch: Option<u32>) {
+        self.order[ordinal] = order.unwrap_or(NONE);
+        self.batch[ordinal] = batch.unwrap_or(NONE);
+    }
+
+    pub fn set_exemplar(&mut self, ordinal: usize, value: bool) {
+        if value {
+            self.flags[ordinal] |= EXEMPLAR;
+        } else {
+            self.flags[ordinal] &= !EXEMPLAR;
+        }
+    }
+
     /// Mark the row as removed by the ink-duplicate merge into `survivor`, which must be live; [`UnitTable::compact`] drops it.
     pub fn merge_into(&mut self, ordinal: usize, survivor: usize) -> Result<()> {
         if !self.live(survivor) {

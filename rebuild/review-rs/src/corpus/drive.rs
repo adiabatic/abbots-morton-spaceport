@@ -2,7 +2,7 @@
 //!
 //! The recomputed units' deflated fragments go to the [`Arena`], `_FragmentArena` on disk: each thread appends its handout's fragments to a spill file in the build's scratch directory, unlinked as it is made, so the fragments hold no memory and a killed build leaves no file. The unit store records each fragment's span as the unit's source, under the part name of its spill file ([`ArenaSpan::part`]), and the write reads it back from there ([`Arena::read`]).
 //!
-//! [`stage_units`] is the `units` stage of the stage fixtures.
+//! [`stage_units`] is the `units` stage of the stage fixtures, and [`through_units`] runs the build through phase 1 for it and for the stages after it.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
@@ -22,7 +22,9 @@ use super::store::{LoadAddress, PrimaryRows, Recomputed, UnitStore};
 use super::table::{
     ColumnDigest, UNIT_PREFIX, Unit, UnitStoreView, UnitTable, stage_units as stage_unit_lines,
 };
-use super::{BuildError, CONSOLE_KEY, console, failed, linked_tree, load_corpus, plan_phase};
+use super::{
+    BuildError, CONSOLE_KEY, Planned, console, failed, linked_tree, load_corpus, plan_phase,
+};
 use crate::enrich::{Highlight, Pair};
 use crate::pool::{Pool, Report, shares};
 use crate::pyfmt::PyValue;
@@ -707,26 +709,35 @@ fn units_lines(
     )
 }
 
-/// The `units` stage: run the build's load and plan as the `plan` stage runs them, over the audit its build input names, read through the descriptors the process inherits, and a tree of links to the dump's prior corpus beside the stage file; then phase 1 ([`Drive::phase1`]) at the input's units width, its arena's spill files beside the stage file and its console lines kept rather than printed; and answer with the lines `units_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose phase 1 did not finish, is answered with none.
-pub fn stage_units(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let (units, lines) = stage_unit_lines(stage_file)?;
-    if lines == 0 {
-        return Ok(());
-    }
+/// What a stage holds once the build has run through phase 1 ([`through_units`]): the table, the places in the ledger of the classes the load reached, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
+pub struct UnitsRun {
+    pub table: UnitTable,
+    pub classes_present: Vec<usize>,
+    pub planned: Planned,
+    pub drive: Drive,
+    pub printed: Vec<u8>,
+}
+
+/// Run the build's load and plan as the `plan` stage runs them, over the audit the build input names, read through the descriptors the process inherits, and a tree of links to the dump's prior corpus in a scratch directory named for `stage` beside the stage file; then phase 1 ([`Drive::phase1`]) at the input's units width, its arena's spill files in that directory and its console lines kept rather than printed; and hand what the build holds then to `then`. The scratch directory is removed once `then` returns.
+pub fn through_units<T>(
+    input: &BuildInput,
+    stage_file: &Path,
+    stage: &str,
+    then: impl FnOnce(&mut UnitsRun) -> Result<T>,
+) -> Result<T> {
     let files = input.held_audit()?;
     let prior = dump_prior(stage_file)?;
-    let loaded = load_corpus(&input, &files, &prior, &mut Vec::new())
+    let loaded = load_corpus(input, &files, &prior, &mut Vec::new())
         .map_err(|failure| WireError(format!("the load failed: {failure}")))?;
-    let mut table = loaded.workload.table;
     let directory = stage_file.parent().unwrap_or_else(|| Path::new("."));
-    let scratch = directory.join(format!("units.scratch-{}", std::process::id()));
+    let scratch = directory.join(format!("{stage}.scratch-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&scratch);
     let answered = (|| {
         let corpus = scratch.join("out");
         linked_tree(&prior, &corpus)?;
+        let mut table = loaded.workload.table;
         let mut planned = plan_phase(
-            &input,
+            input,
             &corpus,
             &super::sink::Sink::new(None),
             &table,
@@ -737,7 +748,7 @@ pub fn stage_units(input_path: &Path, stage_file: &Path, out: &mut impl Write) -
         let (jobs, _) = units_pool_width(&input.widths);
         let arena = Arc::new(Arena::new(&scratch));
         let mut drive = Drive::start(
-            &input,
+            input,
             jobs,
             planned.recomputed.len(),
             planned.verify_units.len(),
@@ -753,10 +764,28 @@ pub fn stage_units(input_path: &Path, stage_file: &Path, out: &mut impl Write) -
                 &mut printed,
             )
             .map_err(|failure| WireError(format!("the units phase failed: {failure}")))?;
-        units_lines(&planned.store, &drive, &printed, &units, out)
+        then(&mut UnitsRun {
+            table,
+            classes_present: loaded.workload.classes_present,
+            planned,
+            drive,
+            printed,
+        })
     })();
     let _ = std::fs::remove_dir_all(&scratch);
     answered
+}
+
+/// The `units` stage: run the build through phase 1 ([`through_units`]) and answer with the lines `units_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose phase 1 did not finish, is answered with none.
+pub fn stage_units(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    let input = BuildInput::read(input_path)?;
+    let (units, lines) = stage_unit_lines(stage_file)?;
+    if lines == 0 {
+        return Ok(());
+    }
+    through_units(&input, stage_file, "units", |run| {
+        units_lines(&run.planned.store, &run.drive, &run.printed, &units, out)
+    })
 }
 
 #[cfg(test)]
