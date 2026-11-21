@@ -1151,6 +1151,7 @@ def test_the_code_digest_covers_every_module_the_kerning_routes_run():
     served = {path.resolve() for path in landing.served_paths(review)}
     assert {
         review / "kern_routes.py",
+        review / "kern_writer.py",
         root / "rebuild" / "pipeline" / "kern.py",
         root / "rebuild" / "pipeline" / "table.py",
     } <= served

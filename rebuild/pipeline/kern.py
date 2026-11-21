@@ -497,9 +497,14 @@ def _sides(
 ) -> tuple[dict[CellId, Side], dict[CellId, Side]]:
     leading_edges: dict[str, dict[CellId, Edge]] = {}
     following_edges: dict[str, dict[CellId, Edge]] = {}
+    # A cell meets many breaks, so each cell's edge is measured once.
     for left, right in breaks:
-        leading_edges.setdefault(left.rune, {})[left] = leading_edge(records[left])
-        following_edges.setdefault(right.rune, {})[right] = following_edge(records[right])
+        lead = leading_edges.setdefault(left.rune, {})
+        if left not in lead:
+            lead[left] = leading_edge(records[left])
+        follow = following_edges.setdefault(right.rune, {})
+        if right not in follow:
+            follow[right] = following_edge(records[right])
     leading: dict[CellId, Side] = {}
     following: dict[CellId, Side] = {}
     for rune, edges in leading_edges.items():

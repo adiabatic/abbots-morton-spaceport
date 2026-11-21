@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionForKey, KEY_MAP, KERN_GRID_MAP, KERN_DETAIL_MAP, KERN_RESERVED_KEYS } from '../static/keyboard.js';
+import { actionForKey, KEY_MAP, KERN_GRID_MAP, KERN_DETAIL_MAP } from '../static/keyboard.js';
 
 const EXPECTED = [
   ['a', 'skip'],
@@ -171,6 +171,10 @@ const KERN_GRID = [
   ['ArrowLeft', 'kern-left'],
   ['ArrowRight', 'kern-right'],
   ['Enter', 'kern-detail'],
+  ['-', 'kern-letters-tighten'],
+  ['=', 'kern-letters-loosen'],
+  ['+', 'kern-letters-loosen'],
+  ['u', 'kern-undo'],
   ['/', 'kern-jump'],
   ['?', 'help'],
 ];
@@ -178,6 +182,12 @@ const KERN_GRID = [
 const KERN_DETAIL = [
   ['ArrowUp', 'kern-prev-pair'],
   ['ArrowDown', 'kern-next-pair'],
+  ['ArrowLeft', 'kern-tighten'],
+  ['ArrowRight', 'kern-loosen'],
+  ['0', 'kern-drop'],
+  ['n', 'kern-note'],
+  ['s', 'kern-scope'],
+  ['u', 'kern-undo'],
   ['/', 'kern-jump'],
   ['?', 'help'],
 ];
@@ -192,9 +202,13 @@ test('the kerning view binds exactly its planned keys in each pane', () => {
   for (const [key, action] of KERN_DETAIL) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'detail' }), action, `detail ${key}`);
 });
 
-test('left, right and 0 stay unbound in the kerning view’s detail panel, for the editing step', () => {
-  assert.deepEqual(KERN_RESERVED_KEYS, ['ArrowLeft', 'ArrowRight', '0']);
-  for (const key of KERN_RESERVED_KEYS) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'detail' }), null, key);
+test('the grid’s - and = act on the letters and leave the detail panel’s arrows to its selected scope', () => {
+  assert.equal(actionForKey('-', { view: 'kern', kernPane: 'detail' }), null);
+  assert.equal(actionForKey('0', { view: 'kern', kernPane: 'grid' }), null);
+  assert.equal(actionForKey('n', { view: 'kern', kernPane: 'grid' }), null);
+  assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'detail' }), 'kern-tighten');
+  assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'grid' }), 'kern-left');
+  assert.equal(actionForKey('-', { view: 'kern', kernPane: 'grid', inInput: true }), null);
 });
 
 test('no review key acts in the kerning view', () => {

@@ -3916,6 +3916,11 @@ function wireEvents() {
   }, 5000);
 
   window.addEventListener('beforeunload', (event) => {
+    if (kernView?.unsent()) {
+      event.preventDefault();
+      event.returnValue = '';
+      return;
+    }
     if (store.unexported.size === 0) return;
     if (autosaveHealthy() || outboxWorks) return;
     event.preventDefault();

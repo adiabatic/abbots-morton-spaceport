@@ -5,16 +5,27 @@ import {
   ACROSS_ZWNJ,
   INVENTORY_FORMAT,
   OVERLAY,
+  BY_LIMIT,
+  SCOPE_FACING,
+  SCOPE_LETTERS,
   WORD,
+  blockOf,
   builtValue,
   closestInk,
   decidersOf,
   deciderText,
+  deltaSet,
+  facingScope,
+  followsLetters,
+  historyAfterReply,
   indexInventory,
   indexValues,
   inkGapText,
   inventoryMoved,
   inventoryRefusal,
+  journalLines,
+  lettersScope,
+  lettersValue,
   liveValue,
   manualTexts,
   moveFacing,
@@ -24,10 +35,15 @@ import {
   paneFor,
   reachChip,
   reachText,
+  refusalText,
+  resendAfter,
   runePairAt,
+  scopeRecord,
   selectionFromState,
   shiftedPositions,
+  shownValue,
   signed,
+  staleAnswer,
   stalenessLines,
   stateFromSelection,
   textFocus,
@@ -35,7 +51,7 @@ import {
   worstInk,
 } from '../static/kern.js';
 
-// The fixture is a slice of a build's inventory (rebuild/pipeline/kern_inventory.py) to ·No, ·Tea and ·It and what their witnesses need, which rebuild/test_kern_inventory.py checks against the inventory's shape; the values fixture is `GET /kern`'s shape (rebuild/review/kern_routes.py), set ·No.flipped before half ·Tea by −1 in the rune files and ·No.loop before full ·Tea by −1 in the built font.
+// The fixture is a slice of a build's inventory (rebuild/pipeline/kern_inventory.py) to ·No, ·Tea and ·It and what their witnesses need, which rebuild/test_kern_inventory.py checks against the inventory's shape; the values fixture is `GET /kern`'s shape (rebuild/review/kern_routes.py), set ·No.flipped before half ·Tea by −1 in the rune files, by that facing pair's own record, and ·No.loop before full ·Tea by −1 in the built font.
 const fixtureDir = new URL('../fixtures/', import.meta.url);
 const inventory = JSON.parse(await readFile(new URL('kern-inventory.json', fixtureDir), 'utf8'));
 const payload = JSON.parse(await readFile(new URL('kern-values.json', fixtureDir), 'utf8'));
@@ -282,4 +298,100 @@ test('a failed fetch of the values keeps the last ones and says why; a good one 
   const lines = stalenessLines(model, values, 'GET kern answered 503');
   assert.equal(lines[0].level, 'warn');
   assert.match(lines[0].text, /could not be refreshed \(GET kern answered 503\); these are the last ones/);
+});
+
+test('a scope names the record an edit sets, and a facing pair of two whole runes is its letters scope', () => {
+  const letters = lettersScope(model, noTea);
+  assert.deepEqual(letters, { scope: SCOPE_LETTERS, key: 'letters:qsNo|qsTea', rune: 'qsNo', followRune: 'qsTea', lead: 'qsNo', follow: 'qsTea' });
+  const facing = facingScope(model, flippedHalf);
+  assert.equal(facing.scope, SCOPE_FACING);
+  assert.equal(facing.key, 'facing:qsNo[flipped]|qsTea[half exit=x-height]');
+  assert.equal(facing.followRune, 'qsTea');
+  const whole = inventory.pairs.findIndex((pair) => !inventory.sides[pair.lead].name.includes('[') && !inventory.sides[pair.follow].name.includes('['));
+  assert.ok(whole >= 0);
+  assert.equal(facingScope(model, whole).scope, SCOPE_LETTERS);
+  assert.equal(scopeRecord(values, facing).path, 'kern[0]');
+  assert.equal(scopeRecord(values, letters), null);
+  assert.equal(blockOf(values, 'qsNo').file, 'glyph_data/runes/qsNo.yaml');
+});
+
+test('a change to the letters moves every facing pair of the two but one with its own record, and a facing pair’s own change moves it alone', () => {
+  assert.equal(followsLetters(model, values, flippedHalf), false);
+  assert.equal(followsLetters(model, values, loopFull), true);
+  assert.equal(lettersValue(model, values, new Map(), noTea), 0);
+  const letters = lettersScope(model, noTea);
+  const lettersEdit = new Map([[letters.key, { scope: letters, by: -2, state: 'local' }]]);
+  assert.equal(shownValue(model, values, lettersEdit, loopFull), -2);
+  assert.equal(shownValue(model, values, lettersEdit, flippedHalf), -1);
+  assert.equal(lettersValue(model, values, lettersEdit, noTea), -2);
+  const facing = facingScope(model, flippedHalf);
+  const both = new Map([...lettersEdit, [facing.key, { scope: facing, by: -3, state: 'sending' }]]);
+  assert.equal(shownValue(model, values, both, flippedHalf), -3);
+  assert.equal(shownValue(model, values, both, loopFull), -2);
+  const dropped = new Map([...lettersEdit, [facing.key, { scope: facing, by: null, state: 'local' }]]);
+  assert.equal(shownValue(model, values, dropped, flippedHalf), -2);
+  assert.equal(shownValue(model, values, new Map(), flippedHalf), liveValue(model, values, flippedHalf));
+});
+
+test('a set carries the block it was made against, and a note only when one is given', () => {
+  const facing = facingScope(model, flippedHalf);
+  assert.deepEqual(deltaSet(values, facing, -2), {
+    scope: 'facing',
+    lead: 'qsNo[flipped]',
+    follow: 'qsTea[half exit=x-height]',
+    by: -2,
+    base: payload.runes.qsNo.sha256,
+  });
+  assert.equal(deltaSet(values, lettersScope(model, noTea), -1, '').why, '');
+});
+
+test('a refusal shows the server’s message and the build’s first issues', () => {
+  const reply = { message: 'the defect gate refuses the result', issues: [['E-CONTACT', 'a'], ['E-CONTACT', 'b'], ['E-CONTACT', 'c'], ['E-CONTACT', 'd']] };
+  assert.equal(refusalText(reply, 422), 'the defect gate refuses the result\nE-CONTACT: a\nE-CONTACT: b\nE-CONTACT: c\nand 1 more');
+  assert.match(refusalText(null, 500), /answered 500/);
+});
+
+test('the journal’s pending changes and the ones dropped since the view loaded are reported', () => {
+  assert.deepEqual(journalLines(values, 1), []);
+  const busy = indexValues({ ...payload, journal: { seq: 5, pending: 2, dropped: [{ seq: 5, reason: 'stale' }, { seq: 1, reason: 'old' }] } });
+  const lines = journalLines(busy, 3);
+  assert.equal(lines.length, 2);
+  assert.match(lines[0].text, /2 changes wait for the cycle pass to end/);
+  assert.match(lines[1].text, /dropped when it ended: stale/);
+});
+
+test('a dropped record carries no note, so a note saved just before a drop cannot turn the drop into a refused request', () => {
+  const facing = facingScope(model, flippedHalf);
+  assert.equal('why' in deltaSet(values, facing, null, 'a note'), false);
+  assert.equal(deltaSet(values, facing, -1, 'a note').why, 'a note');
+});
+
+test('only a change the server wrote or queued goes on the undo history, with its seq', () => {
+  let history = historyAfterReply([], 200, { status: 'unchanged' }, 'k');
+  assert.deepEqual(history, []);
+  history = historyAfterReply(history, 422, { status: 'refused' }, 'k');
+  history = historyAfterReply(history, 409, { status: 'conflict', block: {} }, 'k');
+  assert.deepEqual(history, []);
+  history = historyAfterReply(history, 200, { status: 'applied', seq: 4 }, 'a');
+  history = historyAfterReply(history, 202, { status: 'pending', seq: 5 }, 'b');
+  assert.deepEqual(history, [
+    { seq: 4, key: 'a', waiting: false },
+    { seq: 5, key: 'b', waiting: true },
+  ]);
+});
+
+test('a conflict that carries the block is sent once more, and only once', () => {
+  assert.equal(resendAfter(409, { block: { sha256: 'x' } }, false), true);
+  assert.equal(resendAfter(409, { block: { sha256: 'x' } }, true), false);
+  assert.equal(resendAfter(409, { message: 'stale' }, false), false);
+  assert.equal(resendAfter(422, { block: {} }, false), false);
+});
+
+test('a poll older than a write the view saw is ignored, but a restarted journal’s answers are taken', () => {
+  assert.equal(staleAnswer({ id: 'a', seq: 9 }, { id: 'a', seq: 8 }), true);
+  assert.equal(staleAnswer({ id: 'a', seq: 9 }, { id: 'a', seq: 9 }), false);
+  assert.equal(staleAnswer({ id: 'a', seq: 9 }, { id: 'b', seq: 1 }), false);
+  assert.equal(staleAnswer({ id: 'a', seq: 9 }, { id: null, seq: 0 }), false);
+  assert.equal(staleAnswer(null, { id: 'a', seq: 1 }), false);
+  assert.equal(BY_LIMIT, 64);
 });

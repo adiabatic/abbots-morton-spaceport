@@ -44,21 +44,35 @@
  "runes": {
   "qsNo": {
    "file": "glyph_data/runes/qsNo.yaml",
-   "sha256": "b732db0a31f41601e38e9ca84a1ff568a1ca426cd6219e66c5707073bd7494df",
-   "text": "kern:\n- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}\n",
+   "sha256": "a554c0f084e1382ba3391df4bdeaa59dc277804c5ac2f9550673b6b8637dec66",
+   "text": "kern:\n- {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}\n",
    "records": [
     {
      "path": "kern[0]",
      "by": -1,
-     "text": "{stance: flipped, right: {family: qsTea, stance: half}, by: -1}"
+     "text": "{stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}",
+     "why": null,
+     "line": "- {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}",
+     "sides": [
+      "qsNo[flipped]",
+      "qsTea[half exit=x-height]"
+     ],
+     "narrow": true
     }
-   ]
+   ],
+   "refusal": null
   },
   "qsTea": {
    "file": "glyph_data/runes/qsTea.yaml",
    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
    "text": "",
-   "records": []
+   "records": [],
+   "refusal": null
   }
+ },
+ "journal": {
+  "seq": 1,
+  "pending": 0,
+  "dropped": []
  }
 }

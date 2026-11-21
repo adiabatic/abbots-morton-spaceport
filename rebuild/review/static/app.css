@@ -2239,6 +2239,126 @@ body.kern-view {
     color: var(--hot);
   }
 
+  .kern-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin: 0 0 0.75rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    font-size: 13px;
+
+    button {
+      font: inherit;
+    }
+
+    .kern-scope-toggle {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+
+      button[aria-pressed="true"] {
+        border-color: var(--accent);
+        box-shadow: inset 0 -2px 0 var(--accent);
+        font-weight: 600;
+      }
+    }
+
+    .kern-record {
+      margin: 0;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+
+      .kern-file {
+        font-family: var(--code-font);
+        margin-right: 0.4rem;
+      }
+
+      code {
+        color: light-dark(#222, #e0e0e0);
+      }
+    }
+
+    .kern-refusal {
+      display: block;
+      color: var(--reject);
+    }
+
+    .kern-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      align-items: center;
+    }
+
+    .kern-scope-value {
+      min-width: 2.4rem;
+      font-family: var(--code-font);
+      font-size: 1.05rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+
+    .kern-why {
+      margin: 0;
+      font-style: italic;
+
+      &[hidden] {
+        display: none;
+      }
+    }
+
+    .kern-note-form {
+      &[hidden] {
+        display: none;
+      }
+
+      input {
+        width: 100%;
+        font: inherit;
+      }
+    }
+
+    .kern-message {
+      margin: 0;
+      padding-left: 0.5rem;
+      border-left: 3px solid var(--muted);
+      white-space: pre-line;
+      overflow-wrap: anywhere;
+
+      &.error {
+        border-color: var(--reject);
+      }
+
+      &.warn {
+        border-color: var(--neither);
+      }
+
+      &[hidden] {
+        display: none;
+      }
+    }
+  }
+
+  .kern-detail .kern-facing-row.in-scope {
+    border-style: dashed;
+    border-color: var(--accent);
+  }
+
+  .kern-keeps {
+    color: var(--neither);
+  }
+
+  .kern-pending {
+    color: var(--accent);
+
+    &.waiting {
+      color: var(--neither);
+    }
+  }
+
   .kern-value {
     font-family: var(--code-font);
     font-size: 1.05rem;

@@ -4,7 +4,7 @@ The app saves its verdicts to the server through /autosave, and the server keeps
 
 The server keeps running through every artifact-cycle pass. A pass builds its corpus beside the served one and runs the verdict update on the pass's own names for the store's file, which every writer replaces by rename rather than writing through, then lands the corpus and the store together under the lock (rebuild.review.landing). A land killed inside that section leaves its intent file (`landing.intent_path_for`); before it answers /autosave or /status, the server finishes such a land when the lock is free, in its executor, and any request to either made while a land still holds the lock gets the retryable 503, so no tab reads the new corpus beside the old store. While that recovery refuses (`landing.LandUnrecoverable`), every such request gets the refusal under the reason it names, a GET of /autosave as a 404 and the others as a 422, which the app shows the reader, keeping its outbox (`orphaned_land_reply`). At boot the server waits for the lock, finishing an interrupted land and then catching the store up with the journal (`landing.locked_store`, `boot_catch_up`, which prints a line when it applied saves), so a server the cycle stopped with saves still unwritten loses none of them, before it loads the store, and a recovery that refuses stops it with the refusal. /capabilities names the land protocol the server speaks, the digest of its protocol and freshness modules as it loaded them (`landing.code_digest`), its repo root and its store (`capabilities_payload`); the cycle keeps the server running only when that root is its own checkout and that digest is the working tree's, and restarts a server whose code is older.
 
-The kerning view (`#view=kern`) reads `GET /kern/inventory` and `GET /kern`, the read routes of `rebuild.review.kern_routes`, which this module imports only inside `main`, so no tool that imports it for its store helpers reaches the kern stage.
+The kerning view (`#view=kern`) reads `GET /kern/inventory` and `GET /kern` and writes the rune files under `RUNES_DIR` through `POST /kern` and `POST /kern/undo`, the routes of `rebuild.review.kern_routes`, which this module imports only inside `main`, so no tool that imports it for its store helpers reaches the kern stage.
 
 The app's fonts come from /fonts/browser/before.otf and /fonts/browser/after.otf, not from the corpus's fonts/ copies: the server serves each corpus font with a private-use stand-in for the namer dot mapped beside the dot (`namer_dot_stand_in_font`), and the app writes the stand-in where a sample has the dot, so Chromium shapes a sample as one run. The corpus copies stay byte-identical to the fonts the units were built from.
 
@@ -54,6 +54,7 @@ __all__ = [
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 REVIEW_DIR = REPO_ROOT / "rebuild" / "out" / "review"
 M1_OUT = REPO_ROOT / "rebuild" / "out" / "m1"
+RUNES_DIR = REPO_ROOT / "glyph_data" / "runes"
 CYCLE_SUMMARY_PATH = REPO_ROOT / "rebuild" / "out" / "cycle_summary.json"
 AUTOSAVE_PATH = REPO_ROOT / "verdicts-autosave.json"
 JOURNAL_PATH = REPO_ROOT / journal.JOURNAL_NAME
@@ -499,7 +500,7 @@ def main() -> None:
             self.finish(json.dumps(capabilities_payload(code)))
 
     browser_fonts: dict[str, tuple[tuple[int, int, int], bytes]] = {}
-    kern = kern_routes.KernRoutes(REPO_ROOT, M1_OUT)
+    kern = kern_routes.KernRoutes(REPO_ROOT, M1_OUT, runes_dir=RUNES_DIR)
 
     class BrowserFontHandler(RequestHandler):
         """Serve the corpus's fonts/<side>.otf with the namer dot's stand-in mapped (`namer_dot_stand_in_font`). The bytes are derived in the executor once per font file, keyed by its inode, mtime and size, so the font a land moves into place replaces the cached one."""

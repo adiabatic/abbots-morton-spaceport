@@ -1,32 +1,52 @@
-// The kerning view's DOM (`#view=kern`, rebuild/KERN-PLAN.md section 6): the grid of leading rune by following rune, the detail panel of the focused pair of runes, and the status lines. It is the app's second DOM module beside app.js (rebuild/REVIEW-PLAN.md §5.2), and nothing touches the DOM until `createKernView` is called. Its model and drawing are the pure modules kern.js and kern-draw.js; it fetches the inventory (`GET kern/inventory`) once and the values (`GET kern`) on every refresh, and draws every pixel from them, shaping nothing. The view is read-only: rebuild/KERN-PLAN.md's fourth step adds editing.
+// The kerning view's DOM (`#view=kern`, rebuild/KERN-PLAN.md section 6): the grid of leading rune by following rune, the detail panel of the focused pair of runes with its editing controls, and the status lines. It is the app's second DOM module beside app.js (rebuild/REVIEW-PLAN.md §5.2), and nothing touches the DOM until `createKernView` is called. Its model and drawing are the pure modules kern.js and kern-draw.js; it fetches the inventory (`GET kern/inventory`) once and the values (`GET kern`) on every refresh, and draws every pixel from them, shaping nothing.
+//
+// Editing: a change applies to the drawings at once, as an entry of `view.edits` that the drawings read before the server's values. Presses on one scope within `COALESCE_MS` of each other become one `POST kern`, and the view sends one request at a time, each against the block the last reply named. A reply that took the change gives the server's values, which replace the edit; a conflict whose reply carries the block as it stands is sent once more against that block; a refusal or a second conflict drops the edit, so the drawing goes back, and shows the server's message beside the pair; a reply that says a cycle pass holds the runes keeps the edit, marked as waiting, until `GET kern` reports no pending change. Each change the server wrote or queued goes on the tab's undo history with its journal seq (`historyAfterReply`). `u` drops the newest edit not sent yet, and otherwise asks the server to undo the history's newest change by its seq (`POST kern/undo`), which cancels it while it still waits for a pass.
 
 import { formatCount } from './render.js';
 import {
+  BY_LIMIT,
+  SCOPE_FACING,
+  SCOPE_LETTERS,
+  VALUES_FORMAT,
+  blockOf,
+  builtValue,
   configNames,
   decidersOf,
   deciderText,
+  deltaSet,
+  facingScope,
+  followsLetters,
   hasFacingPairs,
   heightPhrase,
+  historyAfterReply,
   indexInventory,
+  indexValues,
   inkGapText,
   inventoryMoved,
   inventoryRefusal,
-  liveValue,
-  builtValue,
+  journalLines,
+  lettersScope,
+  lettersScopeOfPair,
+  lettersValue,
   manualTexts,
   moveFacing,
   moveGridCursor,
   notInFont,
   pairFromQuery,
   paneFor,
-  valuesAfterFetch,
   reachChip,
   reachText,
+  refusalText,
+  resendAfter,
   runePairAt,
+  scopeRecord,
   selectionFromState,
+  shownValue,
   signed,
+  staleAnswer,
   stalenessLines,
   stateFromSelection,
+  valuesAfterFetch,
   worstInk,
 } from './kern.js';
 import {
@@ -47,13 +67,23 @@ const CELL_TOP = 12;
 const CELL_BOTTOM = 10;
 const CELL_SLACK = 4;
 const STAGE_MARGIN = 1;
+const COALESCE_MS = 330;
 const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark'];
 const GRID_CHIPS = { 'only across a ZWNJ': 'ZWNJ', 'only under ss10': 'ss10', 'only across a ZWNJ or under ss10': 'ZWNJ ss10' };
+const EDIT_STATES = { local: 'not sent yet', sending: 'being written', waiting: 'waiting for the cycle pass to end' };
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+
+function button(text, action, title) {
+  const node = el('button', null, text);
+  node.type = 'button';
+  node.dataset.action = action;
+  if (title) node.title = title;
   return node;
 }
 
@@ -80,6 +110,26 @@ async function fetchJson(url) {
   return { ok: response.ok, status: response.status, body };
 }
 
+async function postJson(url, body) {
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    let reply = null;
+    try {
+      reply = await response.json();
+    } catch {
+      reply = null;
+    }
+    return { status: response.status, reply };
+  } catch (error) {
+    return { status: 0, reply: { message: `The server did not answer (${error.message}); the change was not written.` } };
+  }
+}
+
 // Create the view in `root`, the app's `#kern` section. `toast` shows a short message; `writeSelection` puts the selection's `pair` and `facing` in the URL hash without moving the page.
 export function createKernView({ root, toast, writeSelection }) {
   const view = {
@@ -87,6 +137,7 @@ export function createKernView({ root, toast, writeSelection }) {
     values: null,
     cursor: { row: 0, col: 0 },
     facing: 0,
+    scopeMode: SCOPE_FACING,
     loading: null,
     error: null,
     colors: null,
@@ -96,16 +147,81 @@ export function createKernView({ root, toast, writeSelection }) {
     drawn: null,
     refreshError: null,
     requested: { pair: null, facing: null },
+    edits: new Map(),
+    timers: new Map(),
+    queue: [],
+    sending: false,
+    editCount: 0,
+    history: [],
+    messages: new Map(),
+    seenSeq: null,
+    note: null,
   };
 
   function valueOf(id) {
-    return liveValue(view.model, view.values, id);
+    return shownValue(view.model, view.values, view.edits, id);
   }
 
   function readColors() {
     const colors = {};
     for (const swatch of view.dom.swatches.children) colors[swatch.dataset.role] = getComputedStyle(swatch).color;
     return colors;
+  }
+
+  function buildScopeBox() {
+    const box = el('div', 'kern-scope');
+    const toggle = el('div', 'kern-scope-toggle');
+    toggle.setAttribute('role', 'group');
+    toggle.setAttribute('aria-label', 'What a change sets (s)');
+    const facingButton = button('This shape pair', 'kern-scope-facing', 'Set the selected facing pair’s own record (s switches)');
+    const lettersButton = button('All unjoined', 'kern-scope-letters', 'Set the record that names only the two letters, which every facing pair of the two without a record of its own takes (s switches)');
+    toggle.append(facingButton, lettersButton);
+    const record = el('p', 'kern-record');
+    const actions = el('div', 'kern-actions');
+    const amount = el('span', 'kern-scope-value');
+    actions.append(
+      button('← tighten', 'kern-tighten', 'Pull the follower a pixel closer (←)'),
+      amount,
+      button('loosen →', 'kern-loosen', 'Push the follower a pixel away (→)'),
+      button('drop own value', 'kern-drop', 'Remove this scope’s own record, so it takes what it inherits (0)'),
+      button('note', 'kern-note', 'Write the why: of this scope’s record (n)'),
+      button('undo', 'kern-undo', 'Undo the last change (u)'),
+    );
+    const why = el('p', 'kern-why');
+    const noteForm = el('form', 'kern-note-form');
+    noteForm.hidden = true;
+    const noteInput = el('input');
+    noteInput.type = 'text';
+    noteInput.spellcheck = true;
+    noteInput.placeholder = 'Why this pair is kerned this way (Enter saves, an empty note removes it, Escape cancels)';
+    noteForm.append(noteInput);
+    const message = el('p', 'kern-message');
+    message.setAttribute('role', 'status');
+    box.append(toggle, record, actions, why, noteForm, message);
+    box.addEventListener('click', (event) => {
+      const action = event.target.closest?.('button[data-action]')?.dataset.action;
+      if (!action) return;
+      if (action === 'kern-scope-facing' || action === 'kern-scope-letters') {
+        setScope(action === 'kern-scope-letters' ? SCOPE_LETTERS : SCOPE_FACING);
+      } else {
+        handle(action);
+      }
+      if (!view.note) view.dom.detail.focus();
+    });
+    noteForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      saveNote();
+    });
+    noteInput.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeNote();
+    });
+    noteInput.addEventListener('input', () => {
+      if (view.note) view.note.draft = noteInput.value;
+    });
+    return { box, facingButton, lettersButton, record, amount, why, noteForm, noteInput, message, actions };
   }
 
   function build() {
@@ -127,10 +243,10 @@ export function createKernView({ root, toast, writeSelection }) {
     const grid = el('div', 'kern-grid');
     grid.tabIndex = 0;
     grid.setAttribute('role', 'grid');
-    grid.setAttribute('aria-label', 'Kerning grid: the leading letter down the side, the following letter across the top; the arrows move the cursor');
+    grid.setAttribute('aria-label', 'Kerning grid: the leading letter down the side, the following letter across the top; the arrows move the cursor, - and = tighten and loosen the two letters');
     const detail = el('section', 'kern-detail');
     detail.tabIndex = 0;
-    detail.setAttribute('aria-label', 'The focused pair of letters; up and down choose a facing pair');
+    detail.setAttribute('aria-label', 'The focused pair of letters; up and down choose a facing pair, left and right tighten and loosen');
     const panes = el('div', 'kern-panes');
     panes.append(grid, detail);
     const live = el('p', 'kern-live');
@@ -143,7 +259,7 @@ export function createKernView({ root, toast, writeSelection }) {
       swatches.append(swatch);
     }
     root.replaceChildren(bar, status, panes, live, swatches);
-    view.dom = { summary, input, status, grid, detail, live, swatches, rows: [], cursor: null, head: null };
+    view.dom = { summary, input, status, grid, detail, live, swatches, rows: [], cursor: null, head: null, scope: buildScopeBox() };
 
     input.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
@@ -174,8 +290,16 @@ export function createKernView({ root, toast, writeSelection }) {
     });
   }
 
+  function waitingCount() {
+    let count = 0;
+    for (const edit of view.edits.values()) if (edit.state === 'waiting') count += 1;
+    return count;
+  }
+
   function renderStatus() {
-    const lines = view.error ? [{ level: 'error', text: view.error }] : stalenessLines(view.model, view.values, view.refreshError);
+    const lines = view.error
+      ? [{ level: 'error', text: view.error }]
+      : [...stalenessLines(view.model, view.values, view.refreshError), ...journalLines(view.values, view.seenSeq)];
     const nodes = [];
     for (const line of lines) {
       const node = el('p', `kern-status-line ${line.level}`, line.text);
@@ -196,10 +320,12 @@ export function createKernView({ root, toast, writeSelection }) {
       if (notInFont(view.model, view.values, id)) unbuilt += 1;
     }
     const withPairs = doc.rune_pairs.filter((entry) => entry.pairs.length > 0).length;
+    const unsent = view.edits.size - waitingCount();
     view.dom.summary.textContent =
       `${formatCount(doc.pairs.length)} facing pairs over ${formatCount(withPairs)} pairs of letters; ${formatCount(kerned)} kerned` +
       (unbuilt ? `, ${formatCount(unbuilt)} not in the built font yet` : '') +
-      '. Read-only.';
+      (unsent ? `; ${formatCount(unsent)} change${unsent === 1 ? '' : 's'} being written` : '') +
+      '.';
   }
 
   function renderGrid() {
@@ -327,6 +453,14 @@ export function createKernView({ root, toast, writeSelection }) {
     return el('span', `kern-gap ${gap.level}`.trim(), gap.text + suffix);
   }
 
+  // The view's change the drawing of a facing pair shows, and its state, or null.
+  function editOf(id) {
+    const own = view.edits.get(facingScope(view.model, id).key);
+    if (own) return own;
+    const letters = view.edits.get(lettersScopeOfPair(view.model, id).key);
+    return letters && followsLetters(view.model, view.values, id) ? letters : null;
+  }
+
   function facingRow(id, index) {
     const { model, values } = view;
     const doc = model.doc;
@@ -338,6 +472,8 @@ export function createKernView({ root, toast, writeSelection }) {
     row.setAttribute('role', 'option');
     row.setAttribute('aria-selected', String(index === view.facing));
     row.dataset.facing = String(index);
+    const follows = followsLetters(model, values, id);
+    if (view.scopeMode === SCOPE_LETTERS && follows) row.classList.add('in-scope');
     const what = el('div', 'kern-what');
     const notation = text ? text.notation : `${doc.glyphs[pair.member[0]].name} | ${doc.glyphs[pair.member[1]].name}`;
     what.append(el('code', null, notation));
@@ -364,6 +500,11 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     const source = deciderText(decidersOf(model, values, id));
     what.append(el('span', null, source ? `decided by ${source}` : 'no record: the default spacing'));
+    if (view.scopeMode === SCOPE_LETTERS && !follows) {
+      what.append(el('span', 'kern-keeps', `keeps its own value${source ? `, from ${source}` : ''}: a change to the two letters does not move it`));
+    }
+    const edit = editOf(id);
+    if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
     if (notInFont(model, values, id)) what.append(el('span', 'kern-mark', `not in the built font yet, which has ${signed(builtValue(model, values, id))}`));
     const number = el('div', `kern-value${value === 0 ? ' zero' : ''}`, signed(value));
     row.append(stage(draw), what, number);
@@ -413,13 +554,68 @@ export function createKernView({ root, toast, writeSelection }) {
     return row;
   }
 
+  function currentEntry() {
+    return view.model ? runePairAt(view.model, view.cursor.row, view.cursor.col) : null;
+  }
+
+  function pairKeyOf(entry) {
+    return `${view.model.doc.runes[entry.lead].name}:${view.model.doc.runes[entry.follow].name}`;
+  }
+
+  // The scope the detail panel's keys set: the selected facing pair's, or the two letters'.
+  function selectedScope() {
+    const entry = currentEntry();
+    if (!hasFacingPairs(entry)) return null;
+    if (view.scopeMode === SCOPE_LETTERS) return lettersScope(view.model, entry);
+    return facingScope(view.model, entry.pairs[view.facing] ?? entry.pairs[0]);
+  }
+
+  // The value the selected scope stands at: the two letters' value, or the selected facing pair's.
+  function scopeValue(entry) {
+    if (view.scopeMode === SCOPE_LETTERS) return lettersValue(view.model, view.values, view.edits, entry);
+    return valueOf(entry.pairs[view.facing] ?? entry.pairs[0]);
+  }
+
+  function renderScope(entry) {
+    const parts = view.dom.scope;
+    const doc = view.model.doc;
+    const lead = doc.runes[entry.lead];
+    const follow = doc.runes[entry.follow];
+    parts.lettersButton.textContent = `All unjoined ${lead.label}${follow.label}`;
+    parts.facingButton.setAttribute('aria-pressed', String(view.scopeMode === SCOPE_FACING));
+    parts.lettersButton.setAttribute('aria-pressed', String(view.scopeMode === SCOPE_LETTERS));
+    const scope = selectedScope();
+    const block = blockOf(view.values, scope.rune);
+    const record = scopeRecord(view.values, scope);
+    const edit = view.edits.get(scope.key);
+    const file = block?.file ?? `${scope.rune}.yaml`;
+    const recordNodes = [el('span', 'kern-file', file)];
+    if (record) recordNodes.push(el('code', null, record.line ?? `- ${record.text}`));
+    else if (scope.scope === SCOPE_LETTERS) recordNodes.push(el('span', null, ` holds no record that names only ${lead.label} and ${follow.label}`));
+    else recordNodes.push(el('span', null, ` holds no record of ${scope.lead} | ${scope.follow} of its own`));
+    if (edit) recordNodes.push(el('span', `kern-pending ${edit.state}`, ` — ${edit.by === null ? 'dropping it' : `setting ${signed(edit.by)}`}, ${EDIT_STATES[edit.state]}`));
+    parts.record.replaceChildren(...recordNodes);
+    if (block?.refusal) parts.record.append(el('span', 'kern-refusal', `The editor cannot write this file’s kern block: ${block.refusal}`));
+    parts.amount.textContent = signed(scopeValue(entry));
+    parts.why.textContent = record?.why ? `why: ${record.why}` : '';
+    parts.why.hidden = !record?.why;
+    const message = view.messages.get(pairKeyOf(entry));
+    parts.message.textContent = message?.text ?? '';
+    parts.message.className = `kern-message ${message?.level ?? ''}`.trim();
+    parts.message.hidden = !message;
+    const noteOpen = Boolean(view.note && view.note.key === scope.key);
+    parts.noteForm.hidden = !noteOpen;
+    if (noteOpen && parts.noteInput.value !== view.note.draft) parts.noteInput.value = view.note.draft;
+  }
+
   function renderDetail() {
     const { model } = view;
     if (!model) return;
+    const typing = document.activeElement === view.dom.scope.noteInput;
     const doc = model.doc;
     const lead = doc.runes[view.cursor.row];
     const follow = doc.runes[view.cursor.col];
-    const entry = runePairAt(model, view.cursor.row, view.cursor.col);
+    const entry = currentEntry();
     const nodes = [];
     const heading = el('h3', null, `${lead.label} → ${follow.label}`);
     const chip = entry ? reachChip(model, entry) : null;
@@ -428,6 +624,8 @@ export function createKernView({ root, toast, writeSelection }) {
     if (!hasFacingPairs(entry)) {
       nodes.push(el('p', 'kern-empty', 'These two letters have no facing pair: they never meet at a break.'));
     } else {
+      renderScope(entry);
+      nodes.push(view.dom.scope.box);
       const list = el('ol', 'kern-facing');
       list.setAttribute('role', 'listbox');
       list.setAttribute('aria-label', 'Facing pairs');
@@ -448,11 +646,12 @@ export function createKernView({ root, toast, writeSelection }) {
       nodes.push(list);
     }
     view.dom.detail.replaceChildren(...nodes);
+    if (typing && view.note) view.dom.scope.noteInput.focus();
   }
 
   function announce() {
     const { model } = view;
-    const entry = runePairAt(model, view.cursor.row, view.cursor.col);
+    const entry = currentEntry();
     const lead = model.doc.runes[view.cursor.row].label;
     const follow = model.doc.runes[view.cursor.col].label;
     view.dom.live.textContent = hasFacingPairs(entry)
@@ -468,6 +667,7 @@ export function createKernView({ root, toast, writeSelection }) {
     if (!view.model) return;
     view.cursor = cursor;
     view.facing = 0;
+    view.note = null;
     placeCursor();
     renderDetail();
     announce();
@@ -475,7 +675,7 @@ export function createKernView({ root, toast, writeSelection }) {
   }
 
   function setFacing(index) {
-    const entry = runePairAt(view.model, view.cursor.row, view.cursor.col);
+    const entry = currentEntry();
     if (!hasFacingPairs(entry)) return;
     view.facing = moveFacing(index, 0, entry.pairs.length);
     for (const option of view.dom.detail.querySelectorAll('[data-facing]')) {
@@ -483,7 +683,231 @@ export function createKernView({ root, toast, writeSelection }) {
       option.setAttribute('aria-selected', String(selected));
       if (selected) option.scrollIntoView({ block: 'nearest' });
     }
+    if (view.scopeMode === SCOPE_FACING) renderScope(entry);
     writeState();
+  }
+
+  function setScope(mode) {
+    view.scopeMode = mode;
+    view.note = null;
+    renderDetail();
+  }
+
+  // Redraw what a change to the values or the edits moves: the grid's cells, the detail panel and the status lines.
+  function redraw() {
+    paintRows();
+    renderDetail();
+    renderStatus();
+  }
+
+  function takeValues(reply) {
+    if (reply?.values?.format !== VALUES_FORMAT) return;
+    noteJournal(reply.values.journal);
+    view.values = indexValues(reply.values);
+    view.refreshError = null;
+    view.drawn = JSON.stringify([reply.values.live ?? null, reply.values.built ?? null, reply.values.journal ?? null]);
+  }
+
+  // Forget the undo history, and report every drop, when the server's journal is another file than the one the view's seqs came from.
+  function noteJournal(journal) {
+    const held = view.values?.payload?.journal;
+    if (held && journal && held.id !== journal.id) {
+      view.history = [];
+      view.seenSeq = 0;
+    }
+  }
+
+  function setMessage(scope, message) {
+    const key = `${scope.rune}:${scope.followRune}`;
+    if (message) view.messages.set(key, message);
+    else view.messages.delete(key);
+  }
+
+  // Set `scope` to `by` (null drops its record) and, when given, its note, in the drawings at once, and send it once no press has come for `COALESCE_MS`, or at once with `now`.
+  function change(scope, by, { why = undefined, now = false } = {}) {
+    const previous = view.edits.get(scope.key);
+    let keptWhy = why !== undefined ? why : previous?.state === 'local' ? previous.why : undefined;
+    if (by === null) keptWhy = undefined;
+    view.editCount += 1;
+    view.edits.set(scope.key, { scope, by, why: keptWhy, state: 'local', order: view.editCount });
+    clearTimeout(view.timers.get(scope.key));
+    const send = () => {
+      view.timers.delete(scope.key);
+      enqueue({ kind: 'set', key: scope.key });
+    };
+    if (now) send();
+    else view.timers.set(scope.key, setTimeout(send, COALESCE_MS));
+    view.dom.live.textContent = `${scope.lead} | ${scope.follow}: ${by === null ? 'its own value dropped' : signed(by)}`;
+    redraw();
+  }
+
+  function enqueue(item) {
+    view.queue.push(item);
+    pump();
+  }
+
+  async function pump() {
+    if (view.sending) return;
+    const item = view.queue.shift();
+    if (!item) return;
+    view.sending = true;
+    try {
+      if (item.kind === 'undo') await sendUndo(item.entry);
+      else await sendSet(item.key);
+    } finally {
+      view.sending = false;
+      pump();
+    }
+  }
+
+  // Send a scope's change. A conflict whose reply carries the block as it stands (a drain moved it since the view's last poll) is sent once more against that block; only a second conflict is shown.
+  async function sendSet(key, retried = false) {
+    const edit = view.edits.get(key);
+    if (!edit || edit.state !== 'local') return;
+    const sent = { by: edit.by, why: edit.why };
+    edit.state = 'sending';
+    const { status, reply } = await postJson('kern', { sets: [deltaSet(view.values, edit.scope, edit.by, edit.why)] });
+    takeValues(reply);
+    const current = view.edits.get(key);
+    const same = current === edit && current.by === sent.by && current.why === sent.why;
+    view.history = historyAfterReply(view.history, status, reply, key);
+    if (resendAfter(status, reply, retried) && same) {
+      current.state = 'local';
+      await sendSet(key, true);
+      return;
+    }
+    if (status === 200) {
+      if (same) view.edits.delete(key);
+      const removed = (reply.changes ?? []).some((one) => one.after === null) && sent.by !== null;
+      setMessage(edit.scope, removed ? { level: 'info', text: 'That value is what the scope takes without a record of its own, so the file holds none.' } : null);
+    } else if (status === 202) {
+      if (same) current.state = 'waiting';
+      setMessage(edit.scope, { level: 'warn', text: reply?.message ?? 'A cycle pass holds the runes; the change is written when it ends.' });
+    } else {
+      if (same) view.edits.delete(key);
+      else if (current?.state === 'sending') current.state = 'local';
+      const text = refusalText(reply, status);
+      setMessage(edit.scope, { level: 'error', text });
+      toast(text.split('\n')[0]);
+    }
+    redraw();
+  }
+
+  // Ask the server to undo the change `entry` names by its journal seq: a change still waiting for a pass is cancelled, and a written one is reverted while it is the newest.
+  async function sendUndo(entry) {
+    const { status, reply } = await postJson('kern/undo', { undoes: entry.seq });
+    takeValues(reply);
+    if (status === 200 && reply?.status === 'cancelled') {
+      const edit = view.edits.get(entry.key);
+      if (edit) setMessage(edit.scope, null);
+      if (edit?.state === 'waiting') view.edits.delete(entry.key);
+      toast('The change that was waiting for the pass is cancelled');
+    } else if (status === 200 && reply?.status === 'undone') {
+      toast(`Undid the last kern change (${reply.file})`);
+    } else if (status === 200) {
+      toast(reply?.message ?? 'Nothing to undo');
+    } else if (status === 202) {
+      toast('The undo waits for the cycle pass to end');
+    } else {
+      toast(refusalText(reply, status).split('\n')[0]);
+      const current = currentEntry();
+      if (current) view.messages.set(pairKeyOf(current), { level: 'error', text: refusalText(reply, status) });
+    }
+    redraw();
+  }
+
+  // Undo the last change this tab made: the newest one not sent yet, in the drawings alone, or else the newest the server wrote or queued for it, named by its journal seq.
+  function undo() {
+    let newest = null;
+    for (const [key, edit] of view.edits) {
+      if (edit.state === 'local' && (!newest || edit.order > newest[1].order)) newest = [key, edit];
+    }
+    if (newest) {
+      clearTimeout(view.timers.get(newest[0]));
+      view.timers.delete(newest[0]);
+      view.edits.delete(newest[0]);
+      view.dom.live.textContent = 'The change was dropped before it was written.';
+      redraw();
+      return;
+    }
+    const entry = view.history.at(-1);
+    if (!entry) {
+      toast('Nothing this tab changed is left to undo');
+      return;
+    }
+    view.history = view.history.slice(0, -1);
+    enqueue({ kind: 'undo', entry });
+  }
+
+  function step(scope, value, delta) {
+    const by = value + delta;
+    if (Math.abs(by) > BY_LIMIT) {
+      toast(`A kern value stays within ${BY_LIMIT} pixels either way`);
+      return;
+    }
+    change(scope, by);
+  }
+
+  function editScope(action) {
+    const entry = currentEntry();
+    const scope = selectedScope();
+    if (!scope) {
+      toast('These two letters never meet at a break, so there is nothing to kern');
+      return;
+    }
+    if (action === 'kern-tighten' || action === 'kern-loosen') {
+      step(scope, scopeValue(entry), action === 'kern-tighten' ? -1 : 1);
+    } else if (action === 'kern-drop') {
+      if (!scopeRecord(view.values, scope) && !view.edits.has(scope.key)) {
+        toast('This scope has no record of its own to drop');
+        return;
+      }
+      change(scope, null);
+    } else if (action === 'kern-note') {
+      openNote(scope);
+    }
+  }
+
+  function openNote(scope) {
+    const record = scopeRecord(view.values, scope);
+    const edit = view.edits.get(scope.key);
+    if (!record && (!edit || edit.by === null)) {
+      toast('This scope has no record of its own to hold a note; give it a value first');
+      return;
+    }
+    view.note = { key: scope.key, draft: edit?.why ?? record?.why ?? '' };
+    renderScope(currentEntry());
+    view.dom.scope.noteInput.focus();
+    view.dom.scope.noteInput.select();
+  }
+
+  function closeNote() {
+    view.note = null;
+    renderScope(currentEntry());
+    view.dom.detail.focus();
+  }
+
+  function saveNote() {
+    const scope = selectedScope();
+    if (!scope || !view.note || view.note.key !== scope.key) return;
+    const edit = view.edits.get(scope.key);
+    const record = scopeRecord(view.values, scope);
+    const by = edit && edit.by !== null ? edit.by : record?.by;
+    const why = view.dom.scope.noteInput.value;
+    view.note = null;
+    if (by === undefined || by === null) return;
+    change(scope, by, { why, now: true });
+    view.dom.detail.focus();
+  }
+
+  function editLetters(action) {
+    const entry = currentEntry();
+    if (!hasFacingPairs(entry)) {
+      toast('These two letters never meet at a break, so there is nothing to kern');
+      return;
+    }
+    const scope = lettersScope(view.model, entry);
+    step(scope, lettersValue(view.model, view.values, view.edits, entry), action === 'kern-letters-tighten' ? -1 : 1);
   }
 
   async function loadInventory() {
@@ -507,7 +931,8 @@ export function createKernView({ root, toast, writeSelection }) {
     const after = valuesAfterFetch(view.values, values);
     view.values = after.values;
     view.refreshError = after.error;
-    view.drawn = JSON.stringify([values.body?.live ?? null, values.body?.built ?? null]);
+    view.seenSeq ??= values.body?.journal?.seq ?? null;
+    view.drawn = JSON.stringify([values.body?.live ?? null, values.body?.built ?? null, values.body?.journal ?? null]);
     view.colors = readColors();
     renderGrid();
   }
@@ -551,7 +976,7 @@ export function createKernView({ root, toast, writeSelection }) {
     if (view.model) applySelection(view.requested.pair, view.requested.facing);
   }
 
-  // Fetch the values again, and the inventory too when the server holds another one, and redraw. A failed fetch keeps the values the view has and says so; a view whose inventory never loaded tries the load again.
+  // Fetch the values again, and the inventory too when the server holds another one, and redraw. A failed fetch keeps the values the view has and says so; a view whose inventory never loaded tries the load again. Changes waiting for a pass are dropped from the drawings once the server holds none pending, since it has written or dropped them.
   async function refresh() {
     if (view.pending || !view.dom) return;
     if (!view.model) {
@@ -572,15 +997,26 @@ export function createKernView({ root, toast, writeSelection }) {
         return;
       }
       const body = values.body;
-      const drawn = JSON.stringify([body?.live ?? null, body?.built ?? null]);
-      const changed = drawn !== view.drawn;
+      // A poll the server answered before a write the view has the reply of would put the old values back.
+      if (view.sending || staleAnswer(view.values?.payload?.journal, body?.journal)) {
+        renderStatus();
+        return;
+      }
+      const drawn = JSON.stringify([body?.live ?? null, body?.built ?? null, body?.journal ?? null]);
+      let changed = drawn !== view.drawn;
+      noteJournal(body?.journal);
       view.drawn = drawn;
       view.values = after.values;
+      view.seenSeq ??= body?.journal?.seq ?? null;
+      if (waitingCount() > 0 && body?.journal?.pending === 0) {
+        for (const [key, edit] of view.edits) if (edit.state === 'waiting') view.edits.delete(key);
+        changed = true;
+      }
       if (inventoryMoved(view.model, view.values)) {
         const selection = stateFromSelection(view.model, view.cursor, view.facing);
         await loadInventory();
         if (view.model) applySelection(selection.pair, selection.facing);
-      } else if (changed) {
+      } else if (changed && !view.note) {
         paintRows();
         renderDetail();
       }
@@ -595,7 +1031,7 @@ export function createKernView({ root, toast, writeSelection }) {
 
   function handle(action) {
     if (!view.model) return;
-    const entry = runePairAt(view.model, view.cursor.row, view.cursor.col);
+    const entry = currentEntry();
     if (action === 'kern-up' || action === 'kern-down' || action === 'kern-left' || action === 'kern-right') {
       setCursor(moveGridCursor(view.cursor, action, view.model.size));
     } else if (action === 'kern-detail') {
@@ -607,6 +1043,14 @@ export function createKernView({ root, toast, writeSelection }) {
     } else if (action === 'kern-jump') {
       view.dom.input.focus();
       view.dom.input.select();
+    } else if (action === 'kern-tighten' || action === 'kern-loosen' || action === 'kern-drop' || action === 'kern-note') {
+      editScope(action);
+    } else if (action === 'kern-letters-tighten' || action === 'kern-letters-loosen') {
+      editLetters(action);
+    } else if (action === 'kern-scope') {
+      setScope(view.scopeMode === SCOPE_LETTERS ? SCOPE_FACING : SCOPE_LETTERS);
+    } else if (action === 'kern-undo') {
+      undo();
     }
   }
 
@@ -615,5 +1059,11 @@ export function createKernView({ root, toast, writeSelection }) {
     return paneFor(document.activeElement, view.dom?.grid, view.dom?.detail);
   }
 
-  return { show, refresh, handle, pane };
+  // Whether a change has not reached the server yet, so leaving the page would lose it.
+  function unsent() {
+    for (const edit of view.edits.values()) if (edit.state !== 'waiting') return true;
+    return view.queue.length > 0;
+  }
+
+  return { show, refresh, handle, pane, unsent };
 }

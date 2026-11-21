@@ -67,6 +67,7 @@ def _covered(root: Path) -> set[Path]:
     covered.add(root / "rebuild" / "review" / "landing.py")
     covered.add(root / "rebuild" / "review" / "accepted.py")
     covered.add(root / "rebuild" / "review" / "kern_routes.py")
+    covered.add(root / "rebuild" / "review" / "kern_writer.py")
     return covered
 
 

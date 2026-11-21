@@ -191,12 +191,13 @@ REVIEW_NON_BUILD_MODULES = frozenset(
         "export.py",
         "accepted.py",
         "kern_routes.py",
+        "kern_writer.py",
     }
 )
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning view's read routes, which read `rebuild/out/m1` and the rune files and nothing of the corpus. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")

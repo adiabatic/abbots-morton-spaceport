@@ -16,7 +16,10 @@ The dead-policy check splits unexercised records by scope. A record is exercised
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Iterable, Mapping
+
+import yaml
 
 from rebuild.pipeline.model import (
     CellId,
@@ -337,6 +340,23 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join, k
             f"{left.name} + {right.name}: off-anchor ink contact at y={y} (junction is y={junction_y})",
             error=True,
         )
+
+
+def read_allow(path: Path) -> frozenset[str]:
+    """Return the signatures a contact allow-list file (`rebuild/m1-contact-allow.yaml`) blesses."""
+    return frozenset(entry["signature"] for entry in yaml.safe_load(Path(path).read_text()) or ())
+
+
+def check_kerned_breaks(
+    allow: frozenset[str],
+    records: Mapping[CellId, GlyphRecord],
+    values: Mapping[tuple[CellId, CellId], int],
+) -> DefectReport:
+    """Place each break of `values` at the left record's compiled advance plus its value and report the ink the two records share as E-CONTACT, blessed when `allow` holds its signature: the check `run_gates` makes of every kerned break, for the breaks a kern edit moves, which the review server's kern editor runs before it writes (`rebuild/review/kern_routes.py`)."""
+    report = DefectReport()
+    for (left, right), value in values.items():
+        _check_contact(report, allow, records[left], records[right], None, value)
+    return report
 
 
 def _condition_positive_families(spec: ResolvedSpec, rune_name: str, condition: Condition) -> set[str]:

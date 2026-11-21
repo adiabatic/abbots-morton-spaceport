@@ -1116,7 +1116,7 @@ def _run_defect_gates(
     kerned: kern.KernResolution | None = None,
 ) -> defects.DefectReport:
     """Run the `doc/rebuild-design.md` §9 defect gates (`defects.run_gates`) over one build's tables and minted glyphs, under the reviewed allow-list, with every break a kern record moves placed at its kerned offset (`kerned`, the kern stage's resolution). The build, `--kern-only` and `--gates-only` all call it; `--gates-only` runs it over the tables and glyphs on disk and resolves the kern records itself. The allow-list is in no stamp and no fingerprint component, so blessing a signature re-runs this gate without a rebuild."""
-    allow = frozenset(entry["signature"] for entry in yaml.safe_load(CONTACT_ALLOW_YAML.read_text()) or ())
+    allow = defects.read_allow(CONTACT_ALLOW_YAML)
     return defects.run_gates(
         spec,
         tables,

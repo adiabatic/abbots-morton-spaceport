@@ -471,7 +471,7 @@
         "entry": {"$ref": "#/$defs/heightOrNone", "description": "Covers only this letter's shapes entered at this height, or not entered at all (`none`).\n\nFor a letter whose right-hand side changes with how it was entered. A ligature never inherits a record that sets it.\n\nExample: `entry: none`."},
         "bitmap": {"$ref": "#/$defs/motionName", "description": "Covers only this letter's shapes drawn with this bound bitmap: one a `bind:` names, or the `padded-left-N` copy a `pad_left` record makes.\n\nFor a right-hand edge only that bitmap produces. A ligature never inherits a record that sets it.\n\nExample: ·Roe's `shortened-top`."},
         "right": {"$ref": "#/$defs/kernFollower"},
-        "by": {"type": "integer", "description": "The pixels to move the follower: negative pulls it closer, positive pushes it away.\n\n`0` is a real value: it cancels a broader record for the pairs this one covers.\n\nExample: `by: -2`."},
+        "by": {"type": "integer", "minimum": -64, "not": {"minimum": 65}, "description": "The pixels to move the follower: negative pulls it closer, positive pushes it away, at most 64 either way (a value above 64 is refused as a forbidden form). The font's kern value is a 16-bit count of font units, which the compile overflows at 655 pixels, so the bound keeps every value far inside it.\n\n`0` is a real value: it cancels a broader record for the pairs this one covers.\n\nExample: `by: -2`."},
         "why": {"type": "string", "description": "An optional note saying why this pair is kerned this way. It records the author's rationale and changes no spacing."}
       }
     },

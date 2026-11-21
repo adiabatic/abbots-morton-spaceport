@@ -39,13 +39,17 @@ export const NEITHER_MENU_MAP = new Map([
   ['Escape', 'neither-cancel'],
 ]);
 
-// The kerning view's keys (`#view=kern`), by the pane that has focus. The grid's arrows move its cursor and Enter moves to the detail panel; the detail panel's up and down arrows choose a facing pair and Escape returns to the grid. Anywhere else on the page (`page`, a header button among them) the arrows still move the grid's cursor, but Enter keeps its own meaning. `KERN_RESERVED_KEYS` stay unbound in the detail panel, for the editing keys of rebuild/KERN-PLAN.md's fourth step.
+// The kerning view's keys (`#view=kern`), by the pane that has focus. The grid's arrows move its cursor, Enter moves to the detail panel, and `-` and `=` (or `+`) tighten and loosen the value set on the focused pair of letters, for every facing pair of the two that has no record of its own. In the detail panel up and down choose a facing pair, left and right tighten and loosen the selected scope, `0` drops the scope's own record, `n` opens the note of the scope's record, `s` switches the scope between the selected facing pair and every unjoined pair of the two letters, and Escape returns to the grid. `u` undoes the last change in either pane. Anywhere else on the page (`page`, a header button among them) the grid's keys still act, but Enter keeps its own meaning.
 export const KERN_GRID_MAP = new Map([
   ['ArrowUp', 'kern-up'],
   ['ArrowDown', 'kern-down'],
   ['ArrowLeft', 'kern-left'],
   ['ArrowRight', 'kern-right'],
   ['Enter', 'kern-detail'],
+  ['-', 'kern-letters-tighten'],
+  ['=', 'kern-letters-loosen'],
+  ['+', 'kern-letters-loosen'],
+  ['u', 'kern-undo'],
   ['/', 'kern-jump'],
   ['?', 'help'],
 ]);
@@ -53,11 +57,15 @@ export const KERN_GRID_MAP = new Map([
 export const KERN_DETAIL_MAP = new Map([
   ['ArrowUp', 'kern-prev-pair'],
   ['ArrowDown', 'kern-next-pair'],
+  ['ArrowLeft', 'kern-tighten'],
+  ['ArrowRight', 'kern-loosen'],
+  ['0', 'kern-drop'],
+  ['n', 'kern-note'],
+  ['s', 'kern-scope'],
+  ['u', 'kern-undo'],
   ['/', 'kern-jump'],
   ['?', 'help'],
 ]);
-
-export const KERN_RESERVED_KEYS = ['ArrowLeft', 'ArrowRight', '0'];
 
 function kernActionForKey(key, { inInput, overlayOpen, modified, kernPane }) {
   if (key === 'Escape') return inInput || kernPane !== 'detail' ? 'escape' : 'kern-grid';

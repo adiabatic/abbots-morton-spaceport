@@ -334,3 +334,138 @@ export function stalenessLines(model, values, refreshError = null) {
   if (model && inventoryMoved(model, values)) lines.push({ level: 'warn', text: 'A newer kern inventory is on the server; loading it.' });
   return lines;
 }
+
+// Editing (rebuild/KERN-PLAN.md section 6). A scope names the record an edit sets: the letters scope of two runes is the record naming only the two families, and a facing pair's scope is the record whose keys are its two sides' keys, which is the letters scope when both sides are whole runes. Each lives in the leading rune's file. `edits` maps a scope's key to the view's change not yet confirmed by the server, `{scope, by, why, state}`, `by` null to drop the record.
+export const SCOPE_FACING = 'facing';
+export const SCOPE_LETTERS = 'letters';
+// The largest |by| a kern record takes: rebuild/schema/rune.schema.json's bound, which the server's `kern_routes.BY_LIMIT` holds too.
+export const BY_LIMIT = 64;
+
+export function lettersScope(model, entry) {
+  const lead = model.doc.runes[entry.lead].name;
+  const follow = model.doc.runes[entry.follow].name;
+  return { scope: SCOPE_LETTERS, key: `${SCOPE_LETTERS}:${lead}|${follow}`, rune: lead, followRune: follow, lead, follow };
+}
+
+export function facingScope(model, pairId) {
+  const pair = model.doc.pairs[pairId];
+  const lead = model.doc.sides[pair.lead];
+  const follow = model.doc.sides[pair.follow];
+  const rune = model.doc.runes[lead.rune].name;
+  if (lead.name === rune && follow.name === model.doc.runes[follow.rune].name) {
+    return lettersScope(model, { lead: lead.rune, follow: follow.rune });
+  }
+  return { scope: SCOPE_FACING, key: `${SCOPE_FACING}:${lead.name}|${follow.name}`, rune, followRune: model.doc.runes[follow.rune].name, lead: lead.name, follow: follow.name };
+}
+
+export function lettersScopeOfPair(model, pairId) {
+  const pair = model.doc.pairs[pairId];
+  return lettersScope(model, { lead: model.doc.sides[pair.lead].rune, follow: model.doc.sides[pair.follow].rune });
+}
+
+// A rune file's kern block as `GET /kern` reports it, or null.
+export function blockOf(values, rune) {
+  return values?.payload?.runes?.[rune] ?? null;
+}
+
+// The record of the rune file that is the scope's own, or null.
+export function scopeRecord(values, scope) {
+  const block = blockOf(values, scope.rune);
+  return block?.records.find((record) => record.sides && record.sides[0] === scope.lead && record.sides[1] === scope.follow) ?? null;
+}
+
+// Whether a facing pair takes the value set on its two letters: it has no record of its own, and no record of its leading rune's block that narrows below the two letters decides it. A record a ligature inherits from its last letter never stands in the way, since the ligature's own block outranks it.
+export function followsLetters(model, values, pairId) {
+  const facing = facingScope(model, pairId);
+  if (facing.scope === SCOPE_LETTERS) return true;
+  if (scopeRecord(values, facing)) return false;
+  const block = blockOf(values, facing.rune);
+  for (const decider of decidersOf(model, values, pairId)) {
+    if (decider.inherited) continue;
+    const record = block?.records.find((one) => one.path === decider.path);
+    if (record?.narrow) return false;
+  }
+  return true;
+}
+
+function editedValue(edit, fallback) {
+  return edit.by ?? fallback;
+}
+
+// The value the letters scope stands at: the view's change to it, its record, or with neither the value its facing pairs take that no narrower record decides, the representative's first, and 0 when there is none.
+export function lettersValue(model, values, edits, entry) {
+  const scope = lettersScope(model, entry);
+  const edit = edits?.get(scope.key);
+  if (edit) return editedValue(edit, 0);
+  const record = scopeRecord(values, scope);
+  if (record) return record.by;
+  for (const id of [entry.rep ?? entry.pairs[0], ...entry.pairs]) {
+    if (id !== undefined && followsLetters(model, values, id)) return liveValue(model, values, id);
+  }
+  return 0;
+}
+
+// The value a facing pair shows with the view's changes: its own scope's change; else its letters' change, when it follows its letters; else the server's value.
+export function shownValue(model, values, edits, pairId) {
+  if (edits && edits.size > 0) {
+    const facing = facingScope(model, pairId);
+    const own = edits.get(facing.key);
+    const letters = lettersScopeOfPair(model, pairId);
+    if (own && facing.scope === SCOPE_FACING) {
+      const lettersEdit = edits.get(letters.key);
+      return editedValue(own, lettersEdit ? editedValue(lettersEdit, 0) : (scopeRecord(values, letters)?.by ?? 0));
+    }
+    const lettersEdit = edits.get(letters.key);
+    if (lettersEdit && followsLetters(model, values, pairId)) return editedValue(lettersEdit, 0);
+  }
+  return liveValue(model, values, pairId);
+}
+
+// One set of a `POST /kern` delta: the scope, the value (null drops the record), the block it was made against, and the note when one is given. A drop carries no note, since the record that would hold it goes.
+export function deltaSet(values, scope, by, why = undefined) {
+  const set = { scope: scope.scope, lead: scope.lead, follow: scope.follow, by, base: blockOf(values, scope.rune)?.sha256 ?? '' };
+  if (why !== undefined && by !== null) set.why = why;
+  return set;
+}
+
+// The view's undo history after a write's reply: a change the server wrote (`applied`) or queued behind a running pass (`pending`) is pushed with its journal seq and its scope's key, newest last; a reply that changed nothing, or refused, pushes nothing, so `u` never reaches past it.
+export function historyAfterReply(history, status, reply, key) {
+  if (status === 200 && reply?.status === 'applied' && Number.isInteger(reply.seq)) return [...history, { seq: reply.seq, key, waiting: false }];
+  if (status === 202 && reply?.status === 'pending' && Number.isInteger(reply.seq)) return [...history, { seq: reply.seq, key, waiting: true }];
+  return history;
+}
+
+// Whether a write's reply asks the view to send the press once more: a conflict whose reply carries the block as it stands (a drain or another tab moved it since the view's last poll), on the first try.
+export function resendAfter(status, reply, retried) {
+  return status === 409 && Boolean(reply?.block) && !retried;
+}
+
+// Whether a poll's answer is older than the values the view holds, from a write's reply: the same journal (its `id`) at an earlier seq. A journal deleted or replaced since starts its seqs over under another id, and its answers are taken.
+export function staleAnswer(held, fresh) {
+  if (!held || !fresh) return false;
+  return held.id === fresh.id && (fresh.seq ?? 0) < (held.seq ?? 0);
+}
+
+// What the view says about a write the server did not take, from its reply: the message and the build's first issues.
+export function refusalText(reply, status, shown = 3) {
+  if (!reply || typeof reply !== 'object') return `The server answered ${status} with no reply it could read; the change was not written.`;
+  const issues = Array.isArray(reply.issues) ? reply.issues : [];
+  const lines = issues.slice(0, shown).map(([code, text]) => `${code}: ${text}`);
+  if (issues.length > shown) lines.push(`and ${issues.length - shown} more`);
+  return [reply.message ?? `The server answered ${status}.`, ...lines].join('\n');
+}
+
+// The journal's requests the view should report: how many wait for a pass to end, and each dropped since `seenSeq`, the journal's last seq when the view loaded.
+export function journalLines(values, seenSeq) {
+  const journal = values?.payload?.journal;
+  if (!journal) return [];
+  const lines = [];
+  if (journal.pending > 0) {
+    lines.push({ level: 'warn', text: `${journal.pending} change${journal.pending === 1 ? '' : 's'} wait${journal.pending === 1 ? 's' : ''} for the cycle pass to end; the server writes ${journal.pending === 1 ? 'it' : 'them'} then.` });
+  }
+  for (const dropped of journal.dropped ?? []) {
+    if (seenSeq !== null && seenSeq !== undefined && dropped.seq <= seenSeq) continue;
+    lines.push({ level: 'error', text: `A change made while a pass ran was dropped when it ended: ${dropped.reason}` });
+  }
+  return lines;
+}

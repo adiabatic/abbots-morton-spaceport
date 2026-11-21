@@ -72,8 +72,8 @@ FRESHNESS_MODULES = (
     "review/unit_index.py",
     "review/app_index.py",
 )
-# The modules the server answers its other routes from, under `review_dir`: the kerning view's read routes. They take no part in the land, but a server running an older copy of one, or of a module one runs, would answer the app with it until the cycle restarted it, so the digest covers them and the trees they run (`served_paths`).
-SERVED_MODULES = ("kern_routes.py",)
+# The modules the server answers its other routes from, under `review_dir`: the kerning view's routes and the block writer they write through. They take no part in the land, but a server running an older copy of one, or of a module one runs, would answer the app with it until the cycle restarted it, so the digest covers them and the trees they run (`served_paths`).
+SERVED_MODULES = ("kern_routes.py", "kern_writer.py")
 SNAPSHOT_NAME = "verdicts-autosave.json"
 PREPARED_NAME = "prepared.json"
 UNCHANGED_NAME = "unchanged.json"
