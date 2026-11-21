@@ -1,6 +1,6 @@
 """The witness stage's rule replay. `check_rule_certificates` settles each certificate the crate wrote beside a configuration's rules and checks that its rule is the first to match at some position (a guard rule's certificate under the configuration that keeps its window live), under the first-match-wins semantics the emitted lookup compiles to (`_matched_windows` over `_first_matching_rule`, with the rules renamed into the configuration's marker-renamed names by `_renamed_rules_by_input`). `run_m1.run_rule_witnesses` runs it over the tables the build just folded. Together with the crate's fold check (`fold::assert_outcome_partition`), it fails the build on a rule that can never fire.
 
-The replay imports the emitter's rule renaming (`emit_gsub._renamed`, with `_FoldedRule` as the type of a renamed rule), so it lives here and not in conform.py. `oracle_cache.ORACLE_ROW_CODE_PATHS` must list every module reachable from conform.py, which defines the comparison's entry points `_compare_row` and `_SettledWindowWalk`, except the width and telemetry helpers in the closure test's stop-set (`WIDTH_AND_TELEMETRY_MODULES`). rebuild/test_oracle_code_closure.py checks this by walking imports at module grain from `ORACLE_ENTRY_MODULES`, `if TYPE_CHECKING:` imports included. An edit to any listed module drops every stored row verdict, so keeping the replay here keeps emit_gsub.py off that list. What this module uses from conform.py (raw-label formation, the window slots, the settle walk, the memo, and the report) is inside that closure anyway.
+The replay imports the emitter's rule renaming (`emit_gsub._renamed`), so it lives here and not in conform.py. `oracle_cache.ORACLE_ROW_CODE_PATHS` must list every module reachable from conform.py, which defines the comparison's entry points `_compare_row` and `_SettledWindowWalk`, except the width and telemetry helpers in the closure test's stop-set (`WIDTH_AND_TELEMETRY_MODULES`). rebuild/test_oracle_code_closure.py checks this by walking imports at module grain from `ORACLE_ENTRY_MODULES`, `if TYPE_CHECKING:` imports included. An edit to any listed module drops every stored row verdict, so keeping the replay here keeps emit_gsub.py off that list. What this module uses from conform.py (raw-label formation, the window slots, the settle walk, the memo, and the report) is inside that closure anyway.
 
 `fingerprint.COMPARISON_CODE_MODULES` does not name witness.py, so it is part of `table_code_paths`, as conform.py is. `unit_cache.PIPELINE_NON_CORPUS_MODULES` leaves it out of the review unit cache's stamp, because the corpus build never imports it. The conformance sweep, `run_conformance` and its configuration workers, is in conform.py.
 """
@@ -8,21 +8,31 @@ The replay imports the emitter's rule renaming (`emit_gsub._renamed`, with `_Fol
 from __future__ import annotations
 
 from contextlib import suppress
-from typing import TYPE_CHECKING, Iterable, Mapping
+from typing import TYPE_CHECKING, Iterable, Mapping, NamedTuple
 
 from rebuild.pipeline import conform, kernel_exec, settle
-from rebuild.pipeline.emit_gsub import _config_features, _FoldedRule, _renamed
+from rebuild.pipeline.emit_gsub import _config_features, _renamed
 from rebuild.pipeline.model import CellId, ResolvedSpec, raw_rename_map
 
 GUARD_MARKER = "#guard"
 """The first token of a guard rule's certificate (`certificate::GUARD_MARKER`). The second names the configuration the rest of the stream settles under."""
 
 if TYPE_CHECKING:
-    from rebuild.pipeline.table import DecisionTable, Rule
+    from rebuild.pipeline.table import DecisionTable
+
+
+class _RuleSlots(NamedTuple):
+    """One renamed rule's context slots as `_first_matching_rule` tests them: each slot's members as a set, so a membership test hashes the label instead of comparing it with every member, or None where the rule matches any label."""
+
+    backtrack: frozenset[str] | None
+    look1: frozenset[str] | None
+    look2: frozenset[str] | None
+    look3: frozenset[str] | None
+    look4: frozenset[str] | None
 
 
 def _first_matching_rule(
-    rules_by_input: Mapping[str, list[tuple[int, Rule | _FoldedRule]]],
+    rules_by_input: Mapping[str, list[tuple[int, _RuleSlots]]],
     label: str,
     left: str,
     right1: str,
@@ -35,17 +45,15 @@ def _first_matching_rule(
     if representatives:
         right3 = representatives.get(right3, right3)
         right4 = representatives.get(right4, right4)
-    for rule_index, rule in rules_by_input.get(label, ()):
-        if rule.backtrack is not None and left not in rule.backtrack:
+    for rule_index, (backtrack, look1, look2, look3, look4) in rules_by_input.get(label, ()):
+        if backtrack is not None and left not in backtrack:
             continue
-        if rule.look1 is not None and right1 not in rule.look1:
+        if look1 is not None and right1 not in look1:
             continue
-        if rule.look2 is not None and right2 not in rule.look2:
+        if look2 is not None and right2 not in look2:
             continue
-        look3 = getattr(rule, "look3", None)
         if look3 is not None and right3 not in look3:
             continue
-        look4 = getattr(rule, "look4", None)
         if look4 is not None and right4 not in look4:
             continue
         return rule_index
@@ -86,12 +94,24 @@ def _matched_windows(spec, text, features, guard_verdicts, expected, rules_by_in
         yield index, (label, left, right1, right2, right3, right4), matched
 
 
-def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, Rule | _FoldedRule]]]:
+def _renamed_rules_by_input(spec, features, decision) -> dict[str, list[tuple[int, _RuleSlots]]]:
     renames = raw_rename_map(spec, frozenset(features))
-    rules_by_input: dict[str, list[tuple[int, Rule | _FoldedRule]]] = {}
+    rules_by_input: dict[str, list[tuple[int, _RuleSlots]]] = {}
     for index, rule in enumerate(getattr(decision, "rules", ())):
         renamed = _renamed(rule, renames)
-        rules_by_input.setdefault(renamed.input_glyph, []).append((index, renamed))
+        slots = _RuleSlots(
+            *(
+                frozenset(members) if members is not None else None
+                for members in (
+                    renamed.backtrack,
+                    renamed.look1,
+                    renamed.look2,
+                    getattr(renamed, "look3", None),
+                    getattr(renamed, "look4", None),
+                )
+            )
+        )
+        rules_by_input.setdefault(renamed.input_glyph, []).append((index, slots))
     return rules_by_input
 
 

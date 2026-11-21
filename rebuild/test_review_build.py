@@ -25,7 +25,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, row_delta
-from rebuild.review import accepted, app_index, facts, tablediff, unit_cache
+from rebuild.review import accepted, app_index, facts, tablediff, unit_cache, units_exec
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
@@ -1231,11 +1231,12 @@ def test_a_serial_signature_pass_files_no_pool_record(tmp_path, monkeypatch):
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
     tmp_path, mini_bundle, capfd, monkeypatch
 ):
-    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary, and with whether the ink-signature store was written. The load line names the signatures cached and shaped, what the key-only read did, the source and the prior store's hits (`_SIGNATURE_NOTE`). The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
+    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. It selects the Python units engine, whose workers' tally and units line it pins. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary, and with whether the ink-signature store was written. The load line names the signatures cached and shaped, what the key-only read did, the source and the prior store's hits (`_SIGNATURE_NOTE`). The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
     Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its deflated fragment and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, the ink-signature store's columns are held through the plan and gone once the units phase has started the store's write, and no collection of enrichments exists.
     """
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     out = tmp_path / "corpus"
     manifest = review_build.build_m1(
         out,

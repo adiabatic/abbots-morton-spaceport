@@ -632,6 +632,18 @@ def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_pa
     assert _unit(name).note in block
 
 
+def test_the_rust_units_engines_records_go_to_their_own_row_and_are_never_checked(tmp_path, capsys):
+    """A corpus build under the Rust units engine records its one engine process under `corpus-units-rs`. Only that row reads it, so the Python workers' row never takes a whole process's reading as one worker's, and the row has no constant, since one reading at one width cannot separate the process figure from the per-thread one."""
+    assert _unit("corpus-units-rs").constant is None
+    assert [unit.name for unit in cb.UNITS if "corpus-units-rs" in unit.pool_units] == ["corpus-units-rs"]
+    path = _journal(tmp_path, [_pool("corpus-units-rs", [40_000_000_000], reading="footprint")])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    block = out.split("corpus-units-rs  (no constant")[1].split("\n\n")[0]
+    assert "max 40.00 GB" in block
+    assert "40.00 GB" not in out.split("\ncorpus-worker  ")[1].split("\n\n")[0]
+
+
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
     peak = int(CONSTANTS["font-suite"] * 1.05)
     path = _journal(tmp_path, [_pool("font-suite", [peak])])

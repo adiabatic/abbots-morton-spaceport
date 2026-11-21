@@ -21,7 +21,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, fixtures, kernel_exec, output_sink, row_delta, spec_load
-from rebuild.review import app_index, audit_stream, landing, unit_cache, unit_index
+from rebuild.review import app_index, audit_stream, landing, unit_cache, unit_index, units_exec
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
 from rebuild.review.audit import (
@@ -844,8 +844,9 @@ def test_recompute_all_units_reuses_no_record_and_keeps_every_fragment_in_place(
     assert after == before
 
 
-def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle, tmp_path):
-    """A pooled build drafts the recomputed units in configuration order (`_configuration_order`) across two workers, and the serial `mini_corpus` drafts the same units in load order in one process. Both produce the same bytes because every order-sensitive whole-corpus pass runs in the parent over all the projections, so this comparison would show any effect of a worker's hand-out order on the output. A first build writes the units index as a head over generation 0's base and no single file (#618's change 32)."""
+def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle, tmp_path, monkeypatch):
+    """The pooled builds this module compares with the serial one select the Python units engine, whose pool they pin; `rebuild/test_units_exec.py` compares the Rust engine's. A pooled build drafts the recomputed units in configuration order (`_configuration_order`) across two workers, and the serial `mini_corpus` drafts the same units in load order in one process. Both produce the same bytes because every order-sensitive whole-corpus pass runs in the parent over all the projections, so this comparison would show any effect of a worker's hand-out order on the output. A first build writes the units index as a head over generation 0's base and no single file (#618's change 32)."""
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     parallel = tmp_path / "parallel"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_corpus)
@@ -975,6 +976,7 @@ def test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build(
 ):
     """The pool hands the recomputed units out one batch at a time, so which worker drafts which unit depends on timing. Narrowing the hand-out splits the mini bundle's recomputed units into a few dozen batches over two workers, where per-worker state leaking into the output would show up as a changed byte against the serial build. At the checked-in `PHASE1_HANDOUT_UNITS`, `_handout_width` splits them into only a handful of batches, which exercises little interleaving."""
     monkeypatch.setattr("rebuild.review.build.PHASE1_HANDOUT_UNITS", 37)
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     parallel = tmp_path / "narrowed"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_corpus)
@@ -991,15 +993,17 @@ def test_a_pool_handed_the_recomputed_units_in_any_configuration_order_is_byte_i
         "rebuild.review.build._configuration_order",
         lambda recomputed, table: sorted(recomputed, key=lambda ordinal: -table.config_rank(ordinal)),
     )
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     parallel = tmp_path / "reversed"
     _build(parallel, mini_bundle, jobs=2)
     assert _tree(parallel) == _tree(mini_corpus)
 
 
 def test_a_pooled_cached_rebuild_is_byte_identical_to_the_serial_one(
-    mini_corpus, mini_bundle, tmp_path, capfd
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
 ):
     """The pooled verify branch settles each worker's share of the sample and zips the reports back to `(unit, injection)` pairs by position. A report zipped onto its neighbor's unit would recompute that unit under another window, miss its content key, and fail the build. A cached rebuild at two jobs runs that branch, and its output matches the serial build byte for byte."""
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     corpus = _copy(mini_corpus, tmp_path)
     _build(corpus, mini_bundle, jobs=2)
     cached, total = _cached(capfd)
@@ -1011,6 +1015,7 @@ def test_both_pooled_hand_outs_go_through_the_configuration_sort_and_cover_their
     mini_bundle, tmp_path, capfd, monkeypatch
 ):
     """The parent applies the configuration sort at two call sites: the recomputed units in `_drive_phase1` and the verification sample in `verify`. The byte-identity tests above cannot detect a fault at either, because the corpus is the same bytes under any hand-out order, and a sampled unit that no worker receives goes unverified without changing a byte. So this test spies on the helper instead of replacing it. A cold two-worker build passes it every recomputed unit once. A cached rebuild over that corpus passes it no recomputed units and then the whole sample (every cached unit, up to `VERIFICATION_SAMPLE`). The units phase's `verified=` count equals the sample size, which checks that the contiguous shares `verify` cuts cover the whole sample and drop no tail past the last worker."""
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     handed: list[list] = []
     original = review_build._configuration_order
 
@@ -1681,7 +1686,7 @@ def _spy_signature_write(monkeypatch) -> list[tuple[bool, str]]:
 def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins_it(
     mini_bundle, tmp_path, monkeypatch
 ):
-    """At `jobs=2` the units phase is pooled and the parent waits in `multiprocessing.connection.wait`, so the signature store is written on a thread during that phase, and the build joins the thread in the cache phase before it returns. The mini bundle's store is small enough that the thread would finish before the build returns whether or not the build joined it, so the test holds the write until the build calls `join`: a build that returned without joining would return with the store unwritten. `test_serial_and_parallel_builds_are_byte_identical` and `test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build` compare the bytes the thread writes against the inline path's, since they compare the whole tree, including the store and any staging file. The autouse fixture redirects the journal, so the pool record this build writes does not reach the real one."""
+    """At `jobs=2` the units phase is pooled and the parent waits on the workers' replies, so the signature store is written on a thread during that phase, and the build joins the thread in the cache phase before it returns. The mini bundle's store is small enough that the thread would finish before the build returns whether or not the build joined it, so the test holds the write until the build calls `join`: a build that returned without joining would return with the store unwritten. `test_serial_and_parallel_builds_are_byte_identical` and `test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build` compare the bytes the thread writes against the inline path's, since they compare the whole tree, including the store and any staging file. The autouse fixture redirects the journal, so the pool record this build writes does not reach the real one."""
     calls: list[tuple[bool, str]] = []
     release, finished = threading.Event(), threading.Event()
     writers: list[threading.Thread] = []

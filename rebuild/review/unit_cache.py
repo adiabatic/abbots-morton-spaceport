@@ -103,16 +103,20 @@ BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 # 58**10 < 2**64 <= 58**11, so eleven symbols hold any 64-bit value and the width never varies.
 ID_SYMBOLS = 11
 _ID_PATTERN = re.compile(rf"^[ue]-[{BASE58_ALPHABET}]{{{ID_SYMBOLS}}}$")
+# Every two-symbol string indexed by its value, so `base58_64` spells two symbols a division: the leading symbol and five pairs make `ID_SYMBOLS`.
+_PAIR_BASE = 58 * 58
+_BASE58_PAIRS = tuple(high + low for high in BASE58_ALPHABET for low in BASE58_ALPHABET)
 
 
 def base58_64(digest_hex: str) -> str:
     """Return the first 64 bits of a hex digest as `ID_SYMBOLS` base58 symbols, most significant first, padded with the zero symbol `1`. The width is fixed and the alphabet is in ascending ASCII order, so the strings sort in the same order as the numbers. Case is significant."""
-    value = int(digest_hex[:16], 16)
-    symbols = []
-    for _ in range(ID_SYMBOLS):
-        value, remainder = divmod(value, 58)
-        symbols.append(BASE58_ALPHABET[remainder])
-    return "".join(reversed(symbols))
+    pairs = _BASE58_PAIRS
+    value, p0 = divmod(int(digest_hex[:16], 16), _PAIR_BASE)
+    value, p1 = divmod(value, _PAIR_BASE)
+    value, p2 = divmod(value, _PAIR_BASE)
+    value, p3 = divmod(value, _PAIR_BASE)
+    value, p4 = divmod(value, _PAIR_BASE)
+    return BASE58_ALPHABET[value] + pairs[p4] + pairs[p3] + pairs[p2] + pairs[p1] + pairs[p0]
 
 
 def unit_id_for(content_key: str) -> str:
@@ -256,8 +260,9 @@ def environment_stamp(
     *,
     identical_classes: Iterable[str],
     draft_lines: Sequence[str] | None = None,
+    units_engine: str | None = None,
 ) -> fingerprint.EnvironmentStamp:
-    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives, except its `ink_identical` ids (`identical_classes`), sorted, which decide a re-routed unit's class, cluster and fragment. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here. The `site_corpus` and `draft_harness` lines are `fingerprint.draft_input_lines`, the lines the manifest's `draft_inputs` component is the digest of. `draft_lines` is those lines when the caller has already taken them, as the build does from the one read of the pages its drafters' index comes from; when it is None, they are taken here. While the alphabet switch is set, the lines end with its token (`spec_load.alphabet_lines`), so a store built over the whole alphabet never serves a small one, nor the reverse; with it unset no line is added."""
+    """Return the unit store's whole-store stamp. A change to any of its lines invalidates the whole store, and over-invalidation is the safe direction. The code line is `corpus_code_paths`, so a pipeline or crate edit outside the code the build runs leaves the store valid. The two site fonts are hashed through `_font_digest`, which ignores `head` and `name`, so the fonts a version bump rebuilds leave it valid too. The rune files are left out because the family keys cover them per unit, and the divergence ledger is left out for the reason the module docstring gives, except its `ink_identical` ids (`identical_classes`), sorted, which decide a re-routed unit's class, cluster and fragment. The other data inputs are hashed by `fingerprint.data_path_lines`, so a schema hover or a comment in one of them leaves the store valid. The stamp carries the code closure's per-file lines as its `corpus_code` detail, from the same `path_lines` read the code digest is computed from, so the file a miss note names is the file the digest saw. `subset_digests` is each acceptance configuration's subset table, already hashed by the caller; the build hashes them once for this line and for the subset pack's header. When it is None, the tables are hashed here. The `site_corpus` and `draft_harness` lines are `fingerprint.draft_input_lines`, the lines the manifest's `draft_inputs` component is the digest of. `draft_lines` is those lines when the caller has already taken them, as the build does from the one read of the pages its drafters' index comes from; when it is None, they are taken here. `units_engine` is the review crate's digest under the Rust units engine (`units_exec.engine_stamp`), which adds a `units_engine` line, so a crate edit invalidates only a store the Rust engine wrote and a store either engine wrote is a miss to the other; when it is None, as under the Python engine, no line is added. While the alphabet switch is set, the lines end with its token (`spec_load.alphabet_lines`), so a store built over the whole alphabet never serves a small one, nor the reverse; with it unset no line is added."""
     root = Path(repo_root)
     code_lines = fingerprint.path_lines(root, corpus_code_paths(root))
     runes = set(fingerprint.rune_paths(root))
@@ -283,6 +288,7 @@ def environment_stamp(
         *(fingerprint.draft_input_lines(root) if draft_lines is None else draft_lines),
         f"after_helpers\t{after_helpers_digest}",
         "identical_classes\t" + json.dumps(sorted(identical_classes)),
+        *(() if units_engine is None else (f"units_engine\t{units_engine}",)),
         *spec_load.alphabet_lines(),
     ]
     return fingerprint.EnvironmentStamp(lines=tuple(lines), detail=(("corpus_code", tuple(code_lines)),))
