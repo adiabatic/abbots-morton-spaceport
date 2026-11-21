@@ -1,17 +1,17 @@
 //! The `units` subcommand (§ The process of `rebuild/CORPUS-UNITS-PORT-PLAN.md`): `_corpus_worker`'s message loop over request frames on standard input and reply frames on standard output, served by a pool of threads as `_RecomputeRunner` serves it with a pool of worker processes.
 //!
-//! One reader thread drains the input into a queue and one writer thread writes the replies, so the parent never blocks writing a batch while the engine blocks writing a reply. The [`Resources`] are opened once and shared by the `--threads` pool threads, each of which holds its own [`Worker`] over them and takes the next job off one queue. A coordinator reads the requests and the pool's answers from one event queue: a `batch` becomes one job, answered with a `batch` reply whose deflated fragments follow its line; a `verify` is cut into one share per thread, as `_RecomputeRunner.verify` cuts the sample, and answered with one `verify` reply holding the shares' keys in order; and `stop` is answered, once every job handed out is answered, with `stopped` and the process's peak footprint. A failure in any thread, a pool thread failing to start among them, is answered with an `error` frame that names it, and the service ends; so it does when the input closes without `stop`.
+//! One reader thread drains the input into a queue and one writer thread writes the replies, so the parent never blocks writing a batch while the engine blocks writing a reply. The [`Resources`] are opened once and shared by the `--threads` threads of a [`Pool`], which builds each batch's reply frame on the thread that ran it. A coordinator reads the requests and the pool's reports from one event queue: a `batch` becomes one job, answered with a `batch` reply whose deflated fragments follow its line; a `verify` is cut into one share per thread, as `_RecomputeRunner.verify` cuts the sample, and answered with one `verify` reply holding the shares' keys in order; and `stop` is answered, once every job handed out is answered, with `stopped` and the process's peak footprint. A failure in any thread, a pool thread failing to start among them, is answered with an `error` frame that names it, and the service ends; so it does when the input closes without `stop`.
 
 use std::collections::VecDeque;
 use std::io::{BufRead, Write};
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value};
 
 use crate::ffi::peak_footprint;
+use crate::pool::{Pool, Report, panic_message, shares};
 use crate::unit::{Batch, Resources, VerifyKey, Worker, deltas_json};
 use crate::wire::{Injection, Request, UnitRecord, error_frame};
 
@@ -60,6 +60,15 @@ enum Event {
     Incoming(Incoming),
     Answered(Answer),
     Failed(String),
+}
+
+impl From<Report<Answer>> for Event {
+    fn from(report: Report<Answer>) -> Self {
+        match report {
+            Report::Answered(answer) => Event::Answered(answer),
+            Report::Failed(failure) => Event::Failed(failure),
+        }
+    }
 }
 
 /// A verification sample whose shares are still being answered.
@@ -136,25 +145,6 @@ fn line(mut text: String) -> Vec<u8> {
     text.into_bytes()
 }
 
-/// `items` cut into contiguous shares of `ceil(len / threads)`, as `_RecomputeRunner.verify` cuts its sample among the workers.
-fn verify_shares<T>(mut items: Vec<T>, threads: usize) -> Vec<Vec<T>> {
-    let size = items.len().div_ceil(threads.max(1)).max(1);
-    let mut shares = Vec::new();
-    while !items.is_empty() {
-        let rest = items.split_off(size.min(items.len()));
-        shares.push(std::mem::replace(&mut items, rest));
-    }
-    shares
-}
-
-fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
-    panic
-        .downcast_ref::<&str>()
-        .map(|text| (*text).to_owned())
-        .or_else(|| panic.downcast_ref::<String>().cloned())
-        .unwrap_or_default()
-}
-
 fn read_requests(input: impl BufRead, events: &Sender<Event>) {
     for line in input.lines() {
         let incoming = match line {
@@ -207,40 +197,6 @@ fn run_job(worker: &mut Worker<'_>, job: Job) -> Result<Answer, String> {
     }
 }
 
-/// One pool thread: a worker over the shared `resources` that answers jobs off `jobs` until the queue closes, a job fails or the coordinator is gone.
-fn serve_jobs(resources: &Resources, jobs: &Mutex<Receiver<Job>>, events: &Sender<Event>) {
-    let mut worker = match Worker::new(resources) {
-        Ok(worker) => worker,
-        Err(failure) => {
-            let _ = events.send(Event::Failed(format!(
-                "the units engine cannot start: {failure}"
-            )));
-            return;
-        }
-    };
-    loop {
-        let job = match jobs.lock() {
-            Ok(queue) => match queue.recv() {
-                Ok(job) => job,
-                Err(_) => return,
-            },
-            Err(_) => return,
-        };
-        let event = match catch_unwind(AssertUnwindSafe(|| run_job(&mut worker, job))) {
-            Ok(Ok(answer)) => Event::Answered(answer),
-            Ok(Err(failure)) => Event::Failed(failure),
-            Err(panic) => Event::Failed(format!(
-                "the units engine's worker panicked: {}",
-                panic_message(panic.as_ref())
-            )),
-        };
-        let failed = matches!(event, Event::Failed(_));
-        if events.send(event).is_err() || failed {
-            return;
-        }
-    }
-}
-
 /// Answer the requests `events` carries with a pool of `threads` workers over the init at `init`, forwarding each answer to `replies` as it arrives. The pool threads are left to end once the job queue and the event queue close, which they do when this returns.
 fn work(
     init: &Path,
@@ -262,20 +218,10 @@ fn work(
         Ok(resources) => Arc::new(resources),
         Err(failure) => return fail(format!("the units engine cannot start: {failure}")),
     };
-    let (jobs_in, jobs) = channel::<Job>();
-    let jobs = Arc::new(Mutex::new(jobs));
-    for index in 0..threads {
-        let (resources, jobs, events_in) =
-            (Arc::clone(&resources), Arc::clone(&jobs), events_in.clone());
-        let spawned = std::thread::Builder::new()
-            .name(format!("units-{index}"))
-            .spawn(move || serve_jobs(&resources, &jobs, &events_in));
-        if let Err(failure) = spawned {
-            return fail(format!(
-                "the units engine cannot start thread {index}: {failure}"
-            ));
-        }
-    }
+    let pool = match Pool::start(&resources, threads, run_job, events_in) {
+        Ok(pool) => pool,
+        Err(failure) => return fail(failure),
+    };
     let mut outstanding = 0usize;
     let mut verifies: VecDeque<PendingVerify> = VecDeque::new();
     let mut requested = 0usize;
@@ -304,7 +250,7 @@ fn work(
         match event {
             Event::Incoming(_) if stopping => {}
             Event::Incoming(Incoming::Request(Request::Batch { batch, units })) => {
-                if jobs_in.send(Job::Batch { batch, units }).is_err() {
+                if !pool.submit(Job::Batch { batch, units }) {
                     return fail(format!("batch {batch}: the pool has stopped"));
                 }
                 outstanding += 1;
@@ -312,20 +258,17 @@ fn work(
             Event::Incoming(Incoming::Request(Request::Verify { units })) => {
                 let request = requested;
                 requested += 1;
-                let shares = verify_shares(units, threads);
+                let shares = shares(units, pool.threads());
                 verifies.push_back(PendingVerify {
                     request,
                     shares: shares.iter().map(|_| None).collect(),
                 });
                 for (share, items) in shares.into_iter().enumerate() {
-                    if jobs_in
-                        .send(Job::Verify {
-                            request,
-                            share,
-                            items,
-                        })
-                        .is_err()
-                    {
+                    if !pool.submit(Job::Verify {
+                        request,
+                        share,
+                        items,
+                    }) {
                         return fail("verify: the pool has stopped".to_owned());
                     }
                     outstanding += 1;
@@ -390,6 +333,7 @@ pub fn serve(
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use std::sync::Mutex;
 
     #[derive(Clone, Default)]
     struct Shared(Arc<Mutex<Vec<u8>>>);
@@ -424,20 +368,6 @@ mod tests {
             }]),
             b"{\"op\":\"verify\",\"keys\":[[\"u-1\",\"c\",{\"ss10\":\"d\"}]]}\n"
         );
-    }
-
-    #[test]
-    fn a_verify_sample_is_cut_as_the_python_pool_cuts_it() {
-        assert_eq!(
-            verify_shares((0..10).collect(), 4),
-            vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8], vec![9]]
-        );
-        assert_eq!(
-            verify_shares((0..3).collect(), 8),
-            vec![vec![0], vec![1], vec![2]]
-        );
-        assert_eq!(verify_shares((0..4).collect(), 1), vec![vec![0, 1, 2, 3]]);
-        assert!(verify_shares(Vec::<i32>::new(), 4).is_empty());
     }
 
     #[test]

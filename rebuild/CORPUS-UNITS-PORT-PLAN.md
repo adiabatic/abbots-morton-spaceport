@@ -56,7 +56,7 @@ The crate's modules, which the tasks add in order:
 | `fragment.rs`, `pack.rs`                   | `build.unit_to_json`, `build.patch_fragment`, `build.check_stamp`, `build._fragment_bytes`, `build._FragmentPacker`, the `unit_cache` key and id helpers                          |
 | `check.rs`                                 | `build.check_unit` at `DRAFTED`                                                                                                                                                   |
 | `unit.rs`                                  | `build._phase1_unit`, `build._recompute_fragment`, `build._UnitProjection`                                                                                                        |
-| `service.rs`, `main.rs`                    | `build._corpus_worker`'s message loop                                                                                                                                             |
+| `service.rs`, `pool.rs`, `main.rs`         | `build._corpus_worker`'s message loop, served from threads as `_RecomputeRunner` serves it from worker processes                                                                  |
 
 ## Boundary
 
