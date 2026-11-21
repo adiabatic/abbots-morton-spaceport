@@ -775,7 +775,7 @@ impl<'a> GzipLines<'a> {
     }
 }
 
-/// A gzipped base's rows past its header line, as `unit_index._base_lines` and `store_base_lines` read a store's or the index's base: nothing for a part with no header line.
+/// A gzipped base's rows past its header line, as `unit_index._base_lines` reads the index's base: nothing for a part with no header line, where the store's reader, `unit_index.store_base_lines`, raises.
 pub struct BaseRows<'a> {
     lines: GzipLines<'a>,
     started: bool,

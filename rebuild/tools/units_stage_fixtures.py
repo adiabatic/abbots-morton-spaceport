@@ -5122,7 +5122,7 @@ def _rows_outcome(rows: Iterable[object]) -> tuple:
 
 
 def _part_items(kind: str, handle: BinaryIO, output: str, generation: int, number: int) -> Iterator[object]:
-    """One part's rows as its reader reads them: a base's lines past its header line (`unit_index._base_lines`, as `store_base_lines` reads a store's), a segment by place's `(op, anchor, fraction, payload)` (`row_delta.segment_rows`), or a segment by key's `(op, payload)` (`row_delta.keyed_segment_rows`)."""
+    """One part's rows as its reader reads them: a base's lines past its header line (`unit_index._base_lines`, the index's reader), a segment by place's `(op, anchor, fraction, payload)` (`row_delta.segment_rows`), or a segment by key's `(op, payload)` (`row_delta.keyed_segment_rows`)."""
     if kind == "base":
         yield from unit_index._base_lines(handle)
     elif kind == row_delta.MERGE_PLACE:
@@ -5139,7 +5139,7 @@ def _merged_items(
     generation: int,
     key: Callable[[bytes], list[bytes]] | None,
 ) -> Iterator[object]:
-    """The materialized rows of a base and its segments: `(place, payload)` from `row_delta.merge_placed`, as `unit_index.store_lines` merges the store, or each payload from `row_delta.merge_keyed` under `key`, as `unit_index.OpenIndex.lines` merges the index."""
+    """The materialized rows of a base and its segments: `(place, payload)` from `row_delta.merge_placed`, as `unit_index.store_lines` merges the store's segments, or each payload from `row_delta.merge_keyed` under `key`, as `unit_index.OpenIndex.lines` merges the index; the base is read as `unit_index._base_lines` reads the index's either way."""
     base = handles[0]
     if key is None:
         segments = [
