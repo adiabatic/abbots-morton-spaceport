@@ -3657,6 +3657,8 @@ LIVE_EVERY = 1000
 DUMP_PRIOR = "prior"
 DUMP_INPUTS = "inputs"
 DUMP_INIT = "init"
+# Where a build dump runs its build, under its directory, at one path so that every dump into the directory hands the build the same values.
+DUMP_SCRATCH = "build-stage-dump"
 # The Rust build's input for the dumped run's values, written without descriptors, beside `source.json`.
 BUILD_INPUT_FILE = "build.json"
 BUILD_INPUT_STAGE = "build-input"
@@ -4293,19 +4295,22 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         json.dumps(source.describe(cloned, init), indent=1) + "\n", encoding="ascii"
     )
     sink = _Sink(out, stages, source.every) if stages else None
-    shutil.rmtree(out / SINK_BLOBS, ignore_errors=True)
+    if any(stage.name == SINK_STAGE for stage in stages):
+        shutil.rmtree(out / SINK_BLOBS, ignore_errors=True)
+    scratch = out / DUMP_SCRATCH
+    shutil.rmtree(scratch, ignore_errors=True)
     try:
-        with tempfile.TemporaryDirectory(prefix="build-stage-dump-", dir=out) as scratch:
-            built = Path(scratch) / "out"
-            with _as_build_child(Path(scratch) / "run"):
-                values, held = build_input_values(source, built, Path(scratch) / "spill", init)
-                corpus_exec.write_input(values, out / BUILD_INPUT_FILE)
-                if sink is not None:
-                    if any(stage.name == BUILD_INPUT_STAGE for stage in stages):
-                        sink.record(BUILD_INPUT_STAGE, build_input_boundary(values, held))
-                    _clone_tree(prior, built)
-                    with wrapped(stages, sink, BUILD_HOOKS), _sink_blobs_at(out / SINK_BLOBS):
-                        _build_here(source, built)
+        built = scratch / "out"
+        with _as_build_child(scratch / "run"):
+            values, held = build_input_values(source, built, scratch / "spill", init)
+            corpus_exec.write_input(values, out / BUILD_INPUT_FILE)
+            if sink is not None:
+                if any(stage.name == BUILD_INPUT_STAGE for stage in stages):
+                    sink.record(BUILD_INPUT_STAGE, build_input_boundary(values, held))
+                _clone_tree(prior, built)
+                with wrapped(stages, sink, BUILD_HOOKS), _sink_blobs_at(out / SINK_BLOBS):
+                    _build_here(source, built)
+        shutil.rmtree(scratch)
         if sink is not None:
             for stage in stages:
                 if stage.generated is not None:
