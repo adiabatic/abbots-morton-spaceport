@@ -84,3 +84,12 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -3}
+- {right: {family: qsLlan}, by: -1}
+- {right: {family: qsEt}, by: -1}
+- {right: {family: qsEight}, by: -2}
+- {right: {family: qsAwe}, by: -2}
+- {right: {family: qsOx}, by: -2}
+- {right: {family: qsOy}, by: -1}
+- {right: {family: qsFoot}, by: -1}

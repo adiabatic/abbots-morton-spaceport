@@ -186,3 +186,11 @@ policy:
         - qsExcite
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -3}
+- {right: {family: qsLlan}, by: -1}
+- {right: {family: qsEt}, by: -2}
+- {right: {family: qsEight}, by: -3}
+- {right: {family: qsAwe}, by: -3}
+- {right: {family: qsOx}, by: -3}
+- {right: {family: qsFoot}, by: -1}

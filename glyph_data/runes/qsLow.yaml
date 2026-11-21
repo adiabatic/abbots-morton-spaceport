@@ -56,3 +56,14 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -1}
+- {right: {family: qsThey}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsIng}, by: -1}
+- {right: {family: qsMay}, by: -1}
+- {right: {family: qsLow}, by: -1}
+- {right: {family: qsAh}, by: -1}
+- {right: {family: qsUtter}, by: -1}
+- {right: {family: qsOoze}, by: -1}

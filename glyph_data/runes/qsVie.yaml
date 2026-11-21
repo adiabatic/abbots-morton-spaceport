@@ -131,3 +131,6 @@ policy:
         - qsUtter
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -1}
+- {right: {family: qsYe}, by: -1}

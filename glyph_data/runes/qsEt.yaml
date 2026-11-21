@@ -67,3 +67,13 @@ policy:
       right: {family: qsMay}
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea, stance: full}, by: -3}
+- {right: {family: qsPea, stance: half, exit: x-height}, by: -3}
+- {right: {family: qsPea, stance: half, exit: y6}, by: -3}
+- {right: {family: qsLlan}, by: -1}
+- {right: {family: qsEt}, by: -2}
+- {right: {family: qsEight}, by: -2}
+- {right: {family: qsAwe}, by: -2}
+- {right: {family: qsOx}, by: -2}
+- {right: {family: qsOy}, by: -1}

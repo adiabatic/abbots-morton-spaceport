@@ -221,3 +221,8 @@ policy:
         - qsUtter
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsKey}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsUtter}, by: -2}

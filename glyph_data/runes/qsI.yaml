@@ -143,3 +143,14 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsVie}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsIng}, by: -1}
+- {right: {family: qsLow}, by: -2}
+- {right: {family: qsAt}, by: -2}
+- {right: {family: qsAh}, by: -3}
+- {right: {family: qsUtter}, by: -2}
+- {right: {family: qsOut}, by: -1}
+- {right: {family: qsOoze}, by: -1}

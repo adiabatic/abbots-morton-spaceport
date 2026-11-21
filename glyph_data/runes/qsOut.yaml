@@ -131,3 +131,14 @@ policy:
       left: {family: qsSee}
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -3}
+- {right: {family: qsVie}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsIng}, by: -1}
+- {right: {family: qsMay}, by: -1}
+- {right: {family: qsLow}, by: -1}
+- {right: {family: qsAt}, by: -2}
+- {right: {family: qsAh}, by: -2}
+- {right: {family: qsOut}, by: -1}

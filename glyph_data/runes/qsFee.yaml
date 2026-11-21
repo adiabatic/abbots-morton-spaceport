@@ -148,3 +148,6 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsWay}, by: -1}
+- {right: {family: qsWhy}, by: -1}

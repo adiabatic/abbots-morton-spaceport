@@ -183,3 +183,13 @@ policy:
         - qsHe
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -2}
+- {right: {family: qsBay}, by: -2}
+- {right: {family: qsGay}, by: -1}
+- {right: {family: qsThey}, by: -1}
+- {right: {family: qsZoo}, by: -1}
+- {right: {family: qsJay}, by: -1}
+- {right: {family: qsYe}, by: -1}
+- {right: {family: qsWay}, by: -1}
+- {right: {family: qsWhy}, by: -2}

@@ -223,3 +223,17 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -2}
+- {right: {family: qsGay}, by: -4}
+- {right: {family: qsFee}, by: -1}
+- {right: {family: qsShe}, by: -1}
+- {right: {family: qsJai}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsLoch}, by: -1}
+- {right: {family: qsIt}, by: -1}
+- {right: {family: qsEt}, by: -1}
+- {right: {family: qsEight}, by: -1}
+- {right: {family: qsOy}, by: -2}
+- {right: {family: qsFoot}, by: -1}

@@ -200,3 +200,8 @@ policy:
     pick: {exit: baseline}
     why: "I'd rather write `·No.alt ~b~ ·Gay` than `·No ~x~ ·Gay` and the other ·No should behave the same way"
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -2}
+- {stance: loop, right: {family: qsGay}, by: -1}
+- {right: {family: qsThey}, by: -1}
+- {right: {family: qsWay}, by: -2}

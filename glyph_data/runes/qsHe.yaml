@@ -147,3 +147,12 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -2}
+- {right: {family: qsGay}, by: -3}
+- {right: {family: qsFee}, by: -2}
+- {right: {family: qsSee}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsLoch}, by: -2}
+- {right: {family: qsOy}, by: -2}

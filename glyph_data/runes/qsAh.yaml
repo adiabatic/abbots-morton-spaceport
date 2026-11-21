@@ -62,3 +62,13 @@ policy:
       left: {family: qsJai}
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsKey}, by: -1}
+- {right: {family: qsVie}, by: -1}
+- {right: {family: qsIng}, by: -1}
+- {right: {family: qsLow}, by: -2}
+- {right: {family: qsAt}, by: -3}
+- {right: {family: qsAh}, by: -3}
+- {right: {family: qsUtter}, by: -2}
+- {right: {family: qsOut}, by: -2}
+- {right: {family: qsOoze}, by: -1}
