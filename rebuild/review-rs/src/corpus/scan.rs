@@ -1074,7 +1074,7 @@ impl ClassSlots {
 }
 
 /// `unit_index.index_key`: an index line's key, its class as `class_shard_key` gives it and its id, each as bytes.
-fn index_key(line: &[u8]) -> std::result::Result<Key, ReadError> {
+pub(crate) fn index_key(line: &[u8]) -> std::result::Result<Key, ReadError> {
     let missing = || ReadError::Value("ValueError", "subsection not found".to_owned());
     let end = find(line, b"\"", ID_OPEN.len()).ok_or_else(missing)?;
     let start = find(line, CLASS_SEAM, end).ok_or_else(missing)? + CLASS_SEAM.len();
@@ -1113,6 +1113,15 @@ pub(crate) struct OpenIndex {
 }
 
 impl OpenIndex {
+    /// An index opened by a writer that checked its parts itself (`unit_index._checked`): its header, its head and its parts, base first.
+    pub(crate) fn new(header: Vec<(PyValue, PyValue)>, head: Head, files: Vec<File>) -> Self {
+        Self {
+            header,
+            head: Some(head),
+            files,
+        }
+    }
+
     /// `OpenIndex.lines`: the base's lines past its header line, or the base and the segments merged by key.
     pub(crate) fn lines(&self, output: &str) -> Lines<'_, Vec<u8>> {
         let base = base_rows(&self.files[0]);

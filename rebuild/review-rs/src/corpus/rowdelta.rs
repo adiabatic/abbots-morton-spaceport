@@ -963,6 +963,17 @@ fn checked_header(
     check_segment_header(&header, output, generation, number, merge)
 }
 
+/// A gzipped segment's header line read from its start and checked against the head that lists it, as `unit_index._checked` reads `row_delta.gzipped_header` and checks it (`check_segment_header`).
+pub fn check_gzipped_header(
+    file: &File,
+    output: &str,
+    generation: i64,
+    number: i64,
+    merge: &str,
+) -> std::result::Result<(), ReadError> {
+    checked_header(&mut GzipLines::new(file), output, generation, number, merge)
+}
+
 /// One segment's rows, its header checked at the first read as `row_delta.segment_rows` and `keyed_segment_rows` check it.
 struct SegmentLines<'a> {
     lines: GzipLines<'a>,
@@ -2658,13 +2669,13 @@ pub const WRITE_STAGE_BLOBS: &str = "row-delta-write.blobs";
 
 /// The segment cap and the fold overrun the build input's vocabulary gives (`row_delta.SEGMENT_CAP`, `row_delta.FOLD_OVERRUN`).
 #[derive(Clone, Copy, Debug)]
-struct Folding {
-    cap: i64,
-    overrun: i64,
+pub struct Folding {
+    pub cap: i64,
+    pub overrun: i64,
 }
 
 impl Folding {
-    fn of(input: &BuildInput) -> Result<Self> {
+    pub fn of(input: &BuildInput) -> Result<Self> {
         let constant = |name: &str| match input.constant(name) {
             Some(PyValue::Int(value)) => Ok(*value),
             _ => error(format!("the build input's vocabulary holds no int {name}")),

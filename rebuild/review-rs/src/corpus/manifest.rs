@@ -402,7 +402,7 @@ const UNITS_FILES_KEY: &str = "units-files";
 const PRUNE_GENERATED: &str = "generated:prune:";
 
 /// The manifest over what the build holds once the write has committed ([`manifest`]).
-fn held_manifest(
+pub(crate) fn held_manifest(
     input: &BuildInput,
     names: &ManifestNames,
     held: &WriteHeld<'_, '_>,

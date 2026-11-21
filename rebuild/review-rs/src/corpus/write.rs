@@ -587,7 +587,7 @@ pub fn font_record(record: &FontRecord) -> PyValue {
 }
 
 /// The sha256 of a file's bytes, as hex, read in chunks.
-fn file_sha256(path: &Path) -> io::Result<String> {
+pub(crate) fn file_sha256(path: &Path) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut digest = Sha256::new();
     let mut chunk = vec![0; 1 << 20];
@@ -888,7 +888,7 @@ pub(crate) fn hold(directory: &Path, held: &[(PyValue, PyValue)], key: &str) -> 
 }
 
 /// The counts lines a generated case's calls appended.
-fn counts_of(counts: &Path, key: &str) -> Result<PyValue> {
+pub(crate) fn counts_of(counts: &Path, key: &str) -> Result<PyValue> {
     fs::read(counts)
         .map(PyValue::Bytes)
         .map_err(|why| WireError(format!("{key}: cannot read the counts: {why}")))

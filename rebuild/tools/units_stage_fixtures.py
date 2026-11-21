@@ -37,6 +37,7 @@ The build's stages (`BUILD_STAGES`):
 - `corpus-check` records the write's corpus check (`build._CorpusCheck`) as its checkers run, fed and folded. Each chunk a run checker hands over (`take_facts`) is a line under `chunk:`, the class's id and the units of it fed before: the class record it opened (`class_start`) or None, each unit it was fed (`unit`) with whether the cache supplied it, whether it closed the class (`class_end`), and the ids among its units the checker keeps identities for (`identity_for`), or None when it keeps every unit's; valued the facts it handed over, `_CorpusCheck._FACTS` by name without the underscore (`_check_facts`). Each `finish` of the checker that folds the chunks (`absorb`) is a line under `finish:`, with the chunk keys it absorbed in order and the manifest, valued the facts it folded and the errors `finish` returns. The Rust side feeds the chunks in order to one checker over the build input's settings and folds the named chunks into a fresh one for each finish. Its generated lines (`_corpus_check_generated`) finish each folding again over the manifest with each predicate broken (`_manifest_mutations`), under `generated:finish:`, and run small cases of their own through a run checker and a folding one (`_check_cases`, over `_check_base`), under `generated:case:` with their settings, chunks and manifest, each predicate made to fail, to pass a value Python reads as equal and to raise, a raise valued `{"raised": name}`.
 - `sidecar-lines` records each run of the write's sidecar lines (`build._SidecarLines`) under `run:<n>`: its `open` (`_sidecars_opened`), with whether it copies the previous sidecars forward, valued whether each cursor opened to lines; each top-level `unit` and `cached` call (`_sidecar_unit`, `_sidecar_cached`) under `call:<n>`, with the fragment, or the cached unit's id, stored bytes, inflated length and identity, and the span and place, valued the events the call made in order, each cursor's `take` (`unit_index.LineCursor.take`) with the id and what it returned and each line written to a sidecar (`gzip.GzipFile.write`, `app_index.LocatorBlocks.add`), as lengths and sha256s, beside the run's counts after it; and its `close` (`_sidecars_closed`), valued the counts, the locator blocks' table entries and the digests of the lines each sidecar holds. Fragments, stored bytes and corpora are kept once under their sha256 in `sidecar-lines.blobs/` beside the stage file (`SIDECAR_LINES_BLOBS`). The Rust side replays each run's calls over the dump's prior corpus, or a generated run's own corpus made again from the blobs. Its generated lines (`_sidecar_lines_generated`) replay each build run that copied lines forward over corpora without copy-forward, without either sidecar, with a gap in either, with an index segment and with an index cut short (`_sidecar_variants`); project fragments with each field dropped and set to each kind of value (`generated:line:`); copy lines forward through every seam's edge (`generated:copy:`); take from cursors over sidecars that are missing, empty, not gzip, cut short or followed by other bytes, and over the prior's index as a head, a single file and without its head or its part (`generated:cursor:`); and cut locator rows into blocks across classes and block edges and refuse rows that do not ascend (`generated:locator:`).
 - `manifest` is a boundary stage that records the manifest the write writes, from `build._prune_orphan_shards` as `build._write_corpus` calls it once the manifest is on disk (`_manifest_pruning`): the manifest's bytes, its identity (`unit_index.manifest_identity`), the shards pruned and the files under `units/` then. Its generated lines (`_manifest_generated`, `generated:prune:`) prune corpora of several shapes against manifests in both class forms.
+- `index-write` is a boundary stage that records the units index the build writes, from `unit_index.write_index_lines` as `build._write_sidecars` calls it once the manifest is on disk (`_index_writing`): the head it committed, the files whose names start with the index's (`_index_write_files`), what the write did and its note. Its generated lines (`_index_write_generated`, `generated:<case>`) write the index over the corpora of `_INDEX_CASES`: first writes, the head alone, segments, folds claimed, held by another output and forced, heads, parts and single files that do not read, a single file adopted, staging and unlisted files, lines out of key order and a manifest that does not parse, each valued what the write did or raised, the files the corpus then holds and the counts lines.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3913,6 +3914,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "unit_index.LineCursor.take": ("rebuild.review.unit_index", "LineCursor.take"),
     "build._write_json": ("rebuild.review.build", "_write_json"),
     "build._prune_orphan_shards": ("rebuild.review.build", "_prune_orphan_shards"),
+    "unit_index.write_index_lines": ("rebuild.review.unit_index", "write_index_lines"),
 }
 
 
@@ -14819,6 +14821,302 @@ def _manifest_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
             }
 
 
+INDEX_WRITE_STAGE = "index-write"
+# The keys of the `index-write` stage's lines: the index's head as written, the files whose names start with the index's, what the write did and its note.
+INDEX_WRITE_HEAD_KEY = "head"
+INDEX_WRITE_FILES_KEY = "files"
+INDEX_WRITE_OUTCOME_KEY = "write"
+INDEX_WRITE_NOTE_KEY = "note"
+# The units the `generated:` cases of the `index-write` stage write index lines for, each an id, a class and a summary: a class whose key sorts before another's only at its `.json` suffix, a class `json.loads` reads as no string and an id outside ASCII among them. The next sets change them: `_INDEX_UNITS_B` changes one summary, drops one unit, adds one and moves one to another class, `_INDEX_UNITS_C` changes one more summary, and `_INDEX_UNITS_F` changes every summary and adds units, so its segment's bytes pass the base's.
+_IndexUnits = tuple[tuple[str, object, str], ...]
+_INDEX_UNITS_A: _IndexUnits = (
+    ("u1", "a", "one"),
+    ("u2", "a", "two"),
+    ("u3", "b", "three"),
+    ("u4", "b", "four"),
+    ("u6", "a-b", "six"),
+    ("·Pea", "a", "pea"),
+    ("u7", None, "none"),
+)
+_INDEX_UNITS_B: _IndexUnits = (
+    ("u1", "a", "one"),
+    ("u2", "a", "two, changed"),
+    ("u4", "a-b", "four"),
+    ("u5", "a", "five"),
+    ("u6", "a-b", "six"),
+    ("·Pea", "a", "pea"),
+    ("u7", None, "none"),
+)
+_INDEX_UNITS_C: _IndexUnits = tuple(
+    (unit_id, class_id, f"{summary}, again" if unit_id == "u1" else summary)
+    for unit_id, class_id, summary in _INDEX_UNITS_B
+)
+_INDEX_UNITS_F: _IndexUnits = (
+    *((unit_id, class_id, f"{summary}, wholly rewritten") for unit_id, class_id, summary in _INDEX_UNITS_A),
+    *((f"w{number}", "c", f"added {number}") for number in range(8)),
+)
+# The manifests the cases' corpora hold, two that differ in a component of the identity and one that differs only in an asset component, which leaves the identity as it was.
+_INDEX_MANIFESTS: tuple[dict[str, object], ...] = (
+    {
+        "format": "m",
+        "human_unit_ids": ["u2", "u3"],
+        "batch_size": 2,
+        "inputs_fingerprint": {"code": "x", "static": "s"},
+    },
+    {
+        "format": "m",
+        "human_unit_ids": ["u1", "u2"],
+        "batch_size": 2,
+        "inputs_fingerprint": {"code": "y", "static": "s"},
+    },
+    {
+        "format": "m",
+        "human_unit_ids": ["u2", "u3"],
+        "batch_size": 2,
+        "inputs_fingerprint": {"code": "x", "static": "t"},
+    },
+)
+
+
+def _index_write_files(corpus: Path) -> list[tuple[str, int, str]]:
+    """Each regular file directly under `corpus` whose name starts with the units index's (`unit_index.INDEX_NAME`), its head, its parts, the single file and any staging file, by name in code-point order, with its size and sha256."""
+    held: list[tuple[str, int, str]] = []
+    for name in sorted(
+        entry.name for entry in corpus.iterdir() if entry.name.startswith(unit_index.INDEX_NAME)
+    ):
+        path = corpus / name
+        if path.is_file():
+            with path.open("rb") as handle:
+                held.append((name, path.stat().st_size, hashlib.file_digest(handle, "sha256").hexdigest()))
+    return held
+
+
+def _index_write_value(written: unit_index.IndexWrite) -> tuple[str, str, int, int]:
+    """What one write of the index did, as `unit_index.IndexWrite` holds it: its outcome, a base's reason, and its rows and their bytes."""
+    return (written.outcome, written.reason, written.rows, written.rows_bytes)
+
+
+def _index_writing(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`unit_index.write_index_lines` as `build._write_sidecars` calls it once the manifest is on disk, recorded as the `index-write` boundary once it returns: the head it committed, the files whose names start with the index's (`_index_write_files`), what it did (`_index_write_value`) and its note; a call from anywhere else records nothing."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code is not build._write_sidecars.__code__:
+        frame = frame.f_back
+    if frame is None:
+        return None
+    corpus = Path(args[0])
+
+    def finish(written: object) -> Boundary:
+        assert isinstance(written, unit_index.IndexWrite)
+        return Boundary(
+            0,
+            {},
+            [
+                {
+                    "key": INDEX_WRITE_HEAD_KEY,
+                    "value": row_delta.head_path(corpus, unit_index.INDEX_NAME).read_bytes(),
+                },
+                {"key": INDEX_WRITE_FILES_KEY, "value": _index_write_files(corpus)},
+                {"key": INDEX_WRITE_OUTCOME_KEY, "value": _index_write_value(written)},
+                {"key": INDEX_WRITE_NOTE_KEY, "value": written.note()},
+            ],
+        )
+
+    return finish
+
+
+def _index_case_lines(
+    units: Iterable[tuple[str, object, str]], manifest: Mapping[str, object]
+) -> list[bytes]:
+    """The index lines a build writes for `units` beside `manifest`, each with the place the manifest gives it (`unit_index.Places`), in key order (`unit_index.index_key`)."""
+    places = unit_index.Places(manifest)
+    lines = [
+        unit_index.index_line(
+            {"id": unit_id, "class": class_id, "cluster": "k", "summary": summary},
+            **unit_index.human_unit_slot(places.positions, places.batch_size, {"id": unit_id}),
+        )
+        for unit_id, class_id, summary in units
+    ]
+    return sorted(lines, key=unit_index.index_key)
+
+
+def _manifest_bytes(manifest: Mapping[str, object]) -> bytes:
+    return (json.dumps(manifest, indent=1) + "\n").encode()
+
+
+def _single_index_file(header: Mapping[str, object], lines: Sequence[bytes]) -> bytes:
+    """The single file a corpus from before the segment format holds: its header line and its lines as one gzip stream."""
+    return gzip.compress(
+        (json.dumps(dict(header)) + "\n").encode() + b"".join(lines), compresslevel=1, mtime=0
+    )
+
+
+def _gzipped_part(data: bytes, name: str) -> bytes:
+    """`data` as one gzip stream at level 1 with mtime 0 naming `name`, as `row_delta.write_part` writes a part."""
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename=name, fileobj=buffer, mode="wb", mtime=0, compresslevel=1) as stream:
+        stream.write(data)
+    return buffer.getvalue()
+
+
+def _index_head(corpus: Path) -> dict:
+    return json.loads(row_delta.head_path(corpus, unit_index.INDEX_NAME).read_bytes())
+
+
+def _put_index_head(corpus: Path, document: Mapping[str, object]) -> None:
+    row_delta.head_path(corpus, unit_index.INDEX_NAME).write_text(json.dumps(document, indent=1) + "\n")
+
+
+def _index_case_edits(corpus: Path, edit: str) -> None:
+    """Make one case's edit to a corpus whose index a write left: a head that does not parse, a head in another format, merging by place, a base cut short or another of its size, a segment whose header names another number, staging and unlisted files of the index's, the single file in place of the head and its parts, that file in another format, not gzipped or cut short, and a manifest that does not parse."""
+    name = unit_index.INDEX_NAME
+    head_path = row_delta.head_path(corpus, name)
+    if edit == "head-unparsed":
+        head_path.write_bytes(b"{not a head\n")
+    elif edit == "head-format":
+        document = _index_head(corpus)
+        document["stamps"] = {**document["stamps"], "format": "ams-review-unit-index/0"}
+        _put_index_head(corpus, document)
+    elif edit == "head-merge":
+        document = _index_head(corpus)
+        del document["merge"]
+        _put_index_head(corpus, document)
+    elif edit in ("base-short", "base-changed"):
+        base = corpus / _index_head(corpus)["base"]["name"]
+        data = base.read_bytes()
+        base.write_bytes(
+            data[:-1]
+            if edit == "base-short"
+            else data[:-9] + bytes(byte ^ 0xFF for byte in data[-9:-8]) + data[-8:]
+        )
+    elif edit == "segment-header":
+        document = _index_head(corpus)
+        segment = document["segments"][0]
+        path = corpus / segment["name"]
+        with gzip.GzipFile(path, mode="rb") as stream:
+            stream.readline()
+            rows = stream.read()
+        header = row_delta.segment_header(name, document["generation"], 2, row_delta.MERGE_KEY)
+        path.write_bytes(_gzipped_part(header + rows, segment["name"]))
+        segment["size"] = path.stat().st_size
+        segment["sha256"] = row_delta.file_sha256(path)
+        _put_index_head(corpus, document)
+    elif edit == "staging":
+        for leftover in (
+            f"{name}.1.base.partial",
+            f"{name}.head.partial",
+            f"{name}.0.7.delta",
+            f"{name}.9.base",
+            f"{name}.x.base",
+        ):
+            (corpus / leftover).write_bytes(b"left\n")
+    elif edit.startswith("single"):
+        for path in corpus.iterdir():
+            if path.name.startswith(name):
+                path.unlink()
+        header = {"format": unit_index.INDEX_FORMAT, "manifest_sha256": "0" * 64}
+        if edit == "single-format":
+            header["format"] = "ams-review-unit-index/0"
+        data = _single_index_file(header, _index_case_lines(_INDEX_UNITS_A, _INDEX_MANIFESTS[0]))
+        if edit == "single-not-gzip":
+            data = b"not gzip\n"
+        elif edit == "single-cut":
+            data = data[: len(data) // 2]
+        unit_index.index_path(corpus).write_bytes(data)
+    elif edit == "manifest-unparsed":
+        (corpus / "manifest.json").write_bytes(b"{not a manifest\n")
+    else:
+        raise ValueError(f"no index case edit {edit!r}")
+
+
+# The `generated:` cases of the `index-write` stage: a name; the unit sets the prior passes wrote in turn, each through `unit_index.write_index_lines` beside the first manifest while the unit store holds the pass's fold, so no prior pass folds; the edits made to the corpus then (`_index_case_edits`); the place of the manifest in `_INDEX_MANIFESTS` the case's write runs beside; the units it writes, in key order unless the name ends in `unsorted`; and the output whose fold claim this process holds as the case's write runs, or None.
+_INDEX_CASES: tuple[
+    tuple[str, tuple[_IndexUnits, ...], tuple[str, ...], int, _IndexUnits, str | None], ...
+] = (
+    ("first", (), (), 0, _INDEX_UNITS_A, None),
+    ("first-empty", (), (), 0, (), None),
+    ("first-unsorted", (), (), 0, _INDEX_UNITS_A, None),
+    ("head-alone", (_INDEX_UNITS_A,), (), 0, _INDEX_UNITS_A, None),
+    ("head-restamped", (_INDEX_UNITS_A,), (), 1, _INDEX_UNITS_A, None),
+    ("head-assets", (_INDEX_UNITS_A,), (), 2, _INDEX_UNITS_A, None),
+    ("segment", (_INDEX_UNITS_A,), (), 1, _INDEX_UNITS_B, None),
+    ("segment-second", (_INDEX_UNITS_A, _INDEX_UNITS_B), (), 1, _INDEX_UNITS_C, None),
+    ("segment-tombstones", (_INDEX_UNITS_A,), (), 0, (), None),
+    ("segment-unsorted", (_INDEX_UNITS_A,), (), 1, _INDEX_UNITS_B, None),
+    ("fold", (_INDEX_UNITS_A, _INDEX_UNITS_F), (), 0, _INDEX_UNITS_B, None),
+    ("fold-unchanged", (_INDEX_UNITS_A, _INDEX_UNITS_F), (), 0, _INDEX_UNITS_F, None),
+    ("fold-unsorted", (_INDEX_UNITS_A, _INDEX_UNITS_F), (), 0, _INDEX_UNITS_B, None),
+    ("fold-held", (_INDEX_UNITS_A, _INDEX_UNITS_F), (), 0, _INDEX_UNITS_B, unit_index.STORE_NAME),
+    ("fold-own", (_INDEX_UNITS_A, _INDEX_UNITS_F), (), 0, _INDEX_UNITS_B, unit_index.INDEX_NAME),
+    (
+        "forced",
+        (_INDEX_UNITS_A, *((_INDEX_UNITS_B, _INDEX_UNITS_C) * 10), _INDEX_UNITS_B),
+        (),
+        0,
+        _INDEX_UNITS_C,
+        unit_index.STORE_NAME,
+    ),
+    (
+        "fold-many",
+        (_INDEX_UNITS_A, *((_INDEX_UNITS_B, _INDEX_UNITS_C) * 8)),
+        (),
+        0,
+        _INDEX_UNITS_B,
+        None,
+    ),
+    ("unusable-head", (_INDEX_UNITS_A,), ("head-unparsed",), 0, _INDEX_UNITS_B, None),
+    ("unusable-format", (_INDEX_UNITS_A,), ("head-format",), 0, _INDEX_UNITS_B, None),
+    ("unusable-merge", (_INDEX_UNITS_A,), ("head-merge",), 0, _INDEX_UNITS_B, None),
+    ("unusable-short", (_INDEX_UNITS_A,), ("base-short",), 0, _INDEX_UNITS_B, None),
+    ("unusable-changed", (_INDEX_UNITS_A,), ("base-changed",), 0, _INDEX_UNITS_B, None),
+    ("unusable-segment", (_INDEX_UNITS_A, _INDEX_UNITS_B), ("segment-header",), 0, _INDEX_UNITS_C, None),
+    ("staging", (_INDEX_UNITS_A,), ("staging",), 0, _INDEX_UNITS_B, None),
+    ("single", (), ("single",), 0, _INDEX_UNITS_B, None),
+    ("single-same", (), ("single",), 0, _INDEX_UNITS_A, None),
+    ("single-format", (), ("single-format",), 0, _INDEX_UNITS_B, None),
+    ("single-not-gzip", (), ("single-not-gzip",), 0, _INDEX_UNITS_B, None),
+    ("single-cut", (), ("single-cut",), 0, _INDEX_UNITS_B, None),
+    ("manifest-unparsed", (_INDEX_UNITS_A,), ("manifest-unparsed",), 0, _INDEX_UNITS_B, None),
+)
+
+
+def _index_write_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `index-write` stage's generated lines: for each case of `_INDEX_CASES`, a corpus holding the case's manifest and the index its prior passes wrote, each pass a pass of its own whose fold the unit store holds, with the case's edits made, and then `unit_index.write_index_lines` over the case's lines under the case's claim, under `generated:<name>`. Each line's input is the files the corpus holds before the write, its lines and the output whose claim the process holds; its value what the write did and its note (`_index_write_value`), or the class and text of what it raised, the files the corpus holds then (`_files_held`) and the counts lines it appended."""
+    for name, passes, edits, manifest_at, units, holder in _INDEX_CASES:
+        manifest = _INDEX_MANIFESTS[manifest_at]
+        lines = _index_case_lines(units, manifest)
+        if name.endswith("unsorted"):
+            lines.reverse()
+        with tempfile.TemporaryDirectory(prefix="index-write-") as scratch, _counts_named(None):
+            corpus, cycle_dir, counts = (
+                Path(scratch) / "out",
+                Path(scratch) / "cycle",
+                Path(scratch) / "counts",
+            )
+            corpus.mkdir()
+            (corpus / "manifest.json").write_bytes(_manifest_bytes(_INDEX_MANIFESTS[0]))
+            for prior in passes:
+                with _claim_state(cycle_dir, None, unit_index.STORE_NAME):
+                    unit_index.write_index_lines(corpus, _index_case_lines(prior, _INDEX_MANIFESTS[0]))
+            if manifest_at:
+                (corpus / "manifest.json").write_bytes(_manifest_bytes(manifest))
+            for edit in edits:
+                _index_case_edits(corpus, edit)
+            files = {path.name: path.read_bytes() for path in sorted(corpus.iterdir())}
+            counts.write_bytes(b"")
+            outcome: object
+            with _counts_named(counts), _claim_state(cycle_dir, None, holder):
+                try:
+                    written = unit_index.write_index_lines(corpus, lines)
+                    outcome = (*_index_write_value(written), written.note())
+                except (OSError, EOFError, ValueError) as error:
+                    outcome = {"raised": type(error).__name__, "message": str(error)}
+            yield {
+                "key": f"generated:{name}",
+                "input": (files, lines, holder),
+                "value": (outcome, _files_held(corpus), counts.read_bytes()),
+            }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -15090,6 +15388,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         MANIFEST_STAGE,
         {"build._prune_orphan_shards": _manifest_pruning},
         _manifest_generated,
+        run="build",
+        kind="boundary",
+    ),
+    INDEX_WRITE_STAGE: Stage(
+        INDEX_WRITE_STAGE,
+        {"unit_index.write_index_lines": _index_writing},
+        _index_write_generated,
         run="build",
         kind="boundary",
     ),
