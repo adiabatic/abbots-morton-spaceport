@@ -1,7 +1,7 @@
 {
 "page": 3,
 "lines": [
-{"n": 1, "base": [480, 1194, 1245, 1194], "short": 74}
+{"n": 1, "base": [480, 1194, 1245, 1194], "short": 74, "slanted": true}
 ],
 "words": [
 {"id": "p03-w001", "gloss": "", "letters": ["qsThey", "qsSee"], "joins": ["|"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 1, "x": [480, 613], "cuts": [552], "note": "the tail of ·See runs back left under the top of ·They without touching it; cut where the top of ·They ends"},

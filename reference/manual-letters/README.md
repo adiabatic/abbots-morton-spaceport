@@ -4,7 +4,7 @@ Every handwritten Quikscript letter in `reference/Quikscript Manual.pdf`, croppe
 
 - `index.html` is the review page: a section per letter, a subsection per form (full, half, alt), and within a form a group per pair of joins (`| ·Pea.half ~x~`).
 - `crops/<family>/<form>/<word id>-<letter number>.png` are the crops, at the scan's own resolution.
-- `crops.json` describes each crop: the letter, its form and joins, the word it comes from, where the letter sits inside the crop (`letter_x`), the baseline (`baseline_y`), and the Short height (`short`).
+- `crops.json` describes each crop: the letter, its form and joins, the word it comes from, where the letter sits inside the crop (`letter_x`), the baseline (`baseline_y`), the Short height (`short`), and whether its line is written at a slant (`slanted`).
 - `words/pNN.json` is the source of all three: per PDF page, the handwritten words in reading order and where their letters sit on the scan. `tools/manual_letters_words.py` documents the format.
 
 `tools/manual_letters_prefill.py` writes the word lists from `site/the-manual.html`, and `tools/manual_letters.py build` regenerates `crops/`, `crops.json`, and `index.html` from them. The build recompresses the crops with `oxipng -o max`, so rebuild on a machine that has oxipng or every crop shows as changed. Page numbers are PDF pages throughout; the Manual's printed number is two lower from PDF page 5 on.
@@ -52,6 +52,7 @@ A namer dot is a raised dot at mid-height before a name. It is not a letter and 
   - The baseline is the lower of the two parallels, the one Short letters stand on; give its y near the line's left end and near its right end. Tails of Deep letters go below it.
   - `short` is the distance from the baseline up to the upper parallel, where Short letters top out. Tall letters rise well above it, to about twice that height in this hand, and Deep letters drop about as far below the baseline. Where a line has no Short letter to measure, take half the height of a Tall or Deep letter.
   - A word that sits more than about 6 pixels off its line's baseline takes its own `--base Y`.
+  - A line belonging to a passage written at a deliberate slant is marked with `slant PAGE N…`. The Manual writes whole passages either upright or leaning about 15 to 20 degrees to the right, so the mark goes on every line of the passage; a single leaning stroke inside upright writing is not a slant. The review page outlines those crops in blue, labels them, and can show either hand alone.
 - A word (`set ID --line N --x X0 X1 --cuts …`) takes the x of its leftmost and rightmost ink and one cut between each pair of neighboring letters, so a word of three letters has two cuts.
   - Put a cut in the middle of the joining stroke, or in the middle of the gap when the letters do not touch. When one letter overhangs the next, cut where the main body of the first ends and add a `--note`.
   - A step (the small zig-zag the Manual puts between some halved letters) belongs to the join: cut through the middle of it.

@@ -1,6 +1,6 @@
 """The word lists of the Manual letter survey: their file format, their checks, and the edits that fill them in.
 
-A word list (`reference/manual-letters/words/pNN.json`) covers one page of `reference/Quikscript Manual.pdf`. Its `lines` are the handwriting lines, each with a number `n`, a baseline `base` as `[x_left, y_left, x_right, y_right]`, and `short`, the height in pixels of a Short letter on that line. Its `words` are the handwritten words in reading order. A word carries its letters (`qsPea`, `qsPea.half`, `qsNo.alt`), the join after each letter but the last (`b`, `x`, `t`, `6`, `+` for a pair the font ligates, `|` for none), the `line` it sits on, its horizontal extent `x`, and `cuts`, one x between each pair of neighboring letters. An optional `base` overrides the line's baseline y for that word. Coordinates are pixels of the page's embedded scan, origin at the top left.
+A word list (`reference/manual-letters/words/pNN.json`) covers one page of `reference/Quikscript Manual.pdf`. Its `lines` are the handwriting lines, each with a number `n`, a baseline `base` as `[x_left, y_left, x_right, y_right]`, and `short`, the height in pixels of a Short letter on that line; a line of a passage written at a deliberate slant also carries `slanted: true`. Its `words` are the handwritten words in reading order. A word carries its letters (`qsPea`, `qsPea.half`, `qsNo.alt`), the join after each letter but the last (`b`, `x`, `t`, `6`, `+` for a pair the font ligates, `|` for none), the `line` it sits on, its horizontal extent `x`, and `cuts`, one x between each pair of neighboring letters. An optional `base` overrides the line's baseline y for that word. Coordinates are pixels of the page's embedded scan, origin at the top left.
 
 `tools/manual_letters_prefill.py` writes the lists from the HTML transcription and `tools/manual_letters.py` reads them; this module imports nothing outside the standard library so both can use it.
 """
@@ -83,7 +83,18 @@ def editing(page: int) -> Iterator[dict[str, Any]]:
 def set_line(page: int, n: int, base: list[int], short: int) -> None:
     with editing(page) as data:
         kept = [line for line in data["lines"] if line["n"] != n]
-        data["lines"] = [*kept, {"n": n, "base": base, "short": short}]
+        old = next((line for line in data["lines"] if line["n"] == n), {})
+        data["lines"] = [*kept, {**old, "n": n, "base": base, "short": short}]
+
+
+def set_slanted(page: int, numbers: list[int], slanted: bool) -> None:
+    """Mark the numbered lines of a page as written at a deliberate slant, or as upright."""
+    with editing(page) as data:
+        lines = {line["n"]: line for line in data["lines"]}
+        for n in numbers:
+            lines[n].pop("slanted", None)
+            if slanted:
+                lines[n]["slanted"] = True
 
 
 def set_word(word_id: str, **fields: Any) -> None:

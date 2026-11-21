@@ -13,6 +13,7 @@
 
     uv run tools/manual_letters.py line 16 2 --base 150 606 2000 606 --short 33        # record a handwriting line
     uv run tools/manual_letters.py set p16-w005 --line 2 --x 396 483 --cuts 424 452  # place a word's letters
+    uv run tools/manual_letters.py slant 26 1 2 3 4                                   # mark lines as written at a slant
     uv run tools/manual_letters.py batch tmp/p16.txt                                  # many `line` and `set` commands from a file
 
 `tools/manual_letters_words.py` documents the word-list format. A crop's frame hangs off the baseline, so every crop shows the same band above and below the writing line. `build` recompresses the crops with `oxipng -o max` when oxipng is installed, which is how the checked-in crops are stored.
@@ -44,6 +45,7 @@ from manual_letters_words import (
     family_order,
     load_page,
     set_line,
+    set_slanted,
     set_word,
     split_form,
     unplaced,
@@ -109,6 +111,7 @@ def placed_letters(data: dict[str, Any]) -> list[dict[str, Any]]:
                     "x1": x1,
                     "base": round(base),
                     "short": line["short"],
+                    "slanted": bool(line.get("slanted")),
                     "left": word["joins"][i - 1] if i else "|",
                     "right": word["joins"][i] if i < count - 1 else "|",
                     "prev_x0": edges[i - 1] if i else None,
@@ -298,6 +301,7 @@ def build() -> None:
                 "letter_x": [first["x0"] - frame[0], last["x1"] - frame[0]],
                 "baseline_y": first["base"] - frame[1],
                 "short": first["short"],
+                "slanted": first["slanted"],
                 "notation": word_notation(word, range(first["index"], last["index"] + 1)),
             }
 
@@ -455,8 +459,25 @@ figure {
     }
   }
 }
+figure.slanted .frame {
+  border-color: #1d4ed8;
+  outline: 1px solid #1d4ed8;
+
+  .lean {
+    position: absolute;
+    top: 0;
+    right: 0;
+    padding: 0 0.3rem;
+    background: #1d4ed8;
+    color: white;
+    font-size: 0.65rem;
+    font-style: italic;
+  }
+}
 body:has(#show-letter:not(:checked)) figure .frame::before,
-body:has(#show-lines:not(:checked)) figure .frame::after {
+body:has(#show-lines:not(:checked)) figure .frame::after,
+body:has(#hand option[value="upright"]:checked) figure.slanted,
+body:has(#hand option[value="slanted"]:checked) figure:not(.slanted) {
   display: none;
 }
 </style>
@@ -467,12 +488,16 @@ body:has(#show-lines:not(:checked)) figure .frame::after {
 
 def render_groups(out: list[str], title: str, anchor: str, records: list[dict[str, Any]]) -> None:
     """Append one form's subsection: a heading, then a group of figures per pair of joins."""
-    out.append(f'<h3 id="{anchor}">{html.escape(title)} <span class="count">{len(records)}</span></h3>')
+    leaning = sum(r["slanted"] for r in records)
+    count = f"{len(records)}, {leaning} slanted" if leaning else str(len(records))
+    out.append(f'<h3 id="{anchor}">{html.escape(title)} <span class="count">{count}</span></h3>')
     contexts = sorted(
         {(r["left"], r["right"]) for r in records}, key=lambda c: (JOIN_RANK[c[0]], JOIN_RANK[c[1]])
     )
     for left, right in contexts:
-        group = [r for r in records if (r["left"], r["right"]) == (left, right)]
+        group = sorted(
+            (r for r in records if (r["left"], r["right"]) == (left, right)), key=lambda r: r["slanted"]
+        )
         heading = f"{JOIN_TEXT[left]} {title} {JOIN_TEXT[right]}"
         out.append(f'<h4><code>{html.escape(heading)}</code> <span class="count">{len(group)}</span></h4>')
         out.append('<div class="crops">')
@@ -481,8 +506,10 @@ def render_groups(out: list[str], title: str, anchor: str, records: list[dict[st
             gloss = f"{html.escape(r['gloss'])} " if r["gloss"] else ""
             source = "" if r["src"] == "expect" else " · joins unattested"
             note = f'<span class="note">{html.escape(r["note"])}</span>' if r["note"] else ""
+            lean = '<span class="lean">slanted</span>' if r["slanted"] else ""
             out.append(
-                f'<figure style="{style}"><div class="frame"><img loading="lazy" src="{r["file"]}" alt=""></div>'
+                f'<figure{' class="slanted"' if r["slanted"] else ""} style="{style}">'
+                f'<div class="frame"><img loading="lazy" src="{r["file"]}" alt="">{lean}</div>'
                 f'<figcaption>{gloss}<code>{r["notation"]}</code> <span class="where">{r["word"]}{source}</span>{note}</figcaption></figure>'
             )
         out.append("</div>")
@@ -503,6 +530,8 @@ def render_html(records: list[dict[str, Any]]) -> str:
         '<div class="controls">'
         '<label><input type="checkbox" id="show-letter" checked> highlight the letter</label>'
         '<label><input type="checkbox" id="show-lines" checked> baseline and Short height</label>'
+        '<label>hand <select id="hand"><option value="all">upright and slanted</option>'
+        '<option value="upright">upright only</option><option value="slanted">slanted only</option></select></label>'
         '<label>zoom <input type="range" id="zoom" min="0.5" max="3" step="0.25" value="1"></label>'
         f'<span class="count">{len(records)} crops</span>'
         "</div>"
@@ -577,6 +606,10 @@ def run(argv: list[str]) -> None:
     place.add_argument("--joins", nargs="*", help="the join after each letter but the last: b x t 6 + or |")
     place.add_argument("--gloss")
     place.add_argument("--note")
+    slant = commands.add_parser("slant", help="mark lines as written at a deliberate slant")
+    slant.add_argument("page", type=int)
+    slant.add_argument("lines", type=int, nargs="+")
+    slant.add_argument("--upright", action="store_true", help="clear the mark instead")
     batch = commands.add_parser(
         "batch", help="run the commands in a file, one per text line, `#` starting a comment"
     )
@@ -601,6 +634,8 @@ def run(argv: list[str]) -> None:
         if args.base is not None:
             fields["base"] = args.base or None
         set_word(args.word, **fields)
+    elif args.command == "slant":
+        set_slanted(args.page, args.lines, not args.upright)
     elif args.command == "batch":
         for number, text in enumerate(args.file.read_text(encoding="utf-8").splitlines(), 1):
             words = shlex.split(text, comments=True)
