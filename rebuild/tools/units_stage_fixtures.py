@@ -5,6 +5,7 @@ A stage runs the worker or the build (`Stage.run`). The worker's stages (`STAGES
 The build's stages (`BUILD_STAGES`):
 
 - `build-input` is a boundary stage that records no hooked call: `build_dump` records the values it writes `build.json` from, a line a field under `input:<field>`, and the size of each audit part the build holds under `audit.held`, which the Rust side reads through the descriptors it inherits.
+- `sink` records each `output_sink.write_output`, `replace_output` and `note_rewritten` call the build makes (`_sink_call`), keyed by its origin, the call and a digest of its inputs: the target's name, what it `held` before the call, the `payload` as its kind and the sha256 of the bytes the call writes (a writer's read from the target once it has run, or the bytes the call kept), the `sha256` a writer is kept against, `keep_if_equal` and the state of the counts file the call found (`counts_file`); and as its outputs what the call `returned`, the `counts` lines it appended and what it left at the target, `after`. Every file's bytes are kept once under their sha256 in `sink.blobs/` beside the stage file (`SINK_BLOBS`), from which the Rust side sets each target up again in a scratch directory and makes the call itself. Its generated lines (`_sink_cases`) put every call and payload kind to missing, equal, differing, FIFO, directory and linked targets, with and without the compare, with each state of the counts file, and `output_sink.replacing`, which the build reaches only through `row_delta.StreamedPart`.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -61,11 +62,13 @@ import functools
 import gzip
 import hashlib
 import importlib
+import inspect
 import json
 import os
 import pickle
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -3658,7 +3661,11 @@ DUMP_INIT = "init"
 BUILD_INPUT_FILE = "build.json"
 BUILD_INPUT_STAGE = "build-input"
 # The build's calls a build stage can record, by name, as `HOOKS` names the worker's: each is the module and the attribute path the wrapper replaces for the length of a build. The task that adds a stage adds the hook points it records.
-BUILD_HOOKS: dict[str, tuple[str, str]] = {}
+BUILD_HOOKS: dict[str, tuple[str, str]] = {
+    "output_sink.write_output": ("rebuild.pipeline.output_sink", "write_output"),
+    "output_sink.replace_output": ("rebuild.pipeline.output_sink", "replace_output"),
+    "output_sink.note_rewritten": ("rebuild.pipeline.output_sink", "note_rewritten"),
+}
 
 
 @dataclass(frozen=True)
@@ -3688,9 +3695,417 @@ class BuildSource:
         }
 
 
+SINK_STAGE = "sink"
+# The `sink` stage's directory, beside its stage file, of the bytes its lines name by sha256: what a target held, what a call writes and the source it copies.
+SINK_BLOBS = "sink.blobs"
+# The `output_sink` calls the `sink` stage records, by the name `BUILD_HOOKS` gives each, with the signature that binds a hooked call's arguments.
+_SINK_SIGNATURES = {
+    f"output_sink.{name}": inspect.signature(getattr(output_sink, name))
+    for name in ("write_output", "replace_output", "note_rewritten")
+}
+# The blob directory of the build whose `sink` stage records, for the length of that build (`_sink_blobs_at`).
+_SINK_BLOBS_AT: list[Path] = []
+# A generated payload past one chunk of `output_sink`'s compare (`output_sink._CHUNK`).
+SINK_LARGE_BYTES = 300_000
+
+
+@contextlib.contextmanager
+def _sink_blobs_at(directory: Path) -> Iterator[None]:
+    _SINK_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _SINK_BLOBS_AT.pop()
+
+
+def _blob_into(directory: Path, data: bytes) -> str:
+    """Keep `data` under `directory` named by its sha256, once, and return the digest."""
+    digest = hashlib.sha256(data).hexdigest()
+    path = directory / digest
+    if not path.exists():
+        directory.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+    return digest
+
+
+def _sink_held(target: Path, blobs: Path) -> tuple[tuple, int | None]:
+    """What `target` holds before a call, as a `sink` line's `held` names it, with a file's bytes kept in `blobs`: `("missing",)`, `("absent",)` when its directory is missing too, `("file", sha256)`, `("fifo",)`, `("directory",)`, `("link", "null")` for a link to the null device or `("link", "file", sha256)`; and its inode, None when there is nothing there."""
+    try:
+        found = os.lstat(target)
+    except FileNotFoundError:
+        return ("missing",) if target.parent.is_dir() else ("absent",), None
+    mode = found.st_mode
+    if stat.S_ISLNK(mode):
+        if os.readlink(target) == os.devnull:
+            held: tuple = ("link", "null")
+        else:
+            held = ("link", "file", _blob_into(blobs, target.read_bytes()))
+    elif stat.S_ISREG(mode):
+        held = ("file", _blob_into(blobs, target.read_bytes()))
+    elif stat.S_ISFIFO(mode):
+        held = ("fifo",)
+    elif stat.S_ISDIR(mode):
+        held = ("directory",)
+    else:
+        raise ValueError(f"the sink stage cannot set {target} up again")
+    return held, found.st_ino
+
+
+def _sink_state(target: Path, held: int | None) -> tuple:
+    """What a call left at `target`, by `lstat`: its kind, a file's sha256 (through a link to one), and whether it is still the inode `held` (None when the call found nothing there)."""
+    try:
+        found = os.lstat(target)
+    except FileNotFoundError:
+        return ("missing",)
+    kept = None if held is None else found.st_ino == held
+    mode = found.st_mode
+    if stat.S_ISLNK(mode):
+        if os.readlink(target) == os.devnull:
+            return ("link", "null", kept)
+        return ("link", "file", hashlib.sha256(target.read_bytes()).hexdigest(), kept)
+    if stat.S_ISREG(mode):
+        return ("file", hashlib.sha256(target.read_bytes()).hexdigest(), kept)
+    if stat.S_ISFIFO(mode):
+        return ("fifo", kept)
+    if stat.S_ISDIR(mode):
+        return ("directory", kept)
+    return ("other", kept)
+
+
+def _counts_state(path: str | None) -> tuple[str, bytes | None]:
+    """The counts file a call finds, as a `sink` line's `counts_file` names it (`none` when no file is named, `missing`, `present`), and what it holds."""
+    if not path:
+        return "none", None
+    try:
+        return "present", Path(path).read_bytes()
+    except FileNotFoundError:
+        return "missing", None
+
+
+def _counts_appended(path: str | None, counted: bytes | None) -> str | None:
+    """What a call appended to the counts file it found holding `counted`, or None when no counts file is there after it."""
+    if not path:
+        return None
+    try:
+        after = Path(path).read_bytes()
+    except FileNotFoundError:
+        return None
+    before = counted or b""
+    if not after.startswith(before):
+        raise ValueError(f"the counts file {path} changed other than by appending")
+    return after[len(before) :].decode()
+
+
+def _sink_line(
+    origin: str,
+    inputs: Mapping[str, object],
+    target: Path | None,
+    held: int | None,
+    counts: str | None,
+    counted: bytes | None,
+    returned: object,
+) -> dict[str, object]:
+    """One `sink` line, keyed by its origin and a digest of its inputs: the inputs, and as its outputs what the call `returned`, what it appended to the counts file (`counts`) and the target's state after it with whether a staging file is left (`after`, None for `note_rewritten`)."""
+    after = (
+        None
+        if target is None
+        else (
+            _sink_state(target, held),
+            os.path.lexists(target.with_name(target.name + output_sink.STAGING_SUFFIX)),
+        )
+    )
+    digest = hashlib.sha1(compact(encode(dict(inputs))).encode("ascii")).hexdigest()[:20]
+    return {
+        "key": f"{origin}:{inputs['call']}:{digest}",
+        **inputs,
+        "returned": returned,
+        "counts": _counts_appended(counts, counted),
+        "after": after,
+    }
+
+
+def _sink_inputs(
+    call: str,
+    target: Path | None,
+    held: tuple | None,
+    payload: tuple,
+    sha256: str | None,
+    keep_if_equal: bool,
+    counts_file: str,
+) -> dict[str, object]:
+    """A `sink` line's inputs: the call, the target's name, what it held, the payload as its kind and the sha256 of its bytes (or `("output", name)` for `note_rewritten`), the `sha256` a writer is kept against, `keep_if_equal`, and the counts file's state."""
+    return {
+        "call": call,
+        "name": None if target is None else target.name,
+        "held": held,
+        "payload": payload,
+        "sha256": sha256,
+        "keep_if_equal": keep_if_equal,
+        "counts_file": counts_file,
+    }
+
+
+def _sink_call(hook: str) -> Recorder:
+    """The `sink` recorder of one `output_sink` call: what the target and the counts file held before it, the bytes it writes (a writer's read from the target once it has run, or, when the call kept the target, the bytes it kept), and what it returned and left."""
+    signature = _SINK_SIGNATURES[hook]
+    call = hook.removeprefix("output_sink.")
+
+    def record(args: tuple, kwargs: dict) -> Finisher:
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+        arguments = bound.arguments
+        blobs = _SINK_BLOBS_AT[-1]
+        counts = os.environ.get(output_sink.OUTPUT_COUNTS_ENV)
+        counts_file, counted = _counts_state(counts)
+        if call == "note_rewritten":
+            inputs = _sink_inputs(call, None, None, ("output", arguments["output"]), None, False, counts_file)
+            return lambda result: _sink_line("run", inputs, None, None, counts, counted, result)
+        target = Path(arguments["target"])
+        held, inode = _sink_held(target, blobs)
+        data, source = arguments["data"], arguments.get("source")
+        if data is not None:
+            raw = data.encode("utf-8") if isinstance(data, str) else data
+            payload: tuple | None = ("str" if isinstance(data, str) else "bytes", _blob_into(blobs, raw))
+        elif source is not None:
+            payload = ("source", _blob_into(blobs, Path(source).read_bytes()))
+        else:
+            payload = None
+
+        def finish(result: object) -> dict[str, object]:
+            written = payload
+            if written is None:
+                written = ("writer", _blob_into(blobs, target.read_bytes()) if result else held[-1])
+            inputs = _sink_inputs(
+                call,
+                target,
+                held,
+                written,
+                arguments.get("sha256"),
+                arguments["keep_if_equal"],
+                counts_file,
+            )
+            return _sink_line("run", inputs, target, inode, counts, counted, result)
+
+        return finish
+
+    return record
+
+
+class _Refused(Exception):
+    """What a generated `sink` case's writer or block raises after it has written, to leave the target as it was."""
+
+
+@dataclass(frozen=True)
+class _SinkCase:
+    """One generated `sink` case: the call and its payload's kind and value, the target's state before it (`_sink_target`), `keep_if_equal`, the `sha256` a writer is kept against, and the counts file's state; `note_rewritten`'s `output` in place of a payload."""
+
+    call: str
+    kind: str
+    payload: bytes | str = b""
+    held: str = "missing"
+    held_bytes: bytes = b""
+    keep: bool = False
+    sha256: str | None = None
+    counts: str = "present"
+
+
+def _sink_helds(payload: bytes) -> list[tuple[str, str, bytes]]:
+    """Each target state a generated case sets up against `payload`, with a label: missing, in a missing directory, the payload's bytes, other bytes of every size relation to them, a FIFO, a directory, a link to the null device and links to a file of the payload's bytes or others."""
+    helds = [
+        ("missing", "missing", b""),
+        ("absent", "absent", b""),
+        ("equal", "file", payload),
+        ("longer", "file", payload + b"x"),
+        ("fifo", "fifo", b""),
+        ("directory", "directory", b""),
+        ("link-null", "link-null", b""),
+        ("link-equal", "link-file", payload),
+        ("link-other", "link-file", payload + b"x"),
+    ]
+    if payload:
+        helds += [
+            ("shorter", "file", payload[:-1]),
+            ("differs-last", "file", payload[:-1] + bytes([payload[-1] ^ 1])),
+            ("differs-first", "file", bytes([payload[0] ^ 1]) + payload[1:]),
+        ]
+    return helds
+
+
+def _sink_cases() -> Iterator[_SinkCase]:
+    """The generated `sink` cases: each call and payload kind over every target state of `_sink_helds`, with and without `keep_if_equal` (but `replacing`, which never compares, and `write_output` over a FIFO, which blocks with no reader), a writer kept against a digest the target does not have, each counts file state, and `note_rewritten`."""
+    large = bytes((index * 31 + index // 251) % 256 for index in range(SINK_LARGE_BYTES))
+    payloads = {"empty": b"", "small": b"head\n", "large": large}
+    calls: list[tuple[str, str, list[bytes | str]]] = [
+        ("write_output", "bytes", list(payloads.values())),
+        ("write_output", "str", ["\xe9 \xfcn\xefcode ·Pea\n"]),
+        ("replace_output", "bytes", list(payloads.values())),
+        ("replace_output", "str", ["\xe9 \xfcn\xefcode ·Pea\n"]),
+        ("replace_output", "source", list(payloads.values())),
+        ("replace_output", "writer", list(payloads.values())),
+        ("replace_output", "writer-raises", [payloads["small"]]),
+        ("replacing", "stream", list(payloads.values())),
+        ("replacing", "stream-raises", [payloads["small"]]),
+    ]
+    for call, kind, values in calls:
+        for value in values:
+            raw = value.encode("utf-8") if isinstance(value, str) else value
+            for _label, held, held_bytes in _sink_helds(raw):
+                if call == "write_output" and held == "fifo":
+                    continue
+                for keep in (False,) if call == "replacing" else (False, True):
+                    sha256 = hashlib.sha256(raw).hexdigest() if keep and kind.startswith("writer") else None
+                    yield _SinkCase(call, kind, value, held, held_bytes, keep, sha256)
+    small = payloads["small"]
+    for held in ("equal", "longer"):
+        yield _SinkCase(
+            "replace_output",
+            "writer",
+            small,
+            "file",
+            small if held == "equal" else small + b"x",
+            True,
+            hashlib.sha256(b"other").hexdigest(),
+        )
+    for counts in ("none", "missing"):
+        for call, kind, keep in (
+            ("write_output", "bytes", True),
+            ("replace_output", "bytes", True),
+            ("replace_output", "writer", True),
+            ("replacing", "stream", False),
+        ):
+            for held, held_bytes in (("missing", b""), ("file", small)):
+                sha256 = hashlib.sha256(small).hexdigest() if kind == "writer" else None
+                yield _SinkCase(call, kind, small, held, held_bytes, keep, sha256, counts)
+    for counts in ("present", "none", "missing"):
+        for output in ("unit-cache.ndjson.gz", "units-index.ndjson.gz"):
+            yield _SinkCase("note_rewritten", "output", output, counts=counts)
+
+
+def _sink_target(directory: Path, case: _SinkCase) -> Path:
+    """Set the case's target up under `directory` as its `held` names: nothing, nothing in a missing directory, a file, a FIFO, a directory, or a link to the null device or to a sibling file."""
+    directory.mkdir(parents=True)
+    name = "target.out"
+    if case.held == "absent":
+        return directory / "absent" / name
+    target = directory / name
+    if case.held == "file":
+        target.write_bytes(case.held_bytes)
+    elif case.held == "fifo":
+        os.mkfifo(target)
+    elif case.held == "directory":
+        target.mkdir()
+    elif case.held == "link-null":
+        target.symlink_to(os.devnull)
+    elif case.held == "link-file":
+        (directory / f"{name}.linked").write_bytes(case.held_bytes)
+        target.symlink_to(f"{name}.linked")
+    return target
+
+
+@contextlib.contextmanager
+def _counts_named(path: Path | None) -> Iterator[None]:
+    """Name `path` as the counts file (`output_sink.OUTPUT_COUNTS_ENV`), or none, for the length of the block."""
+    held = os.environ.pop(output_sink.OUTPUT_COUNTS_ENV, None)
+    if path is not None:
+        os.environ[output_sink.OUTPUT_COUNTS_ENV] = str(path)
+    try:
+        yield
+    finally:
+        os.environ.pop(output_sink.OUTPUT_COUNTS_ENV, None)
+        if held is not None:
+            os.environ[output_sink.OUTPUT_COUNTS_ENV] = held
+
+
+def _sink_make(case: _SinkCase, target: Path, source: Path) -> object:
+    """Make the case's call over `target` and return what it returned."""
+    raw = case.payload.encode("utf-8") if isinstance(case.payload, str) else case.payload
+    if case.call == "write_output":
+        return output_sink.write_output(target, case.payload, keep_if_equal=case.keep)
+    if case.call == "replacing":
+        with output_sink.replacing(target) as handle:
+            handle.write(raw)
+            if case.kind == "stream-raises":
+                raise _Refused
+        return None
+    if case.kind == "source":
+        source.write_bytes(raw)
+        return output_sink.replace_output(target, source=source, keep_if_equal=case.keep)
+    if case.kind.startswith("writer"):
+
+        def fill(staging: Path) -> None:
+            staging.write_bytes(raw)
+            if case.kind == "writer-raises":
+                raise _Refused
+
+        return output_sink.replace_output(target, writer=fill, sha256=case.sha256, keep_if_equal=case.keep)
+    return output_sink.replace_output(target, case.payload, keep_if_equal=case.keep)
+
+
+def _sink_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `sink` stage's generated lines (`_sink_cases`), each made through `output_sink` over a target set up in a directory of its own, with its bytes kept in the dump's blob directory."""
+    blobs = source.out / SINK_BLOBS
+    with tempfile.TemporaryDirectory(prefix="sink-generated-") as held:
+        scratch = Path(held)
+        for index, case in enumerate(_sink_cases()):
+            counts = None if case.counts == "none" else scratch / f"{index}.counts"
+            if case.counts == "present":
+                assert counts is not None
+                counts.write_bytes(b"")
+            with _counts_named(counts):
+                counts_file, counted = _counts_state(None if counts is None else str(counts))
+                if case.call == "note_rewritten":
+                    assert isinstance(case.payload, str)
+                    inputs = _sink_inputs(
+                        case.call, None, None, ("output", case.payload), None, False, counts_file
+                    )
+                    output_sink.note_rewritten(case.payload)
+                    yield _sink_line(
+                        "generated",
+                        inputs,
+                        None,
+                        None,
+                        None if counts is None else str(counts),
+                        counted,
+                        None,
+                    )
+                    continue
+                target = _sink_target(scratch / str(index), case)
+                held_state, inode = _sink_held(target, blobs)
+                raw = case.payload.encode("utf-8") if isinstance(case.payload, str) else case.payload
+                inputs = _sink_inputs(
+                    case.call,
+                    target,
+                    held_state,
+                    (case.kind, _blob_into(blobs, raw)),
+                    case.sha256,
+                    case.keep,
+                    counts_file,
+                )
+                try:
+                    returned = _sink_make(case, target, scratch / f"{index}.source")
+                except OSError, _Refused:
+                    returned = ("raised",)
+                yield _sink_line(
+                    "generated",
+                    inputs,
+                    target,
+                    inode,
+                    None if counts is None else str(counts),
+                    counted,
+                    returned,
+                )
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
+    SINK_STAGE: Stage(
+        SINK_STAGE,
+        {hook: _sink_call(hook) for hook in _SINK_SIGNATURES},
+        _sink_generated,
+        outputs=("returned", "counts", "after"),
+        run="build",
+    ),
 }
 
 
@@ -3878,6 +4293,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         json.dumps(source.describe(cloned, init), indent=1) + "\n", encoding="ascii"
     )
     sink = _Sink(out, stages, source.every) if stages else None
+    shutil.rmtree(out / SINK_BLOBS, ignore_errors=True)
     try:
         with tempfile.TemporaryDirectory(prefix="build-stage-dump-", dir=out) as scratch:
             built = Path(scratch) / "out"
@@ -3888,7 +4304,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     if any(stage.name == BUILD_INPUT_STAGE for stage in stages):
                         sink.record(BUILD_INPUT_STAGE, build_input_boundary(values, held))
                     _clone_tree(prior, built)
-                    with wrapped(stages, sink, BUILD_HOOKS):
+                    with wrapped(stages, sink, BUILD_HOOKS), _sink_blobs_at(out / SINK_BLOBS):
                         _build_here(source, built)
         if sink is not None:
             for stage in stages:
@@ -3943,7 +4359,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
         sink = _Sink(built.out, stages, built.every)
         try:
             _clone_tree(_build_prior(built), recorded)
-            with wrapped(stages, sink, BUILD_HOOKS):
+            with wrapped(stages, sink, BUILD_HOOKS), _sink_blobs_at(built.out / SINK_BLOBS):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:
             sink.close()

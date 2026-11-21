@@ -1,4 +1,4 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]); and the descriptors a parent passes the process, taken as files ([`inherited_files`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]), and its resident peak and resident set, which the build's phase lines carry ([`peak_rss_self_bytes`], [`resident_bytes`]); and the descriptors a parent passes the process, taken as files ([`inherited_files`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
@@ -638,7 +638,7 @@ unsafe extern "C" {
 }
 
 /// `getrusage`'s `ru_maxrss` in bytes, which Darwin reports in bytes and Linux in KiB (`peak_rss.peak_rss_self_bytes`), or 0 when it cannot be read.
-fn peak_rss_self_bytes() -> u64 {
+pub fn peak_rss_self_bytes() -> u64 {
     let mut usage = rusage {
         ru_utime: [0; 2],
         ru_stime: [0; 2],
@@ -672,6 +672,9 @@ const RUSAGE_INFO_V4: c_int = 4;
 const LIFETIME_MAX_PHYS_FOOTPRINT: usize = 28;
 
 #[cfg(target_os = "macos")]
+const RESIDENT_SIZE: usize = 6;
+
+#[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn getpid() -> c_int;
     fn proc_pid_rusage(pid: c_int, flavor: c_int, buffer: *mut c_void) -> c_int;
@@ -692,6 +695,29 @@ pub fn peak_footprint() -> u64 {
     } else {
         peak_rss_self_bytes()
     }
+}
+
+/// This process's resident set now, as `peak_rss.current_rss_bytes` reads it with `ps -o rss=`: `proc_pid_rusage`'s `ri_resident_size`, the task's resident size `ps` reports, or None when it cannot be read.
+#[cfg(target_os = "macos")]
+pub fn resident_bytes() -> Option<u64> {
+    let mut info = rusage_info_v4 {
+        ri_uuid: [0; 16],
+        ri_fields: [0; 35],
+    };
+    // SAFETY: `info` is a writable `rusage_info_v4`, the flavor proc_pid_rusage fills.
+    let status =
+        unsafe { proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (&raw mut info).cast::<c_void>()) };
+    (status == 0).then_some(info.ri_fields[RESIDENT_SIZE])
+}
+
+/// This process's resident set now, as `peak_rss.current_rss_bytes` reads it from `/proc/self/statm`'s resident pages times the page size: `/proc/self/status`'s `VmRSS`, the same count in KiB, or None when it cannot be read.
+#[cfg(not(target_os = "macos"))]
+pub fn resident_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    status.lines().find_map(|line| {
+        let kib = line.strip_prefix("VmRSS:")?.trim().strip_suffix("kB")?;
+        kib.trim().parse::<u64>().ok().map(|kib| kib * 1024)
+    })
 }
 
 /// This process's peak footprint as `peak_rss.peak_footprint_self_bytes` reads it: `/proc/self/status`'s `VmHWM` where it can be read, else the resident peak.
@@ -717,6 +743,14 @@ mod tests {
         let held = vec![1u8; 32 << 20];
         assert!(peak_footprint() >= held.len() as u64);
         assert!(peak_rss_self_bytes() > 0);
+    }
+
+    #[test]
+    fn the_resident_set_holds_what_this_process_touched_and_stays_under_the_resident_peak() {
+        let held = std::hint::black_box(vec![1u8; 32 << 20]);
+        let now = resident_bytes().expect("the resident set reads");
+        assert!(now >= held.len() as u64, "{now}");
+        assert!(now <= peak_rss_self_bytes(), "{now}");
     }
 
     #[test]

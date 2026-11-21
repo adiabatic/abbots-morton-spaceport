@@ -1,6 +1,6 @@
 //! The `ams-review` library: the review corpus build's unit recompute, which the `ams-review` binary serves. `rebuild/CORPUS-UNITS-PORT-PLAN.md` is the design, and § Boundary there holds the formats the binary reads and writes.
 //!
-//! The library reads the settlement model through the kernel crate's public API (`ams_m1_kernel`) and never edits it. It shapes through the HarfBuzz `build.rs` compiles in, maps the subset pack through the C library's `mmap`, deflates fragments through the system zlib, reads its peak footprint through the C library and takes the descriptors a parent passes it, and `ffi`, which declares all five, is the only module that allows `unsafe`. [`unit`] is the worker, and [`service`] serves it over the frames of § Boundary. [`corpus`] is the build's parent, which `rebuild/CORPUS-PARENT-PORT-PLAN.md` ports beside it.
+//! The library reads the settlement model through the kernel crate's public API (`ams_m1_kernel`) and never edits it. It shapes through the HarfBuzz `build.rs` compiles in, maps the subset pack through the C library's `mmap`, deflates fragments through the system zlib, reads its peak footprint and resident set through the C library and takes the descriptors a parent passes it, and `ffi`, which declares all five, is the only module that allows `unsafe`. [`unit`] is the worker, and [`service`] serves it over the frames of § Boundary. [`corpus`] is the build's parent, which `rebuild/CORPUS-PARENT-PORT-PLAN.md` ports beside it.
 
 #![deny(unsafe_code)]
 
