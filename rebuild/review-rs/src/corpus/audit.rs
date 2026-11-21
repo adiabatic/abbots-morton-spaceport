@@ -167,7 +167,7 @@ fn offset(position: i64) -> io::Result<u64> {
 }
 
 /// `os.pread(descriptor, length, position)`: one read of at most `length` bytes at `position`, fewer at the file's end.
-fn pread(file: &File, length: i64, position: i64) -> io::Result<Vec<u8>> {
+pub(crate) fn pread(file: &File, length: i64, position: i64) -> io::Result<Vec<u8>> {
     let mut buffer = vec![0; length.max(0) as usize];
     let at = offset(position)?;
     loop {
@@ -613,7 +613,7 @@ pub fn audit_layout(
     })
 }
 
-fn stage_line(out: &mut impl Write, key: &str, value: &PyValue) -> Result<()> {
+pub(crate) fn stage_line(out: &mut impl Write, key: &str, value: &PyValue) -> Result<()> {
     writeln!(
         out,
         "{{\"key\":{},\"value\":{}}}",
@@ -623,39 +623,32 @@ fn stage_line(out: &mut impl Write, key: &str, value: &PyValue) -> Result<()> {
     .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
 }
 
-fn items<'a>(value: &'a PyValue, what: &str) -> Result<&'a [PyValue]> {
+pub(crate) fn items<'a>(value: &'a PyValue, what: &str) -> Result<&'a [PyValue]> {
     match value {
         PyValue::Tuple(items) | PyValue::List(items) => Ok(items),
         other => error(format!("{what} is {}, not a tuple", other.kind())),
     }
 }
 
-fn text<'a>(value: &'a PyValue, what: &str) -> Result<&'a str> {
+pub(crate) fn text<'a>(value: &'a PyValue, what: &str) -> Result<&'a str> {
     match value {
         PyValue::Str(text) => Ok(text),
         other => error(format!("{what} is {}, not a str", other.kind())),
     }
 }
 
-fn integer(value: &PyValue, what: &str) -> Result<i64> {
+pub(crate) fn integer(value: &PyValue, what: &str) -> Result<i64> {
     match value {
         PyValue::Int(number) => Ok(*number),
         other => error(format!("{what} is {}, not an int", other.kind())),
     }
 }
 
-/// A generated line's audit: the path its messages name, and each part's blob, opened, with its member index or None.
-struct GeneratedAudit {
-    path: String,
-    files: Vec<File>,
-    indexes: Vec<Option<Vec<Member>>>,
-}
+/// An audit's parts opened, base first, beside each one's member index or None.
+pub(crate) type HeldParts = (Vec<File>, Vec<Option<Vec<Member>>>);
 
-/// The audit a generated line's input names, its parts' blobs opened from `blobs`.
-fn generated_audit(input: &PyValue, blobs: &Path) -> Result<GeneratedAudit> {
-    let [path, parts] = items(input, "the input")? else {
-        return error("the input is not a path and parts");
-    };
+/// The parts a generated line names, each a blob's sha256 with its member index or None, base first: each blob opened from `blobs`, checked against its name, beside its member index.
+pub(crate) fn generated_parts(parts: &PyValue, blobs: &Path) -> Result<HeldParts> {
     let mut files = Vec::new();
     let mut indexes = Vec::new();
     for part in items(parts, "the parts")? {
@@ -696,6 +689,22 @@ fn generated_audit(input: &PyValue, blobs: &Path) -> Result<GeneratedAudit> {
             ),
         });
     }
+    Ok((files, indexes))
+}
+
+/// A generated line's audit: the path its messages name, and each part's blob, opened, with its member index or None.
+struct GeneratedAudit {
+    path: String,
+    files: Vec<File>,
+    indexes: Vec<Option<Vec<Member>>>,
+}
+
+/// The audit a generated line's input names, its parts' blobs opened from `blobs`.
+fn generated_audit(input: &PyValue, blobs: &Path) -> Result<GeneratedAudit> {
+    let [path, parts] = items(input, "the input")? else {
+        return error("the input is not a path and parts");
+    };
+    let (files, indexes) = generated_parts(parts, blobs)?;
     Ok(GeneratedAudit {
         path: text(path, "the audit's path")?.to_owned(),
         files,

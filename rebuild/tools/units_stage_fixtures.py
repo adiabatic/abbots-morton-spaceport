@@ -12,6 +12,7 @@ The build's stages (`BUILD_STAGES`):
 - `row-delta-read` records each `row_delta.read_head`, `open_parts` and `check_segment_header` call the build makes, each read again by the recorder before the call runs, so a refusal is recorded too, keyed by its origin, its `form` and a digest of its `input`: `read-head` with the output and what its head's path holds and, as its `value`, `("none",)`, `("head", document)` (`Head.document`) or `("refused", message)`; `check-segment-header` with the header line, output, generation, number and merge and `("checked",)` or a refusal; and `open-parts` with the head's document, `sha256` and what each part's path holds, and `("opened",)` or a refusal, followed, for a head that opens and merges by place or is the units index's, by a `part-rows` line a part, its kind (`base`, `place` or `key`), output, generation, number and file, and a `merge` line over all of them, by key with each payload's key as `unit_index.index_key` gave it to the merge (`_merge_outcome`), each valued `("rows", count, sha256)` over its rows' typed encodings (`_rows_outcome`) or `("raised", class, message)`. A refusal's text leaves out what `json.loads` raised (`_JSON_DETAIL`). Every part's bytes are kept once under their sha256 in `row-delta-read.blobs/` beside the stage file (`ROW_DELTA_BLOBS`). Its generated lines (`_row_delta_generated`) put heads to every refusal of `parse_head` and `Part.parse` and every value `int` and `str` take leniently (`_head_cases`), header lines to every refusal of `check_segment_header` (`_segment_header_cases`), heads to missing, resized and rehashed parts (`_open_parts_cases`), bases, segments by place and by key to every row, header and gzip refusal (`_part_rows_cases`), merges by place and by key to superseded, revived and out-of-order rows (`_merge_cases`), and parts held as gzip members to every refusal of `row_delta._Inflating`, read as an `inflating` line a buffer of `INFLATE_READ_BYTES` at a time (`_inflating_cases`, `_inflated`).
 - `row-delta-write` records each call the build makes to `row_delta`'s writers and the rules that route them, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `places-between` with the bounds and the count and the places or what it raised; `row-line`, `row-length` and `segment-header` with the row or the header's fields and the line, its length or the header line; `write-part` with the part's name, gzip name, what its target held (`("missing",)` or `("file", sha256)`), its plain bytes, read back from the part it wrote, the cuts its `fill` wrote them in and the rows `fill` returned, `write-segment` with its output, generation, number, what its target held and its rows, read back from the segment it wrote, and `streamed-part`, a gzipped `row_delta.StreamedPart`'s `close`, with its name, header, what its target held and the bytes written past its header, each valued its part's document or what it raised, with what its target and its staging file hold after; `commit` with the head's document, the directory's entries by kind (`_entries`) and what the head's path held, valued the names it removed, the head file and whether the file was kept (its inode and modification time unchanged); `remove-unlisted` and `remove-staging` with their arguments and the directory's entries, valued the names removed; `writes-base`, `fold-due` and `fold-forced` with their arguments, valued the decision; `claim-fold` with the output, the cycle's run, what the claim file in the cycle's directory held and the output this process held its claim for there, valued the claim, the claim file and the holder after; and `with-segment` with the head's and the part's documents and the stamps, valued the head's document. Every file's bytes are kept once under their sha256 in `row-delta-write.blobs/` beside the stage file (`ROW_DELTA_WRITE_BLOBS`). Its generated lines (`_row_delta_write_generated`) cut places at the edges, around each power of 36, past 128 bits and from fractions `int(text, 36)` reads leniently or refuses (`_places_cases`), write parts under every kind of gzip name, past the gzip writer's buffer and with a failing `fill` (`_write_part_cases`), segments with rows out of place order (`_write_segment_cases`) and streamed parts closed and abandoned (`_streamed_cases`), commit heads over directories of listed, unlisted, near-miss, staging, linked and Unicode-digit names (`_part_entries`), decide the fold over segment counts around the cap and the overrun (`_fold_cases`), and claim the fold with no run, this run's claim and another run's (`_claim_cases`, `_claim_state`).
 - `audit-layout` is a boundary stage that records the build's `audit.audit_layout` call (`_layout_found`, hooked where `build` imports it) under `layout`: what it finds, an `audit.AuditLayout` of the sections, the reason or none and the byte the base's rows start at, which the Rust side finds again over the audit its build input names, read through the descriptors it inherits. Its generated lines (`_audit_layout_generated`) are keyed by a digest of their input, the path messages name and each part's blob with its member index, and valued what `audit_layout` finds or `("raised", class, message)` for its `ValueError` and `MemberError`; every part's bytes are kept once under their sha256 in `audit-layout.blobs/` beside the stage file (`AUDIT_LAYOUT_BLOBS`). They cover single files (`_layout_plain_cases`: no header, headers that end in a carriage return, are not UTF-8 or are another, sections in order and out of it, a stray row at each place in a section, rows past several line probes, configurations that are not UTF-8) and audits under a head (`_layout_head_cases`: the mini audit as `oracle.AuditWriter` writes it, a plain base with segments held as gzip members, plain segments, a folded base, then segments and header members made by hand that fail each check).
+- `stream` is a boundary stage that walks the audit again in lockstep (`audit_stream.lockstep`) over the descriptors, sections and family keys of the build's stream (`_stream_walked`, hooked where `build` imports `stream_workload`), a window a unit (`WalkedBoundary`): its record under `value` (`_stream_record`: the window, its rows as the walk yields them, its family lines, whether it holds siblings, each row's signature key as `%016x` and the input key of its lines in order), and how the walk ended under `end`, `("done",)` or `("raised", class, message)` for an `OrderBreak` or a `MemberError`; and, when the build runs its key-only read, that read's `audit_stream.window_ranges` call under `ranges` (`_ranges_split`): its count and each range with its walk, the windows it holds, the sha256 of their `(window, rows)` entries and how it ended (`_walk_digest`). Its generated lines (`_stream_generated`) are keyed by a digest of their input, each part's blob with its member index, the sections `audit.audit_layout` finds over them and the counts `STREAM_SPLITS`, and valued every window's record, how the walk ended, and the ranges each count splits the windows into with each range's walk, or what the split raised; every part's bytes are kept once under their sha256 in `stream.blobs/` beside the stage file (`STREAM_BLOBS`). They walk `audit-layout`'s generated audits that are in sorted sections, the stream's own (`_stream_plain_cases`: windows shared across configurations with and without siblings, every kind of break inside a section, windows that are not canonical, and a section past `audit_stream.READ_BYTES`; `_stream_head_cases`: segments that supersede, remove, revive and add rows, unknown configurations across parts, segment lines of every refused kind, a segment section past `audit_stream.SEGMENT_READ_BYTES`, member sections that break or fail, and a base held as members past a read), and two audits whose last section runs past its part (`_stream_truncated`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -71,6 +72,7 @@ import hashlib
 import importlib
 import io
 import inspect
+import itertools
 import json
 import math
 import os
@@ -420,12 +422,21 @@ def write_units_file(source: Source, out: Path) -> None:
 # --- stages and the wrapped run -----------------------------------------------------------------
 
 
+# The fields of a boundary stage's column line (`column_line`), which `compare` checks on a `column:` line in place of the stage's outputs.
+COLUMN_FIELDS = ("values", "sha256")
+
+
+def column_entry(value: object) -> bytes:
+    """One value's canonical bytes in a column's digest: its typed encoding as one compact JSON line (`compact`, `encode`) and a newline."""
+    return compact(encode(value)).encode("ascii") + b"\n"
+
+
 def column_line(name: str, values: Iterable[object]) -> dict[str, object]:
-    """A boundary stage's line for one column, under `column:<name>`: how many values it holds and the sha256 of its canonical bytes, each value's typed encoding as one compact JSON line (`compact`, `encode`) and a newline, in the column's order. The Rust side digests its column the same way."""
+    """A boundary stage's line for one column, under `column:<name>`: how many values it holds and the sha256 of its canonical bytes, each value's `column_entry`, in the column's order. The Rust side digests its column the same way."""
     digest = hashlib.sha256()
     count = 0
     for value in values:
-        digest.update(compact(encode(value)).encode("ascii") + b"\n")
+        digest.update(column_entry(value))
         count += 1
     return {"key": f"column:{name}", "values": count, "sha256": digest.hexdigest()}
 
@@ -447,8 +458,32 @@ class Boundary:
         yield from self.extra
 
 
-# A recorder sees one call's positional and keyword arguments before the call runs and returns None, to record nothing, or a finisher, which receives the call's result and returns what to record: for a call stage the fields of the line, a list of such fields for a call that records one line per item, or None; for a boundary stage a `Boundary`, or None.
-Finisher = Callable[[object], Mapping[str, object] | list[Mapping[str, object]] | Boundary | None]
+@dataclass(frozen=True)
+class WalkedBoundary:
+    """A boundary whose units are too many to hold, such as the audit's windows, walked once in order rather than read by ordinal: `walk` gives each unit's value under every name of `columns`, in order, and appends its own further lines to the list it is handed once it ends. `lines` writes what `Boundary.lines` writes, a unit line for every `every`th unit, a line a column (`column_line`) and then the further lines."""
+
+    columns: tuple[str, ...]
+    walk: Callable[[list[Mapping[str, object]]], Iterator[Mapping[str, object]]]
+
+    def lines(self, every: int) -> Iterator[Mapping[str, object]]:
+        digests = {name: hashlib.sha256() for name in self.columns}
+        ended: list[Mapping[str, object]] = []
+        count = 0
+        for values in self.walk(ended):
+            if count % every == 0:
+                yield {"key": f"unit:{count}", **{name: values[name] for name in self.columns}}
+            for name, digest in digests.items():
+                digest.update(column_entry(values[name]))
+            count += 1
+        for name, digest in digests.items():
+            yield {"key": f"column:{name}", "values": count, "sha256": digest.hexdigest()}
+        yield from ended
+
+
+# A recorder sees one call's positional and keyword arguments before the call runs and returns None, to record nothing, or a finisher, which receives the call's result and returns what to record: for a call stage the fields of the line, a list of such fields for a call that records one line per item, or None; for a boundary stage a `Boundary` or a `WalkedBoundary`, or None.
+Finisher = Callable[
+    [object], Mapping[str, object] | list[Mapping[str, object]] | Boundary | WalkedBoundary | None
+]
 Recorder = Callable[[tuple, dict], Finisher | None]
 
 
@@ -2163,12 +2198,14 @@ class _Sink:
         self._lock = threading.Lock()
 
     def record(
-        self, stage: str, recorded: Mapping[str, object] | list[Mapping[str, object]] | Boundary
+        self,
+        stage: str,
+        recorded: Mapping[str, object] | list[Mapping[str, object]] | Boundary | WalkedBoundary,
     ) -> None:
-        """Write what one of the run's calls recorded for `stage`: a call stage's line or lines, or a boundary stage's `Boundary`; either kind recording the other's form raises TypeError."""
-        if isinstance(recorded, Boundary) != (self._kinds[stage] == "boundary"):
+        """Write what one of the run's calls recorded for `stage`: a call stage's line or lines, or a boundary stage's `Boundary` or `WalkedBoundary`; either kind recording the other's form raises TypeError."""
+        if isinstance(recorded, Boundary | WalkedBoundary) != (self._kinds[stage] == "boundary"):
             raise TypeError(f"the {stage} stage records {self._kinds[stage]} lines, not {recorded!r:.80}")
-        if isinstance(recorded, Boundary):
+        if isinstance(recorded, Boundary | WalkedBoundary):
             lines: Iterable[Mapping[str, object]] = recorded.lines(self._every)
         else:
             lines = recorded if isinstance(recorded, list) else [recorded]
@@ -3718,6 +3755,8 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
         )
     },
     "build.audit_layout": ("rebuild.review.build", "audit_layout"),
+    "build.stream_workload": ("rebuild.review.build", "stream_workload"),
+    "audit_stream.window_ranges": ("rebuild.review.audit_stream", "window_ranges"),
 }
 
 
@@ -6855,6 +6894,377 @@ def _audit_layout_generated(source: BuildSource) -> Iterator[Mapping[str, object
             yield _layout_line(blobs, parts)
 
 
+STREAM_STAGE = "stream"
+# The `stream` stage's directory, beside its stage file, of the audit parts its generated lines name by sha256.
+STREAM_BLOBS = "stream.blobs"
+# The key of the `stream` line for how the build's walk ended.
+STREAM_END_KEY = "end"
+# The key of the `stream` line for the build's window ranges, each with its walk.
+STREAM_RANGES_KEY = "ranges"
+# The counts a generated audit's windows are split into (`audit_stream.window_ranges`): none, one, and either side of the key-only read's width.
+STREAM_SPLITS = (0, 1, 2, 3, 6, 9)
+# A big generated audit's last field this long puts its section past `audit_stream.READ_BYTES`.
+STREAM_LONG_FIELD = 500
+_STREAM_WORKLOAD = inspect.signature(audit.stream_workload)
+_WINDOW_RANGES = inspect.signature(audit_stream.window_ranges)
+
+
+def _stream_record(family: audit_stream.FamilyLines, window: str, rows: list) -> tuple:
+    """A window's record in the `stream` stage: the window and its rows as `audit_stream.lockstep` yields them, its family lines (`FamilyLines.suffix`), whether it holds siblings (`sibling_window`), each row's signature key as `%016x` (`signature_key`), and the input key of its lines in order, as hex (`input_key`)."""
+    suffix = family.suffix(audit_stream.parse_window(window))
+    return (
+        window,
+        rows,
+        suffix,
+        audit_stream.sibling_window(rows),
+        tuple(f"{audit_stream.signature_key(fields, suffix):016x}" for _index, fields, _line in rows),
+        audit_stream.input_key((line for _index, _fields, line in rows), suffix).hex(),
+    )
+
+
+class _Walk:
+    """`audit_stream.lockstep` over `sections` from `low` to `high`, each window with its rows in turn, ending at the first `OrderBreak` or `MemberError`, which `end` then holds as `("raised", class, message)`, or `("done",)` once the windows run out."""
+
+    def __init__(
+        self,
+        descriptors: Sequence[int],
+        sections: Sequence[audit_stream.Section],
+        low: audit_stream.WindowKey | None = None,
+        high: audit_stream.WindowKey | None = None,
+    ) -> None:
+        self._descriptors = descriptors
+        self._sections = sections
+        self._low = low
+        self._high = high
+        self.end: tuple = ("done",)
+
+    def __iter__(self) -> Iterator[tuple[str, list]]:
+        try:
+            yield from audit_stream.lockstep(self._descriptors, self._sections, self._low, self._high)
+        except (audit_stream.OrderBreak, audit_stream.MemberError) as error:
+            self.end = ("raised", type(error).__name__, str(error))
+
+
+def _walk_digest(walk: _Walk) -> tuple[int, str, tuple]:
+    """How many windows a walk gives, the sha256 of their `(window, rows)` entries (`column_entry`), and how it ended."""
+    digest = hashlib.sha256()
+    count = 0
+    for window, rows in walk:
+        digest.update(column_entry((window, rows)))
+        count += 1
+    return count, digest.hexdigest(), walk.end
+
+
+def _split_walks(
+    descriptors: Sequence[int], sections: Sequence[audit_stream.Section], ranges: Iterable[tuple]
+) -> tuple:
+    """Each window range `(low, high)` with its walk (`_walk_digest`), as a key-only read process walks it."""
+    return tuple((low, high, _walk_digest(_Walk(descriptors, sections, low, high))) for low, high in ranges)
+
+
+def _stream_walked(args: tuple, kwargs: dict) -> Finisher:
+    """The build's stream (`audit.stream_workload`) recorded as the `stream` boundary: the audit walked again in lockstep through the descriptors the build holds, over the sections and family keys the stream reads, each window's record (`_stream_record`) a unit under the `value` column, and how the walk ended under `STREAM_END_KEY`."""
+    arguments = _STREAM_WORKLOAD.bind(*args, **kwargs).arguments
+    descriptors, sections = arguments["descriptors"], arguments["sections"]
+    family = audit_stream.FamilyLines(arguments["family_of"], arguments["family_keys"])
+
+    def walk(ended: list[Mapping[str, object]]) -> Iterator[Mapping[str, object]]:
+        stream = _Walk(descriptors, sections)
+        for window, rows in stream:
+            yield {"value": _stream_record(family, window, rows)}
+        ended.append({"key": STREAM_END_KEY, "value": stream.end})
+
+    return lambda _result: WalkedBoundary(("value",), walk)
+
+
+def _ranges_split(args: tuple, kwargs: dict) -> Finisher:
+    """The key-only read's `audit_stream.window_ranges` call, recorded in the `stream` boundary under `STREAM_RANGES_KEY`: its count and each range it gives with that range's walk (`_split_walks`)."""
+    arguments = _WINDOW_RANGES.bind(*args, **kwargs).arguments
+    descriptors, sections, count = arguments["descriptors"], arguments["sections"], arguments["count"]
+
+    def finish(ranges: object) -> Boundary:
+        assert isinstance(ranges, list), f"window_ranges returned {ranges!r:.80}"
+        value = (count, _split_walks(descriptors, sections, ranges))
+        return Boundary(0, {}, [{"key": STREAM_RANGES_KEY, "value": value}])
+
+    return finish
+
+
+def _dump_family(source: BuildSource) -> audit_stream.FamilyLines:
+    """The family lines of the dump's build input (`BUILD_INPUT_FILE`), whose family keys the Rust side reads."""
+    document = json.loads((source.out / BUILD_INPUT_FILE).read_text(encoding="ascii"))
+    return audit_stream.FamilyLines(
+        {int(value): name for value, name in document["family_of"]}, document["family_keys"]
+    )
+
+
+def _stream_line(
+    blobs: Path,
+    parts: Sequence[tuple[bytes, Sequence[row_delta.Member] | None]],
+    family: audit_stream.FamilyLines,
+    adjust: Callable[[list[audit_stream.Section]], list[audit_stream.Section]] | None = None,
+) -> dict | None:
+    """One generated `stream` line over an audit's parts, each kept in `blobs` and read through a descriptor opened there, base first, with its member index or None: the sections `audit.audit_layout` finds, through `adjust` when given, every window's record (`_stream_record`), how the walk ended, and for each of `STREAM_SPLITS` the ranges `audit_stream.window_ranges` gives with each range's walk (`_split_walks`), or what it raised. Its input is each part's blob with its index as `(section, length, inflated)` tuples, the sections and the counts. None for an audit the layout refuses or finds out of sorted sections, which no stream reads."""
+    held = [(_blob_into(blobs, data), None if index is None else tuple(index)) for data, index in parts]
+    indexes = tuple(index for _digest, index in held)
+    descriptors = [os.open(blobs / digest, os.O_RDONLY) for digest, _index in held]
+    try:
+        try:
+            layout = audit.audit_layout(
+                descriptors, LAYOUT_AUDIT_PATH, None if all(index is None for index in indexes) else indexes
+            )
+        except ValueError, audit_stream.MemberError:
+            return None
+        if layout.sections is None:
+            return None
+        sections = tuple(layout.sections if adjust is None else adjust(layout.sections))
+        stream = _Walk(descriptors, sections)
+        records = tuple(_stream_record(family, window, rows) for window, rows in stream)
+        splits: list[tuple[int, tuple]] = []
+        for count in STREAM_SPLITS:
+            try:
+                ranges = audit_stream.window_ranges(descriptors, sections, count)
+            except audit_stream.MemberError as error:
+                splits.append((count, ("raised", "MemberError", str(error))))
+            else:
+                splits.append((count, ("ranges", _split_walks(descriptors, sections, ranges))))
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+    inputs = (
+        tuple(
+            (digest, None if index is None else tuple(tuple(member) for member in index))
+            for digest, index in held
+        ),
+        sections,
+        STREAM_SPLITS,
+    )
+    digest = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"generated:{digest}", "input": inputs, "value": (records, stream.end, tuple(splits))}
+
+
+def _stream_row(config: str, window: str, new: bytes = b"n", baseline: bytes = b"b") -> bytes:
+    return f"{config}\t{window}\tcell\tentry\t".encode() + baseline + b"\t" + new + b"\n"
+
+
+def _stream_audit(rows: Iterable[tuple[str, str, bytes, bytes]]) -> bytes:
+    """A single-file audit of `(config, window, baseline, new)` rows in sorted sections: by configuration rank, then window (`audit_stream.window_key`)."""
+    configs: list[str] = list(ACCEPTANCE_CONFIGS)
+    ordered = sorted(rows, key=lambda row: (configs.index(row[0]), audit_stream.window_key(row[1])))
+    header = ("\t".join(audit.AUDIT_HEADER) + "\n").encode()
+    return header + b"".join(
+        _stream_row(config, window, new, baseline) for config, window, baseline, new in ordered
+    )
+
+
+# Rows over several configurations that share windows, some naming one (baseline, new) pair and some two, among windows that cite ligature families and a code point with no family.
+STREAM_SIBLINGS: tuple[tuple[str, str, bytes, bytes], ...] = (
+    ("default", "E650", b"b", b"a"),
+    ("default", "0041:E650", b"b", b"a"),
+    ("default", "E650:E653", b"b", b"a"),
+    ("default", "E653:E67A", b"b", b"a"),
+    ("default", "E651:E67A:E653", b"b", b"a"),
+    ("ss03", "E650", b"b", b"a"),
+    ("ss03", "E652", b"b", b"a"),
+    ("ss03", "E650:E653", b"b", "néw ·Day".encode()),
+    ("ss05", "E650:E653", b"c", b"a"),
+    ("ss05", "E653:E67A", b"b", b"a"),
+    ("ss10", "E653:E67A", b"b", b"z"),
+    ("ss10", "E651:E67A:E653", b"b", b"a"),
+)
+
+
+def _stream_long(count: int) -> list[bytes]:
+    """`count` `default` rows in window order, two code points a window, each ending in a field of `STREAM_LONG_FIELD` bytes."""
+    windows = [
+        f"{first:04X}:{second:04X}" for first in range(0xE650, 0xE67F) for second in range(0xE650, 0xE67F)
+    ]
+    return [_stream_row("default", window, b"x" * STREAM_LONG_FIELD) for window in windows[:count]]
+
+
+def _stream_plain_cases() -> Iterator[bytes]:
+    """The generated single-file audits the stream walks: windows shared across configurations with and without siblings; a window repeated, decreasing, or shorter after a longer one; a row with five or seven fields, a blank row, a carriage return and bytes that are not UTF-8 inside a section, the last row's cut short; windows that are not canonical; and a section past `audit_stream.READ_BYTES`, whole, with bytes that are not UTF-8 past its first read, and with a stray row there."""
+    header = ("\t".join(audit.AUDIT_HEADER) + "\n").encode()
+    yield _stream_audit(STREAM_SIBLINGS)
+    yield _stream_audit(row for row in STREAM_SIBLINGS if row[0] != "default")
+
+    def rows(*middle: bytes) -> bytes:
+        return (
+            header
+            + _stream_row("default", "E650")
+            + b"".join(middle)
+            + _stream_row("default", "E659")
+            + _stream_row("ss03", "E650")
+        )
+
+    yield rows(_stream_row("default", "E651"), _stream_row("default", "E651"))
+    yield rows(_stream_row("default", "E652"), _stream_row("default", "E651"))
+    yield header + _stream_row("default", "E650:E650") + _stream_row("default", "E651")
+    yield rows(b"default\tE651\tcell\tentry\tb\n")
+    yield rows(b"default\tE651\tcell\tentry\tb\tn\tmore\n")
+    yield rows(b"\n")
+    yield rows(_stream_row("default", "E651", b"x\ry"))
+    yield rows(_stream_row("default", "E651", b"x\x01\x7f'\"\\y"))
+    for cut in LAYOUT_NOT_UTF8:
+        yield rows(_stream_row("default", "E651", b"x" + cut + b"y"))
+        yield rows(_stream_row("default", "E651", cut))
+    yield header + _stream_row("default", "E650") + _stream_row("default", "E651", b"x\xe2\x82")[:-1]
+    yield header + _stream_row("default", "E650") + _stream_row("default", "E651")[:-1]
+    for window in ("e650", "E65G", "E65", "É650", "E650:E65a", "E650:", "E650::E651", "E6500"):
+        yield header + _stream_row("default", "E650") + _stream_row("default", "E651") + _stream_row(
+            "ss03", "E650"
+        ) + _stream_row("ss03", window)
+    yield header + _stream_row("default", "E65")
+    long = _stream_long(2209)
+    yield header + b"".join(long)
+    past = next(
+        index
+        for index, total in enumerate(itertools.accumulate(len(row) for row in long))
+        if total > audit_stream.READ_BYTES + 3 * len(long[0])
+    )
+    yield header + b"".join(long[:past]) + long[past].replace(b"xxxx", b"x\xffxx", 1) + b"".join(
+        long[past + 1 :]
+    )
+    yield header + b"".join(long[:past]) + long[past].replace(b"default", b"ss03", 1) + b"".join(
+        long[past + 1 :]
+    )
+
+
+def _stream_truncated(sections: list[audit_stream.Section]) -> list[audit_stream.Section]:
+    """The sections with the last one's end moved past its part's end, which a plain cursor reads as the audit ending inside it."""
+    *kept, last = sections
+    return [*kept, last._replace(end=last.end + 9)]
+
+
+def _upsert(config: str, window: str, new: bytes = b"n") -> bytes:
+    return b"+\t" + _stream_row(config, window, new)
+
+
+def _tombstone(config: str, window: str) -> bytes:
+    return f"-\t{config}\t{window}\n".encode()
+
+
+def _stream_head(
+    base: bytes, segments: Sequence[Sequence[tuple[str, bytes]]], members: bool
+) -> list[tuple[bytes, Sequence[row_delta.Member] | None]]:
+    """A plain base and one segment a list of `(config, lines)` sections, each segment's header line first, held as gzip members, a section a member (`_layout_members`), or plain."""
+    parts: list[tuple[bytes, Sequence[row_delta.Member] | None]] = [(base, None)]
+    for number, sections in enumerate(segments, 1):
+        header = row_delta.segment_header(oracle.AUDIT_NAME, 0, number, row_delta.MERGE_PLAIN_KEY)
+        if members:
+            parts.append(_layout_members([("", header), *sections]))
+        else:
+            parts.append((header + b"".join(lines for _config, lines in sections), None))
+    return parts
+
+
+def _stream_head_cases() -> Iterator[list[tuple[bytes, Sequence[row_delta.Member] | None]]]:
+    """The generated audits under a head the stream walks, each with its segments held as gzip members and plain where both apply: segments that supersede, remove, revive and add rows, and configurations held only in a segment; unknown configurations of one rank across three parts; segment lines that are neither an upsert nor a tombstone, a row of another configuration, and bytes that are not UTF-8; a segment section past `audit_stream.SEGMENT_READ_BYTES`; a member section that breaks the walk whole, whose index is off by one byte, or beside a member that does not inflate; and a base held as members whose section is past `audit_stream.READ_BYTES`."""
+    header = ("\t".join(audit.AUDIT_HEADER) + "\n").encode()
+    base = header + b"".join(
+        _stream_row(config, window, b"a")
+        for config, window in (
+            ("default", "E650"),
+            ("default", "E651"),
+            ("default", "E652"),
+            ("default", "E655"),
+            ("ss04", "E650"),
+            ("ss04", "E651"),
+        )
+    )
+    first = [
+        (
+            "default",
+            _upsert("default", "E651", b"b")
+            + _tombstone("default", "E652")
+            + _upsert("default", "E653", b"b")
+            + _tombstone("default", "E659"),
+        ),
+        ("ss03", _upsert("ss03", "E650", b"b") + _upsert("ss03", "E651", b"b")),
+    ]
+    second = [
+        (
+            "default",
+            _upsert("default", "E650", b"c")
+            + _tombstone("default", "E651")
+            + _upsert("default", "E652", b"c")
+            + _tombstone("default", "E653"),
+        ),
+        ("ss03", _tombstone("ss03", "E650")),
+        ("ss10", _upsert("ss10", "E651", b"c")),
+    ]
+    for members in (True, False):
+        yield _stream_head(base, [first], members)
+        yield _stream_head(base, [first, second], members)
+        yield _stream_head(base, [second, first], members)
+    unknown = header + _stream_row("default", "E650") + _stream_row("zz", "E650") + _stream_row("zz", "E652")
+    yield _stream_head(
+        unknown,
+        [
+            [("ss08", _upsert("ss08", "E650") + _upsert("ss08", "E651"))],
+            [("zz", _upsert("zz", "E651") + _tombstone("zz", "E652"))],
+        ],
+        False,
+    )
+    for bad in (
+        b"*\t" + _stream_row("default", "E651"),
+        b"+\tdefault\tE651\tcell\tentry\tb\n",
+        b"-\tdefault\tE651\textra\n",
+        b"-\tdefault\n",
+        b"garbage\n",
+        b"\n",
+        _upsert("ss03", "E651"),
+        _upsert("default", "E651", b"x\xc0\xafy"),
+        _upsert("default", "E651", b"x\ry"),
+        _upsert("default", "E650"),
+    ):
+        lines = _upsert("default", "E650") + bad + _upsert("default", "E659")
+        for members in (True, False):
+            yield _stream_head(base, [[("default", lines)]], members)
+    long = [b"+\t" + row for row in _stream_long(300)]
+    for members in (True, False):
+        yield _stream_head(base, [[("default", b"".join(long))]], members)
+    past = next(
+        index
+        for index, total in enumerate(itertools.accumulate(len(row) for row in long))
+        if total > audit_stream.SEGMENT_READ_BYTES + 2 * len(long[0])
+    )
+    broken = (
+        b"".join(long[:past]) + long[past].replace(b"xxxx", b"x\xe2\x82x", 1) + b"".join(long[past + 1 :])
+    )
+    yield _stream_head(base, [[("default", broken)]], False)
+    repeated = _upsert("default", "E650") + _upsert("default", "E651") + _upsert("default", "E651")
+    segment = row_delta.segment_header(oracle.AUDIT_NAME, 0, 1, row_delta.MERGE_PLAIN_KEY)
+    data, index = _layout_members([("", segment), ("default", repeated), ("ss03", _upsert("ss03", "E650"))])
+    yield [(base, None), (data, index)]
+    yield [
+        (base, None),
+        (data, [index[0], row_delta.Member("default", index[1].length, index[1].inflated + 1), index[2]]),
+    ]
+    yield [(base, None), (_flipped(data, len(data) - 6), index)]
+    big = b"".join(_stream_long(2209))
+    yield [_layout_members([("", header), ("default", big)])]
+    yield [_layout_members([("", header), ("default", big), ("ss03", _stream_row("ss03", "E650"))])]
+
+
+def _stream_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `stream` stage's generated lines (the module docstring), each walked by `audit_stream` over parts kept in the stage's blob directory with the family keys of the dump's build input: `audit-layout`'s generated audits (`_layout_plain_cases`, `_layout_head_cases`) and the stream's own (`_stream_plain_cases`, `_stream_head_cases`), and two with their last section cut short (`_stream_truncated`)."""
+    blobs = source.out / STREAM_BLOBS
+    family = _dump_family(source)
+    lines: list[dict | None] = []
+    for data in (*_layout_plain_cases(), *_stream_plain_cases()):
+        lines.append(_stream_line(blobs, [(data, None)], family))
+    for data in (_stream_audit(STREAM_SIBLINGS), (MINI / "audit.tsv").read_bytes()):
+        lines.append(_stream_line(blobs, [(data, None)], family, _stream_truncated))
+    with tempfile.TemporaryDirectory(prefix="stream-", dir=source.out) as held:
+        scratch = Path(held)
+        with _as_build_child(scratch / "writer"):
+            cases = list(_layout_head_cases(scratch / "audits"))
+        for parts in (*cases, *_stream_head_cases()):
+            lines.append(_stream_line(blobs, parts, family))
+    yield from (line for line in lines if line is not None)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -6927,6 +7337,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         AUDIT_LAYOUT_STAGE,
         {"build.audit_layout": _layout_found},
         _audit_layout_generated,
+        run="build",
+        kind="boundary",
+    ),
+    STREAM_STAGE: Stage(
+        STREAM_STAGE,
+        {"build.stream_workload": _stream_walked, "audit_stream.window_ranges": _ranges_split},
+        _stream_generated,
         run="build",
         kind="boundary",
     ),
@@ -7127,6 +7544,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / ROW_DELTA_WRITE_BLOBS, ignore_errors=True)
     if any(stage.name == AUDIT_LAYOUT_STAGE for stage in stages):
         shutil.rmtree(out / AUDIT_LAYOUT_BLOBS, ignore_errors=True)
+    if any(stage.name == STREAM_STAGE for stage in stages):
+        shutil.rmtree(out / STREAM_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -7409,12 +7828,14 @@ def build_compare(stage: Stage[BuildSource], stages: Path, checked: Sequence[str
 
 
 def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = None) -> bool:
-    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`); a worker stage reads an init written for the dump's source (`_run_worker_stage`), and a build stage the dump's build input with the dump's audit clone held and inherited (`_run_build_stage`), whose document its answer checks see in place of the init."""
+    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, a boundary stage's `column:` line by its count and digest (`COLUMN_FIELDS`), every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`); a worker stage reads an init written for the dump's source (`_run_worker_stage`), and a build stage the dump's build input with the dump's audit clone held and inherited (`_run_build_stage`), whose document its answer checks see in place of the init."""
     outputs = tuple(checked) if checked is not None else stage.outputs
     stage_file = stages / f"{stage.name}.ndjson"
     if not stage_file.is_file():
         raise SystemExit(f"{stage_file} is missing; dump --stage {stage.name} writes it")
-    expected = _answers(stage_file.read_text(encoding="ascii").splitlines(), outputs, str(stage_file))
+    expected = _answers(
+        stage_file.read_text(encoding="ascii").splitlines(), (*outputs, *COLUMN_FIELDS), str(stage_file)
+    )
     units_exec.ensure_built()
     run = _run_build_stage if stage.run == "build" else _run_worker_stage
     init, returncode, stdout, stderr = run(stage, stages, stage_file)
@@ -7427,7 +7848,7 @@ def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = Non
         return False
     actual = _answers(
         stdout.decode("utf-8").splitlines(),
-        (*outputs, *stage.answer_checks),
+        (*outputs, *COLUMN_FIELDS, *stage.answer_checks),
         f"ams-review stage {stage.name}",
     )
     missing = [key for key in expected if key not in actual]
@@ -7438,7 +7859,7 @@ def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = Non
         answer = actual.get(key)
         if answer is None:
             continue
-        for name in outputs:
+        for name in COLUMN_FIELDS if key.startswith("column:") else outputs:
             if name not in fields or name not in answer or not same(fields[name], answer[name]):
                 differing.append((key, name))
         for name, check in stage.answer_checks.items():
