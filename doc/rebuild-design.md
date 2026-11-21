@@ -30,7 +30,6 @@ There is one file per rune, so a pair can be read in two editor panes, as core-i
 glyph_data/
   runes/qsPea.yaml … qsOoze.yaml      one file per letter and ligature
   script.yaml                          registries only, never policy: heights, boundary tokens, feature registry, predicate classes
-  senior_quikscript_kerning.yaml       the flat kerning sidecar (the one exception to locality)
 ```
 
 Until cutover the registry lives at `rebuild/script.yaml`, because the old build reads every `glyph_data/*.yaml` and would take a `glyph_data/script.yaml` for a Senior kerning rule (`rebuild/M1-PLAN.md` §1).
@@ -60,6 +59,7 @@ notes: |                     # optional prose that changes no output (join const
 mono: {bitmap: [...], y_offset: -3}
 stances: { ... }             # §3.1–3.2
 policy: { ... }              # §3.3
+kern: [ ... ]                # §12
 ```
 
 ### 3.1 Stances and ductus parity
@@ -383,7 +383,7 @@ Everything below uses only shapes that the old font's 30,838-line FEA already sh
 | The ss10 overlay | A single-substitution lookup, the ss10 input substitution, staged ahead of formation: every letter's cmap glyph to its anchor-free `.ss10` copy, which is in no formation sequence, marker line, ZWNJ lock class, or settlement input and has no anchor (read-back checks all of this on every build). Under ss10 nothing forms, settles, or attaches (the user's ruling: "ss10 join suppression also means don't ligate"), and no settlement table is built for the configuration (`conform.OVERLAY_CONFIGS`) |
 | `refuse` / `prefer` / `resolve` | Not compiled: they shape the decision table, and the FEA contains only final substitutions |
 | Extensions / stubs / trims / bound shapes | Part of the settled cell's identity (`CellId.adjustments`), so each adjusted cell is its own glyph, drawn at mint time, and the settlement lookup substitutes it directly |
-| Kerning | One class-based PairPos format-2 lookup (global row + pair rows) plus GPOS type-8 contextual kerns. The M1 font emits no kerning yet: `compile_font` passes an empty kerning table |
+| Kerning | One class-based PairPos format-2 lookup over facing pairs (§12). The M1 font emits no kerning yet: `compile_font` passes an empty kerning table |
 | Namer dot | A final `calt` lookup, `m1_namer_dot_word_start`, which `emit_gsub` writes itself: the dot lowers before a Short letter, and an explicit `ignore sub` keeps it from lowering across a ZWNJ |
 
 **The sound factorization is subtables, never per-family lookups.** The §7 GSUB encoding is one settlement lookup, optionally split into per-family **subtables** for size. Subtables share the lookup's single left-to-right pass, so backtrack still sees settled neighbors; the shaping spec defines this within-lookup behavior, and the old font already relies on it. Per-family **lookups** are unsound: each lookup finishes the whole buffer before the next starts, so a rune whose family's lookup runs first would see a raw left neighbor, and because left adjacency between families is cyclic, no lookup order fixes this. The only sound multi-lookup factorization is the two-strata fallback below.
@@ -399,7 +399,7 @@ The designed fallback is two-strata staged-wave emission: stratum 1 over raw fac
 The build writes two diff-stable tables per settlement configuration under `rebuild/out/m1/`, so a change in the font's behavior shows up as a table diff. `rebuild/out/` is gitignored and every build writes these files, leaving one in place only when its bytes come out the same, so a hand edit does not survive a build.
 
 - **The settlement table** (`settlement-<config>.tsv`, one per configuration in `conform.SETTLEMENT_CONFIGS`; the ss10 overlay settles nothing and has none). Each row is one rule: an input rune, a class of settled left glyphs, four raw lookahead classes, the outcome cell, a `joint` flag, and provenance pointers to the YAML records that shaped it. Its diff is the diff of the font's settlement behavior.
-- **The join table** (`joins-<config>.tsv`): one row per reachable pair of adjacent cells, with the join height or `break`, the summed extension, and a kern. The §9 defect gates and the review corpus's table diff read it. The crate writes `kern` as 0 on every row, because the rebuild emits no kerning yet (§12).
+- **The join table** (`joins-<config>.tsv`): one row per reachable pair of adjacent cells, with the join height or `break`, the summed extension, and a `kern` column. The §9 defect gates and the review corpus's table diff read it. The crate writes `kern` as 0 on every row: kerning is resolved outside the tables (§12).
 - **The capability matrices**, one per rune and configuration, are the §3.2 per-rune capability report. They are designed but not emitted. The settlement table's `joint` flag already marks the rows where the left's choice depends on the right context (§6.1).
 
 ## 9. Defect detection
@@ -519,28 +519,28 @@ No sweep reads the settlement table's `joint` flag: the conformance sweep and th
 
 ## 12. Kerning
 
-This section is a design: the rebuild emits no kerning yet. `emit_gpos` writes only cursive attachment, the join table's `kern` column is always 0, and the old font's sidecar `glyph_data/senior_quikscript_kerning.yaml` keeps its name-prefix keys. The oracle reads that sidecar to add the old font's kerns back before it compares positions (`rebuild/pipeline/oracle_positions.py`).
+This section is a design: the rebuild emits no kerning yet. `emit_gpos` writes only cursive attachment, and the old font's sidecar `glyph_data/senior_quikscript_kerning.yaml` keeps its name-prefix keys. The oracle reads that sidecar to normalize the old font's kerns away before it compares positions (`rebuild/pipeline/oracle_positions.py`). `rebuild/KERN-PLAN.md` is the milestone's plan and holds the contracts; this section holds the design facts.
 
-The designed sidecar stays flat, `---`-separated, and editable in a textarea (the one exception to locality), with structured keys instead of name prefixes:
+**Kerning moves only pairs that do not join.** A joined pair's length belongs to `extend` and `contract` (§3.3). A break is a pair of cells whose left has no live exit and whose right has no live entry, so whether a pair can be kerned is a fact about its two glyphs, and the kern lookup holds no glyph with a live facing side.
+
+**A pair's kerning lives in the leading rune's file**, in a top-level `kern:` block beside `policy:`. It is outside `policy` because policy shapes settlement and kerning reads settlement's result.
 
 ```yaml
----
-global: {value: -1}                                   # the 1px tightening for all of Senior; exactly one such record
----
-left: {rune: qsNo, stance: flipped}                   # keyed by resolved stance: the ·No.alt·Pea case
-right: {rune: qsPea}
-value: -2
----
-left: {rune: qsWay}                                   # keyed by cell: the old font's qsWay × qsGay.ex-y0 rule
-right: {rune: qsGay, ex: baseline}
-value: -1
----
-left: {rune: qsHe}
-right: {boundary: zwnj}                               # the contextual kern, GPOS type 8
-value: -3
+kern:
+- {right: {family: qsBay}, by: -2}                                  # every unjoined ·No shape before every unjoined ·Bay shape
+- {stance: flipped, right: {family: qsPea}, by: -2}                 # keyed by this rune's settled stance
+- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}   # keyed by both settled stances
 ```
 
-Each side is a structured reference: a rune, an optional stance, and an optional cell pattern (`en:` or `ex:` with a height). Sides resolve against the reachable-cell inventory at build time, and a key that matches nothing is a build error; in the old font a stale prefix kerns nothing without an error. Because GSUB resolves fully before GPOS, keys on resolved pairs are context-aware at no extra cost: `qsNo.flipped × qsTea.half` encodes the ·It that caused the half. The join table's reachability data is meant to drive the context-only stance pair drill-downs in `site/kerning.html` (`tools/build_kerning_context_pairs.py` computes them from the old font) and a standing corpus check for a resolved pair that wants two different kerns, which would detect the contextual-kern counterexample core-idea leaves open. Compilation: one class-based PairPos format-2 lookup plus the type-8 contextual rows, replacing the old font's one lookup per sidecar rule.
+A record names this rune's side with `stance:`, `entry:`, and `bitmap:`, and the follower's with `right:`, which may name the follower's settled `stance:` and `exit:`. No other record may read a settled right neighbor (§3.4); a kern record may because GSUB resolves fully before GPOS, so both glyphs are settled when kerning is evaluated. The same staging makes a key on a settled pair context-aware at no cost: `flipped` before `half` ·Tea encodes the ·It that caused the half. `by:` is signed whole pixels. The most specific matching record decides a pair's value under §6.2's extensional order, values never add, and `by: 0` cancels a broader record. A record that matches no reachable break is a build error; in the old font a stale prefix kerns nothing without an error.
+
+**The unit is the facing pair.** Cells of a rune that share a facing edge and that the grammar selects together are one side, and a leading side with a following side that some break reaches is a facing pair. The build writes a coverage table with one row per facing pair, its value, and the record that decides it, so a record's whole reach is visible wherever it is set, and the review app's kerning editor draws every facing pair of two runes at once. The old font's `site/kerning.html` shows one context per rule and writes the whole family, which is how a kern set on `·No.alt | ·Tea.half` reaches `·No.alt ~b~ ·Tea`.
+
+**A ligature takes its last component's kern records** through `outgoing` (§ Preserved outgoing strokes), and its own block outranks them. A follower that is a ligature is named explicitly, as in every right-facing list.
+
+**No record names a boundary.** A break at a ZWNJ kerns as the same two shapes kern at any other break, and the Senior tightening is the pixel `tools/build_font.py` trims from every Quikscript letter's advance, so neither is a record.
+
+Compilation: one class-based PairPos format-2 lookup whose classes are the sides, replacing the old font's one lookup per sidecar rule. Kern records stay out of the kernel's spec, so a kern edit reuses the tables and rebuilds only GPOS.
 
 ## 13. Migration
 
@@ -551,7 +551,7 @@ Migration is gated per rune on ductus, checked against black-box extraction from
 3. **Record conversion.** Each old-font record maps to rune records by its label in §4's projection: ANCHOR stances → surface rows and cells; SUPPRESS → refusals; CONTEXT → prefers, row scopes, or nothing at all (tried as nothing first, since most should emerge from settlement); SS → unlocks with their contexts intact; EXT → extend records (parametric or `bind:`-bound); `derive` directives → extend or contract records with required targets. **Allowlist polarity is preserved**: every old positive `select.before`/`after` gate on an exit or entry stance becomes a `toward:`/`from:` row scope, one to one. Without this step, join-count ranking would flip every pair absent from an allowlist (·Roe·It and its hundreds of siblings) from unjoined to joined, which is a systematic inversion and not an incidental mismatch. Context sets become predicate classes (geometric) or rune-local groups (private); kerning keys go through an alias table (`qsNo.alt → qsNo.flipped`); bitmaps, anchors, traits, ligature sequences and the corpus HTML carry over unchanged.
 4. **Deleted on evidence.** The rows of the old font's three override tables (`restore_isolated_form_overrides`, `predecessor_demote_overrides`, `trailing_demote_overrides`), `_PENDING_BK_ENTRY_GUARDS`, and the guard, demote and isolated-restore passes are never converted. The baseline table shows that their behaviors are preserved, or surfaces the divergence for triage, where each one becomes an explicit refuse, prefer or resolve with a written reason.
 5. **Arbitration triage.** Where the old font's outcome rests on modifier-count and emission-order accidents, the new build raises `E-INCOMPARABLE` or `E-AMBIGUOUS`, and the author settles each conflict with the remedy §6.2 gives for its kind, which is a recorded `resolve` only where prefers gathered at two positions collide.
-6. **Acceptance and cutover.** Migration is accepted when the Manual corpus passes under its recorded ss configurations, the conformance gate passes, the table-diff triage is empty, the leak gate is at or below the old font's backlog, and the kerning page's context-only stance pairs are re-recorded. Byte identity with the old font is not a target. Cutover archives the old pipeline and adds the demote-oracle and guard-table chapters to `doc/abandoned-designs/`.
+6. **Acceptance and cutover.** Migration is accepted when the Manual corpus passes under its recorded ss configurations, the conformance gate passes, the table-diff triage is empty, the leak gate is at or below the old font's backlog, and the old font's kerning is carried over (§12). Byte identity with the old font is not a target. Cutover archives the old pipeline and adds the demote-oracle and guard-table chapters to `doc/abandoned-designs/`.
 
 ## 14. Pipeline modules
 

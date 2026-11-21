@@ -12,6 +12,8 @@ The rebuild migrates the cursive-join engine rune by rune and checks each batch 
 
 **`ORACLE_ABSORB_BYTES` waits for absorb readings from passes that load their settle memos.** Its value in `rebuild/tools/artifact_cycle.py` comes from absorbs on passes whose ranges refused their settle memos because the memos listed the ·Vie+Utter ligature the registry dropped (#624), and its comment has the readings. A memo that lists an outcome the spec cannot name loads with the rows holding it dead, and a full replay rewrites it whole. Once the oracle-absorb row of `make job-costs` holds absorbs from passes that load their memos, the constant takes its comment's rule over those readings, and its comment and the reason `doc/parallelism.md` gives for it sitting above `ORACLE_SHARD_BYTES` change with it.
 
+**Kerning is planned and unbuilt.** `rebuild/KERN-PLAN.md` holds the design the author ruled on, the order of work, and three open questions: where a glyph with no rune file keeps its kerning, whether ss10 text kerns, and Junior.
+
 **Where the state lives:** `make verdict-ready` and the app’s banner report whether the corpus, the gates, and the verdict store are ready, `rebuild/accepted-units.txt` holds the verdicts the last close-out accepted, `rebuild/out/cycle_summary.json` is the last cycle’s record, and `doc/note-taking.md` § Counts and drifting state and `doc/review-cycle.md` name the other records.
 
 ## Open forks in the gates
