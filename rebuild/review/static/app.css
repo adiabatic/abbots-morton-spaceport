@@ -2351,6 +2351,11 @@ body.kern-view {
     color: var(--neither);
   }
 
+  .kern-carried {
+    color: var(--neither);
+    font-weight: 600;
+  }
+
   .kern-pending {
     color: var(--accent);
 
@@ -2415,6 +2420,10 @@ body.kern-view {
 
     [data-role="mark"] {
       color: var(--hot);
+    }
+
+    [data-role="carried"] {
+      color: var(--neither);
     }
   }
 }

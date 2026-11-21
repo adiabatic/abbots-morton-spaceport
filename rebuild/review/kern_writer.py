@@ -27,6 +27,8 @@ import hashlib
 import json
 import os
 import re
+import stat
+import tempfile
 import threading
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -101,6 +103,23 @@ def line_ending(text: str) -> str:
 def read_text(path: Path) -> str:
     """Return a file's text as its bytes hold it, with no newline translation, so a CRLF file's bytes before its block are written back as they were."""
     return Path(path).read_bytes().decode("utf-8")
+
+
+def replace_text(path: Path, text: str, staging_dir: Path) -> None:
+    """Put `text` in place of `path` atomically: a staging file in `staging_dir`, outside version control, given the file's mode and renamed over it, so nothing but the rune file itself is ever written under `glyph_data/`."""
+    staging_dir = Path(staging_dir)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    fd, staging = tempfile.mkstemp(prefix=f"{Path(path).name}.", suffix=".partial", dir=staging_dir)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(text.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(staging, stat.S_IMODE(Path(path).stat().st_mode))
+        os.replace(staging, path)
+    except BaseException:
+        Path(staging).unlink(missing_ok=True)
+        raise
 
 
 def block_sha(block: str) -> str:

@@ -59,14 +59,18 @@ export function hasFacingPairs(entry) {
 export function indexValues(payload) {
   const live = new Map();
   const built = new Map();
+  const imported = new Map();
   if (payload?.format !== VALUES_FORMAT) {
-    return { live, built, liveError: null, builtPresent: false, payload: null };
+    return { live, built, imported, reviewed: new Set(), liveError: null, builtPresent: false, payload: null };
   }
   for (const value of payload.live?.values ?? []) live.set(`${value.lead}|${value.follow}`, { by: value.by, deciders: value.deciders ?? [] });
   for (const [lead, follow, by] of payload.built?.values ?? []) built.set(`${lead}|${follow}`, by);
+  for (const entry of payload.carried?.pairs ?? []) imported.set(`${entry.lead}|${entry.follow}`, entry);
   return {
     live,
     built,
+    imported,
+    reviewed: new Set(payload.carried?.reviewed ?? []),
     liveError: payload.live?.error ?? null,
     builtPresent: Boolean(payload.built?.present),
     payload,
@@ -468,4 +472,43 @@ export function journalLines(values, seenSeq) {
     lines.push({ level: 'error', text: `A change made while a pass ran was dropped when it ended: ${dropped.reason}` });
   }
   return lines;
+}
+
+// Carried-over marks (rebuild/KERN-PLAN.md section 8). A facing pair is carried over and unreviewed while the import set it (`imported.json`), the author has not marked it (`reviewed.json`), and it still has the value the import gave it.
+export function isCarried(model, values, pairId) {
+  const key = model.pairKeys[pairId];
+  const entry = values?.imported?.get(key);
+  if (!entry || values.reviewed.has(key)) return false;
+  return liveValue(model, values, pairId) === entry.by;
+}
+
+export function entryCarried(model, values, entry) {
+  return Boolean(entry) && entry.pairs.some((id) => isCarried(model, values, id));
+}
+
+export function carriedCount(model, values) {
+  let count = 0;
+  for (const id of model.doc.pairs.keys()) if (isCarried(model, values, id)) count += 1;
+  return count;
+}
+
+// The grid cursor of the next pair of letters, in reading order from `cursor` (`step` 1) or the one before (`step` -1), that still has a carried-over facing pair not reviewed, wrapping round; null when none has one.
+export function nextCarried(model, values, cursor, step) {
+  const size = model.size;
+  const total = size * size;
+  const start = cursor.row * size + cursor.col;
+  for (let offset = 1; offset <= total; offset += 1) {
+    const index = (((start + step * offset) % total) + total) % total;
+    const row = Math.floor(index / size);
+    const col = index % size;
+    if (entryCarried(model, values, runePairAt(model, row, col))) return { row, col };
+  }
+  return null;
+}
+
+// The facing pairs a mark of `scope` reaches that the import set, and whether every one of them is marked reviewed already, so the mark key takes them off.
+export function marksOf(model, values, scope, entry) {
+  const keys = scope.scope === SCOPE_FACING ? [`${scope.lead}|${scope.follow}`] : entry.pairs.map((id) => model.pairKeys[id]);
+  const imported = keys.filter((key) => values?.imported?.has(key));
+  return { imported, reviewed: imported.length > 0 && imported.every((key) => values.reviewed.has(key)) };
 }

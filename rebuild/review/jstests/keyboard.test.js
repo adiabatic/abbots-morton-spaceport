@@ -175,6 +175,8 @@ const KERN_GRID = [
   ['=', 'kern-letters-loosen'],
   ['+', 'kern-letters-loosen'],
   ['u', 'kern-undo'],
+  [']', 'kern-next-carried'],
+  ['[', 'kern-prev-carried'],
   ['/', 'kern-jump'],
   ['?', 'help'],
 ];
@@ -187,7 +189,10 @@ const KERN_DETAIL = [
   ['0', 'kern-drop'],
   ['n', 'kern-note'],
   ['s', 'kern-scope'],
+  ['r', 'kern-review'],
   ['u', 'kern-undo'],
+  [']', 'kern-next-carried'],
+  ['[', 'kern-prev-carried'],
   ['/', 'kern-jump'],
   ['?', 'help'],
 ];
@@ -206,6 +211,9 @@ test('the grid’s - and = act on the letters and leave the detail panel’s arr
   assert.equal(actionForKey('-', { view: 'kern', kernPane: 'detail' }), null);
   assert.equal(actionForKey('0', { view: 'kern', kernPane: 'grid' }), null);
   assert.equal(actionForKey('n', { view: 'kern', kernPane: 'grid' }), null);
+  assert.equal(actionForKey('r', { view: 'kern', kernPane: 'grid' }), null);
+  assert.equal(actionForKey(']', { view: 'kern', kernPane: 'grid' }), 'kern-next-carried');
+  assert.equal(actionForKey(']'), 'next-class');
   assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'detail' }), 'kern-tighten');
   assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'grid' }), 'kern-left');
   assert.equal(actionForKey('-', { view: 'kern', kernPane: 'grid', inInput: true }), null);

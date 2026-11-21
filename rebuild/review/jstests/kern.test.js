@@ -11,6 +11,11 @@ import {
   WORD,
   blockOf,
   builtValue,
+  carriedCount,
+  entryCarried,
+  isCarried,
+  marksOf,
+  nextCarried,
   closestInk,
   decidersOf,
   deciderText,
@@ -394,4 +399,36 @@ test('a poll older than a write the view saw is ignored, but a restarted journal
   assert.equal(staleAnswer({ id: 'a', seq: 9 }, { id: null, seq: 0 }), false);
   assert.equal(staleAnswer(null, { id: 'a', seq: 1 }), false);
   assert.equal(BY_LIMIT, 64);
+});
+
+test('a facing pair carried over from the old font counts until it is marked or its value moves', () => {
+  assert.equal(isCarried(model, values, flippedHalf), true);
+  assert.equal(isCarried(model, values, loopFull), false);
+  assert.equal(entryCarried(model, values, noTea), true);
+  assert.equal(carriedCount(model, values), 1);
+  const marked = indexValues({ ...payload, carried: { ...payload.carried, reviewed: ['qsNo[flipped]|qsTea[half exit=x-height]'] } });
+  assert.equal(isCarried(model, marked, flippedHalf), false);
+  assert.equal(carriedCount(model, marked), 0);
+  const moved = indexValues({ ...payload, live: { ...payload.live, values: payload.live.values.map((value) => ({ ...value, by: -2 })) } });
+  assert.equal(isCarried(model, moved, flippedHalf), false);
+  assert.equal(carriedCount(model, indexValues({ ...payload, carried: undefined })), 0);
+});
+
+test('the jump keys find the next and the previous pair of letters with a carried-over pair left, wrapping round', () => {
+  const at = { row: rune('qsNo'), col: rune('qsTea') };
+  assert.deepEqual(nextCarried(model, values, { row: 0, col: 0 }, 1), at);
+  assert.deepEqual(nextCarried(model, values, { row: 0, col: 0 }, -1), at);
+  assert.deepEqual(nextCarried(model, values, at, 1), at);
+  const none = indexValues({ ...payload, carried: { pairs: [], reviewed: [] } });
+  assert.equal(nextCarried(model, none, at, 1), null);
+});
+
+test('a mark reaches the carried-over facing pairs of its scope, and takes the mark off when every one has it', () => {
+  const facing = facingScope(model, flippedHalf);
+  assert.deepEqual(marksOf(model, values, facing, noTea), { imported: ['qsNo[flipped]|qsTea[half exit=x-height]'], reviewed: false });
+  const letters = lettersScope(model, noTea);
+  assert.deepEqual(marksOf(model, values, letters, noTea).imported.sort(), ['qsNo[flipped]|qsTea[half exit=x-height]', 'qsNo[loop]|qsTea[full]']);
+  const marked = indexValues({ ...payload, carried: { ...payload.carried, reviewed: ['qsNo[flipped]|qsTea[half exit=x-height]', 'qsNo[loop]|qsTea[full]'] } });
+  assert.equal(marksOf(model, marked, letters, noTea).reviewed, true);
+  assert.deepEqual(marksOf(model, values, facingScope(model, noTea.pairs.find((id) => id !== flippedHalf && id !== loopFull)), noTea).imported, []);
 });

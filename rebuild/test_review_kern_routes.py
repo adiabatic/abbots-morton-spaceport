@@ -792,6 +792,10 @@ def test_a_real_server_writes_a_copy_of_the_runes_journals_the_change_and_undoes
         assert (status, reply["status"]) == (400, "invalid")
         status, invalid, _seconds = post(port, "/kern/undo", {})
         assert (status, invalid["status"]) == (400, "invalid")
+        status, marked, _seconds = post(
+            port, "/kern/reviewed", {"scope": "letters", "lead": "qsNo", "follow": "qsTea", "reviewed": True}
+        )
+        assert (status, marked["status"]) == (200, "reviewed") and marked["pairs"]
         status, reply, _seconds = post(port, "/kern/undo", {"undoes": seq})
         assert (status, reply["status"]) == (200, "undone")
         assert rune.read_bytes() == original
@@ -897,7 +901,7 @@ class TestNamesAndBounds:
 
     def test_a_check_that_replaced_no_file_refuses(self, tmp_path):
         tree = Tree(tmp_path)
-        context = tree.routes._context()
+        context = tree.routes.context()
         with pytest.raises(kern_routes.Refused, match="no file named exactly"):
             tree.routes._validate(context, "qsno", (tree.routes.runes_dir / "qsNo.yaml").read_text())
 
@@ -1020,3 +1024,85 @@ def test_a_refusal_is_kept_only_when_it_is_the_parser_s_verdict(monkeypatch):
     assert kern_routes.block_refusal(block_text, "f") is None
     assert kern_routes.block_refusal(block_text, "f") is None and len(calls) == 2
     kern_routes.block_refusal.cache_clear()
+
+
+def import_pairs(tree: Tree, *entries: tuple[str, str, int]) -> None:
+    """Write an `imported.json` as rebuild/tools/import_kerning.py does, for the facing pairs given."""
+    path = tree.routes.imported_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "format": "ams-kern-imported/1",
+                "pairs": [
+                    {
+                        "lead": lead,
+                        "follow": follow,
+                        "by": by,
+                        "rune": "qsNo",
+                        "file": "f",
+                        "scope": "facing",
+                        "line": "- {}",
+                    }
+                    for lead, follow, by in entries
+                ],
+            }
+        )
+    )
+
+
+@pytest.mark.usefixtures("no_kernel", "minted")
+class TestCarriedOverMarks:
+    def test_the_answer_lists_the_imported_pairs_and_the_marks(self, tmp_path):
+        tree = Tree(tmp_path)
+        assert tree.routes.values_payload()["carried"] == {"pairs": [], "reviewed": []}
+        import_pairs(tree, (*LOOP_FULL, -1), (*FLIPPED_HALF_PAIR, -1))
+        payload = tree.routes.values_payload()
+        assert kern_routes.check_values_payload(payload) == []
+        assert [(entry["lead"], entry["by"]) for entry in payload["carried"]["pairs"]] == [
+            ("qsNo[loop]", -1),
+            ("qsNo[flipped]", -1),
+        ]
+
+    def test_a_facing_pair_or_every_pair_of_two_letters_is_marked_and_unmarked(self, tmp_path):
+        tree = Tree(tmp_path)
+        import_pairs(tree, (*LOOP_FULL, -1), (*FLIPPED_HALF_PAIR, -1))
+        status, reply = tree.routes.post_reviewed(
+            {"scope": "facing", "lead": LOOP_FULL[0], "follow": LOOP_FULL[1], "reviewed": True}
+        )
+        assert (status, reply["status"]) == (200, "reviewed")
+        assert reply["values"]["carried"]["reviewed"] == ["qsNo[loop]|qsTea[full]"]
+        status, reply = tree.routes.post_reviewed(
+            {"scope": "letters", "lead": "qsNo", "follow": "qsTea", "reviewed": True}
+        )
+        assert reply["values"]["carried"]["reviewed"] == [
+            "qsNo[flipped]|qsTea[half]",
+            "qsNo[loop]|qsTea[full]",
+        ]
+        status, reply = tree.routes.post_reviewed(
+            {"scope": "letters", "lead": "qsNo", "follow": "qsTea", "reviewed": False}
+        )
+        assert (status, reply["values"]["carried"]["reviewed"]) == (200, [])
+        assert json.loads(tree.routes.reviewed_path.read_text())["format"] == kern_routes.REVIEWED_FORMAT
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            None,
+            {"scope": "facing", "lead": "qsNo[loop]", "follow": "qsTea[full]"},
+            {"scope": "facing", "lead": "qsNo[exit=none]", "follow": "qsTea", "reviewed": True},
+            {"scope": "letters", "lead": "qsNo[loop]", "follow": "qsTea", "reviewed": True},
+            {"scope": "rune", "lead": "qsNo", "follow": "qsTea", "reviewed": True},
+        ],
+    )
+    def test_a_body_that_is_not_a_mark_is_answered_400(self, tmp_path, body):
+        tree = Tree(tmp_path)
+        status, reply = tree.routes.post_reviewed(body)
+        assert (status, reply["status"]) == (400, "invalid") and "values" in reply
+
+    def test_changing_an_imported_value_in_the_editor_marks_it(self, tmp_path):
+        tree = Tree(tmp_path)
+        import_pairs(tree, (*LOOP_FULL, 0), (*FLIPPED_HALF_PAIR, 0))
+        status, reply = facing(tree, LOOP_FULL, -1)
+        assert status == 200
+        assert reply["values"]["carried"]["reviewed"] == ["qsNo[loop]|qsTea[full]"]

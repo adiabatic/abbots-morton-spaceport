@@ -1,6 +1,8 @@
 // The kerning view's DOM (`#view=kern`, rebuild/KERN-PLAN.md section 6): the grid of leading rune by following rune, the detail panel of the focused pair of runes with its editing controls, and the status lines. It is the app's second DOM module beside app.js (rebuild/REVIEW-PLAN.md §5.2), and nothing touches the DOM until `createKernView` is called. Its model and drawing are the pure modules kern.js and kern-draw.js; it fetches the inventory (`GET kern/inventory`) once and the values (`GET kern`) on every refresh, and draws every pixel from them, shaping nothing.
 //
 // Editing: a change applies to the drawings at once, as an entry of `view.edits` that the drawings read before the server's values. Presses on one scope within `COALESCE_MS` of each other become one `POST kern`, and the view sends one request at a time, each against the block the last reply named. A reply that took the change gives the server's values, which replace the edit; a conflict whose reply carries the block as it stands is sent once more against that block; a refusal or a second conflict drops the edit, so the drawing goes back, and shows the server's message beside the pair; a reply that says a cycle pass holds the runes keeps the edit, marked as waiting, until `GET kern` reports no pending change. Each change the server wrote or queued goes on the tab's undo history with its journal seq (`historyAfterReply`). `u` drops the newest edit not sent yet, and otherwise asks the server to undo the history's newest change by its seq (`POST kern/undo`), which cancels it while it still waits for a pass.
+//
+// Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `r` posts a mark for the selected scope (`POST kern/reviewed`), and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
 
 import { formatCount } from './render.js';
 import {
@@ -10,6 +12,11 @@ import {
   VALUES_FORMAT,
   blockOf,
   builtValue,
+  carriedCount,
+  entryCarried,
+  isCarried,
+  marksOf,
+  nextCarried,
   configNames,
   decidersOf,
   deciderText,
@@ -68,7 +75,7 @@ const CELL_BOTTOM = 10;
 const CELL_SLACK = 4;
 const STAGE_MARGIN = 1;
 const COALESCE_MS = 330;
-const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark'];
+const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark', 'carried'];
 const GRID_CHIPS = { 'only across a ZWNJ': 'ZWNJ', 'only under ss10': 'ss10', 'only across a ZWNJ or under ss10': 'ZWNJ ss10' };
 const EDIT_STATES = { local: 'not sent yet', sending: 'being written', waiting: 'waiting for the cycle pass to end' };
 
@@ -185,6 +192,7 @@ export function createKernView({ root, toast, writeSelection }) {
       button('loosen →', 'kern-loosen', 'Push the follower a pixel away (→)'),
       button('drop own value', 'kern-drop', 'Remove this scope’s own record, so it takes what it inherits (0)'),
       button('note', 'kern-note', 'Write the why: of this scope’s record (n)'),
+      button('reviewed', 'kern-review', 'Mark the carried-over facing pairs of this scope reviewed, or take the mark off (r)'),
       button('undo', 'kern-undo', 'Undo the last change (u)'),
     );
     const why = el('p', 'kern-why');
@@ -321,10 +329,12 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     const withPairs = doc.rune_pairs.filter((entry) => entry.pairs.length > 0).length;
     const unsent = view.edits.size - waitingCount();
+    const carried = carriedCount(view.model, view.values);
     view.dom.summary.textContent =
       `${formatCount(doc.pairs.length)} facing pairs over ${formatCount(withPairs)} pairs of letters; ${formatCount(kerned)} kerned` +
       (unbuilt ? `, ${formatCount(unbuilt)} not in the built font yet` : '') +
       (unsent ? `; ${formatCount(unsent)} change${unsent === 1 ? '' : 's'} being written` : '') +
+      (carried ? `; ${formatCount(carried)} carried over from the old font and not reviewed ([ and ] find them)` : '') +
       '.';
   }
 
@@ -404,6 +414,11 @@ export function createKernView({ root, toast, writeSelection }) {
         context.fillStyle = colors.muted;
         context.textAlign = 'left';
         context.fillText(GRID_CHIPS[chip] ?? chip, x0 + 2, cell.height - 2);
+      }
+      if (entryCarried(model, view.values, entry)) {
+        context.fillStyle = colors.carried;
+        context.textAlign = 'right';
+        context.fillText('old', x0 + cell.width - 2, cell.height - 2);
       }
       if (entry.pairs.some((id) => notInFont(model, view.values, id))) {
         context.strokeStyle = colors.mark;
@@ -505,6 +520,7 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     const edit = editOf(id);
     if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
+    if (isCarried(model, values, id)) what.append(el('span', 'kern-carried', 'carried over from the old font and not reviewed yet (r marks it)'));
     if (notInFont(model, values, id)) what.append(el('span', 'kern-mark', `not in the built font yet, which has ${signed(builtValue(model, values, id))}`));
     const number = el('div', `kern-value${value === 0 ? ' zero' : ''}`, signed(value));
     row.append(stage(draw), what, number);
@@ -753,6 +769,7 @@ export function createKernView({ root, toast, writeSelection }) {
     view.sending = true;
     try {
       if (item.kind === 'undo') await sendUndo(item.entry);
+      else if (item.kind === 'review') await sendReview(item.body);
       else await sendSet(item.key);
     } finally {
       view.sending = false;
@@ -1051,7 +1068,38 @@ export function createKernView({ root, toast, writeSelection }) {
       setScope(view.scopeMode === SCOPE_LETTERS ? SCOPE_FACING : SCOPE_LETTERS);
     } else if (action === 'kern-undo') {
       undo();
+    } else if (action === 'kern-review') {
+      review();
+    } else if (action === 'kern-next-carried' || action === 'kern-prev-carried') {
+      const found = nextCarried(view.model, view.values, view.cursor, action === 'kern-next-carried' ? 1 : -1);
+      if (found) setCursor(found);
+      else toast('No pair of letters has a carried-over value left to review');
     }
+  }
+
+  // Mark the selected scope's carried-over facing pairs reviewed, or take the mark off when every one has it.
+  function review() {
+    const entry = currentEntry();
+    const scope = selectedScope();
+    if (!scope || !entry) return;
+    const marks = marksOf(view.model, view.values, scope, entry);
+    if (marks.imported.length === 0) {
+      toast('Nothing in this scope was carried over from the old font');
+      return;
+    }
+    enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: !marks.reviewed } });
+  }
+
+  async function sendReview(body) {
+    const { status, reply } = await postJson('kern/reviewed', body);
+    takeValues(reply);
+    if (status === 200) {
+      const count = reply.pairs?.length ?? 0;
+      view.dom.live.textContent = `${body.reviewed ? 'Marked' : 'Unmarked'} ${count} facing pair${count === 1 ? '' : 's'} reviewed`;
+    } else {
+      toast(refusalText(reply, status).split('\n')[0]);
+    }
+    redraw();
   }
 
   // The pane the view's keys act in (`paneFor`): the detail panel or the grid while it has focus, and the page anywhere else.
