@@ -20,6 +20,7 @@ The build's stages (`BUILD_STAGES`):
 - `permutation` records each counting sort the build makes and the keys it orders by, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `counting`, each `audit._counting_permutation` call, with the columns, the string table's strings in id order, the class order, the family ranks, the walk, the count, the runs it was given, read from a `columns.WindowIndex.runs` generator through a probe over the index's columns so the call still takes them whole (`_given_runs`), and each row's id word by ordinal (`_counting_inputs`); `triage`, each `audit._triage_permutation` call, with the table's class, group and window columns in place of the table (`_triage_inputs`); `triage-key`, each `audit.triage_key` call; and `family-ranks`, each `audit.family_ranks` call. Its generated lines (`_permutation_generated`) order the source's audit as the in-memory source loads it and a table whose units tie by the dozen (`_permutation_tables`) under the ledger's class order and a reversed one that leaves a class unranked, with no id words, id words that tie and id words by window (`_permutation_words`), by both sorts, walked in window order and in load order, with the runs and without; key every unit of both; and sort, key and rank at the edges (`_permutation_edges`).
 - `merge` records each `audit._merge_members` call the build makes (`_members_merged`), keyed by its origin and a digest of its `input`: the window's members as given, each an `audit._Member` record with its config classes as a dict in their order (`_member_value`), the exempt classes sorted, the stats and each member's run of rows as `(merge key, config)` pairs, read from the call's `absorb` closure, the stream's keyed by section and the in-memory source's by config rank (`_member_runs`); with, as its `value`, whether any member was absorbed, the members in the order the call leaves them, the stats and each member's run once the call returns, or what it raised. Its generated lines (`_merge_generated`) record every call made by the stream over the source's audit under three ink digests and by the in-memory source's merge under two signatures (`_merge_sources`), and merge windows at the edges (`_merge_edges`) over runs of sections by the stream's `absorb` (`_section_absorb`).
 - `workload` is a boundary stage that records what the build's stream returns (`audit.stream_workload`, hooked where `build` imports it, `_workload_streamed`), as `workload_boundary` lays it out: a unit a merged unit in load order, the unit `UnitTable.unit` materializes without a store beside its liveness, survivor, config rank, row of the id columns and input key (`_workload_unit`); a column each for the string table, the pools in id order, the tuple ranks, the window values, the window index's ordinals and keys, the pre-merge units and the compaction, and each class's ordinals (`UnitTable.rows_by_class`); and lines for the pools' sizes, the window index's shape, the merge's stats, the audit's rows, the ledger classes the units reach, the classes present and the change groups' counts.
+- `premerge` is a boundary stage that records the pre-merge snapshot once the build rebases it onto the merge (`facts.PremergeSnapshot.rebase`, `_premerge_rebased`), as `premerge_boundary` lays it out: a unit a pre-merge unit in capture order, its row of the snapshot's columns with its grain as `PremergeSnapshot.grains` yields it; and lines for the identical classes and each column's length.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -118,6 +119,7 @@ from rebuild.review import (
     columns,
     corpus_exec,
     drafts,
+    facts,
     ink,
     landing,
     unit_cache,
@@ -3821,6 +3823,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build.family_ranks": ("rebuild.review.build", "family_ranks"),
     "build.triage_key": ("rebuild.review.build", "triage_key"),
     "audit._merge_members": ("rebuild.review.audit", "_merge_members"),
+    "facts.PremergeSnapshot.rebase": ("rebuild.review.facts", "PremergeSnapshot.rebase"),
 }
 
 
@@ -9423,6 +9426,52 @@ def _workload_streamed(_args: tuple, _kwargs: dict) -> Finisher:
     return finish
 
 
+PREMERGE_STAGE = "premerge"
+# The keys of the `premerge` stage's lines beside its units and columns: the identical classes and each column's length, in `PremergeSnapshot.columns`' order.
+PREMERGE_IDENTICAL_KEY = "identical-classes"
+PREMERGE_LENGTHS_KEY = "column-lengths"
+
+
+def premerge_boundary(snapshot: facts.PremergeSnapshot) -> Boundary:
+    """The `premerge` boundary over a rebased snapshot: a unit a pre-merge unit in capture order, its row of the snapshot's columns in `PremergeSnapshot.columns`' order (class id, no-verdict byte, config-set id, window start, window count, survivor, removed byte) followed by its grain as `PremergeSnapshot.grains` yields it, as a tuple; the identical classes sorted, and each column's length."""
+    survivor, removed = snapshot.survivor, snapshot.removed
+    assert survivor is not None and removed is not None, "the premerge stage records a rebased snapshot"
+    strings, tuples = snapshot.strings, snapshot.tuples
+
+    def row(at: int) -> tuple:
+        return (
+            snapshot.class_id[at],
+            snapshot.no_verdict[at],
+            snapshot.configs[at],
+            snapshot.window_start[at],
+            snapshot.window_n[at],
+            survivor[at],
+            removed[at],
+            (
+                audit.format_codepoints(snapshot.codepoints(at)),
+                strings[snapshot.class_id[at]],
+                bool(snapshot.no_verdict[at]),
+                tuples[snapshot.configs[at]],
+            ),
+        )
+
+    return Boundary(
+        len(snapshot),
+        {"value": row},
+        [
+            {"key": PREMERGE_IDENTICAL_KEY, "value": sorted(snapshot.identical_classes)},
+            {"key": PREMERGE_LENGTHS_KEY, "value": [len(column) for column in snapshot.columns()]},
+        ],
+    )
+
+
+def _premerge_rebased(args: tuple, _kwargs: dict) -> Finisher:
+    """The build's pre-merge snapshot (`facts.PremergeSnapshot.rebase`) recorded as the `premerge` boundary once the rebase returns (`premerge_boundary`)."""
+    snapshot = args[0]
+    assert isinstance(snapshot, facts.PremergeSnapshot), f"rebase was called on {snapshot!r:.80}"
+    return lambda _result: premerge_boundary(snapshot)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -9574,6 +9623,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     ),
     WORKLOAD_STAGE: Stage(
         WORKLOAD_STAGE, {"build.stream_workload": _workload_streamed}, run="build", kind="boundary"
+    ),
+    PREMERGE_STAGE: Stage(
+        PREMERGE_STAGE, {"facts.PremergeSnapshot.rebase": _premerge_rebased}, run="build", kind="boundary"
     ),
 }
 

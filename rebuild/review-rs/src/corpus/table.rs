@@ -2054,13 +2054,13 @@ pub fn stream_workload(
 }
 
 /// A column line's count and the sha256 of its values' typed encodings, each followed by a newline, taken as the values come.
-struct ColumnDigest {
+pub(crate) struct ColumnDigest {
     count: i64,
     digest: Sha256,
 }
 
 impl ColumnDigest {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             count: 0,
             digest: Sha256::new(),
@@ -2073,11 +2073,11 @@ impl ColumnDigest {
         self.count += 1;
     }
 
-    fn add(&mut self, value: &PyValue) {
+    pub(crate) fn add(&mut self, value: &PyValue) {
         self.add_typed(&value.to_typed());
     }
 
-    fn write(self, out: &mut impl Write, name: &str) -> Result<()> {
+    pub(crate) fn write(self, out: &mut impl Write, name: &str) -> Result<()> {
         let digest: String = self
             .digest
             .finalize()
@@ -2107,11 +2107,11 @@ fn column_of(
     digest.write(out, name)
 }
 
-fn int(value: impl Into<i64>) -> PyValue {
+pub(crate) fn int(value: impl Into<i64>) -> PyValue {
     PyValue::Int(value.into())
 }
 
-fn count_value(value: usize) -> PyValue {
+pub(crate) fn count_value(value: usize) -> PyValue {
     PyValue::Int(value as i64)
 }
 
@@ -2343,7 +2343,7 @@ fn workload_lines(
     )
 }
 
-const UNIT_PREFIX: &str = "unit:";
+pub(crate) const UNIT_PREFIX: &str = "unit:";
 /// The keys of the `workload` stage's lines beside its units and columns (`units_stage_fixtures.WORKLOAD_*_KEY`).
 const POOLS_KEY: &str = "pools";
 const INDEX_KEY: &str = "window-index";
@@ -2353,9 +2353,8 @@ const REACHED_KEY: &str = "classes-reached";
 const PRESENT_KEY: &str = "classes-present";
 const GROUPS_KEY: &str = "unmatched-groups";
 
-/// The `workload` stage: load the audit its build input names as the build's stream does, read through the descriptors the process inherits and laid out as [`audit_layout`] lays it out, its signatures resolved as the build resolves them before the stream (the store the dump's build loads, [`find_misses`] at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads, the misses shaped on its signature threads) and the stream's digests looked up through the late shaper ([`stream_workload`]); and answer with the lines `workload_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose stream did not run, is answered with none.
-pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
+/// The `unit:<ordinal>` lines a boundary stage's file asks for, and how many lines it holds.
+pub(crate) fn stage_units(stage_file: &Path) -> Result<(HashSet<usize>, usize)> {
     let read = |failure: std::io::Error| {
         WireError(format!("cannot read {}: {failure}", stage_file.display()))
     };
@@ -2377,12 +2376,14 @@ pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write
         }
         lines += 1;
     }
-    if lines == 0 {
-        return Ok(());
-    }
-    let vocabulary = Vocabulary::of(&input)?;
-    let names = StoreNames::of(&input)?;
-    let count = key_only_count(&input)?;
+    Ok((units, lines))
+}
+
+/// Load the audit the build input `input` names as the build's stream does, for the build of the dump `stage_file` lies in: read through the descriptors the process inherits and laid out as [`audit_layout`] lays it out, its signatures resolved as the build resolves them before the stream (the store the dump's build loads, [`find_misses`] at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads, the misses shaped on its signature threads) and the stream's digests looked up through the late shaper ([`stream_workload`]).
+pub(crate) fn dump_stream(input: &BuildInput, stage_file: &Path) -> Result<StreamedLoad> {
+    let vocabulary = Vocabulary::of(input)?;
+    let names = StoreNames::of(input)?;
+    let count = key_only_count(input)?;
     let files = input.held_audit()?;
     let layout = audit_layout(&files, &input.audit.path, &input.audit.members, &vocabulary)
         .map_err(|failure| WireError(format!("cannot lay out the audit: {failure}")))?;
@@ -2399,7 +2400,7 @@ pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write
         family_keys: &input.family_keys,
     };
     let width = |value: i64| usize::try_from(value).unwrap_or(1);
-    let mut signatures = dump_store(&input, &names, stage_file)?;
+    let mut signatures = dump_store(input, &names, stage_file)?;
     let mut found = find_misses(
         held,
         &mut signatures,
@@ -2426,7 +2427,7 @@ pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write
         &mut |key: u64, window: &str, config: &str| late.digest(key, window, config);
     let mut stream = Lockstep::new(&files, &sections, None, None)
         .map_err(|failure| WireError(format!("cannot walk the audit: {failure}")))?;
-    let loaded = stream_workload(
+    stream_workload(
         || stream.next_window(),
         &input.audit.path,
         &input.ledger_path,
@@ -2437,12 +2438,22 @@ pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write
         &vocabulary.configs,
         Some(digest),
     )
-    .map_err(|failure| WireError(format!("the stream's load failed: {failure}")))?;
+    .map_err(|failure| WireError(format!("the stream's load failed: {failure}")))
+}
+
+/// The `workload` stage: load the audit its build input names as the build's stream does ([`dump_stream`]), and answer with the lines `workload_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose stream did not run, is answered with none.
+pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    let input = BuildInput::read(input_path)?;
+    let (units, lines) = stage_units(stage_file)?;
+    if lines == 0 {
+        return Ok(());
+    }
+    let loaded = dump_stream(&input, stage_file)?;
     workload_lines(&loaded, &input.ledger, &units, out)
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A string table over `strings` in order after the empty one, with their ids.
@@ -2774,7 +2785,7 @@ mod tests {
     }
 
     /// Load `windows` in order as the stream loads them, every row's digest its window's unless the window is `E652`, where it is its config's.
-    fn load(
+    pub(crate) fn load(
         windows: Vec<(&str, WindowRows)>,
         ledger: &[LedgerEntry],
     ) -> std::result::Result<StreamedLoad, WorkloadError> {
@@ -2803,7 +2814,7 @@ mod tests {
         )
     }
 
-    fn mini_windows() -> Vec<(&'static str, WindowRows)> {
+    pub(crate) fn mini_windows() -> Vec<(&'static str, WindowRows)> {
         vec![
             (
                 "E650",
@@ -2827,7 +2838,7 @@ mod tests {
         ]
     }
 
-    fn mini_ledger() -> Vec<LedgerEntry> {
+    pub(crate) fn mini_ledger() -> Vec<LedgerEntry> {
         vec![
             entry("class-a", false, &[("ss03", "E650:E652")]),
             entry("class-b", true, &[]),
