@@ -17,6 +17,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::audit::stage_line;
 use super::input::{BuildInput, Widths};
+use super::premerge::PremergeSnapshot;
 use super::signatures::{SignatureArrays, dump_prior};
 use super::store::{LoadAddress, PrimaryRows, Recomputed, UnitStore};
 use super::table::{
@@ -733,11 +734,12 @@ fn units_lines(
     )
 }
 
-/// What a stage holds once the build has run through phase 1 ([`through_units`]): the corpus directory the build runs in, the table, the audit's row count, the places in the ledger of the classes the load reached, the ink-signature store as the load left it, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
+/// What a stage holds once the build has run through phase 1 ([`through_units`]): the corpus directory the build runs in, the table, the audit's row count, the pre-merge snapshot rebased onto the merge, the places in the ledger of the classes the load reached, the ink-signature store as the load left it, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
 pub struct UnitsRun {
     pub corpus: PathBuf,
     pub table: UnitTable,
     pub row_count: usize,
+    pub premerge: PremergeSnapshot,
     pub classes_present: Vec<usize>,
     pub signatures: SignatureArrays,
     pub planned: Planned,
@@ -795,6 +797,7 @@ pub fn through_units<T>(
             corpus,
             table,
             row_count: loaded.workload.row_count,
+            premerge: loaded.premerge,
             classes_present: loaded.workload.classes_present,
             signatures: loaded.signatures,
             planned,

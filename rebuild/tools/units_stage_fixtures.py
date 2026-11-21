@@ -39,6 +39,7 @@ The build's stages (`BUILD_STAGES`):
 - `manifest` is a boundary stage that records the manifest the write writes, from `build._prune_orphan_shards` as `build._write_corpus` calls it once the manifest is on disk (`_manifest_pruning`): the manifest's bytes, its identity (`unit_index.manifest_identity`), the shards pruned and the files under `units/` then. Its generated lines (`_manifest_generated`, `generated:prune:`) prune corpora of several shapes against manifests in both class forms.
 - `index-write` is a boundary stage that records the units index the build writes, from `unit_index.write_index_lines` as `build._write_sidecars` calls it once the manifest is on disk (`_index_writing`): the head it committed, the files whose names start with the index's (`_index_write_files`), what the write did and its note. Its generated lines (`_index_write_generated`, `generated:<case>`) write the index over the corpora of `_INDEX_CASES`: first writes, the head alone, segments, folds claimed, held by another output and forced, heads, parts and single files that do not read, a single file adopted, staging and unlisted files, lines out of key order and a manifest that does not parse, each valued what the write did or raised, the files the corpus then holds and the counts lines.
 - `app-sidecars` is a boundary stage that records the app sidecars the build writes, from `app_index.write_app_artifacts_lines` as `build._write_sidecars`' app writer calls it once the manifest is on disk (`_app_sidecars_writing`): the bytes of the app index, the locator's rows and the locator's table, each under its file's name. Its generated lines (`_app_sidecars_generated`, `generated:<case>`) write the three files over the corpora of `_APP_CASES`: no lines, one run and several, empty runs among them, prior files and staging files in place, a manifest without `generated_at`, with text outside ASCII there, with an asset component, that does not parse, that opens with a byte order mark and that is not an object, each valued what the write raised or None and the files the corpus holds then.
+- `facts` is a boundary stage that records the review facts the build writes once the manifest is on disk: the ink flags and change groups `facts.derive_premerge` derives (`_premerge_derived`), and the bytes of the `review-facts.json` `facts.write_facts` leaves (`_facts_written`). Its generated line (`_facts_generated`, `generated:grouped-on-identical`) runs the build again over a clone of the dump's prior corpus with the derived facts replaced by ones that put change groups on ink-identical pre-merge units (`_grouped_on_identical`), valued the text of the refusal the build raises, its input the facts the build was handed.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -146,6 +147,7 @@ from rebuild.review import (
     units_exec,
 )
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, Unit, UnitTable, load_ledger
+from rebuild.review.change_groups import CHANGE_GROUP_ORDER
 from rebuild.review.drafts import Drafter, corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, primary_unit_projection
 from rebuild.review.fixtures.mini import pin
@@ -3917,6 +3919,8 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._prune_orphan_shards": ("rebuild.review.build", "_prune_orphan_shards"),
     "unit_index.write_index_lines": ("rebuild.review.unit_index", "write_index_lines"),
     "app_index.write_app_artifacts_lines": ("rebuild.review.app_index", "write_app_artifacts_lines"),
+    "facts.derive_premerge": ("rebuild.review.facts", "derive_premerge"),
+    "facts.write_facts": ("rebuild.review.facts", "write_facts"),
 }
 
 
@@ -15296,6 +15300,77 @@ def _app_sidecars_generated(_source: BuildSource) -> Iterator[Mapping[str, objec
             }
 
 
+FACTS_STAGE = "facts"
+# The keys of the `facts` stage's lines: the pre-merge facts `facts.derive_premerge` derives, and the bytes of the `review-facts.json` the build writes.
+FACTS_PREMERGE_KEY = "premerge"
+FACTS_FILE_KEY = "review-facts"
+FACTS_GENERATED_KEY = "generated:grouped-on-identical"
+
+
+def _premerge_value(derived: facts.PremergeFacts) -> tuple[str, list[tuple[int, str]]]:
+    return derived.ink_flags, list(derived.unmatched_groups)
+
+
+def _premerge_derived(_args: tuple, _kwargs: dict) -> Finisher | None:
+    """`facts.derive_premerge` as `build._build_m1` calls it once the manifest is on disk, recorded for the `facts` boundary: the ink flags and the change groups it derives."""
+
+    def finish(derived: object) -> Boundary:
+        assert isinstance(derived, facts.PremergeFacts)
+        return Boundary(0, {}, [{"key": FACTS_PREMERGE_KEY, "value": _premerge_value(derived)}])
+
+    return finish
+
+
+def _facts_written(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`facts.write_facts` as `build._build_m1` calls it, recorded for the `facts` boundary once it returns: the bytes of the `review-facts.json` it leaves beside the manifest."""
+    out_dir = Path(args[0])
+
+    def finish(_written: object) -> Boundary:
+        return Boundary(
+            0, {}, [{"key": FACTS_FILE_KEY, "value": (out_dir / facts.FACTS_FILENAME).read_bytes()}]
+        )
+
+    return finish
+
+
+def _grouped_on_identical(derived: facts.PremergeFacts) -> facts.PremergeFacts:
+    """The pre-merge facts of the `facts` stage's generated refusal, made from the facts a build derives: change groups on its first, middle and last pre-merge units, the middle and last flagged ink-identical and the first not, every other flag as derived."""
+    count = len(derived.ink_flags)
+    rows = sorted({0, count // 2, count - 1})
+    identical = set(rows[1:] or rows)
+    flags = "".join(
+        "1" if row in identical else "0" if row in rows else flag
+        for row, flag in enumerate(derived.ink_flags)
+    )
+    groups = [(row, CHANGE_GROUP_ORDER[index % len(CHANGE_GROUP_ORDER)]) for index, row in enumerate(rows)]
+    return facts.PremergeFacts(ink_flags=flags, unmatched_groups=groups)
+
+
+def _facts_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `facts` stage's generated line: the source's build run again in this process over a clone of the dump's prior corpus (`run_build_here`), with the pre-merge facts it derives replaced by `_grouped_on_identical`'s, so it refuses an ink-identical pre-merge unit that carries a change group, under `FACTS_GENERATED_KEY`. Its input is the facts the build was handed, as the `facts` stage records derived ones; its value the text of the `SystemExit` the build raised, or None. A build that stops before it derives the facts gives no line."""
+    derive = facts.derive_premerge
+    handed: list[facts.PremergeFacts] = []
+
+    def grouped(snapshot: facts.PremergeSnapshot, table: UnitTable, store: UnitStore) -> facts.PremergeFacts:
+        made = _grouped_on_identical(derive(snapshot, table, store))
+        handed.append(made)
+        return made
+
+    refusal: str | None = None
+    with tempfile.TemporaryDirectory(prefix="facts-refusal-", dir=source.out) as scratch:
+        built = Path(scratch) / "out"
+        _clone_tree(source.out / DUMP_PRIOR, built)
+        facts.derive_premerge = grouped
+        try:
+            run_build_here(source, built, Path(scratch) / "run")
+        except SystemExit as stop:
+            refusal = str(stop.code)
+        finally:
+            facts.derive_premerge = derive
+    if handed:
+        yield {"key": FACTS_GENERATED_KEY, "input": _premerge_value(handed[0]), "value": refusal}
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -15581,6 +15656,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         APP_SIDECARS_STAGE,
         {"app_index.write_app_artifacts_lines": _app_sidecars_writing},
         _app_sidecars_generated,
+        run="build",
+        kind="boundary",
+    ),
+    FACTS_STAGE: Stage(
+        FACTS_STAGE,
+        {"facts.derive_premerge": _premerge_derived, "facts.write_facts": _facts_written},
+        _facts_generated,
         run="build",
         kind="boundary",
     ),
