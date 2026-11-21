@@ -479,7 +479,7 @@ fn refuse(failure: GzipError) -> io::Error {
 }
 
 /// Python's `repr` of a few bytes, for `BadGzipFile`'s text.
-fn bytes_repr(bytes: &[u8]) -> String {
+pub(crate) fn bytes_repr(bytes: &[u8]) -> String {
     let quote = if bytes.contains(&b'\'') && !bytes.contains(&b'"') {
         '"'
     } else {

@@ -9,6 +9,7 @@ The build's stages (`BUILD_STAGES`):
 - `containers` records each zlib and gzip container the build writes into a file and each deflated fragment it reads back, keyed by its origin, its `framing` and a digest of its inputs, with its `output`: a `gzip.GzipFile` stream opened for writing into a file (`gzipfile`: its name, level and mtime, followed from its opening to its close, and each write's size), a `gzip.compress` member (`compress`: a locator block's or an index member's), a `unit_index._Members` sink (`members`: its member size and threads), a fragment's `unit_index.deflate_fragment` (`raw`) and an `inflate_fragment` that returns (`inflate-fragment`: the stored bytes and the length); each writer's output is the written bytes' sha256 and length, and a `read` line beside it reads those bytes whole as `gzip.GzipFile` does, and a deflated fragment's `inflate-fragment` line reads it back at its length. Every input is kept once under its sha256 in `containers.blobs/` beside the stage file (`CONTAINER_BLOBS`) and named by that digest and a length, the blob's first bytes. Its generated lines (`_containers_generated`) cover every name, level and mtime over inputs from nothing to past `INDEX_MEMBER_BYTES` cut into uneven writes, each member boundary, `inflate_fragment`'s refusals, the gzip reader's tolerances and refusals, the member readers' `zlib.decompressobj` loop (`member-read`, `_member_steps`) and `zlib.crc32` (`crc32`).
 - `json-forms` records each `json.dumps` and `json.loads` call the parent's modules make (`JSON_PARENT_MODULES`, told by the caller's frame, `_json_parents_call`) but for the key-only read's frames to and from its processes (`JSON_PROCESS_FRAMES`), keyed by its origin, its `form` and a digest of its `input`: a write in the form its arguments name (`JSON_DUMPS_FORMS`: `default`, `indent`, `sorted`, `unicode` and `compact`) with the value it writes and, as its `value`, `("text", text)`; a read (`loads`) that returns with the `str` or `bytes` it reads and `("value", value)`. Its generated lines (`_json_forms_generated`) put every form to an edge set (`_json_dumps_edges`) and the reader to texts of each kind (`_json_loads_edges`), with `("refused",)` where Python refuses and where the Rust side refuses what Python stringifies or reads (`_json_dumped_text`, `_json_read`).
 - `sample` records each `build._verification_sample` call (`_verification_sampled`), keyed by its origin, its `form` and a digest of its `input`, as the form `verification` with the `(cached, seed, size)` it draws from and, as its `value`, the id words it draws. Its generated lines (`_sample_generated`) draw from `random.Random` itself, seeded with strings whose key words `Random.seed` cuts differently (`SAMPLE_SEEDS`): `sample` over every `k` from -1 to one past the population, `("refused",)` where it raises, for populations on both sides of each `setsize` step (`_setsize`) and three populations around each step's edge; `getrandbits` at every width to 64; `randbelow` (`_randbelow_with_getrandbits`) at bounds around each word edge (`SAMPLE_BOUNDS`); and `verification` over populations around `VERIFICATION_SAMPLE` and its `setsize`.
+- `row-delta-read` records each `row_delta.read_head`, `open_parts` and `check_segment_header` call the build makes, each read again by the recorder before the call runs, so a refusal is recorded too, keyed by its origin, its `form` and a digest of its `input`: `read-head` with the output and what its head's path holds and, as its `value`, `("none",)`, `("head", document)` (`Head.document`) or `("refused", message)`; `check-segment-header` with the header line, output, generation, number and merge and `("checked",)` or a refusal; and `open-parts` with the head's document, `sha256` and what each part's path holds, and `("opened",)` or a refusal, followed, for a head that opens and merges by place or is the units index's, by a `part-rows` line a part, its kind (`base`, `place` or `key`), output, generation, number and file, and a `merge` line over all of them, by key with each payload's key as `unit_index.index_key` gave it to the merge (`_merge_outcome`), each valued `("rows", count, sha256)` over its rows' typed encodings (`_rows_outcome`) or `("raised", class, message)`. A refusal's text leaves out what `json.loads` raised (`_JSON_DETAIL`). Every part's bytes are kept once under their sha256 in `row-delta-read.blobs/` beside the stage file (`ROW_DELTA_BLOBS`). Its generated lines (`_row_delta_generated`) put heads to every refusal of `parse_head` and `Part.parse` and every value `int` and `str` take leniently (`_head_cases`), header lines to every refusal of `check_segment_header` (`_segment_header_cases`), heads to missing, resized and rehashed parts (`_open_parts_cases`), bases, segments by place and by key to every row, header and gzip refusal (`_part_rows_cases`), merges by place and by key to superseded, revived and out-of-order rows (`_merge_cases`), and parts held as gzip members to every refusal of `row_delta._Inflating`, read as an `inflating` line a buffer of `INFLATE_READ_BYTES` at a time (`_inflating_cases`, `_inflated`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -88,7 +89,7 @@ from dataclasses import dataclass, field
 from itertools import batched, chain, combinations, cycle, product
 from multiprocessing.reduction import ForkingPickler
 from pathlib import Path
-from typing import IO, Any, TypedDict
+from typing import IO, Any, BinaryIO, TypedDict
 
 import yaml
 
@@ -3689,6 +3690,9 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "json.dumps": ("json", "dumps"),
     "json.loads": ("json", "loads"),
     "build._verification_sample": ("rebuild.review.build", "_verification_sample"),
+    "row_delta.read_head": ("rebuild.pipeline.row_delta", "read_head"),
+    "row_delta.open_parts": ("rebuild.pipeline.row_delta", "open_parts"),
+    "row_delta.check_segment_header": ("rebuild.pipeline.row_delta", "check_segment_header"),
 }
 
 
@@ -5019,6 +5023,783 @@ def _sample_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
                 yield _sample_line("generated", "verification", inputs, build._verification_sample(*inputs))
 
 
+ROW_DELTA_READ_STAGE = "row-delta-read"
+# The `row-delta-read` stage's directory, beside its stage file, of the parts its lines name by sha256.
+ROW_DELTA_BLOBS = "row-delta-read.blobs"
+# The blob directory of the build whose `row-delta-read` stage records, for the length of that build (`_row_delta_blobs_at`).
+_ROW_DELTA_BLOBS_AT: list[Path] = []
+# Held while a blob is written, since a build may open parts on its threads.
+_ROW_DELTA_LOCK = threading.Lock()
+# The readers the `row-delta-read` recorders run themselves, taken before any build wraps them.
+_READ_HEAD = row_delta.read_head
+_OPEN_PARTS = row_delta.open_parts
+_CHECK_SEGMENT_HEADER = row_delta.check_segment_header
+_READ_HEAD_SIGNATURE = inspect.signature(row_delta.read_head)
+_OPEN_PARTS_SIGNATURE = inspect.signature(row_delta.open_parts)
+_CHECK_SEGMENT_HEADER_SIGNATURE = inspect.signature(row_delta.check_segment_header)
+# A refusal whose text ends in what `json.loads` raised, which no output carries and the crate's reader does not word as Python's decoder does: the stage records it up to that colon.
+_JSON_DETAIL = re.compile(r"(segment -?\d+ has no header|\S+ does not parse): .*", re.DOTALL)
+# What a part's rows or a merge raises past the head: a `row_delta.HeadError` or another `ValueError`, Python's gzip reader's `EOFError` and `gzip.BadGzipFile`, and `zlib.error`.
+_ROW_ERRORS = (ValueError, EOFError, OSError, zlib.error)
+# The output the generated lines read under, and the generation their parts carry.
+ROW_DELTA_OUTPUT = unit_cache.STORE_NAME
+ROW_DELTA_GENERATION = 2
+# A field a generated header leaves out.
+_ABSENT = object()
+
+
+@contextlib.contextmanager
+def _row_delta_blobs_at(directory: Path) -> Iterator[None]:
+    _ROW_DELTA_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _ROW_DELTA_BLOBS_AT.pop()
+
+
+def _row_delta_line(origin: str, form: str, inputs: tuple, value: object) -> dict[str, object]:
+    """One `row-delta-read` line, keyed by its origin, its form and a digest of its input, with what Python read as its `value`."""
+    digest = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{origin}:{form}:{digest}", "form": form, "input": inputs, "value": value}
+
+
+def _error_text(error: BaseException) -> str:
+    message = str(error)
+    cut = _JSON_DETAIL.fullmatch(message)
+    return cut.group(1) if cut else message
+
+
+def _row_delta_blob(blobs: Path, data: bytes) -> str:
+    with _ROW_DELTA_LOCK:
+        return _blob_into(blobs, data)
+
+
+def _part_held(blobs: Path, path: Path) -> tuple:
+    """What a part's path holds as an `open-parts` line names it: `("missing",)`, or `("file", sha256)` with its bytes kept in `blobs`."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return ("missing",)
+    return ("file", _row_delta_blob(blobs, data))
+
+
+def _head_line(origin: str, directory: Path, output: str) -> dict[str, object]:
+    """A `read-head` line: what the head's path holds, `("missing",)` or `("file", bytes)`, and what `row_delta.read_head` gives: `("none",)`, `("head", document)` or `("refused", message)`."""
+    path = row_delta.head_path(directory, output)
+    try:
+        held: tuple = ("file", path.read_bytes())
+    except FileNotFoundError:
+        held = ("missing",)
+    try:
+        head = _READ_HEAD(directory, output)
+    except row_delta.HeadError as error:
+        value: tuple = ("refused", _error_text(error))
+    else:
+        value = ("none",) if head is None else ("head", head.document())
+    return _row_delta_line(origin, "read-head", (output, held), value)
+
+
+def _header_line(origin: str, inputs: tuple) -> dict[str, object]:
+    """A `check-segment-header` line: the header line, output, generation, number and merge, and `("checked",)` or `("refused", message)`."""
+    try:
+        _CHECK_SEGMENT_HEADER(*inputs)
+    except row_delta.HeadError as error:
+        return _row_delta_line(origin, "check-segment-header", inputs, ("refused", _error_text(error)))
+    return _row_delta_line(origin, "check-segment-header", inputs, ("checked",))
+
+
+def _rows_outcome(rows: Iterable[object]) -> tuple:
+    """What reading `rows` through gives: `("rows", count, sha256)` over each item's typed encoding and a newline, as `column_line` digests a column, or `("raised", class, message)` for the first error."""
+    digest = hashlib.sha256()
+    count = 0
+    try:
+        for item in rows:
+            digest.update(compact(encode(item)).encode("ascii") + b"\n")
+            count += 1
+    except _ROW_ERRORS as error:
+        return ("raised", type(error).__name__, _error_text(error))
+    return ("rows", count, digest.hexdigest())
+
+
+def _part_items(kind: str, handle: BinaryIO, output: str, generation: int, number: int) -> Iterator[object]:
+    """One part's rows as its reader reads them: a base's lines past its header line (`unit_index._base_lines`, as `store_base_lines` reads a store's), a segment by place's `(op, anchor, fraction, payload)` (`row_delta.segment_rows`), or a segment by key's `(op, payload)` (`row_delta.keyed_segment_rows`)."""
+    if kind == "base":
+        yield from unit_index._base_lines(handle)
+    elif kind == row_delta.MERGE_PLACE:
+        for row in row_delta.segment_rows(handle, output, generation, number):
+            yield (row.op, row.place[0], row.place[1], row.payload)
+    else:
+        yield from row_delta.keyed_segment_rows(handle, output, generation, number)
+
+
+def _merged_items(
+    merge: str,
+    handles: Sequence[BinaryIO],
+    output: str,
+    generation: int,
+    key: Callable[[bytes], list[bytes]] | None,
+) -> Iterator[object]:
+    """The materialized rows of a base and its segments: `(place, payload)` from `row_delta.merge_placed`, as `unit_index.store_lines` merges the store, or each payload from `row_delta.merge_keyed` under `key`, as `unit_index.OpenIndex.lines` merges the index."""
+    base = handles[0]
+    if key is None:
+        segments = [
+            (lambda handle=handle, number=number: row_delta.segment_rows(handle, output, generation, number))
+            for number, handle in enumerate(handles[1:], start=1)
+        ]
+        yield from row_delta.merge_placed(lambda: unit_index._base_lines(base), segments)
+        return
+    keyed = [
+        row_delta.keyed_segment_rows(handle, output, generation, number)
+        for number, handle in enumerate(handles[1:], start=1)
+    ]
+    yield from row_delta.merge_keyed(unit_index._base_lines(base), keyed, key, key)
+
+
+def _merge_outcome(
+    merge: str,
+    handles: Sequence[BinaryIO],
+    output: str,
+    generation: int,
+    key: Callable[[bytes], list[bytes]] | None,
+) -> tuple[tuple, tuple]:
+    """A merge's outcome (`_merged_items`, `_rows_outcome`) and, by key, each distinct payload the merge took a key of with that key, in the order it took them, which the Rust side's merge looks up in place of the caller's key function."""
+    if key is None:
+        return _rows_outcome(_merged_items(merge, handles, output, generation, None)), ()
+    taken: dict[bytes, list[bytes]] = {}
+
+    def keyed(payload: bytes) -> list[bytes]:
+        found = key(payload)
+        taken.setdefault(payload, found)
+        return found
+
+    outcome = _rows_outcome(_merged_items(merge, handles, output, generation, keyed))
+    return outcome, tuple(taken.items())
+
+
+def _read_lines(
+    origin: str,
+    head: row_delta.Head,
+    handles: Sequence[BinaryIO],
+    digests: Sequence[str],
+    key: Callable[[bytes], list[bytes]] | None,
+) -> list[Mapping[str, object]]:
+    """A `part-rows` line a part of an opened head, its kind, output, generation, number and file, and a `merge` line over all of them, its merge, output, generation, files and, by key, the payloads' keys."""
+    lines: list[Mapping[str, object]] = []
+    for number, (handle, digest) in enumerate(zip(handles, digests)):
+        kind = "base" if number == 0 else head.merge
+        inputs = (kind, head.output, head.generation, number, digest)
+        outcome = _rows_outcome(_part_items(kind, handle, head.output, head.generation, number))
+        lines.append(_row_delta_line(origin, "part-rows", inputs, outcome))
+    outcome, keys = _merge_outcome(head.merge, handles, head.output, head.generation, key)
+    inputs = (head.merge, head.output, head.generation, tuple(digests), keys)
+    lines.append(_row_delta_line(origin, "merge", inputs, outcome))
+    return lines
+
+
+def _opened_lines(
+    origin: str, blobs: Path, directory: Path, head: row_delta.Head, sha256: bool
+) -> list[Mapping[str, object]]:
+    """An `open-parts` line, the head's document, `sha256` and what each part's path holds, with `("opened",)` or `("refused", message)`; and, for a head that opens and merges by place, or is the units index's, its parts' rows and its merge (`_read_lines`), read through parts this opens itself."""
+    files = tuple((part.name, _part_held(blobs, directory / part.name)) for part in head.parts)
+    inputs = (head.document(), sha256, files)
+    try:
+        opened = _OPEN_PARTS(directory, head, sha256=sha256)
+    except row_delta.HeadError as error:
+        return [_row_delta_line(origin, "open-parts", inputs, ("refused", _error_text(error)))]
+    with opened:
+        lines: list[Mapping[str, object]] = [_row_delta_line(origin, "open-parts", inputs, ("opened",))]
+        if head.merge == row_delta.MERGE_PLACE:
+            key = None
+        elif head.merge == row_delta.MERGE_KEY and head.output == unit_index.INDEX_NAME:
+            key = unit_index.index_key
+        else:
+            return lines
+        digests = [held[1] for _name, held in files]
+        lines += _read_lines(origin, head, opened.handles, digests, key)
+    return lines
+
+
+def _head_read(args: tuple, kwargs: dict) -> Finisher:
+    """A `row_delta.read_head` call, read again before it runs, so a refusal is recorded too."""
+    bound = _READ_HEAD_SIGNATURE.bind(*args, **kwargs)
+    line = _head_line("run", Path(bound.arguments["directory"]), bound.arguments["output"])
+    return lambda _result: line
+
+
+def _parts_opened(args: tuple, kwargs: dict) -> Finisher:
+    """A `row_delta.open_parts` call, opened and read again before it runs (`_opened_lines`)."""
+    bound = _OPEN_PARTS_SIGNATURE.bind(*args, **kwargs)
+    bound.apply_defaults()
+    arguments = bound.arguments
+    lines = _opened_lines(
+        "run", _ROW_DELTA_BLOBS_AT[-1], Path(arguments["directory"]), arguments["head"], arguments["sha256"]
+    )
+    return lambda _result: lines
+
+
+def _segment_header_checked(args: tuple, kwargs: dict) -> Finisher:
+    """A `row_delta.check_segment_header` call, checked again before it runs."""
+    bound = _CHECK_SEGMENT_HEADER_SIGNATURE.bind(*args, **kwargs)
+    arguments = bound.arguments
+    inputs = (
+        bytes(arguments["line"]),
+        arguments["output"],
+        arguments["generation"],
+        arguments["number"],
+        arguments["merge"],
+    )
+    line = _header_line("run", inputs)
+    return lambda _result: line
+
+
+def _case_directory(scratch: Path, files: Mapping[str, bytes]) -> Path:
+    """A fresh directory under `scratch` holding `files` by name."""
+    directory = Path(tempfile.mkdtemp(dir=scratch))
+    for name, data in files.items():
+        (directory / name).write_bytes(data)
+    return directory
+
+
+def _gz(*lines: bytes) -> bytes:
+    return gzip.compress(b"".join(lines), compresslevel=1, mtime=0)
+
+
+def _head_bytes(document: object) -> bytes:
+    return json.dumps(document).encode()
+
+
+def _part_document(name: str, /, **changes: object) -> dict[str, object]:
+    document: dict[str, object] = {"name": name, "size": 10, "sha256": "0" * 64, "rows": 2, "rows_bytes": 30}
+    document.update(changes)
+    return document
+
+
+def _head_document(generation: object = ROW_DELTA_GENERATION, **changes: object) -> dict[str, object]:
+    """A head of `ROW_DELTA_OUTPUT` at `ROW_DELTA_GENERATION` with a base and two segments, `changes` set over it."""
+    output = ROW_DELTA_OUTPUT
+    named = ROW_DELTA_GENERATION if not isinstance(generation, int) else generation
+    document: dict[str, object] = {
+        "format": row_delta.HEAD_FORMAT,
+        "output": output,
+        "generation": generation,
+        "content": 7,
+        "stamps": {"format": "stamp", "parts": {"a.json": 3}, "lines": ["x\ty"]},
+        "base": _part_document(row_delta.base_name(output, named)),
+        "segments": [
+            _part_document(row_delta.segment_name(output, named, 1)),
+            _part_document(row_delta.segment_name(output, named, 2)),
+        ],
+    }
+    document.update(changes)
+    return document
+
+
+def _without(document: Mapping[str, object], *names: str) -> dict[str, object]:
+    return {name: value for name, value in document.items() if name not in names}
+
+
+def _base_part(**changes: object) -> dict[str, object]:
+    return _part_document(row_delta.base_name(ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION), **changes)
+
+
+def _with_base(**changes: object) -> dict[str, object]:
+    return _head_document(base=_base_part(**changes))
+
+
+def _head_cases() -> Iterator[bytes]:
+    """The heads the generated `read-head` lines read: each refusal of `row_delta.parse_head` and `Part.parse`, each lenient read of a value `int` and `str` take, and raw bytes that do not parse."""
+    base = _head_document()
+    member_base = _with_base(size=9, rows_bytes=5, members=[["", 4, 3], ["default", 5, 5]])
+    documents: list[object] = [
+        base,
+        _head_document(merge=row_delta.MERGE_PLACE),
+        *(_head_document(merge=merge) for merge in row_delta._MERGES),
+        _head_document(merge="bogus"),
+        _head_document(merge=5),
+        _head_document(merge=None),
+        _head_document(format="ams-row-delta-head/2"),
+        _without(base, "format"),
+        _head_document(output="units-index.ndjson.gz"),
+        _head_document(output="Šumava's"),
+        _head_document(output=5),
+        _without(base, "output"),
+        _without(base, "stamps"),
+        _head_document(stamps=[]),
+        _without(base, "segments"),
+        _head_document(segments={}),
+        _head_document(segments=[]),
+        _without(base, "generation"),
+        _without(base, "content"),
+        _head_document(generation="2"),
+        _head_document(generation=" 2 "),
+        _head_document(generation="+2"),
+        _head_document(generation="0_2"),
+        _head_document(generation="x"),
+        _head_document(generation="2.0"),
+        _head_document(generation=""),
+        _head_document(generation=None),
+        _head_document(generation=[2]),
+        _head_document(generation=True),
+        _head_document(generation=1, content=True),
+        _head_document(content="7"),
+        _head_document(content={"a": 1}),
+        _head_document(family_keys=[]),
+        _head_document(family_keys={}),
+        _head_document(family_keys=[{"qsPea": "k1"}, {}]),
+        _head_document(family_keys=[{"qsPea": 1}]),
+        _head_document(family_keys=[[]]),
+        _head_document(family_keys=["x"]),
+        _without(base, "base"),
+        _head_document(base=[]),
+        _head_document(base="x"),
+        _head_document(segments=[5]),
+        _head_document(segments=[None]),
+        _head_document(base=_without(_base_part(), "name")),
+        _head_document(base=_without(_base_part(), "size")),
+        _head_document(base=_without(_base_part(), "rows_bytes")),
+        _with_base(size="12"),
+        _with_base(size=" 12\n"),
+        _with_base(size="1_2"),
+        _with_base(size="1__2"),
+        _with_base(size="_12"),
+        _with_base(size="-12"),
+        _with_base(size="١٢"),
+        _with_base(size="x" * 300),
+        _with_base(size="it's"),
+        _with_base(size=None),
+        _with_base(size=[]),
+        _with_base(size={}),
+        _with_base(size=True),
+        _with_base(size=-5),
+        _with_base(rows="3"),
+        _with_base(rows_bytes=False),
+        _with_base(name=5),
+        _with_base(name=None),
+        _with_base(name=["a"]),
+        _with_base(sha256=5),
+        _with_base(sha256={"a": [1, None, True]}),
+        _head_document(base=_base_part(stamp="s", family_keys=0), family_keys=[{"qsPea": "k1"}]),
+        _with_base(stamp="s"),
+        _with_base(family_keys=0),
+        _with_base(stamp=5, family_keys=0),
+        _with_base(stamp="s", family_keys=True),
+        _with_base(stamp="s", family_keys="0"),
+        _head_document(base=_base_part(stamp="s", family_keys=3), family_keys=[{"qsPea": "k1"}]),
+        _head_document(base=_base_part(stamp="s", family_keys=-1), family_keys=[{"qsPea": "k1"}]),
+        member_base,
+        _with_base(members="x"),
+        _with_base(members=[]),
+        _with_base(members=[["", 1]]),
+        _with_base(members=[["", 1, True]]),
+        _with_base(members=[["", -1, 2]]),
+        _with_base(members=[[1, 2, 3]]),
+        _with_base(members=["a"]),
+        _with_base(size=5, rows_bytes=0, members=[["a", 5, 5]]),
+        _with_base(size=9, rows_bytes=5, members=[["", 4, 3], ["default", 4, 5]]),
+        _with_base(size=9, rows_bytes=5, members=[["", 4, 3], ["default", 5, 6]]),
+        _with_base(size=9, rows_bytes=5, members=[["", 4, 3], ['it\'s "x"', 5, 5]]),
+        _head_document(
+            segments=[
+                _part_document(row_delta.segment_name(ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION, 2)),
+            ]
+        ),
+        _head_document(base=_part_document(row_delta.base_name(ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION + 1))),
+        _head_document(
+            base=_part_document(row_delta.base_name(ROW_DELTA_OUTPUT, 1)),
+            segments=[_part_document(row_delta.segment_name(ROW_DELTA_OUTPUT, 1, 1))],
+        ),
+        _head_document(
+            generation=True, base=_part_document(row_delta.base_name(ROW_DELTA_OUTPUT, 1)), segments=[]
+        ),
+        [],
+        None,
+        "head",
+        5,
+    ]
+    for document in documents:
+        yield _head_bytes(document)
+    valid = _head_bytes(base)
+    yield from (
+        b"",
+        b"   \n",
+        b"{",
+        b"{} x",
+        b'{"a": 1,}',
+        b"\xff\xfe",
+        b'{"format": "\xff"}',
+        b"\xef\xbb\xbf" + valid,
+        b'{"generation": 1, "generation": 2}',
+        valid.replace(b'"content": 7', b'"content": 7, "content": 9'),
+        valid.replace(b'"format": "ams', b'"format": "\\u0061ms'),
+    )
+
+
+def _segment_header_cases() -> Iterator[tuple]:
+    """The generated `check-segment-header` inputs: each refusal of `row_delta.check_segment_header`, headers it reads past, and `==`'s reading of a bool as an int."""
+    output, generation = ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION
+    place = row_delta.segment_header(output, generation, 1)
+    keyed = row_delta.segment_header(output, generation, 1, row_delta.MERGE_KEY)
+
+    def header(**changes: object) -> bytes:
+        document: dict[str, object] = {
+            "format": row_delta.SEGMENT_FORMAT,
+            "output": output,
+            "generation": generation,
+            "segment": 1,
+        }
+        document.update(changes)
+        return (
+            json.dumps({name: value for name, value in document.items() if value is not _ABSENT}) + "\n"
+        ).encode()
+
+    for line, merge in (
+        (place, row_delta.MERGE_PLACE),
+        (keyed, row_delta.MERGE_KEY),
+        (keyed, row_delta.MERGE_PLACE),
+        (place, row_delta.MERGE_KEY),
+        (place, row_delta.MERGE_PLAIN_KEY),
+        (header(merge=row_delta.MERGE_PLACE), row_delta.MERGE_PLACE),
+        (header(merge=None), row_delta.MERGE_PLACE),
+        (header(merge=5), row_delta.MERGE_KEY),
+        (header(merge={"a": [1]}), row_delta.MERGE_KEY),
+        (header(merge="it's"), row_delta.MERGE_KEY),
+        (header(generation=generation + 1), row_delta.MERGE_PLACE),
+        (header(segment=2), row_delta.MERGE_PLACE),
+        (header(segment=_ABSENT), row_delta.MERGE_PLACE),
+        (header(segment="1"), row_delta.MERGE_PLACE),
+        (header(segment=True), row_delta.MERGE_PLACE),
+        (header(segment=[1], generation=None), row_delta.MERGE_PLACE),
+        (header(output="units-index.ndjson.gz"), row_delta.MERGE_PLACE),
+        (header(output=_ABSENT), row_delta.MERGE_PLACE),
+        (header(format="ams-row-delta-segment/2"), row_delta.MERGE_PLACE),
+        (header(format=_ABSENT), row_delta.MERGE_PLACE),
+        (header(extra={"x": 1}), row_delta.MERGE_PLACE),
+        (b"[]\n", row_delta.MERGE_PLACE),
+        (b"5", row_delta.MERGE_PLACE),
+        (b"", row_delta.MERGE_PLACE),
+        (b"\n", row_delta.MERGE_PLACE),
+        (b"{", row_delta.MERGE_PLACE),
+        (b"\xff\n", row_delta.MERGE_PLACE),
+        (place.rstrip(b"\n"), row_delta.MERGE_PLACE),
+    ):
+        yield (line, output, generation, 1, merge)
+    yield (header(generation=True, segment=True), output, 1, 1, row_delta.MERGE_PLACE)
+    yield (header(output="Šumava"), "Šumava", generation, 1, row_delta.MERGE_PLACE)
+
+
+def _place_segment(number: int, rows: Sequence[bytes], generation: int = ROW_DELTA_GENERATION) -> bytes:
+    return _gz(row_delta.segment_header(ROW_DELTA_OUTPUT, generation, number), *rows)
+
+
+def _keyed_segment(number: int, rows: Sequence[bytes]) -> bytes:
+    header = row_delta.segment_header(ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION, number, row_delta.MERGE_KEY)
+    return _gz(header, *rows)
+
+
+def _part_rows_cases() -> Iterator[tuple[str, int, bytes]]:
+    """The generated `part-rows` parts, each with its kind and number: bases read whole, short, empty, cut and damaged; segments by place with every row `_parse_row` refuses and every anchor `int` reads; segments by key with every row `_keyed_rows` refuses; and segments whose headers, gzip framing or trailers refuse."""
+    rows = [b'{"key": "%d"}\n' % index for index in range(6)]
+    base = _gz(b'{"format": "x"}\n', *rows)
+    yield from (
+        ("base", 0, base),
+        ("base", 0, _gz(b"header\n")),
+        ("base", 0, _gz(b"header")),
+        ("base", 0, b""),
+        ("base", 0, _gz()),
+        ("base", 0, _gz(b"\n", *rows)),
+        ("base", 0, _gz(b"h\n", b"a\n", b"b")),
+        ("base", 0, base + _gz(b"more\n") + b"\0\0"),
+        ("base", 0, base[:-6]),
+        ("base", 0, base[:15]),
+        ("base", 0, _flipped(base, len(base) - 8)),
+        ("base", 0, base + b"xy"),
+        ("base", 0, b"plain\nlines\n"),
+    )
+    good = [
+        b'+\t-1\ta\t{"key": "n"}\n',
+        b'-\t0\t\t{"key": "0"}\n',
+        b'+\t1\t\t{"key": "1x"}\n',
+        b"+\t3\t0i\tpayload\twith\ttabs\n",
+        b"+\t5\tz\tlast",
+    ]
+    yield ("place", 1, _place_segment(1, good))
+    yield ("place", 2, _place_segment(2, good[:2]))
+    yield ("place", 1, _place_segment(1, []))
+    for anchor in (
+        b" 7 ",
+        b"+2",
+        b"-0",
+        b"1_0",
+        b"007",
+        b"\x0b3\x0c",
+        b"\r4",
+        b"9223372036854775807",
+        b"-9223372036854775808",
+    ):
+        yield ("place", 1, _place_segment(1, [b"+\t" + anchor + b"\tf\tp\n"]))
+    for bad in (
+        b"+\tx\t\tp\n",
+        b"+\t\t\tp\n",
+        b"+\t1__0\t\tp\n",
+        b"+\t_1\t\tp\n",
+        b"+\t1 2\t\tp\n",
+        b"+\t" + b"x" * 250 + b"\t\tp\n",
+        b"+\t1\t\xc3\xa9\tp\n",
+        b"+\t1\ta\xff\tp\n",
+        b"*\t1\t\tp\n",
+        b"++\t1\t\tp\n",
+        b"\t1\t\tp\n",
+        b"+\t1\n",
+        b"+\t1\t",
+        b"+\n",
+        b"+",
+    ):
+        yield ("place", 1, _place_segment(1, [good[0], bad, good[1]]))
+    segment = _place_segment(1, good)
+    yield from (
+        ("place", 2, segment),
+        ("place", 1, _place_segment(1, good, ROW_DELTA_GENERATION + 1)),
+        ("place", 1, _keyed_segment(1, [])),
+        ("place", 1, _gz(b"not json\n", *good)),
+        ("place", 1, _gz()),
+        ("place", 1, b""),
+        ("place", 1, b"plain segment\n"),
+        ("place", 1, b"\x1f\x8b\x07" + segment[3:]),
+        ("place", 1, segment[:-5]),
+        ("place", 1, segment[:12]),
+        ("place", 1, _flipped(segment, len(segment) - 7)),
+        ("place", 1, segment + b"junk"),
+        ("place", 1, segment + b"\0\0" + _gz(b"+\t9\t\tq\n")),
+    )
+    keyed = [b"+\tk1\tv\n", b"-\tk2\tx\n", b"+\tk3", b"-\t\n", b"+\t\t\n"]
+    yield ("key", 1, _keyed_segment(1, keyed))
+    yield ("key", 3, _keyed_segment(3, keyed[:1]))
+    for bad in (b"+k1\n", b"x\tk1\n", b"+", b"\n", b"++\tk\n", b"-"):
+        yield ("key", 1, _keyed_segment(1, [keyed[0], bad]))
+    yield ("key", 1, _place_segment(1, []))
+    yield ("key", 2, _keyed_segment(1, keyed))
+    yield ("key", 1, b"\x00\x01")
+
+
+def _tab_key(payload: bytes) -> list[bytes]:
+    """The generated merges' key: a row's first two tab-separated fields."""
+    return payload.rstrip(b"\n").split(b"\t")[:2]
+
+
+def _merge_cases() -> Iterator[tuple[str, list[bytes]]]:
+    """The generated merges, each its merge and its parts, base first: by place, upserts, tombstones and inserts superseded by a later segment, before the first row and past the last, with no segment, and over a segment that stops reading; by key, the same over keys of one and two fields, a segment or a base out of key order, a base out of order past the last change, and a segment or a base that stops reading."""
+    rows = [b"row %d\n" % index for index in range(6)]
+    base = _gz(b'{"format": "x"}\n', *rows)
+    first = _place_segment(
+        1,
+        [
+            b"+\t-1\tk\tbefore\n",
+            b"-\t0\t\tgone\n",
+            b"+\t1\t\tchanged\n",
+            b"-\t2\t\tgone\n",
+            b"+\t2\t8\tafter two\n",
+            b"+\t5\t\tlast changed\n",
+            b"+\t9\t\tpast the end\n",
+        ],
+    )
+    second = _place_segment(
+        2,
+        [
+            b"-\t-1\tk\tgone again\n",
+            b"+\t1\t\tchanged twice\n",
+            b"+\t2\t\trevived\n",
+            b"-\t2\t8\tgone\n",
+            b"+\t3\t4\tbetween\n",
+            b"+\t9\t\tpast the end, later\n",
+        ],
+    )
+    yield (row_delta.MERGE_PLACE, [base, first, second])
+    yield (row_delta.MERGE_PLACE, [base])
+    yield (row_delta.MERGE_PLACE, [base, first])
+    yield (row_delta.MERGE_PLACE, [_gz(b"h\n"), first])
+    yield (row_delta.MERGE_PLACE, [base, first, _place_segment(2, [b"+\tx\t\tbad\n"])])
+    yield (row_delta.MERGE_PLACE, [base, _place_segment(2, [])])
+    yield (row_delta.MERGE_PLACE, [base[:-6], first])
+    yield (row_delta.MERGE_PLACE, [base, first[:-6]])
+    yield (row_delta.MERGE_PLACE, [base, first, _place_segment(2, [b"+\t0\t\tz\n", b"+\t0\t\ty\n"])])
+    keyed_rows = [b"a\t1\tone\n", b"b\t1\ttwo\n", b"b\t2\tthree\n", b"d\t\tfour\n", b"f\t1\tfive\n"]
+    keyed_base = _gz(b'{"format": "x"}\n', *keyed_rows)
+    keyed_first = _keyed_segment(
+        1,
+        [
+            b"+\t0\t\tbefore all\n",
+            b"-\ta\t1\n",
+            b"+\tb\t1\tchanged\n",
+            b"+\tc\tnew\n",
+            b"-\tf\t1\n",
+            b"+\tz\tpast all\n",
+        ],
+    )
+    keyed_second = _keyed_segment(
+        2,
+        [
+            b"+\ta\t1\trevived\n",
+            b"-\tb\t1\n",
+            b"+\tb\t2\tchanged later\n",
+            b"-\tc\tnew\n",
+            b"+\tz\tpast all, later\n",
+        ],
+    )
+    yield (row_delta.MERGE_KEY, [keyed_base, keyed_first, keyed_second])
+    yield (row_delta.MERGE_KEY, [keyed_base])
+    yield (row_delta.MERGE_KEY, [keyed_base, keyed_first])
+    yield (row_delta.MERGE_KEY, [keyed_base, _keyed_segment(1, [b"+\tb\t1\tx\n", b"+\ta\t1\ty\n"])])
+    yield (row_delta.MERGE_KEY, [keyed_base, _keyed_segment(1, [b"+\tc\tx\n", b"-\tc\n"])])
+    out_of_order = _gz(b"h\n", b"b\tx\n", b"a\tx\n", b"c\tx\n", b"e\tx\n", b"d\tx\n")
+    yield (row_delta.MERGE_KEY, [out_of_order, _keyed_segment(1, [b"+\tc\ty\n"])])
+    yield (row_delta.MERGE_KEY, [out_of_order, _keyed_segment(1, [b"+\ta\ty\n"])])
+    yield (
+        row_delta.MERGE_KEY,
+        [_gz(b"h\n", b"a\tx\n", b"c\tx\n", b"b\tx\n"), _keyed_segment(1, [b"+\ta\ty\n"])],
+    )
+    yield (row_delta.MERGE_KEY, [keyed_base, keyed_first, _keyed_segment(2, [b"x\tbad\n"])])
+    yield (row_delta.MERGE_KEY, [keyed_base, _keyed_segment(1, [])])
+    yield (row_delta.MERGE_KEY, [keyed_base[:-6], keyed_first])
+    yield (row_delta.MERGE_KEY, [keyed_base, keyed_first[:-6], keyed_second])
+    yield (row_delta.MERGE_KEY, [keyed_base, _place_segment(1, [])])
+
+
+def _member(data: bytes) -> bytes:
+    return gzip.compress(data, compresslevel=1, mtime=0)
+
+
+def _member_part(
+    sections: Sequence[tuple[str, bytes]], recorded: Sequence[tuple[int, int]] | None = None
+) -> tuple[dict, bytes]:
+    """A part held as gzip members, a section a member, and its document, whose index records each member's length and inflated length, or `recorded` in their place; its size and row bytes are the recorded sums, so `Part.parse` takes it."""
+    members = [_member(data) for _section, data in sections]
+    index = (
+        recorded
+        if recorded is not None
+        else [(len(member), len(data)) for member, (_s, data) in zip(members, sections)]
+    )
+    document = {
+        "name": f"audit.tsv.{ROW_DELTA_GENERATION}.base",
+        "size": sum(length for length, _inflated in index),
+        "sha256": "0" * 64,
+        "rows": len(sections) - 1,
+        "rows_bytes": sum(inflated for _length, inflated in index[1:]),
+        "members": [
+            [section, length, inflated] for (section, _data), (length, inflated) in zip(sections, index)
+        ],
+    }
+    return document, b"".join(members)
+
+
+def _inflating_cases() -> Iterator[tuple[dict, bytes]]:
+    """The generated `inflating` parts: members read whole, over more than one read, and each refusal of `row_delta._Inflating`: a file that ends inside a member, a member that runs past or ends before its recorded length, inflates past or short of its recorded length, or does not inflate."""
+    bulk = _container_bulk()
+    header = b"config\twindow\n"
+    sections = [("", header), ("default", bulk[:5000]), ("ss03", bulk[5000:300_000]), ("ss05", b"")]
+    document, data = _member_part(sections)
+    yield document, data
+    lengths = [entry[1:] for entry in document["members"]]
+    yield document, data[:-10]
+    yield document, data[: lengths[0][0] + 7]
+    yield _member_part(sections[:1])
+    yield _member_part([("", b""), ('it\'s "q"', b"x\n")])
+    shifted = [lengths[0], (lengths[1][0] - 5, lengths[1][1]), (lengths[2][0] + 5, lengths[2][1]), lengths[3]]
+    yield _member_part(sections, shifted)[0], data
+    shifted = [(lengths[0][0] + 3, lengths[0][1]), (lengths[1][0] - 3, lengths[1][1]), *lengths[2:]]
+    yield _member_part(sections, shifted)[0], data
+    yield _member_part(sections, [lengths[0], (lengths[1][0], lengths[1][1] - 1), *lengths[2:]])[0], data
+    yield _member_part(sections, [lengths[0], (lengths[1][0], lengths[1][1] + 1), *lengths[2:]])[0], data
+    yield _member_part(sections, [lengths[0], lengths[1], (lengths[2][0], 100_000), lengths[3]])[0], data
+    yield _member_part(sections, [*lengths[:3], (lengths[3][0], 1)])[0], data
+    yield document, _flipped(data, lengths[0][0] + 12)
+    yield document, _flipped(data, lengths[0][0] + lengths[1][0] - 6)
+    yield document, _flipped(data, lengths[0][0] + lengths[1][0] - 2)
+    yield document, data[: lengths[0][0]] + b"\xff" * (len(data) - lengths[0][0])
+
+
+def _inflated(part: row_delta.Part, path: Path) -> tuple:
+    """What `row_delta._Inflating` reads from the part at `path`, `INFLATE_READ_BYTES` at a time, as `part_stream`'s reader asks it for a buffer's worth: `("bytes", sha256, length)` or `("raised", class, message)`."""
+    plain = bytearray()
+    buffer = bytearray(row_delta.INFLATE_READ_BYTES)
+    with open(path, "rb") as handle:
+        raw = row_delta._Inflating(handle.fileno(), part)
+        try:
+            while count := raw.readinto(buffer):
+                plain += buffer[:count]
+        except row_delta.HeadError as error:
+            return ("raised", type(error).__name__, str(error))
+    return ("bytes", hashlib.sha256(plain).hexdigest(), len(plain))
+
+
+def _open_parts_cases() -> Iterator[tuple[dict, bool, dict[str, bytes | None]]]:
+    """The generated `open-parts` heads, each with `sha256` and the bytes at each part's name, None for a missing part: every part in place, with and without the sha256 check, a part missing, a part of another size, and a part of the head's size whose bytes hash to another sha256."""
+    output, generation = ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION
+    names = [
+        row_delta.base_name(output, generation),
+        row_delta.segment_name(output, generation, 1),
+        row_delta.segment_name(output, generation, 2),
+    ]
+    files = {
+        names[0]: _gz(b"h\n", b"a\n"),
+        names[1]: _place_segment(1, [b"+\t0\t\tb\n"]),
+        names[2]: _place_segment(2, []),
+    }
+    parts = [
+        _part_document(name, size=len(data), sha256=hashlib.sha256(data).hexdigest(), rows=1, rows_bytes=2)
+        for name, data in files.items()
+    ]
+    document = _head_document(base=parts[0], segments=parts[1:])
+    for sha256 in (False, True):
+        yield document, sha256, dict(files)
+        yield document, sha256, {**files, names[1]: None}
+        yield document, sha256, {**files, names[0]: None, names[2]: None}
+        yield document, sha256, {**files, names[2]: files[names[2]] + b"x"}
+        yield document, sha256, {**files, names[1]: _flipped(files[names[1]], 4)}
+
+
+def _row_delta_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `row-delta-read` stage's generated lines (the module docstring), each read by Python's readers over its files in a scratch directory under the dump."""
+    blobs = source.out / ROW_DELTA_BLOBS
+    output, generation = ROW_DELTA_OUTPUT, ROW_DELTA_GENERATION
+    with tempfile.TemporaryDirectory(prefix="row-delta-read-", dir=source.out) as held:
+        scratch = Path(held)
+        yield _head_line("generated", _case_directory(scratch, {}), output)
+        for raw in _head_cases():
+            yield _head_line(
+                "generated", _case_directory(scratch, {row_delta.head_name(output): raw}), output
+            )
+        for inputs in _segment_header_cases():
+            yield _header_line("generated", inputs)
+        for document, sha256, files in _open_parts_cases():
+            directory = _case_directory(
+                scratch, {name: data for name, data in files.items() if data is not None}
+            )
+            head = row_delta.parse_head(_head_bytes(document), output)
+            yield from _opened_lines("generated", blobs, directory, head, sha256)
+        for kind, number, data in _part_rows_cases():
+            directory = _case_directory(scratch, {"part": data})
+            with open(directory / "part", "rb") as handle:
+                outcome = _rows_outcome(_part_items(kind, handle, output, generation, number))
+            inputs = (kind, output, generation, number, _row_delta_blob(blobs, data))
+            yield _row_delta_line("generated", "part-rows", inputs, outcome)
+        for merge, parts in _merge_cases():
+            directory = _case_directory(scratch, {str(number): data for number, data in enumerate(parts)})
+            handles = [open(directory / str(number), "rb") for number in range(len(parts))]
+            try:
+                key = None if merge == row_delta.MERGE_PLACE else _tab_key
+                outcome, keys = _merge_outcome(merge, handles, output, generation, key)
+            finally:
+                for handle in handles:
+                    handle.close()
+            digests = tuple(_row_delta_blob(blobs, data) for data in parts)
+            yield _row_delta_line("generated", "merge", (merge, output, generation, digests, keys), outcome)
+        for document, data in _inflating_cases():
+            directory = _case_directory(scratch, {"part": data})
+            outcome = _inflated(row_delta.Part.parse(document), directory / "part")
+            inputs = (document, ("file", _row_delta_blob(blobs, data)))
+            yield _row_delta_line("generated", "inflating", inputs, outcome)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -5054,6 +5835,16 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     ),
     SAMPLE_STAGE: Stage(
         SAMPLE_STAGE, {"build._verification_sample": _verification_sampled}, _sample_generated, run="build"
+    ),
+    ROW_DELTA_READ_STAGE: Stage(
+        ROW_DELTA_READ_STAGE,
+        {
+            "row_delta.read_head": _head_read,
+            "row_delta.open_parts": _parts_opened,
+            "row_delta.check_segment_header": _segment_header_checked,
+        },
+        _row_delta_generated,
+        run="build",
     ),
 }
 
@@ -5246,6 +6037,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / SINK_BLOBS, ignore_errors=True)
     if any(stage.name == CONTAINERS_STAGE for stage in stages):
         shutil.rmtree(out / CONTAINER_BLOBS, ignore_errors=True)
+    if any(stage.name == ROW_DELTA_READ_STAGE for stage in stages):
+        shutil.rmtree(out / ROW_DELTA_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -5261,6 +6054,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     wrapped(stages, sink, BUILD_HOOKS),
                     _sink_blobs_at(out / SINK_BLOBS),
                     _container_blobs_at(out / CONTAINER_BLOBS),
+                    _row_delta_blobs_at(out / ROW_DELTA_BLOBS),
                 ):
                     _build_here(source, built)
         shutil.rmtree(scratch)
@@ -5321,6 +6115,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 wrapped(stages, sink, BUILD_HOOKS),
                 _sink_blobs_at(built.out / SINK_BLOBS),
                 _container_blobs_at(built.out / CONTAINER_BLOBS),
+                _row_delta_blobs_at(built.out / ROW_DELTA_BLOBS),
             ):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:
