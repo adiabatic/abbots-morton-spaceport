@@ -174,8 +174,12 @@ enum NotInt {
     Wide,
 }
 
-/// An int literal as CPython's `PyLong_FromString` reads one at base 10: ASCII whitespace around it, a sign, and digits with single underscores between them.
+/// An int literal as CPython's `PyLong_FromString` reads one at base 10: ASCII whitespace around it, a sign, and digits with single underscores between them. CPython reads only up to the first NUL, so a NUL makes the literal invalid unless what comes before it is already one past [`INT_MAX_STR_DIGITS`].
 fn parse_int(text: &[u8]) -> std::result::Result<i64, NotInt> {
+    let (text, nul) = match text.iter().position(|&byte| byte == 0) {
+        Some(end) => (&text[..end], true),
+        None => (text, false),
+    };
     let space = |byte: u8| matches!(byte, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r');
     let mut at = 0;
     while at < text.len() && space(text[at]) {
@@ -218,6 +222,9 @@ fn parse_int(text: &[u8]) -> std::result::Result<i64, NotInt> {
     }
     if digits > INT_MAX_STR_DIGITS {
         return Err(NotInt::Long(digits));
+    }
+    if nul {
+        return Err(NotInt::Invalid);
     }
     let value = if negative { -value } else { value };
     i64::try_from(value).map_err(|_| NotInt::Wide)
@@ -2017,6 +2024,14 @@ mod tests {
         assert_eq!(parse_int(&long[1..]), Err(NotInt::Wide));
         assert_eq!(parse_int(&long), Err(NotInt::Long(INT_MAX_STR_DIGITS + 1)));
         assert_eq!(parse_int(&[&long[..], b"x"].concat()), Err(NotInt::Invalid));
+        assert_eq!(
+            parse_int(&[&long[..], b" \0x"].concat()),
+            Err(NotInt::Long(INT_MAX_STR_DIGITS + 1))
+        );
+        assert_eq!(
+            parse_int(&[&long[..], b"x\0"].concat()),
+            Err(NotInt::Invalid)
+        );
         let quoted = [&[b'x'; 250][..], b"'"].concat();
         assert_eq!(
             bytes_int(&quoted),
