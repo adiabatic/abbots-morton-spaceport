@@ -1,13 +1,14 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]); and the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib's deflate, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]); and the descriptors a parent passes the process, taken as files ([`inherited_files`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check guards zlib's by inflating every deflated fragment through Python's `zlib`.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
 use std::alloc::{Layout, alloc, dealloc};
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char, c_int, c_long, c_uint, c_ulong, c_void};
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::path::Path;
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[repr(C)]
 struct hb_blob_t {
@@ -179,6 +180,44 @@ impl Drop for Mapping {
             munmap(self.raw.as_ptr().cast::<c_void>(), self.len);
         }
     }
+}
+
+unsafe extern "C" {
+    fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
+}
+
+const F_GETFD: c_int = 1;
+
+static DESCRIPTORS_TAKEN: AtomicBool = AtomicBool::new(false);
+
+/// The descriptors the parent passed this process (`subprocess.Popen(pass_fds=…)`, as the corpus build hands over the audit it holds), each taken as the owned file it is, in their order. They are taken once a process, so no descriptor gets two owners that would each close it: a second call is refused, and so is a descriptor below 3 (standard input, output and error), one beyond `c_int`, one listed twice, or one not open in this process, each with the reason and before any is taken.
+pub fn inherited_files(descriptors: &[i64]) -> Result<Vec<std::fs::File>, String> {
+    let mut checked: Vec<c_int> = Vec::with_capacity(descriptors.len());
+    for &descriptor in descriptors {
+        let fd = c_int::try_from(descriptor)
+            .ok()
+            .filter(|fd| *fd > 2)
+            .ok_or_else(|| format!("{descriptor} is not a descriptor a parent passes"))?;
+        if checked.contains(&fd) {
+            return Err(format!("the descriptor {fd} is listed twice"));
+        }
+        // SAFETY: F_GETFD reads the descriptor's flags and changes nothing; an unopened one answers -1.
+        if unsafe { fcntl(fd, F_GETFD) } == -1 {
+            return Err(format!(
+                "the descriptor {fd} is not open in this process: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        checked.push(fd);
+    }
+    if DESCRIPTORS_TAKEN.swap(true, Ordering::SeqCst) {
+        return Err("the inherited descriptors are already taken".into());
+    }
+    Ok(checked
+        .into_iter()
+        // SAFETY: each descriptor is open, came from the parent at the process's start, so no file of this process owns it, and is taken once, by the guard above, so the file made here is its one owner.
+        .map(|fd| unsafe { std::fs::File::from_raw_fd(fd) })
+        .collect())
 }
 
 /// The linked HarfBuzz's version, `hb_version_string()`.
@@ -690,6 +729,34 @@ mod tests {
         );
         assert_eq!(Feature::global("ss10", 1).expect("ss10 parses").0.value, 1);
         assert_eq!(Feature::global("", 1), None);
+    }
+
+    #[test]
+    fn inherited_descriptors_are_taken_once_as_files_and_a_bad_list_is_refused_first() {
+        use std::io::Read;
+        use std::os::fd::IntoRawFd;
+        let path = std::env::temp_dir().join(format!("ams-review-held-{}", std::process::id()));
+        std::fs::write(&path, b"held").expect("write");
+        let fd = i64::from(std::fs::File::open(&path).expect("open").into_raw_fd());
+        std::fs::remove_file(&path).expect("remove");
+        for (descriptors, reason) in [
+            (vec![2], "is not a descriptor"),
+            (vec![i64::from(c_int::MAX) + 1], "is not a descriptor"),
+            (vec![fd, fd], "listed twice"),
+            (vec![fd, i64::from(c_int::MAX)], "is not open"),
+        ] {
+            let refusal = inherited_files(&descriptors).expect_err("refused");
+            assert!(refusal.contains(reason), "{refusal}");
+        }
+        let mut files = inherited_files(&[fd]).expect("taken");
+        let mut text = String::new();
+        files[0].read_to_string(&mut text).expect("read");
+        assert_eq!(text, "held");
+        assert!(
+            inherited_files(&[])
+                .expect_err("again")
+                .contains("already taken")
+        );
     }
 
     #[test]

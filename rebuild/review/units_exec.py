@@ -458,12 +458,18 @@ def ensure_built() -> None:
     _BUILT = True
 
 
-def spawn(arguments: Sequence[str], *, stdin: int | None = subprocess.DEVNULL) -> subprocess.Popen:
-    """Start the review binary with `arguments`, stdout and stderr piped, holding the relink lock shared for the spawn only. Raises `EngineRunError` for a missing binary."""
+def spawn(
+    arguments: Sequence[str], *, stdin: int | None = subprocess.DEVNULL, pass_fds: Sequence[int] = ()
+) -> subprocess.Popen:
+    """Start the review binary with `arguments`, stdout and stderr piped and the descriptors `pass_fds` inherited, holding the relink lock shared for the spawn only. Raises `EngineRunError` for a missing binary."""
     try:
         with _RelinkLock(fcntl.LOCK_SH):
             return subprocess.Popen(
-                [str(BINARY), *arguments], stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                [str(BINARY), *arguments],
+                stdin=stdin,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                pass_fds=tuple(pass_fds),
             )
     except FileNotFoundError:
         raise EngineRunError(f"no review binary at {BINARY}; ensure_built() builds it") from None

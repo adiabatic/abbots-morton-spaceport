@@ -51,6 +51,7 @@ from rebuild.review import (
     app_index,
     audit,
     audit_stream,
+    corpus_exec,
     facts,
     tablediff,
     unit_cache,
@@ -127,7 +128,7 @@ from rebuild.review.enrich import (
 )
 from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
 from rebuild.review.unit_store import Address, RecomputedProjection, UnitStore
-from rebuild.tools import console, memory_tally
+from rebuild.tools import console, cycle_paths, memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import (
     current_rss_bytes,
@@ -4205,6 +4206,159 @@ def _build_m1(
         tally.boundary("cache")
     _phase_timing("review.build cache", phase, f"(store: {wrote.note()})")
     return manifest
+
+
+def _stamp_values(stamp: fingerprint.EnvironmentStamp) -> dict:
+    """A whole-store stamp as the build input carries it: its value, its lines, the lines behind each detailed label, and the header fields its store writes (`unit_cache._stamp_header`)."""
+    return {
+        "value": stamp.value,
+        "lines": stamp.lines,
+        "detail": stamp.detail,
+        "header": unit_cache._stamp_header(stamp),
+    }
+
+
+def _rust_inputs(
+    parts: audit.AuditParts,
+    *,
+    out_dir: Path,
+    audit_path: Path,
+    ledger_path: Path,
+    subset_dir: Path,
+    before_font: Path,
+    after_font: Path,
+    junior_font: Path,
+    repo_root: Path,
+    batch_size: int,
+    static_dir: Path,
+    jobs: int,
+    signature_jobs: int,
+    recompute_all_units: bool,
+    spec_root: Path,
+    subset_digests: Mapping[str, str],
+    gates_idle_jobs: int | None,
+    gates_idle_marker: Path | None,
+    write_jobs: int | None,
+    units_init: Path,
+    scratch: Path,
+) -> dict[str, object]:
+    """Return the values of the Rust build's input (`corpus_exec.INPUT_FIELDS`, the plan's § The build input) for a build of `_build_m1`'s arguments over the held audit `parts`, each computed with the call `_build_m1` makes for it, so the Rust build stamps, names and writes what the Python build would: the ledger, the spec, the family keys and both stores' stamps, the unit store's with its `units_engine` line, as the load and the plan compute them; the manifest's values as `_write_corpus` computes them, `generated_at` over the held audit's content time and each font record with its `upem`; the fonts' digests as the load takes them; the static files `copy_static` copies; the widths; and what the build reads from the environment, the cycle's run, its fold claim's file and the output-counts file. `units_init` is the units init the caller wrote (`units_exec.write_init`) and `scratch` the directory the process's spill files go in. Paths are absolute strings, but the audit's and the ledger's, which messages name as given."""
+    out_dir, repo_root, spec_root = Path(out_dir), Path(repo_root), Path(spec_root)
+    ledger = load_ledger(ledger_path)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        spec = load_spec(spec_root)
+    family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
+    identical_classes = frozenset(entry.id for entry in ledger if entry.ink_identical)
+    site_pages = fingerprint.read_site_corpus(repo_root)
+    draft_lines = fingerprint.draft_input_lines(repo_root, site_pages)
+    del site_pages
+    environment = unit_cache.environment_stamp(
+        repo_root,
+        spec,
+        subset_dir,
+        before_font,
+        junior_font,
+        helpers_digest,
+        subset_digests=subset_digests,
+        identical_classes=identical_classes,
+        draft_lines=draft_lines,
+        units_engine=units_exec.engine_stamp(),
+    )
+    del spec
+    sources = {"before": Path(before_font), "after": Path(after_font)}
+    copies = {
+        side: {
+            "source": str(source.absolute()),
+            "name": f"{side}.otf",
+            "family": family,
+            "sha256": _sha256(source),
+        }
+        for (side, source), family in zip(
+            sources.items(), ("AMS Review Before", "AMS Review After"), strict=True
+        )
+    }
+    static_files = fingerprint.static_files(static_dir) if Path(static_dir).is_dir() else []
+    return {
+        "format": corpus_exec.INPUT_FORMAT,
+        "units_init": str(Path(units_init).absolute()),
+        "out_dir": str(out_dir.absolute()),
+        "scratch": str(Path(scratch).absolute()),
+        "audit": {
+            "path": str(audit_path),
+            "head": None if parts.head is None else parts.head.document(),
+            "members": parts.members,
+            "identity": unit_cache.audit_identity(parts.descriptors[0], parts.head),
+            "segment_rows": parts.segment_rows,
+            "compressed": parts.compressed,
+        },
+        "ledger": {"path": str(ledger_path), "entries": ledger},
+        "family_of": dict(LETTERS),
+        "family_keys": family_keys,
+        "family_keys_digest": unit_cache.family_keys_digest(family_keys),
+        "change_groups": {"order": CHANGE_GROUP_ORDER, "prose": load_change_group_prose()},
+        "environment": _stamp_values(environment),
+        "signature_environment": _stamp_values(
+            unit_cache.signature_environment(repo_root, before_font, helpers_digest)
+        ),
+        "manifest": {
+            "generated_at": _generated_at(ledger_path, before_font, after_font, mtimes=(parts.content_time,)),
+            "repo_head": _repo_head(repo_root),
+            "inputs_fingerprint": _inputs_fingerprint(
+                repo_root, subset_dir, before_font, junior_font, spec_root, draft_lines=draft_lines
+            ),
+            "source": {
+                "audit": _relative(audit_path, repo_root),
+                "ledger": _relative(ledger_path, repo_root),
+            },
+            "fonts": {
+                side: {
+                    "file": f"fonts/{copy['name']}",
+                    "family": copy["family"],
+                    "source": _relative(sources[side], repo_root),
+                    "sha256": copy["sha256"],
+                    "upem": _upem(sources[side]),
+                }
+                for side, copy in copies.items()
+            },
+            "alphabet": _alphabet_meta(),
+            "configs": list(ACCEPTANCE_CONFIGS),
+            "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
+            "batch_size": batch_size,
+            "junior_font": {"source": _relative(junior_font, repo_root), "sha256": _sha256(junior_font)},
+            "verification_methods": {
+                "ink_identical": VERIFICATION_METHOD,
+                "picture_identical": PICTURE_VERIFICATION_METHOD,
+                "junior_equivalent": JUNIOR_VERIFICATION_METHOD,
+            },
+            "build_command": BUILD_COMMAND,
+            "serve_command": SERVE_COMMAND,
+        },
+        "fonts": copies,
+        "static": {
+            "files": [
+                (str(source.relative_to(static_dir)), str(source.absolute())) for source in static_files
+            ],
+            "fallback_index": _FALLBACK_INDEX.format(build=BUILD_COMMAND, serve=SERVE_COMMAND),
+        },
+        "repo_root": str(repo_root.absolute()),
+        "recompute_all": recompute_all_units,
+        "widths": {
+            "threads": jobs,
+            "gates_idle_threads": gates_idle_jobs,
+            "gates_idle_marker": (
+                None if gates_idle_marker is None else str(Path(gates_idle_marker).absolute())
+            ),
+            "signature_threads": signature_jobs,
+            "write_threads": write_jobs,
+        },
+        "cycle": {
+            "run": os.environ.get(row_delta.CYCLE_RUN_ENV) or None,
+            "fold_claim": str((cycle_paths.CYCLE_VAR / cycle_paths.FOLD_CLAIM_NAME).absolute()),
+            "counts": os.environ.get(output_sink.OUTPUT_COUNTS_ENV) or None,
+        },
+        "vocabulary": corpus_exec.vocabulary(),
+    }
 
 
 def _relative(path: Path, repo_root: Path) -> str:

@@ -1,6 +1,10 @@
 """Record what the real Python corpus units worker's and corpus build's stages take and return, for the ports of the units recompute and of the build's parent to Rust (`rebuild/CORPUS-UNITS-PORT-PLAN.md` and `rebuild/CORPUS-PARENT-PORT-PLAN.md`, each § Stage fixtures).
 
-A stage runs the worker or the build (`Stage.run`). The worker's stages (`STAGES`) are described below. The build's (`BUILD_STAGES`) take a build source, `--scenario S` beside `--source`: the scenario's one build, prepared over the source's base prior (`open_build_source`, which `prepare --source SOURCE --scenario NAME|all [--check]` runs alone). A build stage is a call stage, whose recorders record a hooked call (`BUILD_HOOKS`) as the worker's stages do, or a boundary stage (`Stage.kind`), whose recorder returns the build's state at a phase boundary as a `Boundary`: a line a unit, every unit on the mini and every `--every`th ordinal on live (`LIVE_EVERY` by default), and a line a column with the digest of its canonical bytes over every unit (`column_line`). `dump --scenario` writes `source.json`, the prior corpus as the build finds it (`prior/`), clones of what the build reads (`inputs/`) and the units init with its spec dump (`init/`), then runs `build_m1` in this process over a clone of the prior, at the harness's default width under the Rust units engine and one write job, with the selected stages recording (`build_dump`). `selfcheck --scenario` runs that build twice, plain and with every build stage recording, and fails unless the two output trees are identical (`build_selfcheck`).
+A stage runs the worker or the build (`Stage.run`). The worker's stages (`STAGES`) are described below. The build's (`BUILD_STAGES`) take a build source, `--scenario S` beside `--source`: the scenario's one build, prepared over the source's base prior (`open_build_source`, which `prepare --source SOURCE --scenario NAME|all [--check]` runs alone). A build stage is a call stage, whose recorders record a hooked call (`BUILD_HOOKS`) as the worker's stages do, or a boundary stage (`Stage.kind`), whose recorder returns the build's state at a phase boundary as a `Boundary`: a line a unit, every unit on the mini and every `--every`th ordinal on live (`LIVE_EVERY` by default), and a line a column with the digest of its canonical bytes over every unit (`column_line`). `dump --scenario` writes `source.json`, the prior corpus as the build finds it (`prior/`), clones of what the build reads (`inputs/`), the units init with its spec dump (`init/`) and the Rust build's input for that run's values without descriptors (`build.json`, `build._rust_inputs` through `corpus_exec.write_input`), then runs `build_m1` in this process over a clone of the prior, at the harness's default width under the Rust units engine and one write job, with the selected stages recording (`build_dump`). `selfcheck --scenario` runs that build twice, plain and with every build stage recording, and fails unless the two output trees are identical (`build_selfcheck`). `compare` takes a build stage too (`build_compare`): it opens the dump's audit clone (`audit.AuditParts`), writes `build.json` again with those descriptors, runs the Rust stage with them inherited, after the compares of the upstream build stages a boundary stage follows, and reports as for a worker stage.
+
+The build's stages (`BUILD_STAGES`):
+
+- `build-input` is a boundary stage that records no hooked call: `build_dump` records the values it writes `build.json` from, a line a field under `input:<field>`, and the size of each audit part the build holds under `audit.held`, which the Rust side reads through the descriptors it inherits.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -82,8 +86,18 @@ from rebuild.pipeline import fingerprint, oracle, output_sink, row_delta, spec_l
 from rebuild.pipeline.explain import ExplainReport
 from rebuild.pipeline.kernel_exec import KERNEL_ALLOCATOR_ENVIRONMENT
 from rebuild.pipeline.model import feature_config_token
-from rebuild.review import audit, build, drafts, ink, landing, unit_cache, unit_index, units_exec
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
+from rebuild.review import (
+    audit,
+    build,
+    corpus_exec,
+    drafts,
+    ink,
+    landing,
+    unit_cache,
+    unit_index,
+    units_exec,
+)
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import Drafter, corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, primary_unit_projection
 from rebuild.review.fixtures.mini import pin
@@ -3640,6 +3654,9 @@ LIVE_EVERY = 1000
 DUMP_PRIOR = "prior"
 DUMP_INPUTS = "inputs"
 DUMP_INIT = "init"
+# The Rust build's input for the dumped run's values, written without descriptors, beside `source.json`.
+BUILD_INPUT_FILE = "build.json"
+BUILD_INPUT_STAGE = "build-input"
 # The build's calls a build stage can record, by name, as `HOOKS` names the worker's: each is the module and the attribute path the wrapper replaces for the length of a build. The task that adds a stage adds the hook points it records.
 BUILD_HOOKS: dict[str, tuple[str, str]] = {}
 
@@ -3671,8 +3688,10 @@ class BuildSource:
         }
 
 
-# The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here.
-BUILD_STAGES: dict[str, Stage[BuildSource]] = {}
+# The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
+BUILD_STAGES: dict[str, Stage[BuildSource]] = {
+    BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
+}
 
 
 def default_every(source: str, every: int | None) -> int:
@@ -3776,23 +3795,69 @@ def _as_build_child(scratch: Path) -> Iterator[None]:
         os.environ.update(held)
 
 
+def _build_here(source: BuildSource, out: Path) -> None:
+    inputs = source.case.inputs
+    build.build_m1(
+        out,
+        audit_path=inputs.audit,
+        ledger_path=inputs.ledger,
+        subset_dir=inputs.subset_dir,
+        after_font=inputs.after_font,
+        jobs=source.jobs,
+        signature_jobs=source.signature_jobs,
+        recompute_all_units=inputs.recompute_all,
+        spec_root=inputs.spec_root,
+        subset_pack=inputs.subset_pack,
+        write_jobs=1,
+    )
+
+
 def run_build_here(source: BuildSource, out: Path, scratch: Path) -> None:
     """Run the source's build into `out` in this process (`_as_build_child`), with `python_build_child`'s arguments at the source's widths and one write job, so every write runs here."""
-    inputs = source.case.inputs
     with _as_build_child(scratch):
-        build.build_m1(
-            out,
+        _build_here(source, out)
+
+
+def build_input_values(
+    source: BuildSource, out: Path, scratch: Path, init: Path
+) -> tuple[dict, tuple[int, ...]]:
+    """The values of the Rust build's input (`build._rust_inputs`) for the build `_build_here` runs into `out`, with `build_m1`'s defaults for every argument it leaves out, over the scenario's own audit held as the build holds it (`audit.AuditParts`), the units init `init` and the spill directory `scratch`; and the size of each audit part held, base first. Run it in the build's environment (`_as_build_child`), whose cycle and counts file the input names."""
+    inputs = source.case.inputs
+    parts = audit.AuditParts(inputs.audit)
+    try:
+        values = build._rust_inputs(
+            parts,
+            out_dir=out,
             audit_path=inputs.audit,
             ledger_path=inputs.ledger,
             subset_dir=inputs.subset_dir,
+            before_font=build.SITE_BEFORE_FONT,
             after_font=inputs.after_font,
+            junior_font=build.SITE_JUNIOR_FONT,
+            repo_root=REPO_ROOT,
+            batch_size=BATCH_SIZE,
+            static_dir=build.STATIC_DIR,
             jobs=source.jobs,
             signature_jobs=source.signature_jobs,
             recompute_all_units=inputs.recompute_all,
             spec_root=inputs.spec_root,
-            subset_pack=inputs.subset_pack,
+            subset_digests=table_digests(inputs.subset_dir, ACCEPTANCE_CONFIGS),
+            gates_idle_jobs=None,
+            gates_idle_marker=None,
             write_jobs=1,
+            units_init=init,
+            scratch=scratch,
         )
+        held = tuple(os.fstat(descriptor).st_size for descriptor in parts.descriptors)
+    finally:
+        parts.close()
+    return values, held
+
+
+def build_input_boundary(values: Mapping[str, object], held: Sequence[int]) -> Boundary:
+    """The `build-input` stage's lines: each input value under `input:<field>`, in `corpus_exec.INPUT_FIELDS` order, and the held audit parts' sizes under `audit.held`."""
+    lines = [{"key": f"input:{name}", "value": value} for name, value in values.items()]
+    return Boundary(0, {}, [*lines, {"key": "audit.held", "value": tuple(held)}])
 
 
 def _build_prior(source: BuildSource) -> Path:
@@ -3802,7 +3867,7 @@ def _build_prior(source: BuildSource) -> Path:
 
 
 def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> None:
-    """Write a build dump under `source.out`: the prior corpus as the build finds it (`DUMP_PRIOR`), clones of what it reads (`DUMP_INPUTS`, `clone_build_inputs`), the units init (`write_dump_init`) and `source.json`; then, when any stage is selected, run the build in this process over a clone of the prior, with every build hook point wrapped and the selected stages recording, and add each stage's generated lines. The build reads the scenario's own inputs, whose paths its manifest names, and the build's tree is deleted once it returns."""
+    """Write a build dump under `source.out`: the prior corpus as the build finds it (`DUMP_PRIOR`), clones of what it reads (`DUMP_INPUTS`, `clone_build_inputs`), the units init (`write_dump_init`), `source.json`, and the Rust build's input for the run's values without descriptors (`BUILD_INPUT_FILE`, `build_input_values`), taken in the run's environment; then, when any stage is selected, record the `build-input` stage's lines from those values when it is one of them, run the build in this process over a clone of the prior, with every build hook point wrapped and the selected stages recording, and add each stage's generated lines. The build reads the scenario's own inputs, whose paths its manifest names, and the build's tree is deleted once it returns."""
     out = source.out
     out.mkdir(parents=True, exist_ok=True)
     prior = out / DUMP_PRIOR
@@ -3812,26 +3877,32 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
     (out / SOURCE_FILE).write_text(
         json.dumps(source.describe(cloned, init), indent=1) + "\n", encoding="ascii"
     )
-    print(
-        f"{out}: {source.scenario.source}-{source.scenario.name} {source.case.name}, "
-        f"{SOURCE_FILE}, {DUMP_PRIOR}/, {DUMP_INPUTS}/ and {init.relative_to(out)}",
-        file=sys.stderr,
-    )
-    if not stages:
-        return
-    sink = _Sink(out, stages, source.every)
+    sink = _Sink(out, stages, source.every) if stages else None
     try:
         with tempfile.TemporaryDirectory(prefix="build-stage-dump-", dir=out) as scratch:
             built = Path(scratch) / "out"
-            _clone_tree(prior, built)
-            with wrapped(stages, sink, BUILD_HOOKS):
-                run_build_here(source, built, Path(scratch) / "run")
-        for stage in stages:
-            if stage.generated is not None:
-                for fields in stage.generated(source):
-                    sink.write(stage.name, "generated", fields)
+            with _as_build_child(Path(scratch) / "run"):
+                values, held = build_input_values(source, built, Path(scratch) / "spill", init)
+                corpus_exec.write_input(values, out / BUILD_INPUT_FILE)
+                if sink is not None:
+                    if any(stage.name == BUILD_INPUT_STAGE for stage in stages):
+                        sink.record(BUILD_INPUT_STAGE, build_input_boundary(values, held))
+                    _clone_tree(prior, built)
+                    with wrapped(stages, sink, BUILD_HOOKS):
+                        _build_here(source, built)
+        if sink is not None:
+            for stage in stages:
+                if stage.generated is not None:
+                    for fields in stage.generated(source):
+                        sink.write(stage.name, "generated", fields)
     finally:
-        sink.close()
+        if sink is not None:
+            sink.close()
+    print(
+        f"{out}: {source.scenario.source}-{source.scenario.name} {source.case.name}, "
+        f"{SOURCE_FILE}, {BUILD_INPUT_FILE}, {DUMP_PRIOR}/, {DUMP_INPUTS}/ and {init.relative_to(out)}",
+        file=sys.stderr,
+    )
     for stage in stages:
         print(out / f"{stage.name}.ndjson", file=sys.stderr)
 
@@ -4031,23 +4102,62 @@ def compared_fields(stage: Stage[Any], names: str | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(chosen))
 
 
-def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = None) -> bool:
-    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
-    outputs = tuple(checked) if checked is not None else stage.outputs
-    stage_file = stages / f"{stage.name}.ndjson"
-    if not stage_file.is_file():
-        raise SystemExit(f"{stage_file} is missing; dump --stage {stage.name} writes it")
-    description = json.loads((stages / SOURCE_FILE).read_text(encoding="ascii"))
-    expected = _answers(stage_file.read_text(encoding="ascii").splitlines(), outputs, str(stage_file))
-    units_exec.ensure_built()
-    init = source_init(description)
+def _run_worker_stage(stage: Stage[Any], stages: Path, stage_file: Path) -> tuple[dict, int, bytes, bytes]:
+    """Run a worker stage's Rust side over a dump with an init written for the dump's source (`source_init`, `units_exec.write_init`) into a directory held for the run, and return that init with the process's status and output."""
+    init = source_init(json.loads((stages / SOURCE_FILE).read_text(encoding="ascii")))
     with tempfile.TemporaryDirectory(prefix="units-stage-compare-") as scratch:
         init_path = units_exec.write_init(init, Path(scratch))
         process = units_exec.spawn(["stage", stage.name, f"--init={init_path}", str(stage_file)])
         stdout, stderr = process.communicate()
-    if process.returncode != 0 or stderr:
+    return init, process.returncode, stdout, stderr
+
+
+def _run_build_stage(stage: Stage[Any], stages: Path, stage_file: Path) -> tuple[dict, int, bytes, bytes]:
+    """Run a build stage's Rust side over a dump: open the dump's audit clone as the build holds an audit (`audit.AuditParts`), write the dump's `BUILD_INPUT_FILE` again with those descriptors into a directory held for the run, and run the stage with them inherited. Return the input's document with the process's status and output."""
+    description = json.loads((stages / SOURCE_FILE).read_text(encoding="ascii"))
+    document = json.loads((stages / BUILD_INPUT_FILE).read_text(encoding="ascii"))
+    parts = audit.AuditParts(stages / description["inputs"]["audit"])
+    try:
+        document["audit"]["descriptors"] = list(parts.descriptors)
+        with tempfile.TemporaryDirectory(prefix="build-stage-compare-") as scratch:
+            input_path = Path(scratch) / BUILD_INPUT_FILE
+            input_path.write_text(compact(document) + "\n", encoding="ascii")
+            process = units_exec.spawn(
+                ["stage", stage.name, f"--init={input_path}", str(stage_file)], pass_fds=parts.descriptors
+            )
+            stdout, stderr = process.communicate()
+    finally:
+        parts.close()
+    return document, process.returncode, stdout, stderr
+
+
+def build_compare(stage: Stage[BuildSource], stages: Path, checked: Sequence[str] | None = None) -> bool:
+    """`compare` a build stage. Before a boundary stage's own compare, compare each build stage registered ahead of it (`BUILD_STAGES`) whose lines the dump holds, every output checked, and stop at the first that differs, which names the stage a disagreement starts in."""
+    if stage.kind == "boundary":
+        for upstream in BUILD_STAGES.values():
+            if upstream.name == stage.name:
+                break
+            if (stages / f"{upstream.name}.ndjson").is_file() and not compare(upstream, stages):
+                print(
+                    f"compare {stage.name}: the upstream {upstream.name} stage differs first", file=sys.stderr
+                )
+                return False
+    return compare(stage, stages, checked)
+
+
+def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = None) -> bool:
+    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`); a worker stage reads an init written for the dump's source (`_run_worker_stage`), and a build stage the dump's build input with the dump's audit clone held and inherited (`_run_build_stage`), whose document its answer checks see in place of the init."""
+    outputs = tuple(checked) if checked is not None else stage.outputs
+    stage_file = stages / f"{stage.name}.ndjson"
+    if not stage_file.is_file():
+        raise SystemExit(f"{stage_file} is missing; dump --stage {stage.name} writes it")
+    expected = _answers(stage_file.read_text(encoding="ascii").splitlines(), outputs, str(stage_file))
+    units_exec.ensure_built()
+    run = _run_build_stage if stage.run == "build" else _run_worker_stage
+    init, returncode, stdout, stderr = run(stage, stages, stage_file)
+    if returncode != 0 or stderr:
         print(
-            f"compare {stage.name}: ams-review exited {process.returncode}: "
+            f"compare {stage.name}: ams-review exited {returncode}: "
             + stderr.decode(errors="replace").strip(),
             file=sys.stderr,
         )
@@ -4231,6 +4341,11 @@ def main(argv: list[str] | None = None) -> int:
                 )
         return 0 if prepare(args.source, names, args.check) else 1
     if args.command == "compare":
+        if args.stage in BUILD_STAGES:
+            (build_stage,) = _selected([args.stage], BUILD_STAGES)
+            return (
+                0 if build_compare(build_stage, args.stages, compared_fields(build_stage, args.fields)) else 1
+            )
         (stage,) = _selected([args.stage], STAGES)
         return 0 if compare(stage, args.stages, compared_fields(stage, args.fields)) else 1
     if args.scenario is not None:

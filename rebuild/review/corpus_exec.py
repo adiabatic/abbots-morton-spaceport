@@ -1,0 +1,176 @@
+"""The corpus build interface: the Python side of the review crate's corpus build under `rebuild/review-rs/`, the Rust engine of the review corpus build's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Boundary). It owns every format that crosses to the build, as `units_exec` owns the units engine's: nothing pickled crosses, only files and compact JSON this module writes.
+
+`engine()` reads the switch, `AMS_CORPUS_BUILD_ENGINE`, at call time, `python` when it is unset; `ENGINES` holds the engines the build runs. `write_input` writes the build input (`INPUT_FORMAT`, the plan's § The build input) from the values `build._rust_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the ported code reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `BuildRunError` is a build that failed other than by a refusal.
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+from rebuild.review.units_exec import compact, encode
+
+INPUT_FORMAT = "ams-review-build/1"
+ENGINE_VARIABLE = "AMS_CORPUS_BUILD_ENGINE"
+SWITCH_VALUES = ("python", "rust")
+ENGINES = ("python",)
+
+# The build input's fields in the order `write_input` writes them (the plan's § The build input).
+INPUT_FIELDS = (
+    "format",
+    "units_init",
+    "out_dir",
+    "scratch",
+    "audit",
+    "ledger",
+    "family_of",
+    "family_keys",
+    "family_keys_digest",
+    "change_groups",
+    "environment",
+    "signature_environment",
+    "manifest",
+    "fonts",
+    "static",
+    "repo_root",
+    "recompute_all",
+    "widths",
+    "cycle",
+    "vocabulary",
+)
+
+# The module-level constants the ported parent reads, each by its dotted name, which is also its name in the input. `vocabulary` reads them at call time, and the build refuses an input that lacks a name it reads.
+VOCABULARY = (
+    "rebuild.pipeline.row_delta.AUDIT_SEGMENT_CAP",
+    "rebuild.pipeline.row_delta.CONTENT_TIME_STAMP",
+    "rebuild.pipeline.row_delta.FOLD_OVERRUN",
+    "rebuild.pipeline.row_delta.SEGMENT_CAP",
+    "rebuild.review.app_index.APP_INDEX_FORMAT",
+    "rebuild.review.app_index.APP_INDEX_NAME",
+    "rebuild.review.app_index.LOCATOR_BLOCK_ROWS",
+    "rebuild.review.app_index.LOCATOR_FORMAT",
+    "rebuild.review.app_index.LOCATOR_NAME",
+    "rebuild.review.app_index.LOCATOR_ROWS_NAME",
+    "rebuild.review.audit.ACCEPTANCE_CONFIGS",
+    "rebuild.review.audit.AUDIT_HEADER",
+    "rebuild.review.audit.INPUT_KEY_BYTES",
+    "rebuild.review.audit.MACHINE_CHECKS",
+    "rebuild.review.audit.SECTIONS",
+    "rebuild.review.audit.UNMATCHED_CLASS",
+    "rebuild.review.build.CONTRACT_ERRORS_SHOWN",
+    "rebuild.review.build.KEY_ONLY_PROCESSES",
+    "rebuild.review.build.MANIFEST_FORMAT",
+    "rebuild.review.build.PHASE1_HANDOUT_UNITS",
+    "rebuild.review.build.VERIFICATION_SAMPLE",
+    "rebuild.review.unit_cache.NO_STORE_NOTE",
+    "rebuild.review.unit_cache.REDERIVING_LABELS",
+    "rebuild.review.unit_cache.SIGNATURE_STORE_FORMAT",
+    "rebuild.review.unit_cache.SIGNATURE_STORE_NAME",
+    "rebuild.review.unit_cache.STORE_FORMAT",
+    "rebuild.review.unit_cache.STORE_NAME",
+    "rebuild.review.unit_cache.UNREADABLE_NOTE",
+    "rebuild.review.unit_index.INDEX_DEFLATE_THREADS",
+    "rebuild.review.unit_index.INDEX_FORMAT",
+    "rebuild.review.unit_index.INDEX_MEMBER_BYTES",
+    "rebuild.review.unit_index.INDEX_NAME",
+    "rebuild.review.unit_index.PART_CLOSING",
+    "rebuild.review.unit_index.SHARD_PART_BYTES",
+)
+
+
+class BuildRunError(RuntimeError):
+    """The Rust build failed other than by a refusal the Python build raises as `SystemExit`: an `error` result, a panic in any thread among them, or an ending with no result line."""
+
+
+def engine() -> str:
+    """The corpus build engine this process asks for: `AMS_CORPUS_BUILD_ENGINE`, read at call time, `python` when it is unset. A value outside `SWITCH_VALUES` raises ValueError."""
+    value = os.environ.get(ENGINE_VARIABLE, "python")
+    if value not in SWITCH_VALUES:
+        raise ValueError(
+            f"{ENGINE_VARIABLE}={value!r}; the corpus build engines are {', '.join(SWITCH_VALUES)}"
+        )
+    return value
+
+
+def vocabulary() -> dict[str, object]:
+    """Every `VOCABULARY` constant's value by its dotted name, read now."""
+    values: dict[str, object] = {}
+    for name in VOCABULARY:
+        module, attribute = name.rsplit(".", 1)
+        values[name] = getattr(importlib.import_module(module), attribute)
+    return values
+
+
+def input_document(values: Mapping[str, Any], descriptors: Sequence[int] | None = None) -> dict[str, Any]:
+    """The build input's JSON document for the values `build._rust_inputs` computes, one entry a field of `INPUT_FIELDS` in order, with the audit's `descriptors`, base first, or null when no process inherits them. A ledger entry's exemplar keys are sorted, a stamp's detail and the change groups' prose are pairs in order, a code point's family is a `[code point, family]` pair, and the vocabulary's values are in the typed encoding. Values with a missing or an extra field raise ValueError."""
+    if tuple(values) != INPUT_FIELDS:
+        raise ValueError(f"the build input's fields are {', '.join(INPUT_FIELDS)}, not {', '.join(values)}")
+    held = values["audit"]
+    groups = values["change_groups"]
+    static = values["static"]
+    document = dict(values)
+    document["audit"] = {
+        "path": held["path"],
+        "descriptors": None if descriptors is None else list(descriptors),
+        "head": held["head"],
+        "members": [
+            (
+                None
+                if members is None
+                else [[member.section, member.length, member.inflated] for member in members]
+            )
+            for members in held["members"]
+        ],
+        "identity": list(held["identity"]),
+        "segment_rows": held["segment_rows"],
+        "compressed": held["compressed"],
+    }
+    document["ledger"] = {
+        "path": values["ledger"]["path"],
+        "entries": [
+            {
+                "id": entry.id,
+                "status": entry.status,
+                "why": entry.why,
+                "ink_identical": entry.ink_identical,
+                "no_verdict": entry.no_verdict,
+                "exemplar_keys": sorted([config, codepoints] for config, codepoints in entry.exemplar_keys),
+                "title": entry.title,
+                "summary": entry.summary,
+                "note": entry.note,
+            }
+            for entry in values["ledger"]["entries"]
+        ],
+    }
+    document["family_of"] = [[codepoint, family] for codepoint, family in values["family_of"].items()]
+    document["change_groups"] = {
+        "order": list(groups["order"]),
+        "prose": [
+            [group, {"title": prose.title, "summary": prose.summary, "why": prose.why}]
+            for group, prose in groups["prose"].items()
+        ],
+    }
+    for name in ("environment", "signature_environment"):
+        stamp = values[name]
+        document[name] = {
+            "value": stamp["value"],
+            "lines": list(stamp["lines"]),
+            "detail": [[label, list(lines)] for label, lines in stamp["detail"]],
+            "header": stamp["header"],
+        }
+    document["static"] = {
+        "files": [[relative, source] for relative, source in static["files"]],
+        "fallback_index": static["fallback_index"],
+    }
+    document["vocabulary"] = [[name, encode(value)] for name, value in values["vocabulary"].items()]
+    return document
+
+
+def write_input(values: Mapping[str, Any], path: Path, descriptors: Sequence[int] | None = None) -> Path:
+    """Write the build input for `values` to `path` as one line of compact ASCII JSON (`input_document`), with the audit's held `descriptors` when the process inherits them, and return the path."""
+    path = Path(path)
+    path.write_text(compact(input_document(values, descriptors)) + "\n", encoding="ascii")
+    return path
