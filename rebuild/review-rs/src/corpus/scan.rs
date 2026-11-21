@@ -365,7 +365,7 @@ pub fn open_store(
 type Manifest = (Vec<(PyValue, PyValue)>, String);
 
 /// `unit_index._manifest_and_identity`: the manifest under `corpus` parsed, its entries empty when it does not parse as an object, beside its identity ([`manifest_identity`], or the sha256 of the raw bytes of one that does not parse); None when the manifest does not read.
-fn manifest_and_identity(
+pub(crate) fn manifest_and_identity(
     corpus: &Path,
     names: &ScanNames,
 ) -> std::result::Result<Option<Manifest>, ScanError> {
@@ -1209,6 +1209,19 @@ fn current_index(
     Ok((is_str(get(header, "format"), &names.index_format)
         && is_str(get(header, "manifest_sha256"), &identity))
     .then_some(opened))
+}
+
+/// `unit_index.index_is_current`: whether the index under `corpus` describes the manifest beside it ([`current_index`]). A failure no caller of `_current` catches fails, by its class.
+pub(crate) fn index_is_current(
+    corpus: &Path,
+    names: &ScanNames,
+) -> std::result::Result<bool, ScanError> {
+    match current_index(corpus, names) {
+        Ok(opened) => Ok(opened.is_some()),
+        Err(Thrown::Unheld(why)) => Err(ScanError::Unheld(why)),
+        Err(Thrown::Other(class, why)) => Err(ScanError::Failed(format!("{class}: {why}"))),
+        Err(Thrown::Os(why) | Thrown::Value(why)) => Err(ScanError::Failed(why)),
+    }
 }
 
 /// `unit_index._index_classes`: each class's live ids as the current index lists them; an index that is not current or does not read to its end is a `LayoutError`.

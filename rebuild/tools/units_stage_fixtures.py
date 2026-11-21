@@ -29,6 +29,7 @@ The build's stages (`BUILD_STAGES`):
 - `units` is a boundary stage that records the unit store once phase 1 has loaded every recomputed unit (`build._RecomputeRunner.phase1`, `_units_drafted`), as `units_boundary` lays it out: a unit a row of the store as the `store-load` stage reads one, a source in the arena as its part, its length and the sha256 of its deflated bytes, and lines for the drafting-time errors the runner kept, sorted, the count and the last of the `[progress]` lines phase 1 printed, its other console lines, and the arena's fragment count, deflated bytes, shard bytes and note.
 - `triage` is a boundary stage that records the whole-corpus passes from the change-group promotion to the batches, from `build._build_m1`'s locals once `audit.assign_batches` returns (`_batches_assigned`), as `triage_boundary` lays it out: a unit its final class, unmatched group, exemplar flag, place in the triage index and batch, and lines for the classes in manifest order, each class's section in the order the build met the classes, a column over the triage order and the batch count.
 - `passes` is a boundary stage that records the whole-corpus passes from the duplicate groups through the stale check, from `build._build_m1`'s locals as the units phase's line is printed (`build._phase_timing`, `_passes_timed`), as `passes_boundary` lays it out: a unit its duplicate group, cluster and primary units, and lines for the duplicate-group count, a column over the classes' rows, the secondary-junction counts, the verification's keys, sorted, the re-settlement mismatches and the units phase's note. Its generated lines (`_passes_generated`) put duplicate-group keys over one configuration and several, a judged pair and None, and text `repr` quotes and escapes to `unit_cache.duplicate_group_id_for`.
+- `route` is a boundary stage that records how the write routes each class and cuts the runs, from `build._write_corpus`'s locals once `build._write_runs` returns (`_runs_cut`), as `route_boundary` lays it out: a unit whether its fragment is predicted unchanged, and lines for each class in shard order with its route, prior parts and manifest record, a column over each class's ordinals, the width and the runs, and whether the previous sidecars are copied forward. Its generated lines (`_route_generated`) cut runs over class sizes and widths at the edges, read the previous corpus's parts from manifests of every shape, and ask whether the dump's prior corpus holds a current units index, app index and locator.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3874,6 +3875,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._phase_timing": ("rebuild.review.build", "_phase_timing"),
     "build._RecomputeRunner.phase1": ("rebuild.review.build", "_RecomputeRunner.phase1"),
     "build.assign_batches": ("rebuild.review.build", "assign_batches"),
+    "build._write_runs": ("rebuild.review.build", "_write_runs"),
 }
 
 
@@ -12006,6 +12008,143 @@ def _passes_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
         }
 
 
+ROUTE_STAGE = "route"
+# The keys of the `route` stage's lines beside its units: a line a class in shard order under its place, the classes' ordinals, the runs and the copy-forward decision.
+ROUTE_CLASS_PREFIX = "class:"
+ROUTE_ORDINALS = "class-ordinals"
+ROUTE_RUNS_KEY = "runs"
+ROUTE_COPY_FORWARD_KEY = "copy-forward"
+_WRITE_RUNS = inspect.signature(build._write_runs)
+
+
+def _write_locals() -> Mapping[str, Any]:
+    """The locals of the `build._write_corpus` frame the hooked call was made from."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code is not build._write_corpus.__code__:
+        frame = frame.f_back
+    assert frame is not None, "the hooked call is made from build._write_corpus"
+    return frame.f_locals
+
+
+def route_boundary(held: Mapping[str, Any], width: int, runs: object) -> Boundary:
+    """The `route` boundary over `build._write_corpus`'s locals once `_write_runs` has cut the runs (`held`): a unit whether `_route` predicted its fragment unchanged; a line a class in shard order, under its place there, with its id, route, prior parts and manifest record (`build._class_meta`, which the write computes from the same columns as the class's first chunk is made); a column over each class's id and ordinals in shard order; the width the runs were cut at and each run as its classes' places; and whether the previous sidecars are copied forward."""
+    table: UnitTable = held["table"]
+    store: UnitStore = held["store"]
+    to_write: Sequence[build._ClassToWrite] = held["to_write"]
+    predicted: bytearray = held["predicted"]
+    assert isinstance(runs, list), runs
+    places = {id(entry): place for place, entry in enumerate(to_write)}
+    return Boundary(
+        table.n,
+        {"value": lambda ordinal: bool(predicted[ordinal])},
+        [
+            *(
+                {
+                    "key": f"{ROUTE_CLASS_PREFIX}{place}",
+                    "value": (
+                        entry.id,
+                        entry.route,
+                        entry.prior_parts,
+                        build._class_meta(entry, table, store),
+                    ),
+                }
+                for place, entry in enumerate(to_write)
+            ),
+            column_line(ROUTE_ORDINALS, ((entry.id, tuple(entry.ordinals)) for entry in to_write)),
+            {"key": ROUTE_RUNS_KEY, "value": (width, [[places[id(entry)] for entry in run] for run in runs])},
+            {"key": ROUTE_COPY_FORWARD_KEY, "value": held["copy_forward"]},
+        ],
+    )
+
+
+def _runs_cut(args: tuple, kwargs: dict) -> Finisher:
+    """`build._write_runs` as `build._write_corpus` calls it, recorded as the `route` boundary once it returns the runs (`route_boundary`), with the width it cut them at."""
+    width = _WRITE_RUNS.bind(*args, **kwargs).arguments["width"]
+    return lambda runs: route_boundary(_write_locals(), width, runs)
+
+
+# The class sizes and the widths the `route` stage's generated lines cut runs over: no class, empty classes, one class, even and uneven classes, a large class first and last; and widths below one, one, a few and more than there are units.
+_ROUTE_SIZES: tuple[tuple[int, ...], ...] = (
+    (),
+    (0,),
+    (0, 0),
+    (5,),
+    (3, 3, 3),
+    (10, 1, 1, 1, 1, 1),
+    (1, 1, 1, 10),
+    (4, 4, 4, 4),
+    (7, 2, 9, 1, 0, 3),
+)
+_ROUTE_FITS = (-1, 0, 1, 2, 3, 4, 8, 100)
+# The manifests the `route` stage's generated lines read the previous corpus's parts from, None for a corpus with none: both entry forms, a repeated id, ids that are not strings, parts that are not strings or a list, and manifests that do not read, do not parse or do not hold classes, each of which reads as no parts.
+_ROUTE_MANIFESTS: tuple[bytes | None, ...] = (
+    None,
+    b'{"classes": [{"id": "a", "shards": ["units/a.000.json", "units/a.x000.json"]}, {"id": "b", "shard": "units/b.json"}]}',
+    b'{"classes": [{"id": "a", "shard": 5, "shards": null}, {"id": "b", "shards": []}, {"id": "a", "shards": ["units/a.json"]}]}',
+    b'{"classes": [{"id": 1, "shards": ["one"]}, {"id": true, "shards": ["true"]}, {"id": null, "shards": "ab"}]}',
+    b'{"classes": [{"id": "a", "shards": [1, null, true, {"k": [2]}, "\xc2\xb7Tea"]}, {"id": "b", "shards": {"x": 1, "y": 2}}]}',
+    b'{"classes": [{"id": "a", "shards": ["units/a.json"]}, {"id": ["a"], "shards": []}]}',
+    b'{"classes": [{"id": "a", "shards": ["units/a.json"]}, {"id": "b"}]}',
+    b'{"classes": [{"id": "a", "shards": 3}]}',
+    b'{"classes": [{"id": "a", "shards": false}]}',
+    b'{"classes": [["a"]]}',
+    b'{"classes": [{"shards": []}]}',
+    b'{"classes": "ab"}',
+    b'{"classes": {}}',
+    b'{"classes": null}',
+    b'{"classes": []}',
+    b'{"other": []}',
+    b'[{"classes": []}]',
+    b'{"classes": [}',
+    b'{"classes": [{"id": "\xff"}]}',
+    b'\xef\xbb\xbf{"classes": []}',
+)
+
+
+def _route_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `route` stage's generated lines: `build._write_width` and `build._write_runs` over classes of each of `_ROUTE_SIZES` at each of `_ROUTE_FITS`, each under `generated:runs:<n>` with the sizes and the width as its input and as its value the width the write would take and each run as its classes' places; `build._prior_parts` over a corpus holding each of `_ROUTE_MANIFESTS`, each under `generated:prior-parts:<n>` with the manifest's bytes as its input and the parts' items as its value; and, under `generated:current`, whether the dump's prior corpus holds a current units index (`unit_index.index_is_current`), app index and locator (`app_index.artifact_is_current`)."""
+    count = 0
+    for sizes in _ROUTE_SIZES:
+        for fit in _ROUTE_FITS:
+            classes = [
+                build._ClassToWrite(
+                    str(place), "", "", "", "", "", False, False, "", array("I", range(size)), ()
+                )
+                for place, size in enumerate(sizes)
+            ]
+            yield {
+                "key": f"generated:runs:{count}",
+                "input": (sizes, fit),
+                "value": (
+                    build._write_width(classes, fit),
+                    [[int(entry.id) for entry in run] for run in build._write_runs(classes, fit)],
+                ),
+            }
+            count += 1
+    with tempfile.TemporaryDirectory() as directory:
+        corpus = Path(directory)
+        manifest = corpus / "manifest.json"
+        for index, raw in enumerate(_ROUTE_MANIFESTS):
+            manifest.unlink(missing_ok=True)
+            if raw is not None:
+                manifest.write_bytes(raw)
+            yield {
+                "key": f"generated:prior-parts:{index}",
+                "input": raw,
+                "value": list(build._prior_parts(corpus).items()),
+            }
+    prior = source.out / DUMP_PRIOR
+    yield {
+        "key": "generated:current",
+        "input": None,
+        "value": (
+            unit_index.index_is_current(prior),
+            app_index.artifact_is_current(prior, app_index.APP_INDEX_NAME, app_index.APP_INDEX_FORMAT),
+            app_index.artifact_is_current(prior, app_index.LOCATOR_NAME, app_index.LOCATOR_FORMAT),
+        ),
+    }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -12211,6 +12350,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _passes_generated,
         run="build",
         kind="boundary",
+    ),
+    ROUTE_STAGE: Stage(
+        ROUTE_STAGE, {"build._write_runs": _runs_cut}, _route_generated, run="build", kind="boundary"
     ),
 }
 
