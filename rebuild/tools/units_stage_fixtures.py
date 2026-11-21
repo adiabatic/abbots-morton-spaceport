@@ -7,6 +7,7 @@ The build's stages (`BUILD_STAGES`):
 - `build-input` is a boundary stage that records no hooked call: `build_dump` records the values it writes `build.json` from, a line a field under `input:<field>`, and the size of each audit part the build holds under `audit.held`, which the Rust side reads through the descriptors it inherits.
 - `sink` records each `output_sink.write_output`, `replace_output` and `note_rewritten` call the build makes (`_sink_call`), keyed by its origin, the call and a digest of its inputs: the target's name, what it `held` before the call, the `payload` as its kind and the sha256 of the bytes the call writes (a writer's read from the target once it has run, or the bytes the call kept), the `sha256` a writer is kept against, `keep_if_equal` and the state of the counts file the call found (`counts_file`); and as its outputs what the call `returned`, the `counts` lines it appended and what it left at the target, `after`. Every file's bytes are kept once under their sha256 in `sink.blobs/` beside the stage file (`SINK_BLOBS`), from which the Rust side sets each target up again in a scratch directory and makes the call itself. Its generated lines (`_sink_cases`) put every call and payload kind to missing, equal, differing, FIFO, directory and linked targets, with and without the compare, with each state of the counts file, and `output_sink.replacing`, which the build reaches only through `row_delta.StreamedPart`.
 - `containers` records each zlib and gzip container the build writes into a file and each deflated fragment it reads back, keyed by its origin, its `framing` and a digest of its inputs, with its `output`: a `gzip.GzipFile` stream opened for writing into a file (`gzipfile`: its name, level and mtime, followed from its opening to its close, and each write's size), a `gzip.compress` member (`compress`: a locator block's or an index member's), a `unit_index._Members` sink (`members`: its member size and threads), a fragment's `unit_index.deflate_fragment` (`raw`) and an `inflate_fragment` that returns (`inflate-fragment`: the stored bytes and the length); each writer's output is the written bytes' sha256 and length, and a `read` line beside it reads those bytes whole as `gzip.GzipFile` does, and a deflated fragment's `inflate-fragment` line reads it back at its length. Every input is kept once under its sha256 in `containers.blobs/` beside the stage file (`CONTAINER_BLOBS`) and named by that digest and a length, the blob's first bytes. Its generated lines (`_containers_generated`) cover every name, level and mtime over inputs from nothing to past `INDEX_MEMBER_BYTES` cut into uneven writes, each member boundary, `inflate_fragment`'s refusals, the gzip reader's tolerances and refusals, the member readers' `zlib.decompressobj` loop (`member-read`, `_member_steps`) and `zlib.crc32` (`crc32`).
+- `json-forms` records each `json.dumps` and `json.loads` call the parent's modules make (`JSON_PARENT_MODULES`, told by the caller's frame, `_json_parents_call`) but for the key-only read's frames to and from its processes (`JSON_PROCESS_FRAMES`), keyed by its origin, its `form` and a digest of its `input`: a write in the form its arguments name (`JSON_DUMPS_FORMS`: `default`, `indent`, `sorted`, `unicode` and `compact`) with the value it writes and, as its `value`, `("text", text)`; a read (`loads`) that returns with the `str` or `bytes` it reads and `("value", value)`. Its generated lines (`_json_forms_generated`) put every form to an edge set (`_json_dumps_edges`) and the reader to texts of each kind (`_json_loads_edges`), with `("refused",)` where Python refuses and where the Rust side refuses what Python stringifies or reads (`_json_dumped_text`, `_json_read`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3683,6 +3684,8 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "unit_index._Members.__exit__": ("rebuild.review.unit_index", "_Members.__exit__"),
     "unit_index.deflate_fragment": ("rebuild.review.unit_index", "deflate_fragment"),
     "unit_index.inflate_fragment": ("rebuild.review.unit_index", "inflate_fragment"),
+    "json.dumps": ("json", "dumps"),
+    "json.loads": ("json", "loads"),
 }
 
 
@@ -4612,6 +4615,311 @@ def _containers_generated(source: BuildSource) -> Iterator[Mapping[str, object]]
             yield _container_line("generated", "crc32", inputs, ("crc32", zlib.crc32(data, start)))
 
 
+JSON_FORMS_STAGE = "json-forms"
+# The modules whose `json.dumps` and `json.loads` calls the `json-forms` stage records: the parent's writers and readers of the files the Rust build writes and reads (the plan's § JSON forms). A call from anywhere else, the typed encoding's own among them, is not the parent's.
+JSON_PARENT_MODULES = frozenset(
+    {
+        "rebuild.review.build",
+        "rebuild.review.unit_cache",
+        "rebuild.review.unit_index",
+        "rebuild.review.app_index",
+        "rebuild.review.facts",
+        "rebuild.pipeline.row_delta",
+    }
+)
+# The functions of those modules whose `json` calls write and read the key-only read's frames to and from its processes, which the Rust build replaces with threads, so no file holds them.
+JSON_PROCESS_FRAMES = frozenset(
+    {("rebuild.review.build", "_key_only_read"), ("rebuild.review.build", "_read_replies")}
+)
+_JSON_DUMPS = inspect.signature(json.dumps)
+# The `json.dumps` forms the parent writes, by the name a `json-forms` line's `form` gives, each as the arguments past the value that differ from `json.dumps`' defaults; the Rust side writes each through its own entry point of `pyfmt::json`.
+JSON_DUMPS_FORMS: dict[str, dict[str, Any]] = {
+    "default": {},
+    "indent": {"indent": 1},
+    "sorted": {"sort_keys": True},
+    "unicode": {"ensure_ascii": False},
+    "compact": {"separators": (",", ":")},
+}
+JSON_LOADS = "loads"
+
+
+def _json_parents_call() -> bool:
+    """Whether the hooked `json` function was called by the parent (`JSON_PARENT_MODULES`) outside its process frames (`JSON_PROCESS_FRAMES`), told by the first frame outside this module, whose wrapper and recorders sit between the two."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_globals.get("__name__") == __name__:
+        frame = frame.f_back
+    if frame is None:
+        return False
+    module = frame.f_globals.get("__name__")
+    return module in JSON_PARENT_MODULES and (module, frame.f_code.co_name) not in JSON_PROCESS_FRAMES
+
+
+def _json_dumps_form(args: tuple, kwargs: dict) -> tuple[object, str]:
+    """A `json.dumps` call's value and the form its arguments write (`JSON_DUMPS_FORMS`); arguments that match no form raise ValueError."""
+    bound = _JSON_DUMPS.bind(*args, **kwargs)
+    bound.apply_defaults()
+    arguments = dict(bound.arguments)
+    value = arguments.pop("obj")
+    settings = {
+        name: given
+        for name, given in arguments.items()
+        if name == "kw" and given or name != "kw" and given != _JSON_DUMPS.parameters[name].default
+    }
+    form = next((name for name, form in JSON_DUMPS_FORMS.items() if form == settings), None)
+    if form is None:
+        raise ValueError(f"the json-forms stage has no form for json.dumps with {settings!r}")
+    return value, form
+
+
+def _json_form_line(origin: str, form: str, value: object, output: tuple) -> dict[str, object]:
+    """One `json-forms` line, keyed by its origin, its form and a digest of its input, with its `value`: `("text", text)` or `("value", value)` for what the call gave, or `("refused",)`."""
+    digest = hashlib.sha1(compact(encode(value)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{origin}:{form}:{digest}", "form": form, "input": value, "value": output}
+
+
+def _json_dumped(args: tuple, kwargs: dict) -> Finisher | None:
+    """A `json.dumps` call of the parent's, with the text it wrote."""
+    if not _json_parents_call():
+        return None
+    value, form = _json_dumps_form(args, kwargs)
+    return lambda result: _json_form_line("run", form, value, ("text", result))
+
+
+def _json_loaded(args: tuple, kwargs: dict) -> Finisher | None:
+    """A `json.loads` call of the parent's that returns, with what it read; one with arguments past the text raises ValueError."""
+    if not _json_parents_call():
+        return None
+    if kwargs or len(args) != 1:
+        raise ValueError(
+            f"the json-forms stage records json.loads of one text, not {args!r:.80} {kwargs!r:.80}"
+        )
+    data = bytes(args[0]) if isinstance(args[0], bytearray) else args[0]
+    return lambda result: _json_form_line("run", JSON_LOADS, data, ("value", result))
+
+
+def _json_unheld(value: object) -> bool:
+    """Whether `value`, as `json.loads` read it, holds what the Rust reader refuses: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, or a str with a surrogate in it."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, float):
+        return True
+    if isinstance(value, int):
+        return not -(2**63) <= value < 2**63
+    if isinstance(value, str):
+        return any(0xD800 <= ord(letter) <= 0xDFFF for letter in value)
+    if isinstance(value, list):
+        return any(_json_unheld(item) for item in value)
+    if isinstance(value, dict):
+        return any(_json_unheld(key) or _json_unheld(item) for key, item in value.items())
+    raise TypeError(f"json.loads gave a {type(value).__name__}")
+
+
+def _json_read(data: str | bytes) -> tuple:
+    """What the Rust reader gives for `data`: `("value", what json.loads reads)`, or `("refused",)` where `json.loads` raises, where it decodes bytes as UTF-16 or UTF-32 (`json.detect_encoding`), and where what it reads holds what the Rust reader refuses (`_json_unheld`)."""
+    if isinstance(data, bytes) and json.detect_encoding(data) not in ("utf-8", "utf-8-sig"):
+        return ("refused",)
+    try:
+        value = json.loads(data)
+    except ValueError:
+        return ("refused",)
+    return ("refused",) if _json_unheld(value) else ("value", value)
+
+
+def _json_keyed_otherwise(value: object) -> bool:
+    """Whether `value` holds a dict with a key that is not a str, which `json.dumps` stringifies or refuses and the Rust writers refuse."""
+    if isinstance(value, (list, tuple)):
+        return any(_json_keyed_otherwise(item) for item in value)
+    if isinstance(value, dict):
+        return any(not isinstance(key, str) or _json_keyed_otherwise(item) for key, item in value.items())
+    return False
+
+
+def _json_dumped_text(form: str, value: object) -> tuple:
+    """What the Rust writer of `form` gives for `value`: `("text", what json.dumps writes)`, or `("refused",)` for a value with a key that is not a str (`_json_keyed_otherwise`) and for one `json.dumps` refuses."""
+    if _json_keyed_otherwise(value):
+        return ("refused",)
+    try:
+        return ("text", json.dumps(value, **JSON_DUMPS_FORMS[form]))
+    except TypeError:
+        return ("refused",)
+
+
+def _json_dumps_edges() -> list[object]:
+    """The values every writer form's generated lines put to it: every C0 control, DEL, Latin-1, non-ASCII within and beyond the BMP, the escapes, every scalar kind, the 64-bit edges, empty and nested containers, tuples, keys that sort differently by code point than by UTF-16, each kind of key `json.dumps` stringifies, and values it refuses."""
+    controls = "".join(chr(point) for point in range(0x20))
+    texts: list[str] = [
+        "",
+        "a",
+        controls,
+        "\x7f",
+        "\"\\/'",
+        "".join(chr(point) for point in range(0x20, 0x100)),
+        "  ﻿",
+        "·It ~b~ ·Day",
+        "￿\U0001f600\U000e0001\U0010ffff",
+        "é",
+    ]
+    scalars: list[object] = [0, 1, -1, 2**63 - 1, -(2**63), True, False, None]
+    containers: list[object] = [
+        (),
+        [],
+        {},
+        (1,),
+        ["a"],
+        [()],
+        [[], {}],
+        ((((0, 1), (2, 3)), (), 0), ((), ((5, -1),), -2)),
+        {"a": (1, -2)},
+        {"k": [], "j": {}},
+        {"b": 1, "a": 2, "B": 3, "\xe9": 4, "￿": 5, "\U0001f600": 6, "": 7, "": 8},
+        {"z": {"y": [], "x": {}}, "a": [1, (2, 3), None, True, False, -7]},
+        {"deep": {"a": [{"b": [{"c": []}]}]}, "n": -(2**63)},
+        {text: [text, len(text)] for text in texts},
+        {chr(point): point for point in range(0x20)},
+        [texts, scalars],
+    ]
+    refused: list[object] = [
+        {1: "a"},
+        {True: 1},
+        {None: [1]},
+        {"a": {2: 3}},
+        [{(1,): 2}],
+        b"bytes",
+        {"a": frozenset({1})},
+    ]
+    return texts + scalars + containers + refused
+
+
+def _json_loads_edges() -> list[str | bytes]:
+    """The texts the reader's generated lines put to it: the writers' edges as each form writes them, as a str and as UTF-8 bytes; JSON's whitespace and what is not; every escape, surrogate pairs and lone surrogates; raw control characters and raw non-ASCII; repeated keys; every number form, the 64-bit edges and past them; `NaN` and `Infinity`; malformed texts of each kind; byte order marks; text `json.detect_encoding` takes for UTF-16 or UTF-32; and bytes that are not UTF-8."""
+    texts: list[str | bytes] = []
+    for form, arguments in JSON_DUMPS_FORMS.items():
+        for value in _json_dumps_edges():
+            if _json_dumped_text(form, value)[0] == "text":
+                written = json.dumps(value, **arguments)
+                texts += [written, written.encode("utf-8")]
+    texts += [
+        ' {"a": 1} ',
+        '\n\t\r {"a" :\n1 , "b":[ 1 ,2 ] }\r\n',
+        '{"a":1,"b":2,"a":3}',
+        '{"a":{"x":1},"a":[2]}',
+        "[ ]",
+        "{ }",
+        '"x"',
+        '{"":""}',
+        '{"\\u0000":0}',
+        "[[[[]]]]",
+        '{"a":{"b":[{"c":[]}]}}',
+        '"\\"\\\\\\/\\b\\f\\n\\r\\t"',
+        '"\\u00e9\\u00E9\\uFFFF\\u0041"',
+        '"\\ud83d\\ude00\\uD83D\\uDE00"',
+        '"\\ud800"',
+        '"\\udc00"',
+        '"\\udbff\\udfff"',
+        '"\\ud800\\u0041"',
+        '"\\ud800x"',
+        '"\\ud800\\uzzzz"',
+        '"\\udc00\\ud800"',
+        '"\\u12"',
+        '"\\uzzzz"',
+        '"\\x41"',
+        '"\\a"',
+        '"\\',
+        '"\t"',
+        '"\x00"',
+        '"\x1f"',
+        '"\x7f"',
+        '"\xe9·\U0001f600 "',
+        "0",
+        "-0",
+        "-1",
+        "5",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "9223372036854775808",
+        "-9223372036854775809",
+        "123456789012345678901234567890",
+        "1.5",
+        "-0.0",
+        "1e5",
+        "1E+2",
+        "1e-2",
+        "[1.0]",
+        "1.",
+        "1e",
+        "1e+",
+        "01",
+        "-",
+        "+1",
+        ".5",
+        "--1",
+        "-a",
+        "NaN",
+        "Infinity",
+        "-Infinity",
+        "[NaN]",
+        '{"a":Infinity}',
+        "nan",
+        "Inf",
+        "-Inf",
+        "true",
+        "false",
+        "null",
+        "tru",
+        "nul",
+        "nulll",
+        "true false",
+        "",
+        " ",
+        "﻿{}",
+        "[1,]",
+        '{"a":1,}',
+        '{"a" 1}',
+        "{a:1}",
+        "{'a':1}",
+        "[1 2]",
+        '{"a":1 "b":2}',
+        "{} x",
+        "{}  \n",
+        "{}\x0c",
+        "\xa0{}",
+        "[",
+        "{",
+        '{"a"',
+        '{"a":',
+        '"abc',
+        "]",
+        b'{"a": 1}\n',
+        b'\xef\xbb\xbf{"a": 1}',
+        b"\xef\xbb\xbf\xef\xbb\xbf{}",
+        b"\xef\xbb\xbf",
+        b"",
+        b"5",
+        b'"\xc3\xa9"',
+        b'"\xff"',
+        b'"\xed\xa0\x80"',
+        b'"\xc0\xaf"',
+        b'"\xf4\x90\x80\x80"',
+        b"1\x00",
+        b"\x001",
+        b"\x00\x00\x001",
+        b"1\x00\x00\x00",
+        b"[1\x00 ]",
+    ]
+    for encoding in ("utf-16", "utf-16-le", "utf-16-be", "utf-32", "utf-32-le", "utf-32-be"):
+        texts.append('{"a": [1, "\xe9"]}'.encode(encoding))
+    return texts
+
+
+def _json_forms_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `json-forms` stage's generated lines: each writer form over `_json_dumps_edges`, and the reader over `_json_loads_edges`."""
+    for form in JSON_DUMPS_FORMS:
+        for value in _json_dumps_edges():
+            yield _json_form_line("generated", form, value, _json_dumped_text(form, value))
+    for data in _json_loads_edges():
+        yield _json_form_line("generated", JSON_LOADS, data, _json_read(data))
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -4637,6 +4945,12 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         },
         _containers_generated,
         outputs=("output",),
+        run="build",
+    ),
+    JSON_FORMS_STAGE: Stage(
+        JSON_FORMS_STAGE,
+        {"json.dumps": _json_dumped, "json.loads": _json_loaded},
+        _json_forms_generated,
         run="build",
     ),
 }

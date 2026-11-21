@@ -2,7 +2,7 @@
 //!
 //! The encoding writes an int, a string, a boolean or None as itself, and every other value as a one-key object: `{"tuple": [...]}`, `{"list": [...]}`, `{"dict": [[key, value], ...]}` in insertion order, `{"bytes": hex}`, `{"set": [...]}` with its members sorted by their encoded text, and `{"record": [class name, [[field, value], ...]]}` for a dataclass or named tuple. There is no float, in the model or on the wire.
 //!
-//! The submodules write a value as Python writes it: [`repr`] as CPython's `repr`, [`json`] as `json.dumps` in the worker's two forms, and [`yaml`] as PyYAML's flow dump of a policy record, resting on the pinned CPython's `str` predicates ([`is_printable`], [`is_space`], [`is_digit`]) from the generated [`unicode_tables`]. [`stage_pyfmt`] and [`stage_yaml`] are the `pyfmt` and `yaml` stages of the stage fixtures.
+//! The submodules write a value as Python writes it: [`repr`] as CPython's `repr`, [`json`] as `json.dumps` in every form the worker and the corpus build write, and reads one as `json.loads` does, and [`yaml`] as PyYAML's flow dump of a policy record, resting on the pinned CPython's `str` predicates ([`is_printable`], [`is_space`], [`is_digit`]) from the generated [`unicode_tables`]. [`stage_pyfmt`] and [`stage_yaml`] are the `pyfmt` and `yaml` stages of the stage fixtures, and [`stage_json_forms`] the corpus build's `json-forms` stage.
 
 pub mod json;
 pub mod repr;
@@ -254,11 +254,54 @@ pub fn stage_yaml(stage_file: &Path, out: &mut impl Write) -> Result<(), PyFmtEr
     answer_lines(stage_file, out, |_record, input| yaml::flow_dump(input))
 }
 
+/// The `json-forms` stage: for each line of `stage_file`, answer the line's `input` in the form its `form` names in one `{"key", "value"}` line, the value in the typed encoding. A writer's form (`default`, `indent`, `sorted`, `unicode` or `compact`, [`json`]'s entry points) answers `("text", text)`; `loads` reads a `str` input with [`json::loads`] and a `bytes` one with [`json::loads_bytes`] and answers `("value", value)`. Either answers `("refused",)` where the writer or the reader refuses the input.
+pub fn stage_json_forms(stage_file: &Path, out: &mut impl Write) -> Result<(), PyFmtError> {
+    answer_values(stage_file, out, |record, input| {
+        let form = record["form"]
+            .as_str()
+            .ok_or_else(|| PyFmtError("the line has no form".into()))?;
+        let answer = match form {
+            "default" => json::dumps(input).map(PyValue::Str),
+            "indent" => json::dumps_indent(input).map(PyValue::Str),
+            "sorted" => json::dumps_sorted(input).map(PyValue::Str),
+            "unicode" => json::dumps_unicode(input).map(PyValue::Str),
+            "compact" => json::dumps_compact(input).map(PyValue::Str),
+            "loads" => match input {
+                PyValue::Str(text) => json::loads(text),
+                PyValue::Bytes(data) => json::loads_bytes(data),
+                other => {
+                    return Err(PyFmtError(format!(
+                        "json.loads reads a str or bytes, not {}",
+                        other.kind()
+                    )));
+                }
+            },
+            other => return Err(PyFmtError(format!("no JSON form {other:?}"))),
+        };
+        let tag = if form == "loads" { "value" } else { "text" };
+        Ok(match answer {
+            Ok(value) => PyValue::Tuple(vec![PyValue::str(tag), value]),
+            Err(_) => PyValue::Tuple(vec![PyValue::str("refused")]),
+        })
+    })
+}
+
 /// Read each line of a stage file, decode its `input` from the typed encoding, and write `answer`'s text for it under the line's key.
 fn answer_lines(
     stage_file: &Path,
     out: &mut impl Write,
     answer: impl Fn(&Value, &PyValue) -> Result<String, PyFmtError>,
+) -> Result<(), PyFmtError> {
+    answer_values(stage_file, out, |record, input| {
+        answer(record, input).map(PyValue::Str)
+    })
+}
+
+/// Read each line of a stage file, decode its `input` from the typed encoding, and write `answer`'s value for it, in the typed encoding, under the line's key.
+fn answer_values(
+    stage_file: &Path,
+    out: &mut impl Write,
+    answer: impl Fn(&Value, &PyValue) -> Result<PyValue, PyFmtError>,
 ) -> Result<(), PyFmtError> {
     let file = std::fs::File::open(stage_file).map_err(|failure| {
         PyFmtError(format!("cannot read {}: {failure}", stage_file.display()))
@@ -277,13 +320,13 @@ fn answer_lines(
         };
         let input = PyValue::from_typed(&record["input"])
             .map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
-        let text =
+        let value =
             answer(&record, &input).map_err(|failure| PyFmtError(format!("{key}: {failure}")))?;
         writeln!(
             out,
             "{{\"key\":{},\"value\":{}}}",
             json_string(key),
-            json_string(&text)
+            value.to_typed()
         )
         .map_err(|failure| PyFmtError(format!("cannot write a stage line: {failure}")))?;
     }
