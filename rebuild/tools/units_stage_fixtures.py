@@ -49,18 +49,22 @@ import contextlib
 import copy
 import dataclasses
 import functools
+import gzip
 import hashlib
 import importlib
 import json
+import os
 import pickle
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unicodedata
 import warnings
 import zlib
 from array import array
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import batched, chain, combinations, product
 from multiprocessing.reduction import ForkingPickler
@@ -69,10 +73,11 @@ from typing import IO, Any, TypedDict
 
 import yaml
 
-from rebuild.pipeline import fingerprint, spec_load
+from rebuild.pipeline import fingerprint, oracle, output_sink, row_delta, spec_load
 from rebuild.pipeline.explain import ExplainReport
+from rebuild.pipeline.kernel_exec import KERNEL_ALLOCATOR_ENVIRONMENT
 from rebuild.pipeline.model import feature_config_token
-from rebuild.review import audit, build, drafts, ink, unit_cache, units_exec
+from rebuild.review import audit, build, drafts, ink, landing, unit_cache, unit_index, units_exec
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, Unit, UnitTable, load_ledger
 from rebuild.review.drafts import Drafter, corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, primary_unit_projection
@@ -88,6 +93,7 @@ from rebuild.review.subset_pack import (
 )
 from rebuild.review.unit_store import UnitStore
 from rebuild.review.units_exec import Record, compact, decode, encode
+from rebuild.tools import cycle_paths, cycle_timings, memory_tally
 from rebuild.validation.shaping import row_for
 
 REPO_ROOT = build.REPO_ROOT
@@ -2203,6 +2209,1353 @@ def run_worker(source: Source) -> RunResult:
     return result
 
 
+# --- the build scenarios ------------------------------------------------------------------------
+
+SCENARIO_ROOT = REPO_ROOT / "var" / "rust-port" / "build-scenarios"
+MINI_SPEC = SCENARIO_ROOT / "mini-spec"
+MINI_BASE = SCENARIO_ROOT / "mini-base"
+LIVE_BASE = SCENARIO_ROOT / "live-base"
+# Each build scenario and the sources it runs on (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Scenarios).
+BUILD_SCENARIOS: dict[str, tuple[str, ...]] = {
+    "first": ("mini",),
+    "cold": ("mini", "live"),
+    "warm": ("mini", "live"),
+    "incremental": ("mini", "live"),
+    "rebase": ("mini", "live"),
+    "restamped": ("mini",),
+    "rederived": ("mini",),
+    "relocate": ("mini",),
+    "torn": ("mini",),
+    "chain": ("mini",),
+    "refusals": ("mini",),
+}
+# The scenario `refusals` runs only by name; `--scenario all` names every other scenario of the source.
+BY_NAME_ONLY = ("refusals",)
+BUILD_REQUEST_FORMAT = "ams-review-build-scenario-request/1"
+# The audit row's fields the scenarios' edits read: the window, the matched entry, and the two rendered-name fields.
+_WINDOW, _ENTRY, _BASELINE, _NEW = 1, 3, 4, 5
+# The ledger class the mini's edited audit retags windows into, as `rebuild/test_unit_cache.py`'s `_edited_audit` does.
+RETAG_CLASS = "identical-unused-join-name"
+# The output whose fold claim a chain step's pass holds when its claim is held elsewhere: the windows rows, which claim before the corpus build in a cycle (`row_delta.claim_fold`).
+HELD_CLAIM_OUTPUT = "windows-default.tsv.gz"
+
+
+@dataclass(frozen=True)
+class BuildInputs:
+    """What one Python build of a scenario reads, as `build.build_m1`'s arguments: the audit, the ledger, the subset tables and their pack, the after font, the spec root, and whether it recomputes every unit."""
+
+    audit: Path
+    ledger: Path
+    subset_dir: Path
+    subset_pack: Path
+    after_font: Path
+    spec_root: Path
+    recompute_all: bool = False
+
+    def request(self) -> dict:
+        return {
+            item.name: str(value) if isinstance(value, Path) else value
+            for item in dataclasses.fields(self)
+            for value in (getattr(self, item.name),)
+        }
+
+    @classmethod
+    def from_request(cls, request: Mapping[str, object]) -> BuildInputs:
+        return cls(
+            Path(str(request["audit"])),
+            Path(str(request["ledger"])),
+            Path(str(request["subset_dir"])),
+            Path(str(request["subset_pack"])),
+            Path(str(request["after_font"])),
+            Path(str(request["spec_root"])),
+            bool(request["recompute_all"]),
+        )
+
+
+@dataclass
+class BuildRun:
+    """One Python build as `run_python_build` ran it: its label, the tree it started from, the tree it wrote, its exit status, what it printed, and the cycle directory of a pass whose claim another output holds."""
+
+    label: str
+    prior: Path
+    out: Path
+    returncode: int
+    log: str
+    cycle_var: Path | None = None
+
+    @functools.cached_property
+    def notes(self) -> dict[str, str]:
+        """Each `[t] review.build <phase>` line's note, by phase."""
+        notes: dict[str, str] = {}
+        for line in self.log.splitlines():
+            if line.startswith("[t] review.build "):
+                head, _, note = line.partition("\t")
+                notes[head.split()[2]] = note
+        return notes
+
+    def note(self, phase: str) -> str:
+        return self.notes.get(phase, "")
+
+    def warns(self) -> list[str]:
+        return [line[len("[warn] ") :] for line in self.log.splitlines() if line.startswith("[warn] ")]
+
+    def says(self, text: str) -> bool:
+        return any(line == text for line in self.log.splitlines())
+
+    def counts(self, phase: str, pattern: str) -> tuple[int, ...] | None:
+        """The integers `pattern`'s groups match in the phase's note, commas dropped, or None when it does not match."""
+        found = re.search(pattern, self.note(phase))
+        return None if found is None else tuple(int(group.replace(",", "")) for group in found.groups())
+
+    def message(self) -> str:
+        """The last line the build printed, which is a refusal's text when it stopped with one."""
+        lines = self.log.rstrip("\n").splitlines()
+        return lines[-1] if lines else ""
+
+
+# A check sees one case's run and returns the problems it finds: each a sentence naming what the build did not reach.
+BuildCheck = Callable[[BuildRun], list[str]]
+
+
+@dataclass(frozen=True)
+class BuildCase:
+    """One build of a scenario: its name, what it reads, the prior corpus it builds over (a clone of `prior`, or, when `prior` is None, of the output of the case before it), its units width (None for the harness's default, `default_width`), the output that holds its pass's fold claim when the pass runs as a cycle's child whose claim another output took (`row_delta.claim_fold`), and the check that the Python build reached what the scenario's row names."""
+
+    name: str
+    inputs: BuildInputs
+    prior: Path | None
+    check: BuildCheck
+    jobs: int | None = None
+    claim_held_by: str | None = None
+
+
+@dataclass(frozen=True)
+class BuildScenario:
+    """A prepared scenario: its source and name, the directory that holds its priors and its changed inputs, and its builds in order."""
+
+    source: str
+    name: str
+    directory: Path
+    cases: tuple[BuildCase, ...]
+
+
+@dataclass(frozen=True)
+class BasePrior:
+    """A source's base prior: the corpus every scenario starts from and the inputs its build read, which every scenario's build reads except where its row changes them."""
+
+    source: str
+    out: Path
+    inputs: BuildInputs
+
+
+def default_width() -> int:
+    """The harness's default units width: what a `--skip-gates` cycle passes the build."""
+    from rebuild.tools.artifact_cycle import corpus_job_budget
+
+    return corpus_job_budget(skip_gates=True)
+
+
+def _clone_file(source: Path, target: Path) -> None:
+    """Copy one file with its modification time, as a copy-on-write clone where the volume can make one."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "darwin":
+        result = subprocess.run(
+            ["cp", "-c", "-p", str(source), str(target)], capture_output=True, check=False
+        )
+        if result.returncode == 0:
+            return
+    shutil.copy2(source, target)
+
+
+def _clone_tree(source: Path, target: Path) -> None:
+    shutil.rmtree(target, ignore_errors=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    landing.clone_tree(source, target)
+
+
+def _pin_time(path: Path, like: Path) -> None:
+    """Give `path` the modification time of `like`, which `build._generated_at` reads, so a scenario's stamp does not move with the run that wrote the file."""
+    os.utime(path, ns=(path.stat().st_atime_ns, like.stat().st_mtime_ns))
+
+
+def _build_environment(counts: Path, run: str | None) -> dict[str, str]:
+    """The environment a scenario's build child runs in, as the cycle's step runs the build: the Rust units engine, no debug tally, the counts file named, no cycle run unless the case's pass holds one, and on macOS the allocator's large cache off."""
+    environment = dict(os.environ)
+    environment[units_exec.ENGINE_VARIABLE] = "rust"
+    environment.pop(memory_tally.TALLY_ENV, None)
+    environment.pop(row_delta.CYCLE_RUN_ENV, None)
+    environment[output_sink.OUTPUT_COUNTS_ENV] = str(counts)
+    if run is not None:
+        environment[row_delta.CYCLE_RUN_ENV] = run
+    if sys.platform == "darwin":
+        environment.update(KERNEL_ALLOCATOR_ENVIRONMENT)
+    return environment
+
+
+def run_python_build(
+    inputs: BuildInputs,
+    out: Path,
+    logs: Path,
+    label: str,
+    *,
+    prior: Path | None = None,
+    jobs: int | None = None,
+    claim_held_by: str | None = None,
+) -> BuildRun:
+    """Run one Python build of `inputs` into `out` in a fresh process (`python_build_child`), as the cycle's step runs it, and return the run. `out` is first made a clone of `prior` when one is given, and otherwise built in place. `logs` holds the request, the log of standard error, the counts file, the journal the build writes its records to, and the cycle directory of a pass whose claim `claim_held_by` holds. `jobs` is the units width, the harness's default when None, and a build at one job shapes its signatures at one job too."""
+    logs.mkdir(parents=True, exist_ok=True)
+    if prior is not None:
+        _clone_tree(prior, out)
+    width = default_width() if jobs is None else jobs
+    if jobs == 1:
+        signature_jobs = 1
+    else:
+        from rebuild.tools.artifact_cycle import signature_job_budget
+
+        signature_jobs = signature_job_budget()
+    counts = logs / f"{label}.counts"
+    counts.write_bytes(b"")
+    run = None
+    cycle_var = None
+    if claim_held_by is not None:
+        run = f"build-scenarios-{label}"
+        cycle_var = logs / f"{label}-cycle"
+        cycle_var.mkdir(parents=True, exist_ok=True)
+        (cycle_var / cycle_paths.FOLD_CLAIM_NAME).write_text(
+            json.dumps({"run": run, "output": claim_held_by}) + "\n", encoding="utf-8"
+        )
+    request = {
+        "format": BUILD_REQUEST_FORMAT,
+        "out": str(out),
+        "inputs": inputs.request(),
+        "jobs": width,
+        "signature_jobs": signature_jobs,
+        "journal": str(logs / "journal.ndjson"),
+        "cycle_var": None if cycle_var is None else str(cycle_var),
+    }
+    request_path = logs / f"{label}.json"
+    request_path.write_text(json.dumps(request, indent=1) + "\n", encoding="utf-8")
+    log_path = logs / f"{label}.log"
+    with log_path.open("wb") as log:
+        process = subprocess.run(
+            [sys.executable, "-m", "rebuild.tools.units_stage_fixtures", "python-build", str(request_path)],
+            cwd=REPO_ROOT,
+            env=_build_environment(counts, run),
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+    return BuildRun(
+        label,
+        prior if prior is not None else out,
+        out,
+        process.returncode,
+        log_path.read_text(encoding="utf-8", errors="replace"),
+        cycle_var,
+    )
+
+
+def python_build_child(request_path: Path) -> int:
+    """Run the build one `run_python_build` request describes, in this process: the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them."""
+    request = json.loads(request_path.read_text(encoding="utf-8"))
+    if request.get("format") != BUILD_REQUEST_FORMAT:
+        raise SystemExit(f"{request_path} is not a {BUILD_REQUEST_FORMAT} request")
+    cycle_timings.JOURNAL = Path(request["journal"])
+    if request["cycle_var"] is not None:
+        cycle_paths.CYCLE_VAR = Path(request["cycle_var"])
+    inputs = BuildInputs.from_request(request["inputs"])
+    build.build_m1(
+        Path(request["out"]),
+        audit_path=inputs.audit,
+        ledger_path=inputs.ledger,
+        subset_dir=inputs.subset_dir,
+        after_font=inputs.after_font,
+        jobs=request["jobs"],
+        signature_jobs=request["signature_jobs"],
+        recompute_all_units=inputs.recompute_all,
+        spec_root=inputs.spec_root,
+        subset_pack=inputs.subset_pack,
+    )
+    return 0
+
+
+_BASES: dict[str, BasePrior] = {}
+
+
+def base_prior(source: str) -> BasePrior:
+    """The source's base prior, prepared once a process (`_mini_base`, `_live_base`)."""
+    if source not in _BASES:
+        _BASES[source] = _mini_base() if source == "mini" else _live_base()
+    return _BASES[source]
+
+
+def _required_run(run: BuildRun, what: str) -> BuildRun:
+    if run.returncode != 0:
+        raise SystemExit(f"{what} failed with status {run.returncode}: {run.message()}")
+    return run
+
+
+def _mini_base() -> BasePrior:
+    """Materialize the mini bundle's spec at the fixed `MINI_SPEC`, pack its subset tables there and pin its ledger's modification time to the bundle audit's, so every build of a run reads one spec and stamps one `generated_at`; then build the bundle from an empty directory into `MINI_BASE`, the `first` build."""
+    shutil.rmtree(MINI_SPEC, ignore_errors=True)
+    spec_root = pin.materialize(MINI_SPEC)
+    subset_pack = spec_root / PACK_NAME
+    write_pack_in_memory(MINI, ACCEPTANCE_CONFIGS, table_digests(MINI, ACCEPTANCE_CONFIGS), subset_pack)
+    audit_path = MINI / "audit.tsv"
+    ledger = spec_root / pin.LEDGER_PATH
+    _pin_time(ledger, audit_path)
+    inputs = BuildInputs(audit_path, ledger, MINI, subset_pack, MINI / "M1.otf", spec_root)
+    shutil.rmtree(MINI_BASE, ignore_errors=True)
+    empty = MINI_BASE / "empty"
+    empty.mkdir(parents=True)
+    out = MINI_BASE / "out"
+    _required_run(
+        run_python_build(inputs, out, MINI_BASE / "logs", "base", prior=empty), "the mini base prior's build"
+    )
+    return BasePrior("mini", out, inputs)
+
+
+def _clone_live_inputs(target: Path) -> None:
+    """Clone what the build reads under `rebuild/out/m1/` and the ledger into `target`, modification times kept: the audit's head and every part it lists (or its single file), the after font, the subset tables and their pack, and the Stage A record the manifest copies."""
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    m1 = build.M1_SUBSETS
+    head = row_delta.read_head(m1, build.M1_AUDIT.name)
+    names = (
+        [row_delta.head_name(build.M1_AUDIT.name), *(part.name for part in head.parts)]
+        if head is not None
+        else [build.M1_AUDIT.name]
+    )
+    names += [build.M1_AFTER_FONT.name, PACK_NAME, fingerprint.STAGE_A_FILENAME]
+    names += [f"baseline-{config}.subset.tsv.gz" for config in ACCEPTANCE_CONFIGS]
+    for name in names:
+        if (m1 / name).is_file():
+            _clone_file(m1 / name, target / name)
+    _clone_file(build.M1_LEDGER, target / build.M1_LEDGER.name)
+
+
+def _live_base() -> BasePrior:
+    """Refresh the live base prior under `LIVE_BASE`: clone `rebuild/out/review` into its `out/` the first time (`landing.clone_tree`), clone the build's inputs into its `inputs/` again (`_clone_live_inputs`), and run one Python build at the current tree into `out/`, so every live scenario starts from the engine of record's output for the tree as it stands."""
+    for needed in (build.DEFAULT_OUT / "manifest.json", build.M1_AFTER_FONT):
+        if not needed.is_file():
+            raise SystemExit(f"the live source needs the last cycle's {needed.relative_to(REPO_ROOT)}")
+    out = LIVE_BASE / "out"
+    if not out.is_dir():
+        _clone_tree(build.DEFAULT_OUT, out)
+    inputs_dir = LIVE_BASE / "inputs"
+    _clone_live_inputs(inputs_dir)
+    inputs = BuildInputs(
+        inputs_dir / build.M1_AUDIT.name,
+        inputs_dir / build.M1_LEDGER.name,
+        inputs_dir,
+        inputs_dir / PACK_NAME,
+        inputs_dir / build.M1_AFTER_FONT.name,
+        REPO_ROOT,
+    )
+    _required_run(
+        run_python_build(inputs, out, LIVE_BASE / "logs", "refresh"), "the live base prior's refresh"
+    )
+    return BasePrior("live", out, inputs)
+
+
+# --- changed inputs and priors ------------------------------------------------------------------
+
+
+def _audit_rows(path: Path) -> tuple[str, list[list[str]]]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return lines[0], [line.split("\t") for line in lines[1:]]
+
+
+def _write_audit(path: Path, header: str, rows: Iterable[Sequence[str]], like: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join([header, *("\t".join(row) for row in rows)]) + "\n", encoding="utf-8")
+    _pin_time(path, like)
+    return path
+
+
+def _windows(rows: Sequence[Sequence[str]]) -> dict[str, list[Sequence[str]]]:
+    windows: dict[str, list[Sequence[str]]] = {}
+    for row in rows:
+        windows.setdefault(row[_WINDOW], []).append(row)
+    return windows
+
+
+def _units_of(rows: Sequence[Sequence[str]]) -> list[list[Sequence[str]]]:
+    """A window's rows grouped into its units, by (baseline, new) in the order the file first names them."""
+    units: dict[tuple[str, str], list[Sequence[str]]] = {}
+    for row in rows:
+        units.setdefault((row[_BASELINE], row[_NEW]), []).append(row)
+    return list(units.values())
+
+
+def edited_rows(rows: Sequence[Sequence[str]]) -> list[Sequence[str]]:
+    """The audit rows with some windows' rows changed and some windows removed. It drops the fourth window and the second window that holds two units (a sibling window, whose ink-signature entries go unhit); retags every row of the first two windows from the fifth on that are not in `RETAG_CLASS` into it, as `rebuild/test_unit_cache.py`'s `_edited_audit` does, which changes their input keys and moves them to that class's overflow part; and, in the first sibling window whose second unit holds two rows or more, moves the last row of that unit into its first, its matched entry and both rendered-name fields taken from the first unit's first row. That row's signature key is one the prior store does not hold, so the key-only read misses it, and the unit it joins keeps its first configuration, the one the enricher re-settles."""
+    windows = _windows(rows)
+    order = list(windows)
+    siblings = [window for window in order if len(_units_of(windows[window])) > 1]
+    moved_window = next(
+        window for window in siblings if len(units := _units_of(windows[window])) > 1 and len(units[1]) > 1
+    )
+    dropped = {order[3], next(window for window in siblings if window != moved_window)}
+    retagged = [
+        window
+        for window in order[4:]
+        if window not in dropped
+        and window != moved_window
+        and all(row[_ENTRY] != RETAG_CLASS for row in windows[window])
+    ][:2]
+    first_unit, second_unit = _units_of(windows[moved_window])[:2]
+    moved = second_unit[-1]
+    edited: list[Sequence[str]] = []
+    for row in rows:
+        if row[_WINDOW] in dropped:
+            continue
+        if row[_WINDOW] in retagged:
+            row = [*row[:_ENTRY], RETAG_CLASS, *row[_ENTRY + 1 :]]
+        elif row is moved:
+            row = [*row[:_ENTRY], first_unit[0][_ENTRY], first_unit[0][_BASELINE], first_unit[0][_NEW]]
+        edited.append(row)
+    return edited
+
+
+def edited_audit(audit_path: Path, target: Path) -> Path:
+    """Write the mini audit as `edited_rows` changes it, its modification time the bundle audit's, and return it."""
+    header, rows = _audit_rows(audit_path)
+    return _write_audit(target, header, edited_rows(rows), audit_path)
+
+
+def diverging_audit(audit_path: Path, target: Path) -> Path:
+    """Write the mini audit with one unit's cells changed so the enricher's re-settlement diverges from them, which fails the build's contract check: in the first window that holds two or more units, the first of which holds only cell tokens in `new`, that unit's rows each take, in place of their first token, the first token of the first such row that names another family. The rows' signature keys move with them, so the key-only read misses them and the build rewrites the signature store."""
+    header, rows = _audit_rows(audit_path)
+
+    def cells(row: Sequence[str]) -> bool:
+        return all("/" in token for token in row[_NEW].split("|"))
+
+    unit = next(
+        units[0]
+        for held in _windows(rows).values()
+        if len(units := _units_of(held)) > 1 and cells(units[0][0])
+    )
+    first = unit[0][_NEW].split("|")[0]
+    other = next(
+        token
+        for row in rows
+        if cells(row) and (token := row[_NEW].split("|")[0]).split("/")[0] != first.split("/")[0]
+    )
+    changed = {id(row) for row in unit}
+    edited = [
+        [*row[:_NEW], "|".join([other, *row[_NEW].split("|")[1:]])] if id(row) in changed else row
+        for row in rows
+    ]
+    return _write_audit(target, header, edited, audit_path)
+
+
+# How many of the live audit's first windows, in its first configuration's order, the scratch segment's edits choose among.
+SCRATCH_WINDOWS = 4096
+
+
+def scratch_audit_segment(audit_path: Path, target_dir: Path) -> Path:
+    """Clone a live audit's parts into `target_dir` beside a scratch head that lists them and one more segment, which this writes as the audit's writer writes one (`oracle.AuditWriter`: plain-keyed upserts and tombstones in the audit's order, a configuration a gzip member, `row_delta.MemberPart`), its `content` one more, and return the audit path the build reads. The segment makes `edited_rows`' edits to the audit's first `SCRATCH_WINDOWS` windows, every configuration's rows of them, so every row it holds is settled under the current spec."""
+    head = row_delta.read_head(audit_path.parent, audit_path.name)
+    if head is None:
+        raise SystemExit(f"{audit_path} has no head to add a segment to")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    for part in head.parts:
+        _clone_file(audit_path.parent / part.name, target_dir / part.name)
+    chosen: dict[str, None] = {}
+    first: str | None = None
+    rows: list[Sequence[str]] = []
+    pending = b""
+    for chunk in oracle.materialized_audit(audit_path.parent):
+        lines = (pending + chunk).split(b"\n")
+        pending = lines.pop()
+        for line in lines:
+            fields = line.decode("utf-8").split("\t")
+            if fields[0] == "config":
+                continue
+            if first is None:
+                first = fields[0]
+            if fields[0] == first and len(chosen) < SCRATCH_WINDOWS:
+                chosen.setdefault(fields[_WINDOW])
+            if fields[_WINDOW] in chosen:
+                rows.append(fields)
+    before = {(row[0], row[_WINDOW]): row for row in rows}
+    after = {(row[0], row[_WINDOW]): row for row in edited_rows(rows)}
+    changes = sorted(
+        [
+            *(b"+\t" + "\t".join(row).encode() + b"\n" for key, row in after.items() if before[key] != row),
+            *(b"-\t" + "\t".join(key).encode() + b"\n" for key in before if key not in after),
+        ],
+        key=lambda line: oracle.audit_key(line[2:]),
+    )
+    number = len(head.segments) + 1
+    writer = row_delta.MemberPart(
+        target_dir,
+        row_delta.segment_name(audit_path.name, head.generation, number),
+        row_delta.segment_header(audit_path.name, head.generation, number, row_delta.MERGE_PLAIN_KEY),
+        field=1,
+    )
+    for line in changes:
+        writer.write(line)
+    part = writer.close()
+    assert part is not None
+    scratch = row_delta.with_segment(head, part, head.stamps)
+    (target_dir / row_delta.head_name(audit_path.name)).write_text(
+        json.dumps(scratch.document(), indent=1) + "\n", encoding="utf-8"
+    )
+    return target_dir / audit_path.name
+
+
+def _manifest_classes(corpus: Path) -> list[dict]:
+    return json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))["classes"]
+
+
+def _class_units(corpus: Path, class_id: str, limit: int | None = None) -> list[dict]:
+    """The units index's records of one class in the prior corpus, in index order, read until the class's run of records ends or `limit` are held."""
+    opened = unit_index.open_index(corpus)
+    if opened is None:
+        raise SystemExit(f"{corpus} has no units index")
+    marker = json.dumps({"class": class_id})[1:-1].encode()
+    found: list[dict] = []
+    with opened:
+        for line in opened.lines():
+            if marker in line:
+                record = json.loads(line)
+                if record["class"] == class_id:
+                    found.append(record)
+                    if len(found) == limit:
+                        break
+                    continue
+            if found:
+                break
+    return found
+
+
+def _exemplar_key(record: Mapping) -> tuple[str, str]:
+    return record["configs"][0], record["codepoints"]
+
+
+def _ledger_entries(ledger: Path) -> list[dict]:
+    return yaml.safe_load(ledger.read_text(encoding="utf-8")) or []
+
+
+def _write_ledger(path: Path, entries: Sequence[Mapping], like: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        yaml.safe_dump(list(entries), sort_keys=False, allow_unicode=True, width=1_000_000), encoding="utf-8"
+    )
+    _pin_time(path, like)
+    return path
+
+
+@dataclass(frozen=True)
+class LedgerPlan:
+    """The ledger classes a scenario edits, chosen from the base prior: `small`, the smallest ledger class present, whose `no_verdict` an edit flips, and `large`, the largest ledger class present that takes full fragments, with its units' exemplar keys in index order (the first `limit` of them, when `ledger_plan` is given one), whose exemplar flags an edit moves."""
+
+    small: str
+    large: str
+    large_keys: tuple[tuple[str, str], ...]
+
+
+def ledger_plan(corpus: Path, ledger: Path, limit: int | None = None) -> LedgerPlan:
+    ids = {entry["id"] for entry in _ledger_entries(ledger)}
+    present = [meta for meta in _manifest_classes(corpus) if meta["id"] in ids]
+    small = min(present, key=lambda meta: meta["unit_count"])
+    large = max((meta for meta in present if not meta["no_verdict"]), key=lambda meta: meta["unit_count"])
+    return LedgerPlan(
+        small["id"],
+        large["id"],
+        tuple(_exemplar_key(record) for record in _class_units(corpus, large["id"], limit)),
+    )
+
+
+def _flip_no_verdict(entry: dict) -> None:
+    entry["no_verdict"] = not entry.get("no_verdict", False)
+
+
+def _with_exemplars(entry: dict, keys: Iterable[tuple[str, str]]) -> None:
+    entry["exemplars"] = [{"config": config, "codepoints": codepoints} for config, codepoints in keys]
+
+
+def incremental_ledger(base: BasePrior, plan: LedgerPlan, target: Path) -> Path:
+    """Write the base ledger with the small class's units turned slim or full (its `no_verdict` flipped) and the large class's first exemplar moved to its first unit no exemplar names, its modification time the base ledger's, and return it."""
+    entries = _ledger_entries(base.inputs.ledger)
+    taken = {(item["config"], item["codepoints"]) for entry in entries for item in entry.get("exemplars", ())}
+    for entry in entries:
+        if entry["id"] == plan.small:
+            _flip_no_verdict(entry)
+        if entry["id"] == plan.large:
+            fresh = next(key for key in plan.large_keys if key not in taken)
+            kept = [(item["config"], item["codepoints"]) for item in entry.get("exemplars", ())][1:]
+            _with_exemplars(entry, [fresh, *kept])
+    return _write_ledger(target, entries, base.inputs.ledger)
+
+
+def _moved_line(lines: Sequence[str], label: str) -> list[str]:
+    """`lines` with the digest of the line labeled `label` replaced by another, as a move of that input gives it."""
+    moved = []
+    found = False
+    for line in lines:
+        name, _, value = line.partition("\t")
+        if name == label:
+            value = hashlib.sha256(f"moved {value}".encode()).hexdigest()
+            found = True
+        moved.append(f"{name}\t{value}")
+    if not found:
+        raise SystemExit(f"the stamp has no {label} line to move: {list(lines)}")
+    return moved
+
+
+def move_store_stamp(corpus: Path, label: str) -> None:
+    """Move the `label` line of the unit store's head stamps, and the `environment` digest over the lines with it."""
+    head = row_delta.read_head(corpus, unit_cache.STORE_NAME)
+    if head is None:
+        raise SystemExit(f"{corpus} has no unit store head")
+    lines = _moved_line(head.stamps["environment_lines"], label)
+    stamps = {
+        **head.stamps,
+        "environment": fingerprint.EnvironmentStamp(tuple(lines)).value,
+        "environment_lines": lines,
+    }
+    row_delta.commit(corpus, dataclasses.replace(head, stamps=stamps))
+
+
+def move_signature_stamp(corpus: Path, label: str) -> None:
+    """Move the `label` line of the ink-signature store's header, and the `environment` digest over the lines with it, keeping its entries."""
+    path = unit_cache.signature_store_path(corpus)
+    header_line, _, entries = gzip.decompress(path.read_bytes()).partition(b"\n")
+    header = json.loads(header_line)
+    lines = _moved_line(header["environment_lines"], label)
+    header["environment"] = fingerprint.EnvironmentStamp(tuple(lines)).value
+    header["environment_lines"] = lines
+    with gzip.GzipFile(path, "wb", compresslevel=1, mtime=0) as stream:
+        stream.write(json.dumps(header).encode() + b"\n" + entries)
+
+
+def relocate_parts(corpus: Path) -> list[str]:
+    """Rewrite every shard part of the corpus as compact JSON, so every part's size disagrees with the one the unit store recorded while each fragment stays readable by the walk, and return the parts."""
+    recorded = (unit_cache.store_stamps(corpus) or {}).get("parts") or {}
+    parts = [part for meta in _manifest_classes(corpus) for part in unit_index.class_shards(meta)]
+    for part in parts:
+        path = corpus / part
+        path.write_text(json.dumps(json.loads(path.read_text(encoding="utf-8"))), encoding="utf-8")
+        if path.stat().st_size == recorded.get(part):
+            raise SystemExit(f"{part} kept the size the store recorded for it once rewritten")
+    return parts
+
+
+def _store_files(corpus: Path) -> list[str]:
+    head = row_delta.read_head(corpus, unit_cache.STORE_NAME)
+    if head is None:
+        raise SystemExit(f"{corpus} has no unit store head")
+    return [row_delta.head_name(unit_cache.STORE_NAME), *(part.name for part in head.parts)]
+
+
+def tear(corpus: Path, base: Path) -> None:
+    """Make `corpus`, an incremental build's output, what a pass stopped after its facts line leaves beside a later build's: the base prior's unit store (head and parts) and `review-facts.json` put back, with a leftover staged overflow part of the first class that has one (or the first class) and a leftover staged ink-signature store, each a cut copy of what it stands for."""
+    for name in _store_files(corpus):
+        (corpus / name).unlink()
+    for name in [*_store_files(base), "review-facts.json"]:
+        _clone_file(base / name, corpus / name)
+    classes = _manifest_classes(corpus)
+    torn = next(
+        (meta for meta in classes if any(".x" in part for part in unit_index.class_shards(meta))), classes[0]
+    )
+    first = corpus / unit_index.class_shards(torn)[0]
+    staged = corpus / f"{unit_index.overflow_part_name(torn['id'], 0)}{output_sink.STAGING_SUFFIX}"
+    staged.write_bytes(first.read_bytes()[: max(1, first.stat().st_size // 2)])
+    signatures = unit_cache.signature_store_path(corpus)
+    data = signatures.read_bytes()
+    signatures.with_name(signatures.name + output_sink.STAGING_SUFFIX).write_bytes(data[: len(data) // 2])
+
+
+def sampled_record(corpus: Path) -> tuple[int, dict]:
+    """The base row and record of the first unit, by id, of the verification sample a build over unchanged inputs draws from the corpus's unit store: the store's id words in ascending order, seeded with its environment stamp (`build._verification_sample`)."""
+    header, lines = _store_held(corpus)
+    records = [json.loads(line) for line in lines]
+    words = sorted(word for record in records if (word := unit_cache.id_word(record["id"])) is not None)
+    first = min(build._verification_sample(words, header["environment"]))
+    index = next(index for index, record in enumerate(records) if unit_cache.id_word(record["id"]) == first)
+    return index, records[index]
+
+
+def _store_held(corpus: Path) -> tuple[dict, list[bytes]]:
+    materialized = unit_cache.materialized_store(corpus)
+    if materialized is None:
+        raise SystemExit(f"{corpus} has no unit store")
+    header, lines = materialized
+    return header, list(lines)
+
+
+def stale_sample_store(corpus: Path) -> str:
+    """Change one sampled record's ink deltas by a store segment the tool writes, which leaves the record's content key, so the plan reuses it and the verification sample's recomputation disagrees with it; return its id."""
+    head = row_delta.read_head(corpus, unit_cache.STORE_NAME)
+    if head is None or head.segments:
+        raise SystemExit(
+            f"{corpus}'s unit store is not a base alone, so its rows' places are not their lines"
+        )
+    index, record = sampled_record(corpus)
+    record["ink_deltas"] = {**record["ink_deltas"], "bogus": "d-000000000000"}
+    line = (json.dumps(record) + "\n").encode()
+    part = row_delta.write_segment(
+        corpus,
+        unit_cache.STORE_NAME,
+        head.generation,
+        1,
+        [row_delta.Row(row_delta.UPSERT, (index, ""), line)],
+    )
+    row_delta.commit(corpus, row_delta.with_segment(head, part, head.stamps))
+    return record["id"]
+
+
+def corrupt_copied_fragment(corpus: Path) -> str:
+    """Change one byte of the id of the first fragment of the first class's first part, keeping the part's size, so the plan trusts its address and the write's byte copy refuses it; return the id."""
+    meta = _manifest_classes(corpus)[0]
+    path = corpus / unit_index.class_shards(meta)[0]
+    raw = path.read_bytes()
+    unit_id = json.loads(raw)[0]["id"]
+    quoted = f'"id": "{unit_id}"'.encode()
+    corrupted = quoted[:-2] + (b"1" if quoted[-2:-1] != b"1" else b"2") + b'"'
+    if raw.count(quoted) != 1:
+        raise SystemExit(f"{path} names {unit_id} other than once")
+    path.write_bytes(raw.replace(quoted, corrupted))
+    return unit_id
+
+
+# --- the scenarios ------------------------------------------------------------------------------
+
+
+def _scenario_dir(source: str, scenario: str) -> Path:
+    return SCENARIO_ROOT / f"{source}-{scenario}"
+
+
+def _cleared(directory: Path) -> Path:
+    shutil.rmtree(directory, ignore_errors=True)
+    directory.mkdir(parents=True)
+    return directory
+
+
+def open_build_source(source: str, scenario: str) -> BuildScenario:
+    """Prepare one scenario of § Scenarios over the source's base prior (`base_prior`): its directory under `SCENARIO_ROOT` cleared, its priors cloned there and changed as its row says, and its changed inputs written beside them; every input its row leaves unchanged is the base prior's own, so a build over unchanged inputs stamps the prior's manifest. Nothing under `rebuild/out/` is written."""
+    if source not in SOURCES:
+        raise SystemExit(f"unknown source {source!r}; the sources are {', '.join(SOURCES)}")
+    if scenario not in BUILD_SCENARIOS:
+        raise SystemExit(f"unknown scenario {scenario!r}; the scenarios are {', '.join(BUILD_SCENARIOS)}")
+    if source not in BUILD_SCENARIOS[scenario]:
+        raise SystemExit(
+            f"the {scenario} scenario runs on {', '.join(BUILD_SCENARIOS[scenario])}, not {source}"
+        )
+    base = base_prior(source)
+    directory = _cleared(_scenario_dir(source, scenario))
+    prepare = _PREPARERS[scenario]
+    return BuildScenario(source, scenario, directory, tuple(prepare(base, directory)))
+
+
+def _prior(base: BasePrior, directory: Path, name: str = "prior") -> Path:
+    target = directory / name
+    _clone_tree(base.out, target)
+    return target
+
+
+def _first(base: BasePrior, directory: Path) -> list[BuildCase]:
+    empty = directory / "prior"
+    empty.mkdir()
+    return [BuildCase("first", base.inputs, empty, _check_first)]
+
+
+def _cold(base: BasePrior, directory: Path) -> list[BuildCase]:
+    inputs = dataclasses.replace(base.inputs, recompute_all=True)
+    return [BuildCase("cold", inputs, _prior(base, directory), _check_cold)]
+
+
+def _warm(base: BasePrior, directory: Path) -> list[BuildCase]:
+    return [BuildCase("warm", base.inputs, _prior(base, directory), _check_warm)]
+
+
+def _incremental_inputs(base: BasePrior, directory: Path) -> BuildInputs:
+    inputs_dir = directory / "inputs"
+    exemplars = sum(len(entry.get("exemplars", ())) for entry in _ledger_entries(base.inputs.ledger))
+    plan = ledger_plan(base.out, base.inputs.ledger, exemplars + 1)
+    ledger = incremental_ledger(base, plan, inputs_dir / base.inputs.ledger.name)
+    if base.source == "mini":
+        audit_path = edited_audit(base.inputs.audit, inputs_dir / base.inputs.audit.name)
+    else:
+        audit_path = scratch_audit_segment(base.inputs.audit, inputs_dir)
+    return dataclasses.replace(base.inputs, audit=audit_path, ledger=ledger)
+
+
+def _incremental(base: BasePrior, directory: Path) -> list[BuildCase]:
+    inputs = _incremental_inputs(base, directory)
+    return [BuildCase("incremental", inputs, _prior(base, directory), _check_incremental)]
+
+
+def _rebase(base: BasePrior, directory: Path) -> list[BuildCase]:
+    prior = _prior(base, directory)
+    for output in (unit_cache.STORE_NAME, unit_index.INDEX_NAME):
+        row_delta.head_path(prior, output).unlink()
+    return [BuildCase("rebase", base.inputs, prior, _check_rebase)]
+
+
+def _restamped(base: BasePrior, directory: Path) -> list[BuildCase]:
+    prior = _prior(base, directory)
+    move_store_stamp(prior, "units_engine")
+    move_signature_stamp(prior, "comparator_code")
+    return [BuildCase("restamped", base.inputs, prior, _check_restamped)]
+
+
+def _rederived(base: BasePrior, directory: Path) -> list[BuildCase]:
+    prior = _prior(base, directory)
+    move_store_stamp(prior, "spec_structure")
+    return [BuildCase("rederived", base.inputs, prior, _check_rederived)]
+
+
+def _relocate(base: BasePrior, directory: Path) -> list[BuildCase]:
+    prior = _prior(base, directory)
+    relocate_parts(prior)
+    return [BuildCase("relocate", base.inputs, prior, _check_relocate)]
+
+
+def _torn(base: BasePrior, directory: Path) -> list[BuildCase]:
+    inputs = _incremental_inputs(base, directory)
+    prior = directory / "prior"
+    _required_run(
+        run_python_build(inputs, prior, directory / "logs", "incremental", prior=base.out),
+        "the torn scenario's incremental build",
+    )
+    tear(prior, base.out)
+    return [BuildCase("torn", inputs, prior, _check_torn)]
+
+
+def _refusals(base: BasePrior, directory: Path) -> list[BuildCase]:
+    """One case a refusal point past the plan, each over its own clone of the base prior. The two that refuse a unit reused from the store run at the harness's default width: a build at one job stamps no `units_engine` line, so it reuses nothing from a store the Rust units engine stamped, and over unchanged inputs neither writes the signature store. The contract check's case rewrites the signature store, since its audit's identity moves, so it runs at one job, where the store is written inline (§ Failures)."""
+    stale = _prior(base, directory, "prior-stale-sample")
+    stale_id = stale_sample_store(stale)
+    unreadable = _prior(base, directory, "prior-unreadable-fragment")
+    corrupted_id = corrupt_copied_fragment(unreadable)
+    diverging = dataclasses.replace(
+        base.inputs, audit=diverging_audit(base.inputs.audit, directory / "inputs" / base.inputs.audit.name)
+    )
+    return [
+        BuildCase("stale-sample", base.inputs, stale, _refused(_STALE_SAMPLE, stale_id)),
+        BuildCase(
+            "unreadable-fragment", base.inputs, unreadable, _refused(_UNREADABLE_FRAGMENT, corrupted_id)
+        ),
+        BuildCase(
+            "contract-check",
+            diverging,
+            _prior(base, directory, "prior-contract-check"),
+            _refused(
+                _CONTRACT_CHECK, "enricher: re-settled cells diverge from the audit in 1 units", written=True
+            ),
+            jobs=1,
+        ),
+    ]
+
+
+@dataclass(frozen=True)
+class ChainStep:
+    """One step of `CHAIN`: how many builds it runs, the ledger state each reads (`_chain_ledger`), whether its pass's fold claim is held by another output (`HELD_CLAIM_OUTPUT`), and what the store and the units index must write."""
+
+    builds: int
+    state: str
+    held: bool
+    store: str
+    index: str
+
+
+# How many units of the large class one chain build moves its exemplar flags onto, and as many off. Small enough that a step's records, with one fold's address moves, keep sixteen store segments below the store's base, and large enough that the re-patched fragments' dead bytes fold the class within the chain.
+CHAIN_BLOCK = 8
+# The chain's steps (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Scenarios, `chain`), each over the build before's output. Ledger states: `alternate` flips the small class's `no_verdict` back and forth and moves the large class's exemplar block to its next `CHAIN_BLOCK` units on every build, changing records of both the store and the index and appending re-patched fragments to the large class until its dead bytes fold it; `exemplars` moves only the exemplar block, which no index line carries; `over-half` puts exemplars on three quarters of the large class, which the share rule writes directly; `most` flips `no_verdict` on every ledger class present, which changes more than half of the store's records and nearly every index line. The store and the index outcomes are `segment`, `head`, or a base's reason. The first builds take both outputs to their cap; the next folds the index, which claims the pass's fold first, while the store writes a segment past its cap; the store then folds on a build that changes no index line; both then take segments under a claim another output holds until `row_delta.fold_forced` folds them; and the last builds write a class directly, write the store's new base by the share rule twice, as most classes flip and flip back, and fold the index once its two segments pass its base.
+CHAIN = (
+    ChainStep(row_delta.SEGMENT_CAP, "alternate", False, "segment", "segment"),
+    ChainStep(1, "alternate", False, "segment", "fold"),
+    ChainStep(1, "exemplars", False, "fold", "head"),
+    ChainStep(row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN, "alternate", True, "segment", "segment"),
+    ChainStep(1, "alternate", True, "fold", "fold"),
+    ChainStep(1, "over-half", False, "segment", "head"),
+    ChainStep(1, "most", False, "share", "segment"),
+    ChainStep(1, "alternate", False, "share", "segment"),
+    ChainStep(1, "alternate", False, "segment", "fold"),
+)
+
+
+def _chain_ledger(
+    base: BasePrior, plan: LedgerPlan, flipped: bool, exemplars: Sequence[tuple[str, str]], most: bool
+) -> list[dict]:
+    """The base ledger with the small class's `no_verdict` flipped when `flipped`, every present ledger class's flipped when `most`, and `exemplars` added to the large class's own."""
+    entries = _ledger_entries(base.inputs.ledger)
+    present = {meta["id"] for meta in _manifest_classes(base.out)}
+    taken = {(item["config"], item["codepoints"]) for entry in entries for item in entry.get("exemplars", ())}
+    for entry in entries:
+        if (entry["id"] == plan.small and flipped) or (most and entry["id"] in present):
+            _flip_no_verdict(entry)
+        if entry["id"] == plan.large:
+            own = [(item["config"], item["codepoints"]) for item in entry.get("exemplars", ())]
+            _with_exemplars(entry, [*own, *(key for key in exemplars if key not in taken)])
+    return entries
+
+
+def _chain(base: BasePrior, directory: Path) -> list[BuildCase]:
+    plan = ledger_plan(base.out, base.inputs.ledger)
+    keys = plan.large_keys
+    over_half = keys[: 3 * len(keys) // 4]
+    cases: list[BuildCase] = []
+    flipped = False
+    moves = 0
+    prior: Path | None = _prior(base, directory)
+    for number, step in enumerate(CHAIN):
+        for _ in range(step.builds):
+            if step.state in ("alternate", "exemplars"):
+                flipped = flipped != (step.state == "alternate")
+                moves += 1
+                block = [keys[(moves * CHAIN_BLOCK + offset) % len(keys)] for offset in range(CHAIN_BLOCK)]
+                entries = _chain_ledger(base, plan, flipped, block, False)
+            else:
+                entries = _chain_ledger(base, plan, flipped, over_half, step.state == "most")
+            label = f"{len(cases) + 1:02d}-{step.state}"
+            ledger = _write_ledger(directory / "inputs" / f"{label}.yaml", entries, base.inputs.ledger)
+            cases.append(
+                BuildCase(
+                    label,
+                    dataclasses.replace(base.inputs, ledger=ledger),
+                    prior,
+                    _chain_check(step, number),
+                    claim_held_by=HELD_CLAIM_OUTPUT if step.held else None,
+                )
+            )
+            prior = None
+    return cases
+
+
+_PREPARERS: dict[str, Callable[[BasePrior, Path], list[BuildCase]]] = {
+    "first": _first,
+    "cold": _cold,
+    "warm": _warm,
+    "incremental": _incremental,
+    "rebase": _rebase,
+    "restamped": _restamped,
+    "rederived": _rederived,
+    "relocate": _relocate,
+    "torn": _torn,
+    "chain": _chain,
+    "refusals": _refusals,
+}
+
+
+# --- the scenario checks ------------------------------------------------------------------------
+
+_REUSED = r"reused (\d[\d,]*) of (\d[\d,]*) units from the cache"
+_KEPT_RECORDS = r"kept (\d[\d,]*) prior records by id"
+_RECOMPUTED = r"recomputed=(\d[\d,]*), verified=(\d[\d,]*) cached"
+_SIGNATURES = r"\(signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped"
+_PRIOR_STORE = r"prior store (\d[\d,]*) hit, (\d[\d,]*) unhit, (\d[\d,]*) missed"
+_SIGNATURES_WRITTEN = r"ink-signature store written, (\d[\d,]*) entries"
+_BYTE_COPIED = r"byte-copied (\d[\d,]*) of (\d[\d,]*) fragments, copied forward (\d[\d,]*) sidecar rows"
+_WRITE_COUNTS = r"kept (\d[\d,]*) by compare, folded (\d[\d,]*) classes, wrote (\d[\d,]*) directly, deflated (\d[\d,]*) fragments"
+_SIGNATURES_LEFT = "ink-signature store left as it is"
+_STALE_SAMPLE = "the unit cache supplied 1 of "
+_UNREADABLE_FRAGMENT = "cannot be read back"
+_CONTRACT_CHECK = "contract check failed:"
+
+
+class _Problems(list):
+    """The problems one check finds, each added by `expect` when what it states does not hold."""
+
+    def expect(self, holds: object, problem: str) -> None:
+        if not holds:
+            self.append(problem)
+
+
+def _succeeded(run: BuildRun) -> _Problems:
+    problems = _Problems()
+    problems.expect(run.returncode == 0, f"the build exited {run.returncode}: {run.message()}")
+    return problems
+
+
+def _store_note(run: BuildRun) -> str:
+    return run.note("cache")
+
+
+def _index_note(run: BuildRun) -> str:
+    return run.note("manifest+check")
+
+
+def _units_total(run: BuildRun) -> int:
+    found = run.counts("plan", _REUSED)
+    return found[1] if found else -1
+
+
+def _overflow_parts(corpus: Path) -> list[str]:
+    return sorted(
+        part for meta in _manifest_classes(corpus) for part in unit_index.class_shards(meta) if ".x" in part
+    )
+
+
+def _plain_parts(corpus: Path) -> bool:
+    return all(
+        (corpus / part).read_bytes()[:1] == b"["
+        for meta in _manifest_classes(corpus)
+        for part in unit_index.class_shards(meta)
+    )
+
+
+def _check_first(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    problems.expect(
+        run.counts("plan", _REUSED) == (0, _units_total(run)),
+        "the plan reused a unit from an empty directory",
+    )
+    problems.expect(
+        not _overflow_parts(run.out) and _plain_parts(run.out),
+        "the first build wrote a part that is not a plain base",
+    )
+    problems.expect("(store: a new base (first)" in _store_note(run), "the store is not a new base (first)")
+    problems.expect("(index: a new base (first)" in _index_note(run), "the index is not a new base (first)")
+    signatures = run.counts("load", _SIGNATURES)
+    written = run.counts("units", _SIGNATURES_WRITTEN)
+    problems.expect(
+        signatures is not None and signatures[0] == 0 and signatures[1] > 0 and written == (signatures[1],),
+        "not every signature was shaped and written",
+    )
+    return problems
+
+
+def _check_cold(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    problems.expect(
+        run.counts("plan", _REUSED) == (0, total), "the plan reused a unit under --recompute-all-units"
+    )
+    problems.expect(run.counts("units", _RECOMPUTED) == (total, 0), "not every unit was recomputed")
+    signatures = run.counts("load", _SIGNATURES)
+    problems.expect(
+        signatures is not None and signatures[0] == 0 and signatures[1] > 0,
+        "the load did not shape every sibling window",
+    )
+    problems.expect("key-only read ran" in run.note("load"), "the key-only read did not run")
+    problems.expect(
+        run.counts("units", _SIGNATURES_WRITTEN) is not None, "the signature store was not written"
+    )
+    written = run.counts("manifest+check", _WRITE_COUNTS)
+    problems.expect(written is not None and written[0] == total, "not every unit was kept by compare")
+    problems.expect("(store: head only)" in _store_note(run), "the store's lines did not all compare equal")
+    problems.expect("(index: head only)" in _index_note(run), "the index's lines did not all compare equal")
+    return problems
+
+
+def _check_warm(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    problems.expect(run.counts("plan", _REUSED) == (total, total), "not every unit was reused")
+    problems.expect(
+        run.counts("manifest+check", _BYTE_COPIED) == (total, total, total),
+        "not every fragment was byte-copied and every sidecar row copied forward",
+    )
+    problems.expect("(store: head only)" in _store_note(run), "the store wrote more than its head")
+    problems.expect("(index: head only)" in _index_note(run), "the index wrote more than its head")
+    problems.expect(_SIGNATURES_LEFT in run.note("units"), "the signature store was rewritten")
+    problems.expect(
+        (run.out / "manifest.json").read_bytes() == (run.prior / "manifest.json").read_bytes(),
+        "manifest.json differs from the prior's",
+    )
+    return problems
+
+
+def _segment_rows(corpus: Path, output: str) -> list[row_delta.Row]:
+    """The rows of the last segment the output's head lists, or none when it lists no segment."""
+    head = row_delta.read_head(corpus, output)
+    if head is None or not head.segments:
+        return []
+    number = len(head.segments)
+    with (corpus / head.segments[-1].name).open("rb") as handle:
+        if head.merge == row_delta.MERGE_KEY:
+            return [
+                row_delta.Row(op, (0, ""), payload)
+                for op, payload in row_delta.keyed_segment_rows(handle, output, head.generation, number)
+            ]
+        return list(row_delta.segment_rows(handle, output, head.generation, number))
+
+
+def _check_incremental(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    reused = run.counts("plan", _REUSED)
+    problems.expect(
+        reused is not None and 0 < reused[0] < total, "the plan did not reuse some units and recompute others"
+    )
+    problems.expect("key-only read ran" in run.note("load"), "the key-only read did not run")
+    prior_store = run.counts("load", _PRIOR_STORE)
+    problems.expect(
+        prior_store is not None and all(prior_store),
+        "the key-only read did not hit, leave unhit and miss prior signatures",
+    )
+    problems.expect(
+        prior_store is not None
+        and run.counts("units", _SIGNATURES_WRITTEN) == (prior_store[0] + prior_store[2],),
+        "the signature store was not written as the prior hits and the misses",
+    )
+    written = run.counts("manifest+check", _WRITE_COUNTS)
+    problems.expect(written is not None and written[2] > 0, "no class was written directly")
+    copied = run.counts("manifest+check", _BYTE_COPIED)
+    problems.expect(
+        copied is not None and 0 < copied[2] < copied[1], "copy-forward did not run beside changed rows"
+    )
+    problems.expect("(store: a segment" in _store_note(run), "the store did not write a segment")
+    problems.expect("(index: a segment" in _index_note(run), "the index did not write a segment")
+    for output in (unit_cache.STORE_NAME, unit_index.INDEX_NAME):
+        problems.expect(
+            any(row.op == row_delta.TOMBSTONE for row in _segment_rows(run.out, output)),
+            f"the {output} segment holds no tombstone for the removed windows",
+        )
+    problems.expect(
+        set(_overflow_parts(run.out)) - set(_overflow_parts(run.prior)) or _appended(run),
+        "nothing was appended to an overflow part",
+    )
+    return problems
+
+
+def _appended(run: BuildRun) -> bool:
+    found = re.search(r"appended (\d+\.\d) MB", run.note("manifest+check"))
+    return found is not None and float(found.group(1)) > 0
+
+
+def _gzip_members(path: Path) -> tuple[int, int]:
+    """How many gzip members a file holds, and their inflated bytes in all."""
+    data = path.read_bytes()
+    members = inflated = 0
+    while data:
+        stream = zlib.decompressobj(wbits=31)
+        inflated += len(stream.decompress(data)) + len(stream.flush())
+        members += 1
+        data = stream.unused_data
+    return members, inflated
+
+
+def _check_rebase(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    problems.expect(
+        run.says(f"unit cache: {unit_cache.NO_STORE_NOTE}"), "the build did not say it found no unit store"
+    )
+    problems.expect(run.counts("plan", _REUSED) == (0, total), "the plan reused a unit with no store")
+    problems.expect(run.counts("units", _RECOMPUTED) == (total, 0), "not every unit was recomputed")
+    problems.expect("(store: a new base (first)" in _store_note(run), "the store is not a new base")
+    problems.expect(
+        "(index: a new base (first)" in _index_note(run), "the index is not a new base by its first route"
+    )
+    written = run.counts("manifest+check", _WRITE_COUNTS)
+    classes = len(_manifest_classes(run.out))
+    problems.expect(
+        written is not None and written[2] == classes and written[3] == total,
+        "the shards were not every class written directly, every fragment deflated",
+    )
+    store_head = row_delta.read_head(run.out, unit_cache.STORE_NAME)
+    listed = set() if store_head is None else {part.name for part in store_head.parts}
+    stray = [
+        path.name
+        for path in run.out.iterdir()
+        if path.name.startswith(unit_cache.STORE_NAME + ".")
+        and path.name != row_delta.head_name(unit_cache.STORE_NAME)
+        and path.name not in listed
+    ]
+    problems.expect(not stray, f"the store's unlisted parts were not removed: {stray}")
+    index_head = row_delta.read_head(run.out, unit_index.INDEX_NAME)
+    if index_head is None:
+        problems.append("the index has no head")
+    else:
+        members, inflated = _gzip_members(run.out / index_head.base.name)
+        problems.expect(
+            members == -(-inflated // unit_index.INDEX_MEMBER_BYTES),
+            f"the index's new base holds {members} members, not one each {unit_index.INDEX_MEMBER_BYTES} plain bytes",
+        )
+    return problems
+
+
+def _check_restamped(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    warns = run.warns()
+    problems.expect(
+        any(line.startswith("unit cache: the stamp moved at units_engine") for line in warns),
+        "the unit store's stale-stamp note did not name units_engine",
+    )
+    problems.expect(
+        any(line.startswith("ink-signature store: the stamp moved at comparator_code") for line in warns),
+        "the ink-signature store's stale-stamp note did not name comparator_code",
+    )
+    problems.expect(run.counts("plan", _REUSED) == (0, total), "the plan parsed a store record")
+    problems.expect(run.counts("units", _RECOMPUTED) == (total, 0), "not every unit was recomputed")
+    signatures = run.counts("load", _SIGNATURES)
+    problems.expect(
+        signatures is not None and signatures[0] == 0 and signatures[1] > 0, "not every window was reshaped"
+    )
+    problems.expect("(store: head only)" in _store_note(run), "the store wrote more than its head")
+    return problems
+
+
+def _check_rederived(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    problems.expect(
+        any(line.startswith("unit cache: the stamp moved at spec_structure") for line in run.warns()),
+        "the unit store's note did not name spec_structure",
+    )
+    problems.expect(
+        "(store: a new base (rederived)" in _store_note(run), "the store is not a new base (rederived)"
+    )
+    return problems
+
+
+def _check_relocate(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    problems.expect(run.counts("plan", _REUSED) == (total, total), "the walk did not place every unit")
+    written = run.counts("manifest+check", _WRITE_COUNTS)
+    classes = len(_manifest_classes(run.out))
+    problems.expect(written is not None and written[2] == classes, "not every class was written directly")
+    return problems
+
+
+def _check_torn(run: BuildRun) -> list[str]:
+    problems = _succeeded(run)
+    total = _units_total(run)
+    problems.expect(
+        any(line.startswith("unit cache: the manifest") for line in run.warns()),
+        "the unit store's note did not name the moved manifest",
+    )
+    problems.expect(run.counts("plan", _REUSED) == (0, total), "the plan parsed a store record")
+    problems.expect(run.counts("plan", _KEPT_RECORDS) == (0,), "the plan kept a prior record by id")
+    return problems
+
+
+def _refused(refusal: str, detail: str, *, written: bool = False) -> BuildCheck:
+    """A check that the build exited 1 with `refusal` naming `detail`, and, when `written`, after writing its signature store."""
+
+    def check(run: BuildRun) -> list[str]:
+        problems = _Problems()
+        problems.expect(run.returncode == 1, f"the build exited {run.returncode}, not 1")
+        problems.expect(
+            refusal in run.log and detail in run.log,
+            f"the build did not refuse with {refusal!r} naming {detail!r}",
+        )
+        if written:
+            problems.expect(
+                run.counts("units", _SIGNATURES_WRITTEN) is not None, "the signature store was not rewritten"
+            )
+        return problems
+
+    return check
+
+
+def _outcome(note: str, outcome: str) -> bool:
+    if outcome == "segment":
+        return "a segment of " in note
+    if outcome == "head":
+        return "head only" in note
+    return f"a new base ({outcome})" in note
+
+
+def _chain_check(step: ChainStep, number: int) -> BuildCheck:
+    def check(run: BuildRun) -> list[str]:
+        problems = _succeeded(run)
+        problems.expect(
+            _outcome(_store_note(run), step.store), f"step {number}: the store did not write {step.store}"
+        )
+        problems.expect(
+            _outcome(_index_note(run), step.index), f"step {number}: the index did not write {step.index}"
+        )
+        for output, outcome in ((unit_cache.STORE_NAME, step.store), (unit_index.INDEX_NAME, step.index)):
+            head = row_delta.read_head(run.prior, output)
+            assert head is not None
+            if outcome == "fold":
+                forced = row_delta.fold_forced(head)
+                problems.expect(row_delta.fold_due(head), f"step {number}: {output}'s fold was not due")
+                problems.expect(
+                    forced == step.held,
+                    f"step {number}: {output}'s fold was {'' if forced else 'not '}forced",
+                )
+        if step.held:
+            assert run.cycle_var is not None
+            claim = json.loads((run.cycle_var / cycle_paths.FOLD_CLAIM_NAME).read_text(encoding="utf-8"))
+            problems.expect(
+                claim.get("output") == HELD_CLAIM_OUTPUT,
+                f"step {number}: the build took the claim another output held",
+            )
+        if step.state == "over-half":
+            written = run.counts("manifest+check", _WRITE_COUNTS)
+            problems.expect(
+                written is not None and written[2] > 0, f"step {number}: no class was written directly"
+            )
+        return problems
+
+    return check
+
+
+def check_chain(runs: Sequence[BuildRun]) -> list[str]:
+    """What the chain must reach across its builds beyond each step's own check: a class folded and a fragment appended."""
+    problems = _Problems()
+    problems.expect(
+        any((found := run.counts("manifest+check", _WRITE_COUNTS)) and found[1] > 0 for run in runs),
+        "no build folded a class's shards",
+    )
+    problems.expect(any(_overflow_parts(run.out) for run in runs), "no build appended to an overflow part")
+    return problems
+
+
+def prepare(source: str, scenarios: Sequence[str], check: bool) -> bool:
+    """Prepare each named scenario, and with `check` run its Python builds into clones under its directory's `check/` and report whether each reached what its row names (`BuildCase.check`). Returns whether every check passed."""
+    ok = True
+    for name in scenarios:
+        scenario = open_build_source(source, name)
+        print(
+            f"{source}-{name}: prepared {len(scenario.cases)} builds under {scenario.directory}",
+            file=sys.stderr,
+        )
+        if not check:
+            continue
+        runs: list[BuildRun] = []
+        previous: Path | None = None
+        for index, case in enumerate(scenario.cases):
+            prior = case.prior if case.prior is not None else previous
+            assert prior is not None, "a scenario's first build names its prior"
+            out = scenario.directory / "check" / case.name
+            run = run_python_build(
+                case.inputs,
+                out,
+                scenario.directory / "check" / "logs",
+                case.name,
+                prior=prior,
+                jobs=case.jobs,
+                claim_held_by=case.claim_held_by,
+            )
+            runs.append(run)
+            problems = case.check(run)
+            ok = ok and not problems
+            status = "reached its row" if not problems else "; ".join(problems)
+            print(f"{source}-{name} {case.name}: {status}", file=sys.stderr)
+            previous = out
+            del index
+        if name == "chain":
+            problems = check_chain(runs)
+            ok = ok and not problems
+            print(
+                f"{source}-{name}: {'reached its row' if not problems else '; '.join(problems)}",
+                file=sys.stderr,
+            )
+    return ok
+
+
+def scenario_names(source: str, scenario: str) -> list[str]:
+    """The scenarios `--scenario` names on a source: one by name, or `all`, every scenario of the source but those that run by name only."""
+    if scenario == "all":
+        return [
+            name
+            for name, sources in BUILD_SCENARIOS.items()
+            if source in sources and name not in BY_NAME_ONLY
+        ]
+    return [scenario]
+
+
 # --- commands -----------------------------------------------------------------------------------
 
 
@@ -2510,9 +3863,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     tables_parser = commands.add_parser("unicode-tables", help="write the crate's str predicate tables")
     tables_parser.add_argument("--check", action="store_true", help="fail when the tables are stale")
+    prepare_parser = commands.add_parser("prepare", help="prepare build scenarios over a source's base prior")
+    prepare_parser.add_argument("--source", choices=SOURCES, required=True)
+    prepare_parser.add_argument("--scenario", choices=(*BUILD_SCENARIOS, "all"), required=True)
+    prepare_parser.add_argument(
+        "--check", action="store_true", help="run each scenario's Python builds and check what they reached"
+    )
+    child_parser = commands.add_parser("python-build", help="run one build a prepare request describes")
+    child_parser.add_argument("request", type=Path)
     args = parser.parse_args(argv)
     if args.command == "unicode-tables":
         return 0 if unicode_tables(args.check) else 1
+    if args.command == "python-build":
+        return python_build_child(args.request)
+    if args.command == "prepare":
+        names = scenario_names(args.source, args.scenario)
+        for name in names:
+            if args.source not in BUILD_SCENARIOS[name]:
+                raise SystemExit(
+                    f"the {name} scenario runs on {', '.join(BUILD_SCENARIOS[name])}, not {args.source}"
+                )
+        return 0 if prepare(args.source, names, args.check) else 1
     if args.command == "compare":
         (stage,) = _selected([args.stage])
         return 0 if compare(stage, args.stages, compared_fields(stage, args.fields)) else 1
