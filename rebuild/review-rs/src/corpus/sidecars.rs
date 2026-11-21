@@ -3,7 +3,7 @@
 //! The projections are `unit_index.index_record` and `index_line`, `app_index.app_row`, `locator_row` and their lines, and the copy-forward surgery `unit_index.copy_forward_index_line` and `app_index.copy_forward_app_line` does; each fails with the class Python raises over a fragment it cannot read. [`stage_sidecar_lines`] is the `sidecar-lines` stage of the stage fixtures.
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -12,14 +12,22 @@ use serde_json::Value;
 
 use super::BuildError;
 use super::audit::stage_line;
-use super::gzip::{APP_LEVEL, GzipError, GzipReader, MTIME, compress_member, inflate_fragment};
+use super::gzip::{
+    APP_LEVEL, GzipError, GzipReader, GzipWriter, MTIME, compress_member, inflate_fragment,
+};
+use super::index::{IndexNames, IndexWrite, spilled_lines, write_index_lines};
 use super::input::BuildInput;
+use super::manifest::{ManifestNames, held_manifest, write_manifest};
 use super::records::truthy;
 use super::route::RouteNames;
-use super::rowdelta::{PartReader, ReadError, py_str};
-use super::scan::{Lines, OpenIndex, ScanNames, Thrown, open_index};
+use super::rowdelta::{FoldClaim, PartReader, ReadError, py_str, type_name};
+use super::scan::{
+    Lines, OpenIndex, ScanError, ScanNames, Thrown, manifest_and_identity, open_index, stage_lines,
+};
 use super::shards::Span;
 use super::signatures::dump_prior;
+use super::sink::Sink;
+use super::write::{Scratch as CaseScratch, case_input, files_held, hold, through_write};
 use crate::fragment::{lookup, py_eq, sha256_hex};
 use crate::pyfmt::{PyValue, json, repr::repr_str};
 use crate::wire::{Result as WireResult, WireError};
@@ -127,7 +135,7 @@ fn get(value: &PyValue, key: &str) -> Raised<PyValue> {
         PyValue::Dict(_) => Ok(lookup(value, key).cloned().unwrap_or(PyValue::None)),
         other => Err(SidecarError::new(
             "AttributeError",
-            format!("'{}' object has no attribute 'get'", other.kind()),
+            format!("'{}' object has no attribute 'get'", type_name(other)),
         )),
     }
 }
@@ -146,12 +154,12 @@ fn subscript(value: &PyValue, key: &str) -> Raised<PyValue> {
             "TypeError",
             format!(
                 "{} indices must be integers or slices, not str",
-                value.kind()
+                type_name(value)
             ),
         )),
         other => Err(SidecarError::new(
             "TypeError",
-            format!("'{}' object is not subscriptable", other.kind()),
+            format!("'{}' object is not subscriptable", type_name(other)),
         )),
     }
 }
@@ -184,7 +192,7 @@ fn length(value: PyValue) -> Raised<PyValue> {
         other => {
             return Err(SidecarError::new(
                 "TypeError",
-                format!("object of type '{}' has no len()", other.kind()),
+                format!("object of type '{}' has no len()", type_name(&other)),
             ));
         }
     };
@@ -206,8 +214,8 @@ fn at_most(left: &PyValue, right: &PyValue) -> Raised<bool> {
                 "TypeError",
                 format!(
                     "'<=' not supported between instances of '{}' and '{}'",
-                    left.kind(),
-                    right.kind()
+                    type_name(left),
+                    type_name(right)
                 ),
             )),
         },
@@ -990,6 +998,275 @@ impl<'a> SidecarLines<'a> {
     }
 }
 
+// --- the app sidecars ---------------------------------------------------------------------------
+
+/// The suffix a sidecar is staged under until all three are written (`app_index.write_app_artifacts_lines`).
+const STAGING_SUFFIX: &str = ".partial";
+
+/// The names the app sidecars' writer reads from the build input's vocabulary: the three files and their formats, the locator's block size its header records, and the names the manifest's identity is taken by.
+#[derive(Clone, Debug)]
+pub struct AppNames {
+    pub app_index_name: String,
+    pub app_index_format: String,
+    pub locator_name: String,
+    pub locator_format: String,
+    pub locator_rows_name: String,
+    pub block_rows: i64,
+    pub scan: ScanNames,
+}
+
+impl AppNames {
+    /// The names as the build input's vocabulary gives them.
+    pub fn of(input: &BuildInput) -> WireResult<Self> {
+        let route = RouteNames::of(input)?;
+        let sidecars = SidecarNames::of(input)?;
+        Ok(Self {
+            app_index_name: route.app_index_name,
+            app_index_format: route.app_index_format,
+            locator_name: route.locator_name,
+            locator_format: route.locator_format,
+            locator_rows_name: route.locator_rows_name,
+            block_rows: sidecars.block_rows as i64,
+            scan: route.scan,
+        })
+    }
+}
+
+/// One run's locator blocks as the app writer takes them: the bytes of their gzip members, which the rows file takes as they are, and their table entries, whose `byte_start` counts from the run's first member.
+pub struct LocatorRun<'a> {
+    pub members: Box<dyn Read + 'a>,
+    pub blocks: &'a [LocatorBlock],
+}
+
+/// `app_index.header`: a sidecar's header record in `format`, stamped with the identity of the manifest beside it (`unit_index.manifest_sha256`) and carrying its `generated_at`, read as `header` reads the manifest, as UTF-8 text.
+fn app_header(corpus: &Path, format: &str, names: &AppNames) -> Raised<Vec<(PyValue, PyValue)>> {
+    let raw = std::fs::read(corpus.join("manifest.json"))
+        .map_err(|failure| SidecarError::os(&failure))?;
+    let text = std::str::from_utf8(&raw)
+        .map_err(|failure| SidecarError::new("UnicodeDecodeError", failure.to_string()))?;
+    let manifest = json::loads(text).map_err(|failure| {
+        let class = if json::unheld(&failure) {
+            "Unheld"
+        } else {
+            "JSONDecodeError"
+        };
+        SidecarError::new(class, failure.0)
+    })?;
+    let generated_at = get(&manifest, "generated_at")?;
+    let identity = match manifest_and_identity(corpus, &names.scan) {
+        Ok(Some((_, identity))) => identity,
+        Ok(None) => {
+            return Err(SidecarError::new(
+                "OSError",
+                format!("cannot read {}", corpus.join("manifest.json").display()),
+            ));
+        }
+        Err(ScanError::Unheld(why)) => return Err(SidecarError::new("Unheld", why)),
+        Err(failure) => return Err(SidecarError::new("Exception", failure.to_string())),
+    };
+    Ok(vec![
+        (PyValue::str("format"), PyValue::str(format)),
+        (PyValue::str("manifest_sha256"), PyValue::Str(identity)),
+        (PyValue::str("generated_at"), generated_at),
+    ])
+}
+
+/// A header record with `extra` after its stamps, as `{**header(corpus, fmt), …}` builds it.
+fn header_with(stamps: &[(PyValue, PyValue)], extra: Vec<(&str, PyValue)>) -> PyValue {
+    let mut entries = stamps.to_vec();
+    entries.extend(
+        extra
+            .into_iter()
+            .map(|(key, value)| (PyValue::str(key), value)),
+    );
+    PyValue::Dict(entries)
+}
+
+/// A gzip stream at the app sidecars' level, mtime 0, staged at `path` and named by its staging file's name, as `gzip.GzipFile(path, mode="wb", mtime=0, compresslevel=COMPRESS_LEVEL)` opens one.
+fn app_stream(path: &Path) -> Raised<GzipWriter<BufWriter<File>>> {
+    let file = File::create(path).map_err(|failure| SidecarError::os(&failure))?;
+    GzipWriter::new(BufWriter::new(file), &names_of(path), APP_LEVEL, MTIME)
+        .map_err(|failure| SidecarError::os(&failure))
+}
+
+/// End a gzip stream and flush its file.
+fn close_stream(stream: GzipWriter<BufWriter<File>>) -> Raised<()> {
+    stream
+        .finish()
+        .and_then(|mut file| file.flush())
+        .map_err(|failure| SidecarError::os(&failure))
+}
+
+/// `app_index.write_app_artifacts_lines`: write the three app sidecars under `corpus` from the app index's already-projected lines, read from `app` in the order they arrive, and the locator's blocks, already cut and compressed, one run at a time. Each file is staged under its name and [`STAGING_SUFFIX`]: the app index, its header (`human` its units) then its lines, one gzip stream; the rows file, each run's members as they are, each run's table entries moved to count from the rows file's start; the table, its header (`machine` its units, the blocks, their size and the rows file's length) then a line a block, one gzip stream; the three renamed back to back, the app index, the rows and the table, once all three are written. Whatever happens, no staged file is left. Run once the manifest is on disk, since each header carries its identity.
+pub fn write_app_artifacts_lines<'a>(
+    corpus: &Path,
+    app: &mut dyn Read,
+    locator_runs: &mut dyn Iterator<Item = Raised<LocatorRun<'a>>>,
+    human: i64,
+    machine: i64,
+    names: &AppNames,
+) -> Raised<()> {
+    let paths = [
+        corpus.join(&names.app_index_name),
+        corpus.join(&names.locator_name),
+        corpus.join(&names.locator_rows_name),
+    ];
+    let staged = paths
+        .clone()
+        .map(|path| path.with_file_name(format!("{}{STAGING_SUFFIX}", names_of(&path))));
+    let written = (|| -> Raised<()> {
+        let mut index = app_stream(&staged[0])?;
+        let stamps = app_header(corpus, &names.app_index_format, names)?;
+        index
+            .write_all(&line_of(&header_with(
+                &stamps,
+                vec![("units", PyValue::Int(human))],
+            ))?)
+            .map_err(|failure| SidecarError::os(&failure))?;
+        io::copy(app, &mut index).map_err(|failure| SidecarError::os(&failure))?;
+        close_stream(index)?;
+        let mut blocks = Vec::new();
+        let mut rows =
+            BufWriter::new(File::create(&staged[2]).map_err(|failure| SidecarError::os(&failure))?);
+        let mut rows_bytes = 0i64;
+        for run in locator_runs {
+            let LocatorRun {
+                mut members,
+                blocks: entries,
+            } = run?;
+            let base = rows_bytes;
+            rows_bytes += io::copy(&mut members, &mut rows)
+                .map_err(|failure| SidecarError::os(&failure))? as i64;
+            blocks.extend(entries.iter().map(|entry| entry.value(base)));
+        }
+        rows.into_inner()
+            .map_err(|failure| SidecarError::os(failure.error()))?;
+        let mut locator = app_stream(&staged[1])?;
+        let stamps = app_header(corpus, &names.locator_format, names)?;
+        let header = header_with(
+            &stamps,
+            vec![
+                ("units", PyValue::Int(machine)),
+                ("blocks", PyValue::Int(blocks.len() as i64)),
+                ("block_rows", PyValue::Int(names.block_rows)),
+                ("rows_bytes", PyValue::Int(rows_bytes)),
+            ],
+        );
+        locator
+            .write_all(&line_of(&header)?)
+            .map_err(|failure| SidecarError::os(&failure))?;
+        for block in &blocks {
+            locator
+                .write_all(&line_of(block)?)
+                .map_err(|failure| SidecarError::os(&failure))?;
+        }
+        close_stream(locator)?;
+        for (from, to) in [
+            (&staged[0], &paths[0]),
+            (&staged[2], &paths[2]),
+            (&staged[1], &paths[1]),
+        ] {
+            std::fs::rename(from, to).map_err(|failure| SidecarError::os(&failure))?;
+        }
+        Ok(())
+    })();
+    for path in &staged {
+        match std::fs::remove_file(path) {
+            Err(failure) if failure.kind() != io::ErrorKind::NotFound && written.is_ok() => {
+                return Err(SidecarError::os(&failure));
+            }
+            _ => {}
+        }
+    }
+    written
+}
+
+/// A path's file name as text.
+fn names_of(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The bytes of one spill file of each run in turn, run after run in shard order.
+struct SpilledRuns<'a> {
+    spills: std::vec::IntoIter<&'a Spilled>,
+    reading: Option<io::Take<PartReader<'a>>>,
+}
+
+impl<'a> SpilledRuns<'a> {
+    fn new(spills: Vec<&'a Spilled>) -> Self {
+        Self {
+            spills: spills.into_iter(),
+            reading: None,
+        }
+    }
+}
+
+impl Read for SpilledRuns<'_> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            if self.reading.is_none() {
+                let Some(spill) = self.spills.next() else {
+                    return Ok(0);
+                };
+                let length = u64::try_from(spill.length).unwrap_or_default();
+                self.reading = Some(PartReader::new(&spill.file).take(length));
+            }
+            let read = self
+                .reading
+                .as_mut()
+                .expect("a spill being read")
+                .read(buffer)?;
+            if read > 0 {
+                return Ok(read);
+            }
+            self.reading = None;
+        }
+    }
+}
+
+/// `build._write_sidecars`: write the units index ([`write_index_lines`] over the runs' spilled index lines, under the pass's fold `claim`) on this thread and the three app sidecars ([`write_app_artifacts_lines`] over the runs' spilled app-index lines and locator blocks) on a thread of their own, named `corpus-app-sidecars_0`, side by side, and return what the index's write did. A writer that fails fails here once the other has finished, the index's first. Run once the manifest is on disk.
+pub fn write_sidecars(
+    corpus: &Path,
+    runs: &[SidecarRun],
+    index_names: &IndexNames,
+    app_names: &AppNames,
+    claim: &FoldClaim,
+    sink: &Sink,
+) -> std::result::Result<IndexWrite, BuildError> {
+    let human = runs.iter().map(|run| run.human).sum();
+    let machine = runs.iter().map(|run| run.machine).sum();
+    std::thread::scope(|scope| {
+        let app = std::thread::Builder::new()
+            .name("corpus-app-sidecars_0".to_owned())
+            .spawn_scoped(scope, || {
+                let mut app = SpilledRuns::new(runs.iter().map(|run| &run.app).collect());
+                let mut locator = runs.iter().map(|run| {
+                    let length = u64::try_from(run.rows.length).unwrap_or_default();
+                    Ok(LocatorRun {
+                        members: Box::new(PartReader::new(&run.rows.file).take(length)),
+                        blocks: &run.blocks,
+                    })
+                });
+                write_app_artifacts_lines(corpus, &mut app, &mut locator, human, machine, app_names)
+            })
+            .map_err(|failure| {
+                BuildError::Failed(format!("cannot start the app sidecars' writer: {failure}"))
+            })?;
+        let index = write_index_lines(corpus, &mut spilled_lines(runs), index_names, claim, sink);
+        let app = app
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+        let index = index?;
+        app?;
+        Ok(index)
+    })
+}
+
 // --- the stage ----------------------------------------------------------------------------------
 
 fn failure(key: &str, message: impl std::fmt::Display) -> WireError {
@@ -1460,9 +1737,170 @@ pub fn stage_sidecar_lines(
     Ok(())
 }
 
+/// A locator table entry the `app-sidecars` stage's generated input gives as `app_index.locator_block` writes it.
+fn locator_block_of(entry: &PyValue, key: &str) -> WireResult<LocatorBlock> {
+    let field = |name: &str| {
+        lookup(entry, name)
+            .cloned()
+            .ok_or_else(|| failure(key, format!("a table entry has no {name}")))
+    };
+    let int = |name: &str| match field(name)? {
+        PyValue::Int(value) => Ok(value),
+        other => Err(failure(
+            key,
+            format!("{name} is {}, not an int", other.kind()),
+        )),
+    };
+    Ok(LocatorBlock {
+        class: field("class")?,
+        start: int("byte_start")?,
+        length: int("byte_length")?,
+        first: field("first")?,
+        last: field("last")?,
+        units: int("units")?,
+    })
+}
+
+/// Answer one generated line of the `app-sidecars` stage: [`write_app_artifacts_lines`] over a corpus holding the case's files, with its app-index lines and its locator runs' members and table entries, valued the class and text of what it raised, the class alone where the manifest does not decode, whose text the JSON reader words in its own way, or None, and the files the corpus holds then.
+fn answer_app_generated(
+    names: &AppNames,
+    stage_file: &Path,
+    key: &str,
+    line_input: &PyValue,
+) -> WireResult<PyValue> {
+    if !key.starts_with("generated:") {
+        return Err(failure(key, "not a line the app-sidecars stage answers"));
+    }
+    let scratch = CaseScratch::new(stage_file, "app-sidecars-case")?;
+    let corpus = scratch.0.join("out");
+    std::fs::create_dir_all(&corpus).map_err(|why| failure(key, why))?;
+    let (held, rest) = case_input(key, line_input)?;
+    hold(&corpus, held, key)?;
+    let [
+        PyValue::List(lines),
+        PyValue::List(runs),
+        PyValue::Int(human),
+        PyValue::Int(machine),
+    ] = rest
+    else {
+        return Err(failure(
+            key,
+            "the input does not end with the lines, the runs and the two counts",
+        ));
+    };
+    let mut app = Vec::new();
+    for line in lines {
+        let PyValue::Bytes(line) = line else {
+            return Err(failure(
+                key,
+                format!("a line is {}, not bytes", line.kind()),
+            ));
+        };
+        app.extend_from_slice(line);
+    }
+    let mut held_runs = Vec::new();
+    for run in runs {
+        let PyValue::Tuple(items) = run else {
+            return Err(failure(key, "a locator run is not a tuple"));
+        };
+        let [PyValue::Bytes(members), PyValue::List(entries)] = items.as_slice() else {
+            return Err(failure(
+                key,
+                "a locator run is not its members and its table entries",
+            ));
+        };
+        let blocks = entries
+            .iter()
+            .map(|entry| locator_block_of(entry, key))
+            .collect::<WireResult<Vec<_>>>()?;
+        held_runs.push((members.as_slice(), blocks));
+    }
+    let mut locator = held_runs.iter().map(|(members, blocks)| {
+        Ok(LocatorRun {
+            members: Box::new(*members),
+            blocks: blocks.as_slice(),
+        })
+    });
+    let outcome = match write_app_artifacts_lines(
+        &corpus,
+        &mut app.as_slice(),
+        &mut locator,
+        *human,
+        *machine,
+        names,
+    ) {
+        Ok(()) => PyValue::None,
+        Err(raised) if raised.class == "Unheld" || raised.class == "Unwritten" => {
+            return Err(failure(key, raised.message));
+        }
+        Err(raised)
+            if raised.class == "JSONDecodeError" || raised.class == "UnicodeDecodeError" =>
+        {
+            dict(vec![("raised", PyValue::Str(raised.class))])
+        }
+        Err(raised) => dict(vec![
+            ("raised", PyValue::Str(raised.class)),
+            ("message", PyValue::Str(raised.message)),
+        ]),
+    };
+    Ok(PyValue::Tuple(vec![outcome, files_held(&corpus)?]))
+}
+
+/// The `app-sidecars` stage: when the stage file holds lines from the build's run, run the build through the write's commit ([`through_write`]), write the manifest over what it holds ([`write_manifest`]), then the sidecars from the runs' spilled lines ([`write_sidecars`]), the units index under the pass's fold claim the build input names beside the app sidecars, and answer with the bytes of the app index, the locator's rows and the locator's table, each under its file's name; then answer each generated line ([`answer_app_generated`]).
+pub fn stage_app_sidecars(
+    input_path: &Path,
+    stage_file: &Path,
+    out: &mut impl Write,
+) -> WireResult<()> {
+    let input = BuildInput::read(input_path)?;
+    let names = AppNames::of(&input)?;
+    let index_names = IndexNames::of(&input)?;
+    let manifest_names = ManifestNames::of(&input)?;
+    let lines = stage_lines(stage_file)?;
+    if lines.ran {
+        through_write(&input, stage_file, "app-sidecars", |held| {
+            let failed =
+                |failure: BuildError| WireError(format!("the sidecars' write failed: {failure}"));
+            let manifest = held_manifest(&input, &manifest_names, &held).map_err(failed)?;
+            let corpus = &held.run.corpus;
+            write_manifest(corpus, &manifest, &mut io::sink()).map_err(failed)?;
+            let claim = FoldClaim::new(
+                input.cycle.run.clone(),
+                PathBuf::from(&input.cycle.fold_claim),
+            );
+            write_sidecars(
+                corpus,
+                &held.written.runs,
+                &index_names,
+                &names,
+                &claim,
+                &Sink::new(None),
+            )
+            .map_err(failed)?;
+            for name in [
+                &names.app_index_name,
+                &names.locator_rows_name,
+                &names.locator_name,
+            ] {
+                let data = std::fs::read(corpus.join(name))
+                    .map_err(|why| WireError(format!("cannot read {name}: {why}")))?;
+                stage_line(out, name, &PyValue::Bytes(data))?;
+            }
+            Ok(())
+        })?;
+    }
+    for (key, key_input) in &lines.generated {
+        let value = answer_app_generated(&names, stage_file, key, key_input)?;
+        stage_line(out, key, &value)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::corpus::gzip::read_gzip;
+    use crate::corpus::scan::manifest_identity;
 
     fn fragment() -> PyValue {
         dict(vec![
@@ -1580,5 +2018,150 @@ mod tests {
             entries.last().map(|block| block.start + block.length),
             Some(rows.length)
         );
+    }
+
+    fn app_names() -> AppNames {
+        let text = |value: &str| value.to_owned();
+        AppNames {
+            app_index_name: text("app-units.ndjson.gz"),
+            app_index_format: text("ams-review-app-index/1"),
+            locator_name: text("app-locator.ndjson.gz"),
+            locator_format: text("ams-review-app-locator/2"),
+            locator_rows_name: text("app-locator-rows.ndjson.gz"),
+            block_rows: 1024,
+            scan: ScanNames {
+                store_name: text("unit-cache.ndjson.gz"),
+                store_format: text("s"),
+                index_name: text("units-index.ndjson.gz"),
+                index_format: text("i"),
+                no_store: String::new(),
+                unreadable: String::new(),
+                manifest_moved: String::new(),
+                rederiving: Vec::new(),
+                asset_components: vec![text("static")],
+            },
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("ams-review-app-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("scratch");
+        directory
+    }
+
+    fn names_held(corpus: &Path) -> Vec<String> {
+        let mut held: Vec<String> = std::fs::read_dir(corpus)
+            .expect("listed")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        held.sort();
+        held
+    }
+
+    #[test]
+    fn the_app_sidecars_carry_the_manifests_stamp_and_move_each_runs_blocks_past_the_runs_before() {
+        let corpus = scratch("write");
+        std::fs::write(
+            corpus.join("manifest.json"),
+            b"{\"generated_at\": \"now\", \"inputs_fingerprint\": {\"static\": \"s\"}}\n",
+        )
+        .expect("manifest");
+        std::fs::write(corpus.join("app-units.ndjson.gz.partial"), b"left\n").expect("left");
+        let block = |start: i64, length: i64| LocatorBlock {
+            class: PyValue::str("a"),
+            start,
+            length,
+            first: PyValue::str("m1"),
+            last: PyValue::str("m2"),
+            units: 2,
+        };
+        let (first, second) = ([block(0, 3)], [block(0, 2), block(2, 4)]);
+        let runs: [(&[u8], &[LocatorBlock]); 2] = [(b"abc", &first), (b"defghi", &second)];
+        let mut locator = runs.iter().map(|(members, blocks)| {
+            Ok(LocatorRun {
+                members: Box::new(*members),
+                blocks,
+            })
+        });
+        let lines = "{\"id\": \"·u\"}\n".as_bytes();
+        write_app_artifacts_lines(&corpus, &mut &lines[..], &mut locator, 1, 4, &app_names())
+            .expect("written");
+        assert_eq!(
+            names_held(&corpus),
+            [
+                "app-locator-rows.ndjson.gz",
+                "app-locator.ndjson.gz",
+                "app-units.ndjson.gz",
+                "manifest.json"
+            ]
+        );
+        assert_eq!(
+            std::fs::read(corpus.join("app-locator-rows.ndjson.gz")).expect("rows"),
+            b"abcdefghi"
+        );
+        let identity = manifest_identity(
+            &json::loads("{\"generated_at\": \"now\", \"inputs_fingerprint\": {}}")
+                .expect("parsed"),
+            &[],
+        )
+        .expect("identity");
+        let read = |name: &str| {
+            let data = std::fs::read(corpus.join(name)).expect("read");
+            String::from_utf8(read_gzip(&data).expect("gzip")).expect("text")
+        };
+        assert_eq!(
+            read("app-units.ndjson.gz"),
+            format!(
+                "{{\"format\": \"ams-review-app-index/1\", \"manifest_sha256\": \"{identity}\", \"generated_at\": \"now\", \"units\": 1}}\n{{\"id\": \"·u\"}}\n"
+            )
+        );
+        let table = read("app-locator.ndjson.gz");
+        let mut table_lines = table.lines();
+        assert_eq!(
+            table_lines.next(),
+            Some(format!("{{\"format\": \"ams-review-app-locator/2\", \"manifest_sha256\": \"{identity}\", \"generated_at\": \"now\", \"units\": 4, \"blocks\": 3, \"block_rows\": 1024, \"rows_bytes\": 9}}").as_str())
+        );
+        let starts: Vec<&str> = table_lines
+            .map(|line| &line[line.find("\"byte_start\": ").expect("start")..])
+            .map(|tail| &tail[..tail.find(',').expect("comma")])
+            .collect();
+        assert_eq!(
+            starts,
+            [
+                "\"byte_start\": 0",
+                "\"byte_start\": 3",
+                "\"byte_start\": 5"
+            ]
+        );
+        std::fs::remove_dir_all(&corpus).expect("removed");
+    }
+
+    #[test]
+    fn a_manifest_that_is_not_an_object_writes_nothing_and_leaves_no_staging_file() {
+        let corpus = scratch("refused");
+        std::fs::write(corpus.join("manifest.json"), b"[]\n").expect("manifest");
+        let failure = write_app_artifacts_lines(
+            &corpus,
+            &mut &b""[..],
+            &mut std::iter::empty(),
+            0,
+            0,
+            &app_names(),
+        )
+        .expect_err("refused");
+        assert_eq!(
+            (failure.class.as_str(), failure.message.as_str()),
+            ("AttributeError", "'list' object has no attribute 'get'")
+        );
+        assert_eq!(names_held(&corpus), ["manifest.json"]);
+        std::fs::remove_dir_all(&corpus).expect("removed");
     }
 }

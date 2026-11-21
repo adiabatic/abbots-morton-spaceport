@@ -38,6 +38,7 @@ The build's stages (`BUILD_STAGES`):
 - `sidecar-lines` records each run of the write's sidecar lines (`build._SidecarLines`) under `run:<n>`: its `open` (`_sidecars_opened`), with whether it copies the previous sidecars forward, valued whether each cursor opened to lines; each top-level `unit` and `cached` call (`_sidecar_unit`, `_sidecar_cached`) under `call:<n>`, with the fragment, or the cached unit's id, stored bytes, inflated length and identity, and the span and place, valued the events the call made in order, each cursor's `take` (`unit_index.LineCursor.take`) with the id and what it returned and each line written to a sidecar (`gzip.GzipFile.write`, `app_index.LocatorBlocks.add`), as lengths and sha256s, beside the run's counts after it; and its `close` (`_sidecars_closed`), valued the counts, the locator blocks' table entries and the digests of the lines each sidecar holds. Fragments, stored bytes and corpora are kept once under their sha256 in `sidecar-lines.blobs/` beside the stage file (`SIDECAR_LINES_BLOBS`). The Rust side replays each run's calls over the dump's prior corpus, or a generated run's own corpus made again from the blobs. Its generated lines (`_sidecar_lines_generated`) replay each build run that copied lines forward over corpora without copy-forward, without either sidecar, with a gap in either, with an index segment and with an index cut short (`_sidecar_variants`); project fragments with each field dropped and set to each kind of value (`generated:line:`); copy lines forward through every seam's edge (`generated:copy:`); take from cursors over sidecars that are missing, empty, not gzip, cut short or followed by other bytes, and over the prior's index as a head, a single file and without its head or its part (`generated:cursor:`); and cut locator rows into blocks across classes and block edges and refuse rows that do not ascend (`generated:locator:`).
 - `manifest` is a boundary stage that records the manifest the write writes, from `build._prune_orphan_shards` as `build._write_corpus` calls it once the manifest is on disk (`_manifest_pruning`): the manifest's bytes, its identity (`unit_index.manifest_identity`), the shards pruned and the files under `units/` then. Its generated lines (`_manifest_generated`, `generated:prune:`) prune corpora of several shapes against manifests in both class forms.
 - `index-write` is a boundary stage that records the units index the build writes, from `unit_index.write_index_lines` as `build._write_sidecars` calls it once the manifest is on disk (`_index_writing`): the head it committed, the files whose names start with the index's (`_index_write_files`), what the write did and its note. Its generated lines (`_index_write_generated`, `generated:<case>`) write the index over the corpora of `_INDEX_CASES`: first writes, the head alone, segments, folds claimed, held by another output and forced, heads, parts and single files that do not read, a single file adopted, staging and unlisted files, lines out of key order and a manifest that does not parse, each valued what the write did or raised, the files the corpus then holds and the counts lines.
+- `app-sidecars` is a boundary stage that records the app sidecars the build writes, from `app_index.write_app_artifacts_lines` as `build._write_sidecars`' app writer calls it once the manifest is on disk (`_app_sidecars_writing`): the bytes of the app index, the locator's rows and the locator's table, each under its file's name. Its generated lines (`_app_sidecars_generated`, `generated:<case>`) write the three files over the corpora of `_APP_CASES`: no lines, one run and several, empty runs among them, prior files and staging files in place, a manifest without `generated_at`, with text outside ASCII there, with an asset component, that does not parse, that opens with a byte order mark and that is not an object, each valued what the write raised or None and the files the corpus holds then.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3915,6 +3916,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._write_json": ("rebuild.review.build", "_write_json"),
     "build._prune_orphan_shards": ("rebuild.review.build", "_prune_orphan_shards"),
     "unit_index.write_index_lines": ("rebuild.review.unit_index", "write_index_lines"),
+    "app_index.write_app_artifacts_lines": ("rebuild.review.app_index", "write_app_artifacts_lines"),
 }
 
 
@@ -15117,6 +15119,183 @@ def _index_write_generated(_source: BuildSource) -> Iterator[Mapping[str, object
             }
 
 
+APP_SIDECARS_STAGE = "app-sidecars"
+# The app sidecars the `app-sidecars` stage records, in the order the writer renames them, each line keyed by the file's name.
+_APP_SIDECAR_FILES = (app_index.APP_INDEX_NAME, app_index.LOCATOR_ROWS_NAME, app_index.LOCATOR_NAME)
+
+
+def _app_sidecars_writing(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`app_index.write_app_artifacts_lines` as `build._write_sidecars`' app writer calls it once the manifest is on disk, on a thread of its own, recorded as the `app-sidecars` boundary once it returns: the bytes of each file of `_APP_SIDECAR_FILES`; a call from anywhere else records nothing."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code not in build._write_sidecars.__code__.co_consts:
+        frame = frame.f_back
+    if frame is None:
+        return None
+    corpus = Path(args[0])
+
+    def finish(_written: object) -> Boundary:
+        return Boundary(
+            0,
+            {},
+            [
+                {"key": name, "value": app_index.artifact_path(corpus, name).read_bytes()}
+                for name in _APP_SIDECAR_FILES
+            ],
+        )
+
+    return finish
+
+
+# The app-index lines and locator rows the `generated:` cases of the `app-sidecars` stage write, as the build projects them: text outside ASCII among them, deflated spans and plain ones, and locator rows over three classes, one of them None.
+_APP_CASE_FRAGMENT: dict[str, object] = {
+    "id": "u0",
+    "class": "a",
+    "notation": "\u00b7Pea ~b~ \u00b7Tea",
+    "summary": "joins at the baseline",
+    "configs": ["ss01"],
+}
+_APP_CASE_LINES = tuple(
+    app_index.app_line(
+        {**_APP_CASE_FRAGMENT, "id": f"u{number}"},
+        0,
+        100 * number,
+        90,
+        order=number,
+        batch=number // 2,
+        deflated=number % 2 == 1,
+    )
+    for number in range(5)
+)
+_APP_CASE_ROWS = tuple(
+    app_index.locator_line({"id": unit_id, "class": class_id}, 1, start, 40, deflated=start % 2 == 0)
+    for start, (class_id, unit_id) in enumerate(
+        (("a", "m1"), ("a", "m2"), ("a", "m3"), ("b", "m0"), ("b", "m9"), (None, "m4"), (None, "m5")), start=1
+    )
+)
+
+
+def _locator_run(rows: Sequence[bytes]) -> tuple[bytes, list[dict]]:
+    """One run's locator blocks as the build's sidecar lines cut them (`app_index.LocatorBlocks`): the gzip members' bytes and their table entries."""
+    held = io.BytesIO()
+    blocks = app_index.LocatorBlocks(held)
+    for row in rows:
+        blocks.add(row)
+    entries = blocks.close()
+    return held.getvalue(), entries
+
+
+_APP_CASE_MANIFEST: dict[str, object] = {
+    "format": "m",
+    "generated_at": "2026-01-02T03:04:05",
+    "inputs_fingerprint": {"code": "x", "static": "s"},
+}
+# The `generated:` cases of the `app-sidecars` stage: a name; the manifest's bytes; the files the corpus holds beside it first; the app-index lines; the rows of each locator run; and the human and machine counts the headers carry, which the writer does not check against the lines.
+_APP_CASES: tuple[
+    tuple[str, bytes, dict[str, bytes], tuple[bytes, ...], tuple[tuple[bytes, ...], ...], int, int], ...
+] = (
+    ("empty", _manifest_bytes(_APP_CASE_MANIFEST), {}, (), (), 0, 0),
+    ("one-run", _manifest_bytes(_APP_CASE_MANIFEST), {}, _APP_CASE_LINES, (_APP_CASE_ROWS,), 5, 7),
+    (
+        "runs",
+        _manifest_bytes(_APP_CASE_MANIFEST),
+        {},
+        _APP_CASE_LINES,
+        ((), _APP_CASE_ROWS[:3], (), _APP_CASE_ROWS[3:5], _APP_CASE_ROWS[5:]),
+        5,
+        7,
+    ),
+    (
+        "replaces",
+        _manifest_bytes(_APP_CASE_MANIFEST),
+        {
+            app_index.APP_INDEX_NAME: b"old index\n",
+            app_index.LOCATOR_NAME: b"old locator\n",
+            app_index.LOCATOR_ROWS_NAME: b"old rows\n",
+            app_index.APP_INDEX_NAME + ".partial": b"left\n",
+            app_index.LOCATOR_ROWS_NAME + ".partial": b"left\n",
+            app_index.LOCATOR_NAME + ".partial": b"left\n",
+        },
+        _APP_CASE_LINES[:2],
+        (_APP_CASE_ROWS[:4],),
+        2,
+        4,
+    ),
+    (
+        "counts",
+        _manifest_bytes(_APP_CASE_MANIFEST),
+        {},
+        _APP_CASE_LINES[:1],
+        (_APP_CASE_ROWS[:1],),
+        12_345_678,
+        0,
+    ),
+    (
+        "no-generated-at",
+        _manifest_bytes({"format": "m", "classes": []}),
+        {},
+        _APP_CASE_LINES,
+        (_APP_CASE_ROWS,),
+        5,
+        7,
+    ),
+    (
+        "generated-at-text",
+        _manifest_bytes({**_APP_CASE_MANIFEST, "generated_at": "\u00b7now\u2028\x7f"}),
+        {},
+        _APP_CASE_LINES[:1],
+        (),
+        1,
+        0,
+    ),
+    (
+        "assets",
+        _manifest_bytes({**_APP_CASE_MANIFEST, "inputs_fingerprint": {"code": "x", "static": "t"}}),
+        {},
+        _APP_CASE_LINES[:1],
+        (_APP_CASE_ROWS[:1],),
+        1,
+        1,
+    ),
+    ("manifest-unparsed", b"{not a manifest\n", {}, _APP_CASE_LINES, (_APP_CASE_ROWS,), 5, 7),
+    (
+        "manifest-bom",
+        b"\xef\xbb\xbf" + _manifest_bytes(_APP_CASE_MANIFEST),
+        {app_index.APP_INDEX_NAME: b"old index\n"},
+        _APP_CASE_LINES,
+        (_APP_CASE_ROWS,),
+        5,
+        7,
+    ),
+    ("manifest-list", b"[]\n", {}, _APP_CASE_LINES, (_APP_CASE_ROWS,), 5, 7),
+)
+
+
+def _app_sidecars_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `app-sidecars` stage's generated lines: for each case of `_APP_CASES`, `app_index.write_app_artifacts_lines` over a corpus holding the case's manifest and files, with its app-index lines and each locator run's blocks cut as the build cuts them (`_locator_run`), under `generated:<name>`. Each line's input is the files the corpus holds first, the lines, the runs' members and table entries and the two counts; its value the class and text of what the write raised, the class alone where `json.loads` refuses the manifest, whose text the Rust reader words in its own way (as the `json-forms` stage compares its refusals), or None, and the files the corpus holds then (`_files_held`)."""
+    for name, manifest, held, lines, runs, human, machine in _APP_CASES:
+        locator_runs = [_locator_run(rows) for rows in runs]
+        files = {"manifest.json": manifest, **held}
+        with tempfile.TemporaryDirectory(prefix="app-sidecars-") as scratch:
+            corpus = Path(scratch) / "out"
+            corpus.mkdir()
+            for file_name, data in files.items():
+                (corpus / file_name).write_bytes(data)
+            outcome: object = None
+            try:
+                app_index.write_app_artifacts_lines(
+                    corpus, iter(lines), iter(locator_runs), human=human, machine=machine
+                )
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                outcome = {"raised": type(error).__name__}
+            except (OSError, ValueError, AttributeError) as error:
+                outcome = {"raised": type(error).__name__, "message": str(error)}
+            yield {
+                "key": f"generated:{name}",
+                "input": (files, list(lines), locator_runs, human, machine),
+                "value": (outcome, _files_held(corpus)),
+            }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -15395,6 +15574,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         INDEX_WRITE_STAGE,
         {"unit_index.write_index_lines": _index_writing},
         _index_write_generated,
+        run="build",
+        kind="boundary",
+    ),
+    APP_SIDECARS_STAGE: Stage(
+        APP_SIDECARS_STAGE,
+        {"app_index.write_app_artifacts_lines": _app_sidecars_writing},
+        _app_sidecars_generated,
         run="build",
         kind="boundary",
     ),
