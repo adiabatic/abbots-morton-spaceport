@@ -19,6 +19,7 @@ The build's stages (`BUILD_STAGES`):
 - `columns` records every call the build makes on `rebuild/review/columns.py`'s collections (`COLUMNS_CALLS`). A string table, tuple pool, mapping pool or key index is followed from its making (`_columns_made`, `_columns_called`), each call a line keyed by the collection's name, `run:<form>:<serial>`, and its place in the collection's calls, with the call as its `input` (a key index's making with the bytes of its column it reads, its width and its count) and, as its `value`, what the call returned beside the collection's size after it (`_columns_after`); the Rust side replays each collection's calls in that order. A window index is recorded over its state as each call finds it, since the stream sorts its ordinals in place after making it: a `window-index-state` line a state, keyed by the digest of its ordinals and keys and valued its `packed`, `windows`, `runs` and `nbytes` (`_window_state`), and a `window-index` line a call on it (`_window_called`). `window_word` and `sorted_by_word` calls are lines of their own, keyed by a digest of their input. Its generated lines (`_columns_generated`) intern empty values, repeats and values a pool refuses, seal a tuple pool, build key indexes over empty, colliding, repeated and malformed columns (`_key_cases`), build window indexes from packed and unpacked windows (`COLUMNS_WINDOWS`) as `window-index-build` lines and ask each, and its remapping, for its windows and others (`COLUMNS_ASKED`), and pack and sort words at the edges.
 - `permutation` records each counting sort the build makes and the keys it orders by, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `counting`, each `audit._counting_permutation` call, with the columns, the string table's strings in id order, the class order, the family ranks, the walk, the count, the runs it was given, read from a `columns.WindowIndex.runs` generator through a probe over the index's columns so the call still takes them whole (`_given_runs`), and each row's id word by ordinal (`_counting_inputs`); `triage`, each `audit._triage_permutation` call, with the table's class, group and window columns in place of the table (`_triage_inputs`); `triage-key`, each `audit.triage_key` call; and `family-ranks`, each `audit.family_ranks` call. Its generated lines (`_permutation_generated`) order the source's audit as the in-memory source loads it and a table whose units tie by the dozen (`_permutation_tables`) under the ledger's class order and a reversed one that leaves a class unranked, with no id words, id words that tie and id words by window (`_permutation_words`), by both sorts, walked in window order and in load order, with the runs and without; key every unit of both; and sort, key and rank at the edges (`_permutation_edges`).
 - `merge` records each `audit._merge_members` call the build makes (`_members_merged`), keyed by its origin and a digest of its `input`: the window's members as given, each an `audit._Member` record with its config classes as a dict in their order (`_member_value`), the exempt classes sorted, the stats and each member's run of rows as `(merge key, config)` pairs, read from the call's `absorb` closure, the stream's keyed by section and the in-memory source's by config rank (`_member_runs`); with, as its `value`, whether any member was absorbed, the members in the order the call leaves them, the stats and each member's run once the call returns, or what it raised. Its generated lines (`_merge_generated`) record every call made by the stream over the source's audit under three ink digests and by the in-memory source's merge under two signatures (`_merge_sources`), and merge windows at the edges (`_merge_edges`) over runs of sections by the stream's `absorb` (`_section_absorb`).
+- `workload` is a boundary stage that records what the build's stream returns (`audit.stream_workload`, hooked where `build` imports it, `_workload_streamed`), as `workload_boundary` lays it out: a unit a merged unit in load order, the unit `UnitTable.unit` materializes without a store beside its liveness, survivor, config rank, row of the id columns and input key (`_workload_unit`); a column each for the string table, the pools in id order, the tuple ranks, the window values, the window index's ordinals and keys, the pre-merge units and the compaction, and each class's ordinals (`UnitTable.rows_by_class`); and lines for the pools' sizes, the window index's shape, the merge's stats, the audit's rows, the ledger classes the units reach, the classes present and the change groups' counts.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -9281,6 +9282,147 @@ def _merge_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
         yield finish(result)
 
 
+WORKLOAD_STAGE = "workload"
+# The keys of the `workload` stage's lines beside its units and columns: the pools' sizes, the window index's shape, the merge's stats, the audit's rows, the ledger classes the units reach, the classes present and the change groups' counts.
+WORKLOAD_POOLS_KEY = "pools"
+WORKLOAD_INDEX_KEY = "window-index"
+WORKLOAD_MERGE_KEY = "merge"
+WORKLOAD_ROWS_KEY = "rows"
+WORKLOAD_REACHED_KEY = "classes-reached"
+WORKLOAD_PRESENT_KEY = "classes-present"
+WORKLOAD_GROUPS_KEY = "unmatched-groups"
+
+
+def _workload_ids(table: UnitTable, ordinal: int) -> tuple:
+    """A unit's row of the table's id columns, in `UnitTable.columns`' order, the name ids None once released."""
+    baseline, new = table._baseline, table._new
+    return (
+        table._class[ordinal],
+        table._group[ordinal],
+        table._unmatched_group[ordinal],
+        table._duplicate_group[ordinal],
+        table._cluster[ordinal],
+        table._configs[ordinal],
+        table._kinds[ordinal],
+        table._render_groups[ordinal],
+        None if baseline is None else baseline[ordinal],
+        None if new is None else new[ordinal],
+        table._config_classes[ordinal],
+        table._flags[ordinal],
+        table._window_start[ordinal],
+        table._window_n[ordinal],
+        table._rows_start[ordinal],
+        table._row_count[ordinal],
+        table._order[ordinal],
+        table._batch[ordinal],
+        table._survivor[ordinal],
+    )
+
+
+def _workload_unit(table: UnitTable, keys: bytearray, ordinal: int) -> tuple:
+    """A unit as the `workload` boundary holds it: the unit `UnitTable.unit` materializes without a store, as a record of `audit.Unit`'s fields in their order but `ink_deltas`, its config classes as a dict in their order; whether it is live, its survivor and its config rank; its row of the id columns (`_workload_ids`); and its input key as hex."""
+    unit = table.unit(ordinal)
+    return (
+        Record(
+            "Unit",
+            tuple(
+                (item.name, dict(value.items()) if item.name == "config_classes" else value)
+                for item in dataclasses.fields(unit)
+                if item.name != "ink_deltas"
+                for value in (getattr(unit, item.name),)
+            ),
+        ),
+        table.live(ordinal),
+        table.survivor(ordinal),
+        table.config_rank(ordinal),
+        _workload_ids(table, ordinal),
+        bytes(keys[ordinal * audit.INPUT_KEY_BYTES : (ordinal + 1) * audit.INPUT_KEY_BYTES]).hex(),
+    )
+
+
+def _pool_values[T](pool: columns.TuplePool[T] | columns.MappingPool | None) -> list:
+    """A pool's values in id order, the empty one at id 0 first, mappings as dicts; nothing for a released pool."""
+    if pool is None:
+        return []
+    return [
+        dict(value.items()) if isinstance(value, Mapping) else value
+        for value in (pool[index] for index in range(len(pool) + 1))
+    ]
+
+
+def workload_boundary(streamed: audit.StreamedLoad) -> Boundary:
+    """The `workload` boundary over what `audit.stream_workload` returned: a unit a merged unit (`_workload_unit`); a column a pool and table side column in id or position order, the string table, the config and kind tuples, the render groups, the class maps, the name tuples, the tuple ranks and the window values; the window index's ordinals and keys, empty when the stream left it unbuilt; the pre-merge units' columns and the compaction, a pre-merge unit each; each class's ordinals in row order (`UnitTable.rows_by_class`); and the pools' sizes, the window index's packing and window count or None, the merge's stats, the audit's rows, the ledger classes the units reach, the classes present sorted and the change groups' counts."""
+    workload = streamed.workload
+    table = workload.table
+    keys = streamed.input_keys
+    index = table._window_index
+    strings, names = table.strings, table.names
+    premerge, compaction = streamed.premerge, streamed.compaction
+    pools = (
+        len(strings),
+        strings.chars,
+        len(table.tuples),
+        table.tuples.elements,
+        len(table.groups),
+        table.groups.elements,
+        len(table.mappings),
+        table.mappings.elements,
+        None if names is None else (len(names), names.elements, names.sealed),
+    )
+    return Boundary(
+        table.n,
+        {"value": functools.partial(_workload_unit, table, keys)},
+        [
+            column_line("strings", (strings[at] for at in range(len(strings) + 1))),
+            column_line("tuples", _pool_values(table.tuples)),
+            column_line("groups", _pool_values(table.groups)),
+            column_line("mappings", _pool_values(table.mappings)),
+            column_line("names", _pool_values(names)),
+            column_line("ranks", table._ranks),
+            column_line("window-values", table._window_values),
+            column_line("window-ordinals", () if index is None else index.ordinals),
+            column_line("window-keys", () if index is None else index.keys),
+            column_line(
+                "premerge",
+                zip(
+                    premerge.class_id,
+                    (bool(value) for value in premerge.no_verdict),
+                    premerge.configs,
+                    premerge.window_start,
+                    premerge.window_n,
+                ),
+            ),
+            column_line(
+                "compaction", zip(compaction.survivor, (bool(value) for value in compaction.removed))
+            ),
+            column_line(
+                "rows-by-class",
+                (
+                    (class_id, tuple(members))
+                    for class_id, members in table.rows_by_class(range(table.n)).items()
+                ),
+            ),
+            {"key": WORKLOAD_POOLS_KEY, "value": pools},
+            {"key": WORKLOAD_INDEX_KEY, "value": None if index is None else (index.packed, index.windows)},
+            {"key": WORKLOAD_MERGE_KEY, "value": dict(streamed.merge_stats)},
+            {"key": WORKLOAD_ROWS_KEY, "value": workload.row_count},
+            {"key": WORKLOAD_REACHED_KEY, "value": tuple(entry.id for entry in workload.classes_present)},
+            {"key": WORKLOAD_PRESENT_KEY, "value": sorted(table.classes_present())},
+            {"key": WORKLOAD_GROUPS_KEY, "value": table.unmatched_group_counts()},
+        ],
+    )
+
+
+def _workload_streamed(_args: tuple, _kwargs: dict) -> Finisher:
+    """The build's stream (`audit.stream_workload`) recorded as the `workload` boundary once it returns (`workload_boundary`)."""
+
+    def finish(result: object) -> Boundary:
+        assert isinstance(result, audit.StreamedLoad), f"stream_workload returned {result!r:.80}"
+        return workload_boundary(result)
+
+    return finish
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -9429,6 +9571,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         {"audit._merge_members": _members_merged},
         _merge_generated,
         run="build",
+    ),
+    WORKLOAD_STAGE: Stage(
+        WORKLOAD_STAGE, {"build.stream_workload": _workload_streamed}, run="build", kind="boundary"
     ),
 }
 

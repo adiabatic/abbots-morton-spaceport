@@ -1637,18 +1637,40 @@ fn dump_prior(stage_file: &Path) -> Result<PathBuf> {
     }
 }
 
+/// The key-only read's ranges, the vocabulary's `KEY_ONLY_PROCESSES`.
+pub(crate) fn key_only_count(input: &BuildInput) -> Result<i64> {
+    match input.constant(KEY_ONLY_PROCESSES) {
+        Some(PyValue::Int(count)) => Ok(*count),
+        _ => error(format!(
+            "the build input's vocabulary holds no int {KEY_ONLY_PROCESSES}"
+        )),
+    }
+}
+
+/// The store the build of the dump `stage_file` lies in loads (`build._load_corpus`): empty for a build that recomputes every unit, otherwise the store of the dump's prior corpus, as its `source.json` names it, under the signature stamp, or empty when none loads there.
+pub(crate) fn dump_store(
+    input: &BuildInput,
+    names: &StoreNames,
+    stage_file: &Path,
+) -> Result<SignatureArrays> {
+    if input.recompute_all {
+        return Ok(SignatureArrays::new());
+    }
+    match SignatureArrays::load(
+        &dump_prior(stage_file)?,
+        names,
+        &input.signature_environment.value,
+    ) {
+        Ok(loaded) => Ok(loaded.unwrap_or_default()),
+        Err(failure) => error(format!("the prior store raised {failure}")),
+    }
+}
+
 /// The `key-only` stage: resolve the load's signatures over the audit its build input names, read through the descriptors the process inherits and laid out as [`audit_layout`] lays it out, at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads and shaped on its signature threads ([`resolve`]), and answer what the stage file asks. The build's lines start from the store the build loads, empty for a build that recomputes every unit or a prior corpus (as the dump's `source.json` names it) with no store that loads under the signature stamp: a `unit:<ordinal>` line for each miss asked for, a `column:value` line over every miss, `(key, section, window)`, a `column:hits` line over the hit prior entries' positions, and the read under `read`, `("ran", ranges, break)` or `("skipped",)`; then, unless the read broke, a `column:digest` line over the misses' digests in miss order, the count shaped under `shaped`, and under `late` the late shaper's count with the store's hits, misses, unhit entries and new lines' count and sha256. A generated line names a store in the [`KEY_ONLY_BLOBS`] directory beside `stage_file`, which must load under the signature stamp, and answers the same from it as one tuple, each column as its count and sha256 and the shaping's three as None after a break.
 pub fn stage_key_only(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
     let input = BuildInput::read(input_path)?;
     let names = StoreNames::of(&input)?;
-    let count = match input.constant(KEY_ONLY_PROCESSES) {
-        Some(PyValue::Int(count)) => *count,
-        _ => {
-            return error(format!(
-                "the build input's vocabulary holds no int {KEY_ONLY_PROCESSES}"
-            ));
-        }
-    };
+    let count = key_only_count(&input)?;
     let file = File::open(stage_file)
         .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
     let mut units: HashSet<usize> = HashSet::new();
@@ -1706,18 +1728,7 @@ pub fn stage_key_only(input_path: &Path, stage_file: &Path, out: &mut impl Write
     };
     let shaping = InkShaping::open(Path::new(&input.units_init))?;
     if run {
-        let mut signatures = if input.recompute_all {
-            SignatureArrays::new()
-        } else {
-            match SignatureArrays::load(
-                &dump_prior(stage_file)?,
-                &names,
-                &input.signature_environment.value,
-            ) {
-                Ok(loaded) => loaded.unwrap_or_default(),
-                Err(failure) => return error(format!("the prior store raised {failure}")),
-            }
-        };
+        let mut signatures = dump_store(&input, &names, stage_file)?;
         let resolved = resolve(audit, &mut signatures, &input, &shaping, count)?;
         for (ordinal, miss) in resolved.misses.iter().enumerate() {
             if units.contains(&ordinal) {
