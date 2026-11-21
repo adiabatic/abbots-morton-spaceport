@@ -1,6 +1,6 @@
-//! The orders a corpus build puts its unit table's rows in, as `rebuild/review/audit.py` computes them. [`family_ranks`] maps each family to its code point, [`triage_key`] is the order a corpus pages its human units in, and [`counting_permutation`] and [`counting_permutation_by_id`] place a table's rows in that order with a counting sort over (class, group) buckets walked in window order, the permutation [`triage_permutation`] gives by sorting one key a row.
+//! The orders a corpus build puts its unit table's rows in, as `rebuild/review/audit.py` computes them. [`family_ranks`] maps each family to its code point, [`triage_key`] is the order a corpus pages its human units in, and [`counting_permutation`] and [`counting_permutation_by_id`] place a table's rows in that order with a counting sort over (class, group) buckets walked in window order, the permutation [`triage_permutation`] gives by sorting one key a row. [`merge_members`] merges a window's ink-duplicate units as `audit._merge_members` does, over runs of rows [`merged_rows`] merges.
 //!
-//! [`stage_permutation`] is the `permutation` stage of the stage fixtures.
+//! [`stage_permutation`] is the `permutation` stage of the stage fixtures, and [`stage_merge`] the `merge` stage.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
@@ -10,6 +10,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::columns::StringTable;
+use crate::change_groups::UNMATCHED;
 use crate::wire::{Result, WireError, error};
 
 /// The rank `audit.triage_key` gives a family the ranks do not name (`10**6`).
@@ -265,6 +266,115 @@ pub fn triage_permutation(
         key(left).cmp(&key(right)).then(left.cmp(&right))
     });
     order
+}
+
+/// One sibling unit of a window as the ink-duplicate merge reads and widens it (`audit._Member`): its place in its window (or its row in the table), its config rank, its configs, its kinds and its per-config classes in their order, its exemplar flag, its class and exemption, whether it absorbed a sibling, and the ordinal of the member that absorbed it (Python's -1 as `None`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    pub ordinal: usize,
+    pub rank: i64,
+    pub configs: Vec<String>,
+    pub kinds: Vec<String>,
+    pub config_classes: Vec<(String, String)>,
+    pub exemplar: bool,
+    pub class_id: String,
+    pub no_verdict: bool,
+    pub merged: bool,
+    pub survivor: Option<usize>,
+}
+
+/// The ink-duplicate merge's counts, the stats dict `audit.stream_workload` starts in this order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MergeStats {
+    pub windows_merged: i64,
+    pub units_merged: i64,
+    pub kept_split_matched_classes: i64,
+}
+
+/// What `audit._merge_members` raises: `IndexError` for no members, and `KeyError` from `set.pop` when an absorbed member leaves the survivor no class, which only members with no config classes reach.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeError {
+    NoMembers,
+    NoClass,
+}
+
+/// Merge one window's members whose every config gives one ink signature (`audit._merge_members`): the survivor is the member of the lowest config rank, the first of them in `members`' order (a stable sort, which `members` is left in), and each later member is absorbed unless the two members' per-config classes name two matched ledger classes, which is counted. `absorb(survivor, other)` merges the two members' runs of rows, the survivor's first at an equal rank, and gives the merged run's configs; the survivor takes the union of the kinds, sorted, the other's per-config classes over its own (a config both name keeping its place and taking the other's class), the unmatched class when any of them is unmatched and the matched one otherwise, the exemption of that class, and either exemplar flag. Returns whether any member was absorbed.
+pub fn merge_members(
+    members: &mut [Member],
+    exempt: impl Fn(&str) -> bool,
+    stats: &mut MergeStats,
+    mut absorb: impl FnMut(&Member, &Member) -> Vec<String>,
+) -> std::result::Result<bool, MergeError> {
+    members.sort_by_key(|member| member.rank);
+    let Some((survivor, others)) = members.split_first_mut() else {
+        return Err(MergeError::NoMembers);
+    };
+    let mut merged_any = false;
+    for other in others {
+        let mut matched: Vec<String> = Vec::new();
+        for (_config, class) in survivor.config_classes.iter().chain(&other.config_classes) {
+            if class != UNMATCHED && !matched.contains(class) {
+                matched.push(class.clone());
+            }
+        }
+        if matched.len() > 1 {
+            stats.kept_split_matched_classes += 1;
+            continue;
+        }
+        survivor.configs = absorb(survivor, other);
+        let kinds: BTreeSet<String> = survivor
+            .kinds
+            .drain(..)
+            .chain(other.kinds.iter().cloned())
+            .collect();
+        survivor.kinds = kinds.into_iter().collect();
+        for (config, class) in &other.config_classes {
+            match survivor
+                .config_classes
+                .iter_mut()
+                .find(|(held, _class)| held == config)
+            {
+                Some(entry) => entry.1.clone_from(class),
+                None => survivor
+                    .config_classes
+                    .push((config.clone(), class.clone())),
+            }
+        }
+        survivor.class_id = if survivor
+            .config_classes
+            .iter()
+            .any(|(_config, class)| class == UNMATCHED)
+        {
+            UNMATCHED.to_owned()
+        } else {
+            matched.pop().ok_or(MergeError::NoClass)?
+        };
+        survivor.no_verdict = exempt(&survivor.class_id);
+        survivor.exemplar = survivor.exemplar || other.exemplar;
+        survivor.merged = true;
+        other.survivor = Some(survivor.ordinal);
+        stats.units_merged += 1;
+        merged_any = true;
+    }
+    Ok(merged_any)
+}
+
+/// Two runs of rows merged by `key`, the first run's row ahead at an equal key (`audit._merged_rows`, which merges by section as `RowColumns.merge_runs` merges by config rank).
+pub fn merged_rows<T: Clone, K: Ord>(first: &[T], second: &[T], key: impl Fn(&T) -> K) -> Vec<T> {
+    let mut merged = Vec::with_capacity(first.len() + second.len());
+    let (mut i, mut j) = (0, 0);
+    while i < first.len() && j < second.len() {
+        if key(&second[j]) < key(&first[i]) {
+            merged.push(second[j].clone());
+            j += 1;
+        } else {
+            merged.push(first[i].clone());
+            i += 1;
+        }
+    }
+    merged.extend_from_slice(&first[i..]);
+    merged.extend_from_slice(&second[j..]);
+    merged
 }
 
 fn items<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
@@ -529,6 +639,255 @@ fn answer(record: &Value, key: &str) -> Result<Value> {
 
 /// The `permutation` stage: for each line of `stage_file`, answer its `input` by its `form` in one `{"key", "value"}` line, in the typed encoding: `counting` places rows as `audit._counting_permutation` does, by id word within a window ([`counting_permutation_by_id`]) when the line gives both runs and id words and in walk order ([`counting_permutation`]) otherwise; `triage` sorts a table's rows as `audit._triage_permutation` does ([`triage_permutation`]); `triage-key` gives `audit.triage_key`'s tuple ([`triage_key`]); and `family-ranks` gives `audit.family_ranks`' dict in its order ([`family_ranks`]). A line's string table is the table's strings in id order, and its id words are each row's word by ordinal.
 pub fn stage_permutation(stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    answer_lines(stage_file, out, answer)
+}
+
+fn flag(value: &Value, what: &str) -> Result<bool> {
+    value
+        .as_bool()
+        .ok_or_else(|| WireError(format!("{what} is not a bool: {value:.200}")))
+}
+
+fn texts(value: &Value, what: &str) -> Result<Vec<String>> {
+    items(value, what)?
+        .iter()
+        .map(|item| Ok(text(item, what)?.to_owned()))
+        .collect()
+}
+
+/// A typed record's field values, checked against its class name and its field names in order.
+fn record<'a, const COUNT: usize>(
+    value: &'a Value,
+    class: &str,
+    names: [&str; COUNT],
+    what: &str,
+) -> Result<[&'a Value; COUNT]> {
+    let fields = match value["record"].as_array().map(Vec::as_slice) {
+        Some([name, fields]) if name == class => fields.as_array(),
+        _ => None,
+    };
+    let Some(fields) = fields.filter(|fields| fields.len() == COUNT) else {
+        return error(format!("{what} is not a {class} record: {value:.200}"));
+    };
+    let mut values = [&Value::Null; COUNT];
+    for ((slot, field), name) in values.iter_mut().zip(fields).zip(names) {
+        match field.as_array().map(Vec::as_slice) {
+            Some([held, field_value]) if held == name => *slot = field_value,
+            _ => {
+                return error(format!(
+                    "{what}: a {class} record's field is not {name}: {field:.200}"
+                ));
+            }
+        }
+    }
+    Ok(values)
+}
+
+const MEMBER_FIELDS: [&str; 10] = [
+    "ordinal",
+    "rank",
+    "configs",
+    "kinds",
+    "config_classes",
+    "exemplar",
+    "class_id",
+    "no_verdict",
+    "merged",
+    "survivor",
+];
+
+const MERGE_STATS: [&str; 3] = [
+    "windows_merged",
+    "units_merged",
+    "kept_split_matched_classes",
+];
+
+fn member(value: &Value, what: &str) -> Result<Member> {
+    let [
+        ordinal,
+        rank_value,
+        configs,
+        kinds,
+        config_classes,
+        exemplar,
+        class_id,
+        no_verdict,
+        merged,
+        survivor,
+    ] = record(value, "_Member", MEMBER_FIELDS, what)?;
+    let survivor = match rank(survivor, what)? {
+        -1 => None,
+        _ => Some(count(survivor, what)?),
+    };
+    Ok(Member {
+        ordinal: count(ordinal, what)?,
+        rank: rank(rank_value, what)?,
+        configs: texts(configs, what)?,
+        kinds: texts(kinds, what)?,
+        config_classes: entries(config_classes, what)?
+            .iter()
+            .map(|entry| {
+                let (config, class) = pair(entry, what)?;
+                Ok((
+                    text(config, what)?.to_owned(),
+                    text(class, what)?.to_owned(),
+                ))
+            })
+            .collect::<Result<_>>()?,
+        exemplar: flag(exemplar, what)?,
+        class_id: text(class_id, what)?.to_owned(),
+        no_verdict: flag(no_verdict, what)?,
+        merged: flag(merged, what)?,
+        survivor,
+    })
+}
+
+fn member_value(member: &Member) -> Value {
+    let survivor = member.survivor.map_or(-1, |ordinal| ordinal as i64);
+    let fields: [Value; 10] = [
+        member.ordinal.into(),
+        member.rank.into(),
+        tuple(
+            member
+                .configs
+                .iter()
+                .map(|config| config.as_str().into())
+                .collect(),
+        ),
+        tuple(
+            member
+                .kinds
+                .iter()
+                .map(|kind| kind.as_str().into())
+                .collect(),
+        ),
+        json!({ "dict": member.config_classes.iter().map(|(config, class)| json!([config, class])).collect::<Vec<_>>() }),
+        member.exemplar.into(),
+        member.class_id.as_str().into(),
+        member.no_verdict.into(),
+        member.merged.into(),
+        survivor.into(),
+    ];
+    json!({
+        "record": [
+            "_Member",
+            MEMBER_FIELDS.iter().zip(fields).map(|(name, value)| json!([name, value])).collect::<Vec<_>>(),
+        ]
+    })
+}
+
+fn merge_stats(value: &Value, what: &str) -> Result<MergeStats> {
+    let entries = entries(value, what)?;
+    let mut counts = [0i64; 3];
+    if entries.len() != counts.len() {
+        return error(format!(
+            "{what}: the stats do not hold {MERGE_STATS:?}: {value:.200}"
+        ));
+    }
+    for ((slot, entry), name) in counts.iter_mut().zip(entries).zip(MERGE_STATS) {
+        let (key, held) = pair(entry, what)?;
+        if key != name {
+            return error(format!(
+                "{what}: the stats do not hold {MERGE_STATS:?}: {value:.200}"
+            ));
+        }
+        *slot = rank(held, what)?;
+    }
+    let [windows_merged, units_merged, kept_split_matched_classes] = counts;
+    Ok(MergeStats {
+        windows_merged,
+        units_merged,
+        kept_split_matched_classes,
+    })
+}
+
+fn stats_value(stats: &MergeStats) -> Value {
+    let counts = [
+        stats.windows_merged,
+        stats.units_merged,
+        stats.kept_split_matched_classes,
+    ];
+    json!({ "dict": MERGE_STATS.iter().zip(counts).map(|(name, count)| json!([name, count])).collect::<Vec<_>>() })
+}
+
+type Run = Vec<(i64, String)>;
+
+fn run(value: &Value, what: &str) -> Result<Run> {
+    items(value, what)?
+        .iter()
+        .map(|row| {
+            let [key, config] = arguments(row, what)?;
+            Ok((rank(key, what)?, text(config, what)?.to_owned()))
+        })
+        .collect()
+}
+
+fn run_value(run: &Run) -> Value {
+    json!({ "list": run.iter().map(|(key, config)| tuple(vec![(*key).into(), config.as_str().into()])).collect::<Vec<_>>() })
+}
+
+/// One `merge` line's answer in the typed encoding.
+fn merge_answer(record: &Value, key: &str) -> Result<Value> {
+    let [members, exempt, stats, runs] = arguments(&record["input"], key)?;
+    let mut members = items(members, key)?
+        .iter()
+        .map(|value| member(value, key))
+        .collect::<Result<Vec<_>>>()?;
+    let exempt = texts(exempt, key)?;
+    let mut stats = merge_stats(stats, key)?;
+    let given: Vec<usize> = members.iter().map(|member| member.ordinal).collect();
+    let mut held: HashMap<usize, Run> = HashMap::new();
+    let runs = items(runs, key)?;
+    if runs.len() != given.len() {
+        return error(format!("{key}: the runs are not one a member"));
+    }
+    for (&ordinal, value) in given.iter().zip(runs) {
+        let run = run(value, key)?;
+        held.entry(ordinal).or_insert(run);
+    }
+    let absorb = |survivor: &Member, other: &Member| {
+        let merged = merged_rows(&held[&survivor.ordinal], &held[&other.ordinal], |row| row.0);
+        let configs = merged.iter().map(|(_key, config)| config.clone()).collect();
+        held.insert(survivor.ordinal, merged);
+        configs
+    };
+    let merged = merge_members(
+        &mut members,
+        |class| exempt.iter().any(|held| held == class),
+        &mut stats,
+        absorb,
+    );
+    Ok(match merged {
+        Ok(merged) => tuple(vec![
+            merged.into(),
+            json!({ "list": members.iter().map(member_value).collect::<Vec<_>>() }),
+            stats_value(&stats),
+            json!({ "list": given.iter().map(|ordinal| run_value(&held[ordinal])).collect::<Vec<_>>() }),
+        ]),
+        Err(MergeError::NoMembers) => tuple(vec![
+            "raised".into(),
+            "IndexError".into(),
+            "list index out of range".into(),
+        ]),
+        Err(MergeError::NoClass) => tuple(vec![
+            "raised".into(),
+            "KeyError".into(),
+            "'pop from an empty set'".into(),
+        ]),
+    })
+}
+
+/// The `merge` stage: for each line of `stage_file`, merge its window's members as `audit._merge_members` does ([`merge_members`]), each member's run of `(merge key, config)` rows merged by [`merged_rows`] as the line's `absorb` merged them, and answer in one `{"key", "value"}` line, in the typed encoding: whether any member was absorbed, the members in the order the merge leaves them, the stats and each member's run, aligned with the members as given; or the exception Python raised, as `("raised", class, message)`.
+pub fn stage_merge(stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    answer_lines(stage_file, out, merge_answer)
+}
+
+/// Answer each line of `stage_file` by `answer` in one `{"key", "value"}` line.
+fn answer_lines(
+    stage_file: &Path,
+    out: &mut impl Write,
+    answer: impl Fn(&Value, &str) -> Result<Value>,
+) -> Result<()> {
     let read = |failure: std::io::Error| {
         WireError(format!("cannot read {}: {failure}", stage_file.display()))
     };
@@ -729,5 +1088,101 @@ mod tests {
             ..empty
         };
         assert_eq!(counting_permutation(&three, &[2], 3), [2, 0, 0]);
+    }
+
+    fn sibling(ordinal: usize, rank: i64, classes: &[(&str, &str)], kinds: &[&str]) -> Member {
+        Member {
+            ordinal,
+            rank,
+            configs: classes
+                .iter()
+                .map(|(config, _)| (*config).to_owned())
+                .collect(),
+            kinds: kinds.iter().map(|kind| (*kind).to_owned()).collect(),
+            config_classes: classes
+                .iter()
+                .map(|(config, class)| ((*config).to_owned(), (*class).to_owned()))
+                .collect(),
+            exemplar: false,
+            class_id: String::new(),
+            no_verdict: false,
+            merged: false,
+            survivor: None,
+        }
+    }
+
+    #[test]
+    fn rows_merge_by_key_with_the_first_runs_row_ahead_at_a_tie() {
+        let first = [(0, "a"), (2, "b"), (2, "c")];
+        let second = [(1, "x"), (2, "y"), (5, "z")];
+        let merged = merged_rows(&first, &second, |row| row.0);
+        assert_eq!(
+            merged,
+            [(0, "a"), (1, "x"), (2, "b"), (2, "c"), (2, "y"), (5, "z")]
+        );
+    }
+
+    #[test]
+    fn the_earliest_member_absorbs_until_two_matched_classes_meet() {
+        let mut members = vec![
+            sibling(2, 2, &[("ss02", "class-b")], &["b"]),
+            sibling(1, 1, &[("ss01", UNMATCHED)], &["é", "a"]),
+            sibling(0, 0, &[("default", "class-a")], &["z"]),
+            sibling(3, 1, &[("ss03", UNMATCHED)], &["a"]),
+        ];
+        members[3].exemplar = true;
+        let mut stats = MergeStats::default();
+        let mut absorbed = Vec::new();
+        let merged = merge_members(
+            &mut members,
+            |class| class == UNMATCHED,
+            &mut stats,
+            |survivor, other| {
+                absorbed.push((survivor.ordinal, other.ordinal));
+                vec![format!("{}+{}", survivor.ordinal, other.ordinal)]
+            },
+        );
+        assert_eq!(merged, Ok(true));
+        assert_eq!(absorbed, [(0, 1), (0, 3)]);
+        let order: Vec<usize> = members.iter().map(|member| member.ordinal).collect();
+        assert_eq!(order, [0, 1, 3, 2]);
+        let survivor = &members[0];
+        assert_eq!(survivor.configs, ["0+3"]);
+        assert_eq!(survivor.kinds, ["a", "z", "é"]);
+        assert_eq!(
+            survivor.config_classes,
+            [
+                ("default".to_owned(), "class-a".to_owned()),
+                ("ss01".to_owned(), UNMATCHED.to_owned()),
+                ("ss03".to_owned(), UNMATCHED.to_owned())
+            ]
+        );
+        assert_eq!(survivor.class_id, UNMATCHED);
+        assert!(survivor.no_verdict && survivor.exemplar && survivor.merged);
+        assert_eq!(members[2].survivor, Some(0));
+        assert_eq!(members[3].survivor, None);
+        assert_eq!(
+            stats,
+            MergeStats {
+                windows_merged: 0,
+                units_merged: 2,
+                kept_split_matched_classes: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn a_merge_with_no_class_to_take_fails_as_python_does() {
+        let mut stats = MergeStats::default();
+        let configs = |_survivor: &Member, _other: &Member| Vec::new();
+        assert_eq!(
+            merge_members(&mut [], |_class| false, &mut stats, configs),
+            Err(MergeError::NoMembers)
+        );
+        let mut members = [sibling(0, 0, &[], &[]), sibling(1, 0, &[], &[])];
+        assert_eq!(
+            merge_members(&mut members, |_class| false, &mut stats, configs),
+            Err(MergeError::NoClass)
+        );
     }
 }

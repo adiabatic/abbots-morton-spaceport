@@ -18,6 +18,7 @@ The build's stages (`BUILD_STAGES`):
 - `key-only` is a boundary stage that records the load's signature resolution where the build makes it: from `build._find_misses` (`_misses_found`), a unit a miss, `(key, section, window)` with the key as `%016x`, in miss order, the hit prior entries' positions as the `column:hits` line (`_hit_positions`), and the read under `read`, `("ran", processes, break)` or `("skipped",)` when the store's stamps held (`_read_value`); from `build._shape_found_misses` (`_found_misses_shaped`), the misses' digests in miss order as the `column:digest` line, read from the store's shaped misses (`_miss_digest`), and their count under `shaped`; and from `build._LateShaper.release` (`_late_released`), under `late`, the late shaper's count with the store's hits, misses and unhit entries and its new lines' count and sha256 once the stream has looked every row up (`_late_value`). Its generated lines (`_key_only_generated`) take the prior store the build would load with every other entry dropped, once with its stamps set to the build's, so the read is skipped and the late shaper shapes what the store lacks, and once with its audit identity moved, so the read runs with hits and misses; each is kept under its sha256 in `key-only.blobs/` beside the stage file (`KEY_ONLY_BLOBS`) and valued the same resolution as one tuple, each column as its count and sha256 (`_key_only_resolved`, which walks the audit as the stream asks for digests, `_late_walk`).
 - `columns` records every call the build makes on `rebuild/review/columns.py`'s collections (`COLUMNS_CALLS`). A string table, tuple pool, mapping pool or key index is followed from its making (`_columns_made`, `_columns_called`), each call a line keyed by the collection's name, `run:<form>:<serial>`, and its place in the collection's calls, with the call as its `input` (a key index's making with the bytes of its column it reads, its width and its count) and, as its `value`, what the call returned beside the collection's size after it (`_columns_after`); the Rust side replays each collection's calls in that order. A window index is recorded over its state as each call finds it, since the stream sorts its ordinals in place after making it: a `window-index-state` line a state, keyed by the digest of its ordinals and keys and valued its `packed`, `windows`, `runs` and `nbytes` (`_window_state`), and a `window-index` line a call on it (`_window_called`). `window_word` and `sorted_by_word` calls are lines of their own, keyed by a digest of their input. Its generated lines (`_columns_generated`) intern empty values, repeats and values a pool refuses, seal a tuple pool, build key indexes over empty, colliding, repeated and malformed columns (`_key_cases`), build window indexes from packed and unpacked windows (`COLUMNS_WINDOWS`) as `window-index-build` lines and ask each, and its remapping, for its windows and others (`COLUMNS_ASKED`), and pack and sort words at the edges.
 - `permutation` records each counting sort the build makes and the keys it orders by, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `counting`, each `audit._counting_permutation` call, with the columns, the string table's strings in id order, the class order, the family ranks, the walk, the count, the runs it was given, read from a `columns.WindowIndex.runs` generator through a probe over the index's columns so the call still takes them whole (`_given_runs`), and each row's id word by ordinal (`_counting_inputs`); `triage`, each `audit._triage_permutation` call, with the table's class, group and window columns in place of the table (`_triage_inputs`); `triage-key`, each `audit.triage_key` call; and `family-ranks`, each `audit.family_ranks` call. Its generated lines (`_permutation_generated`) order the source's audit as the in-memory source loads it and a table whose units tie by the dozen (`_permutation_tables`) under the ledger's class order and a reversed one that leaves a class unranked, with no id words, id words that tie and id words by window (`_permutation_words`), by both sorts, walked in window order and in load order, with the runs and without; key every unit of both; and sort, key and rank at the edges (`_permutation_edges`).
+- `merge` records each `audit._merge_members` call the build makes (`_members_merged`), keyed by its origin and a digest of its `input`: the window's members as given, each an `audit._Member` record with its config classes as a dict in their order (`_member_value`), the exempt classes sorted, the stats and each member's run of rows as `(merge key, config)` pairs, read from the call's `absorb` closure, the stream's keyed by section and the in-memory source's by config rank (`_member_runs`); with, as its `value`, whether any member was absorbed, the members in the order the call leaves them, the stats and each member's run once the call returns, or what it raised. Its generated lines (`_merge_generated`) record every call made by the stream over the source's audit under three ink digests and by the in-memory source's merge under two signatures (`_merge_sources`), and merge windows at the edges (`_merge_edges`) over runs of sections by the stream's `absorb` (`_section_absorb`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -95,7 +96,7 @@ import unicodedata
 import warnings
 import zlib
 from array import array
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from itertools import batched, chain, combinations, cycle, product
 from multiprocessing.reduction import ForkingPickler
@@ -3818,6 +3819,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "audit.family_ranks": ("rebuild.review.audit", "family_ranks"),
     "build.family_ranks": ("rebuild.review.build", "family_ranks"),
     "build.triage_key": ("rebuild.review.build", "triage_key"),
+    "audit._merge_members": ("rebuild.review.audit", "_merge_members"),
 }
 
 
@@ -8981,6 +8983,304 @@ def _permutation_generated(source: BuildSource) -> Iterator[Mapping[str, object]
     yield from _permutation_edges()
 
 
+MERGE_STAGE = "merge"
+_MERGE_MEMBERS = inspect.signature(audit._merge_members)
+# The counts a merge's stats dict holds, in its order, as `audit.stream_workload` and `audit.merge_ink_duplicate_units` start it.
+MERGE_STATS = ("windows_merged", "units_merged", "kept_split_matched_classes")
+
+
+def _member_value(member: audit._Member) -> Record:
+    """A merge member as a `merge` line holds it: `audit._Member`'s fields in their order, its config classes as a dict in their order."""
+    return Record(
+        "_Member",
+        tuple(
+            (item.name, dict(value.items()) if item.name == "config_classes" else value)
+            for item in dataclasses.fields(member)
+            for value in (getattr(member, item.name),)
+        ),
+    )
+
+
+def _member_runs(absorb: Callable, members: Sequence[audit._Member]) -> list[list[tuple[int, str]]]:
+    """Each member's run of rows as `absorb` merges it, aligned with `members`, a row as `(merge key, config)`: read from the closure of the stream's `absorb` (`units` and `section_configs`), keyed by section, or of the in-memory source's (`table` and `rows`), keyed by config rank."""
+    closure = inspect.getclosurevars(absorb).nonlocals
+    if "units" in closure and "section_configs" in closure:
+        units, section_configs = closure["units"], closure["section_configs"]
+        return [[(row[0], section_configs[row[0]]) for row in units[member.ordinal]] for member in members]
+    if "table" in closure and "rows" in closure:
+        table, rows = closure["table"], closure["rows"]
+        runs = []
+        for member in members:
+            start = table.rows_start(member.ordinal)
+            runs.append(
+                [
+                    (rows.ranks[rows.config[index]], rows.config_at(index))
+                    for index in range(start, start + table.row_count(member.ordinal))
+                ]
+            )
+        return runs
+    raise ValueError(f"the merge stage cannot read the runs {absorb!r:.80} merges")
+
+
+def _merge_line(origin: str, inputs: object, value: object) -> dict[str, object]:
+    return {"key": f"{origin}:{_columns_digest(inputs)}", "input": inputs, "value": value}
+
+
+def _merge_recorder(
+    origin: str,
+    members: list[audit._Member],
+    exempt_classes: Collection[str],
+    stats: dict,
+    absorb: Callable,
+) -> Callable[[object], dict[str, object]]:
+    """A `_merge_members` call's line, keyed by its origin and a digest of its input: the members in the order given, the exempt classes sorted, the stats and each member's run (`_member_runs`); valued whether any member was absorbed, the members in the order the call leaves them, the stats and each member's run, aligned with the members as given, once the call returns, or a raised `("raised", class, message)`."""
+    held = list(members)
+    inputs = (
+        [_member_value(member) for member in held],
+        sorted(exempt_classes),
+        dict(stats),
+        _member_runs(absorb, held),
+    )
+
+    def finish(result: object) -> dict[str, object]:
+        if isinstance(result, Exception):
+            return _merge_line(origin, inputs, ("raised", type(result).__name__, str(result)))
+        value = (
+            result,
+            [_member_value(member) for member in members],
+            dict(stats),
+            _member_runs(absorb, held),
+        )
+        return _merge_line(origin, inputs, value)
+
+    return finish
+
+
+def _members_merged(args: tuple, kwargs: dict) -> Finisher:
+    """An `audit._merge_members` call, with what it left."""
+    arguments = _MERGE_MEMBERS.bind(*args, **kwargs).arguments
+    return _merge_recorder(
+        "run", arguments["members"], arguments["exempt_classes"], arguments["stats"], arguments["absorb"]
+    )
+
+
+@contextlib.contextmanager
+def _merges_into(origin: str, lines: list[dict[str, object]]) -> Iterator[None]:
+    """Record every `audit._merge_members` call made inside as a `merge` line of `origin` into `lines`."""
+    original = audit._merge_members
+
+    def call(members, exempt_classes, stats, absorb):
+        finish = _merge_recorder(origin, members, exempt_classes, stats, absorb)
+        result = original(members, exempt_classes, stats, absorb)
+        lines.append(finish(result))
+        return result
+
+    setattr(audit, "_merge_members", call)
+    try:
+        yield
+    finally:
+        setattr(audit, "_merge_members", original)
+
+
+def _section_absorb(units: list[list[tuple[int, tuple, str]]], section_configs: Sequence[str]) -> Callable:
+    """An `absorb` that merges two members' runs as the stream's does (`audit._merged_rows`), each run a list of `(section, fields, line)` rows, and returns the merged run's configs."""
+
+    def absorb(survivor: audit._Member, other: audit._Member) -> tuple[str, ...]:
+        merged: list[tuple[int, tuple, str]] = audit._merged_rows(
+            units[survivor.ordinal], units[other.ordinal]
+        )
+        units[survivor.ordinal] = merged
+        return tuple(section_configs[section] for section, _fields, _line in merged)
+
+    return absorb
+
+
+# The ink digests the generated stream merges take a window's units under: one signature for every row, so every window of siblings is one group; the row's configuration, so only units of one configuration merge; and the row's signature key modulo three.
+MERGE_DIGESTS: dict[str, Callable[[int, str, str], object]] = {
+    "one": lambda _key, _window, _config: 0,
+    "config": lambda _key, _window, config: config,
+    "key": lambda key, _window, _config: key % 3,
+}
+# The ink signatures the generated in-memory merges take a window under: one for every configuration, and the configuration itself.
+MERGE_SIGNATURES: dict[str, Callable[[str, str], object]] = {
+    "one": lambda _codepoints, _config: 0,
+    "config": lambda _codepoints, config: config,
+}
+# The sections the generated edge cases' runs name, a row's first field indexing them.
+MERGE_SECTIONS = ("default", "ss01", "ss02", "ss03", "ss04", "ss05")
+
+
+def _merge_member(
+    ordinal: int,
+    rank: int,
+    config_classes: Mapping[str, str],
+    kinds: tuple[str, ...] = ("diff",),
+    exemplar: bool = False,
+    exempt: Collection[str] = (),
+) -> audit._Member:
+    """A generated member as the stream makes one: its configs those its classes name, its class resolved by the unmatched-first rule, or "" with no classes."""
+    classes = set(config_classes.values())
+    matched = sorted(classes - {audit.UNMATCHED_CLASS})
+    class_id = audit.UNMATCHED_CLASS if audit.UNMATCHED_CLASS in classes else (matched or [""])[0]
+    return audit._Member(
+        ordinal,
+        rank,
+        tuple(config_classes),
+        kinds,
+        dict(config_classes),
+        exemplar,
+        class_id,
+        class_id in exempt,
+    )
+
+
+def _merge_edges() -> Iterator[tuple[str, list[audit._Member], frozenset[str], dict, list[list[int]]]]:
+    """The generated windows at the edges, each named, with its members, exempt classes, starting stats and each member's run of sections by ordinal: members out of rank order and tied on rank, kinds that sort past ASCII, exemplars; two matched classes kept split, a chain that splits once the survivor has widened, and a survivor whose own classes are two; an unmatched member beside a matched one, a merge whose later entry overrides the survivor's only matched one, exempt classes, a single member, members with no classes at all, and no members."""
+    unmatched = audit.UNMATCHED_CLASS
+    zero = dict.fromkeys(MERGE_STATS, 0)
+    counted = {"windows_merged": 3, "units_merged": 5, "kept_split_matched_classes": 1}
+    yield (
+        "ordered",
+        [
+            _merge_member(0, 4, {"ss04": unmatched}, ("é", "diff")),
+            _merge_member(1, 1, {"ss01": unmatched, "ss03": unmatched}, ("z", "diff"), exemplar=True),
+            _merge_member(2, 2, {"ss02": unmatched}, ("a",)),
+            _merge_member(3, 1, {"ss05": unmatched}, ("\U0001f600", "a")),
+        ],
+        frozenset(),
+        counted,
+        [[4], [1, 3], [2], [5]],
+    )
+    yield (
+        "split",
+        [_merge_member(0, 0, {"default": "class-a"}), _merge_member(1, 1, {"ss01": "class-b"})],
+        frozenset(),
+        zero,
+        [[0], [1]],
+    )
+    yield (
+        "chain",
+        [
+            _merge_member(0, 0, {"default": "class-a"}),
+            _merge_member(1, 1, {"ss01": unmatched}),
+            _merge_member(2, 2, {"ss02": "class-b"}),
+            _merge_member(3, 3, {"ss03": "class-a"}, exemplar=True),
+        ],
+        frozenset({"class-a"}),
+        counted,
+        [[0, 4], [1, 1], [2], [3, 5]],
+    )
+    yield (
+        "two-classes",
+        [
+            _merge_member(1, 0, {"default": "class-a", "ss01": "class-b"}),
+            _merge_member(0, 2, {"ss02": unmatched}),
+        ],
+        frozenset(),
+        zero,
+        [[0, 1], [2]],
+    )
+    yield (
+        "unmatched-beside-matched",
+        [
+            _merge_member(0, 0, {"default": "class-a"}, exempt={"class-a"}),
+            _merge_member(1, 1, {"ss01": unmatched}),
+        ],
+        frozenset({"class-a"}),
+        zero,
+        [[0], [1]],
+    )
+    yield (
+        "override",
+        [
+            _merge_member(0, 0, {"default": "class-a"}),
+            _merge_member(1, 0, {"default": unmatched, "ss01": "class-a"}),
+            _merge_member(2, 0, {"default": unmatched}),
+        ],
+        frozenset({"class-a", unmatched}),
+        zero,
+        [[0, 2], [0, 1], [0]],
+    )
+    yield (
+        "exempt",
+        [
+            _merge_member(2, 3, {"ss03": "class-c"}, exempt={"class-c"}),
+            _merge_member(0, 3, {"ss04": "class-c"}, exempt={"class-c"}),
+            _merge_member(1, 0, {"default": "class-c"}, exempt={"class-c"}),
+        ],
+        frozenset({"class-c", "class-d"}),
+        counted,
+        [[3], [4], [0]],
+    )
+    yield ("single", [_merge_member(0, 0, {"default": unmatched})], frozenset(), zero, [[0]])
+    yield ("empty", [], frozenset(), zero, [])
+    yield (
+        "no-classes",
+        [_merge_member(0, 0, {}), _merge_member(1, 1, {})],
+        frozenset(),
+        zero,
+        [[], []],
+    )
+
+
+def _merge_sources(source: BuildSource) -> Iterator[tuple[str, Callable[[], object]]]:
+    """The merges the generated lines record over the source's audit, each named, as a call that runs it: the stream over the held audit under each of `MERGE_DIGESTS`, when the audit is in sorted sections, and the in-memory source's merge over a fresh load of its table under each of `MERGE_SIGNATURES`."""
+    inputs = source.case.inputs
+    ledger = load_ledger(inputs.ledger)
+    exempt = frozenset(entry.id for entry in ledger if entry.no_verdict)
+    document = json.loads((source.out / BUILD_INPUT_FILE).read_text(encoding="ascii"))
+    family_of = {int(value): name for value, name in document["family_of"]}
+    family_keys = document["family_keys"]
+    parts = audit.AuditParts(inputs.audit)
+    try:
+        layout = audit.audit_layout(parts.descriptors, inputs.audit, parts.members)
+        if layout.sections is not None:
+            for name, digest in MERGE_DIGESTS.items():
+                yield (
+                    f"stream:{name}",
+                    functools.partial(
+                        audit.stream_workload,
+                        parts.descriptors,
+                        inputs.audit,
+                        inputs.ledger,
+                        layout.sections,
+                        ledger,
+                        family_of,
+                        family_keys,
+                        digest,
+                    ),
+                )
+        for name, ink_sig in MERGE_SIGNATURES.items():
+            table, rows = audit.load_audit_table(
+                inputs.audit, ledger, dict(LETTERS), descriptors=parts.descriptors, members=parts.members
+            )
+            yield (
+                f"table:{name}",
+                functools.partial(audit.merge_ink_duplicate_units, table, rows, ink_sig, exempt),
+            )
+    finally:
+        parts.close()
+
+
+def _merge_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `merge` stage's generated lines: every `audit._merge_members` call the merges of `_merge_sources` make, recorded as the build's are (`_merges_into`), and each window of `_merge_edges`, merged over its runs by the stream's `absorb` (`_section_absorb`)."""
+    for name, merge in _merge_sources(source):
+        lines: list[dict[str, object]] = []
+        with _merges_into(f"generated:{name}", lines):
+            merge()
+        yield from lines
+    for name, members, exempt, starting, sections in _merge_edges():
+        stats = dict(starting)
+        units = [[(section, (), "") for section in run] for run in sections]
+        absorb = _section_absorb(units, MERGE_SECTIONS)
+        finish = _merge_recorder(f"generated:edge:{name}", members, exempt, stats, absorb)
+        try:
+            result: object = audit._merge_members(members, exempt, stats, absorb)
+        except (IndexError, KeyError) as error:
+            result = error
+        yield finish(result)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -9122,6 +9422,12 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
             "build.triage_key": _triage_keyed,
         },
         _permutation_generated,
+        run="build",
+    ),
+    MERGE_STAGE: Stage(
+        MERGE_STAGE,
+        {"audit._merge_members": _members_merged},
+        _merge_generated,
         run="build",
     ),
 }
