@@ -277,7 +277,7 @@ fn json_py(value: &Value) -> Result<PyValue> {
     })
 }
 
-fn json_map_py(map: &Map<String, Value>) -> Result<PyValue> {
+pub(crate) fn json_map_py(map: &Map<String, Value>) -> Result<PyValue> {
     json_py(&Value::Object(map.clone()))
 }
 

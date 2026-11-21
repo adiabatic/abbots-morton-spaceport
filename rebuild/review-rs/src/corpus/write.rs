@@ -14,10 +14,10 @@ use sha2::{Digest, Sha256};
 
 use super::audit::{integer, stage_line};
 use super::corpus_check::{CheckSettings, CorpusCheck, Facts};
-use super::drive::{Arena, through_units};
+use super::drive::{Arena, UnitsRun, through_units};
 use super::emit::{Emitted, Emitter};
 use super::input::{BuildInput, FontCopy, FontRecord};
-use super::passes::{passes, triage};
+use super::passes::{Passes, Triage, passes, triage};
 use super::prior::PriorFragmentReader;
 use super::route::{ClassToWrite, Route, RouteNames, Routed, class_meta, route_classes, write_fit};
 use super::scan::stage_lines;
@@ -674,7 +674,7 @@ const STATIC_GENERATED: &str = "generated:static:";
 const FONT_GENERATED: &str = "generated:font:";
 
 /// Each regular file under `directory`, by its path relative to it in code-point order, with its size and sha256; none for a directory that is not there.
-fn files_held(directory: &Path) -> Result<PyValue> {
+pub(crate) fn files_held(directory: &Path) -> Result<PyValue> {
     let fail =
         |failure: io::Error| WireError(format!("cannot list {}: {failure}", directory.display()));
     let mut found: Vec<(String, PathBuf)> = Vec::new();
@@ -838,10 +838,10 @@ fn write_lines(
 }
 
 /// A directory the stage makes beside its file and removes when it is dropped.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(pub(crate) PathBuf);
 
 impl Scratch {
-    fn new(stage_file: &Path, what: &str) -> Result<Self> {
+    pub(crate) fn new(stage_file: &Path, what: &str) -> Result<Self> {
         let directory = stage_file.with_file_name(format!(".write-{what}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&directory);
         fs::create_dir_all(&directory)
@@ -857,10 +857,10 @@ impl Drop for Scratch {
 }
 
 /// A generated case's input: the files its directory holds first, by relative path, and the arguments of its call.
-type CaseInput<'v> = (&'v [(PyValue, PyValue)], &'v [PyValue]);
+pub(crate) type CaseInput<'v> = (&'v [(PyValue, PyValue)], &'v [PyValue]);
 
 /// A generated case's input read ([`CaseInput`]).
-fn case_input<'v>(key: &str, input: &'v PyValue) -> Result<CaseInput<'v>> {
+pub(crate) fn case_input<'v>(key: &str, input: &'v PyValue) -> Result<CaseInput<'v>> {
     let PyValue::Tuple(items) = input else {
         return error(format!("{key}: the input is not a tuple"));
     };
@@ -873,7 +873,7 @@ fn case_input<'v>(key: &str, input: &'v PyValue) -> Result<CaseInput<'v>> {
 }
 
 /// Write the files a generated case's directory holds first.
-fn hold(directory: &Path, held: &[(PyValue, PyValue)], key: &str) -> Result<()> {
+pub(crate) fn hold(directory: &Path, held: &[(PyValue, PyValue)], key: &str) -> Result<()> {
     for (name, data) in held {
         let (PyValue::Str(name), PyValue::Bytes(data)) = (name, data) else {
             return error(format!("{key}: a file held is not a str named bytes"));
@@ -965,7 +965,7 @@ fn answer_generated(
     error(format!("{key}: not a line the write stage answers"))
 }
 
-/// The `write` stage: when the stage file holds lines from the build's run, run the build through phase 1 ([`through_units`]), then [`triage`], [`passes`] and [`route_classes`] over the corpus directory the build ran in, at the write width `write_threads` gives or else the input's ([`write_fit`]), then the write up to the manifest ([`write_corpus`]), its spill files beside that directory, and answer with the lines `write_lines` writes; then answer each generated line ([`answer_generated`]).
+/// The `write` stage: when the stage file holds lines from the build's run, run the build through the write up to the manifest ([`through_write`]) at the write width `write_threads` gives or else the input's, and answer with the lines `write_lines` writes; then answer each generated line ([`answer_generated`]).
 pub fn stage_write(
     input_path: &Path,
     write_threads: Option<i64>,
@@ -976,64 +976,14 @@ pub fn stage_write(
     if write_threads.is_some() {
         input.widths.write_threads = write_threads;
     }
-    let names = WriteNames::of(&input)?;
     let lines = stage_lines(stage_file)?;
     if lines.ran {
-        through_units(&input, stage_file, "write", |run| {
-            let failure = |failure: BuildError| WireError(format!("the write failed: {failure}"));
-            let emitter = Emitter::open(&input).map_err(failure)?;
-            let settings = CheckSettings::of(&input).map_err(|why| WireError(why.to_string()))?;
-            let triage = triage(
-                &input,
-                &run.classes_present,
-                &mut run.table,
-                &mut run.planned.store,
-            )
-            .map_err(failure)?;
-            let passes = passes(
-                &mut run.table,
-                &mut run.planned.store,
-                &triage,
-                &run.drive,
-                &run.planned.verify_units,
-            )
-            .map_err(failure)?;
-            let routed = route_classes(
-                &run.corpus,
-                &run.table,
-                &run.planned.store,
-                &triage.classes,
-                &triage.sections,
-                &passes.by_class,
-                run.planned.prior_shards.as_ref(),
-                run.planned.cached,
-                write_fit(&input.widths),
-                &names.route,
-            )
-            .map_err(failure)?;
-            let scratch = run
-                .corpus
-                .parent()
-                .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
-            let written = write_corpus(
-                &input,
-                &run.corpus,
-                &scratch,
-                &run.table,
-                &mut run.planned.store,
-                &routed,
-                run.drive.arena(),
-                &emitter,
-                &settings,
-                &names,
-                &Sink::new(None),
-            )
-            .map_err(failure)?;
+        through_write(&input, stage_file, "write", |held| {
             write_lines(
-                &run.corpus,
-                &run.planned.store,
-                &routed,
-                &written,
+                &held.run.corpus,
+                &held.run.planned.store,
+                held.routed,
+                held.written,
                 &lines.units,
                 out,
             )
@@ -1044,6 +994,83 @@ pub fn stage_write(
         stage_line(out, key, &value)?;
     }
     Ok(())
+}
+
+/// What a stage holds once the build has run through the write's commit and the fonts' copies ([`through_write`]): the build through phase 1, the triage and the passes after it, the classes as routed, and what the write left.
+pub(crate) struct WriteHeld<'h, 'a> {
+    pub(crate) run: &'h UnitsRun,
+    pub(crate) triage: &'h Triage,
+    pub(crate) passes: &'h Passes,
+    pub(crate) routed: &'h Routed,
+    pub(crate) written: &'h Written<'a>,
+}
+
+/// Run the build through phase 1 ([`through_units`]), then [`triage`], [`passes`] and [`route_classes`] over the corpus directory the build ran in, at the input's write width ([`write_fit`]), then the write up to the manifest ([`write_corpus`]), its spill files beside that directory, and hand what the build holds then to `then`.
+pub(crate) fn through_write<T>(
+    input: &BuildInput,
+    stage_file: &Path,
+    stage: &str,
+    then: impl FnOnce(WriteHeld<'_, '_>) -> Result<T>,
+) -> Result<T> {
+    let names = WriteNames::of(input)?;
+    through_units(input, stage_file, stage, |run| {
+        let failure = |failure: BuildError| WireError(format!("the write failed: {failure}"));
+        let emitter = Emitter::open(input).map_err(failure)?;
+        let settings = CheckSettings::of(input).map_err(|why| WireError(why.to_string()))?;
+        let triage = triage(
+            input,
+            &run.classes_present,
+            &mut run.table,
+            &mut run.planned.store,
+        )
+        .map_err(failure)?;
+        let passes = passes(
+            &mut run.table,
+            &mut run.planned.store,
+            &triage,
+            &run.drive,
+            &run.planned.verify_units,
+        )
+        .map_err(failure)?;
+        let routed = route_classes(
+            &run.corpus,
+            &run.table,
+            &run.planned.store,
+            &triage.classes,
+            &triage.sections,
+            &passes.by_class,
+            run.planned.prior_shards.as_ref(),
+            run.planned.cached,
+            write_fit(&input.widths),
+            &names.route,
+        )
+        .map_err(failure)?;
+        let scratch = run
+            .corpus
+            .parent()
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf);
+        let written = write_corpus(
+            input,
+            &run.corpus,
+            &scratch,
+            &run.table,
+            &mut run.planned.store,
+            &routed,
+            run.drive.arena(),
+            &emitter,
+            &settings,
+            &names,
+            &Sink::new(None),
+        )
+        .map_err(failure)?;
+        then(WriteHeld {
+            run,
+            triage: &triage,
+            passes: &passes,
+            routed: &routed,
+            written: &written,
+        })
+    })
 }
 
 #[cfg(test)]

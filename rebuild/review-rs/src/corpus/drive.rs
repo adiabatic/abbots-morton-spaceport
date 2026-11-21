@@ -733,10 +733,11 @@ fn units_lines(
     )
 }
 
-/// What a stage holds once the build has run through phase 1 ([`through_units`]): the corpus directory the build runs in, the table, the places in the ledger of the classes the load reached, the ink-signature store as the load left it, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
+/// What a stage holds once the build has run through phase 1 ([`through_units`]): the corpus directory the build runs in, the table, the audit's row count, the places in the ledger of the classes the load reached, the ink-signature store as the load left it, the plan, the units phase's pool with its arena, and the console lines phase 1 printed.
 pub struct UnitsRun {
     pub corpus: PathBuf,
     pub table: UnitTable,
+    pub row_count: usize,
     pub classes_present: Vec<usize>,
     pub signatures: SignatureArrays,
     pub planned: Planned,
@@ -793,6 +794,7 @@ pub fn through_units<T>(
         then(&mut UnitsRun {
             corpus,
             table,
+            row_count: loaded.workload.row_count,
             classes_present: loaded.workload.classes_present,
             signatures: loaded.signatures,
             planned,

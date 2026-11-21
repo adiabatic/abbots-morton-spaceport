@@ -942,7 +942,7 @@ fn str_items(value: &PyValue) -> std::result::Result<Vec<String>, Thrown> {
 }
 
 /// `unit_index.class_shards`: a manifest class entry's shard parts, its `shards` or its one `shard`.
-fn class_shards(meta: &PyValue) -> std::result::Result<Vec<String>, Thrown> {
+pub(crate) fn class_shards(meta: &PyValue) -> std::result::Result<Vec<String>, Thrown> {
     match meta_get(meta, "shards")? {
         None | Some(PyValue::None) => Ok(vec![py_str(meta_item(meta, "shard")?)]),
         Some(shards) => str_items(shards),

@@ -36,6 +36,7 @@ The build's stages (`BUILD_STAGES`):
 - `check-patched` records each fragment the write checks, `check_unit` at `PATCHED` as `build._CorpusCheck.unit` calls it (`_patched_checked`), under `patched:` and a digest of the fragment, as the `fragment` and, as its value, the error list. Its generated lines (`_check_patched_generated`), under `generated:` and the same digest, mutate the smallest patched fragment of each shape (`_patched_shape`), generically over the keys the check reads (`PATCHED_DEPTHS`) and once or more for each predicate (`_patched_extras`), and record the error list, or the class of the exception the check raises, as `{"raised": name}`.
 - `corpus-check` records the write's corpus check (`build._CorpusCheck`) as its checkers run, fed and folded. Each chunk a run checker hands over (`take_facts`) is a line under `chunk:`, the class's id and the units of it fed before: the class record it opened (`class_start`) or None, each unit it was fed (`unit`) with whether the cache supplied it, whether it closed the class (`class_end`), and the ids among its units the checker keeps identities for (`identity_for`), or None when it keeps every unit's; valued the facts it handed over, `_CorpusCheck._FACTS` by name without the underscore (`_check_facts`). Each `finish` of the checker that folds the chunks (`absorb`) is a line under `finish:`, with the chunk keys it absorbed in order and the manifest, valued the facts it folded and the errors `finish` returns. The Rust side feeds the chunks in order to one checker over the build input's settings and folds the named chunks into a fresh one for each finish. Its generated lines (`_corpus_check_generated`) finish each folding again over the manifest with each predicate broken (`_manifest_mutations`), under `generated:finish:`, and run small cases of their own through a run checker and a folding one (`_check_cases`, over `_check_base`), under `generated:case:` with their settings, chunks and manifest, each predicate made to fail, to pass a value Python reads as equal and to raise, a raise valued `{"raised": name}`.
 - `sidecar-lines` records each run of the write's sidecar lines (`build._SidecarLines`) under `run:<n>`: its `open` (`_sidecars_opened`), with whether it copies the previous sidecars forward, valued whether each cursor opened to lines; each top-level `unit` and `cached` call (`_sidecar_unit`, `_sidecar_cached`) under `call:<n>`, with the fragment, or the cached unit's id, stored bytes, inflated length and identity, and the span and place, valued the events the call made in order, each cursor's `take` (`unit_index.LineCursor.take`) with the id and what it returned and each line written to a sidecar (`gzip.GzipFile.write`, `app_index.LocatorBlocks.add`), as lengths and sha256s, beside the run's counts after it; and its `close` (`_sidecars_closed`), valued the counts, the locator blocks' table entries and the digests of the lines each sidecar holds. Fragments, stored bytes and corpora are kept once under their sha256 in `sidecar-lines.blobs/` beside the stage file (`SIDECAR_LINES_BLOBS`). The Rust side replays each run's calls over the dump's prior corpus, or a generated run's own corpus made again from the blobs. Its generated lines (`_sidecar_lines_generated`) replay each build run that copied lines forward over corpora without copy-forward, without either sidecar, with a gap in either, with an index segment and with an index cut short (`_sidecar_variants`); project fragments with each field dropped and set to each kind of value (`generated:line:`); copy lines forward through every seam's edge (`generated:copy:`); take from cursors over sidecars that are missing, empty, not gzip, cut short or followed by other bytes, and over the prior's index as a head, a single file and without its head or its part (`generated:cursor:`); and cut locator rows into blocks across classes and block edges and refuse rows that do not ascend (`generated:locator:`).
+- `manifest` is a boundary stage that records the manifest the write writes, from `build._prune_orphan_shards` as `build._write_corpus` calls it once the manifest is on disk (`_manifest_pruning`): the manifest's bytes, its identity (`unit_index.manifest_identity`), the shards pruned and the files under `units/` then. Its generated lines (`_manifest_generated`, `generated:prune:`) prune corpora of several shapes against manifests in both class forms.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3911,6 +3912,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "app_index.LocatorBlocks.add": ("rebuild.review.app_index", "LocatorBlocks.add"),
     "unit_index.LineCursor.take": ("rebuild.review.unit_index", "LineCursor.take"),
     "build._write_json": ("rebuild.review.build", "_write_json"),
+    "build._prune_orphan_shards": ("rebuild.review.build", "_prune_orphan_shards"),
 }
 
 
@@ -14741,6 +14743,82 @@ def _write_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
             }
 
 
+MANIFEST_STAGE = "manifest"
+# The keys of the `manifest` stage's lines: the manifest's bytes as written, its identity, the shards pruned after it and the files under the corpus's `units/` then.
+MANIFEST_BYTES_KEY = "manifest"
+MANIFEST_IDENTITY_KEY = "identity"
+MANIFEST_PRUNED_KEY = "pruned"
+MANIFEST_UNITS_FILES_KEY = "units-files"
+# The `generated:prune:` cases: the files a corpus holds before `build._prune_orphan_shards` runs over it, and the manifest's classes it runs with. They take no `units/`; kept parts, a part and a class the manifest no longer names, a part named only by its basename under another directory, a hidden part, a staged part, a file of another kind, a name `*.json` matches only case-insensitively, a directory and a nested file `*.json` matches; and a class in the single-`shard` form.
+_PRUNE_CASES: tuple[tuple[dict[str, bytes], list[dict[str, object]]], ...] = (
+    ({"other.txt": b"kept\n"}, [{"id": "a", "shards": ["units/a.json"]}]),
+    (
+        {
+            "units/a.json": b"[]\n",
+            "units/a.000.json": b"[]\n",
+            "units/a.001.json": b"[]\n",
+            "units/a.x000.json": b"[]\n",
+            "units/b.json": b"[]\n",
+            "units/gone.json": b"[]\n",
+            "units/.json": b"[]\n",
+            "units/a.x001.json.partial": b"[]\n",
+            "units/notes.txt": b"kept\n",
+            "units/UPPER.JSON": b"[]\n",
+            "units/d.json/inner.json": b"[]\n",
+            "units/sub/c.json": b"[]\n",
+        },
+        [
+            {"id": "a", "shards": ["units/a.000.json", "units/a.x000.json"]},
+            {"id": "b", "shards": ["elsewhere/b.json"]},
+        ],
+    ),
+    ({"units/b.json": b"[]\n", "units/c.json": b"[]\n"}, [{"id": "b", "shard": "units/b.json"}]),
+)
+
+
+def _manifest_pruning(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`build._prune_orphan_shards` as `build._write_corpus` calls it once the manifest is written, recorded as the `manifest` boundary: the manifest's bytes as the build wrote them, its identity (`unit_index.manifest_identity`), the shards the call pruned and the files under the corpus's `units/` once it has (`_files_held`); a call from anywhere else records nothing."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code is not build._write_corpus.__code__:
+        frame = frame.f_back
+    if frame is None:
+        return None
+    out_dir, manifest = Path(args[0]), args[1]
+    written = (out_dir / "manifest.json").read_bytes()
+    identity = unit_index.manifest_identity(manifest)
+
+    def finish(pruned: object) -> Boundary:
+        return Boundary(
+            0,
+            {},
+            [
+                {"key": MANIFEST_BYTES_KEY, "value": written},
+                {"key": MANIFEST_IDENTITY_KEY, "value": identity},
+                {"key": MANIFEST_PRUNED_KEY, "value": pruned},
+                {"key": MANIFEST_UNITS_FILES_KEY, "value": _files_held(out_dir / "units")},
+            ],
+        )
+
+    return finish
+
+
+def _manifest_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `manifest` stage's generated lines: `build._prune_orphan_shards` over a corpus holding each case of `_PRUNE_CASES`, with a manifest of the case's classes, under `generated:prune:<n>`, valued the names it pruned and the files the corpus holds then (`_files_held`). Each case's input is the files held and the classes."""
+    for index, (files, classes) in enumerate(_PRUNE_CASES):
+        with tempfile.TemporaryDirectory(prefix="manifest-prune-") as scratch:
+            corpus = Path(scratch) / "out"
+            corpus.mkdir()
+            for name, data in files.items():
+                (corpus / name).parent.mkdir(parents=True, exist_ok=True)
+                (corpus / name).write_bytes(data)
+            pruned = build._prune_orphan_shards(corpus, {"classes": classes})
+            yield {
+                "key": f"generated:prune:{index}",
+                "input": (files, classes),
+                "value": (pruned, _files_held(corpus)),
+            }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -15007,6 +15085,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     ),
     WRITE_STAGE: Stage(
         WRITE_STAGE, {"build._write_json": _manifest_writing}, _write_generated, run="build", kind="boundary"
+    ),
+    MANIFEST_STAGE: Stage(
+        MANIFEST_STAGE,
+        {"build._prune_orphan_shards": _manifest_pruning},
+        _manifest_generated,
+        run="build",
+        kind="boundary",
     ),
 }
 
