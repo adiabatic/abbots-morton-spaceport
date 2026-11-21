@@ -1,4 +1,4 @@
-//! The review corpus build's parent, which `rebuild/CORPUS-PARENT-PORT-PLAN.md` moves from `rebuild/review/build.py` into the crate beside the units engine, with `rebuild/review/corpus_exec.py` as its Python half. [`input`] reads the build input that interface writes, [`console`] prints the build's console lines, [`sink`] writes its whole-file outputs as `output_sink` does, [`gzip`] writes and reads its zlib and gzip containers as Python's `zlib` and `gzip` do, [`random`] draws the verification sample as CPython's `random.Random` does, [`rowdelta`] reads and writes the segment format's heads, parts and segments as `row_delta` does, [`audit`] finds the held audit's sections as `audit.audit_layout` does, and [`stream`] walks them a window at a time as `audit_stream.lockstep` does.
+//! The review corpus build's parent, which `rebuild/CORPUS-PARENT-PORT-PLAN.md` moves from `rebuild/review/build.py` into the crate beside the units engine, with `rebuild/review/corpus_exec.py` as its Python half. [`input`] reads the build input that interface writes, [`console`] prints the build's console lines, [`sink`] writes its whole-file outputs as `output_sink` does, [`gzip`] writes and reads its zlib and gzip containers as Python's `zlib` and `gzip` do, [`random`] draws the verification sample as CPython's `random.Random` does, [`rowdelta`] reads and writes the segment format's heads, parts and segments as `row_delta` does, [`audit`] finds the held audit's sections as `audit.audit_layout` does, [`stream`] walks them a window at a time as `audit_stream.lockstep` does, and [`signatures`] loads and writes the ink-signature store as `unit_cache.SignatureArrays` does.
 
 pub mod audit;
 pub mod console;
@@ -6,5 +6,6 @@ pub mod gzip;
 pub mod input;
 pub mod random;
 pub mod rowdelta;
+pub mod signatures;
 pub mod sink;
 pub mod stream;

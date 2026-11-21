@@ -13,6 +13,7 @@ The build's stages (`BUILD_STAGES`):
 - `row-delta-write` records each call the build makes to `row_delta`'s writers and the rules that route them, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `places-between` with the bounds and the count and the places or what it raised; `row-line`, `row-length` and `segment-header` with the row or the header's fields and the line, its length or the header line; `write-part` with the part's name, gzip name, what its target held (`("missing",)` or `("file", sha256)`), its plain bytes, read back from the part it wrote, the cuts its `fill` wrote them in and the rows `fill` returned, `write-segment` with its output, generation, number, what its target held and its rows, read back from the segment it wrote, and `streamed-part`, a gzipped `row_delta.StreamedPart`'s `close`, with its name, header, what its target held and the bytes written past its header, each valued its part's document or what it raised, with what its target and its staging file hold after; `commit` with the head's document, the directory's entries by kind (`_entries`) and what the head's path held, valued the names it removed, the head file and whether the file was kept (its inode and modification time unchanged); `remove-unlisted` and `remove-staging` with their arguments and the directory's entries, valued the names removed; `writes-base`, `fold-due` and `fold-forced` with their arguments, valued the decision; `claim-fold` with the output, the cycle's run, what the claim file in the cycle's directory held and the output this process held its claim for there, valued the claim, the claim file and the holder after; and `with-segment` with the head's and the part's documents and the stamps, valued the head's document. Every file's bytes are kept once under their sha256 in `row-delta-write.blobs/` beside the stage file (`ROW_DELTA_WRITE_BLOBS`). Its generated lines (`_row_delta_write_generated`) cut places at the edges, around each power of 36, past 128 bits and from fractions `int(text, 36)` reads leniently or refuses (`_places_cases`), write parts under every kind of gzip name, past the gzip writer's buffer and with a failing `fill` (`_write_part_cases`), segments with rows out of place order (`_write_segment_cases`) and streamed parts closed and abandoned (`_streamed_cases`), commit heads over directories of listed, unlisted, near-miss, staging, linked and Unicode-digit names (`_part_entries`), decide the fold over segment counts around the cap and the overrun (`_fold_cases`), and claim the fold with no run, this run's claim and another run's (`_claim_cases`, `_claim_state`).
 - `audit-layout` is a boundary stage that records the build's `audit.audit_layout` call (`_layout_found`, hooked where `build` imports it) under `layout`: what it finds, an `audit.AuditLayout` of the sections, the reason or none and the byte the base's rows start at, which the Rust side finds again over the audit its build input names, read through the descriptors it inherits. Its generated lines (`_audit_layout_generated`) are keyed by a digest of their input, the path messages name and each part's blob with its member index, and valued what `audit_layout` finds or `("raised", class, message)` for its `ValueError` and `MemberError`; every part's bytes are kept once under their sha256 in `audit-layout.blobs/` beside the stage file (`AUDIT_LAYOUT_BLOBS`). They cover single files (`_layout_plain_cases`: no header, headers that end in a carriage return, are not UTF-8 or are another, sections in order and out of it, a stray row at each place in a section, rows past several line probes, configurations that are not UTF-8) and audits under a head (`_layout_head_cases`: the mini audit as `oracle.AuditWriter` writes it, a plain base with segments held as gzip members, plain segments, a folded base, then segments and header members made by hand that fail each check).
 - `stream` is a boundary stage that walks the audit again in lockstep (`audit_stream.lockstep`) over the descriptors, sections and family keys of the build's stream (`_stream_walked`, hooked where `build` imports `stream_workload`), a window a unit (`WalkedBoundary`): its record under `value` (`_stream_record`: the window, its rows as the walk yields them, its family lines, whether it holds siblings, each row's signature key as `%016x` and the input key of its lines in order), and how the walk ended under `end`, `("done",)` or `("raised", class, message)` for an `OrderBreak` or a `MemberError`; and, when the build runs its key-only read, that read's `audit_stream.window_ranges` call under `ranges` (`_ranges_split`): its count and each range with its walk, the windows it holds, the sha256 of their `(window, rows)` entries and how it ended (`_walk_digest`). Its generated lines (`_stream_generated`) are keyed by a digest of their input, each part's blob with its member index, the sections `audit.audit_layout` finds over them and the counts `STREAM_SPLITS`, and valued every window's record, how the walk ended, and the ranges each count splits the windows into with each range's walk, or what the split raised; every part's bytes are kept once under their sha256 in `stream.blobs/` beside the stage file (`STREAM_BLOBS`). They walk `audit-layout`'s generated audits that are in sorted sections, the stream's own (`_stream_plain_cases`: windows shared across configurations with and without siblings, every kind of break inside a section, windows that are not canonical, and a section past `audit_stream.READ_BYTES`; `_stream_head_cases`: segments that supersede, remove, revive and add rows, unknown configurations across parts, segment lines of every refused kind, a segment section past `audit_stream.SEGMENT_READ_BYTES`, member sections that break or fail, and a base held as members past a read), and two audits whose last section runs past its part (`_stream_truncated`).
+- `signature-store` records the ink-signature store as the build loads, follows and writes it, each line keyed by its origin, its `form` and a digest of its `input`: `load`, each `unit_cache.SignatureArrays.load` call, with what the store's path held (`("missing",)`, `("directory",)` or `("file", sha256)`) and the stamp's value, valued `("none",)` or `("columns", count, keys, digests, header)` with the sha256 of the keys as 8-byte big-endian words and of the digests (`_store_columns`); `miss-note`, each `unit_cache.signature_miss_note` call, with what the path held and the stamp's value, lines and detail, valued `("note", note)`; `trace`, a store the stage follows from its making (`SignatureArrays()` or a load) through every call on it the stage names (`SIGNATURE_CALLS`, nested calls among them), recorded at each `unchanged`, with its origin and its calls, keys and digests as hex, valued the calls' results and its new lines' count and sha256 (`_store_lines`); and `write`, each `unit_cache.write_signature_arrays` call, on a pooled build's write thread or inline, with the store's trace up to its last `unchanged`, the stamp's header fields (`unit_cache._stamp_header`), the stamps and what the store's path and its staging file held, valued `("written", target, staging)` with what each holds after. Every store's bytes are kept once under their sha256 in `signature-store.blobs/` beside the stage file (`SIGNATURE_STORE_BLOBS`). Its generated lines (`_signature_store_generated`) load stores Python writes, short and past one read of the body, headers of every kind the load drops or passes, bodies of every kind of line it drops and gzip files it reads, drops or raises on (`_signature_load_cases`); note stores missing, unreadable, matching and moved in each of the ways a stamp's lines and detail record (`_signature_note_cases`); trace every call's cases, the merge of hits, misses and late misses and the stamps' `==` (`_signature_traces`); and write stores under a stamp with its lines and a bare value, with stamps and without, stamps that take the header's own keys, a staging file left behind, an empty store and one past the gzip writer's buffer (`_signature_writes`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3757,6 +3758,25 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build.audit_layout": ("rebuild.review.build", "audit_layout"),
     "build.stream_workload": ("rebuild.review.build", "stream_workload"),
     "audit_stream.window_ranges": ("rebuild.review.audit_stream", "window_ranges"),
+    **{
+        f"unit_cache.SignatureArrays.{name}": ("rebuild.review.unit_cache", f"SignatureArrays.{name}")
+        for name in (
+            "__init__",
+            "load",
+            "stamps_hold",
+            "prior_index",
+            "mark_hit",
+            "digest_of",
+            "set_misses",
+            "add_late",
+            "hits",
+            "misses",
+            "unhit",
+            "unchanged",
+        )
+    },
+    "unit_cache.write_signature_arrays": ("rebuild.review.unit_cache", "write_signature_arrays"),
+    "unit_cache.signature_miss_note": ("rebuild.review.unit_cache", "signature_miss_note"),
 }
 
 
@@ -7265,6 +7285,649 @@ def _stream_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
     yield from (line for line in lines if line is not None)
 
 
+SIGNATURE_STORE_STAGE = "signature-store"
+# The `signature-store` stage's directory, beside its stage file, of the stores its lines name by sha256.
+SIGNATURE_STORE_BLOBS = "signature-store.blobs"
+# The blob directory of the build whose `signature-store` stage records, for the length of that build or of its generated lines (`_signature_store_blobs_at`).
+_SIGNATURE_STORE_BLOBS_AT: list[Path] = []
+_SIGNATURE_STORE_LOCK = threading.Lock()
+# The calls on a `unit_cache.SignatureArrays` the stage follows into its trace, each by its method's name.
+SIGNATURE_CALLS = (
+    "stamps_hold",
+    "prior_index",
+    "mark_hit",
+    "digest_of",
+    "set_misses",
+    "add_late",
+    "hits",
+    "misses",
+    "unhit",
+    "unchanged",
+)
+_SIGNATURE_METHODS = {
+    name: inspect.signature(getattr(unit_cache.SignatureArrays, name)) for name in SIGNATURE_CALLS
+}
+_SIGNATURE_INIT = inspect.signature(unit_cache.SignatureArrays.__init__)
+_SIGNATURE_LOAD = inspect.signature(unit_cache.SignatureArrays.load)
+_SIGNATURE_WRITE = inspect.signature(unit_cache.write_signature_arrays)
+_SIGNATURE_MISS_NOTE = inspect.signature(unit_cache.signature_miss_note)
+# The entries past one read of the store's body (`unit_cache._SIGNATURE_READ_LINES`), and past the gzip writer's buffer, which the generated stores reach.
+SIGNATURE_LONG_STORE = 13_000
+SIGNATURE_LONG_WRITE = 7_000
+
+
+@dataclass
+class _SignatureTrace:
+    """A `unit_cache.SignatureArrays` the stage follows: the store, held so that its `id` is not reused while the build runs; what it started from, `("empty",)` or `("load", held, environment)`; the calls made on it in order, each as its name and its arguments (`_signature_call`), beside their results; and the calls up to its last `unchanged`, which the build's write of it starts from."""
+
+    arrays: unit_cache.SignatureArrays
+    origin: tuple
+    ops: list[tuple] = field(default_factory=list)
+    results: list[object] = field(default_factory=list)
+    settled: list[tuple] | None = None
+
+
+# The stores the stage follows, by `id`, for the length of a build (`_signature_store_blobs_at`).
+_SIGNATURE_TRACES: dict[int, _SignatureTrace] = {}
+
+
+@contextlib.contextmanager
+def _signature_store_blobs_at(directory: Path) -> Iterator[None]:
+    _SIGNATURE_STORE_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _SIGNATURE_STORE_BLOBS_AT.pop()
+        with _SIGNATURE_STORE_LOCK:
+            _SIGNATURE_TRACES.clear()
+
+
+def _signature_line(origin: str, form: str, inputs: tuple, value: object) -> dict[str, object]:
+    """One `signature-store` line, keyed by its origin, its form and a digest of its input, with what Python gave as its `value`."""
+    digest = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{origin}:{form}:{digest}", "form": form, "input": inputs, "value": value}
+
+
+def _signature_held(path: Path) -> tuple:
+    """What the store's path holds as a line names it: `("missing",)`, `("directory",)`, or `("file", sha256)` with its bytes kept in the stage's blobs."""
+    if path.is_dir():
+        return ("directory",)
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return ("missing",)
+    with _SIGNATURE_STORE_LOCK:
+        return ("file", _blob_into(_SIGNATURE_STORE_BLOBS_AT[-1], data))
+
+
+def _store_columns(arrays: unit_cache.SignatureArrays | None) -> tuple:
+    """A loaded store as a `load` line's value names it: `("none",)`, or `("columns", count, keys, digests, header)` with the sha256 of the keys as 8-byte big-endian words and of the digests."""
+    if arrays is None:
+        return ("none",)
+    keys = hashlib.sha256(b"".join(key.to_bytes(8, "big") for key in arrays.keys)).hexdigest()
+    return (
+        "columns",
+        len(arrays.keys),
+        keys,
+        hashlib.sha256(bytes(arrays.digests)).hexdigest(),
+        arrays.header,
+    )
+
+
+def _store_lines(arrays: unit_cache.SignatureArrays) -> tuple:
+    """The new store's entry lines (`SignatureArrays.lines`) as `("lines", count, sha256)` over them joined."""
+    lines = list(arrays.lines())
+    return ("lines", len(lines), hashlib.sha256(b"".join(lines)).hexdigest())
+
+
+def _signature_call(name: str, values: Sequence[Any]) -> tuple:
+    """A followed call as a trace names it: the method's name and its arguments, keys and digests as hex."""
+    if name in ("prior_index", "digest_of"):
+        return (name, f"{values[0]:016x}")
+    if name == "mark_hit":
+        return (name, int(values[0]))
+    if name == "set_misses":
+        keys, digests = values
+        return (name, [f"{key:016x}" for key in keys], [str(digest) for digest in digests])
+    if name == "add_late":
+        return (name, f"{values[0]:016x}", bytes(values[1]).hex())
+    if name == "stamps_hold":
+        return (name, list(values[0]), values[1])
+    return (name,)
+
+
+def _signature_result(name: str, result: Any) -> object:
+    return bytes(result).hex() if name == "digest_of" and result is not None else result
+
+
+def _signature_followed(name: str) -> Recorder:
+    """Follow one call on a store the stage follows into its trace; an `unchanged` call, which every build makes before it writes or keeps the store, records the trace so far as a `trace` line, its calls' results and the store's new lines."""
+    method = _SIGNATURE_METHODS[name]
+
+    def record(args: tuple, kwargs: dict) -> Finisher | None:
+        arrays, *values = method.bind(*args, **kwargs).arguments.values()
+        trace = _SIGNATURE_TRACES.get(id(arrays))
+        if trace is None or trace.arrays is not arrays:
+            return None
+        call = _signature_call(name, values)
+
+        def finish(result: object) -> Mapping[str, object] | None:
+            with _SIGNATURE_STORE_LOCK:
+                trace.ops.append(call)
+                trace.results.append(_signature_result(name, result))
+                if name != "unchanged":
+                    return None
+                trace.settled = list(trace.ops)
+                inputs = (trace.origin, list(trace.ops))
+                results = list(trace.results)
+            return _signature_line("run", "trace", inputs, (results, _store_lines(arrays)))
+
+        return finish
+
+    return record
+
+
+def _signatures_made(args: tuple, kwargs: dict) -> Finisher | None:
+    """Follow a store made empty, `SignatureArrays()`; `SignatureArrays.load` makes the others."""
+    bound = _SIGNATURE_INIT.bind(*args, **kwargs)
+    if any(bound.arguments.get(name) is not None for name in ("keys", "digests", "header")):
+        return None
+    arrays = bound.arguments["self"]
+
+    def finish(_result: object) -> None:
+        with _SIGNATURE_STORE_LOCK:
+            _SIGNATURE_TRACES[id(arrays)] = _SignatureTrace(arrays, ("empty",))
+        return None
+
+    return finish
+
+
+def _signatures_loaded(args: tuple, kwargs: dict) -> Finisher:
+    """A `SignatureArrays.load` call, with what the store's path held and the stamp's value, and the columns it loaded; a store it loads is followed from there."""
+    bound = _SIGNATURE_LOAD.bind(*args, **kwargs)
+    held = _signature_held(unit_cache.signature_store_path(bound.arguments["out_dir"]))
+    environment = unit_cache._stamp_value(bound.arguments["environment"])
+
+    def finish(result: object) -> Mapping[str, object]:
+        if isinstance(result, unit_cache.SignatureArrays):
+            with _SIGNATURE_STORE_LOCK:
+                _SIGNATURE_TRACES[id(result)] = _SignatureTrace(result, ("load", held, environment))
+        loaded = result if isinstance(result, unit_cache.SignatureArrays) else None
+        return _signature_line("run", "load", (held, environment), _store_columns(loaded))
+
+    return finish
+
+
+def _stamp_fields(environment: fingerprint.EnvironmentStamp) -> tuple:
+    """A stamp as a `miss-note` line names it: its value, its lines and its detail."""
+    return (
+        environment.value,
+        tuple(environment.lines),
+        tuple((label, tuple(lines)) for label, lines in environment.detail),
+    )
+
+
+def _signature_noted(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.signature_miss_note` call, with what the store's path held and the stamp, and the note it gave."""
+    bound = _SIGNATURE_MISS_NOTE.bind(*args, **kwargs)
+    inputs = (
+        _signature_held(unit_cache.signature_store_path(bound.arguments["out_dir"])),
+        _stamp_fields(bound.arguments["environment"]),
+    )
+    return lambda result: _signature_line("run", "miss-note", inputs, ("note", result))
+
+
+def _signatures_writing(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.write_signature_arrays` call, on a pooled build's write thread or inline: the store's trace up to its last `unchanged`, the stamp's header fields (`unit_cache._stamp_header`), the stamps and what the store's path and its staging file held, with what each holds after."""
+    bound = _SIGNATURE_WRITE.bind(*args, **kwargs)
+    bound.apply_defaults()
+    arrays = bound.arguments["signatures"]
+    with _SIGNATURE_STORE_LOCK:
+        trace = _SIGNATURE_TRACES.get(id(arrays))
+        if trace is None or trace.arrays is not arrays:
+            raise ValueError("the signature-store stage writes a store it did not follow from its making")
+        ops = list(trace.settled if trace.settled is not None else trace.ops)
+    path = unit_cache.signature_store_path(bound.arguments["out_dir"])
+    stamps = bound.arguments["stamps"]
+    inputs = (
+        trace.origin,
+        ops,
+        unit_cache._stamp_header(bound.arguments["environment"]),
+        None if stamps is None else dict(stamps),
+        _signature_held(path),
+        _signature_held(_staging(path)),
+    )
+    return lambda _result: _signature_line(
+        "run", "write", inputs, ("written", _held_after(path), _held_after(_staging(path)))
+    )
+
+
+def _signature_entries(count: int, seed: str) -> list[tuple[int, str]]:
+    """`count` entries, keys ascending, each key and digest drawn from sha256 of the seed and its index."""
+    entries = {
+        int.from_bytes(hashlib.sha256(f"{seed}:{index}".encode()).digest()[:8], "big"): hashlib.sha256(
+            f"{seed}:digest:{index}".encode()
+        ).hexdigest()
+        for index in range(count)
+    }
+    return sorted(entries.items())
+
+
+def _signature_body(entries: Iterable[tuple[int, str]]) -> bytes:
+    return b"".join(f"{key:016x}\t{digest}\n".encode() for key, digest in entries)
+
+
+def _signature_gzip(plain: bytes) -> bytes:
+    return gzip.compress(plain, compresslevel=1, mtime=0)
+
+
+def _signature_header(environment: object = "e", **fields: object) -> bytes:
+    header: dict[str, object] = {"format": unit_cache.SIGNATURE_STORE_FORMAT, "environment": environment}
+    header.update(fields)
+    return (json.dumps(header) + "\n").encode()
+
+
+def _signature_code(count: int, changed: Sequence[int] = (), seed: str = "") -> tuple[str, ...]:
+    """A comparator closure's per-file lines, the files `changed` names carrying other digests."""
+    return tuple(
+        f"rebuild/review/m{index}.py\t{hashlib.sha256(f'{seed if index in changed else ''}{index}'.encode()).hexdigest()}"
+        for index in range(count)
+    )
+
+
+def _signature_environment(
+    code: Sequence[str] | None = None, drop: Sequence[str] = (), **labels: str
+) -> fingerprint.EnvironmentStamp:
+    """An ink-signature store's stamp in `unit_cache.signature_environment`'s shape: its format, the comparator's code over `code`'s lines, the before font and the after font's helpers, with `labels` changed or added and `drop` left out."""
+    code_lines = tuple(_signature_code(6) if code is None else code)
+    values = {
+        "format": unit_cache.SIGNATURE_STORE_FORMAT,
+        "comparator_code": fingerprint.digest_lines(code_lines),
+        "before_font": "b" * 64,
+        "after_helpers": "a" * 64,
+    }
+    values.update(labels)
+    lines = tuple(f"{label}\t{digest}" for label, digest in values.items() if label not in drop)
+    return fingerprint.EnvironmentStamp(lines=lines, detail=(("comparator_code", code_lines),))
+
+
+def _signature_written(
+    scratch: Path,
+    environment: fingerprint.EnvironmentStamp | str,
+    entries: Sequence[tuple[int, str]],
+    stamps: Mapping[str, object] | None = None,
+) -> bytes:
+    """The store Python's writer writes for `entries` under `environment` and `stamps`."""
+    directory = Path(tempfile.mkdtemp(dir=scratch))
+    arrays = unit_cache.SignatureArrays()
+    arrays.set_misses(array("Q", (key for key, _digest in entries)), [digest for _key, digest in entries])
+    unit_cache.write_signature_arrays(directory, environment, arrays, stamps)
+    return unit_cache.signature_store_path(directory).read_bytes()
+
+
+def _signature_place(scratch: Path, data: bytes | str | None) -> Path:
+    """A directory whose store path holds `data`: nothing for None, a directory for `"directory"`, or the bytes."""
+    directory = Path(tempfile.mkdtemp(dir=scratch))
+    path = unit_cache.signature_store_path(directory)
+    if data == "directory":
+        path.mkdir()
+    elif isinstance(data, bytes):
+        path.write_bytes(data)
+    return directory
+
+
+def _signature_raised(error: BaseException) -> tuple:
+    return ("raised", type(error).__name__, str(error))
+
+
+def _invalid_deflate() -> bytes:
+    """A gzip member whose deflate data opens with a block of the reserved type, which `zlib` refuses as `zlib.error`."""
+    return _signature_gzip(b"")[:10] + b"\x07\x00\x00\x00\x00"
+
+
+def _signature_load_cases(scratch: Path) -> Iterator[tuple[bytes | str | None, str]]:
+    """The stores the generated `load` lines read, each with the stamp's value it reads under: stores Python writes, short and past one read; headers of every kind `SignatureArrays.load` drops or passes; bodies of every kind of line it drops; and gzip files it reads, drops or raises on."""
+    small = _signature_entries(5, "small")
+    stamps = {unit_cache.AUDIT_IDENTITY_KEY: [3, 4], unit_cache.FAMILY_KEYS_KEY: "f"}
+    written = _signature_written(scratch, "e", small, stamps)
+    yield written, "e"
+    yield written, "other"
+    yield _signature_written(scratch, _signature_environment(), small), _signature_environment().value
+    yield _signature_written(scratch, "e", _signature_entries(SIGNATURE_LONG_STORE, "long")), "e"
+    yield _signature_written(scratch, "e", []), "e"
+    yield None, "e"
+    yield "directory", "e"
+    body = _signature_body(small)
+    for header in (
+        _signature_header(),
+        _signature_header().rstrip(b"\n"),
+        b"[]\n",
+        b'"e"\n',
+        b"{}\n",
+        _signature_header(format="ams-review-ink-signatures/1"),
+        _signature_header(environment=5),
+        _signature_header(environment=None),
+        b"{\n",
+        b'{"format": "\xff"}\n',
+        b"\n",
+        b"",
+        b"\xef\xbb\xbf" + _signature_header(),
+        b'{"format": "ams-review-ink-signatures/2", "environment": "e", "format": "x"}\n',
+        b'{"environment": "e", "format": "ams-review-ink-signatures/2", "environment": "e"}\n',
+    ):
+        yield _signature_gzip(header), "e"
+        yield _signature_gzip(header + body), "e"
+    header = _signature_header()
+    lines = body.splitlines(keepends=True)
+    bad_bodies = [
+        body.upper(),
+        body[:-1],
+        body + b"x",
+        body + b"\n",
+        body.replace(b"\n", b"\r\n"),
+        lines[0][1:] + b"".join(lines[1:]),
+        lines[1] + lines[0] + b"".join(lines[2:]),
+        lines[0] + lines[0] + b"".join(lines[1:]),
+        lines[0].replace(b"\t", b" ") + b"".join(lines[1:]),
+        b"g" + lines[0][1:] + b"".join(lines[1:]),
+        _signature_body(_signature_entries(unit_cache._SIGNATURE_READ_LINES, "chunk")) + b"x",
+    ]
+    for bad in bad_bodies:
+        yield _signature_gzip(header + bad), "e"
+    whole = _signature_gzip(header + body)
+    yield b"not gzip at all", "e"
+    yield whole[:-5], "e"
+    yield whole[: len(whole) // 2], "e"
+    yield whole + b"\x00" * 7, "e"
+    yield whole + b"garbage", "e"
+    yield _signature_gzip(header) + _signature_gzip(body), "e"
+    yield _invalid_deflate(), "e"
+
+
+def _signature_note_cases(
+    scratch: Path,
+) -> Iterator[tuple[bytes | str | None, fingerprint.EnvironmentStamp]]:
+    """The stores the generated `miss-note` lines read, each with the stamp it reads under: no store, unreadable headers, a matching stamp, and every way a stamp's lines and detail record what moved."""
+    environment = _signature_environment()
+    small = _signature_entries(3, "note")
+    yield None, environment
+    yield "directory", environment
+    yield b"not gzip", environment
+    yield b"", environment
+    yield _signature_gzip(b"[]\n"), environment
+    yield _signature_gzip(b"{\n"), environment
+    yield _invalid_deflate(), environment
+    yield _signature_written(scratch, environment, small), environment
+    moved = (
+        _signature_environment(before_font="c" * 64),
+        _signature_environment(code=_signature_code(6, changed=(2,), seed="x")),
+        _signature_environment(code=_signature_code(6, changed=(0, 1, 2, 3, 4, 5), seed="x")),
+        _signature_environment(code=_signature_code(4)),
+        _signature_environment(code=_signature_code(8, changed=(7,), seed="y")),
+        _signature_environment(drop=("after_helpers",)),
+        _signature_environment(extra="1"),
+        _signature_environment(
+            before_font="c" * 64,
+            after_helpers="d" * 64,
+            **{f"label{index}": str(index) for index in range(9)},
+        ),
+        "e",
+    )
+    for recorded in moved:
+        yield _signature_written(scratch, recorded, small), environment
+    detail = {"comparator_code": list(_signature_code(6, changed=(1,), seed="z"))}
+    lines = list(_signature_environment(before_font="c" * 64, comparator_code="9" * 64).lines)
+    for fields in (
+        {},
+        {"environment_lines": "format\tx"},
+        {"environment_lines": {"format": "x"}},
+        {"environment_lines": [5, None, {"a": 1}, ["x\ty"], True, "plain", "a\tb\tc", "é\t1"]},
+        {"environment_lines": lines},
+        {"environment_lines": lines, "environment_detail": detail},
+        {"environment_lines": lines[:1] + lines[2:], "environment_detail": detail},
+        {"environment_lines": lines, "environment_detail": []},
+        {"environment_lines": lines, "environment_detail": {}},
+        {"environment_lines": lines, "environment_detail": {"comparator_code": "x"}},
+        {"environment_lines": lines, "environment_detail": {"comparator_code": ["notab", 7]}},
+        {"environment_lines": [], "environment_detail": detail},
+    ):
+        yield _signature_gzip(_signature_header(environment="x", **fields)), environment
+
+
+def _signature_traces(scratch: Path) -> Iterator[tuple[bytes | None, str, list[tuple]]]:
+    """The generated traces: each the store it starts from, None for an empty one, the stamp's value it loads under, and its calls, which reach every method's cases: keys at both ends of the range, absent keys between and beyond the prior ones, misses out of order and repeated, late misses repeated and equal to a miss or a prior key, the store left unchanged and changed, and headers whose stamps hold and fail by each of Python's `==` cases."""
+    entries = [(0, "0" * 64), *_signature_entries(4, "trace"), (2**64 - 1, "f" * 64)]
+    keys = [key for key, _digest in entries]
+    store = _signature_written(scratch, "e", entries)
+
+    def word(key: int) -> str:
+        return f"{key:016x}"
+
+    def digest(index: int) -> str:
+        return hashlib.sha256(f"trace-miss:{index}".encode()).hexdigest()
+
+    between = [keys[1] + 1, keys[2] + 1, keys[3] - 1, keys[4] + 1]
+    yield (
+        None,
+        "e",
+        [
+            ("hits",),
+            ("misses",),
+            ("unhit",),
+            ("unchanged",),
+            ("digest_of", word(5)),
+            ("prior_index", word(5)),
+            (
+                "set_misses",
+                [word(9), word(5), word(9), word(7)],
+                [digest(0), digest(1), digest(2), digest(3)],
+            ),
+            ("digest_of", word(9)),
+            ("digest_of", word(7)),
+            ("digest_of", word(6)),
+            ("add_late", word(3), digest(4)),
+            ("add_late", word(3), digest(5)),
+            ("add_late", word(5), digest(6)),
+            ("misses",),
+            ("unchanged",),
+            ("stamps_hold", [], ""),
+        ],
+    )
+    yield (
+        store,
+        "e",
+        [
+            *(("prior_index", word(key)) for key in [*keys, *between]),
+            ("unchanged",),
+            ("digest_of", word(keys[0])),
+            ("digest_of", word(keys[5])),
+            ("digest_of", word(between[0])),
+            ("hits",),
+            ("unhit",),
+            *(("mark_hit", position) for position in range(1, 5)),
+            ("mark_hit", 2),
+            ("hits",),
+            ("unhit",),
+            ("unchanged",),
+            ("set_misses", [], []),
+            ("unchanged",),
+            ("add_late", word(between[1]), digest(7)),
+            ("unchanged",),
+            ("misses",),
+        ],
+    )
+    yield (
+        store,
+        "e",
+        [
+            ("mark_hit", 0),
+            ("mark_hit", 2),
+            ("mark_hit", 5),
+            (
+                "set_misses",
+                [word(between[2]), word(keys[2]), word(keys[1]), word(between[0]), word(keys[4])],
+                [digest(index) for index in range(10, 15)],
+            ),
+            ("add_late", word(between[2]), digest(15)),
+            ("add_late", word(keys[3]), digest(16)),
+            ("add_late", word(between[3]), digest(17)),
+            ("add_late", word(between[3]), digest(18)),
+            ("add_late", word(1), digest(19)),
+            ("digest_of", word(keys[1])),
+            ("digest_of", word(between[2])),
+            ("unchanged",),
+        ],
+    )
+    for identity, family in (
+        ([3, 4], "f"),
+        ([True, 4], "f"),
+        ([[3], 4], "f"),
+        ("3,4", "f"),
+        ([3, 4], 7),
+        (None, "f"),
+        ([3, 4], None),
+    ):
+        fields: dict[str, object] = {}
+        if identity is not None:
+            fields[unit_cache.AUDIT_IDENTITY_KEY] = identity
+        if family is not None:
+            fields[unit_cache.FAMILY_KEYS_KEY] = family
+        data = _signature_gzip(_signature_header(**fields) + _signature_body(entries))
+        yield (
+            data,
+            "e",
+            [
+                ("stamps_hold", [3, 4], "f"),
+                ("stamps_hold", [1, 4], "f"),
+                ("stamps_hold", [3, 4, 5], "f"),
+                ("stamps_hold", [3], "f"),
+                ("stamps_hold", [3, 4], "g"),
+            ],
+        )
+    long = _signature_entries(SIGNATURE_LONG_WRITE, "trace-long")
+    yield (
+        None,
+        "e",
+        [("set_misses", [word(key) for key, _digest in long], [digest for _key, digest in long])],
+    )
+
+
+def _signature_apply(arrays: unit_cache.SignatureArrays, call: tuple) -> object:
+    """Make one trace call on `arrays`, as `_signature_result` records its result."""
+    name, *values = call
+    if name in ("prior_index", "digest_of"):
+        arguments: list[object] = [int(values[0], 16)]
+    elif name == "set_misses":
+        arguments = [array("Q", (int(key, 16) for key in values[0])), values[1]]
+    elif name == "add_late":
+        arguments = [int(values[0], 16), bytes.fromhex(values[1])]
+    else:
+        arguments = list(values)
+    return _signature_result(name, getattr(arrays, name)(*arguments))
+
+
+def _signature_traced(
+    scratch: Path, data: bytes | None, environment: str, calls: Sequence[tuple]
+) -> tuple[unit_cache.SignatureArrays, tuple, list[object]]:
+    """A trace made: its store, loaded from `data` or empty, its origin as a line names it, and its calls' results."""
+    if data is None:
+        arrays: unit_cache.SignatureArrays | None = unit_cache.SignatureArrays()
+        origin: tuple = ("empty",)
+    else:
+        directory = _signature_place(scratch, data)
+        held = _signature_held(unit_cache.signature_store_path(directory))
+        arrays = unit_cache.SignatureArrays.load(directory, environment)
+        origin = ("load", held, environment)
+    assert arrays is not None, "a generated trace starts from a store that loads"
+    return arrays, origin, [_signature_apply(arrays, call) for call in calls]
+
+
+def _signature_writes(
+    scratch: Path,
+) -> Iterator[
+    tuple[
+        bytes | None, list[tuple], fingerprint.EnvironmentStamp | str, dict | None, bytes | None, bytes | None
+    ]
+]:
+    """The generated writes: each a trace's store and calls, the stamp, the stamps, and what the store's path and its staging file hold before: every prior entry hit beside a miss, under a stamp with its lines and one as a bare value, with and without stamps, stamps that take the header's own keys, a staging file left behind, no store before, an empty store, and a store past the gzip writer's buffer."""
+    entries = _signature_entries(6, "write")
+    store = _signature_written(scratch, "e", entries)
+    environment = _signature_environment()
+    stamps = {
+        unit_cache.AUDIT_IDENTITY_KEY: [7, 1_700_000_000_123_456_789],
+        unit_cache.FAMILY_KEYS_KEY: "f" * 64,
+    }
+    hit_all = [("mark_hit", position) for position in range(len(entries))]
+    miss = [("set_misses", ["0000000000000001"], [hashlib.sha256(b"write-miss").hexdigest()])]
+    calls = [*hit_all, *miss, ("unchanged",)]
+    yield store, calls, environment, stamps, store, None
+    yield store, calls, environment, None, None, None
+    yield store, calls, "e", stamps, store, b"left behind"
+    yield store, [*calls[:3], ("add_late", "00000000000000ff", "ab" * 32)], "e", {
+        "environment": "over",
+        "format": "other",
+        "z": 1,
+    }, None, None
+    yield None, [("unchanged",)], environment, stamps, None, None
+    long = _signature_entries(SIGNATURE_LONG_WRITE, "write-long")
+    yield (
+        None,
+        [("set_misses", [f"{key:016x}" for key, _digest in long], [digest for _key, digest in long])],
+        environment,
+        stamps,
+        None,
+        None,
+    )
+
+
+def _signature_store_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `signature-store` stage's generated lines (the module docstring), each made by Python's store over files in a scratch directory under the dump."""
+    with (
+        _signature_store_blobs_at(source.out / SIGNATURE_STORE_BLOBS),
+        tempfile.TemporaryDirectory(prefix="signature-store-", dir=source.out) as held,
+    ):
+        scratch = Path(held)
+        for data, environment in _signature_load_cases(scratch):
+            directory = _signature_place(scratch, data)
+            stored = _signature_held(unit_cache.signature_store_path(directory))
+            try:
+                value = _store_columns(unit_cache.SignatureArrays.load(directory, environment))
+            except zlib.error as error:
+                value = _signature_raised(error)
+            yield _signature_line("generated", "load", (stored, environment), value)
+        for data, stamp in _signature_note_cases(scratch):
+            directory = _signature_place(scratch, data)
+            stored = _signature_held(unit_cache.signature_store_path(directory))
+            try:
+                value = ("note", unit_cache.signature_miss_note(directory, stamp))
+            except zlib.error as error:
+                value = _signature_raised(error)
+            yield _signature_line("generated", "miss-note", (stored, _stamp_fields(stamp)), value)
+        for data, environment, calls in _signature_traces(scratch):
+            arrays, origin, results = _signature_traced(scratch, data, environment, calls)
+            yield _signature_line(
+                "generated", "trace", (origin, list(calls)), (results, _store_lines(arrays))
+            )
+        for data, calls, stamp, stamps, before, staging in _signature_writes(scratch):
+            arrays, origin, _results = _signature_traced(scratch, data, "e", calls)
+            directory = _signature_place(scratch, before)
+            path = unit_cache.signature_store_path(directory)
+            if staging is not None:
+                _staging(path).write_bytes(staging)
+            inputs = (
+                origin,
+                list(calls),
+                unit_cache._stamp_header(stamp),
+                stamps,
+                _signature_held(path),
+                _signature_held(_staging(path)),
+            )
+            unit_cache.write_signature_arrays(directory, stamp, arrays, stamps)
+            yield _signature_line(
+                "generated", "write", inputs, ("written", _held_after(path), _held_after(_staging(path)))
+            )
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -7346,6 +8009,18 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _stream_generated,
         run="build",
         kind="boundary",
+    ),
+    SIGNATURE_STORE_STAGE: Stage(
+        SIGNATURE_STORE_STAGE,
+        {
+            "unit_cache.SignatureArrays.__init__": _signatures_made,
+            "unit_cache.SignatureArrays.load": _signatures_loaded,
+            **{f"unit_cache.SignatureArrays.{name}": _signature_followed(name) for name in SIGNATURE_CALLS},
+            "unit_cache.write_signature_arrays": _signatures_writing,
+            "unit_cache.signature_miss_note": _signature_noted,
+        },
+        _signature_store_generated,
+        run="build",
     ),
 }
 
@@ -7546,6 +8221,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / AUDIT_LAYOUT_BLOBS, ignore_errors=True)
     if any(stage.name == STREAM_STAGE for stage in stages):
         shutil.rmtree(out / STREAM_BLOBS, ignore_errors=True)
+    if any(stage.name == SIGNATURE_STORE_STAGE for stage in stages):
+        shutil.rmtree(out / SIGNATURE_STORE_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -7563,6 +8240,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _container_blobs_at(out / CONTAINER_BLOBS),
                     _row_delta_blobs_at(out / ROW_DELTA_BLOBS),
                     _row_delta_write_blobs_at(out / ROW_DELTA_WRITE_BLOBS),
+                    _signature_store_blobs_at(out / SIGNATURE_STORE_BLOBS),
                 ):
                     _build_here(source, built)
         shutil.rmtree(scratch)
@@ -7625,6 +8303,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _container_blobs_at(built.out / CONTAINER_BLOBS),
                 _row_delta_blobs_at(built.out / ROW_DELTA_BLOBS),
                 _row_delta_write_blobs_at(built.out / ROW_DELTA_WRITE_BLOBS),
+                _signature_store_blobs_at(built.out / SIGNATURE_STORE_BLOBS),
             ):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:
