@@ -548,7 +548,7 @@ Every command runs from the repository root. Shorthands below: `compare S D…` 
 
 ### `row-delta-write`: write parts, segments and heads
 
-- Mirrors: `places_between`, `row_line`, `row_length`, `segment_header`, `write_part`, `write_segment`, `commit`, `remove_unlisted`, `remove_staging`, `writes_base`, `fold_due`, `fold_forced`, `claim_fold`, `with_segment`.
+- Mirrors: `places_between`, `row_line`, `row_length`, `segment_header`, `write_part`, `write_segment`, `StreamedPart` as the units index's segment writer opens it (gzipped), `commit`, `remove_unlisted`, `remove_staging`, `writes_base`, `fold_due`, `fold_forced`, `claim_fold`, `with_segment`.
 - Adds: the writing half of `rowdelta.rs` and the `row-delta-write` stage, whose generated set cuts places at the edges and takes the claim's three cases (no run, this run's claim, another run's).
 - Done when: `compare row-delta-write mini-all` passes.
 

@@ -10,6 +10,7 @@ The build's stages (`BUILD_STAGES`):
 - `json-forms` records each `json.dumps` and `json.loads` call the parent's modules make (`JSON_PARENT_MODULES`, told by the caller's frame, `_json_parents_call`) but for the key-only read's frames to and from its processes (`JSON_PROCESS_FRAMES`), keyed by its origin, its `form` and a digest of its `input`: a write in the form its arguments name (`JSON_DUMPS_FORMS`: `default`, `indent`, `sorted`, `unicode` and `compact`) with the value it writes and, as its `value`, `("text", text)`; a read (`loads`) that returns with the `str` or `bytes` it reads and `("value", value)`. Its generated lines (`_json_forms_generated`) put every form to an edge set (`_json_dumps_edges`) and the reader to texts of each kind (`_json_loads_edges`), with `("refused",)` where Python refuses and where the Rust side refuses what Python stringifies or reads (`_json_dumped_text`, `_json_read`).
 - `sample` records each `build._verification_sample` call (`_verification_sampled`), keyed by its origin, its `form` and a digest of its `input`, as the form `verification` with the `(cached, seed, size)` it draws from and, as its `value`, the id words it draws. Its generated lines (`_sample_generated`) draw from `random.Random` itself, seeded with strings whose key words `Random.seed` cuts differently (`SAMPLE_SEEDS`): `sample` over every `k` from -1 to one past the population, `("refused",)` where it raises, for populations on both sides of each `setsize` step (`_setsize`) and three populations around each step's edge; `getrandbits` at every width to 64; `randbelow` (`_randbelow_with_getrandbits`) at bounds around each word edge (`SAMPLE_BOUNDS`); and `verification` over populations around `VERIFICATION_SAMPLE` and its `setsize`.
 - `row-delta-read` records each `row_delta.read_head`, `open_parts` and `check_segment_header` call the build makes, each read again by the recorder before the call runs, so a refusal is recorded too, keyed by its origin, its `form` and a digest of its `input`: `read-head` with the output and what its head's path holds and, as its `value`, `("none",)`, `("head", document)` (`Head.document`) or `("refused", message)`; `check-segment-header` with the header line, output, generation, number and merge and `("checked",)` or a refusal; and `open-parts` with the head's document, `sha256` and what each part's path holds, and `("opened",)` or a refusal, followed, for a head that opens and merges by place or is the units index's, by a `part-rows` line a part, its kind (`base`, `place` or `key`), output, generation, number and file, and a `merge` line over all of them, by key with each payload's key as `unit_index.index_key` gave it to the merge (`_merge_outcome`), each valued `("rows", count, sha256)` over its rows' typed encodings (`_rows_outcome`) or `("raised", class, message)`. A refusal's text leaves out what `json.loads` raised (`_JSON_DETAIL`). Every part's bytes are kept once under their sha256 in `row-delta-read.blobs/` beside the stage file (`ROW_DELTA_BLOBS`). Its generated lines (`_row_delta_generated`) put heads to every refusal of `parse_head` and `Part.parse` and every value `int` and `str` take leniently (`_head_cases`), header lines to every refusal of `check_segment_header` (`_segment_header_cases`), heads to missing, resized and rehashed parts (`_open_parts_cases`), bases, segments by place and by key to every row, header and gzip refusal (`_part_rows_cases`), merges by place and by key to superseded, revived and out-of-order rows (`_merge_cases`), and parts held as gzip members to every refusal of `row_delta._Inflating`, read as an `inflating` line a buffer of `INFLATE_READ_BYTES` at a time (`_inflating_cases`, `_inflated`).
+- `row-delta-write` records each call the build makes to `row_delta`'s writers and the rules that route them, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `places-between` with the bounds and the count and the places or what it raised; `row-line`, `row-length` and `segment-header` with the row or the header's fields and the line, its length or the header line; `write-part` with the part's name, gzip name, what its target held (`("missing",)` or `("file", sha256)`), its plain bytes, read back from the part it wrote, the cuts its `fill` wrote them in and the rows `fill` returned, `write-segment` with its output, generation, number, what its target held and its rows, read back from the segment it wrote, and `streamed-part`, a gzipped `row_delta.StreamedPart`'s `close`, with its name, header, what its target held and the bytes written past its header, each valued its part's document or what it raised, with what its target and its staging file hold after; `commit` with the head's document, the directory's entries by kind (`_entries`) and what the head's path held, valued the names it removed, the head file and whether the file was kept (its inode and modification time unchanged); `remove-unlisted` and `remove-staging` with their arguments and the directory's entries, valued the names removed; `writes-base`, `fold-due` and `fold-forced` with their arguments, valued the decision; `claim-fold` with the output, the cycle's run, what the claim file in the cycle's directory held and the output this process held its claim for there, valued the claim, the claim file and the holder after; and `with-segment` with the head's and the part's documents and the stamps, valued the head's document. Every file's bytes are kept once under their sha256 in `row-delta-write.blobs/` beside the stage file (`ROW_DELTA_WRITE_BLOBS`). Its generated lines (`_row_delta_write_generated`) cut places at the edges, around each power of 36, past 128 bits and from fractions `int(text, 36)` reads leniently or refuses (`_places_cases`), write parts under every kind of gzip name, past the gzip writer's buffer and with a failing `fill` (`_write_part_cases`), segments with rows out of place order (`_write_segment_cases`) and streamed parts closed and abandoned (`_streamed_cases`), commit heads over directories of listed, unlisted, near-miss, staging, linked and Unicode-digit names (`_part_entries`), decide the fold over segment counts around the cap and the overrun (`_fold_cases`), and claim the fold with no run, this run's claim and another run's (`_claim_cases`, `_claim_state`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3693,6 +3694,26 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "row_delta.read_head": ("rebuild.pipeline.row_delta", "read_head"),
     "row_delta.open_parts": ("rebuild.pipeline.row_delta", "open_parts"),
     "row_delta.check_segment_header": ("rebuild.pipeline.row_delta", "check_segment_header"),
+    **{
+        f"row_delta.{name}": ("rebuild.pipeline.row_delta", name)
+        for name in (
+            "places_between",
+            "row_line",
+            "row_length",
+            "segment_header",
+            "write_part",
+            "write_segment",
+            "StreamedPart.close",
+            "commit",
+            "remove_unlisted",
+            "remove_staging",
+            "writes_base",
+            "fold_due",
+            "fold_forced",
+            "claim_fold",
+            "with_segment",
+        )
+    },
 }
 
 
@@ -5807,6 +5828,784 @@ def _row_delta_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
             yield _row_delta_line("generated", "inflating", inputs, outcome)
 
 
+ROW_DELTA_WRITE_STAGE = "row-delta-write"
+# The `row-delta-write` stage's directory, beside its stage file, of the files its lines name by sha256.
+ROW_DELTA_WRITE_BLOBS = "row-delta-write.blobs"
+# The blob directory of the build whose `row-delta-write` stage records, for the length of that build or of its generated lines (`_row_delta_write_blobs_at`).
+_ROW_DELTA_WRITE_BLOBS_AT: list[Path] = []
+# The writers the `row-delta-write` recorders run themselves, taken before any build wraps them, and the signatures they bind a call's arguments by.
+_PLACES_BETWEEN = row_delta.places_between
+_ROW_LINE = row_delta.row_line
+_ROW_LENGTH = row_delta.row_length
+_SEGMENT_HEADER = row_delta.segment_header
+_WRITES_BASE = row_delta.writes_base
+_FOLD_DUE = row_delta.fold_due
+_FOLD_FORCED = row_delta.fold_forced
+_WRITE_SIGNATURES = {
+    name: inspect.signature(getattr(row_delta, name))
+    for name in (
+        "places_between",
+        "row_line",
+        "row_length",
+        "segment_header",
+        "write_part",
+        "write_segment",
+        "commit",
+        "remove_unlisted",
+        "remove_staging",
+        "writes_base",
+        "fold_due",
+        "fold_forced",
+        "claim_fold",
+        "with_segment",
+    )
+}
+
+
+@contextlib.contextmanager
+def _row_delta_write_blobs_at(directory: Path) -> Iterator[None]:
+    _ROW_DELTA_WRITE_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _ROW_DELTA_WRITE_BLOBS_AT.pop()
+
+
+def _bound(name: str, args: tuple, kwargs: dict) -> dict[str, Any]:
+    bound = _WRITE_SIGNATURES[name].bind(*args, **kwargs)
+    bound.apply_defaults()
+    return dict(bound.arguments)
+
+
+def _write_blob(data: bytes) -> str:
+    return _row_delta_blob(_ROW_DELTA_WRITE_BLOBS_AT[-1], data)
+
+
+def _held_before(path: Path) -> tuple:
+    """What `path` holds before a call, as a line's input names it: `("missing",)`, or `("file", sha256)` with its bytes kept in the stage's blobs."""
+    return _part_held(_ROW_DELTA_WRITE_BLOBS_AT[-1], path)
+
+
+def _held_after(path: Path) -> tuple:
+    """What `path` holds after a call, as a line's value names it: `("missing",)`, or `("file", sha256)`."""
+    try:
+        return ("file", hashlib.sha256(path.read_bytes()).hexdigest())
+    except FileNotFoundError:
+        return ("missing",)
+
+
+def _staging(path: Path) -> Path:
+    return path.with_name(path.name + output_sink.STAGING_SUFFIX)
+
+
+def _identity(path: Path) -> tuple[int, int] | None:
+    """A file's inode and modification time, or None when there is none, which tell a kept file from one put in its place."""
+    try:
+        found = os.stat(path)
+    except FileNotFoundError:
+        return None
+    return found.st_ino, found.st_mtime_ns
+
+
+def _entries(directory: Path) -> tuple[tuple[str, str], ...]:
+    """The entries of `directory` by name, each with its kind: `link`, `dir` or `file`."""
+    return tuple(
+        (path.name, "link" if path.is_symlink() else "dir" if path.is_dir() else "file")
+        for path in sorted(Path(directory).iterdir())
+    )
+
+
+def _row_value(row: row_delta.Row) -> tuple:
+    return (row.op, row.place[0], row.place[1], row.payload)
+
+
+def _lines_of(data: bytes) -> list[bytes]:
+    """`data` cut after each newline, each line keeping its own."""
+    pieces = data.split(b"\n")
+    lines = [piece + b"\n" for piece in pieces[:-1]]
+    if pieces[-1]:
+        lines.append(pieces[-1])
+    return lines
+
+
+def _part_after(part: row_delta.Part, target: Path) -> tuple:
+    return ("part", part.document(), _held_after(target), _held_after(_staging(target)))
+
+
+def _raised_after(error: BaseException, target: Path) -> tuple:
+    return ("raised", type(error).__name__, str(error), _held_after(target), _held_after(_staging(target)))
+
+
+def _places_line(
+    origin: str, low: row_delta.Place | None, high: row_delta.Place | None, count: int
+) -> dict[str, object]:
+    """A `places-between` line: the bounds and the count, and `("places", places)` or what `row_delta.places_between` raised."""
+    try:
+        value: tuple = ("places", tuple(_PLACES_BETWEEN(low, high, count)))
+    except ValueError as error:
+        value = ("raised", type(error).__name__, str(error))
+    return _row_delta_line(origin, "places-between", (low, high, count), value)
+
+
+def _row_line_line(origin: str, row: row_delta.Row) -> dict[str, object]:
+    return _row_delta_line(origin, "row-line", _row_value(row), ("line", _ROW_LINE(row)))
+
+
+def _row_length_line(origin: str, op: bytes, place: row_delta.Place, length: int) -> dict[str, object]:
+    return _row_delta_line(
+        origin, "row-length", (op, place, length), ("length", _ROW_LENGTH(op, place, length))
+    )
+
+
+def _segment_header_line(
+    origin: str, output: str, generation: int, number: int, merge: str
+) -> dict[str, object]:
+    value = ("header", _SEGMENT_HEADER(output, generation, number, merge))
+    return _row_delta_line(origin, "segment-header", (output, generation, number, merge), value)
+
+
+def _decided_line(origin: str, form: str, inputs: tuple, decided: bool) -> dict[str, object]:
+    return _row_delta_line(origin, form, inputs, ("decided", decided))
+
+
+def _segment_line(
+    origin: str, output: str, generation: int, number: int, held: tuple, rows: Sequence[tuple], value: tuple
+) -> dict[str, object]:
+    return _row_delta_line(origin, "write-segment", (output, generation, number, held, tuple(rows)), value)
+
+
+def _removed(names: object) -> tuple[str, ...]:
+    assert isinstance(names, list)
+    return tuple(names)
+
+
+def _commit_before(
+    origin: str, directory: Path, head: row_delta.Head
+) -> Callable[[object], dict[str, object]]:
+    """A `commit` line's input, taken before the commit: the head's document, the directory's entries and what the head's path holds; its finisher takes the names the commit removed and adds what the head's path holds after it and whether the file was kept."""
+    path = row_delta.head_path(directory, head.output)
+    inputs = (head.document(), _entries(directory), _held_before(path))
+    before = _identity(path)
+
+    def finish(removed: object) -> dict[str, object]:
+        kept = before is not None and before == _identity(path)
+        value = ("committed", _removed(removed), _held_after(path), kept)
+        return _row_delta_line(origin, "commit", inputs, value)
+
+    return finish
+
+
+def _removal_before(
+    origin: str, form: str, directory: Path, inputs: tuple
+) -> Callable[[object], dict[str, object]]:
+    """A `remove-unlisted` or `remove-staging` line's input, `inputs` and the directory's entries taken before the call; its finisher takes the names removed."""
+    inputs = (*inputs, _entries(directory))
+
+    def finish(removed: object) -> dict[str, object]:
+        return _row_delta_line(origin, form, inputs, ("removed", _removed(removed)))
+
+    return finish
+
+
+def _claim_before(origin: str, output: str) -> Callable[[object], dict[str, object]]:
+    """A `claim-fold` line's input, taken before the claim: the output, the cycle's run, what the claim file in the cycle's directory holds and the output this process holds its claim for there; its finisher takes whether the output holds the fold and adds the claim file and the process's holder after it."""
+    path = cycle_paths.CYCLE_VAR / cycle_paths.FOLD_CLAIM_NAME
+    inputs = (
+        output,
+        os.environ.get(row_delta.CYCLE_RUN_ENV),
+        _held_before(path),
+        row_delta._process_claims.get(cycle_paths.CYCLE_VAR),
+    )
+
+    def finish(claimed: object) -> dict[str, object]:
+        value = ("claimed", claimed, _held_after(path), row_delta._process_claims.get(cycle_paths.CYCLE_VAR))
+        return _row_delta_line(origin, "claim-fold", inputs, value)
+
+    return finish
+
+
+def _places_cut(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("places_between", args, kwargs)
+    line = _places_line("run", arguments["low"], arguments["high"], arguments["count"])
+    return lambda _result: line
+
+
+def _row_lined(args: tuple, kwargs: dict) -> Finisher:
+    line = _row_line_line("run", _bound("row_line", args, kwargs)["row"])
+    return lambda _result: line
+
+
+def _row_measured(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("row_length", args, kwargs)
+    line = _row_length_line("run", arguments["op"], arguments["place"], arguments["payload_length"])
+    return lambda _result: line
+
+
+def _segment_headed(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("segment_header", args, kwargs)
+    line = _segment_header_line(
+        "run", arguments["output"], arguments["generation"], arguments["number"], arguments["merge"]
+    )
+    return lambda _result: line
+
+
+def _part_written(args: tuple, kwargs: dict) -> Finisher:
+    """A `row_delta.write_part` call: the target's state before it, and, once it returns, its gzip stream's plain bytes read back from the part, as one cut, and the rows its `fill` returned."""
+    arguments = _bound("write_part", args, kwargs)
+    name, gzip_name = arguments["name"], arguments["gzip_name"]
+    target = Path(arguments["directory"]) / name
+    held = _held_before(target)
+
+    def finish(part: object) -> Mapping[str, object]:
+        assert isinstance(part, row_delta.Part)
+        plain = gzip.decompress(target.read_bytes())
+        inputs = (
+            name,
+            gzip_name,
+            held,
+            _write_blob(plain),
+            (len(plain),),
+            (part.rows, part.rows_bytes),
+            None,
+        )
+        return _row_delta_line("run", "write-part", inputs, _part_after(part, target))
+
+    return finish
+
+
+def _segment_written(args: tuple, kwargs: dict) -> Finisher:
+    """A `row_delta.write_segment` call: the target's state before it, and, once it returns, the rows read back from the segment it wrote, past its header line."""
+    arguments = _bound("write_segment", args, kwargs)
+    output, generation, number = arguments["output"], arguments["generation"], arguments["number"]
+    target = Path(arguments["directory"]) / row_delta.segment_name(output, generation, number)
+    held = _held_before(target)
+
+    def finish(part: object) -> Mapping[str, object]:
+        assert isinstance(part, row_delta.Part)
+        rows = []
+        for line in _lines_of(gzip.decompress(target.read_bytes()))[1:]:
+            op, anchor, fraction, payload = line.split(b"\t", 3)
+            rows.append((op, int(anchor), fraction.decode("ascii"), payload))
+        return _segment_line("run", output, generation, number, held, rows, _part_after(part, target))
+
+    return finish
+
+
+def _streamed_line(
+    origin: str, name: str, header: bytes, held: tuple, data: str | None, ending: str, value: tuple
+) -> dict[str, object]:
+    """A `streamed-part` line: the part's name and header, its target's state before it opened, the blob of the bytes written past the header (None when it was never opened) and how it ended, `close` or `abandon`, with its part, none, or `abandoned` and what its target and staging file hold after."""
+    return _row_delta_line(origin, "streamed-part", (name, header, held, data, ending), value)
+
+
+def _streamed_after(target: Path) -> tuple[tuple, tuple]:
+    return _held_after(target), _held_after(_staging(target))
+
+
+def _streamed_closed(args: tuple, _kwargs: dict) -> Finisher | None:
+    """A gzipped `row_delta.StreamedPart`'s `close`: its target's state as it closes, and the bytes it wrote past its header, read back from the part."""
+    part = args[0]
+    if type(part) is not row_delta.StreamedPart or not part._gzipped:
+        return None
+    target = part.directory / part.name
+    held = _held_before(target)
+
+    def finish(result: object) -> Mapping[str, object]:
+        data = None
+        value: tuple = ("none", *_streamed_after(target))
+        if isinstance(result, row_delta.Part):
+            data = _write_blob(gzip.decompress(target.read_bytes())[len(part._header) :])
+            value = ("part", result.document(), *_streamed_after(target))
+        return _streamed_line("run", part.name, part._header, held, data, "close", value)
+
+    return finish
+
+
+def _head_committed(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("commit", args, kwargs)
+    return _commit_before("run", Path(arguments["directory"]), arguments["head"])
+
+
+def _unlisted_removed(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("remove_unlisted", args, kwargs)
+    head = arguments["head"]
+    inputs = (arguments["output"], None if head is None else head.document())
+    return _removal_before("run", "remove-unlisted", Path(arguments["directory"]), inputs)
+
+
+def _staging_removed(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("remove_staging", args, kwargs)
+    inputs = (arguments["output"], arguments["links"])
+    return _removal_before("run", "remove-staging", Path(arguments["directory"]), inputs)
+
+
+def _share_decided(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("writes_base", args, kwargs)
+    inputs = (
+        arguments["segment_rows_bytes"],
+        arguments["base_rows_bytes"],
+        arguments["every_row_rederived"],
+    )
+    line = _decided_line(
+        "run", "writes-base", inputs, _WRITES_BASE(*inputs[:2], every_row_rederived=inputs[2])
+    )
+    return lambda _result: line
+
+
+def _fold_decided(form: str, name: str, decide: Callable[..., bool]) -> Recorder:
+    def record(args: tuple, kwargs: dict) -> Finisher:
+        arguments = _bound(name, args, kwargs)
+        head, cap = arguments["head"], arguments["cap"]
+        line = _decided_line("run", form, (head.document(), cap), decide(head, cap))
+        return lambda _result: line
+
+    return record
+
+
+def _fold_claimed(args: tuple, kwargs: dict) -> Finisher:
+    return _claim_before("run", _bound("claim_fold", args, kwargs)["output"])
+
+
+def _segment_added(args: tuple, kwargs: dict) -> Finisher:
+    arguments = _bound("with_segment", args, kwargs)
+    inputs = (arguments["head"].document(), arguments["part"].document(), arguments["stamps"])
+
+    def finish(head: object) -> Mapping[str, object]:
+        assert isinstance(head, row_delta.Head)
+        return _row_delta_line("run", "with-segment", inputs, ("head", head.document()))
+
+    return finish
+
+
+def _write_head(
+    output: str,
+    generation: int,
+    segments: Sequence[int] = (),
+    *,
+    base_bytes: int = 100,
+    stamps: dict | None = None,
+    merge: str = row_delta.MERGE_PLACE,
+) -> row_delta.Head:
+    """A head of `output` at `generation` whose base holds `base_bytes` row bytes and whose segments hold the row bytes `segments` lists."""
+
+    def part(name: str, rows_bytes: int) -> row_delta.Part:
+        return row_delta.Part(name, rows_bytes + 20, hashlib.sha256(name.encode()).hexdigest(), 3, rows_bytes)
+
+    return row_delta.Head(
+        output,
+        generation,
+        generation + len(segments),
+        {"format": "stamp", "lines": ["a\tb"]} if stamps is None else stamps,
+        part(row_delta.base_name(output, generation), base_bytes),
+        tuple(
+            part(row_delta.segment_name(output, generation, number), rows_bytes)
+            for number, rows_bytes in enumerate(segments, start=1)
+        ),
+        merge,
+    )
+
+
+def _places_cases() -> Iterator[tuple[row_delta.Place | None, row_delta.Place | None, int]]:
+    """The generated `places-between` bounds and counts: no bound, a base row's and a fraction's on either side, the same and adjacent anchors, counts on both sides of each power of 36, fractions past 128 bits, each refusal, and fractions `int(text, 36)` reads leniently or refuses."""
+    long = "1" * 30
+    yield from (
+        (None, None, 0),
+        (None, None, -2),
+        (None, None, 1),
+        (None, None, 2),
+        (None, None, 34),
+        (None, None, 35),
+        (None, None, 36),
+        (None, None, 1294),
+        (None, None, 1295),
+        ((0, ""), (1, ""), 1),
+        ((0, ""), (1, ""), 7),
+        ((0, ""), None, 3),
+        (None, (0, ""), 3),
+        (None, (-1, "5"), 2),
+        ((5, ""), (5, "1"), 1),
+        ((5, ""), (5, "1"), 35),
+        ((5, ""), (5, "1"), 36),
+        ((5, ""), (5, "01"), 2),
+        ((5, "a"), (5, "b"), 1),
+        ((5, "a"), (5, "a1"), 3),
+        ((5, "z"), (5, "zz"), 2),
+        ((5, "zz"), (6, ""), 2),
+        ((5, "zzz"), None, 4),
+        ((-1, "k"), (0, ""), 2),
+        ((-1, ""), (-1, "1"), 1),
+        ((5, long), (5, long[:-1] + "2"), 5),
+        ((5, long), None, 3),
+        ((5, "5"), (5, "5"), 1),
+        ((5, "5"), (5, "4"), 1),
+        ((6, ""), (5, "9"), 1),
+        ((5, "5"), (5, ""), 1),
+        (None, (-1, ""), 2),
+        (None, (-2, "x"), 1),
+        ((5, "1"), (5, "1_"), 1),
+        ((5, "A"), (5, "a"), 1),
+        ((5, "1"), (5, "Z"), 2),
+        ((5, "-1"), (5, "0"), 3),
+        ((5, " 1"), (5, "2"), 1),
+        ((5, "+1"), (5, "2"), 1),
+        ((5, "_1"), None, 1),
+        ((5, "!"), None, 1),
+        ((5, "1"), (5, "1!"), 1),
+        ((5, "٣"), None, 2),
+        ((5, "é"), None, 1),
+        ((5, "1" * 4300), None, 1),
+    )
+
+
+def _row_cases() -> Iterator[row_delta.Row]:
+    """The generated rows: each operation, anchors before the first row and past 32 bits, a fraction of one non-ASCII character, which `row_length` counts as one, and payloads with and without a newline and with tabs."""
+    yield from (
+        row_delta.Row(row_delta.UPSERT, (0, ""), b'{"key": "a"}\n'),
+        row_delta.Row(row_delta.TOMBSTONE, (-1, "a"), b"t\n"),
+        row_delta.Row(row_delta.UPSERT, (2**40, "zz1"), b""),
+        row_delta.Row(row_delta.UPSERT, (3, "é"), b"p\n"),
+        row_delta.Row(row_delta.TOMBSTONE, (7, ""), b"no newline"),
+        row_delta.Row(row_delta.UPSERT, (-12345, "0i"), b"x\ty\n"),
+    )
+
+
+def _write_part_cases() -> (
+    Iterator[tuple[str, str | None, bytes | None, bytes, tuple[int, ...], tuple[int, int], str | None]]
+):
+    """The generated `write-part` calls, each its name, gzip name, the bytes at its target or None, its plain bytes and the cuts its `fill` writes them in, what `fill` returns and the failure it raises after writing, or None: every kind of gzip name, nothing written, writes past the gzip writer's buffer and many small ones, a target replaced, and a `fill` that fails."""
+    rows = b"".join(b'{"key": "%d"}\n' % index for index in range(6))
+    small = b'{"format": "x"}\n' + rows
+    bulk = _container_bulk()[: (1 << 20) + 7]
+    base = row_delta.base_name(unit_cache.STORE_NAME, 3)
+    whole = (len(small),)
+    for gzip_name in (unit_cache._BASE_GZIP_NAME, None, "", "x.gz", "dir/x.ndjson.gz", "Šumava", "café"):
+        yield base, gzip_name, None, small, whole, (6, len(rows)), None
+    yield "part", None, None, b"", (), (0, 0), None
+    yield "part", None, None, b"", (0, 0), (0, 0), None
+    yield "part", None, None, bulk, (10, 600_000, 1, len(bulk) - 600_011), (9, len(bulk)), None
+    small_cuts = (4096,) * (len(bulk) // 4096)
+    yield "part", None, None, bulk, (*small_cuts, len(bulk) - sum(small_cuts)), (9, len(bulk)), None
+    yield "part", None, b"old bytes", small, whole, (1, 2), None
+    yield "part", None, b"old bytes", small, (5, len(small) - 5), (1, 2), "the fill failed"
+    yield "part", None, None, small, whole, (1, 2), "the fill failed"
+
+
+def _write_part_line(
+    scratch: Path,
+    name: str,
+    gzip_name: str | None,
+    held: bytes | None,
+    plain: bytes,
+    cuts: tuple[int, ...],
+    returned: tuple[int, int],
+    failure: str | None,
+) -> dict[str, object]:
+    directory = _case_directory(scratch, {} if held is None else {name: held})
+    target = directory / name
+    inputs = (name, gzip_name, _held_before(target), _write_blob(plain), cuts, returned, failure)
+
+    def fill(stream: row_delta.Sink) -> tuple[int, int]:
+        at = 0
+        for cut in cuts:
+            stream.write(plain[at : at + cut])
+            at += cut
+        if failure is not None:
+            raise ValueError(failure)
+        return returned
+
+    try:
+        part = row_delta.write_part(directory, name, fill, gzip_name=gzip_name)
+    except ValueError as error:
+        return _row_delta_line("generated", "write-part", inputs, _raised_after(error, target))
+    return _row_delta_line("generated", "write-part", inputs, _part_after(part, target))
+
+
+def _write_segment_cases() -> Iterator[tuple[str, int, int, bytes | None, list[row_delta.Row]]]:
+    """The generated `write-segment` calls: rows before the first base row, tombstones, upserts at base places and between them, no row, rows out of place order and at one place twice, a target replaced and left, and a non-ASCII output."""
+    good = [
+        row_delta.Row(row_delta.UPSERT, (-1, "i"), b"first\n"),
+        row_delta.Row(row_delta.TOMBSTONE, (0, ""), b'{"key": "0"}\n'),
+        row_delta.Row(row_delta.UPSERT, (0, "5"), b"after zero\n"),
+        row_delta.Row(row_delta.UPSERT, (2, ""), b"changed\n"),
+        row_delta.Row(row_delta.UPSERT, (2, "a1"), b"after two\n"),
+        row_delta.Row(row_delta.TOMBSTONE, (9, ""), b"gone\n"),
+    ]
+    disordered = [good[3], good[2]]
+    twice = [good[3], row_delta.Row(row_delta.UPSERT, (2, ""), b"again\n")]
+    output = unit_cache.STORE_NAME
+    yield output, 2, 1, None, good
+    yield output, 0, 17, None, good[:1]
+    yield output, 2, 1, None, []
+    yield output, 2, 1, None, disordered
+    yield output, 2, 1, None, twice
+    yield output, 2, 1, b"old bytes", good
+    yield output, 2, 1, b"old bytes", disordered
+    yield "Šumava", 5, 2, None, good
+
+
+def _streamed_cases() -> Iterator[tuple[str, bytes, bytes | None, bytes | None, str]]:
+    """The generated `streamed-part` writers, each its name and header, the bytes at its target or None, what it writes or None, and how it ends: never opened, opened by an empty write, rows, bytes past the gzip writer's buffer, a target replaced, and a part abandoned."""
+    name = row_delta.segment_name(unit_index.INDEX_NAME, 2, 1)
+    header = row_delta.segment_header(unit_index.INDEX_NAME, 2, 1, row_delta.MERGE_KEY)
+    rows = b'+\t{"id": "a"}\n-\t{"id": "b"}\n'
+    yield name, header, None, None, "close"
+    yield name, header, None, b"", "close"
+    yield name, header, None, rows, "close"
+    yield name, header, None, _container_bulk()[: (1 << 20) + 7], "close"
+    yield name, header, b"old bytes", rows, "close"
+    yield name, header, b"old bytes", None, "close"
+    yield "Šumava.0.1.delta", header, None, rows, "close"
+    yield name, header, None, rows, "abandon"
+    yield name, header, b"old bytes", rows, "abandon"
+    yield name, header, None, None, "abandon"
+
+
+def _streamed_generated(
+    scratch: Path, name: str, header: bytes, before: bytes | None, data: bytes | None, ending: str
+) -> dict[str, object]:
+    directory = _case_directory(scratch, {} if before is None else {name: before})
+    target = directory / name
+    held = _held_before(target)
+    part = row_delta.StreamedPart(directory, name, header, gzipped=True)
+    if data is not None:
+        part.write(data)
+    if ending == "close":
+        result = part.close()
+        value: tuple = (
+            ("none", *_streamed_after(target))
+            if result is None
+            else ("part", result.document(), *_streamed_after(target))
+        )
+    else:
+        part.abandon()
+        value = ("abandoned", *_streamed_after(target))
+    digest = None if data is None else _write_blob(data)
+    return _streamed_line("generated", name, header, held, digest, ending, value)
+
+
+def _make_entries(directory: Path, entries: Iterable[tuple[str, str]]) -> None:
+    for name, kind in entries:
+        path = directory / name
+        if kind == "dir":
+            path.mkdir()
+        elif kind == "link":
+            path.symlink_to(os.devnull)
+        else:
+            path.write_bytes(b"")
+
+
+def _part_entries(output: str) -> list[tuple[str, str]]:
+    """The directory entries the generated `commit`, `remove-unlisted` and `remove-staging` lines run over, beside a head at generation 2 with one segment: its parts; other generations' and unlisted segments; names `row_delta._part_pattern` matches with other digits, Unicode ones among them, or does not match; staging files; another output's parts; a link, a plain file and a directory."""
+    names = (
+        "2.base",
+        "2.1.delta",
+        "1.base",
+        "1.3.delta",
+        "2.2.delta",
+        "02.base",
+        "٣.base",
+        "2.0.delta",
+        "x.base",
+        "2.basex",
+        "2.1.deltas",
+        "2.base.partial",
+        "2.1.delta.partial",
+        "2.base.partial.partial",
+        "٣.base.partial",
+        "head.partial",
+        "headx.partial",
+    )
+    entries = [(f"{output}.{name}", "file") for name in names]
+    entries += [
+        (f"{output}.3.base", "link"),
+        (f"{output}.4.base.partial", "link"),
+        ("other.1.base", "file"),
+        ("other.head.partial", "file"),
+        ("manifest.json", "file"),
+        ("units", "dir"),
+    ]
+    return entries
+
+
+def _write_heads() -> Iterator[row_delta.Head]:
+    """The generated heads a commit puts in place, each at generation 2 with one segment: the unit store's, the units index's, one whose output a pattern would read as more than its name, one with nested and non-ASCII stamps, and one whose parts record what they were settled under."""
+    yield _write_head(unit_cache.STORE_NAME, 2, (40,))
+    yield _write_head(unit_index.INDEX_NAME, 2, (40,), merge=row_delta.MERGE_KEY)
+    yield _write_head("a.b+c", 2, (40,))
+    stamps = {"format": "x", "lines": ["a\tb", "é", 'q"'], "parts": {"p": 3}, "flag": True, "none": None}
+    yield _write_head(unit_cache.STORE_NAME, 2, (40,), stamps=stamps)
+    yield row_delta.settled_parts(
+        _write_head(unit_cache.STORE_NAME, 2, (40,)), [("s1", {"qsPea": "k1"}), ("s2", {"qsPea": "k1"})]
+    )
+
+
+def _committed_generated(scratch: Path, head: row_delta.Head, state: str) -> dict[str, object]:
+    directory = _case_directory(scratch, {})
+    _make_entries(directory, _part_entries(head.output))
+    path = row_delta.head_path(directory, head.output)
+    if state == "equal":
+        path.write_text(json.dumps(head.document(), indent=1) + "\n")
+    elif state == "other":
+        path.write_text("{}\n")
+    finish = _commit_before("generated", directory, head)
+    return finish(row_delta.commit(directory, head))
+
+
+def _fold_cases() -> Iterator[row_delta.Head]:
+    """The generated heads the fold's tests read: no segment, segments whose row bytes reach the base's or fall one short, and segment counts on both sides of the cap and of the cap and the overrun."""
+    output = unit_cache.STORE_NAME
+    yield _write_head(output, 2)
+    yield _write_head(output, 2, (100,))
+    yield _write_head(output, 2, (99,))
+    yield _write_head(output, 2, (60, 40))
+    for count in (4, 5, 15, 16, 20, 21, 32, 37):
+        yield _write_head(output, 2, (1,) * count)
+
+
+def _claim_file(run: str, output: str) -> bytes:
+    return (json.dumps({"run": run, "output": output}) + "\n").encode()
+
+
+def _claim_cases() -> Iterator[tuple[str | None, bytes | None, str | None]]:
+    """The generated claims' states, each the cycle's run, the claim file's bytes or None, and the output this process holds its claim for or None: no run with no claim, this output's and another's, and a claim file a process ignores; this run's claim for this output and another, another run's, and claim files that do not read as a claim."""
+    store, index = unit_cache.STORE_NAME, unit_index.INDEX_NAME
+    yield from (
+        (None, None, None),
+        (None, None, store),
+        (None, None, index),
+        ("", None, index),
+        (None, _claim_file("r1", index), None),
+        ("r1", None, None),
+        ("r1", None, index),
+        ("r1", _claim_file("r1", store), None),
+        ("r1", _claim_file("r1", index), None),
+        ("r1", _claim_file("r0", index), None),
+        ("r1", b"not json\n", None),
+        ("r1", b"[]\n", None),
+        ("r1", b"\xff\n", None),
+        ("r1", b'{"run": "r1"}\n', None),
+        ("r1", b'{"run": 1, "output": "x"}\n', None),
+        ("r1", _claim_file("r1", "Šumava"), None),
+        ("Šr", None, None),
+    )
+
+
+@contextlib.contextmanager
+def _claim_state(directory: Path, run: str | None, holder: str | None) -> Iterator[None]:
+    """Hold this process as a pass with `run` (none when None) whose cycle's directory is `directory` and whose claim there this process holds for `holder`, and put everything back on exit."""
+    held_run, held_var = os.environ.get(row_delta.CYCLE_RUN_ENV), cycle_paths.CYCLE_VAR
+    if run is None:
+        os.environ.pop(row_delta.CYCLE_RUN_ENV, None)
+    else:
+        os.environ[row_delta.CYCLE_RUN_ENV] = run
+    cycle_paths.CYCLE_VAR = directory
+    if holder is not None:
+        row_delta._process_claims[directory] = holder
+    try:
+        yield
+    finally:
+        row_delta._process_claims.pop(directory, None)
+        cycle_paths.CYCLE_VAR = held_var
+        if held_run is None:
+            os.environ.pop(row_delta.CYCLE_RUN_ENV, None)
+        else:
+            os.environ[row_delta.CYCLE_RUN_ENV] = held_run
+
+
+def _row_delta_write_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `row-delta-write` stage's generated lines (the module docstring), each made by Python's writers over files in a scratch directory under the dump."""
+    with (
+        _row_delta_write_blobs_at(source.out / ROW_DELTA_WRITE_BLOBS),
+        tempfile.TemporaryDirectory(prefix="row-delta-write-", dir=source.out) as held,
+    ):
+        scratch = Path(held)
+        for low, high, count in _places_cases():
+            yield _places_line("generated", low, high, count)
+        for row in _row_cases():
+            yield _row_line_line("generated", row)
+            yield _row_length_line("generated", row.op, row.place, len(row.payload))
+        for output in (unit_cache.STORE_NAME, unit_index.INDEX_NAME, "Šumava", 'it\'s "q"\n'):
+            for generation, number in ((0, 1), (7, 16), (2**40, 3)):
+                for merge in (row_delta.MERGE_PLACE, row_delta.MERGE_KEY, row_delta.MERGE_PLAIN_KEY):
+                    yield _segment_header_line("generated", output, generation, number, merge)
+        for case in _write_part_cases():
+            yield _write_part_line(scratch, *case)
+        for output, generation, number, before, rows in _write_segment_cases():
+            name = row_delta.segment_name(output, generation, number)
+            directory = _case_directory(scratch, {} if before is None else {name: before})
+            target = directory / name
+            held_value = _held_before(target)
+            try:
+                value = _part_after(
+                    row_delta.write_segment(directory, output, generation, number, rows), target
+                )
+            except ValueError as error:
+                value = _raised_after(error, target)
+            yield _segment_line(
+                "generated", output, generation, number, held_value, [_row_value(row) for row in rows], value
+            )
+        for case in _streamed_cases():
+            yield _streamed_generated(scratch, *case)
+        for head in _write_heads():
+            for state in ("missing", "equal", "other"):
+                yield _committed_generated(scratch, head, state)
+            entries = [*_part_entries(head.output), (row_delta.head_name(head.output), "file")]
+            for listed in (None, head):
+                directory = _case_directory(scratch, {})
+                _make_entries(directory, entries)
+                inputs = (head.output, None if listed is None else listed.document())
+                finish = _removal_before("generated", "remove-unlisted", directory, inputs)
+                yield finish(row_delta.remove_unlisted(directory, head.output, listed))
+            for links in (True, False):
+                directory = _case_directory(scratch, {})
+                _make_entries(directory, entries)
+                finish = _removal_before("generated", "remove-staging", directory, (head.output, links))
+                yield finish(row_delta.remove_staging(directory, head.output, links=links))
+        for inputs in (
+            (0, 0, False),
+            (0, 0, True),
+            (1, 2, False),
+            (1, 1, False),
+            (2, 3, False),
+            (5, 10, False),
+            (6, 10, False),
+            (2**62, 2**63 - 1, False),
+            (-1, -3, False),
+        ):
+            yield _decided_line(
+                "generated", "writes-base", inputs, _WRITES_BASE(*inputs[:2], every_row_rederived=inputs[2])
+            )
+        for head in _fold_cases():
+            for cap in (None, row_delta.AUDIT_SEGMENT_CAP, 15, 0):
+                yield _decided_line("generated", "fold-due", (head.document(), cap), _FOLD_DUE(head, cap))
+                yield _decided_line(
+                    "generated", "fold-forced", (head.document(), cap), _FOLD_FORCED(head, cap)
+                )
+        for run, claim, holder in _claim_cases():
+            for output in (unit_cache.STORE_NAME, unit_index.INDEX_NAME):
+                directory = _case_directory(
+                    scratch, {} if claim is None else {cycle_paths.FOLD_CLAIM_NAME: claim}
+                )
+                with _claim_state(directory, run, holder):
+                    finish = _claim_before("generated", output)
+                    yield finish(row_delta.claim_fold(output))
+        for head in (
+            _write_head(unit_cache.STORE_NAME, 2),
+            _write_head(unit_index.INDEX_NAME, 3, (5, 7), merge=row_delta.MERGE_KEY),
+        ):
+            part = row_delta.Part(
+                row_delta.segment_name(head.output, head.generation, len(head.segments) + 1),
+                9,
+                "0" * 64,
+                2,
+                30,
+            )
+            for stamps in (dict(head.stamps), {"format": "moved", "nested": {"a": [1, None]}}):
+                inputs = (head.document(), part.document(), stamps)
+                result = row_delta.with_segment(head, part, stamps)
+                yield _row_delta_line("generated", "with-segment", inputs, ("head", result.document()))
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -5851,6 +6650,28 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
             "row_delta.check_segment_header": _segment_header_checked,
         },
         _row_delta_generated,
+        run="build",
+    ),
+    ROW_DELTA_WRITE_STAGE: Stage(
+        ROW_DELTA_WRITE_STAGE,
+        {
+            "row_delta.places_between": _places_cut,
+            "row_delta.row_line": _row_lined,
+            "row_delta.row_length": _row_measured,
+            "row_delta.segment_header": _segment_headed,
+            "row_delta.write_part": _part_written,
+            "row_delta.write_segment": _segment_written,
+            "row_delta.StreamedPart.close": _streamed_closed,
+            "row_delta.commit": _head_committed,
+            "row_delta.remove_unlisted": _unlisted_removed,
+            "row_delta.remove_staging": _staging_removed,
+            "row_delta.writes_base": _share_decided,
+            "row_delta.fold_due": _fold_decided("fold-due", "fold_due", _FOLD_DUE),
+            "row_delta.fold_forced": _fold_decided("fold-forced", "fold_forced", _FOLD_FORCED),
+            "row_delta.claim_fold": _fold_claimed,
+            "row_delta.with_segment": _segment_added,
+        },
+        _row_delta_write_generated,
         run="build",
     ),
 }
@@ -6046,6 +6867,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / CONTAINER_BLOBS, ignore_errors=True)
     if any(stage.name == ROW_DELTA_READ_STAGE for stage in stages):
         shutil.rmtree(out / ROW_DELTA_BLOBS, ignore_errors=True)
+    if any(stage.name == ROW_DELTA_WRITE_STAGE for stage in stages):
+        shutil.rmtree(out / ROW_DELTA_WRITE_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -6062,6 +6885,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _sink_blobs_at(out / SINK_BLOBS),
                     _container_blobs_at(out / CONTAINER_BLOBS),
                     _row_delta_blobs_at(out / ROW_DELTA_BLOBS),
+                    _row_delta_write_blobs_at(out / ROW_DELTA_WRITE_BLOBS),
                 ):
                     _build_here(source, built)
         shutil.rmtree(scratch)
@@ -6123,6 +6947,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _sink_blobs_at(built.out / SINK_BLOBS),
                 _container_blobs_at(built.out / CONTAINER_BLOBS),
                 _row_delta_blobs_at(built.out / ROW_DELTA_BLOBS),
+                _row_delta_write_blobs_at(built.out / ROW_DELTA_WRITE_BLOBS),
             ):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:

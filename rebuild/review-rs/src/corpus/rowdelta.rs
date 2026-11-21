@@ -1,21 +1,28 @@
-//! The segment format's readers, `rebuild/pipeline/row_delta.py` as the unit store and the units index read it: a head read and parsed as `parse_head` and `Part.parse` read one, values taken as Python's `int` and `str` take them ([`read_head`], [`parse_head`], [`Head::document`]); every part it lists opened and checked against it ([`open_parts`]); a gzipped base's rows past its header line ([`base_rows`]), a segment's rows after its header is checked ([`check_segment_header`], [`segment_rows`], [`keyed_segment_rows`]), and the parts merged by place and by key as `heapq.merge` streams them ([`merge_placed`], [`merge_keyed`]); and a part held as gzip members inflated and checked member by member ([`part_stream`], [`Inflating`]).
+//! The segment format, `rebuild/pipeline/row_delta.py` as the unit store and the units index read and write it. Its readers: a head read and parsed as `parse_head` and `Part.parse` read one, values taken as Python's `int` and `str` take them ([`read_head`], [`parse_head`], [`Head::document`]); every part it lists opened and checked against it ([`open_parts`]); a gzipped base's rows past its header line ([`base_rows`]), a segment's rows after its header is checked ([`check_segment_header`], [`segment_rows`], [`keyed_segment_rows`]), and the parts merged by place and by key as `heapq.merge` streams them ([`merge_placed`], [`merge_keyed`]); and a part held as gzip members inflated and checked member by member ([`part_stream`], [`Inflating`]).
 //!
 //! Each reader fails as Python's does, with the class and text it raises ([`ReadError`]), and a value Python reads that the reader does not hold (an int beyond 64 bits, or what [`json::unheld`] names) fails as [`ReadError::Unheld`], which no Python path takes. A reader reads a part by position from its start (`pread`, [`PartReader`]), so readers of one opened part never move each other.
 //!
-//! [`stage_row_delta_read`] is the `row-delta-read` stage of the stage fixtures.
+//! Its writers: places cut between two others in exact base-36 arithmetic ([`places_between`]), a segment row's line and its length ([`row_line`], [`row_length`]), a segment's header line ([`segment_header`]); a part written as one gzip stream through the sink's staging file, whole ([`write_part`], [`write_segment`]) or as its writer pushes its rows ([`StreamedPart`]), each counted and hashed as it is written; a head committed and the parts and staging files no head lists removed ([`commit`], [`remove_unlisted`], [`remove_staging`]); and the rules that choose a new base over a segment ([`writes_base`], [`fold_due`], [`fold_forced`], [`FoldClaim`], [`Head::with_segment`]). Each fails as Python's does ([`WriteError`]).
+//!
+//! [`stage_row_delta_read`] and [`stage_row_delta_write`] are the `row-delta-read` and `row-delta-write` stages of the stage fixtures.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, PoisonError};
 
 use ams_m1_kernel::emit::json_string;
 use serde_json::Value;
 use sha2::Digest as _;
 
-use crate::corpus::gzip::{Decompressor, GzipError, GzipReader, bytes_repr};
+use crate::corpus::gzip::{
+    Decompressor, GzipError, GzipReader, GzipWriter, MTIME, PART_LEVEL, bytes_repr,
+};
+use crate::corpus::input::BuildInput;
+use crate::corpus::sink::{Replacing, STAGING_SUFFIX, Sink, staging_path};
 use crate::fragment::sha256_hex;
 use crate::pyfmt::repr::{repr, repr_str};
 use crate::pyfmt::{
@@ -174,8 +181,21 @@ enum NotInt {
     Wide,
 }
 
-/// An int literal as CPython's `PyLong_FromString` reads one at base 10: ASCII whitespace around it, a sign, and digits with single underscores between them. CPython reads only up to the first NUL, so a NUL makes the literal invalid unless what comes before it is already one past [`INT_MAX_STR_DIGITS`].
+/// An int literal at base 10 ([`scan_int`]), refused as [`NotInt::Wide`] beyond 64 bits.
 fn parse_int(text: &[u8]) -> std::result::Result<i64, NotInt> {
+    let (negative, digits) = scan_int(text, 10)?;
+    let mut value: i128 = 0;
+    for digit in digits {
+        if value <= i128::from(i64::MAX) + 1 {
+            value = value * 10 + i128::from(digit);
+        }
+    }
+    let value = if negative { -value } else { value };
+    i64::try_from(value).map_err(|_| NotInt::Wide)
+}
+
+/// An int literal as CPython's `PyLong_FromString` reads one at `radix`, up to 36: ASCII whitespace around it, a sign, and digits (letters past nine either case) with single underscores between them, given as its sign and its digits' values, the most significant first. CPython reads only up to the first NUL, so a NUL makes the literal invalid unless what comes before it is already one past [`INT_MAX_STR_DIGITS`].
+fn scan_int(text: &[u8], radix: u32) -> std::result::Result<(bool, Vec<u8>), NotInt> {
     let (text, nul) = match text.iter().position(|&byte| byte == 0) {
         Some(end) => (&text[..end], true),
         None => (text, false),
@@ -196,21 +216,22 @@ fn parse_int(text: &[u8]) -> std::result::Result<i64, NotInt> {
         }
         _ => false,
     };
-    let mut value: i128 = 0;
-    let mut digits = 0;
+    let digit = |byte: u8| char::from(byte).to_digit(radix);
+    let mut values = Vec::new();
     while let Some(&byte) = text.get(at) {
-        match byte {
-            b'0'..=b'9' => {
-                if value <= i128::from(i64::MAX) + 1 {
-                    value = value * 10 + i128::from(byte - b'0');
-                }
-                digits += 1;
-                at += 1;
-            }
-            b'_' if digits > 0 && text.get(at + 1).is_some_and(u8::is_ascii_digit) => at += 1,
-            _ => break,
+        if let Some(value) = digit(byte) {
+            values.push(value as u8);
+            at += 1;
+        } else if byte == b'_'
+            && !values.is_empty()
+            && text.get(at + 1).is_some_and(|&next| digit(next).is_some())
+        {
+            at += 1;
+        } else {
+            break;
         }
     }
+    let digits = values.len();
     if digits == 0 {
         return Err(NotInt::Invalid);
     }
@@ -226,47 +247,47 @@ fn parse_int(text: &[u8]) -> std::result::Result<i64, NotInt> {
     if nul {
         return Err(NotInt::Invalid);
     }
-    let value = if negative { -value } else { value };
-    i64::try_from(value).map_err(|_| NotInt::Wide)
+    Ok((negative, values))
 }
 
-/// `int(value)` for a value `json.loads` gives: an int, a bool, or a `str` CPython reads at base 10, its other characters' whitespace and decimal digits read as ASCII ones.
+/// A `str` as CPython hands it to `PyLong_FromString`: its other characters' whitespace and decimal digits read as ASCII ones, and every other character as one no literal holds.
+fn ascii_literal(text: &str) -> Vec<u8> {
+    text.chars()
+        .map(|letter| {
+            if letter.is_ascii() {
+                letter as u8
+            } else if is_space(letter) {
+                b' '
+            } else {
+                decimal_value(letter).map_or(b'?', |digit| b'0' + digit as u8)
+            }
+        })
+        .collect()
+}
+
+/// `int(value)` for a value `json.loads` gives: an int, a bool, or a `str` CPython reads at base 10 ([`ascii_literal`]).
 fn py_int(value: &PyValue) -> std::result::Result<i64, Unread> {
     match value {
         PyValue::Int(number) => Ok(*number),
         PyValue::Bool(flag) => Ok(i64::from(*flag)),
-        PyValue::Str(text) => {
-            let ascii: Vec<u8> = text
-                .chars()
-                .map(|letter| {
-                    if letter.is_ascii() {
-                        letter as u8
-                    } else if is_space(letter) {
-                        b' '
-                    } else {
-                        decimal_value(letter).map_or(b'?', |digit| b'0' + digit as u8)
-                    }
-                })
-                .collect();
-            match parse_int(&ascii) {
-                Ok(number) => Ok(number),
-                Err(NotInt::Wide) => Err(Unread::Unheld(format!(
-                    "the int {} does not fit 64 bits",
+        PyValue::Str(text) => match parse_int(&ascii_literal(text)) {
+            Ok(number) => Ok(number),
+            Err(NotInt::Wide) => Err(Unread::Unheld(format!(
+                "the int {} does not fit 64 bits",
+                repr_str(text)
+            ))),
+            Err(NotInt::Long(digits)) => Err(raised("ValueError", int_digits_exceeded(digits))),
+            Err(NotInt::Invalid) => Err(raised(
+                "ValueError",
+                format!(
+                    "invalid literal for int() with base 10: {}",
                     repr_str(text)
-                ))),
-                Err(NotInt::Long(digits)) => Err(raised("ValueError", int_digits_exceeded(digits))),
-                Err(NotInt::Invalid) => Err(raised(
-                    "ValueError",
-                    format!(
-                        "invalid literal for int() with base 10: {}",
-                        repr_str(text)
-                            .chars()
-                            .take(LITERAL_SHOWN)
-                            .collect::<String>()
-                    ),
-                )),
-            }
-        }
+                        .chars()
+                        .take(LITERAL_SHOWN)
+                        .collect::<String>()
+                ),
+            )),
+        },
         other => Err(raised(
             "TypeError",
             format!(
@@ -1549,6 +1570,630 @@ pub fn part_stream<'a>(file: &'a File, part: &Part) -> Box<dyn Read + 'a> {
     }
 }
 
+/// What a writer raises, by the Python class it mirrors: a `ValueError` (segment rows out of place order, no room for places, a fraction `int` does not read at base 36), an `OSError`, or a value Python handles that the writer does not hold, which fails the Rust build and which no Python path takes.
+#[derive(Debug)]
+pub enum WriteError {
+    Value(String),
+    Io(io::Error),
+    Unheld(String),
+}
+
+impl WriteError {
+    /// The class Python raises, by its `__name__`; `Unheld` for what Python handles.
+    pub fn class(&self) -> &'static str {
+        match self {
+            Self::Value(_) => "ValueError",
+            Self::Io(_) => "OSError",
+            Self::Unheld(_) => "Unheld",
+        }
+    }
+
+    pub fn message(&self) -> String {
+        match self {
+            Self::Value(message) | Self::Unheld(message) => message.clone(),
+            Self::Io(failure) => failure.to_string(),
+        }
+    }
+}
+
+impl From<io::Error> for WriteError {
+    fn from(failure: io::Error) -> Self {
+        Self::Io(failure)
+    }
+}
+
+impl std::fmt::Display for WriteError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.class(), self.message())
+    }
+}
+
+impl std::error::Error for WriteError {}
+
+/// A sink that hashes and counts what passes through it into `inner` (`row_delta._Counting`), so a writer learns its part's size and sha256 without reading the part back.
+struct Counting<W: Write> {
+    inner: W,
+    digest: sha2::Sha256,
+    size: u64,
+}
+
+impl<W: Write> Counting<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            digest: sha2::Sha256::new(),
+            size: 0,
+        }
+    }
+
+    /// The sink, and the part named `name` of what passed through, holding `rows` rows of `rows_bytes` bytes.
+    fn part(self, name: &str, rows: i64, rows_bytes: i64) -> (W, Part) {
+        let part = Part {
+            name: name.to_owned(),
+            size: self.size as i64,
+            sha256: hex_digest(self.digest),
+            rows,
+            rows_bytes,
+            settled: None,
+            members: None,
+        };
+        (self.inner, part)
+    }
+}
+
+impl<W: Write> Write for Counting<W> {
+    fn write(&mut self, data: &[u8]) -> io::Result<usize> {
+        let written = self.inner.write(data)?;
+        self.digest.update(&data[..written]);
+        self.size += written as u64;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// `row_delta.write_part`: write one part, `name` under `directory`, through `sink`'s staging file, and return its [`Part`]. `fill` writes the part's rows into a gzip stream at level 1 and mtime 0 and returns the rows and their uncompressed bytes. The gzip header names `gzip_name`, by default the part's own name, never the staging file's; an empty `gzip_name` names no file. A failure in `fill` leaves the target as it was and removes the staging file.
+pub fn write_part<E: From<io::Error>>(
+    sink: &Sink,
+    directory: &Path,
+    name: &str,
+    gzip_name: Option<&str>,
+    fill: impl FnOnce(&mut dyn Write) -> std::result::Result<(i64, i64), E>,
+) -> std::result::Result<Part, E> {
+    let mut written = None;
+    sink.replace_output_with::<E>(&directory.join(name), None, |staging| {
+        let counting = Counting::new(BufWriter::new(File::create(staging)?));
+        let mut stream = GzipWriter::new(counting, gzip_name.unwrap_or(name), PART_LEVEL, MTIME)?;
+        let (rows, rows_bytes) = fill(&mut stream)?;
+        let (mut file, part) = stream.finish()?.part(name, rows, rows_bytes);
+        file.flush()?;
+        written = Some(part);
+        Ok(())
+    })?;
+    Ok(written.expect("a filled part"))
+}
+
+/// `row_delta.row_line`: a segment row as its line, the operation, the place's base row and fraction, and the payload, tab-separated.
+pub fn row_line(row: &Row) -> Vec<u8> {
+    let anchor = row.place.0.to_string();
+    let mut line = Vec::with_capacity(4 + anchor.len() + row.place.1.len() + row.payload.len());
+    line.push(row.op);
+    line.push(b'\t');
+    line.extend_from_slice(anchor.as_bytes());
+    line.push(b'\t');
+    line.extend_from_slice(row.place.1.as_bytes());
+    line.push(b'\t');
+    line.extend_from_slice(&row.payload);
+    line
+}
+
+/// `row_delta.row_length`: the length of a segment row's line from its payload's length, the fraction counted in characters, as `len` counts a `str`.
+pub fn row_length(place: &Place, payload_length: i64) -> i64 {
+    4 + place.0.to_string().len() as i64 + place.1.chars().count() as i64 + payload_length
+}
+
+/// `row_delta.segment_header`: a segment's header line, its format, output, generation and number, and its merge when it does not merge by place, as `json.dumps` writes it.
+pub fn segment_header(output: &str, generation: i64, number: i64, merge: &str) -> Vec<u8> {
+    let mut header = vec![
+        entry("format", PyValue::str(SEGMENT_FORMAT)),
+        entry("output", PyValue::str(output)),
+        entry("generation", PyValue::Int(generation)),
+        entry("segment", PyValue::Int(number)),
+    ];
+    if merge != MERGE_PLACE {
+        header.push(entry("merge", PyValue::str(merge)));
+    }
+    let mut line = json::dumps(&PyValue::Dict(header)).expect("a header of strings and ints");
+    line.push('\n');
+    line.into_bytes()
+}
+
+/// A place as an f-string writes its tuple, or `None`.
+fn place_text(place: Option<&Place>) -> String {
+    place.map_or_else(
+        || "None".to_owned(),
+        |(anchor, fraction)| format!("({anchor}, {})", repr_str(fraction)),
+    )
+}
+
+/// `row_delta.write_segment`: write segment `number` of `generation` from `rows`, which must arrive in place order, one row a place, and return its [`Part`].
+pub fn write_segment(
+    sink: &Sink,
+    directory: &Path,
+    output: &str,
+    generation: i64,
+    number: i64,
+    rows: impl IntoIterator<Item = Row>,
+) -> std::result::Result<Part, WriteError> {
+    let name = segment_name(output, generation, number);
+    write_part(sink, directory, &name, None, |stream| {
+        stream.write_all(&segment_header(output, generation, number, MERGE_PLACE))?;
+        let (mut count, mut total) = (0, 0);
+        let mut previous: Option<Place> = None;
+        for row in rows {
+            if let Some(previous) = &previous
+                && row.place <= *previous
+            {
+                return Err(WriteError::Value(format!(
+                    "segment rows arrive out of place order: {} after {}",
+                    place_text(Some(&row.place)),
+                    place_text(Some(previous))
+                )));
+            }
+            let line = row_line(&row);
+            stream.write_all(&line)?;
+            count += 1;
+            total += line.len() as i64;
+            previous = Some(row.place);
+        }
+        Ok((count, total))
+    })
+}
+
+/// One part written as its writer pushes its rows over a span of its own (`row_delta.StreamedPart` gzipped, the form the units index's segment takes), under its final name, which no head lists until the writer's commit: opened at the first [`StreamedPart::write`] through [`Sink::replacing`], so a part no row reaches is never made, with its header written first through a gzip stream at level 1 and mtime 0 naming the part. [`StreamedPart::close`] returns its [`Part`], or None when nothing was written; dropping it unclosed abandons it, removing its staging file. `rows` and `rows_bytes` count what follows the header.
+pub struct StreamedPart {
+    sink: Sink,
+    directory: PathBuf,
+    name: String,
+    header: Vec<u8>,
+    stream: Option<GzipWriter<Counting<Replacing>>>,
+    pub rows: i64,
+    pub rows_bytes: i64,
+}
+
+impl StreamedPart {
+    pub fn new(sink: &Sink, directory: &Path, name: &str, header: Vec<u8>) -> Self {
+        Self {
+            sink: sink.clone(),
+            directory: directory.to_owned(),
+            name: name.to_owned(),
+            header,
+            stream: None,
+            rows: 0,
+            rows_bytes: 0,
+        }
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> io::Result<()> {
+        let stream = match &mut self.stream {
+            Some(stream) => stream,
+            None => {
+                let replacing = self.sink.replacing(&self.directory.join(&self.name))?;
+                let mut stream =
+                    GzipWriter::new(Counting::new(replacing), &self.name, PART_LEVEL, MTIME)?;
+                stream.write_all(&self.header)?;
+                self.stream.insert(stream)
+            }
+        };
+        stream.write_all(data)?;
+        self.rows += data.iter().filter(|&&byte| byte == b'\n').count() as i64;
+        self.rows_bytes += data.len() as i64;
+        Ok(())
+    }
+
+    /// Put the part in place and return it, or None when nothing was written.
+    pub fn close(mut self) -> io::Result<Option<Part>> {
+        let Some(stream) = self.stream.take() else {
+            return Ok(None);
+        };
+        let (replacing, part) = stream
+            .finish()?
+            .part(&self.name, self.rows, self.rows_bytes);
+        replacing.finish()?;
+        Ok(Some(part))
+    }
+}
+
+/// A whole number in base 36, its digits least significant first, with no zero at the top: zero has none.
+type Base36 = Vec<u8>;
+
+const DIGITS36: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+/// The base-36 digits of a run's length `places_between` spreads its fractions by, kept modulo `36 ** 8`, as `_digits(count + 1, 8)` keeps them.
+const COUNT_DIGITS: u32 = 8;
+
+fn trimmed(mut digits: Base36) -> Base36 {
+    while digits.last() == Some(&0) {
+        digits.pop();
+    }
+    digits
+}
+
+fn compare36(left: &[u8], right: &[u8]) -> std::cmp::Ordering {
+    left.len()
+        .cmp(&right.len())
+        .then_with(|| left.iter().rev().cmp(right.iter().rev()))
+}
+
+fn add36(left: &[u8], right: &[u8]) -> Base36 {
+    let mut sum = Vec::with_capacity(left.len().max(right.len()) + 1);
+    let mut carry = 0;
+    for at in 0..left.len().max(right.len()) {
+        let total =
+            left.get(at).copied().unwrap_or(0) + right.get(at).copied().unwrap_or(0) + carry;
+        sum.push(total % 36);
+        carry = total / 36;
+    }
+    sum.push(carry);
+    trimmed(sum)
+}
+
+/// `left - right` for `left` at least `right`.
+fn subtract36(left: &[u8], right: &[u8]) -> Base36 {
+    let mut difference = Vec::with_capacity(left.len());
+    let mut borrow = 0;
+    for (at, &digit) in left.iter().enumerate() {
+        let taken = right.get(at).copied().unwrap_or(0) + borrow;
+        if digit >= taken {
+            difference.push(digit - taken);
+            borrow = 0;
+        } else {
+            difference.push(digit + 36 - taken);
+            borrow = 1;
+        }
+    }
+    trimmed(difference)
+}
+
+fn divide36(dividend: &[u8], divisor: u64) -> Base36 {
+    let mut quotient = vec![0; dividend.len()];
+    let mut remainder: u128 = 0;
+    for at in (0..dividend.len()).rev() {
+        remainder = remainder * 36 + u128::from(dividend[at]);
+        quotient[at] = (remainder / u128::from(divisor)) as u8;
+        remainder %= u128::from(divisor);
+    }
+    trimmed(quotient)
+}
+
+/// A signed whole number in base 36; zero is never negative.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Signed {
+    negative: bool,
+    magnitude: Base36,
+}
+
+impl Signed {
+    fn new(negative: bool, magnitude: Base36) -> Self {
+        let magnitude = trimmed(magnitude);
+        Self {
+            negative: negative && !magnitude.is_empty(),
+            magnitude,
+        }
+    }
+
+    fn negated(&self) -> Self {
+        Self::new(!self.negative, self.magnitude.clone())
+    }
+
+    fn plus(&self, other: &Self) -> Self {
+        if self.negative == other.negative {
+            return Self::new(self.negative, add36(&self.magnitude, &other.magnitude));
+        }
+        match compare36(&self.magnitude, &other.magnitude) {
+            std::cmp::Ordering::Less => Self::new(
+                other.negative,
+                subtract36(&other.magnitude, &self.magnitude),
+            ),
+            _ => Self::new(self.negative, subtract36(&self.magnitude, &other.magnitude)),
+        }
+    }
+
+    /// `row_delta._digits(value, width)`: the value modulo `36 ** width` as `width` base-36 digits, the most significant first.
+    fn digits(&self, width: usize) -> String {
+        let mut low: Vec<u8> = (0..width)
+            .map(|at| self.magnitude.get(at).copied().unwrap_or(0))
+            .collect();
+        if self.negative && low.iter().any(|&digit| digit != 0) {
+            for digit in &mut low {
+                *digit = 35 - *digit;
+            }
+            for digit in &mut low {
+                if *digit == 35 {
+                    *digit = 0;
+                } else {
+                    *digit += 1;
+                    break;
+                }
+            }
+        }
+        low.iter()
+            .rev()
+            .map(|&digit| char::from(DIGITS36[usize::from(digit)]))
+            .collect()
+    }
+}
+
+/// `int(text, 36)` for a `str` ([`ascii_literal`], [`scan_int`]), refused with CPython's text.
+fn base36_int(text: &str) -> std::result::Result<Signed, WriteError> {
+    match scan_int(&ascii_literal(text), 36) {
+        Ok((negative, digits)) => Ok(Signed::new(negative, digits.into_iter().rev().collect())),
+        Err(NotInt::Long(digits)) => Err(WriteError::Value(int_digits_exceeded(digits))),
+        Err(_) => Err(WriteError::Value(format!(
+            "invalid literal for int() with base 36: {}",
+            repr_str(text)
+                .chars()
+                .take(LITERAL_SHOWN)
+                .collect::<String>()
+        ))),
+    }
+}
+
+/// `row_delta.places_between`: `count` places strictly between `low` and `high`, ascending, `low` None before the first base row and `high` None after the last. A fraction is base-36 digits read as a fraction with no trailing zero, read from its text as `int(text, 36)` reads it, and the fractions are spaced evenly over the gap, so a run of rows takes fractions a few digits longer than its bounds'. The arithmetic is exact at any width.
+pub fn places_between(
+    low: Option<&Place>,
+    high: Option<&Place>,
+    count: i64,
+) -> std::result::Result<Vec<Place>, WriteError> {
+    if count <= 0 {
+        return Ok(Vec::new());
+    }
+    let (anchor, below) = low.map_or((-1, ""), |(anchor, fraction)| (*anchor, fraction.as_str()));
+    let above = high
+        .filter(|(at, _)| *at == anchor)
+        .map(|(_, fraction)| fraction.as_str());
+    if let Some((at, fraction)) = high
+        && (*at, fraction.as_str()) <= (anchor, below)
+    {
+        return Err(WriteError::Value(format!(
+            "no place lies between {} and {}",
+            place_text(low),
+            place_text(high)
+        )));
+    }
+    let mut spread = (count as u128 + 1) % 36u128.pow(COUNT_DIGITS);
+    let mut spread_digits = 0;
+    while spread > 0 {
+        spread /= 36;
+        spread_digits += 1;
+    }
+    let width = below
+        .chars()
+        .count()
+        .max(above.map_or(0, |above| above.chars().count()))
+        + spread_digits
+        + 1;
+    let padded = |text: &str| format!("{text}{}", "0".repeat(width - text.chars().count()));
+    let floor = if below.is_empty() {
+        Signed::new(false, Vec::new())
+    } else {
+        base36_int(&padded(below))?
+    };
+    let ceiling = match above {
+        Some(above) => base36_int(&padded(above))?,
+        None => {
+            let mut power = vec![0; width];
+            power.push(1);
+            Signed::new(false, power)
+        }
+    };
+    let gap = ceiling.plus(&floor.negated());
+    let step = if gap.negative {
+        Vec::new()
+    } else {
+        divide36(&gap.magnitude, count as u64 + 1)
+    };
+    if step.is_empty() {
+        return Err(WriteError::Value(format!(
+            "no room for {count} places between {} and {}",
+            place_text(low),
+            place_text(high)
+        )));
+    }
+    let step = Signed::new(false, step);
+    let mut value = floor;
+    let mut places = Vec::new();
+    for _ in 0..count {
+        value = value.plus(&step);
+        let digits = value.digits(width);
+        places.push((anchor, digits.trim_end_matches('0').to_owned()));
+    }
+    Ok(places)
+}
+
+/// `row_delta.writes_base`, the share rule: whether a writer writes a new base instead of its segment.
+pub fn writes_base(
+    segment_rows_bytes: i64,
+    base_rows_bytes: i64,
+    every_row_rederived: bool,
+) -> bool {
+    every_row_rederived || 2 * i128::from(segment_rows_bytes) > i128::from(base_rows_bytes)
+}
+
+/// `row_delta.fold_due`: whether the writer that finds `head` writes the materialized form as the next generation's base, once it holds the pass's fold. `cap` is the output's segment cap, `SEGMENT_CAP` unless the output names another.
+pub fn fold_due(head: &Head, cap: i64) -> bool {
+    let segment_rows_bytes: i128 = head
+        .segments
+        .iter()
+        .map(|part| i128::from(part.rows_bytes))
+        .sum();
+    !head.segments.is_empty()
+        && (segment_rows_bytes >= i128::from(head.base.rows_bytes)
+            || head.segments.len() as i128 >= i128::from(cap))
+}
+
+/// `row_delta.fold_forced`: whether `head` lists `overrun` (`FOLD_OVERRUN`) segments past its cap, so its writer folds whether or not another output holds the pass's fold.
+pub fn fold_forced(head: &Head, cap: i64, overrun: i64) -> bool {
+    head.segments.len() as i128 >= i128::from(cap) + i128::from(overrun)
+}
+
+impl Head {
+    /// `row_delta.with_segment`: this head with `part` as its next segment, its stamps replaced and its content moved.
+    pub fn with_segment(&self, part: Part, stamps: PyValue) -> Self {
+        let mut head = self.clone();
+        head.stamps = stamps;
+        head.segments.push(part);
+        head.content += 1;
+        head
+    }
+}
+
+/// The pass's one fold (`row_delta.claim_fold`): under a cycle's run, the claim file in the cycle's directory, holding the run and the output that holds the fold, a claim another run left counting as none; outside a cycle, this process's own claim.
+#[derive(Debug)]
+pub struct FoldClaim {
+    run: Option<String>,
+    file: PathBuf,
+    holder: Mutex<Option<String>>,
+}
+
+impl FoldClaim {
+    /// The claim of the cycle's `run`, if any, whose claim file is `file`.
+    pub fn new(run: Option<String>, file: PathBuf) -> Self {
+        Self {
+            run,
+            file,
+            holder: Mutex::new(None),
+        }
+    }
+
+    /// Claim the pass's one fold for `output` and return whether `output` holds it: true when no other output claimed it this pass, or `output` did, and false when another did.
+    pub fn claim(&self, sink: &Sink, output: &str) -> std::result::Result<bool, WriteError> {
+        let Some(run) = self.run.as_deref().filter(|run| !run.is_empty()) else {
+            let mut holder = self.holder.lock().unwrap_or_else(PoisonError::into_inner);
+            return Ok(holder.get_or_insert_with(|| output.to_owned()) == output);
+        };
+        let held = match std::fs::read(&self.file) {
+            Ok(raw) => match json::loads_bytes(&raw) {
+                Ok(held) => Some(held),
+                Err(failure) if json::unheld(&failure) => {
+                    return Err(WriteError::Unheld(failure.0));
+                }
+                Err(_) => None,
+            },
+            Err(failure) if failure.kind() == io::ErrorKind::NotFound => None,
+            Err(failure) => return Err(failure.into()),
+        };
+        if let Some(PyValue::Dict(entries)) = &held
+            && is_str(get(entries, "run"), run)
+        {
+            return Ok(is_str(get(entries, "output"), output));
+        }
+        let claim = PyValue::Dict(vec![
+            entry("run", PyValue::str(run)),
+            entry("output", PyValue::str(output)),
+        ]);
+        let mut text = json::dumps(&claim).expect("a claim of strings");
+        text.push('\n');
+        sink.replace_output(&self.file, text.as_bytes(), false)?;
+        Ok(true)
+    }
+}
+
+/// `text` past a run of one or more decimal digits, as a `str` pattern's `\d+` matches them, or None when it does not start with one.
+fn past_digits(text: &str) -> Option<&str> {
+    let rest = text.trim_start_matches(|letter| decimal_value(letter).is_some());
+    (rest.len() < text.len()).then_some(rest)
+}
+
+/// Whether `name` is a base or segment name of `output`, `<output>.<gen>.base` or `<output>.<gen>.<n>.delta`, as `row_delta._part_pattern` matches it whole.
+fn is_part_name(name: &str, output: &str) -> bool {
+    let Some(rest) = name
+        .strip_prefix(output)
+        .and_then(|rest| rest.strip_prefix('.'))
+        .and_then(past_digits)
+        .and_then(|rest| rest.strip_prefix('.'))
+    else {
+        return false;
+    };
+    rest == "base" || past_digits(rest) == Some(".delta")
+}
+
+/// `row_delta.remove_matching`: delete every file under `directory` whose name `matches` and `listed` does not hold, in name order, and return their names; with `links` false, a symbolic link is left where it is.
+fn remove_matching(
+    directory: &Path,
+    matches: impl Fn(&str) -> bool,
+    listed: &[&str],
+    links: bool,
+) -> io::Result<Vec<String>> {
+    let mut names = Vec::new();
+    for found in std::fs::read_dir(directory)? {
+        if let Ok(name) = found?.file_name().into_string() {
+            names.push(name);
+        }
+    }
+    names.sort();
+    let mut removed = Vec::new();
+    for name in names {
+        if !matches(&name) || listed.contains(&name.as_str()) {
+            continue;
+        }
+        let path = directory.join(&name);
+        if !links
+            && path
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.file_type().is_symlink())
+        {
+            continue;
+        }
+        match std::fs::remove_file(&path) {
+            Err(failure) if failure.kind() != io::ErrorKind::NotFound => return Err(failure),
+            _ => {}
+        }
+        removed.push(name);
+    }
+    Ok(removed)
+}
+
+/// `row_delta.remove_unlisted`: delete every base and segment of `output` under `directory` that `head` does not list (all of them when `head` is None) and return their names.
+pub fn remove_unlisted(
+    directory: &Path,
+    output: &str,
+    head: Option<&Head>,
+) -> io::Result<Vec<String>> {
+    let listed: Vec<&str> = head.map_or_else(Vec::new, |head| {
+        head.parts().map(|part| part.name.as_str()).collect()
+    });
+    remove_matching(directory, |name| is_part_name(name, output), &listed, true)
+}
+
+/// `row_delta.remove_staging`: delete every staging file of `output`'s parts and head under `directory` and return their names; with `links` false, a symbolic link at a staging name is left.
+pub fn remove_staging(directory: &Path, output: &str, links: bool) -> io::Result<Vec<String>> {
+    let head = head_name(output);
+    remove_matching(
+        directory,
+        |name| {
+            name.strip_suffix(STAGING_SUFFIX)
+                .is_some_and(|stem| is_part_name(stem, output) || stem == head)
+        },
+        &[],
+        links,
+    )
+}
+
+/// `row_delta.commit`: put `head` in place, written as `json.dumps(document, indent=1)` and a newline and kept when the file already holds it, the commit point, then delete the parts it does not list. Returns the names deleted.
+pub fn commit(
+    sink: &Sink,
+    directory: &Path,
+    head: &Head,
+) -> std::result::Result<Vec<String>, WriteError> {
+    let mut text =
+        json::dumps_indent(&head.document()).map_err(|failure| WriteError::Unheld(failure.0))?;
+    text.push('\n');
+    sink.replace_output(&head_path(directory, &head.output), text.as_bytes(), true)?;
+    Ok(remove_unlisted(directory, &head.output, Some(head))?)
+}
+
 fn hex_digest(digest: sha2::Sha256) -> String {
     digest
         .finalize()
@@ -1943,7 +2588,21 @@ fn answer(record: &Value, key: &str, workspace: &mut Workspace) -> Result<PyValu
 
 /// The `row-delta-read` stage: for each line of `stage_file`, set up the files its input names, from the bytes it holds or the blobs it names by sha256 in [`STAGE_BLOBS`] beside the stage file, in a scratch directory, read them again by its `form`, and write one `{"key", "value"}` line in the typed encoding: `read-head` reads a head ([`read_head`]) to `("none",)`, `("head", document)` or `("refused", message)`; `check-segment-header` checks a header line ([`check_segment_header`]) to `("checked",)` or a refusal; `open-parts` opens a head's parts ([`open_parts`]) to `("opened",)` or a refusal; `part-rows` reads one part's rows by its kind (`base`, `place` or `key`) and `merge` merges a base and its segments by place or by key, the payloads' keys looked up in the line, each to `("rows", count, sha256)` over its items' typed encodings or `("raised", class, message)`; and `inflating` reads a part held as gzip members ([`Inflating`]) a buffer of [`INFLATE_READ_BYTES`] at a time to `("bytes", sha256, length)` or what it raised.
 pub fn stage_row_delta_read(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let scratch = std::env::temp_dir().join(format!("ams-review-row-delta-{}", std::process::id()));
+    answer_stage(stage_file, STAGE_BLOBS, "read", out, answer)
+}
+
+/// Answer every line of `stage_file` with `answer` over a [`Workspace`] whose blobs are the directory `blobs` beside the stage file and whose scratch is a directory of its own, removed when the stage ends.
+fn answer_stage(
+    stage_file: &Path,
+    blobs: &str,
+    label: &str,
+    out: &mut impl Write,
+    mut answer: impl FnMut(&Value, &str, &mut Workspace) -> Result<PyValue>,
+) -> Result<()> {
+    let scratch = std::env::temp_dir().join(format!(
+        "ams-review-row-delta-{label}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&scratch);
     std::fs::create_dir_all(&scratch)
         .map_err(|failure| fail("make the stage's scratch", failure))?;
@@ -1951,17 +2610,23 @@ pub fn stage_row_delta_read(stage_file: &Path, out: &mut impl Write) -> Result<(
         blobs: stage_file
             .parent()
             .unwrap_or_else(|| Path::new("."))
-            .join(STAGE_BLOBS),
+            .join(blobs),
         read: HashMap::new(),
         scratch: scratch.clone(),
         cases: 0,
     };
-    let answered = answer_lines(stage_file, out, &mut workspace);
+    let answered = answer_lines(stage_file, out, |record, key| {
+        answer(record, key, &mut workspace)
+    });
     let _ = std::fs::remove_dir_all(&scratch);
     answered
 }
 
-fn answer_lines(stage_file: &Path, out: &mut impl Write, workspace: &mut Workspace) -> Result<()> {
+fn answer_lines(
+    stage_file: &Path,
+    out: &mut impl Write,
+    mut answer: impl FnMut(&Value, &str) -> Result<PyValue>,
+) -> Result<()> {
     let file = File::open(stage_file)
         .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
     for line in BufReader::new(file).lines() {
@@ -1972,7 +2637,7 @@ fn answer_lines(stage_file: &Path, out: &mut impl Write, workspace: &mut Workspa
         let Some(key) = record["key"].as_str() else {
             return error(format!("a stage line has no key: {line:.200}"));
         };
-        let value = answer(&record, key, workspace)?;
+        let value = answer(&record, key)?;
         writeln!(
             out,
             "{{\"key\":{},\"value\":{}}}",
@@ -1982,6 +2647,418 @@ fn answer_lines(stage_file: &Path, out: &mut impl Write, workspace: &mut Workspa
         .map_err(|failure| fail("write a stage line", failure))?;
     }
     Ok(())
+}
+
+/// The `row-delta-write` stage's directory, beside its stage file, of the files its lines name by sha256.
+pub const WRITE_STAGE_BLOBS: &str = "row-delta-write.blobs";
+
+/// The segment cap and the fold overrun the build input's vocabulary gives (`row_delta.SEGMENT_CAP`, `row_delta.FOLD_OVERRUN`).
+#[derive(Clone, Copy, Debug)]
+struct Folding {
+    cap: i64,
+    overrun: i64,
+}
+
+impl Folding {
+    fn of(input: &BuildInput) -> Result<Self> {
+        let constant = |name: &str| match input.constant(name) {
+            Some(PyValue::Int(value)) => Ok(*value),
+            _ => error(format!("the build input's vocabulary holds no int {name}")),
+        };
+        Ok(Self {
+            cap: constant("rebuild.pipeline.row_delta.SEGMENT_CAP")?,
+            overrun: constant("rebuild.pipeline.row_delta.FOLD_OVERRUN")?,
+        })
+    }
+}
+
+/// What a file holds now: `("missing",)`, or `("file", sha256)`.
+fn held_now(path: &Path) -> Result<PyValue> {
+    match std::fs::read(path) {
+        Ok(data) => Ok(tagged("file", [PyValue::str(sha256_hex(&data))])),
+        Err(failure) if failure.kind() == io::ErrorKind::NotFound => Ok(tagged("missing", [])),
+        Err(failure) => Err(fail(&format!("read {}", path.display()), failure)),
+    }
+}
+
+/// A file's inode and modification time, or None when there is none, which tell a kept file from one put in its place.
+fn identity(path: &Path) -> Option<(u64, i64, i64)> {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata(path)
+        .ok()
+        .map(|metadata| (metadata.ino(), metadata.mtime(), metadata.mtime_nsec()))
+}
+
+/// Put what a line's `held` names at `path`: nothing for `("missing",)`, or the blob of `("file", sha256)`.
+fn place_held(workspace: &mut Workspace, held: &PyValue, path: &Path, key: &str) -> Result<()> {
+    match held_file(held, key)? {
+        Some(digest) => workspace.place(digest, path),
+        None => Ok(()),
+    }
+}
+
+/// Make the directory entries a line names, each `(name, kind)`: an empty file, a directory, or a symbolic link to the null device.
+fn place_entries(directory: &Path, entries: &PyValue, key: &str) -> Result<()> {
+    for found in items(entries, key)? {
+        let [name, kind] = arguments(found, key)?;
+        let path = directory.join(text(name, key)?);
+        match text(kind, key)? {
+            "file" => std::fs::write(&path, b""),
+            "dir" => std::fs::create_dir(&path),
+            "link" => std::os::unix::fs::symlink("/dev/null", &path),
+            other => return error(format!("{key}: no entry kind {other:?}")),
+        }
+        .map_err(|failure| fail(&format!("make {}", path.display()), failure))?;
+    }
+    Ok(())
+}
+
+fn optional_place(value: &PyValue, key: &str) -> Result<Option<Place>> {
+    match value {
+        PyValue::None => Ok(None),
+        place => {
+            let [anchor, fraction] = arguments(place, key)?;
+            Ok(Some((
+                integer(anchor, key)?,
+                text(fraction, key)?.to_owned(),
+            )))
+        }
+    }
+}
+
+fn place_value(place: &Place) -> PyValue {
+    tuple(vec![PyValue::Int(place.0), PyValue::str(&place.1)])
+}
+
+fn one_op(value: &PyValue, key: &str) -> Result<u8> {
+    match value {
+        PyValue::Bytes(op) if op.len() == 1 => Ok(op[0]),
+        other => error(format!("{key}: an operation is {}", other.to_typed())),
+    }
+}
+
+fn byte_string<'a>(value: &'a PyValue, key: &str) -> Result<&'a [u8]> {
+    match value {
+        PyValue::Bytes(data) => Ok(data),
+        other => error(format!("{key}: expected bytes, not {}", other.kind())),
+    }
+}
+
+fn flag(value: &PyValue, key: &str) -> Result<bool> {
+    match value {
+        PyValue::Bool(flag) => Ok(*flag),
+        other => error(format!("{key}: expected a bool, not {}", other.kind())),
+    }
+}
+
+fn optional_text<'a>(value: &'a PyValue, key: &str) -> Result<Option<&'a str>> {
+    match value {
+        PyValue::None => Ok(None),
+        other => text(other, key).map(Some),
+    }
+}
+
+/// A head a line holds as its document, read for its own output.
+fn head_of(document: &PyValue, key: &str) -> Result<Head> {
+    let output = match document {
+        PyValue::Dict(entries) => text(get(entries, "output").unwrap_or(&PyValue::None), key)?,
+        other => return error(format!("{key}: the head is {}", other.kind())),
+    };
+    Head::from_document(document, output)
+        .map_err(|failure| WireError(format!("{key}: the head does not read: {failure}")))
+}
+
+fn raised_write(failure: &WriteError, after: impl IntoIterator<Item = PyValue>) -> PyValue {
+    tagged(
+        "raised",
+        [
+            PyValue::str(failure.class()),
+            PyValue::str(failure.message()),
+        ]
+        .into_iter()
+        .chain(after),
+    )
+}
+
+/// A written part's outcome: `("part", document, target, staging)`, or what the write raised with the target and its staging file as it left them.
+fn written(outcome: std::result::Result<Part, WriteError>, target: &Path) -> Result<PyValue> {
+    let after = [held_now(target)?, held_now(&staging_path(target))?];
+    Ok(match outcome {
+        Ok(part) => tagged("part", std::iter::once(part.document()).chain(after)),
+        Err(failure) => raised_write(&failure, after),
+    })
+}
+
+/// One `row-delta-write` line's answer, by its form.
+fn write_answer(
+    record: &Value,
+    key: &str,
+    workspace: &mut Workspace,
+    folding: Folding,
+) -> Result<PyValue> {
+    let input = PyValue::from_typed(&record["input"])
+        .map_err(|failure| WireError(format!("{key}: {failure}")))?;
+    let sink = Sink::new(None);
+    match record["form"].as_str() {
+        Some("places-between") => {
+            let [low, high, count] = arguments(&input, key)?;
+            let (low, high) = (optional_place(low, key)?, optional_place(high, key)?);
+            Ok(
+                match places_between(low.as_ref(), high.as_ref(), integer(count, key)?) {
+                    Ok(places) => {
+                        tagged("places", [tuple(places.iter().map(place_value).collect())])
+                    }
+                    Err(failure) => raised_write(&failure, []),
+                },
+            )
+        }
+        Some("row-line") => {
+            let [op, anchor, fraction, payload] = arguments(&input, key)?;
+            let row = Row {
+                op: one_op(op, key)?,
+                place: (integer(anchor, key)?, text(fraction, key)?.to_owned()),
+                payload: byte_string(payload, key)?.to_vec(),
+            };
+            Ok(tagged("line", [PyValue::Bytes(row_line(&row))]))
+        }
+        Some("row-length") => {
+            let [op, place, length] = arguments(&input, key)?;
+            one_op(op, key)?;
+            let Some(place) = optional_place(place, key)? else {
+                return error(format!("{key}: a row with no place"));
+            };
+            Ok(tagged(
+                "length",
+                [PyValue::Int(row_length(&place, integer(length, key)?))],
+            ))
+        }
+        Some("segment-header") => {
+            let [output, generation, number, merge] = arguments(&input, key)?;
+            Ok(tagged(
+                "header",
+                [PyValue::Bytes(segment_header(
+                    text(output, key)?,
+                    integer(generation, key)?,
+                    integer(number, key)?,
+                    text(merge, key)?,
+                ))],
+            ))
+        }
+        Some("write-part") => {
+            let [name, gzip_name, held, plain, cuts, returned, failure] = arguments(&input, key)?;
+            let name = text(name, key)?;
+            let directory = workspace.directory()?;
+            let target = directory.join(name);
+            place_held(workspace, held, &target, key)?;
+            let plain = workspace.blob(text(plain, key)?)?.to_vec();
+            let cuts = items(cuts, key)?
+                .iter()
+                .map(|cut| integer(cut, key).map(|cut| cut as usize))
+                .collect::<Result<Vec<_>>>()?;
+            if cuts.iter().sum::<usize>() != plain.len() {
+                return error(format!("{key}: the cuts do not cover the part's bytes"));
+            }
+            let [rows, rows_bytes] = arguments(returned, key)?;
+            let returned = (integer(rows, key)?, integer(rows_bytes, key)?);
+            let failure = optional_text(failure, key)?;
+            let outcome = write_part(
+                &sink,
+                &directory,
+                name,
+                optional_text(gzip_name, key)?,
+                |stream| {
+                    let mut at = 0;
+                    for cut in &cuts {
+                        stream.write_all(&plain[at..at + cut])?;
+                        at += cut;
+                    }
+                    match failure {
+                        Some(message) => Err(WriteError::Value(message.to_owned())),
+                        None => Ok(returned),
+                    }
+                },
+            );
+            written(outcome, &target)
+        }
+        Some("write-segment") => {
+            let [output, generation, number, held, rows] = arguments(&input, key)?;
+            let (output, generation, number) = (
+                text(output, key)?,
+                integer(generation, key)?,
+                integer(number, key)?,
+            );
+            let directory = workspace.directory()?;
+            let target = directory.join(segment_name(output, generation, number));
+            place_held(workspace, held, &target, key)?;
+            let rows = items(rows, key)?
+                .iter()
+                .map(|row| {
+                    let [op, anchor, fraction, payload] = arguments(row, key)?;
+                    Ok(Row {
+                        op: one_op(op, key)?,
+                        place: (integer(anchor, key)?, text(fraction, key)?.to_owned()),
+                        payload: byte_string(payload, key)?.to_vec(),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let outcome = write_segment(&sink, &directory, output, generation, number, rows);
+            written(outcome, &target)
+        }
+        Some("streamed-part") => {
+            let [name, header, held, data, ending] = arguments(&input, key)?;
+            let name = text(name, key)?;
+            let directory = workspace.directory()?;
+            let target = directory.join(name);
+            place_held(workspace, held, &target, key)?;
+            let mut part =
+                StreamedPart::new(&sink, &directory, name, byte_string(header, key)?.to_vec());
+            if let Some(digest) = optional_text(data, key)? {
+                let data = workspace.blob(digest)?.to_vec();
+                part.write(&data)
+                    .map_err(|failure| fail("write a streamed part", failure))?;
+            }
+            let after = |target: &Path| -> Result<[PyValue; 2]> {
+                Ok([held_now(target)?, held_now(&staging_path(target))?])
+            };
+            match text(ending, key)? {
+                "close" => {
+                    let closed = part
+                        .close()
+                        .map_err(|failure| fail("close a streamed part", failure))?;
+                    Ok(match closed {
+                        Some(part) => tagged(
+                            "part",
+                            std::iter::once(part.document()).chain(after(&target)?),
+                        ),
+                        None => tagged("none", after(&target)?),
+                    })
+                }
+                "abandon" => {
+                    drop(part);
+                    Ok(tagged("abandoned", after(&target)?))
+                }
+                other => error(format!("{key}: no ending {other:?}")),
+            }
+        }
+        Some("commit") => {
+            let [document, entries, held] = arguments(&input, key)?;
+            let head = head_of(document, key)?;
+            let directory = workspace.directory()?;
+            place_entries(&directory, entries, key)?;
+            let path = head_path(&directory, &head.output);
+            place_held(workspace, held, &path, key)?;
+            let before = identity(&path);
+            let removed = commit(&sink, &directory, &head)
+                .map_err(|failure| WireError(format!("{key}: the commit failed: {failure}")))?;
+            let kept = before.is_some() && before == identity(&path);
+            Ok(tagged(
+                "committed",
+                [
+                    PyValue::str_tuple(&removed),
+                    held_now(&path)?,
+                    PyValue::Bool(kept),
+                ],
+            ))
+        }
+        Some("remove-unlisted") => {
+            let [output, document, entries] = arguments(&input, key)?;
+            let head = match document {
+                PyValue::None => None,
+                document => Some(head_of(document, key)?),
+            };
+            let directory = workspace.directory()?;
+            place_entries(&directory, entries, key)?;
+            let removed = remove_unlisted(&directory, text(output, key)?, head.as_ref())
+                .map_err(|failure| fail("remove the unlisted parts", failure))?;
+            Ok(tagged("removed", [PyValue::str_tuple(&removed)]))
+        }
+        Some("remove-staging") => {
+            let [output, links, entries] = arguments(&input, key)?;
+            let directory = workspace.directory()?;
+            place_entries(&directory, entries, key)?;
+            let removed = remove_staging(&directory, text(output, key)?, flag(links, key)?)
+                .map_err(|failure| fail("remove the staging files", failure))?;
+            Ok(tagged("removed", [PyValue::str_tuple(&removed)]))
+        }
+        Some("writes-base") => {
+            let [segment, base, rederived] = arguments(&input, key)?;
+            Ok(tagged(
+                "decided",
+                [PyValue::Bool(writes_base(
+                    integer(segment, key)?,
+                    integer(base, key)?,
+                    flag(rederived, key)?,
+                ))],
+            ))
+        }
+        Some(form @ ("fold-due" | "fold-forced")) => {
+            let [document, cap] = arguments(&input, key)?;
+            let head = head_of(document, key)?;
+            let cap = match cap {
+                PyValue::None => folding.cap,
+                cap => integer(cap, key)?,
+            };
+            let decided = if form == "fold-due" {
+                fold_due(&head, cap)
+            } else {
+                fold_forced(&head, cap, folding.overrun)
+            };
+            Ok(tagged("decided", [PyValue::Bool(decided)]))
+        }
+        Some("claim-fold") => {
+            let [output, run, held, holder] = arguments(&input, key)?;
+            let file = workspace.directory()?.join("fold-claim.json");
+            place_held(workspace, held, &file, key)?;
+            let claim = FoldClaim {
+                run: optional_text(run, key)?.map(str::to_owned),
+                file: file.clone(),
+                holder: Mutex::new(optional_text(holder, key)?.map(str::to_owned)),
+            };
+            let claimed = claim
+                .claim(&sink, text(output, key)?)
+                .map_err(|failure| WireError(format!("{key}: the claim failed: {failure}")))?;
+            let holder = claim
+                .holder
+                .into_inner()
+                .unwrap_or_else(PoisonError::into_inner);
+            Ok(tagged(
+                "claimed",
+                [
+                    PyValue::Bool(claimed),
+                    held_now(&file)?,
+                    PyValue::optional_str(holder.as_deref()),
+                ],
+            ))
+        }
+        Some("with-segment") => {
+            let [document, part, stamps] = arguments(&input, key)?;
+            let head = head_of(document, key)?;
+            let part = Part::parse(part).map_err(|failure| {
+                WireError(format!("{key}: the part does not read: {failure}"))
+            })?;
+            Ok(tagged(
+                "head",
+                [head.with_segment(part, stamps.clone()).document()],
+            ))
+        }
+        other => error(format!("{key}: no row-delta-write form {other:?}")),
+    }
+}
+
+/// The `row-delta-write` stage: for each line of `stage_file`, set up the files and directory entries its input names, from the blobs it names by sha256 in [`WRITE_STAGE_BLOBS`] beside the stage file, in a scratch directory, make the writer's call again by its `form`, and write one `{"key", "value"}` line in the typed encoding: `places-between` cuts places ([`places_between`]); `row-line`, `row-length` and `segment-header` build a row's line, its length and a segment's header line; `write-part` (its plain bytes written in the line's cuts, then its rows returned or its failure raised), `write-segment` and `streamed-part` (closed or abandoned) write a part and answer its document, or what the write raised, with what the target and its staging file then hold; `commit` commits a head over the directory entries the line names, answering the parts it removed, the head file and whether it was kept; `remove-unlisted` and `remove-staging` answer what they remove; `writes-base`, `fold-due` and `fold-forced` decide, a cap of None read as the build input's `SEGMENT_CAP` beside its `FOLD_OVERRUN`; `claim-fold` claims the fold under the line's run, claim file and process holder ([`FoldClaim`]); and `with-segment` adds a segment to a head.
+pub fn stage_row_delta_write(
+    input_path: &Path,
+    stage_file: &Path,
+    out: &mut impl Write,
+) -> Result<()> {
+    let folding = Folding::of(&BuildInput::read(input_path)?)?;
+    answer_stage(
+        stage_file,
+        WRITE_STAGE_BLOBS,
+        "write",
+        out,
+        |record, key, workspace| write_answer(record, key, workspace, folding),
+    )
 }
 
 #[cfg(test)]
@@ -2081,6 +3158,39 @@ mod tests {
             Err(ReadError::Head(
                 "out merges by key, and segment 1's header says it merges by place".to_owned()
             ))
+        );
+    }
+
+    #[test]
+    fn places_are_cut_as_python_cuts_them() {
+        let place = |anchor: i64, fraction: &str| (anchor, fraction.to_owned());
+        let cut = |low: Option<Place>, high: Option<Place>, count: i64| {
+            places_between(low.as_ref(), high.as_ref(), count)
+                .map(|places| {
+                    places
+                        .into_iter()
+                        .map(|(_, fraction)| fraction)
+                        .collect::<Vec<_>>()
+                })
+                .map_err(|failure| failure.message())
+        };
+        assert_eq!(cut(None, None, 2), Ok(vec!["c".to_owned(), "o".to_owned()]));
+        assert_eq!(
+            cut(Some(place(5, "-1")), Some(place(5, "0")), 3),
+            Ok(vec!["zz9".to_owned(), "zzi".to_owned(), "zzr".to_owned()])
+        );
+        let long = "1".repeat(30);
+        assert_eq!(
+            cut(Some(place(5, &long)), None, 1),
+            Ok(vec!["i".repeat(31)])
+        );
+        assert_eq!(
+            cut(Some(place(5, "1")), Some(place(5, "1_")), 1),
+            Err("no room for 1 places between (5, '1') and (5, '1_')".to_owned())
+        );
+        assert_eq!(
+            cut(Some(place(5, "!")), None, 1),
+            Err("invalid literal for int() with base 36: '!00'".to_owned())
         );
     }
 
