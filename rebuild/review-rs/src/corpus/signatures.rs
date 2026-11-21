@@ -20,6 +20,7 @@ use sha2::{Digest as _, Sha256};
 use crate::corpus::audit::{
     AuditError, Section, Vocabulary, audit_layout, integer, items, stage_line, text,
 };
+use crate::corpus::columns::sorted_by_word;
 use crate::corpus::gzip::{GzipError, GzipReader, GzipWriter, MTIME, PART_LEVEL};
 use crate::corpus::input::{BuildInput, Stamp};
 use crate::corpus::sink::staging_path;
@@ -230,22 +231,15 @@ fn update(entries: &mut Vec<(PyValue, PyValue)>, key: &PyValue, value: &PyValue)
     }
 }
 
-/// The positions of `words` in ascending word order, equal words in position order (`columns.sorted_by_word`).
-fn sorted_by_word(words: &[u64]) -> Vec<usize> {
-    let mut order: Vec<usize> = (0..words.len()).collect();
-    order.sort_by_key(|&at| words[at]);
-    order
-}
-
 /// Of each run of equal words in `order`, the last position: the entry a later assignment to one dict key keeps.
-fn last_of_each(words: &[u64], order: &[usize]) -> Vec<usize> {
+fn last_of_each(words: &[u64], order: &[u32]) -> Vec<usize> {
     order
         .iter()
         .enumerate()
         .filter(|&(position, &at)| {
-            position + 1 == order.len() || words[order[position + 1]] != words[at]
+            position + 1 == order.len() || words[order[position + 1] as usize] != words[at as usize]
         })
-        .map(|(_, &at)| at)
+        .map(|(_, &at)| at as usize)
         .collect()
 }
 

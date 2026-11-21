@@ -16,6 +16,7 @@ The build's stages (`BUILD_STAGES`):
 - `signature-store` records the ink-signature store as the build loads, follows and writes it, each line keyed by its origin, its `form` and a digest of its `input`: `load`, each `unit_cache.SignatureArrays.load` call, with what the store's path held (`("missing",)`, `("directory",)` or `("file", sha256)`) and the stamp's value, valued `("none",)` or `("columns", count, keys, digests, header)` with the sha256 of the keys as 8-byte big-endian words and of the digests (`_store_columns`); `miss-note`, each `unit_cache.signature_miss_note` call, with what the path held and the stamp's value, lines and detail, valued `("note", note)`; `trace`, a store the stage follows from its making (`SignatureArrays()` or a load) through every call on it the stage names (`SIGNATURE_CALLS`, nested calls among them), recorded at each `unchanged`, with its origin and its calls, keys and digests as hex, valued the calls' results and its new lines' count and sha256 (`_store_lines`); and `write`, each `unit_cache.write_signature_arrays` call, on a pooled build's write thread or inline, with the store's trace up to its last `unchanged`, the stamp's header fields (`unit_cache._stamp_header`), the stamps and what the store's path and its staging file held, valued `("written", target, staging)` with what each holds after. Every store's bytes are kept once under their sha256 in `signature-store.blobs/` beside the stage file (`SIGNATURE_STORE_BLOBS`). Its generated lines (`_signature_store_generated`) load stores Python writes, short and past one read of the body, headers of every kind the load drops or passes, bodies of every kind of line it drops and gzip files it reads, drops or raises on (`_signature_load_cases`); note stores missing, unreadable, matching and moved in each of the ways a stamp's lines and detail record (`_signature_note_cases`); trace every call's cases, the merge of hits, misses and late misses and the stamps' `==` (`_signature_traces`); and write stores under a stamp with its lines and a bare value, with stamps and without, stamps that take the header's own keys, a staging file left behind, an empty store and one past the gzip writer's buffer (`_signature_writes`).
 - `signature` records each ink signature the build shapes, keyed by its origin, its `form` and a digest of its `input` (`_shaped_line`): `pair`, each `(text, configuration)` pair a `build._shape_misses` call shapes, serially or on its pool, and `late`, each `(window, configuration)` a `build._LateShaper` call shapes rather than finds in the store, with the signature `ink.InkComparator.signature` gives, shaped again by the recorder over the call's fonts, as its `signature` and the digest the build gave, which must be that signature's `ink.signature_digest`, as its `value`. Its generated lines (`_signature_generated`) are every window of the source's audit (`_source_windows`) under each of `ACCEPTANCE_CONFIGS`, as the form `window`, shaped over the dump's units init's before and after fonts.
 - `key-only` is a boundary stage that records the load's signature resolution where the build makes it: from `build._find_misses` (`_misses_found`), a unit a miss, `(key, section, window)` with the key as `%016x`, in miss order, the hit prior entries' positions as the `column:hits` line (`_hit_positions`), and the read under `read`, `("ran", processes, break)` or `("skipped",)` when the store's stamps held (`_read_value`); from `build._shape_found_misses` (`_found_misses_shaped`), the misses' digests in miss order as the `column:digest` line, read from the store's shaped misses (`_miss_digest`), and their count under `shaped`; and from `build._LateShaper.release` (`_late_released`), under `late`, the late shaper's count with the store's hits, misses and unhit entries and its new lines' count and sha256 once the stream has looked every row up (`_late_value`). Its generated lines (`_key_only_generated`) take the prior store the build would load with every other entry dropped, once with its stamps set to the build's, so the read is skipped and the late shaper shapes what the store lacks, and once with its audit identity moved, so the read runs with hits and misses; each is kept under its sha256 in `key-only.blobs/` beside the stage file (`KEY_ONLY_BLOBS`) and valued the same resolution as one tuple, each column as its count and sha256 (`_key_only_resolved`, which walks the audit as the stream asks for digests, `_late_walk`).
+- `columns` records every call the build makes on `rebuild/review/columns.py`'s collections (`COLUMNS_CALLS`). A string table, tuple pool, mapping pool or key index is followed from its making (`_columns_made`, `_columns_called`), each call a line keyed by the collection's name, `run:<form>:<serial>`, and its place in the collection's calls, with the call as its `input` (a key index's making with the bytes of its column it reads, its width and its count) and, as its `value`, what the call returned beside the collection's size after it (`_columns_after`); the Rust side replays each collection's calls in that order. A window index is recorded over its state as each call finds it, since the stream sorts its ordinals in place after making it: a `window-index-state` line a state, keyed by the digest of its ordinals and keys and valued its `packed`, `windows`, `runs` and `nbytes` (`_window_state`), and a `window-index` line a call on it (`_window_called`). `window_word` and `sorted_by_word` calls are lines of their own, keyed by a digest of their input. Its generated lines (`_columns_generated`) intern empty values, repeats and values a pool refuses, seal a tuple pool, build key indexes over empty, colliding, repeated and malformed columns (`_key_cases`), build window indexes from packed and unpacked windows (`COLUMNS_WINDOWS`) as `window-index-build` lines and ask each, and its remapping, for its windows and others (`COLUMNS_ASKED`), and pack and sort words at the edges.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -111,6 +112,7 @@ from rebuild.review import (
     audit,
     audit_stream,
     build,
+    columns,
     corpus_exec,
     drafts,
     ink,
@@ -2253,16 +2255,18 @@ def _resolve(hook: str, hooks: Mapping[str, tuple[str, str]]) -> tuple[object, s
 def wrapped(
     stages: Sequence[Stage[Any]], sink: _Sink | None, hooks: Mapping[str, tuple[str, str]] = HOOKS
 ) -> Iterator[None]:
-    """Replace every hook point of `hooks` with a wrapper that calls the original and passes the call to each stage's recorder for that hook, and restore the originals on exit. A stage recorder for a hook `hooks` does not name raises ValueError."""
+    """Replace each hook point of `hooks` that one of `stages` records with a wrapper that calls the original and passes the call to each stage's recorder for that hook, and restore the originals on exit; a hook point no stage records is left as it is, so the hot calls of a stage not recording cost the build nothing. A stage recorder for a hook `hooks` does not name raises ValueError."""
     unhooked = sorted({hook for stage in stages for hook in stage.recorders if hook not in hooks})
     if unhooked:
         raise ValueError(f"no hook point is registered for {', '.join(unhooked)}")
     restore: list[tuple[object, str, object]] = []
     try:
         for hook in hooks:
+            recorders = [(stage.name, stage.recorders[hook]) for stage in stages if hook in stage.recorders]
+            if not recorders:
+                continue
             owner, attribute = _resolve(hook, hooks)
             original = getattr(owner, attribute)
-            recorders = [(stage.name, stage.recorders[hook]) for stage in stages if hook in stage.recorders]
             setattr(owner, attribute, _wrapper(original, recorders, sink))
             restore.append((owner, attribute, original))
         yield
@@ -3724,6 +3728,14 @@ DUMP_SCRATCH = "build-stage-dump"
 # The Rust build's input for the dumped run's values, written without descriptors, beside `source.json`.
 BUILD_INPUT_FILE = "build.json"
 BUILD_INPUT_STAGE = "build-input"
+# The calls on each of `columns`' collections the `columns` stage records, by class: a followed collection's from its making (`__init__`), and a window index's on its state at each call.
+COLUMNS_CALLS = {
+    "StringTable": ("__init__", "id", "find", "optional", "__getitem__", "__len__"),
+    "TuplePool": ("__init__", "id", "pooled", "seal", "__getitem__", "__len__"),
+    "MappingPool": ("__init__", "id", "pooled", "__getitem__", "__len__"),
+    "KeyIndex": ("__init__", "find", "nbytes"),
+    "WindowIndex": ("candidates", "key", "runs", "remapped", "nbytes"),
+}
 # The build's calls a build stage can record, by name, as `HOOKS` names the worker's: each is the module and the attribute path the wrapper replaces for the length of a build. The task that adds a stage adds the hook points it records.
 BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "output_sink.write_output": ("rebuild.pipeline.output_sink", "write_output"),
@@ -3791,6 +3803,15 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._find_misses": ("rebuild.review.build", "_find_misses"),
     "build._shape_found_misses": ("rebuild.review.build", "_shape_found_misses"),
     "build._LateShaper.release": ("rebuild.review.build", "_LateShaper.release"),
+    **{
+        f"columns.{owner}.{name}": ("rebuild.review.columns", f"{owner}.{name}")
+        for owner, names in COLUMNS_CALLS.items()
+        for name in names
+    },
+    "columns.window_word": ("rebuild.review.columns", "window_word"),
+    "audit.window_word": ("rebuild.review.audit", "window_word"),
+    "unit_cache.sorted_by_word": ("rebuild.review.unit_cache", "sorted_by_word"),
+    "unit_store.sorted_by_word": ("rebuild.review.unit_store", "sorted_by_word"),
 }
 
 
@@ -8219,6 +8240,463 @@ def _key_only_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
         parts.close()
 
 
+COLUMNS_STAGE = "columns"
+# The form of each collection the `columns` stage follows from its making, by class.
+COLUMNS_FOLLOWED = {
+    "StringTable": "string-table",
+    "TuplePool": "tuple-pool",
+    "MappingPool": "mapping-pool",
+    "KeyIndex": "key-index",
+}
+# A followed call's name in a line, by its method's name where the two differ.
+COLUMNS_OPS = {"__getitem__": "getitem", "__len__": "len"}
+_COLUMNS_LOCK = threading.Lock()
+_KEY_INDEX_INIT = inspect.signature(columns.KeyIndex.__init__)
+# The methods the stage calls for values of its own, as `columns` defines them before any is wrapped: the window index's on a probe over the index's own columns, so a state's values are Python's without a call on the build's index, and a key index's size.
+_WINDOW_RUNS = columns.WindowIndex.runs
+_WINDOW_BYTES = columns.WindowIndex.nbytes
+_KEY_INDEX_BYTES = columns.KeyIndex.nbytes
+
+
+@dataclass
+class _ColumnsTrace:
+    """A `columns` collection the stage follows: the collection, held so that its `id` is not reused while the build runs; its name in the lines, `run:<form>:<serial>`; its form; the thread that made it, the only one whose calls on it the stage takes in order; and how many calls it has recorded."""
+
+    held: object
+    name: str
+    form: str
+    thread: int
+    calls: int = 0
+
+
+# The collections the stage follows, by `id`, and the window index states it has written a line for, by their columns' digests, for the length of a build (`_columns_following`).
+_COLUMNS_TRACES: dict[int, _ColumnsTrace] = {}
+_WINDOW_STATES: dict[tuple, str] = {}
+
+
+@contextlib.contextmanager
+def _columns_following() -> Iterator[None]:
+    with _COLUMNS_LOCK:
+        _COLUMNS_TRACES.clear()
+        _WINDOW_STATES.clear()
+    try:
+        yield
+    finally:
+        with _COLUMNS_LOCK:
+            _COLUMNS_TRACES.clear()
+            _WINDOW_STATES.clear()
+
+
+def _columns_digest(inputs: object) -> str:
+    return hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+
+
+def _columns_value(value: object) -> object:
+    """A call's argument or result as a `columns` line holds it: a mapping as a dict in its order, a byte buffer as bytes, an array as a list, and anything else as itself."""
+    if isinstance(value, Mapping):
+        return dict(value.items())
+    if isinstance(value, bytearray | memoryview):
+        return bytes(value)
+    if isinstance(value, array):
+        return value.tolist()
+    return value
+
+
+def _columns_raised(error: Exception) -> tuple:
+    """A refused call's outcome: `("raised", "RepeatedKey", first, second)`, or the exception's class and message."""
+    if isinstance(error, columns.RepeatedKey):
+        return ("raised", "RepeatedKey", error.first, error.second)
+    return ("raised", type(error).__name__, str(error))
+
+
+def _columns_after(form: str, made: Any, result: object) -> object:
+    """A followed call's value: what it returned beside the collection's size after it, the string table's `chars`, a tuple pool's `elements` and `sealed`, a mapping pool's `elements`, and a key index's result alone."""
+    if form == "string-table":
+        return (result, made.chars)
+    if form == "tuple-pool":
+        return (result, made.elements, made.sealed)
+    if form == "mapping-pool":
+        return (result, made.elements)
+    return result
+
+
+def _columns_line(name: str, form: str, index: int, call: tuple, value: object) -> dict[str, object]:
+    return {"key": f"{name}:{index}", "form": form, "input": (name, index, call), "value": value}
+
+
+def _columns_step(trace: _ColumnsTrace, call: tuple, value: object) -> dict[str, object]:
+    """The line of a followed collection's next call; a call on another thread than the one that made it is refused, since the calls' order in the lines would not be the order they ran in."""
+    with _COLUMNS_LOCK:
+        if threading.get_ident() != trace.thread:
+            raise RuntimeError(f"the columns stage follows {trace.name}, which a second thread calls")
+        index = trace.calls
+        trace.calls += 1
+    return _columns_line(trace.name, trace.form, index, call, value)
+
+
+def _columns_made(owner: str) -> Recorder:
+    """Follow a collection from its making: a `new` line, a key index's with the bytes of its column it reads, its width and its count, valued `("built", nbytes)`."""
+    form = COLUMNS_FOLLOWED[owner]
+
+    def record(args: tuple, kwargs: dict) -> Finisher:
+        made = args[0]
+        call: tuple = ("new",)
+        if form == "key-index":
+            bound = _KEY_INDEX_INIT.bind(*args, **kwargs)
+            width, count = bound.arguments["width"], bound.arguments["count"]
+            call = ("new", bytes(bound.arguments["column"][: width * count]), width, count)
+
+        def finish(_result: object) -> Mapping[str, object]:
+            with _COLUMNS_LOCK:
+                trace = _ColumnsTrace(made, f"run:{form}:{len(_COLUMNS_TRACES)}", form, threading.get_ident())
+                _COLUMNS_TRACES[id(made)] = trace
+            if form == "key-index":
+                return _columns_step(trace, call, ("built", _KEY_INDEX_BYTES(made)))
+            return _columns_step(trace, call, _columns_after(form, made, None))
+
+        return finish
+
+    return record
+
+
+def _columns_called(name: str) -> Recorder:
+    """One call on a followed collection, with its arguments and what it returned beside the collection's size after it (`_columns_after`)."""
+    op = COLUMNS_OPS.get(name, name)
+
+    def record(args: tuple, kwargs: dict) -> Finisher | None:
+        made, *values = args
+        trace = _COLUMNS_TRACES.get(id(made))
+        if trace is None or trace.held is not made:
+            return None
+        if kwargs:
+            raise ValueError(f"the columns stage records {op} called by position, not with {sorted(kwargs)}")
+        call = (op, *map(_columns_value, values))
+        return lambda result: _columns_step(
+            trace, call, _columns_after(trace.form, made, _columns_value(result))
+        )
+
+    return record
+
+
+def _window_state(origin: str, index: columns.WindowIndex) -> tuple[str, Mapping[str, object] | None]:
+    """A window index's state as the stage names it, the digest of its ordinals and keys, beside the `window-index-state` line that holds them, valued what `packed`, `windows`, `runs` and `nbytes` give over them, the first time the state is seen in this build (None after that)."""
+    ordinals, keys = index.ordinals, index.keys
+    if isinstance(keys, array):
+        fingerprint: tuple = (hashlib.sha1(ordinals).digest(), hashlib.sha1(keys).digest())
+    else:
+        fingerprint = (hashlib.sha1(ordinals).digest(), _columns_digest(list(keys)))
+    with _COLUMNS_LOCK:
+        known = _WINDOW_STATES.get(fingerprint)
+    if known is not None:
+        return known, None
+    state = (ordinals.tolist(), list(keys))
+    digest = _columns_digest(state)
+    probe = columns.WindowIndex(ordinals, keys)
+    value = (probe.packed, probe.windows, list(_WINDOW_RUNS(probe)), _WINDOW_BYTES(probe))
+    with _COLUMNS_LOCK:
+        _WINDOW_STATES[fingerprint] = digest
+    line = {
+        "key": f"{origin}:window-index-state:{digest}",
+        "form": "window-index-state",
+        "input": (digest, probe.packed, *state),
+        "value": value,
+    }
+    return digest, line
+
+
+def _window_result(name: str, result: Any) -> object:
+    if name == "remapped":
+        return (result.ordinals.tolist(), list(result.keys))
+    return _columns_value(result)
+
+
+def _window_line(origin: str, state: str, call: tuple, value: object) -> dict[str, object]:
+    inputs = (state, call)
+    return {
+        "key": f"{origin}:window-index:{_columns_digest(inputs)}",
+        "form": "window-index",
+        "input": inputs,
+        "value": value,
+    }
+
+
+def _window_called(name: str) -> Recorder:
+    """One call on a window index, over its state as the call finds it (`_window_state`), with what it returned; `runs`, which returns a generator the build consumes, is valued the runs the stage takes from a probe over the same state."""
+
+    def record(args: tuple, kwargs: dict) -> Finisher:
+        index, *values = args
+        if kwargs:
+            raise ValueError(
+                f"the columns stage records {name} called by position, not with {sorted(kwargs)}"
+            )
+        state, line = _window_state("run", index)
+        call = (name, *map(_columns_value, values))
+        runs = list(_WINDOW_RUNS(columns.WindowIndex(index.ordinals, index.keys))) if name == "runs" else None
+
+        def finish(result: object) -> list[Mapping[str, object]]:
+            value = runs if name == "runs" else _window_result(name, result)
+            return [*([line] if line is not None else []), _window_line("run", state, call, value)]
+
+        return finish
+
+    return record
+
+
+def _stateless_line(origin: str, form: str, inputs: object, value: object) -> dict[str, object]:
+    return {
+        "key": f"{origin}:{form}:{_columns_digest(inputs)}",
+        "form": form,
+        "input": inputs,
+        "value": value,
+    }
+
+
+def _window_worded(args: tuple, kwargs: dict) -> Finisher:
+    """A `columns.window_word` call, with the values it packs and the word or None it gave."""
+    (values,) = (*args, *kwargs.values())
+    inputs = list(values)
+    return lambda result: _stateless_line("run", "window-word", inputs, result)
+
+
+def _words_sorted(args: tuple, kwargs: dict) -> Finisher:
+    """A `columns.sorted_by_word` call, with the words it sorts and the positions it gave."""
+    (words,) = (*args, *kwargs.values())
+    inputs = list(words)
+    return lambda result: _stateless_line("run", "sorted-by-word", inputs, _columns_value(result))
+
+
+def _columns_traced(
+    name: str, form: str, make: Callable[[], Any], new: tuple, calls: Iterable[tuple]
+) -> Iterator[Mapping[str, object]]:
+    """A generated trace: a collection `make` makes, as its `new` line, then each call on it as a line, as the run's lines are (`_columns_made`, `_columns_called`), a refused call valued its refusal (`_columns_raised`) beside the size after it."""
+    try:
+        made = make()
+    except (ValueError, columns.RepeatedKey) as error:
+        yield _columns_line(name, form, 0, new, _columns_raised(error))
+        return
+    first = ("built", _KEY_INDEX_BYTES(made)) if form == "key-index" else _columns_after(form, made, None)
+    yield _columns_line(name, form, 0, new, first)
+    methods = {op: method for method, op in COLUMNS_OPS.items()}
+    for index, call in enumerate(calls, 1):
+        op: str = call[0]
+        try:
+            result = _columns_value(getattr(made, methods.get(op, op))(*call[1:]))
+        except (ValueError, TypeError) as error:
+            result = _columns_raised(error)
+        yield _columns_line(name, form, index, call, _columns_after(form, made, result))
+
+
+# The strings the generated string tables intern: the empty one, repeats, and text of one, two, three and four UTF-8 bytes a character.
+COLUMNS_STRINGS = ("a", "b", "", "a", "é·Day", "\U0001f600", "b", "a b\tc\n", "\x00", "·", "\ue650\ue670")
+# The tuples the generated tuple pools intern: the empty one, repeats, tuples that differ only in order or length, and tuples of tuples, as the render groups' pool holds.
+COLUMNS_TUPLES = (
+    (),
+    ("a", "b"),
+    ("a",),
+    ("b", "a"),
+    ("a", "b"),
+    ("",),
+    ("a", "b", "c", "d", "e"),
+    (("a", "b"), ("c",)),
+    ((), ("a",)),
+    (("a", "b"), ("c",)),
+)
+# The mappings the generated mapping pools intern: the empty one, repeats, mappings that differ only in order, and ones a mapping pool refuses, which leave it as it was.
+COLUMNS_MAPPINGS: tuple[dict, ...] = (
+    {},
+    {"ss01": "a", "ss02": "b"},
+    {"ss02": "b", "ss01": "a"},
+    {"ss01": "a"},
+    {"ss01": "a", "ss02": "b"},
+    {"": ""},
+    {"ss01": 1},
+    {1: "a"},
+    {"ss03": None},
+    {"ss01": "é"},
+)
+# The windows the generated window indexes hold: each a list of `(ordinal, window)` pairs as `WindowIndex.build` takes them, packed, with repeated windows, with ordinals out of order, empty, and with a window the word cannot hold in its order (longer than `WINDOW_SLOTS`, leading with zero, above U+FFFF, or empty), which turns the keys to tuples.
+COLUMNS_WINDOWS: tuple[tuple[tuple[int, tuple[int, ...]], ...], ...] = (
+    (),
+    ((0, (0xE650,)),),
+    (
+        (0, (0xE650, 0xE670)),
+        (1, (0xE650,)),
+        (2, (0xE650, 0xE670)),
+        (3, (0xE651,)),
+        (4, (0xE650,)),
+        (5, (0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF)),
+        (6, (1, 2, 3, 4)),
+        (7, (0xE650, 0xE670)),
+    ),
+    ((5, (2,)), (1, (1,)), (3, (2,)), (0, (1,)), (4, (2, 1))),
+    ((0, (1, 2)), (1, (1, 2, 3, 4, 5)), (2, (1,)), (3, (1, 2, 3, 4, 5)), (4, (1, 2))),
+    ((0, (0, 1)), (1, (1,)), (2, (0,)), (3, (0, 1))),
+    ((0, (0x10000,)), (1, (0xFFFF,)), (2, (0x10000,)), (3, (1, 0x10000))),
+    ((0, ()), (1, (1,)), (2, ()), (3, (0xE650, 0xE651))),
+)
+# The windows the generated window indexes are asked for besides their own: absent, longer than a word holds, leading with zero, above U+FFFF and empty.
+COLUMNS_ASKED = ((7,), (0xE650, 0xE671), (1, 2, 3, 4, 5), (1, 2, 3, 4, 5, 6), (0, 1), (0,), (0x10000,), ())
+# The values the generated `window_word` lines pack.
+COLUMNS_WORDS = (
+    (),
+    (0,),
+    (1,),
+    (0, 1),
+    (1, 0),
+    (0xE650, 0xE670),
+    (0xFFFF,) * 4,
+    (1, 2, 3, 4),
+    (1, 2, 3, 4, 5),
+    (0x10000,),
+    (1, 0x10000),
+    (0xFFFF, 0x10000, 1),
+)
+
+
+def _key_column(keys: Sequence[bytes]) -> bytearray:
+    return bytearray(b"".join(keys))
+
+
+def _key_cases() -> Iterator[tuple[str, bytes, int, int, list[tuple]]]:
+    """The generated key indexes: each its case's name, its column, width and count, and the calls on it: none, keys of each width, keys whose first eight bytes are one slot's and differ after, a key repeated, which is refused naming the first two ordinals that hold it, a width that is not a multiple of eight and a column too short for its count, which are refused, and finds of keys of other lengths, absent keys and every held key."""
+    digests = [hashlib.sha256(f"key {index}".encode()).digest() for index in range(40)]
+    shared = [b"\x05" * 8 + digest[8:] for digest in digests[:6]]
+    cases: list[tuple[str, list[bytes], int, int]] = [
+        ("empty", [], 32, 0),
+        ("one", digests[:1], 32, 1),
+        ("several", digests, 32, len(digests)),
+        ("shared-slot", shared, 32, len(shared)),
+        ("narrow", [digest[:8] for digest in digests[:9]], 8, 9),
+        ("sixteen", [digest[:16] for digest in digests[:5]], 16, 5),
+        ("repeated", [digests[0], digests[1], digests[2], digests[1], digests[0]], 32, 5),
+        ("repeated-shared", [shared[0], shared[1], shared[1]], 32, 3),
+        ("odd-width", digests[:3], 12, 3),
+        ("short-column", digests[:3], 32, 4),
+        ("longer-column", digests[:6], 32, 4),
+        ("nothing", [], 0, 0),
+    ]
+    for name, keys, width, count in cases:
+        column = _key_column(keys)
+        held = [bytes(column[at : at + width]) for at in range(0, width * min(count, len(keys)), width or 1)]
+        asked = [*held, digests[-1], digests[-1][:16], b"", b"\x05" * 8 + digests[-1][8:], *shared[:2]]
+        calls = [("find", key) for key in asked] + [("nbytes",)]
+        yield name, bytes(column), width, count, calls
+
+
+def _columns_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    with _columns_following():
+        yield from _columns_generated_lines()
+
+
+def _columns_generated_lines() -> Iterator[Mapping[str, object]]:
+    """The `columns` stage's generated lines: string tables, tuple pools and mapping pools over empty values, repeats and values the pools refuse (`COLUMNS_STRINGS`, `COLUMNS_TUPLES`, `COLUMNS_MAPPINGS`), each read back by id and measured; a tuple pool sealed; key indexes over empty, colliding, repeated and malformed columns (`_key_cases`); window indexes `WindowIndex.build` makes from `COLUMNS_WINDOWS`, each asked for its own windows and `COLUMNS_ASKED`, its runs and its size, and remapped with every other unit removed; `window_word` over `COLUMNS_WORDS`; and `sorted_by_word` over words empty, equal, sharing a top byte and at both ends of the range."""
+    yield from _columns_traced(
+        "generated:string-table:empty",
+        "string-table",
+        columns.StringTable,
+        ("new",),
+        [
+            ("len",),
+            ("getitem", 0),
+            ("find", ""),
+            ("find", "a"),
+            ("optional", None),
+            ("optional", ""),
+            ("id", ""),
+            ("len",),
+        ],
+    )
+    strings: list[tuple] = []
+    for text in COLUMNS_STRINGS:
+        strings += [("find", text), ("id", text), ("optional", text), ("len",)]
+    strings += [("getitem", index) for index in range(len(set(COLUMNS_STRINGS)))]
+    yield from _columns_traced(
+        "generated:string-table:strings", "string-table", columns.StringTable, ("new",), strings
+    )
+    tuples: list[tuple] = [("len",), ("getitem", 0)]
+    for value in COLUMNS_TUPLES:
+        tuples += [("id", value), ("pooled", value), ("len",)]
+    distinct = len(set(COLUMNS_TUPLES))
+    tuples += [("getitem", index) for index in range(distinct)]
+    tuples += [
+        ("seal",),
+        ("id", ("a",)),
+        ("pooled", ("a", "b")),
+        ("id", ("z",)),
+        ("getitem", 1),
+        ("len",),
+        ("seal",),
+    ]
+    yield from _columns_traced(
+        "generated:tuple-pool:tuples", "tuple-pool", columns.TuplePool, ("new",), tuples
+    )
+    yield from _columns_traced(
+        "generated:tuple-pool:sealed-empty",
+        "tuple-pool",
+        columns.TuplePool,
+        ("new",),
+        [("seal",), ("id", ()), ("len",)],
+    )
+    mappings: list[tuple] = [("len",), ("getitem", 0)]
+    for mapping in COLUMNS_MAPPINGS:
+        mappings += [("id", mapping), ("pooled", mapping), ("len",)]
+    mappings += [("getitem", index) for index in range(6)]
+    yield from _columns_traced(
+        "generated:mapping-pool:mappings", "mapping-pool", columns.MappingPool, ("new",), mappings
+    )
+    for name, column, width, count, calls in _key_cases():
+        yield from _columns_traced(
+            f"generated:key-index:{name}",
+            "key-index",
+            functools.partial(columns.KeyIndex, bytearray(column), width, count),
+            ("new", column[: width * count], width, count),
+            calls,
+        )
+    for pairs in COLUMNS_WINDOWS:
+        listed = [(ordinal, list(window)) for ordinal, window in pairs]
+        index = columns.WindowIndex.build(pairs)
+        yield _stateless_line(
+            "generated", "window-index-build", listed, (index.ordinals.tolist(), list(index.keys))
+        )
+        size = 1 + max((ordinal for ordinal, _window in pairs), default=-1)
+        removed = bytearray(position % 2 for position in range(size))
+        survivor = [sum(1 for at in range(position) if not removed[at]) for position in range(size)]
+        remapped = index.remapped(survivor, removed)
+        for held in (index, remapped):
+            state, line = _window_state("generated", held)
+            if line is not None:
+                yield line
+            asked = {tuple(window) for _ordinal, window in pairs} | set(COLUMNS_ASKED)
+            for window in sorted(asked, key=lambda window: (len(window), window)):
+                yield _window_line(
+                    "generated", state, ("candidates", list(window)), list(held.candidates(window))
+                )
+                yield _window_line("generated", state, ("key", list(window)), held.key(window))
+            yield _window_line("generated", state, ("runs",), list(held.runs()))
+            yield _window_line("generated", state, ("nbytes",), held.nbytes())
+        yield _window_line(
+            "generated",
+            _window_state("generated", index)[0],
+            ("remapped", survivor, bytes(removed)),
+            _window_result("remapped", remapped),
+        )
+    for values in COLUMNS_WORDS:
+        yield _stateless_line("generated", "window-word", list(values), columns.window_word(values))
+    spread = [(index * 0x9E3779B97F4A7C15) % 2**64 for index in range(600)]
+    for words in (
+        [],
+        [7],
+        [3, 3, 3],
+        [2**64 - 1, 0, 2**64 - 1, 0, 1],
+        [0x0100000000000002, 0x0100000000000001, 0x01FFFFFFFFFFFFFF, 0x0100000000000001],
+        spread,
+        [word >> 60 << 56 | word & 0xFF for word in spread],
+    ):
+        yield _stateless_line(
+            "generated", "sorted-by-word", words, columns.sorted_by_word(array("Q", words)).tolist()
+        )
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -8330,6 +8808,25 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _key_only_generated,
         run="build",
         kind="boundary",
+    ),
+    COLUMNS_STAGE: Stage(
+        COLUMNS_STAGE,
+        {
+            **{f"columns.{owner}.__init__": _columns_made(owner) for owner in COLUMNS_FOLLOWED},
+            **{
+                f"columns.{owner}.{name}": _columns_called(name)
+                for owner in COLUMNS_FOLLOWED
+                for name in COLUMNS_CALLS[owner]
+                if name != "__init__"
+            },
+            **{f"columns.WindowIndex.{name}": _window_called(name) for name in COLUMNS_CALLS["WindowIndex"]},
+            "columns.window_word": _window_worded,
+            "audit.window_word": _window_worded,
+            "unit_cache.sorted_by_word": _words_sorted,
+            "unit_store.sorted_by_word": _words_sorted,
+        },
+        _columns_generated,
+        run="build",
     ),
 }
 
@@ -8552,6 +9049,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _row_delta_blobs_at(out / ROW_DELTA_BLOBS),
                     _row_delta_write_blobs_at(out / ROW_DELTA_WRITE_BLOBS),
                     _signature_store_blobs_at(out / SIGNATURE_STORE_BLOBS),
+                    _columns_following(),
                 ):
                     _build_here(source, built)
         shutil.rmtree(scratch)
@@ -8615,6 +9113,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _row_delta_blobs_at(built.out / ROW_DELTA_BLOBS),
                 _row_delta_write_blobs_at(built.out / ROW_DELTA_WRITE_BLOBS),
                 _signature_store_blobs_at(built.out / SIGNATURE_STORE_BLOBS),
+                _columns_following(),
             ):
                 run_build_here(built, recorded, scratch / "wrapped-run")
         finally:
