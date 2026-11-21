@@ -1,4 +1,6 @@
-"""Record what the real Python corpus units worker's stages take and return, for the port of the units recompute to Rust (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Stage fixtures).
+"""Record what the real Python corpus units worker's and corpus build's stages take and return, for the ports of the units recompute and of the build's parent to Rust (`rebuild/CORPUS-UNITS-PORT-PLAN.md` and `rebuild/CORPUS-PARENT-PORT-PLAN.md`, each § Stage fixtures).
+
+A stage runs the worker or the build (`Stage.run`). The worker's stages (`STAGES`) are described below. The build's (`BUILD_STAGES`) take a build source, `--scenario S` beside `--source`: the scenario's one build, prepared over the source's base prior (`open_build_source`, which `prepare --source SOURCE --scenario NAME|all [--check]` runs alone). A build stage is a call stage, whose recorders record a hooked call (`BUILD_HOOKS`) as the worker's stages do, or a boundary stage (`Stage.kind`), whose recorder returns the build's state at a phase boundary as a `Boundary`: a line a unit, every unit on the mini and every `--every`th ordinal on live (`LIVE_EVERY` by default), and a line a column with the digest of its canonical bytes over every unit (`column_line`). `dump --scenario` writes `source.json`, the prior corpus as the build finds it (`prior/`), clones of what the build reads (`inputs/`) and the units init with its spec dump (`init/`), then runs `build_m1` in this process over a clone of the prior, at the harness's default width under the Rust units engine and one write job, with the selected stages recording (`build_dump`). `selfcheck --scenario` runs that build twice, plain and with every build stage recording, and fails unless the two output trees are identical (`build_selfcheck`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -40,6 +42,8 @@ Run from the repository root:
     uv run python -m rebuild.tools.units_stage_fixtures selfcheck --source mini
     uv run python -m rebuild.tools.units_stage_fixtures compare wire --stages var/rust-port/stages/mini
     uv run python -m rebuild.tools.units_stage_fixtures unicode-tables --check
+    uv run python -m rebuild.tools.units_stage_fixtures selfcheck --source mini --scenario incremental
+    uv run python -m rebuild.tools.units_stage_fixtures dump --source mini --scenario warm --out var/rust-port/build-stages/mini-warm
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ import argparse
 import contextlib
 import copy
 import dataclasses
+import filecmp
 import functools
 import gzip
 import hashlib
@@ -246,13 +251,16 @@ def _worker_init(
     subset_pack: Path,
     spec_root: Path,
     identical_classes: frozenset[str],
+    *,
+    before_font: Path = build.SITE_BEFORE_FONT,
+    junior_font: Path = build.SITE_JUNIOR_FONT,
 ) -> dict:
-    """Return the `init` dict `_RecomputeRunner.__init__` hands every pool worker, over the site's before and Junior fonts."""
+    """Return the `init` dict `_RecomputeRunner.__init__` hands every pool worker, over the site's before and Junior fonts unless `before_font` and `junior_font` name copies of them."""
     site_pages = fingerprint.read_site_corpus(REPO_ROOT)
     return {
-        "before_font": build.SITE_BEFORE_FONT,
+        "before_font": before_font,
         "after_font": after_font,
-        "junior_font": build.SITE_JUNIOR_FONT,
+        "junior_font": junior_font,
         "subset_dir": subset_dir,
         "subset_pack": subset_pack,
         "repo_root": REPO_ROOT,
@@ -381,25 +389,66 @@ def write_units_file(source: Source, out: Path) -> None:
 
 # --- stages and the wrapped run -----------------------------------------------------------------
 
-# A recorder sees one call's positional and keyword arguments before the call runs and returns None, to record nothing, or a finisher, which receives the call's result and returns the fields of the line to record, a list of such fields for a call that records one line per item, or None.
-Finisher = Callable[[object], Mapping[str, object] | list[Mapping[str, object]] | None]
+
+def column_line(name: str, values: Iterable[object]) -> dict[str, object]:
+    """A boundary stage's line for one column, under `column:<name>`: how many values it holds and the sha256 of its canonical bytes, each value's typed encoding as one compact JSON line (`compact`, `encode`) and a newline, in the column's order. The Rust side digests its column the same way."""
+    digest = hashlib.sha256()
+    count = 0
+    for value in values:
+        digest.update(compact(encode(value)).encode("ascii") + b"\n")
+        count += 1
+    return {"key": f"column:{name}", "values": count, "sha256": digest.hexdigest()}
+
+
+@dataclass(frozen=True)
+class Boundary:
+    """The build's state at one phase boundary, as a boundary stage's finisher returns it: `columns` over `count` units, each read by ordinal, and further lines, each with its own key, such as a column that does not hold one value a unit (`column_line`) or a phase note's facts."""
+
+    count: int
+    columns: Mapping[str, Callable[[int], object]]
+    extra: Sequence[Mapping[str, object]] = ()
+
+    def lines(self, every: int) -> Iterator[Mapping[str, object]]:
+        """A line for every `every`th unit from ordinal 0, under `unit:<ordinal>` with each column's value there; a line a column with its digest over every unit (`column_line`); then the further lines."""
+        for ordinal in range(0, self.count, every):
+            yield {"key": f"unit:{ordinal}", **{name: read(ordinal) for name, read in self.columns.items()}}
+        for name, read in self.columns.items():
+            yield column_line(name, map(read, range(self.count)))
+        yield from self.extra
+
+
+# A recorder sees one call's positional and keyword arguments before the call runs and returns None, to record nothing, or a finisher, which receives the call's result and returns what to record: for a call stage the fields of the line, a list of such fields for a call that records one line per item, or None; for a boundary stage a `Boundary`, or None.
+Finisher = Callable[[object], Mapping[str, object] | list[Mapping[str, object]] | Boundary | None]
 Recorder = Callable[[tuple, dict], Finisher | None]
 
 
 # An answer check sees the source's worker `init`, a line's expected outputs and the value the Rust answer to the line carries under the check's field, decoded, and returns a problem or None.
 AnswerCheck = Callable[[Mapping[str, object], Mapping[str, object], object], str | None]
 
+# What a stage runs: the units worker over a worker source (`Source`), or the corpus build over a build source (`BuildSource`).
+RUNS = ("worker", "build")
+# How a stage records: a call stage a line a hooked call (or an item of its result), a boundary stage the build's state at a phase boundary (`Boundary`).
+KINDS = ("call", "boundary")
+
 
 @dataclass(frozen=True)
-class Stage:
-    """One stage of the port: its recorders by hook name (`HOOKS`), its generated inputs, which give the fields of each further line for a source, the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`, named groups of those fields that `compare --fields` can check alone, and checks of further fields of a Rust answer that are not compared for equality, by field name."""
+class Stage[S]:
+    """One stage of the port: what it runs (`RUNS`) and how it records (`KINDS`), its recorders by hook name (`HOOKS` for the worker, `BUILD_HOOKS` for the build), its generated inputs, which give the fields of each further line for a source of its run, the fields of a line that hold its expected output, which `compare` checks against the Rust stage's answer to the line's `key`, named groups of those fields that `compare --fields` can check alone, and checks of further fields of a Rust answer that are not compared for equality, by field name."""
 
     name: str
     recorders: Mapping[str, Recorder]
-    generated: Callable[[Source], Iterator[Mapping[str, object]]] | None = None
+    generated: Callable[[S], Iterator[Mapping[str, object]]] | None = None
     outputs: tuple[str, ...] = ("value",)
     field_groups: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     answer_checks: Mapping[str, AnswerCheck] = field(default_factory=dict)
+    run: str = "worker"
+    kind: str = "call"
+
+    def __post_init__(self) -> None:
+        if self.run not in RUNS or self.kind not in KINDS:
+            raise ValueError(f"the {self.name} stage runs {self.run!r} and records {self.kind!r}")
+        if self.kind == "boundary" and self.run != "build":
+            raise ValueError(f"the {self.name} stage records a phase boundary, which only the build has")
 
 
 def unit_value(unit: Unit) -> Record:
@@ -2014,8 +2063,8 @@ def _check_generated(_source: Source) -> Iterator[Mapping[str, object]]:
             yield _check_line("generated", mutated)
 
 
-# The stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
-STAGES: dict[str, Stage] = {
+# The worker's stage registry. The task that ports a stage adds the stage here (the plan's § Working rules).
+STAGES: dict[str, Stage[Source]] = {
     "wire": Stage("wire", {"_phase1_unit": _wire_unit}, _wire_generated),
     "pyfmt": Stage(
         "pyfmt",
@@ -2072,13 +2121,28 @@ STAGES: dict[str, Stage] = {
 
 
 class _Sink:
-    """The open `STAGE.ndjson` files of one run under `out`, each line a JSON object whose `from` says whether the run or the stage's generator produced it and whose other fields are typed values. A line whose key a stage already wrote is written once: a second, equal line is dropped, and a different one raises ValueError."""
+    """The open `STAGE.ndjson` files of one run under `out`, each line a JSON object whose `from` says whether the run or the stage's generator produced it and whose other fields are typed values. A line whose key a stage already wrote is written once: a second, equal line is dropped, and a different one raises ValueError. A boundary stage's lines are its `Boundary`'s at the stride `every`."""
 
-    def __init__(self, out: Path, stages: Sequence[Stage]) -> None:
+    def __init__(self, out: Path, stages: Sequence[Stage[Any]], every: int = 1) -> None:
         self._handles: dict[str, IO[str]] = {
             stage.name: (out / f"{stage.name}.ndjson").open("w", encoding="ascii") for stage in stages
         }
         self._written: dict[str, dict[object, bytes]] = {stage.name: {} for stage in stages}
+        self._kinds = {stage.name: stage.kind for stage in stages}
+        self._every = every
+
+    def record(
+        self, stage: str, recorded: Mapping[str, object] | list[Mapping[str, object]] | Boundary
+    ) -> None:
+        """Write what one of the run's calls recorded for `stage`: a call stage's line or lines, or a boundary stage's `Boundary`; either kind recording the other's form raises TypeError."""
+        if isinstance(recorded, Boundary) != (self._kinds[stage] == "boundary"):
+            raise TypeError(f"the {stage} stage records {self._kinds[stage]} lines, not {recorded!r:.80}")
+        if isinstance(recorded, Boundary):
+            lines: Iterable[Mapping[str, object]] = recorded.lines(self._every)
+        else:
+            lines = recorded if isinstance(recorded, list) else [recorded]
+        for line in lines:
+            self.write(stage, "run", line)
 
     def write(self, stage: str, origin: str, fields: Mapping[str, object]) -> None:
         text = compact({"from": origin} | {name: encode(value) for name, value in fields.items()})
@@ -2097,8 +2161,8 @@ class _Sink:
             handle.close()
 
 
-def _resolve(hook: str) -> tuple[object, str]:
-    module_name, path = HOOKS[hook]
+def _resolve(hook: str, hooks: Mapping[str, tuple[str, str]]) -> tuple[object, str]:
+    module_name, path = hooks[hook]
     owner: object = importlib.import_module(module_name)
     *parents, attribute = path.split(".")
     for parent in parents:
@@ -2107,12 +2171,17 @@ def _resolve(hook: str) -> tuple[object, str]:
 
 
 @contextlib.contextmanager
-def wrapped(stages: Sequence[Stage], sink: _Sink | None) -> Iterator[None]:
-    """Replace every hook point with a wrapper that calls the original and passes the call to each stage's recorder for that hook, and restore the originals on exit."""
+def wrapped(
+    stages: Sequence[Stage[Any]], sink: _Sink | None, hooks: Mapping[str, tuple[str, str]] = HOOKS
+) -> Iterator[None]:
+    """Replace every hook point of `hooks` with a wrapper that calls the original and passes the call to each stage's recorder for that hook, and restore the originals on exit. A stage recorder for a hook `hooks` does not name raises ValueError."""
+    unhooked = sorted({hook for stage in stages for hook in stage.recorders if hook not in hooks})
+    if unhooked:
+        raise ValueError(f"no hook point is registered for {', '.join(unhooked)}")
     restore: list[tuple[object, str, object]] = []
     try:
-        for hook in HOOKS:
-            owner, attribute = _resolve(hook)
+        for hook in hooks:
+            owner, attribute = _resolve(hook, hooks)
             original = getattr(owner, attribute)
             recorders = [(stage.name, stage.recorders[hook]) for stage in stages if hook in stage.recorders]
             setattr(owner, attribute, _wrapper(original, recorders, sink))
@@ -2131,10 +2200,9 @@ def _wrapper(original: Callable, recorders: list[tuple[str, Recorder]], sink: _S
         ]
         result = original(*args, **kwargs)
         for name, finish in finishers:
-            fields = finish(result)
-            if fields is not None and sink is not None:
-                for line in fields if isinstance(fields, list) else [fields]:
-                    sink.write(name, "run", line)
+            recorded = finish(result)
+            if recorded is not None and sink is not None:
+                sink.record(name, recorded)
         return result
 
     return call
@@ -2355,6 +2423,15 @@ def default_width() -> int:
     return corpus_job_budget(skip_gates=True)
 
 
+def signature_width(jobs: int | None) -> int:
+    """The signature shaping's width for a build at `jobs` units jobs (the harness's default when None): one for a build at one job, and a `--skip-gates` cycle's otherwise."""
+    if jobs == 1:
+        return 1
+    from rebuild.tools.artifact_cycle import signature_job_budget
+
+    return signature_job_budget()
+
+
 def _clone_file(source: Path, target: Path) -> None:
     """Copy one file with its modification time, as a copy-on-write clone where the volume can make one."""
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -2407,12 +2484,7 @@ def run_python_build(
     if prior is not None:
         _clone_tree(prior, out)
     width = default_width() if jobs is None else jobs
-    if jobs == 1:
-        signature_jobs = 1
-    else:
-        from rebuild.tools.artifact_cycle import signature_job_budget
-
-        signature_jobs = signature_job_budget()
+    signature_jobs = signature_width(jobs)
     counts = logs / f"{label}.counts"
     counts.write_bytes(b"")
     run = None
@@ -2516,17 +2588,20 @@ def _mini_base() -> BasePrior:
     return BasePrior("mini", out, inputs)
 
 
+def _audit_names(audit_path: Path) -> list[str]:
+    """The files that hold an audit, beside one another: its head and every part the head lists, or the single file a tree with no head holds."""
+    head = row_delta.read_head(audit_path.parent, audit_path.name)
+    if head is None:
+        return [audit_path.name]
+    return [row_delta.head_name(audit_path.name), *(part.name for part in head.parts)]
+
+
 def _clone_live_inputs(target: Path) -> None:
     """Clone what the build reads under `rebuild/out/m1/` and the ledger into `target`, modification times kept: the audit's head and every part it lists (or its single file), the after font, the subset tables and their pack, and the Stage A record the manifest copies."""
     shutil.rmtree(target, ignore_errors=True)
     target.mkdir(parents=True)
     m1 = build.M1_SUBSETS
-    head = row_delta.read_head(m1, build.M1_AUDIT.name)
-    names = (
-        [row_delta.head_name(build.M1_AUDIT.name), *(part.name for part in head.parts)]
-        if head is not None
-        else [build.M1_AUDIT.name]
-    )
+    names = _audit_names(build.M1_AUDIT)
     names += [build.M1_AFTER_FONT.name, PACK_NAME, fingerprint.STAGE_A_FILENAME]
     names += [f"baseline-{config}.subset.tsv.gz" for config in ACCEPTANCE_CONFIGS]
     for name in names:
@@ -3556,20 +3631,278 @@ def scenario_names(source: str, scenario: str) -> list[str]:
     return [scenario]
 
 
+# --- the build's stages -------------------------------------------------------------------------
+
+BUILD_SOURCE_FORMAT = "ams-review-build-stage-source/1"
+# The stride of the units a live dump's boundary stages record a line for, unless `--every` names another; a mini dump records every unit.
+LIVE_EVERY = 1000
+# Where a build dump keeps its clones and the units init, under its directory.
+DUMP_PRIOR = "prior"
+DUMP_INPUTS = "inputs"
+DUMP_INIT = "init"
+# The build's calls a build stage can record, by name, as `HOOKS` names the worker's: each is the module and the attribute path the wrapper replaces for the length of a build. The task that adds a stage adds the hook points it records.
+BUILD_HOOKS: dict[str, tuple[str, str]] = {}
+
+
+@dataclass(frozen=True)
+class BuildSource:
+    """A build dump's source: its scenario, prepared over the source's base prior (`open_build_source`), the scenario's one build, the dump's directory, the stride of the units a boundary stage records a line for, and the widths the build runs at (`build_widths`)."""
+
+    scenario: BuildScenario
+    case: BuildCase
+    out: Path
+    every: int
+    jobs: int
+    signature_jobs: int
+
+    def describe(self, inputs: Mapping[str, str], init: Path) -> dict:
+        return {
+            "format": BUILD_SOURCE_FORMAT,
+            "run": "build",
+            "source": self.scenario.source,
+            "scenario": self.scenario.name,
+            "case": self.case.name,
+            "every": self.every,
+            "widths": {"jobs": self.jobs, "signature_jobs": self.signature_jobs, "write_jobs": 1},
+            "read": self.case.inputs.request(),
+            "prior": DUMP_PRIOR,
+            "inputs": dict(inputs),
+            "init": init.relative_to(self.out).as_posix(),
+        }
+
+
+# The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here.
+BUILD_STAGES: dict[str, Stage[BuildSource]] = {}
+
+
+def default_every(source: str, every: int | None) -> int:
+    """The stride of a dump's boundary stages: every unit on the mini, which refuses another stride, and `every` or `LIVE_EVERY` on live."""
+    if source == "mini":
+        if every not in (None, 1):
+            raise SystemExit("a mini dump records every unit; --every strides a live dump")
+        return 1
+    if every is not None and every < 1:
+        raise SystemExit(f"--every {every} is not a stride; it takes a positive count of units")
+    return LIVE_EVERY if every is None else every
+
+
+def single_build(scenario: BuildScenario) -> BuildCase:
+    """The scenario's one build; a scenario of several builds is refused, since a dump records one build's calls and boundaries."""
+    if len(scenario.cases) != 1:
+        raise SystemExit(
+            f"the {scenario.name} scenario runs {len(scenario.cases)} builds; "
+            "a build dump or selfcheck takes a scenario of one"
+        )
+    return scenario.cases[0]
+
+
+def build_widths(case: BuildCase) -> tuple[int, int]:
+    """The units width a dump's build runs at, the case's own or the harness's default (`default_width`), and its signature shaping's (`signature_width`)."""
+    jobs = default_width() if case.jobs is None else case.jobs
+    return jobs, signature_width(case.jobs)
+
+
+def open_build_dump(source: str, scenario: str, out: Path, every: int | None) -> BuildSource:
+    """Prepare the named scenario (`open_build_source`) for a dump into `out` at the stride `default_every` gives."""
+    stride = default_every(source, every)
+    prepared = open_build_source(source, scenario)
+    case = single_build(prepared)
+    jobs, signature_jobs = build_widths(case)
+    return BuildSource(prepared, case, out, stride, jobs, signature_jobs)
+
+
+def clone_build_inputs(inputs: BuildInputs, target: Path) -> dict[str, str]:
+    """Clone what a build of `inputs` reads, but the spec, into `target`, modification times kept (`_clone_file`): the audit's files (`_audit_names`), the ledger, the after font and the site's before and Junior fonts, the subset tables and their pack. Return each input's clone by its role, as a path relative to `target`'s parent."""
+    roles = {
+        "ledger": inputs.ledger,
+        "after_font": inputs.after_font,
+        "before_font": build.SITE_BEFORE_FONT,
+        "junior_font": build.SITE_JUNIOR_FONT,
+        "subset_pack": inputs.subset_pack,
+        **{
+            f"subset_{config}": inputs.subset_dir / f"baseline-{config}.subset.tsv.gz"
+            for config in ACCEPTANCE_CONFIGS
+        },
+    }
+    files = {name: inputs.audit.parent / name for name in _audit_names(inputs.audit)}
+    for role, path in roles.items():
+        if files.setdefault(path.name, path) != path:
+            raise SystemExit(f"the build's inputs {files[path.name]} and {path} share one name")
+    shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    for name, path in files.items():
+        _clone_file(path, target / name)
+    base = target.name
+    cloned = {role: f"{base}/{path.name}" for role, path in roles.items()}
+    return {"audit": f"{base}/{inputs.audit.name}", "subset_dir": base, **cloned}
+
+
+def write_dump_init(inputs: BuildInputs, dump: Path, cloned: Mapping[str, str]) -> Path:
+    """Write the units init a build of `inputs` hands its units engine, as `_RecomputeRunner.__init__` builds it, over the dump's clones of the fonts, the subset tables and their pack, into `dump/DUMP_INIT/` beside its spec dump and font facts (`units_exec.write_init`), and return its path."""
+    identical_classes = frozenset(entry.id for entry in load_ledger(inputs.ledger) if entry.ink_identical)
+    init = _worker_init(
+        dump / cloned["after_font"],
+        dump / cloned["subset_dir"],
+        dump / cloned["subset_pack"],
+        inputs.spec_root,
+        identical_classes,
+        before_font=dump / cloned["before_font"],
+        junior_font=dump / cloned["junior_font"],
+    )
+    directory = _cleared(dump / DUMP_INIT)
+    return units_exec.write_init(init, directory)
+
+
+@contextlib.contextmanager
+def _as_build_child(scratch: Path) -> Iterator[None]:
+    """Hold this process as `run_python_build` holds its child for the length of one build: the child's environment (`_build_environment`) with its counts file under `scratch`, and the journal and the cycle directory redirected there, so the build's fold claims start from none, as a fresh process's do (`row_delta.claim_fold`). Everything is put back on exit."""
+    scratch.mkdir(parents=True, exist_ok=True)
+    counts = scratch / "counts"
+    counts.write_bytes(b"")
+    cycle_var = scratch / "cycle"
+    cycle_var.mkdir(exist_ok=True)
+    held = dict(os.environ)
+    environment = _build_environment(counts, None)
+    journal, cycle = cycle_timings.JOURNAL, cycle_paths.CYCLE_VAR
+    os.environ.clear()
+    os.environ.update(environment)
+    cycle_timings.JOURNAL = scratch / "journal.ndjson"
+    cycle_paths.CYCLE_VAR = cycle_var
+    try:
+        yield
+    finally:
+        cycle_timings.JOURNAL, cycle_paths.CYCLE_VAR = journal, cycle
+        os.environ.clear()
+        os.environ.update(held)
+
+
+def run_build_here(source: BuildSource, out: Path, scratch: Path) -> None:
+    """Run the source's build into `out` in this process (`_as_build_child`), with `python_build_child`'s arguments at the source's widths and one write job, so every write runs here."""
+    inputs = source.case.inputs
+    with _as_build_child(scratch):
+        build.build_m1(
+            out,
+            audit_path=inputs.audit,
+            ledger_path=inputs.ledger,
+            subset_dir=inputs.subset_dir,
+            after_font=inputs.after_font,
+            jobs=source.jobs,
+            signature_jobs=source.signature_jobs,
+            recompute_all_units=inputs.recompute_all,
+            spec_root=inputs.spec_root,
+            subset_pack=inputs.subset_pack,
+            write_jobs=1,
+        )
+
+
+def _build_prior(source: BuildSource) -> Path:
+    prior = source.case.prior
+    assert prior is not None, "a scenario's first build names its prior"
+    return prior
+
+
+def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> None:
+    """Write a build dump under `source.out`: the prior corpus as the build finds it (`DUMP_PRIOR`), clones of what it reads (`DUMP_INPUTS`, `clone_build_inputs`), the units init (`write_dump_init`) and `source.json`; then, when any stage is selected, run the build in this process over a clone of the prior, with every build hook point wrapped and the selected stages recording, and add each stage's generated lines. The build reads the scenario's own inputs, whose paths its manifest names, and the build's tree is deleted once it returns."""
+    out = source.out
+    out.mkdir(parents=True, exist_ok=True)
+    prior = out / DUMP_PRIOR
+    _clone_tree(_build_prior(source), prior)
+    cloned = clone_build_inputs(source.case.inputs, out / DUMP_INPUTS)
+    init = write_dump_init(source.case.inputs, out, cloned)
+    (out / SOURCE_FILE).write_text(
+        json.dumps(source.describe(cloned, init), indent=1) + "\n", encoding="ascii"
+    )
+    print(
+        f"{out}: {source.scenario.source}-{source.scenario.name} {source.case.name}, "
+        f"{SOURCE_FILE}, {DUMP_PRIOR}/, {DUMP_INPUTS}/ and {init.relative_to(out)}",
+        file=sys.stderr,
+    )
+    if not stages:
+        return
+    sink = _Sink(out, stages, source.every)
+    try:
+        with tempfile.TemporaryDirectory(prefix="build-stage-dump-", dir=out) as scratch:
+            built = Path(scratch) / "out"
+            _clone_tree(prior, built)
+            with wrapped(stages, sink, BUILD_HOOKS):
+                run_build_here(source, built, Path(scratch) / "run")
+        for stage in stages:
+            if stage.generated is not None:
+                for fields in stage.generated(source):
+                    sink.write(stage.name, "generated", fields)
+    finally:
+        sink.close()
+    for stage in stages:
+        print(out / f"{stage.name}.ndjson", file=sys.stderr)
+
+
+def _tree_files(root: Path) -> dict[str, Path]:
+    return {path.relative_to(root).as_posix(): path for path in root.rglob("*") if not path.is_dir()}
+
+
+def tree_differences(left: Path, right: Path) -> tuple[int, list[str]]:
+    """How many files two output trees hold between them, and each relative path that only one holds or whose bytes differ, sorted."""
+    left_files, right_files = _tree_files(left), _tree_files(right)
+    names = sorted(left_files.keys() | right_files.keys())
+    differing = [
+        name
+        for name in names
+        if name not in left_files
+        or name not in right_files
+        or not filecmp.cmp(left_files[name], right_files[name], shallow=False)
+    ]
+    return len(names), differing
+
+
+def build_selfcheck(source: str, scenario: str) -> bool:
+    """Prepare the scenario and run its one build twice in this process, each over its own clone of the prior (`run_build_here`): once as the build runs and once with every build hook point wrapped and every build stage recording into a temporary directory. Print what differs and return whether the two output trees are identical."""
+    prepared = open_build_source(source, scenario)
+    case = single_build(prepared)
+    jobs, signature_jobs = build_widths(case)
+    with tempfile.TemporaryDirectory(prefix="build-stage-selfcheck-", dir=prepared.directory) as held:
+        scratch = Path(held)
+        built = BuildSource(
+            prepared, case, scratch / "stages", default_every(source, None), jobs, signature_jobs
+        )
+        plain, recorded = scratch / "plain", scratch / "wrapped"
+        _clone_tree(_build_prior(built), plain)
+        run_build_here(built, plain, scratch / "plain-run")
+        built.out.mkdir()
+        stages = list(BUILD_STAGES.values())
+        sink = _Sink(built.out, stages, built.every)
+        try:
+            _clone_tree(_build_prior(built), recorded)
+            with wrapped(stages, sink, BUILD_HOOKS):
+                run_build_here(built, recorded, scratch / "wrapped-run")
+        finally:
+            sink.close()
+        files, differing = tree_differences(plain, recorded)
+    print(
+        f"{source}-{scenario} {case.name}: the plain and wrapped builds ({len(stages)} stages, "
+        f"{len(BUILD_HOOKS)} hook points) wrote {files:,} files, {len(differing):,} differing",
+        file=sys.stderr,
+    )
+    for name in differing[:EXAMPLES_SHOWN]:
+        print(f"  differs: {name}", file=sys.stderr)
+    if not differing:
+        print("selfcheck: the wrapped build writes the plain build's tree byte for byte", file=sys.stderr)
+    return not differing
+
+
 # --- commands -----------------------------------------------------------------------------------
 
 
-def _selected(names: Sequence[str] | None) -> list[Stage]:
+def _selected[S](names: Sequence[str] | None, registry: Mapping[str, Stage[S]]) -> list[Stage[S]]:
     if not names:
-        return list(STAGES.values())
-    unknown = [name for name in names if name not in STAGES]
+        return list(registry.values())
+    unknown = [name for name in names if name not in registry]
     if unknown:
-        known = ", ".join(STAGES) or "none yet"
+        known = ", ".join(registry) or "none yet"
         raise SystemExit(f"unknown stage {', '.join(unknown)}; the registered stages are: {known}")
-    return [STAGES[name] for name in dict.fromkeys(names)]
+    return [registry[name] for name in dict.fromkeys(names)]
 
 
-def dump(source: Source, stages: Sequence[Stage], out: Path) -> None:
+def dump(source: Source, stages: Sequence[Stage[Source]], out: Path) -> None:
     """Write the units file and every selected stage's lines under `out`: the worker's run records the stages with recorders, and each stage's generator adds its generated lines after them."""
     out.mkdir(parents=True, exist_ok=True)
     write_units_file(source, out)
@@ -3682,7 +4015,7 @@ def _difference(expected: object, actual: object) -> str:
     return f"at character {offset}:\n    python: …{left[start:offset + 80]}…\n    rust:   …{right[start:offset + 80]}…"
 
 
-def compared_fields(stage: Stage, names: str | None) -> tuple[str, ...]:
+def compared_fields(stage: Stage[Any], names: str | None) -> tuple[str, ...]:
     """The outputs `compare` checks: every output of the stage, or the comma-separated output fields and field groups `names` lists, in that order, each once. A name the stage has neither as an output nor as a group is refused."""
     if names is None:
         return stage.outputs
@@ -3698,7 +4031,7 @@ def compared_fields(stage: Stage, names: str | None) -> tuple[str, ...]:
     return tuple(dict.fromkeys(chosen))
 
 
-def compare(stage: Stage, stages: Path, checked: Sequence[str] | None = None) -> bool:
+def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = None) -> bool:
     """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`), and the init it reads is written for the dump's source (`units_exec.write_init`) into a directory held for the run."""
     outputs = tuple(checked) if checked is not None else stage.outputs
     stage_file = stages / f"{stage.name}.ndjson"
@@ -3844,6 +4177,14 @@ def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--all", action="store_true", dest="everything")
 
 
+def _add_scenario_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--scenario",
+        choices=BUILD_SCENARIOS,
+        help="take a build source: this scenario's one build, in place of the worker's handouts",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="units_stage_fixtures", description=(__doc__ or "").split("\n\n")[0]
@@ -3851,10 +4192,15 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     dump_parser = commands.add_parser("dump", help="write the units file and the selected stages' lines")
     _add_source_arguments(dump_parser)
+    _add_scenario_argument(dump_parser)
     dump_parser.add_argument("--stage", action="append", metavar="STAGE")
     dump_parser.add_argument("--out", type=Path, required=True)
+    dump_parser.add_argument(
+        "--every", type=int, metavar="N", help="a live build dump's boundary stages record every Nth unit"
+    )
     check_parser = commands.add_parser("selfcheck", help="check that the wrappers change nothing")
     _add_source_arguments(check_parser)
+    _add_scenario_argument(check_parser)
     compare_parser = commands.add_parser("compare", help="check the Rust side of a stage against a dump")
     compare_parser.add_argument("stage", metavar="STAGE")
     compare_parser.add_argument("--stages", type=Path, required=True, metavar="DIR")
@@ -3885,9 +4231,21 @@ def main(argv: list[str] | None = None) -> int:
                 )
         return 0 if prepare(args.source, names, args.check) else 1
     if args.command == "compare":
-        (stage,) = _selected([args.stage])
+        (stage,) = _selected([args.stage], STAGES)
         return 0 if compare(stage, args.stages, compared_fields(stage, args.fields)) else 1
-    stages = _selected(args.stage) if args.command == "dump" else []
+    if args.scenario is not None:
+        if args.per_config or args.batches or args.everything:
+            raise SystemExit(
+                "--per-config, --batches and --all choose a worker source's handouts, not a build's"
+            )
+        if args.command == "dump":
+            build_stages = _selected(args.stage, BUILD_STAGES)
+            build_dump(open_build_dump(args.source, args.scenario, args.out, args.every), build_stages)
+            return 0
+        return 0 if build_selfcheck(args.source, args.scenario) else 1
+    if getattr(args, "every", None) is not None:
+        raise SystemExit("--every strides a build dump's boundary stages; it takes --scenario")
+    stages = _selected(args.stage, STAGES) if args.command == "dump" else []
     source = open_source(args.source, args.per_config, args.batches, args.everything)
     if args.command == "dump":
         dump(source, stages, args.out)
