@@ -3,10 +3,13 @@
 //! The build's load phase is here ([`load_phase`], [`load_corpus`]), as `build._build_m1` runs it: the ink-signature store loaded, the misses found and shaped, the audit read as a stream into the unit table and the pre-merge snapshot. The Rust build reads an audit only as a stream, so an audit that is not in sorted sections, or whose key-only read or stream breaks, is refused, naming the Python build that reads it ([`not_a_stream`]). [`stage_load`] is the `load` stage of the stage fixtures.
 //!
 //! The build's plan phase is here too ([`plan_phase`]), as `build._build_m1` runs it after the load: the unit store made over the load's units and input keys, the prior unit store scanned and every unit it can reuse loaded, the records it cannot reuse kept by id, a store that stops reading partway answered by a restart over an emptied store, and the verification sample drawn from the reused units ([`Planned`]). [`stage_plan`] is the `plan` stage of the stage fixtures.
+//!
+//! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files.
 
 pub mod audit;
 pub mod columns;
 pub mod console;
+pub mod drive;
 pub mod gzip;
 pub mod input;
 pub mod premerge;

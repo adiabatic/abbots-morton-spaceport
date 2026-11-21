@@ -26,6 +26,7 @@ The build's stages (`BUILD_STAGES`):
 - `store-load` follows each `unit_store.UnitStore` the build makes from its making (`_unit_store_followed`), each call a line keyed by the store's name, `run:store:<serial>`, and the call's place: `new` with its size and the input-key column it takes, then each call `STORE_FOLLOWED` names, the loads (`load_projection`, its projection as `_projection_value` lays it out, and `load_cached`), the prior records and their seal, the prior lines, the input-key index and the setters the whole-corpus passes and the write call, each with its arguments, valued what `_unit_store_after` reads of the store after it: a load's row and every accessor that takes only the ordinal (`_store_reading`), a setter's field read back. Its generated lines (`_store_load_generated`) replay each store the build made into a store of their own, checking every value against the build's, and continue the trace of each one whose rows were all loaded (`_store_script`): the id index and every id's ordinal, every row read, and its record line, `cached_as_is` and `predicted_unchanged` asked under its own fields and changed ones (`_patched_cases`), some rows' fields set and read again, the store emptied and each setter's refusal; then generated stores (`_store_cases`) load projections and records of every shape, put each refusal of a load to its text and each column to its width at both ends (`_projection_refusals`), and refuse a repeated id, a short input-key column and a repeated input key.
 - `scan` is a boundary stage that records the plan's reads of the prior unit store, each where the build makes it: from `unit_cache.open_store`, the store as it opened under `open`, `("none",)` or `("opened", stamps, head)` with the head's document (`_store_opened`); from `unit_cache.scan_store`, walked again over handles of its own before the build reads a line (`_store_scanned`, `_reopened`), a unit a line in the store's materialized order, its place, the ordinal whose input key it names, its parsed record and the sha256 of its bytes (`_scanned_value`), and the `scan` line, whether it parses named lines, the parts it trusts and how it ended (`_scan_failure`); from `unit_cache.locate_prior_fragments`, the wanted records and where the walk placed them under `locate` (`_located_value`, id words as `%016x`); from `unit_cache.scan_marked`, scanned again before it runs, a `marked:<place>` line a record it parses and the `marked` line; from `unit_cache.LocatedFragments.find`, each placement the plan looks up under `find:` and the class and id; and from `unit_cache.store_miss_note`, `rederiving_moved` and `adopt_single_file`, the note, the decision and the head's document. Its generated lines (`_scan_generated`), on the mini only, open, scan and scan again at marked places the dump's prior store and stores made from it, under a segment, as a single file, cut short, corrupted, with no header line and with lines of every shape the scan skips or refuses, and heads and single files that do not open (`_scan_store_cases`); ask which parts recorded sizes trust, the manifest's identity over manifests of every kind, the miss note over stamps that match and that moved in each way it names, whether a re-deriving label moved, and adopt single files (`_scan_stamp_cases`); and walk the prior corpus with every store record wanted, through its store, its index and its parts as each is taken away or does not read, and a corpus whose deflated fragment only its store places (`_scan_locate_cases`). Every file is kept once under its sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`).
 - `plan` is a boundary stage that records what the plan gives the units phase, from `build._build_m1`'s locals as the plan's line is printed (`build._phase_timing`, `_plan_timed`), as `plan_boundary` lays it out: a unit a row of the unit store as the `store-load` stage reads one, a column over the prior records the store keeps by id and one over the recomputed ordinals, and lines for the store plan, the prior shards, the count reused, the verification sample with the units materialized for it, the plan's note and the console lines the plan printed, read from standard error between the load's line and the plan's.
+- `units` is a boundary stage that records the unit store once phase 1 has loaded every recomputed unit (`build._RecomputeRunner.phase1`, `_units_drafted`), as `units_boundary` lays it out: a unit a row of the store as the `store-load` stage reads one, a source in the arena as its part, its length and the sha256 of its deflated bytes, and lines for the drafting-time errors the runner kept, sorted, the count and the last of the `[progress]` lines phase 1 printed, its other console lines, and the arena's fragment count, deflated bytes, shard bytes and note.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -147,7 +148,7 @@ from rebuild.review.subset_pack import (
 )
 from rebuild.review.unit_store import UnitStore
 from rebuild.review.units_exec import Record, compact, decode, encode
-from rebuild.tools import cycle_paths, cycle_timings, memory_tally
+from rebuild.tools import console, cycle_paths, cycle_timings, memory_tally
 from rebuild.validation.shaping import row_for
 
 REPO_ROOT = build.REPO_ROOT
@@ -3869,6 +3870,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
         )
     },
     "build._phase_timing": ("rebuild.review.build", "_phase_timing"),
+    "build._RecomputeRunner.phase1": ("rebuild.review.build", "_RecomputeRunner.phase1"),
 }
 
 
@@ -11836,6 +11838,56 @@ def _plan_timed(args: tuple, kwargs: dict) -> Finisher | None:
     return lambda _result: boundary
 
 
+UNITS_STAGE = "units"
+# The keys of the `units` stage's lines beside its units: the kept errors, the `[progress]` lines, the other console lines and the arena's counts.
+UNITS_ERRORS_KEY = "errors"
+UNITS_PROGRESS_KEY = "progress"
+UNITS_CONSOLE_KEY = "console"
+UNITS_ARENA_KEY = "arena"
+
+
+def _units_reading(store: UnitStore, arena: build._FragmentArena, ordinal: int) -> dict[str, object]:
+    """One row of the store as the `units` stage reads it: the row as the `store-load` stage reads one (`_store_reading`), a source in the arena as its part, its length and the sha256 of its deflated bytes, since where a fragment lies in the arena follows the order the units engine answered in."""
+    reading = _store_reading(store, ordinal)
+    source = store.source(ordinal)
+    if source is not None and source.part == build.ARENA_PART:
+        packed = bytes(arena._bytes[source.start : source.start + source.length])
+        reading["source"] = (source.part, source.length, hashlib.sha256(packed).hexdigest())
+    return reading
+
+
+def units_boundary(runner: build._RecomputeRunner, store: UnitStore, printed: Sequence[str]) -> Boundary:
+    """The `units` boundary over the unit store once phase 1 has loaded every recomputed unit (`_RecomputeRunner.phase1`): a unit a row as `_units_reading` reads it; the drafting-time errors the runner kept, sorted, since a pooled build keeps them in arrival order; how many `[progress]` lines phase 1 printed and the last of them; the other lines it printed; and the arena's fragment count, deflated bytes, shard bytes and note."""
+    arena = runner.arena
+    progress = [line for line in printed if line.startswith(console.PROGRESS)]
+    return Boundary(
+        store.n,
+        {"value": functools.partial(_units_reading, store, arena)},
+        [
+            {"key": UNITS_ERRORS_KEY, "value": sorted(runner.contract_errors)},
+            {"key": UNITS_PROGRESS_KEY, "value": (len(progress), progress[-1] if progress else None)},
+            {
+                "key": UNITS_CONSOLE_KEY,
+                "value": [line for line in printed if not line.startswith(console.PROGRESS)],
+            },
+            {"key": UNITS_ARENA_KEY, "value": (arena.count, len(arena), arena._raw, arena.note())},
+        ],
+    )
+
+
+def _units_drafted(args: tuple, _kwargs: dict) -> Finisher:
+    """Phase 1 (`build._RecomputeRunner.phase1`) recorded as the `units` boundary once it returns (`units_boundary`), with the console lines it printed, read from standard error, which is held for the length of the call."""
+    runner, store = args
+    printed = _Printed(sys.stderr)
+    sys.stderr = printed
+
+    def finish(_result: object) -> Boundary:
+        sys.stderr = printed.through
+        return units_boundary(runner, store, printed.lines())
+
+    return finish
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -12029,6 +12081,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         kind="boundary",
     ),
     PLAN_STAGE: Stage(PLAN_STAGE, {"build._phase_timing": _plan_timed}, run="build", kind="boundary"),
+    UNITS_STAGE: Stage(
+        UNITS_STAGE, {"build._RecomputeRunner.phase1": _units_drafted}, run="build", kind="boundary"
+    ),
 }
 
 
