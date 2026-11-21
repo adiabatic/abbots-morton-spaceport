@@ -1,0 +1,64 @@
+{
+ "format": "ams-kern-values/1",
+ "inventory": {
+  "present": true,
+  "stamp": {
+   "tables": "9391becb33b2bad8370dfa949e6113e2a2ff61434547a4dd063329363c8024d5+simulated-prospect+follower-prefer-slots+deep-classes",
+   "manual": "0ad754c959e98a4123b6ad09fe5a4e2d8f763b7a326ca803f7bf59ae5ef953ef"
+  },
+  "tables_current": true,
+  "manual_current": true
+ },
+ "tables": {
+  "inputs": "9391becb33b2bad8370dfa949e6113e2a2ff61434547a4dd063329363c8024d5+simulated-prospect+follower-prefer-slots+deep-classes",
+  "current": true
+ },
+ "pass": null,
+ "live": {
+  "values": [
+   {
+    "lead": "qsNo[flipped]",
+    "follow": "qsTea[half exit=x-height]",
+    "by": -1,
+    "deciders": [
+     {
+      "file": "glyph_data/runes/qsNo.yaml",
+      "path": "kern[0]",
+      "inherited": false
+     }
+    ]
+   }
+  ],
+  "error": null
+ },
+ "built": {
+  "present": true,
+  "values": [
+   [
+    "qsNo[loop]",
+    "qsTea[full]",
+    -1
+   ]
+  ]
+ },
+ "runes": {
+  "qsNo": {
+   "file": "glyph_data/runes/qsNo.yaml",
+   "sha256": "b732db0a31f41601e38e9ca84a1ff568a1ca426cd6219e66c5707073bd7494df",
+   "text": "kern:\n- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}\n",
+   "records": [
+    {
+     "path": "kern[0]",
+     "by": -1,
+     "text": "{stance: flipped, right: {family: qsTea, stance: half}, by: -1}"
+    }
+   ]
+  },
+  "qsTea": {
+   "file": "glyph_data/runes/qsTea.yaml",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "text": "",
+   "records": []
+  }
+ }
+}

@@ -2,6 +2,7 @@ import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
 import { parsePreview, stylisticSetsOf } from './preview.js';
 import { bannerModel, retryAfterMs, withLocalBlanks } from './status.js';
+import { createKernView } from './kern-view.js';
 import {
   createStore,
   recordVerdict,
@@ -212,6 +213,8 @@ let locatorReady = null;
 let familyOptions = [];
 let worklist = null;
 const queueShown = loadQueueShown();
+// The kerning view (`#view=kern`, static/kern-view.js), created the first time the view opens.
+let kernView = null;
 let lastQueueShownKey = null;
 let indexReady = null;
 let indexLoaded = false;
@@ -1392,6 +1395,8 @@ function updateProgress() {
   if (state.view === 'queue') {
     // In the queue view renderQueue writes the batch-progress line, so a store mutation (undo, import, a sync from another session) only re-derives the queue.
     scheduleQueueRefresh();
+  } else if (state.view === 'kern') {
+    setText(document.getElementById('batch-progress'), '');
   } else {
     let batchVerdicted = 0;
     for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
@@ -1428,6 +1433,10 @@ function updateClassProgress(tallies = verdictTallies()) {
 }
 
 function updateTitle() {
+  if (state.view === 'kern') {
+    document.title = 'Kerning — AMS review';
+    return;
+  }
   if (state.view === 'queue') {
     document.title = 'Review queue — AMS review';
     return;
@@ -1526,7 +1535,7 @@ function updateClassCounts(tallies = verdictTallies()) {
 function renderClassHeader() {
   const header = document.getElementById('class-header');
   const cls = state.class ? classById.get(state.class) : null;
-  if (!cls || state.units || state.view === 'queue') {
+  if (!cls || state.units || state.view === 'queue' || state.view === 'kern') {
     header.hidden = true;
     return;
   }
@@ -1935,6 +1944,24 @@ async function applyHashState(resume = false) {
     state = { ...state, class: null };
     history.replaceState(null, '', `#${writeHash(state)}`);
   }
+  const kernOn = state.view === 'kern';
+  document.body.classList.toggle('kern-view', kernOn);
+  document.getElementById('kern').hidden = !kernOn;
+  if (kernOn) {
+    document.body.classList.remove('queue-view');
+    document.getElementById('queue').hidden = true;
+    renderClassHeader();
+    closeRejectMenu();
+    closeNeitherMenu();
+    visibleUnits = [];
+    machineUnits = [];
+    foldRecords.clear();
+    renderedKey = null;
+    updateTitle();
+    updateProgress();
+    await kernViewOf().show({ pair: state.pair, facing: state.facing });
+    return;
+  }
   const queueView = state.view === 'queue';
   document.body.classList.toggle('queue-view', queueView);
   document.getElementById('queue').hidden = !queueView;
@@ -2029,6 +2056,17 @@ async function applyHashState(resume = false) {
   updateTitle();
   updateBatchNav();
   updateSidebarHighlights();
+}
+
+function kernViewOf() {
+  kernView ??= createKernView({ root: document.getElementById('kern'), toast, writeSelection: writeKernSelection });
+  return kernView;
+}
+
+// Put the kerning view's selection in the URL hash without a hashchange, so a reload or a shared link reopens it.
+function writeKernSelection({ pair, facing }) {
+  state = { ...state, pair, facing };
+  history.replaceState(null, '', `#${writeHash(state)}`);
 }
 
 let toastTimer = null;
@@ -3495,6 +3533,7 @@ function wireEvents() {
 
   document.addEventListener('keydown', (event) => {
     const overlayOpen = helpDialog.open || importDialog.open;
+    const kernOn = state.view === 'kern';
     const action = actionForKey(event.key, {
       inInput: isEditableTarget(event.target),
       overlayOpen,
@@ -3503,10 +3542,17 @@ function wireEvents() {
       neitherMenuOpen: neitherMenuUnitId !== null,
       noteInput: Boolean(event.target.closest?.('.note')),
       shift: event.shiftKey,
+      view: kernOn ? 'kern' : null,
+      kernPane: kernOn ? kernViewOf().pane() : 'grid',
     });
     if (!action) return;
     if (action === 'escape') {
       if (isEditableTarget(event.target)) event.target.blur();
+      return;
+    }
+    if (action.startsWith('kern-')) {
+      event.preventDefault();
+      kernViewOf().handle(action);
       return;
     }
     if (action === 'note-advance') {
@@ -3800,6 +3846,10 @@ function wireEvents() {
     if (location.hash.replace(/^#/, '') === next) applyHashState();
     else location.hash = next;
   });
+  document.getElementById('open-kern').addEventListener('click', () => {
+    if (state.view === 'kern') return;
+    location.hash = writeHash({ view: 'kern', pair: state.pair, facing: state.facing });
+  });
   document.getElementById('jump-unverdicted').addEventListener('click', jumpToFirstUnverdicted);
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));
   document.getElementById('next-batch').addEventListener('click', () => shiftBatch(1));
@@ -3822,12 +3872,14 @@ function wireEvents() {
   window.addEventListener('focus', () => {
     syncVerdictsFromServer();
     refreshStatus();
+    if (state.view === 'kern') kernViewOf().refresh();
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       settleAndReload();
       syncVerdictsFromServer();
       refreshStatus();
+      if (state.view === 'kern') kernViewOf().refresh();
     }
   });
 
@@ -3857,6 +3909,11 @@ function wireEvents() {
   setInterval(() => {
     if (state.view === 'queue' && !document.hidden) syncVerdictsFromServer();
   }, 3000);
+
+  // The kerning view polls the server's values while it is visible, so a kern edit, a build or a pass's end reaches it without a tab switch.
+  setInterval(() => {
+    if (state.view === 'kern' && !document.hidden) kernViewOf().refresh();
+  }, 5000);
 
   window.addEventListener('beforeunload', (event) => {
     if (store.unexported.size === 0) return;

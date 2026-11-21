@@ -78,6 +78,7 @@
         </div>
         <button type="button" id="open-import">Import…</button>
         <button type="button" id="open-queue" title="A live work order over the units that still need a verdict: clusters sharing one before→after ink delta, largest first. Every button stacks a decision as a worklist here in the app, and the view re-sorts itself as verdicts land.">Queue</button>
+        <button type="button" id="open-kern" title="The kerning view: every pair of letters that meet at a break, drawn from the last build's pixels with the kern values the rune files set. Read-only.">Kerning</button>
         <button type="button" id="jump-unverdicted" title="Jump to the first unverdicted unit, across every class and batch">First unverdicted</button>
         <button type="button" id="download-verdicts">Download verdicts.json</button>
         <button type="button" id="open-help" aria-keyshortcuts="?">Keys <kbd>?</kbd></button>
@@ -146,6 +147,7 @@
 
         <section id="batch" aria-label="Units in this batch"></section>
         <section id="queue" aria-label="Review queue" hidden></section>
+        <section id="kern" aria-label="Kerning" hidden></section>
       </main>
     </div>
 
@@ -170,6 +172,11 @@
           <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next kind of change in the sidebar (wraps; skips No review needed). Stepping into Spot-check (already ruled) says so and opens that section</td></tr>
           <tr><td><kbd>/</kbd></td><td>Focus the unit search (matches id, notation, codepoints, a kind of change’s title or id, and group and kind, across every kind of change); <kbd>↓</kbd>/<kbd>↑</kbd> move, <kbd>Enter</kbd> jumps, <kbd>Escape</kbd> closes</td></tr>
           <tr><td><kbd>?</kbd></td><td>This overlay</td></tr>
+          <tr><td colspan="2"><strong>In the kerning view</strong> (the header’s Kerning button)</td></tr>
+          <tr><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd></td><td>In the grid: move the cursor to another pair of letters</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>In the grid: move to the detail panel</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>In the detail panel: choose a facing pair; <kbd>Escape</kbd> returns to the grid</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Jump to a pair of letters by name (<code>·no·tea</code>)</td></tr>
           <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
         </tbody>
       </table>

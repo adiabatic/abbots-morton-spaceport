@@ -3,6 +3,7 @@
 The overlay keeps every set and clear the live store gained after the snapshot over the prepared store, among them a clear on a unit the snapshot held no verdict for, which lands at its own `at` over a fill, an older tombstone, or nothing in the prepared store, except on a stamp change, where it sends a set on a unit outside the new corpus's human units to the orphan document, drops a clear on such a unit, and drops a skip and clears the verdict the skip replaced; a tombstone the live store shares with the snapshot is kept only for a unit the prepared store holds no verdict for, and on a stamp change only for a surviving unit. A land whose live store moved to another stamp since the snapshot aborts and keeps the staged tree, and so does a guarded land whose stamp change would orphan more than the limit of the live store's verdicts other than skips, and a land whose live store, snapshot or prepared store holds a record the carry refuses, which writes nothing. The tree swap and its fallback where the filesystem refuses the swap call, the discard rename that never deletes, the discard a land leaves to its caller, the copy-on-write clone, the stash link, the event naming the stash, which holds the sets and clears from the replaced store until the journal's last base is a day old and a base after that, either of which replays to the landed store's tombstones too, the read of the journal resumed from retention's scan state, and the empty store a pass that carries nothing lands, which keeps the override section whole and which it journals as a base because its sets and clears would reach its record count. After a store write the journal missed (a server save whose append failed, a move onto the served corpus whose append was cut short or never ran, or a store copied back after a refused re-key undo) no lock holder replays the journal into the store, the land journals a base and removes the marker that write left, and the journal restores the live store from that land on. Saves the server journaled and did not write during the pass are written into the live store by the land's lock before the land reads it. A land killed at each step of its locked section is finished or dropped by the next holder of the lock, which first cuts off what the dead land half appended to the journal, or the sets and clears it appended whole; one whose result is gone is swapped back out, or refused when the old corpus is gone too, and one whose store or result holds a record the carry refuses is refused, by a land after it too. The review server's request path does the same while the lock is free and waits while it is held, and its locked save path refuses while a dead land's intent is there and reads the served corpus only under the lock. Every save applied through that path while two lands run, or a later save on its unit, ends in the landed store, in an orphan document, or, for a save the pass's snapshot already held on a unit the new corpus lacks, in the old corpus's stash. The code digest the server advertises on /capabilities covers exactly the protocol's modules and the modules its /status judges freshness with. Last, the accepted list beside the store: the land names it in its result and aborts, moving nothing, when the live store does not pair with it or it changed since the snapshot; its orphan guard counts the accepted units of the live corpus in both terms, so a wholesale id move is refused on a store a close-out emptied, and an override on a unit the live corpus lacks in neither; a set back to an accepted record made during the pass lands as that, not as a clear; and a stamp change leaves a tombstone on each accepted unit the new corpus lacks that the live store holds a record or tombstone for. A land whose prepared store the verdict update recorded as its snapshot's bytes leaves the store and the journal in place after every kind of save the server makes during the pass, as a land without the record over a copy of the same tree shows it would change neither, still swaps a staged corpus, and leaves a recovery only its discard; a prepared store written since, a live store the overlay would not give back, and a journal not yet there get the land's result written over the store and journaled. The snapshot and the prepared store are the live store's own file, which no writer writes through. The land holds no store whole: over random lands its walk over the stores as streams leaves every file as the land that reads them whole leaves it, but for the prepared store it renames into place as its result when the live store is the snapshot and the prepared store holds the result's bytes, which leaves the store and the journal the land that writes its result leaves but for `exported_at`, a set line it splices from the landed store is the line `json.dumps` writes, a time the walk takes is taken under the lock, and a store whose records do not stream by unit lands whole, naming itself, with the same bytes. The stream readers give `read_store`'s answer for every store a fixture holds and every store the random lands build, a block of any size at a time, and hold a few blocks of a long store.
 """
 
+import ast
 import collections
 import errno
 import json
@@ -1099,24 +1100,93 @@ def test_saves_made_while_two_lands_run_end_in_the_store_or_an_orphan_document(r
     assert json.loads(repo["autosave"].read_text())["manifest_generated_at"] == "B"
 
 
-def test_the_code_digest_moves_with_a_protocol_or_freshness_module_only(tmp_path):
-    """The digest the server advertises and the cycle compares covers exactly the land protocol's modules and the modules its /status judges freshness with, so an edit to one of them makes the cycle restart a server started before it, and an edit to another review module does not. A missing module hashes as empty, so the freshness modules are checked to exist in the tree."""
+def test_the_code_digest_moves_with_a_protocol_served_or_freshness_module_only(tmp_path):
+    """The digest the server advertises and the cycle compares covers exactly the land protocol's modules, the modules the server answers its other routes from with the pipeline and validation trees those run, and the modules its /status judges freshness with, so an edit to one of them, the kern stage the kerning routes run among them, makes the cycle restart a server started before it, and an edit to another review module or a tool does not. A missing module hashes as empty, so the freshness and served modules are checked to exist in the tree."""
     rebuild_dir = Path(landing.__file__).resolve().parent.parent
     assert all((rebuild_dir / name).is_file() for name in landing.FRESHNESS_MODULES)
+    assert all((rebuild_dir / "review" / name).is_file() for name in landing.SERVED_MODULES)
     review = tmp_path / "review"
     watched = [review / name for name in landing.PROTOCOL_MODULES]
+    watched += [review / name for name in landing.SERVED_MODULES]
     watched += [tmp_path / name for name in landing.FRESHNESS_MODULES]
-    other = review / "build.py"
-    for path in (*watched, other):
+    watched += [
+        tmp_path / "pipeline" / "kern.py",
+        tmp_path / "pipeline" / "spec_load.py",
+        tmp_path / "validation" / "rowmodel.py",
+    ]
+    others = [review / "build.py", tmp_path / "tools" / "artifact_cycle.py"]
+    for path in (*watched, *others):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("x = 1\n")
     base = landing.code_digest(review)
-    other.write_text("x = 2\n")
-    assert landing.code_digest(review) == base
+    for other in others:
+        other.write_text("x = 2\n")
+        assert landing.code_digest(review) == base, other
     for path in watched:
         path.write_text("x = 2\n")
         assert landing.code_digest(review) != base, path
         path.write_text("x = 1\n")
+
+
+# The modules outside the digest's trees (`landing.served_paths`) that the kerning routes' trees import, each with why an edit to it cannot change a route's answer. `test_the_code_digest_covers_every_module_the_kerning_routes_run` walks the imports and keeps this list exact.
+ROUTE_IMPORTS_OUTSIDE_THE_DIGEST = {
+    "rebuild/review/__init__.py": "an empty package file",
+    "rebuild/review/store_lock.py": "a land-protocol module, which the digest covers by `PROTOCOL_MODULES`",
+    "rebuild/tools/artifact_cycle.py": "imported inside run_m1's and run_m1_gates' build and gate functions, which the routes never call",
+    "rebuild/tools/console.py": "the build's terminal lines",
+    "rebuild/tools/cycle_paths.py": "the cycle's own paths, read by build and gate functions the routes never call",
+    "rebuild/tools/cycle_timings.py": "the timings journal",
+    "rebuild/tools/green_record.py": "the cycle's green records, read by build and gate functions the routes never call",
+    "rebuild/tools/lock_digest.py": "uv.lock's line of the run_m1 key, which the routes never compute",
+    "rebuild/tools/memory_budget.py": "pool widths",
+    "rebuild/tools/peak_rss.py": "memory telemetry",
+    "rebuild/tools/site_fonts.py": "the fonts component of the corpus's fingerprint, which the routes never compute",
+}
+
+
+def test_the_code_digest_covers_every_module_the_kerning_routes_run():
+    """Walk the kerning routes' imports, inside functions too, through every module the digest covers, and check that what lies outside it is exactly `ROUTE_IMPORTS_OUTSIDE_THE_DIGEST`: a new import of a module whose edit could change an answer has to join the digest or this list, with a reason."""
+    review = Path(landing.__file__).resolve().parent
+    root = review.parent.parent
+    served = {path.resolve() for path in landing.served_paths(review)}
+    assert {
+        review / "kern_routes.py",
+        root / "rebuild" / "pipeline" / "kern.py",
+        root / "rebuild" / "pipeline" / "table.py",
+    } <= served
+    seen: set[Path] = set()
+    outside: set[str] = set()
+    queue = [review / name for name in landing.SERVED_MODULES]
+    while queue:
+        path = queue.pop().resolve()
+        if path in seen:
+            continue
+        seen.add(path)
+        if path not in served:
+            outside.add(path.relative_to(root).as_posix())
+            continue
+        for node in ast.walk(ast.parse(path.read_bytes())):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+                names = [node.module, *(f"{node.module}.{alias.name}" for alias in node.names)]
+            else:
+                continue
+            for name in names:
+                if name.split(".")[0] != "rebuild":
+                    continue
+                stem = root.joinpath(*name.split("."))
+                found = next(
+                    (
+                        candidate
+                        for candidate in (stem.with_suffix(".py"), stem / "__init__.py")
+                        if candidate.is_file()
+                    ),
+                    None,
+                )
+                if found is not None:
+                    queue.append(found)
+    assert outside == set(ROUTE_IMPORTS_OUTSIDE_THE_DIGEST)
 
 
 def test_the_server_advertises_the_protocol_its_code_its_root_and_its_store():

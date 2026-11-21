@@ -129,6 +129,16 @@ class TestRoundTrip:
             == inputs
         )
 
+    def test_the_cells_only_read_keeps_the_cells_and_the_zwnj_cells_and_nothing_else(self, written):
+        """The review server's kern routes read every head with `cells_only`: the reachable cells and the cells beside a ZWNJ, which are all the kern stage reads, the same as the full read gives, with no rule or certificate held beside them."""
+        inputs, full = table_module.read_windows_head(written, "default")
+        light_inputs, light = table_module.read_windows_head(written, "default", cells_only=True)
+        assert light_inputs == inputs
+        assert light.reachable_cells() == full.reachable_cells()
+        assert (light.zwnj_before, light.zwnj_after) == (full.zwnj_before, full.zwnj_after)
+        assert light.zwnj_before is not None and light.zwnj_after is not None
+        assert (light.rules, light.certificates, light.imports, light.deep_classes) == ((), (), (), {})
+
     def test_the_head_carries_one_certificate_per_rule(self, built, written):
         """The head carries one certificate per rule, in rule order. Each certificate is a token list of rune names and the three boundary glyph labels, with no edge or `#NA` token, and contains its rule's input rune."""
         _inputs, head = table_module.read_windows_head(written, "default")

@@ -2549,6 +2549,20 @@ class TestKernOnly:
         record = ac.read_green_record(store)
         assert record is not None and record["fingerprint"] == "fp-now"
 
+    def test_a_passing_chain_leaves_the_kern_inventory_in_place(self, monkeypatch, tmp_path):
+        """A kern-only pass hands the glyph chain no stamp for the kern inventory, which depends on no kern block (rebuild/pipeline/kern_inventory.py), so the chain writes none into the staging directory, and the publish, which moves only what the chain wrote, leaves the build's `kern-inventory.json` as it was: the same bytes and the same file."""
+        out, _files, _store = self._world(monkeypatch, tmp_path)
+        inventory = out / run_m1.kern_inventory.KERN_INVENTORY_JSON
+        inventory.write_text('{"format": "ams-m1-kern-inventory/1"}\n')
+        before = inventory.stat()
+        ran: list = []
+        self._chain(monkeypatch, ran)
+        run_m1.kern_only_run(started=time.perf_counter())
+        assert (out / "M1.otf").read_bytes() == b"new font"
+        after = inventory.stat()
+        assert inventory.read_text() == '{"format": "ams-m1-kern-inventory/1"}\n'
+        assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
     def test_a_stage_a_input_edited_while_it_ran_publishes_nothing(self, monkeypatch, tmp_path):
         out, _files, _store = self._world(monkeypatch, tmp_path)
         ran: list = []

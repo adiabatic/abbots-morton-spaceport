@@ -411,7 +411,9 @@ class _Matcher:
         return named
 
 
-def _describe(record: KernRecord) -> str:
+def describe(record: KernRecord) -> str:
+    """Return the record as one flow mapping in its keys' order, `by` last and `why` left out: the form the stage's errors quote and the review server's kern routes show beside a value (`rebuild/review/kern_routes.py`)."""
+
     def follower(atom: KernFollower) -> str:
         keys = []
         if atom.family:
@@ -569,7 +571,7 @@ def _resolve_breaks(
                 else "neither one's breaks lie inside the other's"
             )
             incomparable[(first, second)] = (
-                f"{first.provenance} {_describe(first)} and {second.provenance} {_describe(second)} both match "
+                f"{first.provenance} {describe(first)} and {second.provenance} {describe(second)} both match "
                 f"{_pair_text(spec, pair, breaks)}{' through ligature inheritance' if from_component else ''} with different values, and {how}; "
                 "narrow one so its breaks lie inside the other's, give both the same value, or remove one (rebuild/KERN-PLAN.md section 2)"
             )
@@ -595,7 +597,7 @@ def _resolve_breaks(
         issues.append(
             (
                 "E-KERN-UNMATCHED",
-                f"{record.provenance} {_describe(record)} matches no break in any configuration{reach}: every pair it names joins, or the two never meet; remove it or correct what it names (rebuild/KERN-PLAN.md section 2)",
+                f"{record.provenance} {describe(record)} matches no break in any configuration{reach}: every pair it names joins, or the two never meet; remove it or correct what it names (rebuild/KERN-PLAN.md section 2)",
             )
         )
     return values, issues

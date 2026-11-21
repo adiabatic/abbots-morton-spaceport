@@ -168,6 +168,7 @@ PIPELINE_NON_CORPUS_MODULES = frozenset(
         "emit_gsub.py",
         "geometry.py",
         "kern.py",
+        "kern_inventory.py",
         "ligature_outgoing_check.py",
         "manual_pins.py",
         "oracle.py",

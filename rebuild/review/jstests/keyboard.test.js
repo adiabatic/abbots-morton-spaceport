@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionForKey, KEY_MAP } from '../static/keyboard.js';
+import { actionForKey, KEY_MAP, KERN_GRID_MAP, KERN_DETAIL_MAP, KERN_RESERVED_KEYS } from '../static/keyboard.js';
 
 const EXPECTED = [
   ['a', 'skip'],
@@ -163,4 +163,66 @@ test('digits stay unbound when no menu is open', () => {
     assert.equal(actionForKey(key), null, `key ${key}`);
     assert.equal(actionForKey(key, { overlayOpen: true }), null, `key ${key}`);
   }
+});
+
+const KERN_GRID = [
+  ['ArrowUp', 'kern-up'],
+  ['ArrowDown', 'kern-down'],
+  ['ArrowLeft', 'kern-left'],
+  ['ArrowRight', 'kern-right'],
+  ['Enter', 'kern-detail'],
+  ['/', 'kern-jump'],
+  ['?', 'help'],
+];
+
+const KERN_DETAIL = [
+  ['ArrowUp', 'kern-prev-pair'],
+  ['ArrowDown', 'kern-next-pair'],
+  ['/', 'kern-jump'],
+  ['?', 'help'],
+];
+
+test('the kerning view binds exactly its planned keys in each pane', () => {
+  assert.deepEqual([...KERN_GRID_MAP], KERN_GRID);
+  assert.deepEqual([...KERN_DETAIL_MAP], KERN_DETAIL);
+  for (const [key, action] of KERN_GRID) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'grid' }), action, `grid ${key}`);
+  for (const [key, action] of KERN_GRID) {
+    if (key !== 'Enter') assert.equal(actionForKey(key, { view: 'kern', kernPane: 'page' }), action, `page ${key}`);
+  }
+  for (const [key, action] of KERN_DETAIL) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'detail' }), action, `detail ${key}`);
+});
+
+test('left, right and 0 stay unbound in the kerning view’s detail panel, for the editing step', () => {
+  assert.deepEqual(KERN_RESERVED_KEYS, ['ArrowLeft', 'ArrowRight', '0']);
+  for (const key of KERN_RESERVED_KEYS) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'detail' }), null, key);
+});
+
+test('no review key acts in the kerning view', () => {
+  for (const [key] of EXPECTED) {
+    const action = actionForKey(key, { view: 'kern', kernPane: 'grid' });
+    assert.ok(action === null || action.startsWith('kern-') || action === 'help', `key ${key} gave ${action}`);
+  }
+  assert.equal(actionForKey('f', { view: 'kern' }), null);
+  assert.equal(actionForKey('Backspace', { view: 'kern', kernPane: 'detail' }), null);
+});
+
+test('in the kerning view Escape leaves the detail panel for the grid, and blurs a field or does nothing more elsewhere', () => {
+  assert.equal(actionForKey('Escape', { view: 'kern', kernPane: 'detail' }), 'kern-grid');
+  assert.equal(actionForKey('Escape', { view: 'kern', kernPane: 'grid' }), 'escape');
+  assert.equal(actionForKey('Escape', { view: 'kern', kernPane: 'detail', inInput: true }), 'escape');
+});
+
+test('the kerning view’s keys yield to a field, a modifier and an open overlay, but for help', () => {
+  assert.equal(actionForKey('ArrowUp', { view: 'kern', inInput: true }), null);
+  assert.equal(actionForKey('/', { view: 'kern', inInput: true }), null);
+  assert.equal(actionForKey('ArrowDown', { view: 'kern', modified: true }), null);
+  assert.equal(actionForKey('ArrowDown', { view: 'kern', overlayOpen: true }), null);
+  assert.equal(actionForKey('?', { view: 'kern', overlayOpen: true }), 'help');
+});
+
+test('Enter leaves a focused button on the page to the button: only the grid itself turns it into a move to the detail panel', () => {
+  assert.equal(actionForKey('Enter', { view: 'kern', kernPane: 'page' }), null);
+  assert.equal(actionForKey('Enter', { view: 'kern' }), null);
+  assert.equal(actionForKey('Enter', { view: 'kern', kernPane: 'grid' }), 'kern-detail');
+  assert.equal(actionForKey('Enter', { view: 'kern', kernPane: 'detail' }), null);
 });

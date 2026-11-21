@@ -1,0 +1,285 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import {
+  ACROSS_ZWNJ,
+  INVENTORY_FORMAT,
+  OVERLAY,
+  WORD,
+  builtValue,
+  closestInk,
+  decidersOf,
+  deciderText,
+  indexInventory,
+  indexValues,
+  inkGapText,
+  inventoryMoved,
+  inventoryRefusal,
+  liveValue,
+  manualTexts,
+  moveFacing,
+  moveGridCursor,
+  notInFont,
+  pairFromQuery,
+  paneFor,
+  reachChip,
+  reachText,
+  runePairAt,
+  selectionFromState,
+  shiftedPositions,
+  signed,
+  stalenessLines,
+  stateFromSelection,
+  textFocus,
+  valuesAfterFetch,
+  worstInk,
+} from '../static/kern.js';
+
+// The fixture is a slice of a build's inventory (rebuild/pipeline/kern_inventory.py) to ·No, ·Tea and ·It and what their witnesses need, which rebuild/test_kern_inventory.py checks against the inventory's shape; the values fixture is `GET /kern`'s shape (rebuild/review/kern_routes.py), set ·No.flipped before half ·Tea by −1 in the rune files and ·No.loop before full ·Tea by −1 in the built font.
+const fixtureDir = new URL('../fixtures/', import.meta.url);
+const inventory = JSON.parse(await readFile(new URL('kern-inventory.json', fixtureDir), 'utf8'));
+const payload = JSON.parse(await readFile(new URL('kern-values.json', fixtureDir), 'utf8'));
+const model = indexInventory(inventory);
+const values = indexValues(payload);
+const rune = (name) => model.runeIndex.get(name);
+const noTea = runePairAt(model, rune('qsNo'), rune('qsTea'));
+const pairNamed = (lead, follow) => model.pairByKey.get(`${lead}|${follow}`);
+const flippedHalf = pairNamed('qsNo[flipped]', 'qsTea[half exit=x-height]');
+const loopFull = pairNamed('qsNo[loop]', 'qsTea[full]');
+
+test('the fixture is an inventory the view accepts, and anything else is refused with a reason', () => {
+  assert.equal(inventoryRefusal(inventory), null);
+  assert.match(inventoryRefusal({ ...inventory, format: 'ams-m1-kern-inventory/0' }), new RegExp(INVENTORY_FORMAT));
+  assert.match(inventoryRefusal({ ...inventory, texts: null }), /texts/);
+  assert.ok(inventoryRefusal(null));
+});
+
+test('a rune pair is found by its two runes, and lists facing pairs that face those runes', () => {
+  assert.ok(noTea);
+  assert.equal(noTea.pairs.length, 4);
+  for (const id of noTea.pairs) {
+    const pair = inventory.pairs[id];
+    assert.equal(inventory.sides[pair.lead].rune, rune('qsNo'));
+    assert.equal(inventory.sides[pair.follow].rune, rune('qsTea'));
+  }
+  assert.ok(noTea.pairs.includes(noTea.rep));
+  assert.equal(runePairAt(model, rune('qsNo'), 999), null);
+});
+
+test('the live values come with their deciders, and a facing pair no record decides reads 0', () => {
+  assert.equal(liveValue(model, values, flippedHalf), -1);
+  assert.equal(deciderText(decidersOf(model, values, flippedHalf)), 'qsNo.yaml kern[0]');
+  assert.equal(liveValue(model, values, loopFull), 0);
+  assert.equal(deciderText(decidersOf(model, values, loopFull)), null);
+  assert.equal(deciderText([{ file: 'glyph_data/runes/qsUtter.yaml', path: 'kern[2]', inherited: true }]), 'qsUtter.yaml kern[2] (inherited)');
+});
+
+test('a value the built font lacks, or one it has that the rune files no longer set, is marked', () => {
+  assert.equal(builtValue(model, values, loopFull), -1);
+  assert.equal(notInFont(model, values, flippedHalf), true);
+  assert.equal(notInFont(model, values, loopFull), true);
+  for (const id of noTea.pairs) {
+    if (id !== flippedHalf && id !== loopFull) assert.equal(notInFont(model, values, id), false);
+  }
+});
+
+test('while the rune files do not resolve, the view shows the built values and marks nothing', () => {
+  const broken = indexValues({ ...payload, live: { values: [], error: { message: 'the kern blocks on disk do not resolve', issues: [['E-KERN-UNMATCHED', 'qsNo.yaml:kern[0] matches no break']] } } });
+  assert.equal(liveValue(model, broken, loopFull), -1);
+  assert.equal(liveValue(model, broken, flippedHalf), 0);
+  assert.equal(notInFont(model, broken, loopFull), false);
+  assert.deepEqual(decidersOf(model, broken, flippedHalf), []);
+  const lines = stalenessLines(model, broken);
+  assert.equal(lines[0].level, 'error');
+  assert.deepEqual(lines[0].issues, [['E-KERN-UNMATCHED', 'qsNo.yaml:kern[0] matches no break']]);
+});
+
+test('no values at all read as 0 everywhere, and the status says so', () => {
+  const none = indexValues(null);
+  assert.equal(liveValue(model, none, flippedHalf), 0);
+  assert.equal(notInFont(model, none, flippedHalf), false);
+  assert.equal(stalenessLines(model, none)[0].level, 'error');
+});
+
+test('the staleness lines name a running pass, stale tables, an inventory over other tables, and a moved Manual', () => {
+  assert.deepEqual(stalenessLines(model, values), []);
+  const stale = indexValues({
+    ...payload,
+    pass: { pid: '4242' },
+    tables: { inputs: 'x', current: false },
+    inventory: { ...payload.inventory, tables_current: false, manual_current: false },
+  });
+  const texts = stalenessLines(model, stale).map((line) => line.text);
+  assert.ok(texts.some((text) => text.includes('4242')));
+  assert.ok(texts.some((text) => text.includes('make artifact-cycle')));
+  assert.ok(texts.some((text) => text.includes('other tables')));
+  assert.ok(texts.some((text) => text.includes('Manual')));
+});
+
+test('the view loads the inventory again only when the server holds one with another stamp', () => {
+  assert.equal(inventoryMoved(model, values), false);
+  const moved = indexValues({ ...payload, inventory: { ...payload.inventory, stamp: { ...inventory.stamp, tables: 'other' } } });
+  assert.equal(inventoryMoved(model, moved), true);
+  assert.equal(inventoryMoved(model, indexValues({ ...payload, inventory: { present: false, stamp: null } })), false);
+});
+
+test('a rune pair reached mid-word has no chip; one reached only across a ZWNJ or under ss10 says which', () => {
+  assert.equal(reachChip(model, noTea), null);
+  const fake = (reaches) => {
+    const doc = { ...inventory, pairs: reaches.map((reach) => ({ ...inventory.pairs[0], reach })) };
+    return [indexInventory(doc), { pairs: reaches.map((_reach, index) => index) }];
+  };
+  assert.equal(reachChip(...fake([[ACROSS_ZWNJ], [ACROSS_ZWNJ]])), 'only across a ZWNJ');
+  assert.equal(reachChip(...fake([[OVERLAY]])), 'only under ss10');
+  assert.equal(reachChip(...fake([[ACROSS_ZWNJ, OVERLAY], [ACROSS_ZWNJ]])), 'only across a ZWNJ or under ss10');
+  assert.equal(reachChip(...fake([[ACROSS_ZWNJ], [WORD, ACROSS_ZWNJ]])), null);
+  assert.equal(reachText([WORD, ACROSS_ZWNJ, OVERLAY]), 'mid-word, across a ZWNJ, under ss10');
+});
+
+test('the grid cursor moves one cell an arrow and stays inside the grid', () => {
+  assert.deepEqual(moveGridCursor({ row: 0, col: 0 }, 'kern-up', 5), { row: 0, col: 0 });
+  assert.deepEqual(moveGridCursor({ row: 0, col: 0 }, 'kern-down', 5), { row: 1, col: 0 });
+  assert.deepEqual(moveGridCursor({ row: 4, col: 4 }, 'kern-right', 5), { row: 4, col: 4 });
+  assert.deepEqual(moveGridCursor({ row: 2, col: 2 }, 'kern-left', 5), { row: 2, col: 1 });
+  assert.deepEqual(moveGridCursor({ row: 2, col: 2 }, 'kern-jump', 5), { row: 2, col: 2 });
+  assert.equal(moveFacing(0, -1, 4), 0);
+  assert.equal(moveFacing(3, 1, 4), 3);
+  assert.equal(moveFacing(1, 1, 4), 2);
+});
+
+test('a query names a pair of runes by their letters, ligatures with a plus', () => {
+  assert.deepEqual(pairFromQuery('·no·tea', model), { lead: rune('qsNo'), follow: rune('qsTea') });
+  assert.deepEqual(pairFromQuery('No Tea', model), { lead: rune('qsNo'), follow: rune('qsTea') });
+  assert.deepEqual(pairFromQuery('.it.no', model), { lead: rune('qsIt'), follow: rune('qsNo') });
+  assert.equal(pairFromQuery('·no', model), null);
+  assert.equal(pairFromQuery('·no·nothing', model), null);
+  const ligature = inventory.runes.find((one) => one.name.includes('_'));
+  if (ligature) {
+    const typed = ligature.label.replace('·', '');
+    assert.deepEqual(pairFromQuery(`${typed} ·no`, model), { lead: rune(ligature.name), follow: rune('qsNo') });
+  }
+});
+
+test('the selection round-trips through the URL hash, and a hash the inventory cannot read selects the first cell', () => {
+  const cursor = { row: rune('qsNo'), col: rune('qsTea') };
+  const facing = noTea.pairs.indexOf(flippedHalf);
+  const state = stateFromSelection(model, cursor, facing);
+  assert.deepEqual(state, { pair: 'qsNo:qsTea', facing: 'qsNo[flipped]|qsTea[half exit=x-height]' });
+  assert.deepEqual(selectionFromState(model, state.pair, state.facing), { cursor, facing });
+  assert.deepEqual(selectionFromState(model, 'qsNope:qsTea', null), { cursor: { row: 0, col: 0 }, facing: 0 });
+  assert.deepEqual(selectionFromState(model, 'qsNo:qsTea', 'no such pair'), { cursor, facing: 0 });
+});
+
+test('a value shifts every glyph after its break, and a join never moves', () => {
+  const text = { x: [0, 5, 11, 12], gaps: [-1, 7, -1] };
+  assert.deepEqual(shiftedPositions(text, () => -1), [0, 5, 10, 11]);
+  assert.deepEqual(shiftedPositions({ x: [0, 4, 9], gaps: [3, 4] }, (id) => (id === 3 ? -1 : 2)), [0, 3, 10]);
+  assert.deepEqual(shiftedPositions(text, () => 0), text.x);
+});
+
+test('the closest ink is measured on the closest shared row, or between boxes with none', () => {
+  const left = [{ x: 3, y: 0 }, { x: 4, y: 1 }];
+  assert.deepEqual(closestInk(left, [{ x: 6, y: 0 }, { x: 6, y: 1 }]), { gap: 1, y: 1, shared: true, overlap: false });
+  assert.deepEqual(closestInk(left, [{ x: 5, y: 1 }]), { gap: 0, y: 1, shared: true, overlap: false });
+  assert.deepEqual(closestInk(left, [{ x: 7, y: 5 }]), { gap: 2, y: null, shared: false, overlap: false });
+  assert.equal(closestInk([], left), null);
+  assert.equal(inkGapText({ gap: 0, y: 1, shared: true, overlap: false }).level, 'touch');
+  assert.equal(inkGapText({ gap: 2, y: 5, shared: true, overlap: false }).text, 'closest ink 2 px, at y=5');
+  assert.equal(signed(-2), '−2');
+  assert.equal(signed(1), '+1');
+  assert.equal(signed(0), '0');
+});
+
+test('every witness text in the fixture holds its facing pair at its gap', () => {
+  for (const [id, pair] of inventory.pairs.entries()) {
+    if (pair.witness === null) continue;
+    assert.equal(inventory.texts[pair.witness].gaps[pair.at], id);
+  }
+});
+
+test('only a pixel both sides ink is an overlap; strokes that pass each other without one are told apart', () => {
+  const left = [{ x: 3, y: 0 }, { x: 4, y: 1 }];
+  const shared = closestInk(left, [{ x: 4, y: 1 }]);
+  assert.equal(shared.overlap, true);
+  assert.deepEqual(inkGapText(shared), { level: 'over', text: 'ink overlaps' });
+  const passing = closestInk(left, [{ x: 3, y: 1 }, { x: 5, y: 0 }]);
+  assert.equal(passing.overlap, false);
+  assert.equal(passing.gap, -2);
+  assert.equal(inkGapText(passing).level, 'touch');
+  assert.match(inkGapText(passing).text, /pass each other at y=1, sharing no pixel/);
+  assert.doesNotMatch(inkGapText(passing).text, /overlap/);
+});
+
+test('the worst of several junctions is a shared pixel first, then the smallest gap', () => {
+  const clear = { gap: 2, y: 1, shared: true, overlap: false };
+  const passing = { gap: -1, y: 3, shared: true, overlap: false };
+  const shared = { gap: 0, y: 4, shared: true, overlap: true };
+  assert.equal(worstInk([clear, null, passing]), passing);
+  assert.equal(worstInk([passing, shared, clear]), shared);
+  assert.equal(worstInk([null]), null);
+});
+
+test('the Manual words list the ones that hold the pair at a break first, each focused there, and those that hold it only joined after', () => {
+  const listed = manualTexts(model, noTea);
+  assert.ok(listed.length > 0 && listed.length <= noTea.manual.length);
+  const firstJoined = listed.findIndex((found) => found.focus.joined);
+  assert.ok(firstJoined > 0, 'the fixture holds both kinds');
+  assert.ok(listed.slice(firstJoined).every((found) => found.focus.joined));
+  for (const { id, focus } of listed) {
+    const text = inventory.texts[id];
+    assert.equal(inventory.glyphs[text.glyphs[focus.gap]].rune, rune('qsNo'));
+    assert.equal(inventory.glyphs[text.glyphs[focus.gap + 1]].rune, rune('qsTea'));
+    if (focus.joined) {
+      assert.equal(text.gaps[focus.gap], -1);
+      assert.ok(inventory.joined[focus.group].height);
+      assert.ok(text.gaps.every((pairId, gap) => pairId === -1 || inventory.glyphs[text.glyphs[gap]].rune !== rune('qsNo') || inventory.glyphs[text.glyphs[gap + 1]].rune !== rune('qsTea')));
+    } else {
+      assert.ok(text.gaps[focus.gap] >= 0);
+    }
+  }
+});
+
+test('a text whose only meeting of the two runes is a join is focused on that join, and one where they never meet is not focused', () => {
+  const text = { glyphs: [0, 1, 2], gaps: [-1, 3], joins: [5, null] };
+  const tiny = indexInventory({
+    ...inventory,
+    glyphs: [
+      { name: 'a', rune: 1, rows: ['#'], y: 0, adv: 2 },
+      { name: 'b', rune: 2, rows: ['#'], y: 0, adv: 2 },
+      { name: 'c', rune: 3, rows: ['#'], y: 0, adv: 2 },
+    ],
+  });
+  assert.deepEqual(textFocus(tiny, text, 1, 2), { gap: 0, joined: true, group: 5 });
+  assert.deepEqual(textFocus(tiny, text, 2, 3), { gap: 1, joined: false, group: null });
+  assert.equal(textFocus(tiny, text, 1, 3), null);
+});
+
+test('the keys act in the pane the focused element is in, and anywhere else on the page', () => {
+  const inside = (members) => ({ contains: (node) => members.includes(node) });
+  const cell = {};
+  const option = {};
+  const button = {};
+  const grid = inside([cell]);
+  const detail = inside([option]);
+  assert.equal(paneFor(cell, grid, detail), 'grid');
+  assert.equal(paneFor(option, grid, detail), 'detail');
+  assert.equal(paneFor(button, grid, detail), 'page');
+  assert.equal(paneFor(null, grid, detail), 'page');
+});
+
+test('a failed fetch of the values keeps the last ones and says why; a good one replaces them', () => {
+  const kept = valuesAfterFetch(values, { ok: false, status: 503, body: { error: 'restarting' } });
+  assert.equal(kept.values, values);
+  assert.equal(kept.error, 'GET kern answered 503');
+  assert.equal(liveValue(model, kept.values, flippedHalf), -1);
+  assert.equal(valuesAfterFetch(values, { ok: false, status: 0, body: null, error: new Error('Failed to fetch') }).error, 'Failed to fetch');
+  assert.match(valuesAfterFetch(values, { ok: true, status: 200, body: { error: 'x' } }).error, /no kern values/);
+  const fresh = valuesAfterFetch(values, { ok: true, status: 200, body: payload });
+  assert.equal(fresh.error, null);
+  assert.notEqual(fresh.values, values);
+  assert.equal(liveValue(model, fresh.values, flippedHalf), -1);
+  assert.equal(valuesAfterFetch(null, { ok: false, status: 404 }).values.payload, null);
+  const lines = stalenessLines(model, values, 'GET kern answered 503');
+  assert.equal(lines[0].level, 'warn');
+  assert.match(lines[0].text, /could not be refreshed \(GET kern answered 503\); these are the last ones/);
+});

@@ -17,7 +17,7 @@ Each configuration's windows artifact is held in two files and the segment forma
 - The head file, `windows-<config>.head.json.gz` (`windows_head_file`): the payload's head line exactly as the crate writes it, the marker, a tab, the JSON head and a newline, gzipped as a base is, so `read_windows` reads it with `windows=False` as it reads a whole payload.
 - The rows, the output `windows-<config>.tsv.gz` (`windows_output`): a head, `windows-<config>.tsv.gz.head` (`windows_head_path`), which merges its parts by key (`row_delta.MERGE_KEY`), lists a base, a whole payload as the crate wrote it once, its inline head line included, and the segments of the rows that differ that later builds wrote over it. Its stamps are the build's `inputs`, the crate's `table_digest` over the table's own rows and the head file's name, size and sha256, so the head is the single commit point for both files.
 
-`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it (`read_head_line`, which also hands a pass that reuses the tables the line it re-stamps, `restamped_head_line`), so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest` and `deep_sweep.targeted_lines`) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
+`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it (`read_head_line`, which also hands a pass that reuses the tables the line it re-stamps, `restamped_head_line`), so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest`, `deep_sweep.targeted_lines`, and the review server's kern routes, which read only the cells (`cells_only`)) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
 """
 
 from __future__ import annotations
@@ -332,11 +332,14 @@ def restamped_head_line(line: bytes, config: str, stamped: str, inputs: str) -> 
     return opening(inputs) + line[len(old) :]
 
 
-def read_windows_head(out_dir: Path, config: str) -> tuple[str, DecisionTable]:
-    """Read one configuration's table from its head file, without the window rows, as `read_windows` reads a payload with `windows=False`: the fingerprint of the sources it was built from and the decision table. The one reader of a configuration's head: it reads the windows output's head and checks the head file against the name, size and sha256 its stamps record before it parses it (`read_head_line`). Raises OSError when the head or the head file is missing, and ValueError when either does not read, the head file is not the one the head records, or it is not a head line in this format, so a head file a build left without committing reads as a missing build."""
+def read_windows_head(out_dir: Path, config: str, *, cells_only: bool = False) -> tuple[str, DecisionTable]:
+    """Read one configuration's table from its head file, without the window rows, as `read_windows` reads a payload with `windows=False`: the fingerprint of the sources it was built from and the decision table. The one reader of a configuration's head: it reads the windows output's head and checks the head file against the name, size and sha256 its stamps record before it parses it (`read_head_line`). Raises OSError when the head or the head file is missing, and ValueError when either does not read, the head file is not the one the head records, or it is not a head line in this format, so a head file a build left without committing reads as a missing build.
+
+    `cells_only` keeps only the reachable cells and the cells settled beside a ZWNJ, with no rule, certificate, import or deep class, which is all the kern stage reads of a head. The review server's kern routes (`rebuild/review/kern_routes.py`) read every configuration's head this way and keep the tables for their lifetime, and the rules and certificates would hold several hundred megabytes beside them.
+    """
     head, line = read_head_line(out_dir, config)
     path = windows_head_file(out_dir, config)
-    stamp, decision = _windows_of(_Lines(iter((line,))), False, str(path))
+    stamp, decision = _windows_of(_Lines(iter((line,))), False, str(path), cells_only=cells_only)
     if stamp != head.stamps.get(INPUTS_STAMP):
         raise ValueError(
             f"{path.name} is stamped {stamp!r} where its head records {head.stamps.get(INPUTS_STAMP)!r}"
@@ -452,11 +455,24 @@ def read_windows(source: Path | IO[str], windows: bool = True) -> tuple[str, Dec
     return _windows_of(source, windows, str(getattr(source, "name", source)))
 
 
-def _windows_of(handle: IO[str] | _LineSource, windows: bool, name: str) -> tuple[str, DecisionTable]:
+def _windows_of(
+    handle: IO[str] | _LineSource, windows: bool, name: str, cells_only: bool = False
+) -> tuple[str, DecisionTable]:
     marker, _, payload = handle.readline().rstrip("\n").partition("\t")
     if marker != f"# {WINDOWS_FORMAT}":
         raise ValueError(f"{name}: not a {WINDOWS_FORMAT} enumeration")
     head = json.loads(payload)
+    del payload
+    cells = frozenset(
+        CellId(rune, stance, entry, exit_, tuple(adjustments))
+        for rune, stance, entry, exit_, adjustments in head["cells"]
+    )
+    zwnj_before = frozenset(head["zwnj_before"]) if "zwnj_before" in head else None
+    zwnj_after = frozenset(head["zwnj_after"]) if "zwnj_after" in head else None
+    if cells_only:
+        return head["inputs"], DecisionTable(
+            config=head["config"], zwnj_before=zwnj_before, zwnj_after=zwnj_after, _cells=cells
+        )
     rows: tuple[Window, ...] = ()
     if windows:
         if tuple(handle.readline().rstrip("\n").split("\t")) != WINDOWS_COLUMNS:
@@ -477,12 +493,9 @@ def _windows_of(handle: IO[str] | _LineSource, windows: bool, name: str) -> tupl
         imports=tuple(tuple(fields) for fields in head.get("imports", ())),
         fold_order=tuple(head.get("fold_order", ())),
         buckets=tuple(head.get("buckets", ())),
-        zwnj_before=frozenset(head["zwnj_before"]) if "zwnj_before" in head else None,
-        zwnj_after=frozenset(head["zwnj_after"]) if "zwnj_after" in head else None,
-        _cells=frozenset(
-            CellId(rune, stance, entry, exit_, tuple(adjustments))
-            for rune, stance, entry, exit_, adjustments in head["cells"]
-        ),
+        zwnj_before=zwnj_before,
+        zwnj_after=zwnj_after,
+        _cells=cells,
     )
     return head["inputs"], decision
 

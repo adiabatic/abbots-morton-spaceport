@@ -39,7 +39,7 @@ test('hash state round-trips', () => {
     status: 'reject',
   };
   const reparsed = parseHash(`#${writeHash(state)}`);
-  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, queue: null, decision: null, stamp: null, view: null });
+  assert.deepEqual(reparsed, { ...state, family: null, machine: null, units: null, order: null, queue: null, decision: null, stamp: null, view: null, pair: null, facing: null });
 });
 
 test('a units worklist is stored in the hash and round-trips', () => {
@@ -71,9 +71,9 @@ test('the queue cursor is stored in the hash beside a units worklist and round-t
   assert.equal(reparsed.queue, '1');
 });
 
-test('shedWorklist drops the units worklist, the queue cursor, and the queue view when a navigation patch changes class, batch, group, config, family, or status', () => {
+test('shedWorklist drops the units worklist, the queue cursor, the view, and the kerning view’s selection when a navigation patch changes class, batch, group, config, family, or status', () => {
   for (const [key, value] of [['class', 'join-dropped'], ['batch', 2], ['group', 'qsTea:qsOy'], ['config', 'ss04'], ['family', 'qsMay'], ['status', 'verdicted']]) {
-    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, queue: null, decision: null, stamp: null, view: null, [key]: value }, `changing ${key} must shed the worklist, queue cursor, and view`);
+    assert.deepEqual(shedWorklist({ [key]: value }), { units: null, order: null, queue: null, decision: null, stamp: null, view: null, pair: null, facing: null, [key]: value }, `changing ${key} must shed the worklist, queue cursor, view, and kerning selection`);
   }
   const cleared = shedWorklist({ family: null, config: null, status: null, group: null });
   assert.equal(cleared.units, null, 'clear-filters sheds the worklist alongside the other filters');
@@ -139,4 +139,14 @@ test('round-trip preserves characters needing escaping', () => {
   const state = parseHash(`#${writeHash({ batch: 1, config: 'ss02+ss03+ss05', group: 'qsTea:qsOy' })}`);
   assert.equal(state.config, 'ss02+ss03+ss05');
   assert.equal(state.group, 'qsTea:qsOy');
+});
+
+test('the kerning view and its selection are stored in the hash and round-trip', () => {
+  const serialized = writeHash({ view: 'kern', pair: 'qsNo:qsTea', facing: 'qsNo[flipped]|qsTea[half exit=x-height]' });
+  const parsed = parseHash(`#${serialized}`);
+  assert.equal(parsed.view, 'kern');
+  assert.equal(parsed.pair, 'qsNo:qsTea');
+  assert.equal(parsed.facing, 'qsNo[flipped]|qsTea[half exit=x-height]');
+  assert.equal(parseHash('#view=kern').pair, null);
+  assert.deepEqual(shedWorklist({ pair: 'qsNo:qsTea', facing: null }), { pair: 'qsNo:qsTea', facing: null });
 });

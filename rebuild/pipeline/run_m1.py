@@ -2,7 +2,7 @@
 
 First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources, as the rows that differ from the previous build's where there is one. `--conform-only` takes its glyph inventory from that enumeration's head file and stops with an error when it is stale or missing. Each configuration's windows head is committed on a background pool once its payload is written. A bare run runs the crate only when its input has moved since the last green run: when the table-reuse record a green run leaves under rebuild/out/m1 holds the same key (`table_reuse_lines`: the spec dump, the binary, the crate's sources and the roster, the table build's driver in this file, the configurations and the mode flags) and every table file still has the raw digest it records, the build re-stamps each configuration's head file with this run's sources instead, and its tables are byte for byte what the crate would write (`build_tables`). Every later stage below runs over them as over a build's, the string replay and the shipped-order walk included.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the kern stage (rebuild/pipeline/kern.py, which writes `kern.tsv`), runs the defect gates under the reviewed allow-list with every kerned break at its kerned offset, emits GSUB and GPOS (the kern lookup among them, and `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, runs read-back (rebuild/pipeline/readback.py), and writes `kern-classes.json`, the kern lookup's classes the conformance sweep checks shaped breaks against. Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the kern stage (rebuild/pipeline/kern.py, which writes `kern.tsv`), runs the defect gates under the reviewed allow-list with every kerned break at its kerned offset, emits GSUB and GPOS (the kern lookup among them, and `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, runs read-back (rebuild/pipeline/readback.py), and writes `kern-classes.json`, the kern lookup's classes the conformance sweep checks shaped breaks against, and on a build `kern-inventory.json`, the review app's kerning view's data (rebuild/pipeline/kern_inventory.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
 `full_run` then runs the Manual-pin gate and the oracle (rebuild/pipeline/run_m1_gates.py). The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memos only after the witness stage, which reads them and writes none, has returned. `full_run` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
@@ -56,6 +56,7 @@ from rebuild.pipeline import (
     fingerprint,
     geometry,
     kern,
+    kern_inventory,
     kernel_exec,
     kernel_io,
     oracle_cache,
@@ -1380,7 +1381,7 @@ def run(
         ),
     )
     try:
-        summary = _run_glyph_chain(spec, tables, out_dir, commit)
+        summary = _run_glyph_chain(spec, tables, out_dir, commit, inventory_inputs=inputs)
     except BaseException as error:
         red = gates.first_red() if isinstance(error, (Exception, SystemExit)) else None
         gates.close()
@@ -1402,9 +1403,13 @@ def _collect_glyph_chain() -> None:
 
 
 def _run_glyph_chain(
-    spec: ResolvedSpec, tables: Mapping[str, tuple], out_dir: Path, commit: str | None
+    spec: ResolvedSpec,
+    tables: Mapping[str, tuple],
+    out_dir: Path,
+    commit: str | None,
+    inventory_inputs: str | None = None,
 ) -> dict:
-    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`), the compile and read-back, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it) and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
+    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`), the compile and read-back, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it), the kerning view's inventory when `inventory_inputs` names the tables' stamp (`kern_inventory.write_inventory`, which keeps a `kern-inventory.json` already stamped for these tables and Manual pages, and otherwise settles its witnesses through the kernel and checks them against the font just compiled), and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -1465,6 +1470,13 @@ def _run_glyph_chain(
             f"{readback_report['divergence_count']} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
         )
     kern.write_classes(kern_resolution, cell_glyphs, out_dir)
+    if inventory_inputs is not None:
+        console.phase("kern_inventory")
+        start = time.perf_counter()
+        inventory = kern_inventory.write_inventory(
+            spec, tables, cell_glyphs, kern_resolution, ss10_copies, out_dir, inventory_inputs, font_path
+        )
+        console.timing("kern_inventory", time.perf_counter() - start, inventory.tokens())
 
     summary = {
         "configs": list(tables),
@@ -2429,7 +2441,7 @@ def _publish_kern_only(staging: Path, summary: dict) -> dict:
 
 
 def kern_only_run(*, started: float) -> None:
-    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks (`artifact_cycle.kern_only_rebuild`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, `behavior_classes.json`, M1.otf and `pipeline_summary.json`. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
+    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks (`artifact_cycle.kern_only_rebuild`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, `behavior_classes.json`, M1.otf and `pipeline_summary.json`. It builds no kern inventory: `kern-inventory.json` depends on no `kern` block (`kern_inventory`), and the staged publish moves only the files the chain wrote, so the build's inventory stays in place. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
 
     It stands on the Stage A record, which it carries forward and never writes. It refuses unless the record under `OUT_DIR` matches the sources on disk before it reads anything else (`artifact_cycle.m1_stage_a_current`): a run writes that record only once its gates pass, and every run that rewrites the gate summaries or the audit deletes it first, so a matching record shows that the Manual-pin and oracle summaries and the audit beside it are a passing run's over these Stage A inputs. Without it those summaries may be a red rerun's, or the audit may describe other sources, and only a full build can say. It also reads the build a `--gates-only` pass reads and refuses the same way (`run_m1_gates.gates_only_base`), and refuses when either summary does not read.
 
