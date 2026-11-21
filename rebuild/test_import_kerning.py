@@ -7,6 +7,8 @@ import io
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -48,7 +50,7 @@ def world(tmp_path):
     out = tmp_path / "var" / "kern"
     lock = tmp_path / "var" / "cycle" / "pass.lock"
 
-    def run(*rules: str, apply: bool = False) -> tuple[int, str, dict]:
+    def run(*rules: str, apply: bool = False, no_earlier_import: bool = False) -> tuple[int, str, dict]:
         path = tmp_path / "sidecar.yaml"
         path.write_text(sidecar(*rules))
         stream = io.StringIO()
@@ -56,6 +58,7 @@ def world(tmp_path):
             routes=tree.routes,
             out_dir=out,
             apply=apply,
+            no_earlier_import=no_earlier_import,
             pass_lock=lock,
             sidecar=path,
             aliases=aliases,
@@ -144,7 +147,7 @@ class TestTheRecords:
         rune = world.routes.runes_dir / "qsNo.yaml"
         hand = "kern:\n- {stance: loop, right: {family: qsTea, stance: full}, by: 2, why: 'by hand'}\n"
         rune.write_text(rune.read_text() + hand)
-        status, _printed, report = world.run(NO_TEA, apply=True)
+        status, _printed, report = world.run(NO_TEA, apply=True, no_earlier_import=True)
         assert status == 0
         assert block(world) == (
             "kern:\n- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}\n"
@@ -193,14 +196,12 @@ class TestTheReport:
             "left_family: [qsDay]\nright_family: [qsTea]\nvalue: -1",
             "left_family: [qsIt]\nright_family: [qsTea]\nvalue: 0",
             "left_family: [qsNo]\nright_group: noentry\nvalue: -3",
-            "left_stance: [qsNo.ex-y0]\nright_family: [qsTea]\nvalue: -1",
         ]
         _status, _printed, report = world.run(*rules)
         reasons = {entry["index"]: entry["reason"] for entry in report["inert_rules"]}
         assert reasons[1] == "its letters have no rune file: qsOwe"
         assert "has an alias" in reasons[2]
         assert reasons[3].startswith("its value is 0")
-        assert reasons[5] == "its glyph pairs only join in the rebuild"
         assert 0 not in reasons
         assert [(entry["index"], entry["reason"]) for entry in report["left_out"]] == [
             (4, "a ZWNJ rule, which the rebuild does not carry over")
@@ -217,10 +218,11 @@ class TestTheReport:
 
 class TestApplying:
     def test_a_second_apply_over_the_same_inputs_changes_nothing(self, world):
+        """The rune files and the list of imported pairs stay byte for byte as they were; the report says what this run found, the pairs in place from the first."""
         assert world.run(NO_TEA, apply=True)[0] == 0
         files = {
             path: (path.read_bytes(), path.stat().st_mtime_ns)
-            for path in [*world.routes.runes_dir.iterdir(), *world.out.iterdir()]
+            for path in [*world.routes.runes_dir.iterdir(), world.out / import_kerning.IMPORTED_NAME]
         }
         status, printed, _report = world.run(NO_TEA, apply=True)
         assert status == 0 and "nothing to change" in printed
@@ -275,3 +277,208 @@ def test_the_importer_is_no_build_s_code():
                 elif isinstance(node, ast.ImportFrom):
                     names = [node.module or "", *(alias.name for alias in node.names)]
                 assert not any("import_kerning" in name for name in names), module
+
+
+def entries(tree) -> list[dict]:
+    return json.loads((tree.out / import_kerning.IMPORTED_NAME).read_text())["pairs"]
+
+
+class TestTheEvidence:
+    def test_a_break_cell_the_alias_map_does_not_name_takes_its_sibling_s_names(self, world, tmp_path):
+        """The alias map names loop ·No only as the cell whose exit is taken up (`qsNo.ex-y0`); the break cell, the same shape with the stroke left dangling, takes that name, so loop ·No before full ·Tea has the old rule's value."""
+        (tmp_path / "aliases.yaml").write_text(
+            ALIASES.replace("qsNo: {rune: qsNo, stance: loop}\n", "").replace(
+                "qsNo.ss10: {rune: qsNo, stance: loop}\n", ""
+            )
+        )
+        status, _printed, report = world.run(
+            "left_stance: [qsNo.ex-y0]\nright_family: [qsTea]\nvalue: -1", apply=True
+        )
+        assert status == 0
+        assert "- {stance: loop, right: {family: qsTea, stance: full}, by: -1}" in block(world)
+        (record,) = [one for one in report["records"] if "stance: loop" in one["line"]]
+        assert record["pairs"][0]["sources"] == ["aliases", "siblings"]
+
+    def test_a_rule_that_reaches_no_named_break_is_not_said_to_never_meet_while_members_go_unnamed(
+        self, world, tmp_path
+    ):
+        (tmp_path / "aliases.yaml").write_text(
+            ALIASES.replace("qsTea.half: {rune: qsTea, stance: half}\n", "")
+        )
+        _status, _printed, report = world.run(
+            NO_TEA, "left_stance: [qsNo.alt]\nright_family: [qsTea]\nvalue: -1"
+        )
+        reasons = {entry["index"]: entry["reason"] for entry in report["inert_rules"]}
+        assert "is not known" in reasons[1] and "never meet" not in reasons[1]
+
+    def test_a_witness_the_old_font_drew_with_another_shape_is_no_evidence(self, world):
+        names = import_kerning.OldNames(import_kerning.labels.load_alias_map(world.root / "aliases.yaml"))
+        rules_path = world.root / "rules.yaml"
+        rules_path.write_text(
+            sidecar(NO_TEA, "left_family: [qsNo]\nexcept_left: [qsNo.alt]\nright_family: [qsIt]\nvalue: -1")
+        )
+        rules = import_kerning.load_old_rules(rules_path)
+        world.routes.values_payload()
+        resolution = world.routes.context().before
+        label = {cell: record.name for cell, record in world.routes.context().glyphs.items()}
+        drawn = {
+            ("qsNo[flipped]", "qsTea[half]"): import_kerning.Witness(
+                "qsNo", "qsTea.half", NO_FLIPPED, TEA_HALF
+            )
+        }
+        found, other = import_kerning.gather_evidence(resolution, names, rules, label, drawn)
+        assert other and other[0]["old"] == "qsNo qsTea.half"
+        assert "baseline" not in found[("qsNo[flipped]", "qsTea[half]")].sources
+        same = {("qsNo[loop]", "qsTea[full]"): import_kerning.Witness("qsNo", "qsTea", NO_LOOP, TEA_FULL)}
+        found, other = import_kerning.gather_evidence(resolution, names, rules, label, same)
+        assert other == [] and "baseline" in found[("qsNo[loop]", "qsTea[full]")].sources
+
+    def test_the_old_names_at_a_witness_break_are_read_from_the_baseline_row(self, tmp_path):
+        """A witness text's glyphs map to code points (a ligature takes two, a ZWNJ one of its own), and the old glyphs at the break are those whose clusters start at the two code points, read only where the old font breaks there."""
+        import gzip
+
+        from rebuild.pipeline.model import ResolvedSpec
+
+        inventory = tmp_path / "kern-inventory.json"
+        document = {
+            "stamp": {"tables": "the-stamp"},
+            "configs": ["default"],
+            "runes": [{"name": "qsDay_qsUtter"}, {"name": "qsNo"}, {"name": "qsTea"}],
+            "glyphs": [
+                {"name": "qsDay_qsUtter.full", "rune": 0},
+                {"name": "qsNo.flipped.en-y0", "rune": 1},
+                {"name": "qsTea.half", "rune": 2},
+            ],
+            "sides": [{"name": "qsDay_qsUtter"}, {"name": "qsNo[flipped]"}, {"name": "qsTea[half]"}],
+            "pairs": [
+                {"lead": 0, "follow": 1, "witness": 0, "at": 0},
+                {"lead": 1, "follow": 2, "witness": 0, "at": 1},
+                {"lead": 1, "follow": 2, "witness": 1, "at": 0},
+            ],
+            "texts": [
+                {
+                    "cp": [0xE653, 0xE67A, 0xE666, 0x200C, 0xE652],
+                    "config": 0,
+                    "glyphs": [0, 1, 2],
+                    "zwnj": [1],
+                },
+                {"cp": [0xE666, 0xE652], "config": 0, "glyphs": [1, 2], "zwnj": []},
+            ],
+        }
+        inventory.write_text(json.dumps(document))
+        rows = [
+            "# a baseline",
+            "E653:E67A:E666:200C:E652\tqsDay_qsUtter|qsNo.alt.en-y0|uni200C|qsTea.half.noentry\t0,2,3,4\tbreak,break,break\t",
+            "E666:E652\tqsNo.alt.ex-y0|qsTea.half.en-y0\t0,1\ty0\t",
+        ]
+        with gzip.open(tmp_path / "baseline-default.subset.tsv.gz", "wt") as handle:
+            handle.write("\n".join(rows) + "\n")
+        cells = {
+            "qsDay_qsUtter.full": cell("qsDay_qsUtter", "full"),
+            "qsNo.flipped.en-y0": cell("qsNo", "flipped", "baseline"),
+            "qsTea.half": TEA_HALF,
+        }
+        spec = cast(
+            ResolvedSpec,
+            SimpleNamespace(runes={"qsDay_qsUtter": SimpleNamespace(sequence=("qsDay", "qsUtter"))}),
+        )
+        found, note = import_kerning.read_witnesses(inventory, tmp_path, "the-stamp", cells, spec)
+        assert note is None
+        assert found[("qsDay_qsUtter", "qsNo[flipped]")].old_lead == "qsDay_qsUtter"
+        assert (
+            found[("qsNo[flipped]", "qsTea[half]")].old_lead,
+            found[("qsNo[flipped]", "qsTea[half]")].old_follow,
+        ) == ("qsNo.alt.en-y0", "qsTea.half.noentry")
+        assert len(found) == 2
+        _found, note = import_kerning.read_witnesses(inventory, tmp_path, "other-tables", cells, spec)
+        assert "other tables" in (note or "")
+
+
+class TestLaterRuns:
+    def test_a_later_run_only_adds_and_never_brings_back_a_record_the_author_deleted(self, world):
+        assert world.run(NO_TEA, apply=True)[0] == 0
+        rune = world.routes.runes_dir / "qsNo.yaml"
+        rune.write_text(kern_writer.split_file(rune.read_text())[0])
+        status, printed, report = world.run(NO_TEA, apply=True)
+        assert status == 0 and "nothing to change" in printed
+        assert block(world) == ""
+        assert {(entry["lead"], entry["follow"]): entry["state"] for entry in entries(world)} == {
+            ("qsNo[loop]", "qsTea[full]"): "record gone",
+            ("qsNo[flipped]", "qsTea[half]"): "record gone",
+        }
+        assert {entry["why"] for entry in report["skipped"]} == {
+            "the import set it before, and its record has gone or been overridden since"
+        }
+
+    def test_a_later_run_leaves_an_author_s_narrower_record_and_the_letters_record_it_overrides(self, world):
+        assert world.run(NO_TEA, apply=True)[0] == 0
+        rune = world.routes.runes_dir / "qsNo.yaml"
+        rune.write_text(rune.read_text() + "- {stance: loop, right: {family: qsTea, stance: full}, by: 1}\n")
+        written = rune.read_bytes()
+        status, _printed, _report = world.run(NO_TEA, apply=True)
+        assert status == 0 and rune.read_bytes() == written
+        states = {(entry["lead"], entry["follow"]): entry["state"] for entry in entries(world)}
+        assert (
+            states[("qsNo[loop]", "qsTea[full]")] == "overridden"
+            and states[("qsNo[flipped]", "qsTea[half]")] == "in place"
+        )
+
+    def test_a_later_run_adds_what_it_never_set_and_keeps_every_pair_it_set_listed(self, world):
+        assert world.run(NO_TEA, apply=True)[0] == 0
+        status, _printed, report = world.run(
+            NO_TEA, "left_family: [qsNo]\nright_family: [qsIt]\nvalue: 1", apply=True
+        )
+        assert status == 0
+        assert block(world) == "kern:\n- {right: {family: qsTea}, by: -1}\n- {right: {family: qsIt}, by: 1}\n"
+        assert [entry["follow"] for entry in entries(world)][-1] == "qsIt"
+        assert {entry["follow"] for entry in entries(world)} == {"qsTea[full]", "qsTea[half]", "qsIt"}
+        assert report["counts"]["in_place_before"] == 2
+
+    def test_a_corrupt_list_of_imported_pairs_is_refused_and_kept(self, world):
+        world.out.mkdir(parents=True)
+        (world.out / import_kerning.IMPORTED_NAME).write_text("{not json")
+        status, printed, _report = world.run(NO_TEA, apply=True)
+        assert status == 1 and "is not JSON" in printed
+        assert (world.out / import_kerning.IMPORTED_NAME).read_text() == "{not json"
+        assert block(world) == ""
+
+    def test_a_missing_list_while_the_files_hold_records_is_refused_unless_no_import_ran(self, world):
+        rune = world.routes.runes_dir / "qsNo.yaml"
+        rune.write_text(rune.read_text() + "kern:\n- {right: {family: qsIt}, by: 1}\n")
+        status, printed, _report = world.run(NO_TEA, apply=True)
+        assert status == 1 and "--no-earlier-import" in printed
+        assert world.run(NO_TEA, apply=True, no_earlier_import=True)[0] == 0
+        assert "{right: {family: qsTea}, by: -1}" in block(world)
+
+    def test_a_write_that_fails_partway_says_which_files_it_wrote_and_the_rest_follow_next_time(
+        self, world, monkeypatch
+    ):
+        real = import_kerning.kern_writer.replace_text
+        calls: list[str] = []
+
+        def failing(path, text, staging):
+            calls.append(Path(path).name)
+            if len(calls) == 2:
+                raise OSError("the disk is full")
+            real(path, text, staging)
+
+        monkeypatch.setattr(import_kerning.kern_writer, "replace_text", failing)
+        rules = (NO_TEA, "left_family: [qsTea]\nright_family: [qsIt]\nvalue: 1")
+        status, printed, _report = world.run(*rules, apply=True)
+        assert status == 1 and "the disk is full" in printed and f"wrote {calls[0]} first" in printed
+        listed = {entry["rune"]: entry["state"] for entry in entries(world)}
+        assert (
+            listed[calls[0][: -len(".yaml")]] == "in place" and listed[calls[1][: -len(".yaml")]] == "pending"
+        )
+        monkeypatch.setattr(import_kerning.kern_writer, "replace_text", real)
+        status, printed, _report = world.run(*rules, apply=True)
+        assert status == 0, printed
+        assert {entry["state"] for entry in entries(world)} == {"in place"}
+
+
+def test_a_family_name_with_a_dot_is_no_plain_family_rule(tmp_path):
+    path = tmp_path / "sidecar.yaml"
+    path.write_text(sidecar(NO_TEA, "left_family: [qsNo.alt]\nright_family: [qsIt]\nvalue: -1"))
+    rules = import_kerning.load_old_rules(path)
+    assert rules.narrowing("qsNo", "qsTea") == []
+    assert [index for index, _rule in rules.narrowing("qsNo", "qsIt")] == [1]

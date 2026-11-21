@@ -13,6 +13,7 @@ import {
   blockOf,
   builtValue,
   carriedCount,
+  carriedTrouble,
   entryCarried,
   isCarried,
   marksOf,
@@ -307,7 +308,11 @@ export function createKernView({ root, toast, writeSelection }) {
   function renderStatus() {
     const lines = view.error
       ? [{ level: 'error', text: view.error }]
-      : [...stalenessLines(view.model, view.values, view.refreshError), ...journalLines(view.values, view.seenSeq)];
+      : [
+          ...stalenessLines(view.model, view.values, view.refreshError),
+          ...journalLines(view.values, view.seenSeq),
+          ...(carriedTrouble(view.values).error ? [{ level: 'error', text: `The reviewed marks cannot be read: ${carriedTrouble(view.values).error}` }] : []),
+        ];
     const nodes = [];
     for (const line of lines) {
       const node = el('p', `kern-status-line ${line.level}`, line.text);
@@ -330,11 +335,13 @@ export function createKernView({ root, toast, writeSelection }) {
     const withPairs = doc.rune_pairs.filter((entry) => entry.pairs.length > 0).length;
     const unsent = view.edits.size - waitingCount();
     const carried = carriedCount(view.model, view.values);
+    const trouble = carriedTrouble(view.values);
     view.dom.summary.textContent =
       `${formatCount(doc.pairs.length)} facing pairs over ${formatCount(withPairs)} pairs of letters; ${formatCount(kerned)} kerned` +
       (unbuilt ? `, ${formatCount(unbuilt)} not in the built font yet` : '') +
       (unsent ? `; ${formatCount(unsent)} change${unsent === 1 ? '' : 's'} being written` : '') +
       (carried ? `; ${formatCount(carried)} carried over from the old font and not reviewed ([ and ] find them)` : '') +
+      (trouble.stale ? `; ${formatCount(trouble.stale)} carried-over or reviewed pair${trouble.stale === 1 ? ' names' : 's name'} a side this build no longer has` : '') +
       '.';
   }
 

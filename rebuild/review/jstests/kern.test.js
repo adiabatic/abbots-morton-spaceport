@@ -12,6 +12,7 @@ import {
   blockOf,
   builtValue,
   carriedCount,
+  carriedTrouble,
   entryCarried,
   isCarried,
   marksOf,
@@ -431,4 +432,11 @@ test('a mark reaches the carried-over facing pairs of its scope, and takes the m
   const marked = indexValues({ ...payload, carried: { ...payload.carried, reviewed: ['qsNo[flipped]|qsTea[half exit=x-height]', 'qsNo[loop]|qsTea[full]'] } });
   assert.equal(marksOf(model, marked, letters, noTea).reviewed, true);
   assert.deepEqual(marksOf(model, values, facingScope(model, noTea.pairs.find((id) => id !== flippedHalf && id !== loopFull)), noTea).imported, []);
+});
+
+test('the marks that name lost sides and marks that cannot be read are reported', () => {
+  assert.deepEqual(carriedTrouble(values), { stale: 0, error: null });
+  const lost = indexValues({ ...payload, carried: { ...payload.carried, stale: ['qsNo|qsTea'], error: 'var/kern/reviewed.json is not JSON' } });
+  assert.deepEqual(carriedTrouble(lost), { stale: 1, error: 'var/kern/reviewed.json is not JSON' });
+  assert.deepEqual(carriedTrouble(indexValues(null)), { stale: 0, error: null });
 });

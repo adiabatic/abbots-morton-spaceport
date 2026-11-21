@@ -5,11 +5,11 @@
   - `live`: every facing pair a `kern:` record decides, resolved now from the rune files on disk over the tables under `rebuild/out/m1` (`kern.resolve`), each with its value and its deciding records, or the error the stage raises over them, in which case the view shows the built values.
   - `built`: every facing pair whose value in the built font is not 0, from the `kern-classes.json` beside `M1.otf`, which read-back vouches for, so the view marks a value the built font does not have yet.
   - `runes`: each rune file's `kern:` block, the raw text from its `kern:` line to the end of the file, that text's sha256 (an edit's `base`), why the editor cannot write it back (`refusal`, `kern_writer.parse_block`) or null, and its records with their key paths, values, flow form (`kern.describe`), `why`, the line the file holds them on (null when the block is not one record per line), the two side names whose scope the record is (`kern_writer.record_sides`, null for a record with a class, a family list or an `except`), and whether a key narrows it below the two letters (`narrow`).
-  - `carried` (`carried`): the facing pairs `rebuild/tools/import_kerning.py` set, from its `var/kern/imported.json`, each with its value and the record that sets it, and the ones the author has marked reviewed, from `var/kern/reviewed.json`, as `lead|follow` keys. The view counts a pair carried over and unreviewed while it is listed, unmarked, and still has the imported value.
+  - `carried` (`carried`): the facing pairs `rebuild/tools/import_kerning.py` set, from its `var/kern/imported.json`, each with its value and the record that sets it; the ones the author has marked reviewed, from `var/kern/reviewed.json`, as `lead|follow` keys; the imported or marked keys whose sides the current build no longer has (`stale`); and why the marks cannot be read, when they cannot. The view counts a pair carried over and unreviewed while it is listed, unmarked, and still has the imported value.
   - `journal` (`kern_writer.Journal.summary`): the journal file's `id`, which changes when the file is deleted or replaced and its `seq`s start over, its last `seq`, how many requests wait for a running pass to end (`pending`), and the newest requests dropped when one ended, with why.
   - The staleness the view reports: `tables` (the tables' stamp and whether it is the one the sources on disk give, `run_m1.tables_inputs`, recomputed at most every `TABLES_TTL_S` seconds), `inventory` (whether the file is there, its stamp, and whether that stamp names these tables and the Manual pages on disk), and `pass` (the pid holding the cycle's pass lock, while a pass runs; the server's own short holds are not one).
 - `POST /kern` takes a delta, `{"sets": [...]}`, every set naming one record of one rune file by its scope (`parse_delta`): `{"scope": "letters", "lead": <leading rune>, "follow": <following rune>}`, the record that names only the two families, or `{"scope": "facing", "lead": <leading side>, "follow": <following side>}`, the record whose own-side and `right` keys are exactly the two sides' keys (`kern_writer.facing_scope`), with `by`, the value, from -`BY_LIMIT` to `BY_LIMIT` pixels as the schema bounds it, or null to drop the record, `base`, the sha256 of the block the client last saw, and an optional `why`, the author's typed note, stored verbatim (an empty one removes the record's note; none leaves it). The record lives in the leading rune's file, a ligature's own included. Every rune a set names, leading or following, must be one the loaded spec holds under exactly that name, and the leading rune's file must be named exactly after it (`_check_runes`, `_block`), whatever the set's value, since a case-insensitive file system would otherwise open another rune's file under a misspelled name.
-- `POST /kern/reviewed` (`post_reviewed`) marks one facing pair reviewed, or every facing pair of a rune pair, or takes the mark off, in `var/kern/reviewed.json`; every write marks the imported facing pairs whose value it moves.
+- `POST /kern/reviewed` (`post_reviewed`) marks one imported facing pair reviewed, or every imported facing pair of two letters, or takes the mark off, in `var/kern/reviewed.json`, refusing a pair the import did not set or the current build does not have, and marks it cannot read. Every write marks the imported facing pairs whose value it moves and keeps those marks in its journal event (`marked`), and its undo takes exactly those off (`unmarked`).
 - `POST /kern/undo` takes `{"undoes": seq}`, the journal `seq` a write's reply gave for the change to undo (`post_undo`). A pending request's `seq` cancels it while it waits, journaled as `cancelled`, and reverts nothing written. Otherwise the change, or the `applied` event a pending request became, must be the newest applied change no undo has reverted (`kern_writer.JournalState.undo_target`), and its block must still be what it wrote; an older change, one never written, or one already undone is refused and changes nothing.
 
 **An edit** (`_edit`). A set whose `base` is neither the block on disk nor the block this write began from (`starts`, so a client's change queued behind its own earlier one still applies) changes nothing and is a conflict (409) carrying the block as it stands. Otherwise each set gives or replaces its scope's record, or drops it; a record never touches one that carries a class, a family list or an `except`, beside which it stands as a narrower one. A record equal to what it would inherit is dropped: the spec with the record and without it are resolved in memory (`_values_with`), and when every facing pair takes the same value both ways the record goes, its `why` with it; a set that brings a note to a record that goes is refused, since a note needs a record. The new block (`kern_writer.render_block` in `kern_writer.canonical` order) replaces the old after the file's last byte before it (`kern_writer.splice`). A file is read and written as its bytes hold it, and a block's lines end the way the file's first line does (`kern_writer.line_ending`), so a CRLF file keeps every byte outside its block. Before anything is replaced, `_validate` writes the new file into a temporary copy of the runes directory and runs the spec loader, `kern.resolve` and the kern lookup's plan (`emit_gpos.kern_plan`) over the copy, and the defect gate's contact check at the kerned offset (`defects.check_kerned_breaks`, under `rebuild/m1-contact-allow.yaml`) over every member break whose value the edit moves. A refusal (422) carries the build's own messages, with the copy's paths read as the runes directory's, and changes nothing. The file is then replaced atomically, through a staging file beside the journal renamed over it (`_replace`), and the change is appended to the journal (`kern_writer.Journal`, `var/kern/journal.ndjson`) before the reply; an append that fails puts the file back. The reply (200) names the change and carries the values the edit resolved to, which the routes keep, so the next `GET /kern` answers from them.
@@ -203,7 +203,7 @@ def failure_payload(message: str) -> dict:
         "built": {"present": False, "values": []},
         "runes": {},
         "journal": {"id": None, "seq": 0, "pending": 0, "dropped": []},
-        "carried": {"pairs": [], "reviewed": []},
+        "carried": {"pairs": [], "reviewed": [], "stale": [], "error": None},
     }
 
 
@@ -302,9 +302,17 @@ def check_values_payload(payload: object) -> list[str]:
             for entry in carried["pairs"]
         )
         or not all(isinstance(key, str) for key in carried["reviewed"])
+        or not isinstance(carried.get("stale"), list)
+        or not (carried.get("error") is None or isinstance(carried.get("error"), str))
     ):
-        errors.append("carried must list the imported facing pairs with their values, and the reviewed ones")
+        errors.append(
+            "carried must list the imported facing pairs with their values, the reviewed ones, the stale ones, and why the marks cannot be read or null"
+        )
     return errors
+
+
+class MarksUnreadable(Exception):
+    """`var/kern/reviewed.json` is there but cannot be read; nothing replaces it until it is fixed or removed."""
 
 
 class DeltaInvalid(ValueError):
@@ -675,19 +683,68 @@ class KernRoutes:
         return {f"{entry['lead']}|{entry['follow']}" for entry in self._imported()}
 
     def _reviewed(self) -> set[str]:
+        """Return the reviewed marks, none when `reviewed.json` is missing. A file that is there but cannot be read raises `MarksUnreadable`, so no write replaces it."""
         try:
-            document = json.loads(self.reviewed_path.read_text(encoding="utf-8"))
-        except OSError, ValueError:
+            text = self.reviewed_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
             return set()
+        except OSError as error:
+            raise MarksUnreadable(
+                f"{self.reviewed_path} cannot be read ({error}); fix it or remove it"
+            ) from None
+        try:
+            document = json.loads(text)
+        except ValueError as error:
+            raise MarksUnreadable(
+                f"{self.reviewed_path} is not JSON ({error}); fix it or remove it"
+            ) from None
         keys = document.get("reviewed") if isinstance(document, dict) else None
-        return {key for key in keys or [] if isinstance(key, str)}
+        if (
+            not isinstance(document, dict)
+            or document.get("format") != REVIEWED_FORMAT
+            or not isinstance(keys, list)
+            or not all(isinstance(key, str) for key in keys)
+        ):
+            raise MarksUnreadable(
+                f"{self.reviewed_path} is not a list of reviewed marks; fix it or remove it"
+            )
+        return set(keys)
+
+    def _side_names(self) -> tuple[set[str], set[str]] | None:
+        """Return the leading and the following side names of the current build, or None while the rune files do not resolve."""
+        with self._lock:
+            return self._side_names_held()
+
+    def _side_names_held(self) -> tuple[set[str], set[str]] | None:
+        """`_side_names` for a caller that holds the routes' lock, as `GET /kern`'s answer does."""
+        self.live()
+        resolution = self._resolved[2] if self._resolved is not None else None
+        if resolution is None:
+            return None
+        return {pair.leading.name for pair in resolution.pairs}, {
+            pair.following.name for pair in resolution.pairs
+        }
 
     def carried(self) -> dict:
-        """Return `GET /kern`'s `carried` part: the facing pairs the importer set, each with its value and its record, and the ones the author has marked reviewed, as `lead|follow` keys. A pair counts as carried over and unreviewed while it is listed, unmarked, and still has the imported value, which the view decides."""
-        return {"pairs": self._imported(), "reviewed": sorted(self._reviewed())}
+        """Return `GET /kern`'s `carried` part, for a caller that holds the routes' lock: the facing pairs the importer set, each with its value and its record; the ones the author has marked reviewed, as `lead|follow` keys; the imported or marked keys that name a side the current build no longer has (`stale`), since a later build can split or rename a side; and why the marks cannot be read, if they cannot. A pair counts as carried over and unreviewed while it is listed, unmarked, and still has the imported value, which the view decides."""
+        pairs = self._imported()
+        error = None
+        try:
+            reviewed = self._reviewed()
+        except MarksUnreadable as unreadable:
+            reviewed, error = set(), str(unreadable)
+        sides = self._side_names_held()
+        stale: list[str] = []
+        if sides is not None:
+            leading, following = sides
+            keys = {f"{entry['lead']}|{entry['follow']}" for entry in pairs} | reviewed
+            stale = sorted(
+                key for key in keys if key.split("|")[0] not in leading or key.split("|")[-1] not in following
+            )
+        return {"pairs": pairs, "reviewed": sorted(reviewed), "stale": stale, "error": error}
 
     def _mark(self, keys: set[str], reviewed: bool) -> None:
-        """Add `keys` to the reviewed marks, or take them off, writing `reviewed.json` only when it changes."""
+        """Add `keys` to the reviewed marks, or take them off, writing `reviewed.json` only when it changes. Raises `MarksUnreadable` rather than replace a file it cannot read."""
         marks = self._reviewed()
         changed = marks | keys if reviewed else marks - keys
         if changed == marks:
@@ -698,8 +755,21 @@ class KernRoutes:
             + "\n",
         )
 
+    def _marks_for(self, before: kern.KernResolution | None, after: kern.KernResolution) -> list[str]:
+        """Return the imported facing pairs a change from `before` to `after` moves that are not marked yet: the marks the change makes, which its journal event keeps so its undo can take exactly those off."""
+        if before is None:
+            return []
+        moved = _pair_values(after).items() ^ _pair_values(before).items()
+        try:
+            reviewed = self._reviewed()
+        except MarksUnreadable:
+            return []
+        return sorted(
+            ({f"{lead}|{follow}" for (lead, follow), _by in moved} & self._imported_keys()) - reviewed
+        )
+
     def post_reviewed(self, body: object) -> tuple[int, dict]:
-        """Answer `POST /kern/reviewed`: mark one facing pair reviewed or take its mark off (`{"scope": "facing", "lead": <side>, "follow": <side>, "reviewed": bool}`), or every facing pair of a rune pair (`{"scope": "letters", "lead": <rune>, "follow": <rune>, ...}`), the ones the tables give and the ones the import lists."""
+        """Answer `POST /kern/reviewed`: mark one imported facing pair reviewed or take its mark off (`{"scope": "facing", "lead": <side>, "follow": <side>, "reviewed": bool}`), or every imported facing pair of two letters (`{"scope": "letters", "lead": <rune>, "follow": <rune>, ...}`). Only pairs the import set, whose sides the current build has, are marked; anything else is refused, and so is a change to marks that cannot be read."""
         if not isinstance(body, dict) or not isinstance(body.get("reviewed"), bool):
             return self._reply(
                 400,
@@ -716,27 +786,52 @@ class KernRoutes:
                 kern_writer.facing_scope(lead, follow)
             except ValueError as error:
                 return self._reply(400, {"status": "invalid", "message": str(error)})
-            keys = {f"{lead}|{follow}"}
         elif scope == kern_writer.LETTERS:
             if not (RUNE_NAME.match(lead) and RUNE_NAME.match(follow)):
                 return self._reply(400, {"status": "invalid", "message": "a letters mark names two runes"})
-            with self._lock:
-                self.live()
-                resolution = self._resolved[2] if self._resolved is not None else None
-            keys = {
-                f"{pair.leading.name}|{pair.following.name}"
-                for pair in (resolution.pairs if resolution is not None else ())
-                if pair.leading.rune == lead and pair.following.rune == follow
-            }
-            keys |= {
-                f"{entry['lead']}|{entry['follow']}"
-                for entry in self._imported()
-                if entry["lead"].split("[")[0] == lead and entry["follow"].split("[")[0] == follow
-            }
         else:
             return self._reply(400, {"status": "invalid", "message": "a mark's scope is facing or letters"})
+        sides = self._side_names()
+        if sides is None:
+            return self._reply(
+                422,
+                {
+                    "status": "refused",
+                    "message": "the rune files do not resolve, so the build's sides are not known",
+                },
+            )
+        leading, following = sides
+        imported = self._imported_keys()
+        if scope == kern_writer.FACING:
+            if lead not in leading or follow not in following:
+                return self._reply(
+                    422,
+                    {
+                        "status": "refused",
+                        "message": f"{lead} | {follow} is no facing pair of the current build (side names are case-sensitive)",
+                    },
+                )
+            keys = {f"{lead}|{follow}"} & imported
+        else:
+            keys = {
+                key
+                for key in imported
+                if key.split("|")[0].split("[")[0] == lead
+                and key.split("|")[-1].split("[")[0] == follow
+                and key.split("|")[0] in leading
+                and key.split("|")[-1] in following
+            }
+        if not keys:
+            return self._reply(
+                422,
+                {"status": "refused", "message": "nothing in this scope was carried over from the old font"},
+            )
         try:
             self._mark(keys, body["reviewed"])
+        except MarksUnreadable as unreadable:
+            return self._reply(
+                409, {"status": "refused", "message": f"the marks were not changed: {unreadable}"}
+            )
         except OSError as error:
             return self._reply(500, {"status": "error", "message": f"the marks were not written ({error})"})
         return self._reply(
@@ -960,6 +1055,8 @@ class KernRoutes:
                 kern_writer.split_file(now)[1],
                 f"{file_label(path)} changed while the change was checked; try again",
             )
+        if event["event"] == "applied":
+            event["marked"] = self._marks_for(context.before, checked[1])
         self._replace(path, new_text)
         try:
             written = self.journal.append(event)
@@ -977,14 +1074,13 @@ class KernRoutes:
                 self._live = {"values": live_values(resolution), "error": None}
             else:
                 self._spec_key = self._live_key = None
-        if context.before is not None:
-            moved = _pair_values(resolution).items() ^ _pair_values(context.before).items()
-            try:
-                self._mark(
-                    {f"{lead}|{follow}" for (lead, follow), _by in moved} & self._imported_keys(), True
-                )
-            except OSError as error:
-                print(f"kern: the reviewed marks were not written ({error})", flush=True)
+        try:
+            if event["event"] == "applied" and event.get("marked"):
+                self._mark(set(event["marked"]), True)
+            elif event["event"] == "undo" and event.get("unmarked"):
+                self._mark(set(event["unmarked"]), False)
+        except (OSError, MarksUnreadable) as error:
+            print(f"kern: the reviewed marks were not changed ({error})", flush=True)
         return written
 
     def _edit(
@@ -1143,6 +1239,7 @@ class KernRoutes:
             "after": before,
             "before_sha256": kern_writer.block_sha(block),
             "after_sha256": kern_writer.block_sha(before),
+            "unmarked": change.get("marked", []),
             **({} if pending is None else {"pending": pending}),
         }
         written = self._write(path, text, new_text, event, context, checked)

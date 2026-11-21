@@ -512,3 +512,9 @@ export function marksOf(model, values, scope, entry) {
   const imported = keys.filter((key) => values?.imported?.has(key));
   return { imported, reviewed: imported.length > 0 && imported.every((key) => values.reviewed.has(key)) };
 }
+
+// The carried-over marks' trouble the header line and the status lines report: how many imported or marked facing pairs name a side the current build no longer has (a later build split or renamed it, and their marks no longer reach it), and why the marks cannot be read, if they cannot.
+export function carriedTrouble(values) {
+  const carried = values?.payload?.carried;
+  return { stale: carried?.stale?.length ?? 0, error: carried?.error ?? null };
+}
