@@ -17,6 +17,7 @@ use super::audit::{integer, items, stage_line, text};
 use super::columns::{KeyIndex, sorted_by_word};
 use super::gzip::{GzipError, GzipReader, inflate_fragment};
 use super::input::{BuildInput, Stamp};
+use super::prior::holds_unit;
 use super::records::{
     ParsedCachedUnit, RecordError, hashable, id_word, line_address, line_class, line_id,
     named_ordinal, parse_line, truthy,
@@ -1572,15 +1573,6 @@ impl LiveCorpus {
         }
         Ok(())
     }
-}
-
-/// `unit_index.holds_unit`: whether a fragment's plain shard bytes hold `"id": <unit_id>` as `json.dumps` writes it.
-fn holds_unit(body: &[u8], unit_id: &str) -> bool {
-    let Ok(quoted) = json::dumps(&PyValue::str(unit_id)) else {
-        return false;
-    };
-    let needle = format!("\"id\": {quoted}");
-    find(body, needle.as_bytes(), 0).is_some()
 }
 
 fn skip_whitespace(text: &[u8], mut at: usize) -> usize {

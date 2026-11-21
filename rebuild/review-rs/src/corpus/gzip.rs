@@ -302,8 +302,13 @@ impl std::fmt::Display for ZlibError {
     }
 }
 
-/// CPython's `zlib_error` for a decompressor: zlib's message, or a fixed one for three statuses when zlib gives none, cut at 200 bytes.
+/// CPython's `zlib_error` for a decompressor while it decompresses: zlib's message, or a fixed one for three statuses when zlib gives none, cut at 200 bytes.
 fn zlib_error(status: i32, message: Option<String>) -> ZlibError {
+    zlib_error_while(status, message, "decompressing data")
+}
+
+/// CPython's `zlib_error` while it does `doing`.
+fn zlib_error_while(status: i32, message: Option<String>, doing: &str) -> ZlibError {
     let message = message.or_else(|| {
         match status {
             -5 => Some("incomplete or truncated stream"),
@@ -315,14 +320,14 @@ fn zlib_error(status: i32, message: Option<String>) -> ZlibError {
     });
     ZlibError(match message {
         Some(message) => format!(
-            "Error {status} while decompressing data: {}",
+            "Error {status} while {doing}: {}",
             message.chars().take(200).collect::<String>()
         ),
-        None => format!("Error {status} while decompressing data"),
+        None => format!("Error {status} while {doing}"),
     })
 }
 
-/// `zlib.decompressobj(window_bits)` as the parent's readers drive it: [`Decompressor::decompress`] with an optional output limit, and the input left over in [`Decompressor::unconsumed_tail`] when the limit stopped it, or in [`Decompressor::unused_data`] after the stream's end, by CPython's rules for both.
+/// `zlib.decompressobj(window_bits)` as the parent's readers drive it: [`Decompressor::decompress`] with an optional output limit, and the input left over in [`Decompressor::unconsumed_tail`] when the limit stopped it, or in [`Decompressor::unused_data`] after the stream's end, by CPython's rules for both. [`Decompressor::with_dictionary`] and [`Decompressor::decompress_with_dictionary`] are `zlib.decompressobj(window_bits, zdict=dictionary)` and its `decompress`.
 pub struct Decompressor {
     inflater: Inflater,
     eof: bool,
@@ -338,6 +343,26 @@ impl Decompressor {
             unused_data: Vec::new(),
             unconsumed_tail: Vec::new(),
         })
+    }
+
+    /// A decompressor with a preset dictionary, as `decompressobj` takes its `zdict`: a raw stream (negative `window_bits`) is given it at once, and a zlib stream when its header asks for it, which [`Decompressor::decompress_with_dictionary`], handed the same dictionary, answers. A dictionary zlib refuses at once is the `zlib.error` the constructor raises.
+    pub fn with_dictionary(
+        window_bits: i32,
+        dictionary: &[u8],
+    ) -> std::result::Result<Self, String> {
+        if u32::try_from(dictionary.len()).is_err() {
+            return Err("zdict length does not fit in an unsigned int".to_owned());
+        }
+        let mut decompressor = Self::new(window_bits)?;
+        if window_bits < 0 {
+            decompressor
+                .inflater
+                .set_dictionary(dictionary)
+                .map_err(|(status, message)| {
+                    zlib_error_while(status, message, "setting zdict").0
+                })?;
+        }
+        Ok(decompressor)
     }
 
     pub fn eof(&self) -> bool {
@@ -358,6 +383,25 @@ impl Decompressor {
         data: &[u8],
         max_length: usize,
     ) -> std::result::Result<Vec<u8>, ZlibError> {
+        self.inflate(data, max_length, None)
+    }
+
+    /// [`Decompressor::decompress`] for a decompressor made [`Decompressor::with_dictionary`], with its dictionary: a stream that asks for it is given it and inflates on, and one zlib refuses is the `zlib.error` CPython raises while setting it.
+    pub fn decompress_with_dictionary(
+        &mut self,
+        data: &[u8],
+        max_length: usize,
+        dictionary: &[u8],
+    ) -> std::result::Result<Vec<u8>, ZlibError> {
+        self.inflate(data, max_length, Some(dictionary))
+    }
+
+    fn inflate(
+        &mut self,
+        data: &[u8],
+        max_length: usize,
+        dictionary: Option<&[u8]>,
+    ) -> std::result::Result<Vec<u8>, ZlibError> {
         let mut out = Vec::new();
         let mut at = 0;
         let mut ended = false;
@@ -376,6 +420,16 @@ impl Decompressor {
             let step = self.inflater.inflate(&data[at..], &mut out[start..]);
             out.truncate(start + step.produced);
             at += step.consumed;
+            if step.needs_dictionary()
+                && let Some(dictionary) = dictionary
+            {
+                self.inflater
+                    .set_dictionary(dictionary)
+                    .map_err(|(status, message)| {
+                        zlib_error_while(status, message, "setting zdict")
+                    })?;
+                continue;
+            }
             if step.failed() {
                 failure = Some(zlib_error(step.status, step.message));
                 break;

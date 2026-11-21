@@ -31,6 +31,7 @@ The build's stages (`BUILD_STAGES`):
 - `passes` is a boundary stage that records the whole-corpus passes from the duplicate groups through the stale check, from `build._build_m1`'s locals as the units phase's line is printed (`build._phase_timing`, `_passes_timed`), as `passes_boundary` lays it out: a unit its duplicate group, cluster and primary units, and lines for the duplicate-group count, a column over the classes' rows, the secondary-junction counts, the verification's keys, sorted, the re-settlement mismatches and the units phase's note. Its generated lines (`_passes_generated`) put duplicate-group keys over one configuration and several, a judged pair and None, and text `repr` quotes and escapes to `unit_cache.duplicate_group_id_for`.
 - `route` is a boundary stage that records how the write routes each class and cuts the runs, from `build._write_corpus`'s locals once `build._write_runs` returns (`_runs_cut`), as `route_boundary` lays it out: a unit whether its fragment is predicted unchanged, and lines for each class in shard order with its route, prior parts and manifest record, a column over each class's ordinals, the width and the runs, and whether the previous sidecars are copied forward. Its generated lines (`_route_generated`) cut runs over class sizes and widths at the edges, read the previous corpus's parts from manifests of every shape, and ask whether the dump's prior corpus holds a current units index, app index and locator.
 - `shards` records each class the write's shard writer (`build._ShardWriter`) writes, from its `open` to its `close`, under `class:<id>`: its input the cap (None, the build's `SHARD_PART_BYTES`), the parts the class appends to as the build's directory held them when it opened, and each call made on the writer (`open`, `holds`, `keep`, `add_bytes`, which `add` makes too, and `close`) with its arguments, a fragment as the sha256 of its bytes; its value each call's result, the close's parts, total and pending renames with each staged part's size and sha256, and the counters the class moved (`_shard_closed`). Every fragment and held part is kept once under its sha256 in `shards.blobs/` beside the stage file (`SHARDS_BLOBS`), from which the Rust side makes the held parts again, as clones, in a scratch directory and replays the calls there. Its generated lines (`_shards_generated`, `_shard_cases`) replay writers of their own under small caps through `_shard_replay`, which also takes, commits, aborts and lists what a writer staged, and deletes staged parts by class ids that are wildcards themselves (`build._discard_runs`).
+- `prior-read` records each read the write makes of a fragment it emits, keyed by its origin, its `form` and a digest of its `input`: `read`, `read-bytes` and `same-bytes`, each `unit_cache.PriorFragmentReader.read`, `read_bytes` and `same_bytes` call (`_prior_reading`), with the part it opens as the reader's directory held it (`_prior_held`), its address (`_prior_located`) and, for `same-bytes`, the body it compares, valued `("fragment", value)`, `("bytes", sha256)` or `("same", flag)` (`_prior_given`); and `arena`, each `build._FragmentArena.read` call (`_arena_read`), with the arena's dictionary, the span's bytes and the address, valued `("fragment", value)`. Every part, body, span and dictionary is kept once under its sha256 in `prior-read.blobs/` beside the stage file (`PRIOR_READ_BLOBS`), from which the Rust side makes each line's parts again in a scratch directory, or places its span at its start in an arena of its own, and makes the read there. Its generated lines (`_prior_read_generated`, `_prior_read_cases`) read plain and deflated fragments, as bytes and compared, under their own address and moved ones, and arena spans under their own dictionary and others, through every refusal of the reader's, each refusal valued `("raised", "ValueError", message)`, `("os-error", errno)` or, where `json.loads` refuses the bytes, `("undecoded",)` (`_prior_outcome`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3882,6 +3883,11 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._ShardWriter.keep": ("rebuild.review.build", "_ShardWriter.keep"),
     "build._ShardWriter.add_bytes": ("rebuild.review.build", "_ShardWriter.add_bytes"),
     "build._ShardWriter.close": ("rebuild.review.build", "_ShardWriter.close"),
+    **{
+        f"unit_cache.PriorFragmentReader.{name}": ("rebuild.review.unit_cache", f"PriorFragmentReader.{name}")
+        for name in ("read", "read_bytes", "same_bytes")
+    },
+    "build._FragmentArena.read": ("rebuild.review.build", "_FragmentArena.read"),
 }
 
 
@@ -12688,6 +12694,351 @@ def _shards_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
         yield {"key": f"generated:{name}", "input": (cap, kept, calls), "value": value}
 
 
+PRIOR_READ_STAGE = "prior-read"
+# The `prior-read` stage's directory, beside its stage file, of the bytes its lines name by sha256: each part a read touched as the reader's directory held it, each body a compare was handed, and each arena span with the dictionary it inflates under.
+PRIOR_READ_BLOBS = "prior-read.blobs"
+# The blob directory of the build whose `prior-read` stage records, for the length of that build (`_prior_read_blobs_at`).
+_PRIOR_READ_BLOBS_AT: list[Path] = []
+# Each part a recorded read touched, by its path, inode, size and modification time, with its bytes' sha256, so a part read many times is read into a blob once.
+_PRIOR_READ_HELD: dict[tuple[str, int, int, int], str] = {}
+# The forms a `prior-read` line takes, by the `PriorFragmentReader` method each records.
+PRIOR_READ_FORMS = {"read": "read", "read_bytes": "read-bytes", "same_bytes": "same-bytes"}
+_PRIOR_READ_SIGNATURES = {
+    name: inspect.signature(getattr(unit_cache.PriorFragmentReader, name)) for name in PRIOR_READ_FORMS
+}
+_ARENA_READ = inspect.signature(build._FragmentArena.read)
+
+
+@contextlib.contextmanager
+def _prior_read_blobs_at(directory: Path) -> Iterator[None]:
+    _PRIOR_READ_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _PRIOR_READ_BLOBS_AT.pop()
+        _PRIOR_READ_HELD.clear()
+
+
+def _prior_located(located: unit_cache.PriorFragment) -> tuple:
+    """A `unit_cache.PriorFragment` as a `prior-read` line holds it, its fields in declaration order."""
+    return (
+        located.part,
+        located.start,
+        located.length,
+        located.unit_id,
+        located.content_key,
+        located.byte_copied,
+        located.inflated,
+    )
+
+
+def _prior_held(directory: Path, part: str, blobs: Path) -> list[tuple[str, str]]:
+    """The part a read at `part` opens under `directory`, as the line's held parts: `[(part, sha256)]` with its bytes kept in `blobs`, or none when `directory` holds no file there."""
+    path = directory / part
+    try:
+        found = path.stat()
+    except OSError:
+        return []
+    if not stat.S_ISREG(found.st_mode):
+        return []
+    held = (str(path), found.st_ino, found.st_size, found.st_mtime_ns)
+    digest = _PRIOR_READ_HELD.get(held)
+    if digest is None:
+        digest = _PRIOR_READ_HELD[held] = _blob_into(blobs, path.read_bytes())
+    return [(part, digest)]
+
+
+def _prior_given(form: str, result: object) -> tuple:
+    """What a read gave, as a `prior-read` line's value holds it: `("fragment", value)`, `("bytes", sha256)` or `("same", flag)`."""
+    if form == "same-bytes":
+        assert isinstance(result, bool), result
+        return ("same", result)
+    if form == "read-bytes":
+        assert isinstance(result, bytes), result
+        return ("bytes", hashlib.sha256(result).hexdigest())
+    return ("fragment", result)
+
+
+def _prior_outcome(form: str, read: Callable[[], object]) -> tuple:
+    """What `read` gives as a `prior-read` line's value: `_prior_given`, or `("undecoded",)` where `json.loads` refuses the bytes, whose text the Rust reader words in its own way (as the `json-forms` stage compares its refusals), `("raised", "ValueError", message)` for a refusal of the reader's own, and `("os-error", errno)`."""
+    try:
+        result = read()
+    except json.JSONDecodeError, UnicodeDecodeError:
+        return ("undecoded",)
+    except ValueError as error:
+        return ("raised", "ValueError", str(error))
+    except OSError as error:
+        return ("os-error", error.errno)
+    return _prior_given(form, result)
+
+
+def _prior_read_line(origin: str, inputs: tuple, value: tuple) -> dict[str, object]:
+    digest = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{origin}:{inputs[0]}:{digest}", "input": inputs, "value": value}
+
+
+def _prior_reading(name: str) -> Recorder:
+    """A recorder of `PriorFragmentReader.<name>`: the read's form, the part it opens as the reader's directory holds it, its address and, for a compare, the body as a blob, with what it gave."""
+    form = PRIOR_READ_FORMS[name]
+    signature = _PRIOR_READ_SIGNATURES[name]
+
+    def record(args: tuple, kwargs: dict) -> Finisher:
+        bound = signature.bind(*args, **kwargs)
+        reader: unit_cache.PriorFragmentReader = bound.arguments["self"]
+        located: unit_cache.PriorFragment = bound.arguments["located"]
+        blobs = _PRIOR_READ_BLOBS_AT[-1]
+        inputs: tuple = (form, _prior_held(reader._out_dir, located.part, blobs), _prior_located(located))
+        if form == "same-bytes":
+            inputs += (_blob_into(blobs, bytes(bound.arguments["body"])),)
+        return lambda result: _prior_read_line("run", inputs, _prior_given(form, result))
+
+    return record
+
+
+def _arena_read(args: tuple, kwargs: dict) -> Finisher:
+    """`build._FragmentArena.read`: the arena's dictionary and the span's bytes as blobs, and the address, with the fragment it gave."""
+    bound = _ARENA_READ.bind(*args, **kwargs)
+    arena: build._FragmentArena = bound.arguments["self"]
+    located: unit_cache.PriorFragment = bound.arguments["located"]
+    blobs = _PRIOR_READ_BLOBS_AT[-1]
+    packed = bytes(arena._bytes[located.start : located.start + located.length])
+    inputs = (
+        "arena",
+        _blob_into(blobs, arena.dictionary),
+        _blob_into(blobs, packed),
+        _prior_located(located),
+    )
+    return lambda result: _prior_read_line("run", inputs, ("fragment", result))
+
+
+def _prior_fragment(unit_id: object, content_key: object = "k-0", **fields: object) -> bytes:
+    """A generated fragment's plain shard bytes (`build._fragment_bytes`), holding `unit_id` and `content_key` and `fields` after them, and no `content_key` for `content_key=...`."""
+    fragment: dict[str, object] = {"id": unit_id}
+    if content_key is not ...:
+        fragment["content_key"] = content_key
+    fragment.update(fields)
+    return build._fragment_bytes(fragment)
+
+
+def _prior_read_cases() -> Iterator[tuple[str, dict[str, bytes], tuple]]:
+    """The `prior-read` stage's generated reads, each its name, the parts its directory holds and its call, `(form, address, ...)` with the address `(part, start, length, unit_id, content_key, byte_copied, inflated)`: plain and deflated fragments read, read as bytes and compared, whole and cut short or run on, under their own id and stamp and another, holding no stamp, a non-ASCII id, a repeated key, a value that is not a dict or no JSON at all, at a missing part, a directory and past a part's end, at negative offsets and lengths, deflated under every check of `unit_index.inflate_fragment` and the lengths it reads as none or refuses; and arena spans under the right dictionary, another, none at all, cut short, run on, holding another unit or no JSON."""
+    closing = unit_index.PART_CLOSING
+    first = _prior_fragment("u-a", "k-a", note="one")
+    second = _prior_fragment("u-b", None, note="two")
+    third = _prior_fragment("u-·c", "k-c")
+    fourth = _prior_fragment("u-d", ..., note="no stamp")
+    repeated = b'{"id": "u-x", "content_key": "k-x", "id": "u-e"}'
+    listed = b'["u-f"]'
+    broken = b'{"id": "u-g", "content_key": '
+    invalid = b'{"id": "u-\xff"}'
+    plain_bodies = [first, second, third, fourth, repeated, listed, broken, invalid]
+    plain = b"[" + b",".join(plain_bodies) + closing
+    starts: list[int] = []
+    at = 1
+    for body in plain_bodies:
+        starts.append(at)
+        at += len(body) + 1
+    parts = {"units/c.json": plain}
+
+    def address(index: int, unit_id: str, content_key: str | None, *, byte_copied: bool = True) -> tuple:
+        return ("units/c.json", starts[index], len(plain_bodies[index]), unit_id, content_key, byte_copied, 0)
+
+    for form in ("read", "read-bytes"):
+        for byte_copied in (True, False):
+            mark = "copied" if byte_copied else "walked"
+            yield f"{form}-{mark}-first", parts, (form, address(0, "u-a", "k-a", byte_copied=byte_copied))
+            yield f"{form}-{mark}-other-id", parts, (form, address(0, "u-z", "k-a", byte_copied=byte_copied))
+            yield f"{form}-{mark}-other-stamp", parts, (
+                form,
+                address(0, "u-a", "k-z", byte_copied=byte_copied),
+            )
+            yield f"{form}-{mark}-no-stamp", parts, (form, address(0, "u-a", None, byte_copied=byte_copied))
+        yield f"{form}-null-stamp", parts, (form, address(1, "u-b", None))
+        yield f"{form}-null-stamp-other", parts, (form, address(1, "u-b", "k-b"))
+        yield f"{form}-non-ascii-id", parts, (form, address(2, "u-·c", "k-c"))
+        yield f"{form}-missing-stamp", parts, (form, address(3, "u-d", None))
+        yield f"{form}-missing-stamp-other", parts, (form, address(3, "u-d", "k-d"))
+        yield f"{form}-repeated-last", parts, (form, address(4, "u-e", "k-x"))
+        yield f"{form}-repeated-first", parts, (form, address(4, "u-x", "k-x"))
+        yield f"{form}-list", parts, (form, address(5, "u-f", None))
+        yield f"{form}-broken", parts, (form, address(6, "u-g", None))
+        yield f"{form}-not-utf-8", parts, (form, address(7, "u-\xff", None))
+        yield f"{form}-cut", parts, (form, ("units/c.json", starts[0], len(first) - 3, "u-a", "k-a", True, 0))
+        yield f"{form}-run-on", parts, (
+            form,
+            ("units/c.json", starts[0], len(first) + 1, "u-a", "k-a", True, 0),
+        )
+        yield f"{form}-past-end", parts, (form, ("units/c.json", len(plain) + 5, 10, "u-a", "k-a", True, 0))
+        yield f"{form}-tail", parts, (form, ("units/c.json", len(plain) - 4, 10, "u-a", "k-a", True, 0))
+        yield f"{form}-empty", parts, (form, ("units/c.json", starts[0], 0, "u-a", "k-a", True, 0))
+        yield f"{form}-missing-part", parts, (form, ("units/gone.json", 1, 10, "u-a", "k-a", True, 0))
+        yield f"{form}-directory", parts, (form, ("units", 1, 10, "u-a", "k-a", True, 0))
+        yield f"{form}-negative-start", parts, (form, ("units/c.json", -1, 10, "u-a", "k-a", True, 0))
+        yield f"{form}-negative-length", parts, (form, ("units/c.json", 1, -1, "u-a", "k-a", True, 0))
+    deflate = unit_index.deflate_fragment
+    stored = [
+        deflate(first),
+        deflate(second),
+        deflate(fourth),
+        deflate(listed),
+        deflate(first)[:-2],
+        deflate(first) + b"\x00",
+        b"\x02\xff\xff",
+        deflate(b""),
+    ]
+    packed_part = b"[" + b",".join(stored) + closing
+    stored_starts: list[int] = []
+    at = 1
+    for body in stored:
+        stored_starts.append(at)
+        at += len(body) + 1
+    deflated_parts = {"units/c.x000.json": packed_part}
+
+    def deflated(index: int, inflated: int, unit_id: str = "u-a", content_key: str | None = "k-a") -> tuple:
+        return (
+            "units/c.x000.json",
+            stored_starts[index],
+            len(stored[index]),
+            unit_id,
+            content_key,
+            True,
+            inflated,
+        )
+
+    for form in ("read", "read-bytes"):
+        yield f"{form}-deflated", deflated_parts, (form, deflated(0, len(first)))
+        yield f"{form}-deflated-null-stamp", deflated_parts, (form, deflated(1, len(second), "u-b", None))
+        yield f"{form}-deflated-missing-stamp", deflated_parts, (form, deflated(2, len(fourth), "u-d", None))
+        yield f"{form}-deflated-list", deflated_parts, (form, deflated(3, len(listed), "u-f", None))
+        yield f"{form}-deflated-other-id", deflated_parts, (form, deflated(0, len(first), "u-z"))
+        yield f"{form}-deflated-short", deflated_parts, (form, deflated(0, len(first) - 1))
+        yield f"{form}-deflated-long", deflated_parts, (form, deflated(0, len(first) + 1))
+        yield f"{form}-deflated-cut", deflated_parts, (form, deflated(4, len(first)))
+        yield f"{form}-deflated-run-on", deflated_parts, (form, deflated(5, len(first)))
+        yield f"{form}-deflated-garbage", deflated_parts, (form, deflated(6, 4))
+        yield f"{form}-deflated-empty", deflated_parts, (form, deflated(7, 1))
+        yield f"{form}-deflated-span-run-on", deflated_parts, (
+            form,
+            ("units/c.x000.json", stored_starts[0], len(stored[0]) + 1, "u-a", "k-a", True, len(first)),
+        )
+        for inflated in (-1, -2):
+            yield f"{form}-deflated-inflated{inflated}", deflated_parts, (form, deflated(0, inflated))
+            yield f"{form}-deflated-garbage-inflated{inflated}", deflated_parts, (form, deflated(6, inflated))
+    both = parts | deflated_parts
+    yield "same-plain", both, ("same-bytes", address(0, "u-a", "k-a"), first)
+    yield "same-plain-other", both, ("same-bytes", address(0, "u-a", "k-a"), first[:-1] + b"!")
+    yield "same-plain-length", both, ("same-bytes", address(0, "u-a", "k-a"), first + b" ")
+    yield "same-plain-length-missing", both, (
+        "same-bytes",
+        ("units/gone.json", 1, len(first), "u-a", "k-a", True, 0),
+        first + b" ",
+    )
+    yield "same-plain-missing", both, (
+        "same-bytes",
+        ("units/gone.json", 1, len(first), "u-a", "k-a", True, 0),
+        first,
+    )
+    yield "same-plain-past-end", both, (
+        "same-bytes",
+        ("units/c.json", len(plain) - 4, len(first), "u-a", "k-a", True, 0),
+        first,
+    )
+    yield "same-deflated", both, ("same-bytes", deflated(0, len(first)), first)
+    yield "same-deflated-other", both, ("same-bytes", deflated(0, len(first)), first[:-1] + b"!")
+    yield "same-deflated-length", both, ("same-bytes", deflated(0, len(first)), first + b" ")
+    yield "same-deflated-length-missing", both, (
+        "same-bytes",
+        ("units/gone.json", 1, 10, "u-a", "k-a", True, len(first)),
+        first + b" ",
+    )
+    yield "same-deflated-missing", both, (
+        "same-bytes",
+        ("units/gone.json", 1, 10, "u-a", "k-a", True, len(first)),
+        first,
+    )
+    yield "same-deflated-cut", both, ("same-bytes", deflated(4, len(first)), first)
+    yield "same-deflated-garbage", both, ("same-bytes", deflated(6, len(first)), first)
+    yield "same-empty", both, ("same-bytes", ("units/c.json", starts[0], 0, "u-a", "k-a", True, 0), b"")
+    dictionary = build.FRAGMENT_DICTIONARY.read_bytes()
+
+    def packed(body: bytes, zdict: bytes | None = dictionary) -> bytes:
+        compressor = zlib.compressobj(1) if zdict is None else zlib.compressobj(1, zdict=zdict)
+        return compressor.compress(body) + compressor.flush()
+
+    arena_cases: list[tuple[str, bytes, bytes, int, str, str | None]] = [
+        ("good", dictionary, packed(first), 0, "u-a", "k-a"),
+        ("good-later", dictionary, packed(first), 977, "u-a", "k-a"),
+        ("null-stamp", dictionary, packed(second), 0, "u-b", None),
+        ("null-stamp-other", dictionary, packed(second), 0, "u-b", "k-b"),
+        ("missing-stamp", dictionary, packed(fourth), 0, "u-d", None),
+        ("other-id", dictionary, packed(first), 0, "u-z", "k-a"),
+        ("other-stamp", dictionary, packed(first), 0, "u-a", "k-z"),
+        ("non-ascii-id", dictionary, packed(third), 0, "u-·c", "k-c"),
+        ("repeated", dictionary, packed(repeated), 0, "u-e", "k-x"),
+        ("list", dictionary, packed(listed), 0, "u-f", None),
+        ("broken", dictionary, packed(broken), 0, "u-g", None),
+        ("not-utf-8", dictionary, packed(invalid), 0, "u-\xff", None),
+        ("other-dictionary", b"another dictionary", packed(first), 0, "u-a", "k-a"),
+        ("no-dictionary", dictionary, packed(first, None), 0, "u-a", "k-a"),
+        ("dictionary-unasked", b"", packed(first, None), 0, "u-a", "k-a"),
+        ("cut", dictionary, packed(first)[:-3], 0, "u-a", "k-a"),
+        ("header-only", dictionary, packed(first)[:6], 0, "u-a", "k-a"),
+        ("run-on", dictionary, packed(first) + b"x", 0, "u-a", "k-a"),
+        ("raw", dictionary, deflate(first), 0, "u-a", "k-a"),
+        ("garbage", dictionary, b"\x00\x01\x02\x03", 0, "u-a", "k-a"),
+        ("empty", dictionary, b"", 0, "u-a", "k-a"),
+    ]
+    for name, zdict, span, lead, unit_id, content_key in arena_cases:
+        yield f"arena-{name}", {}, ("arena", zdict, span, lead, unit_id, content_key)
+
+
+def _prior_read_case(directory: Path, call: tuple, blobs: Path) -> tuple[tuple, tuple]:
+    """Make one generated read of `_prior_read_cases` over `directory`, which holds its parts, and return the line's input and value: the read made through a `unit_cache.PriorFragmentReader` over `directory`, or through a `build._FragmentArena` over the dictionary, holding a lead of that many bytes before the span."""
+    match call:
+        case ("arena", bytes(zdict), bytes(span), int(lead), str(unit_id), content_key):
+            arena = build._FragmentArena(zdict)
+            if lead:
+                arena.add(bytes(lead), lead)
+            part, start, length = arena.add(span, len(span))
+            located = unit_cache.PriorFragment(part, start, length, unit_id, content_key)
+            inputs: tuple = (
+                "arena",
+                _blob_into(blobs, zdict),
+                _blob_into(blobs, span),
+                _prior_located(located),
+            )
+            return inputs, _prior_outcome("arena", lambda: arena.read(located))
+        case (str(form), tuple(fields), *rest):
+            located = unit_cache.PriorFragment(*fields[:5], byte_copied=fields[5], inflated=fields[6])
+            held = sorted(
+                (part.relative_to(directory).as_posix(), _blob_into(blobs, part.read_bytes()))
+                for part in directory.rglob("*")
+                if part.is_file()
+            )
+            inputs = (form, held, _prior_located(located))
+            with unit_cache.PriorFragmentReader(directory) as reader:
+                if form == "same-bytes":
+                    (body,) = rest
+                    inputs += (_blob_into(blobs, body),)
+                    return inputs, _prior_outcome(form, lambda: reader.same_bytes(located, body))
+                read = reader.read if form == "read" else reader.read_bytes
+                return inputs, _prior_outcome(form, lambda: read(located))
+    raise TypeError(f"no prior read {call!r:.120}")
+
+
+def _prior_read_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `prior-read` stage's generated lines, one a read of `_prior_read_cases`, each under `generated:<name>`, its parts, bodies, spans and dictionaries kept in the dump's `PRIOR_READ_BLOBS` under their sha256, and its value what the Python reader gave over a fresh directory holding the case's parts."""
+    blobs = source.out / PRIOR_READ_BLOBS
+    for name, parts, call in _prior_read_cases():
+        with tempfile.TemporaryDirectory(prefix="prior-read-stage-") as scratch:
+            directory = Path(scratch)
+            for part, data in parts.items():
+                (directory / part).parent.mkdir(parents=True, exist_ok=True)
+                (directory / part).write_bytes(data)
+            inputs, value = _prior_read_case(directory, call, blobs)
+        yield {"key": f"generated:{name}", "input": inputs, "value": value}
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -12909,6 +13260,15 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _shards_generated,
         run="build",
     ),
+    PRIOR_READ_STAGE: Stage(
+        PRIOR_READ_STAGE,
+        {
+            **{f"unit_cache.PriorFragmentReader.{name}": _prior_reading(name) for name in PRIOR_READ_FORMS},
+            "build._FragmentArena.read": _arena_read,
+        },
+        _prior_read_generated,
+        run="build",
+    ),
 }
 
 
@@ -13116,6 +13476,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / SCAN_BLOBS, ignore_errors=True)
     if any(stage.name == SHARDS_STAGE for stage in stages):
         shutil.rmtree(out / SHARDS_BLOBS, ignore_errors=True)
+    if any(stage.name == PRIOR_READ_STAGE for stage in stages):
+        shutil.rmtree(out / PRIOR_READ_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -13135,6 +13497,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _row_delta_write_blobs_at(out / ROW_DELTA_WRITE_BLOBS),
                     _signature_store_blobs_at(out / SIGNATURE_STORE_BLOBS),
                     _shards_blobs_at(out / SHARDS_BLOBS),
+                    _prior_read_blobs_at(out / PRIOR_READ_BLOBS),
                     _columns_following(),
                     _unit_store_following(),
                 ):
@@ -13201,6 +13564,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _row_delta_write_blobs_at(built.out / ROW_DELTA_WRITE_BLOBS),
                 _signature_store_blobs_at(built.out / SIGNATURE_STORE_BLOBS),
                 _shards_blobs_at(built.out / SHARDS_BLOBS),
+                _prior_read_blobs_at(built.out / PRIOR_READ_BLOBS),
                 _columns_following(),
                 _unit_store_following(),
             ):

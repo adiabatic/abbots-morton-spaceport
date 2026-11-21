@@ -97,11 +97,16 @@ impl Arena {
         index.parse().ok()
     }
 
-    /// A spill file no thread is writing: a free one, or one made now and unlinked at once.
+    /// A spill file no thread is writing: a free one, or one made now ([`Arena::spill`]).
     fn take(&self) -> std::result::Result<Spill, String> {
         if let Some(spill) = self.free.lock().map_err(|_| poisoned())?.pop() {
             return Ok(spill);
         }
+        self.spill()
+    }
+
+    /// A new spill file, unlinked as it is made.
+    fn spill(&self) -> std::result::Result<Spill, String> {
         let mut files = self.files.lock().map_err(|_| poisoned())?;
         let index = files.len();
         let path = self.directory.join(format!(
@@ -163,6 +168,20 @@ impl Arena {
         })();
         self.free.lock().map_err(|_| poisoned())?.push(spill);
         written.map(|()| spans)
+    }
+
+    /// Write one deflated fragment at byte `start` of a spill file of its own, which holds nothing before it, and return its span: how the `prior-read` stage puts a fragment where Python's arena held it. The fragment is not counted in the note.
+    pub fn place(&self, start: u64, packed: &[u8]) -> std::result::Result<ArenaSpan, String> {
+        let spill = self.spill()?;
+        spill
+            .file
+            .write_all_at(packed, start)
+            .map_err(|failure| format!("cannot write the arena's spill file: {failure}"))?;
+        Ok(ArenaSpan {
+            file: spill.index,
+            start,
+            length: packed.len() as u64,
+        })
     }
 
     /// The deflated bytes at `span`.

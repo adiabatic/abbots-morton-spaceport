@@ -480,6 +480,8 @@ impl z_stream {
 
 const Z_OK: c_int = 0;
 const Z_STREAM_END: c_int = 1;
+const Z_NEED_DICT: c_int = 2;
+const Z_STREAM_ERROR: c_int = -2;
 const Z_BUF_ERROR: c_int = -5;
 const Z_NO_FLUSH: c_int = 0;
 const Z_SYNC_FLUSH: c_int = 2;
@@ -521,6 +523,7 @@ unsafe extern "C" {
         stream_size: c_int,
     ) -> c_int;
     fn inflate(strm: *mut z_stream, flush: c_int) -> c_int;
+    fn inflateSetDictionary(strm: *mut z_stream, dictionary: *const u8, length: c_uint) -> c_int;
     fn inflateEnd(strm: *mut z_stream) -> c_int;
     fn crc32(crc: c_ulong, buf: *const u8, len: c_uint) -> c_ulong;
 }
@@ -693,6 +696,11 @@ impl Inflated {
     pub fn failed(&self) -> bool {
         !matches!(self.status, Z_OK | Z_STREAM_END | Z_BUF_ERROR)
     }
+
+    /// The stream asks for its preset dictionary (`Z_NEED_DICT`).
+    pub fn needs_dictionary(&self) -> bool {
+        self.status == Z_NEED_DICT
+    }
 }
 
 /// An inflate stream as `zlib.decompressobj(window_bits)` makes one: raw deflate for −15, the gzip framing, checked against its CRC-32 and length trailer, for 31, and the zlib framing for 15.
@@ -738,6 +746,22 @@ impl Inflater {
                 consumed: (offered_in - (*raw).avail_in) as usize,
                 produced: (offered_out - (*raw).avail_out) as usize,
             }
+        }
+    }
+
+    /// `inflateSetDictionary` with `dictionary`, as `decompressobj` gives its `zdict` to a stream that asks for it: zlib's status and message when zlib refuses it, and its stream error for a dictionary longer than a `uInt` counts, which zlib cannot be handed.
+    pub fn set_dictionary(&mut self, dictionary: &[u8]) -> Result<(), (i32, Option<String>)> {
+        let length = c_uint::try_from(dictionary.len()).map_err(|_| (Z_STREAM_ERROR, None))?;
+        let raw = self.stream.raw();
+        // SAFETY: the stream is initialized and owned here; zlib copies `length` bytes of the dictionary into its window and keeps no pointer to it, and its message, when set, is a static NUL-terminated string.
+        unsafe {
+            let status = inflateSetDictionary(raw, dictionary.as_ptr(), length);
+            if status == Z_OK {
+                return Ok(());
+            }
+            let message = (!(*raw).msg.is_null())
+                .then(|| CStr::from_ptr((*raw).msg).to_string_lossy().into_owned());
+            Err((status, message))
         }
     }
 }
