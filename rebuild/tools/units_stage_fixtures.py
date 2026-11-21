@@ -17,6 +17,7 @@ The build's stages (`BUILD_STAGES`):
 - `signature` records each ink signature the build shapes, keyed by its origin, its `form` and a digest of its `input` (`_shaped_line`): `pair`, each `(text, configuration)` pair a `build._shape_misses` call shapes, serially or on its pool, and `late`, each `(window, configuration)` a `build._LateShaper` call shapes rather than finds in the store, with the signature `ink.InkComparator.signature` gives, shaped again by the recorder over the call's fonts, as its `signature` and the digest the build gave, which must be that signature's `ink.signature_digest`, as its `value`. Its generated lines (`_signature_generated`) are every window of the source's audit (`_source_windows`) under each of `ACCEPTANCE_CONFIGS`, as the form `window`, shaped over the dump's units init's before and after fonts.
 - `key-only` is a boundary stage that records the load's signature resolution where the build makes it: from `build._find_misses` (`_misses_found`), a unit a miss, `(key, section, window)` with the key as `%016x`, in miss order, the hit prior entries' positions as the `column:hits` line (`_hit_positions`), and the read under `read`, `("ran", processes, break)` or `("skipped",)` when the store's stamps held (`_read_value`); from `build._shape_found_misses` (`_found_misses_shaped`), the misses' digests in miss order as the `column:digest` line, read from the store's shaped misses (`_miss_digest`), and their count under `shaped`; and from `build._LateShaper.release` (`_late_released`), under `late`, the late shaper's count with the store's hits, misses and unhit entries and its new lines' count and sha256 once the stream has looked every row up (`_late_value`). Its generated lines (`_key_only_generated`) take the prior store the build would load with every other entry dropped, once with its stamps set to the build's, so the read is skipped and the late shaper shapes what the store lacks, and once with its audit identity moved, so the read runs with hits and misses; each is kept under its sha256 in `key-only.blobs/` beside the stage file (`KEY_ONLY_BLOBS`) and valued the same resolution as one tuple, each column as its count and sha256 (`_key_only_resolved`, which walks the audit as the stream asks for digests, `_late_walk`).
 - `columns` records every call the build makes on `rebuild/review/columns.py`'s collections (`COLUMNS_CALLS`). A string table, tuple pool, mapping pool or key index is followed from its making (`_columns_made`, `_columns_called`), each call a line keyed by the collection's name, `run:<form>:<serial>`, and its place in the collection's calls, with the call as its `input` (a key index's making with the bytes of its column it reads, its width and its count) and, as its `value`, what the call returned beside the collection's size after it (`_columns_after`); the Rust side replays each collection's calls in that order. A window index is recorded over its state as each call finds it, since the stream sorts its ordinals in place after making it: a `window-index-state` line a state, keyed by the digest of its ordinals and keys and valued its `packed`, `windows`, `runs` and `nbytes` (`_window_state`), and a `window-index` line a call on it (`_window_called`). `window_word` and `sorted_by_word` calls are lines of their own, keyed by a digest of their input. Its generated lines (`_columns_generated`) intern empty values, repeats and values a pool refuses, seal a tuple pool, build key indexes over empty, colliding, repeated and malformed columns (`_key_cases`), build window indexes from packed and unpacked windows (`COLUMNS_WINDOWS`) as `window-index-build` lines and ask each, and its remapping, for its windows and others (`COLUMNS_ASKED`), and pack and sort words at the edges.
+- `permutation` records each counting sort the build makes and the keys it orders by, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `counting`, each `audit._counting_permutation` call, with the columns, the string table's strings in id order, the class order, the family ranks, the walk, the count, the runs it was given, read from a `columns.WindowIndex.runs` generator through a probe over the index's columns so the call still takes them whole (`_given_runs`), and each row's id word by ordinal (`_counting_inputs`); `triage`, each `audit._triage_permutation` call, with the table's class, group and window columns in place of the table (`_triage_inputs`); `triage-key`, each `audit.triage_key` call; and `family-ranks`, each `audit.family_ranks` call. Its generated lines (`_permutation_generated`) order the source's audit as the in-memory source loads it and a table whose units tie by the dozen (`_permutation_tables`) under the ledger's class order and a reversed one that leaves a class unranked, with no id words, id words that tie and id words by window (`_permutation_words`), by both sorts, walked in window order and in load order, with the runs and without; key every unit of both; and sort, key and rank at the edges (`_permutation_edges`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3812,6 +3813,11 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "audit.window_word": ("rebuild.review.audit", "window_word"),
     "unit_cache.sorted_by_word": ("rebuild.review.unit_cache", "sorted_by_word"),
     "unit_store.sorted_by_word": ("rebuild.review.unit_store", "sorted_by_word"),
+    "audit._counting_permutation": ("rebuild.review.audit", "_counting_permutation"),
+    "audit._triage_permutation": ("rebuild.review.audit", "_triage_permutation"),
+    "audit.family_ranks": ("rebuild.review.audit", "family_ranks"),
+    "build.family_ranks": ("rebuild.review.build", "family_ranks"),
+    "build.triage_key": ("rebuild.review.build", "triage_key"),
 }
 
 
@@ -8697,6 +8703,284 @@ def _columns_generated_lines() -> Iterator[Mapping[str, object]]:
         )
 
 
+PERMUTATION_STAGE = "permutation"
+_COUNTING_PERMUTATION = inspect.signature(audit._counting_permutation)
+_TRIAGE_PERMUTATION = inspect.signature(audit._triage_permutation)
+_TRIAGE_KEY = inspect.signature(audit.triage_key)
+_FAMILY_RANKS = inspect.signature(audit.family_ranks)
+
+
+def _permutation_line(origin: str, form: str, inputs: object, value: object) -> dict[str, object]:
+    return {
+        "key": f"{origin}:{form}:{_columns_digest(inputs)}",
+        "form": form,
+        "input": inputs,
+        "value": value,
+    }
+
+
+def _table_strings(strings: columns.StringTable) -> list[str]:
+    """A string table's strings in id order, the empty one first, read without a call the `columns` stage follows."""
+    return list(strings._strings)
+
+
+def _given_runs(runs: object) -> list[tuple[int, int]] | None:
+    """The runs a `_counting_permutation` call was given, read without using them up: a sequence as its pairs, and a `columns.WindowIndex.runs` generator not yet started as the runs a probe over its index's columns gives (`_WINDOW_RUNS`)."""
+    if runs is None:
+        return None
+    if isinstance(runs, list | tuple):
+        return [(start, end) for start, end in runs]
+    if (
+        inspect.isgenerator(runs)
+        and inspect.getgeneratorstate(runs) == inspect.GEN_CREATED
+        and runs.gi_code is _WINDOW_RUNS.__code__
+        and runs.gi_frame is not None
+    ):
+        index = runs.gi_frame.f_locals["self"]
+        return list(_WINDOW_RUNS(columns.WindowIndex(index.ordinals, index.keys)))
+    raise ValueError(f"the permutation stage cannot read the runs {runs!r:.80} without using them up")
+
+
+def _counting_inputs(
+    class_col: Sequence[int],
+    group_col: Sequence[int],
+    strings: columns.StringTable,
+    class_order: Mapping[str, int],
+    family_rank: Mapping[str, int],
+    walk: object,
+    n: int,
+    runs: object,
+    id_word: Callable[[int], int] | None,
+) -> tuple:
+    """A `_counting_permutation` call's inputs as a `counting` line holds them: the columns, the string table's strings, the orders as dicts, the walk as a list, the count, the runs as pairs or None (`_given_runs`), and each row's id word by ordinal or None. A walk the stage would use up by reading it is refused."""
+    if not isinstance(walk, array | list | range | tuple):
+        raise ValueError(f"the permutation stage cannot read the walk {walk!r:.80} without using it up")
+    return (
+        list(class_col),
+        list(group_col),
+        _table_strings(strings),
+        dict(class_order),
+        dict(family_rank),
+        list(walk),
+        n,
+        _given_runs(runs),
+        None if id_word is None else [id_word(ordinal) for ordinal in range(n)],
+    )
+
+
+def _triage_inputs(
+    table: UnitTable,
+    class_order: Mapping[str, int],
+    family_rank: Mapping[str, int],
+    id_word: Callable[[int], int] | None,
+) -> tuple:
+    """A `_triage_permutation` call's inputs as a `triage` line holds them: the table's class and group columns, its string table's strings, its window lengths, starts and code points, its count, the orders as dicts, and each row's id word by ordinal or None."""
+    return (
+        table._class.tolist(),
+        table._group.tolist(),
+        _table_strings(table.strings),
+        table._window_n.tolist(),
+        table._window_start.tolist(),
+        table._window_values.tolist(),
+        table.n,
+        dict(class_order),
+        dict(family_rank),
+        None if id_word is None else [id_word(ordinal) for ordinal in range(table.n)],
+    )
+
+
+def _counted(args: tuple, kwargs: dict) -> Finisher:
+    """An `audit._counting_permutation` call, with the permutation it gave."""
+    bound = _COUNTING_PERMUTATION.bind(*args, **kwargs)
+    bound.apply_defaults()
+    inputs = _counting_inputs(**bound.arguments)
+    return lambda result: _permutation_line("run", "counting", inputs, _columns_value(result))
+
+
+def _triaged(args: tuple, kwargs: dict) -> Finisher:
+    """An `audit._triage_permutation` call, with the permutation it gave."""
+    bound = _TRIAGE_PERMUTATION.bind(*args, **kwargs)
+    bound.apply_defaults()
+    inputs = _triage_inputs(**bound.arguments)
+    return lambda result: _permutation_line("run", "triage", inputs, _columns_value(result))
+
+
+def _triage_keyed(args: tuple, kwargs: dict) -> Finisher:
+    """An `audit.triage_key` call, with the key it gave."""
+    bound = _TRIAGE_KEY.bind(*args, **kwargs)
+    arguments = bound.arguments
+    inputs = (
+        arguments["class_index"],
+        arguments["group"],
+        tuple(arguments["codepoint_values"]),
+        arguments["unit_id"],
+        dict(arguments["family_rank"]),
+    )
+    return lambda result: _permutation_line("run", "triage-key", inputs, result)
+
+
+def _family_ranked(args: tuple, kwargs: dict) -> Finisher:
+    """An `audit.family_ranks` call, with the ranks it gave."""
+    inputs = dict(_FAMILY_RANKS.bind(*args, **kwargs).arguments["family_of"])
+    return lambda result: _permutation_line("run", "family-ranks", inputs, _columns_value(result))
+
+
+# The windows the generated tied table's units take in turn, two to four letters long, one leading with a space and two sharing their letters in another order.
+PERMUTATION_TIED_WINDOWS = (
+    "E650:E652",
+    "E652:E650",
+    "E650:E651:E652",
+    "0020:E650:E652",
+    "E653:E650",
+    "E650:E652:E650:E651",
+)
+
+
+def _permutation_tables(source: BuildSource) -> Iterator[tuple[str, UnitTable, list[str]]]:
+    """The tables the generated permutations order, each named, with its ledger's class ids in order: the source's audit as the in-memory source loads it (`audit.load_audit_table`), and a table whose units tie on class, group and window by the dozen, across two classes, three groups and windows of two to four letters, in an order that is neither load nor window order (`PERMUTATION_TIED_WINDOWS`)."""
+    inputs = source.case.inputs
+    ledger = load_ledger(inputs.ledger)
+    parts = audit.AuditParts(inputs.audit)
+    try:
+        table, _rows = audit.load_audit_table(
+            inputs.audit, ledger, dict(LETTERS), descriptors=parts.descriptors, members=parts.members
+        )
+    finally:
+        parts.close()
+    yield "source", table, [entry.id for entry in ledger]
+    rows = [
+        audit.AuditRow(
+            "default",
+            PERMUTATION_TIED_WINDOWS[index * 7 % len(PERMUTATION_TIED_WINDOWS)],
+            ("cell",),
+            ("class-a", "class-b")[index % 2],
+            ("a",),
+            (f"n{index}",),
+        )
+        for index in range(60)
+    ]
+    tied_ledger = [
+        audit.LedgerClass(class_id, "by-design", "", False, False, frozenset())
+        for class_id in ("class-b", "class-a")
+    ]
+    tied, _rows = audit.load_table(rows, tied_ledger, dict(LETTERS))
+    yield "tied", tied, ["class-b", "class-a"]
+
+
+def _permutation_words(table: UnitTable) -> Iterator[list[int] | None]:
+    """The id words the generated permutations break ties by, each row's by ordinal: none; words spread across 64 bits but every fifth row's equal; and words by the row's window, siblings differing in their last bit only on odd ordinals."""
+    yield None
+    yield [(ordinal * 0x9E3779B97F4A7C15) % 2**64 if ordinal % 5 else 7 << 56 for ordinal in range(table.n)]
+    yield [
+        int(hashlib.sha256(table.codepoints_text(ordinal).encode()).hexdigest()[:16], 16) ^ ordinal % 2
+        for ordinal in range(table.n)
+    ]
+
+
+def _permutation_sorts(
+    origin: str,
+    class_col: Sequence[int],
+    group_col: Sequence[int],
+    strings: columns.StringTable,
+    class_order: Mapping[str, int],
+    family_rank: Mapping[str, int],
+    walks: Sequence[Sequence[int]],
+    n: int,
+    runs: list[tuple[int, int]],
+    words: list[int] | None,
+) -> Iterator[Mapping[str, object]]:
+    """A `counting` line for each walk, with the runs and without, each valued what `audit._counting_permutation` gives."""
+    id_word = None if words is None else words.__getitem__
+    for walk in walks:
+        for given in (runs, None):
+            inputs = _counting_inputs(
+                class_col, group_col, strings, class_order, family_rank, walk, n, given, id_word
+            )
+            value = audit._counting_permutation(
+                class_col, group_col, strings, class_order, family_rank, walk, n, runs=given, id_word=id_word
+            )
+            yield _permutation_line(origin, "counting", inputs, value.tolist())
+
+
+def _permutation_edges() -> Iterator[Mapping[str, object]]:
+    """The generated lines at the edges: family ranks over the alphabet, nothing, and a family named twice; triage keys over empty, unknown and repeated groups, empty and astral windows and ids of every width; and counting sorts over no rows, and over rows whose classes the order leaves out, whose groups name unknown families or share a rank tuple under different names, walked short of their count or with every id word equal."""
+    for family_of in (dict(LETTERS), {}, {1: "a", 2: "b", 3: "a", 4: ""}):
+        yield _permutation_line("generated", "family-ranks", family_of, audit.family_ranks(family_of))
+    rank = audit.family_ranks(dict(LETTERS))
+    for class_index, group, codepoints, unit_id in (
+        (0, "", (), ""),
+        (7, "qsPea", (0xE650,), "u-a"),
+        (1, "qsNope:qsPea:qsTea", (0x20, 0xE650, 0xE652), "é·Day"),
+        (2, ":", (0x10FFFF, 0), "u-\U0001f600"),
+        (0, "qsPea:qsPea", (0xE650, 0xE650), "u-11111111111"),
+    ):
+        inputs = (class_index, group, codepoints, unit_id, rank)
+        yield _permutation_line("generated", "triage-key", inputs, audit.triage_key(*inputs))
+    yield from _permutation_sorts("generated", [], [], columns.StringTable(), {}, rank, [[]], 0, [], [7])
+    strings = columns.StringTable()
+    names = ("class-a", "class-b", "class-x", "qsPea:qsTea", "qsNope:qsPea", "qsGone:qsPea", "", "qsTea")
+    ids = [strings.id(name) for name in names]
+    class_col = [ids[index % 3] for index in range(12)]
+    group_col = [ids[3 + index % 5] for index in range(12)]
+    walks = [[11, 3, 5, 0, 1, 2, 4, 6, 7, 8, 9, 10], [4, 2, 0], list(range(12))]
+    for class_order in ({"class-a": 0, "class-b": 1, "class-x": 2}, {"class-b": 0}, {}):
+        for words in (None, [5] * 12, [(index * 0x9E3779B97F4A7C15) % 2**64 for index in range(12)]):
+            yield from _permutation_sorts(
+                "generated",
+                class_col,
+                group_col,
+                strings,
+                class_order,
+                rank,
+                walks,
+                12,
+                [(0, 3), (5, 9)],
+                words,
+            )
+
+
+def _permutation_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `permutation` stage's generated lines: each table of `_permutation_tables` ordered under its ledger's class order and a reversed one that leaves its first class unranked, with each of `_permutation_words`, by `audit._triage_permutation` as a `triage` line and by `audit._counting_permutation` walked in window order and in load order, with the window index's runs and without (`_permutation_sorts`); every unit of each keyed by `audit.triage_key` under the ledger's order; and `_permutation_edges`."""
+    rank = audit.family_ranks(dict(LETTERS))
+    for name, table, classes in _permutation_tables(source):
+        index = table.window_index()
+        runs = list(index.runs())
+        walks = [index.ordinals, range(table.n)]
+        for ordered in (classes, classes[:0:-1]):
+            class_order = {class_id: position for position, class_id in enumerate(ordered)}
+            for words in _permutation_words(table):
+                id_word = None if words is None else words.__getitem__
+                yield _permutation_line(
+                    f"generated:{name}",
+                    "triage",
+                    _triage_inputs(table, class_order, rank, id_word),
+                    audit._triage_permutation(table, class_order, rank, id_word).tolist(),
+                )
+                yield from _permutation_sorts(
+                    f"generated:{name}",
+                    table._class,
+                    table._group,
+                    table.strings,
+                    class_order,
+                    rank,
+                    walks,
+                    table.n,
+                    runs,
+                    words,
+                )
+        class_index = {class_id: position for position, class_id in enumerate(classes)}
+        for ordinal in range(table.n):
+            inputs = (
+                class_index.get(table.class_id(ordinal), len(class_index)),
+                table.group(ordinal),
+                table.codepoints(ordinal),
+                f"u-{name}-{ordinal}",
+                rank,
+            )
+            yield _permutation_line(f"generated:{name}", "triage-key", inputs, audit.triage_key(*inputs))
+    yield from _permutation_edges()
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -8826,6 +9110,18 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
             "unit_store.sorted_by_word": _words_sorted,
         },
         _columns_generated,
+        run="build",
+    ),
+    PERMUTATION_STAGE: Stage(
+        PERMUTATION_STAGE,
+        {
+            "audit._counting_permutation": _counted,
+            "audit._triage_permutation": _triaged,
+            "audit.family_ranks": _family_ranked,
+            "build.family_ranks": _family_ranked,
+            "build.triage_key": _triage_keyed,
+        },
+        _permutation_generated,
         run="build",
     ),
 }
