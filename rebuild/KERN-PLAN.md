@@ -1,6 +1,6 @@
 # Kerning plan (design §12)
 
-This is the design record for the rebuild's kerning: the `kern:` block of a rune file, the stage that resolves it, the GPOS lookup it compiles to, and the editor view of the review app that writes it. Its inputs are design §12 and the kerning section of `doc/core-idea.md`. Nothing here is built; §9 orders the work.
+This is the design record for the rebuild's kerning: the `kern:` block of a rune file, the stage that resolves it, the GPOS lookup it compiles to, and the editor view of the review app that writes it. Its inputs are design §12 and the kerning section of `doc/core-idea.md`. §9 orders the work, and its first step is built: the schema key, the loader, the kern stage with its three errors, and `kern.tsv`.
 
 ## 1. The rulings this plan is built on
 
@@ -14,6 +14,7 @@ These are the author's decisions, and each one closes a question the old font le
 - **The Senior tightening stays in the advance widths.** `tools/build_font.py` trims a pixel from every Quikscript letter's advance, so no record states it.
 - **A break at a ZWNJ kerns exactly as the same two shapes kern at any other break.** The old font's rule that tightens ·He before any ZWNJ is not carried over.
 - **The editor shows joined pairs and does not edit them.**
+- **ss10 text kerns, and so does Junior.** Under ss10 no pair joins, so every pair of letters is a break between two isolated shapes, and those pairs take records like any other.
 
 ## 2. The record
 
@@ -58,19 +59,19 @@ Most cells of a rune look the same from one side: an entry state changes nothing
 - A **side** of a rune is a maximal set of its cells that the record grammar can select together and whose facing edge is the same pixel for pixel: for the leading side, cells with no live exit and the same ink-to-advance distance on every row; for the following side, cells with no live entry and the same leftmost ink on every row.
 - Each side has a **name**: the coarsest own-side pattern (`family`, then `stance`, then the join state, then `bitmap`) that selects exactly its cells among the rune's cells on that side.
 - Cells the grammar cannot tell apart (they differ only in an extension, contraction, or trim amount) are one side even when their edges differ. The coverage table marks such a side, and the editor draws each of its drawings.
-- A **facing pair** is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration.
+- A **facing pair** is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration or under the ss10 overlay. Under ss10 every ordered pair of letters is a reachable break, and a letter's `.ss10` copy is a member of the side its source cell is in, so most ss10 pairs fall into a facing pair settlement already reaches. A pair of letters whose isolated shapes always join under settlement gets a facing pair only ss10 reaches.
 
-The editor's rows, the coverage table's rows, and the classes of the GPOS lookup are all facing pairs. A record may be broader than one facing pair and never narrower.
+The editor's rows, the coverage table's rows, and the classes of the GPOS lookup are all facing pairs. A record may be broader than one facing pair and never narrower: one that gives two cells of a side different values is the error `E-KERN-NARROWER`.
 
 ## 4. The kern stage
 
-`rebuild/pipeline/kern.py` runs after the tables exist and the cell glyphs are minted. It reads the spec's kern records, the break rows of every `joins-<config>.tsv`, and the realized bitmaps, and writes under `rebuild/out/m1/`:
+`rebuild/pipeline/kern.py` runs after the tables exist and the cell glyphs are minted. It reads the spec's kern records, the break rows of every `joins-<config>.tsv`, the letters' ss10 copies, and the realized bitmaps, and writes under `rebuild/out/m1/`:
 
 - **`kern.tsv`**, the coverage table: one row per facing pair, with both side names, the value, the record that decides it (file and key path), and the configurations that reach it. It is diff-stable, so a new stance that inherits a letter-wide value shows up as added rows in a commit's diff.
 - **`kern-inventory.json`**, the editor's data: every reachable glyph's ink and advance, the sides, the facing pairs with their member cell pairs, the joined pairs of the same two runes, and for each a witness text with its settled cells and pen positions.
 - The class assignment `emit_gpos` compiles (§5).
 
-It raises `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE`, and it hands the defect gates each break's kerned offset, so the off-anchor contact check (design §9) overlays a kerned pair where the font draws it and reports an overlap as `E-CONTACT`.
+It raises `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, and `E-KERN-NARROWER`, and it hands the defect gates each break's kerned offset, so the off-anchor contact check (design §9) overlays a kerned pair where the font draws it and reports an overlap as `E-CONTACT`.
 
 **Kerning stays out of the kernel.** `spec_load` parses `kern` into records that the kernel's spec dump does not carry, and the table stamp's data half (`fingerprint.tables_value`) leaves the key out of each rune's digest. A kern edit therefore reuses the tables on disk, and `run_m1` re-emits GPOS, compiles, and reads the font back without running the crate. The freshness fingerprint carries the parsed `kern` blocks as a component of their own, and the review corpus does not depend on it (§7).
 
@@ -78,7 +79,7 @@ The join table's `kern` column holds no information under this design: the crate
 
 ## 5. Compilation
 
-`emit_gpos` writes one class-based pair lookup (PairPos format 2) under the `kern` feature. Its first-glyph classes are the leading sides with at least one nonzero row and its second-glyph classes are the following sides; a value is `by` pixels of x-advance on the first glyph.
+`emit_gpos` writes one class-based pair lookup (PairPos format 2) under the `kern` feature. Its first-glyph classes are the leading sides with at least one nonzero row and its second-glyph classes are the following sides; a value is `by` pixels of x-advance on the first glyph. A letter's `.ss10` copy is in the classes of the side its source cell is in.
 
 - **The lookup cannot move a join.** A glyph with a live exit is in no first-glyph class and a glyph with a live entry is in no second-glyph class. Read-back checks this on the written font: no glyph in the lookup's coverage carries an exit anchor in any `curs` lookup, and no glyph in a nonzero second class carries an entry anchor.
 - **A ZWNJ needs no rule.** HarfBuzz skips a ZWNJ when it matches GPOS input, so the pair lookup kerns across one. The conformance sweep checks this on every swept text that holds a ZWNJ, and the CoreText smoke set gains a ZWNJ case. A shaper that does not read through gets contextual rows (GPOS type 8) for the same values, which the old font's ZWNJ kern shows work.
@@ -112,7 +113,7 @@ The editor is the `#view=kern` view of the review app. `rebuild/review/README.md
 | `conform.check_join_gaps`         | Unchanged; it is the proof that no kern reaches a join                                                                                          |
 | The conformance sweep's positions | At every break of every swept text, the shaped advance equals the cell's advance plus the coverage table's value                                |
 | `conform.check_split_buffer`      | A text split at a ZWNJ equals its segments shaped alone once the kern across the split is added; a split at a space is unchanged                |
-| The ss10 overlay's case           | Waits on §8's ss10 question                                                                                                                     |
+| The ss10 overlay's case           | Every pair is unformed and unjoined, and each slot's advance is its `hmtx` advance plus the coverage table's value                              |
 | The oracle's position comparison  | Stays kern-neutral: it shapes the new font with `kern` off and keeps normalizing the old font's kerns away                                      |
 | The review build                  | Stays kern-neutral under `REVIEW-PLAN.md`'s rule, so a kern edit makes no unit stale and the corpus's freshness leaves the `kern` component out |
 | `defects._check_contact`          | Places a break at its kerned offset                                                                                                             |
@@ -130,7 +131,7 @@ The pairs the importer sets are listed in `var/kern/imported.json`, and the edit
 
 ## 9. Order of work
 
-1. The schema key, the loader, the kern stage with its two errors, and `kern.tsv`. The font is unchanged.
+1. The schema key, the loader, the kern stage with its three errors, and `kern.tsv`. The font is unchanged.
 2. The GPOS lookup, the table reuse for a kern-only edit, and the gates of §7.
 3. `kern-inventory.json` and the editor view, reading only.
 4. The write route, the block writer, the journal, and undo.
@@ -141,5 +142,4 @@ Each step ends with `make test-rebuild`, an M1 build, and `make artifact-cycle`;
 ## 10. Open questions
 
 - **Glyphs with no rune file.** Punctuation, the namer dot, and Latin letters lead and follow Quikscript letters, and the old font kerns some of them. The mini-font compiles only the space, the namer dot, and the ZWNJ, so nothing waits on this yet. The candidate is the same `kern` list on the glyph's own entry in its `glyph_data/` file, with `right: {glyph: …}` naming a follower that is not a rune.
-- **Does ss10 kern?** Under ss10 every letter is its anchor-free copy and no pair joins. The old font gives each copy its bare glyph's kerning. The candidates are that each copy kerns as the isolated cell it copies, which adds the facing pairs only ss10 reaches to the inventory, and that ss10 text is unkerned.
-- **Junior.** `TODO.md` asks that kerning work in Quikscript Junior, whose letters never join. This plan covers the rebuild's Senior font only.
+- **How the records reach Junior.** Junior's letters never join, so its pairs are the ones ss10 reaches, and the author's ruling is that they kern. The rebuild compiles only the Senior font, so which of a rune's records Junior reads, and on top of which default spacing (Junior lacks the Senior tightening), waits until the rebuild builds Junior.

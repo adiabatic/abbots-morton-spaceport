@@ -1547,3 +1547,126 @@ def test_pad_left_refuses_a_stance_it_cannot_shift_exactly(tmp_path, old, new, m
     assert text != MINIMAL_RUNE
     error = load_tmp_error(tmp_path, {"qsIt": text + PAD_LEFT_POLICY})
     assert any(message in issue.message for issue in error.issues), error.issues
+
+
+def _kern_errors(record: dict) -> list[tuple[str, str]]:
+    validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "rune.schema.json").for_definition(
+        "kernRecord"
+    )
+    return validator.check(record)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"right": {"family": "qsBay"}, "by": -2},
+        {"stance": "flipped", "right": {"family": "qsPea"}, "by": -2},
+        {"stance": "flipped", "right": {"family": "qsTea", "stance": "half"}, "by": -1},
+        {"entry": "none", "right": {"family": ["qsTea", "qsOut_qsTea"]}, "by": 0},
+        {
+            "entry": "baseline",
+            "bitmap": "shortened-top",
+            "right": {"class": "talls"},
+            "by": 1,
+            "why": "A note.",
+        },
+        {"right": {"family": "qsTea", "exit": "none", "bitmap": "padded-left-1"}, "by": -1},
+        {
+            "right": {"class": "can-enter-at-baseline", "except": [{"family": "qsNo"}, {"stance": "half"}]},
+            "by": -1,
+        },
+    ],
+)
+def test_the_kern_schema_accepts_the_documented_forms(record):
+    assert _kern_errors(record) == []
+
+
+@pytest.mark.parametrize(
+    ("record", "message"),
+    [
+        (
+            {"right": {"family": "qsBay"}, "by": -2, "when": {"right": {"family": "qsBay"}}},
+            "unknown key 'when'",
+        ),
+        ({"right": {"family": "qsBay", "then": {"family": "qsTea"}}, "by": -2}, "unknown key 'then'"),
+        ({"right": {"is": "boundary"}, "by": -2}, "unknown key 'is'"),
+        ({"right": {"family": "qsBay"}, "by": -2, "exit": "baseline"}, "unknown key 'exit'"),
+        (
+            {"right": {"family": "qsBay", "except": [{"except": [{"family": "qsTea"}]}]}, "by": -2},
+            "unknown key 'except'",
+        ),
+        ({"right": {"family": "qsBay"}}, "missing required key 'by'"),
+        ({"by": -2}, "missing required key 'right'"),
+        ({"right": {"family": "qsBay"}, "by": 1.5}, "expected integer"),
+        ({"right": {}, "by": -2}, "at least 1 keys"),
+    ],
+)
+def test_the_kern_schema_refuses_what_a_kern_record_cannot_say(record, message):
+    assert any(message in text for _path, text in _kern_errors(record)), _kern_errors(record)
+
+
+def _kerned(*records: str) -> str:
+    return MINIMAL_RUNE + "kern:\n" + "".join(f"- {record}\n" for record in records)
+
+
+def test_kern_records_load_with_their_rune_and_provenance(tmp_path):
+    text = _kerned(
+        "{right: {family: qsIt}, by: -1}",
+        "{stance: sole, entry: none, right: {class: can-enter-at-baseline, except: [{family: qsIt, exit: none}]}, by: 0, why: A note.}",
+    )
+    rune = load_tmp_spec(tmp_path, {"qsIt": text}).runes["qsIt"]
+    first, second = rune.kern.records
+    assert (first.rune, first.right.family, first.by) == ("qsIt", ("qsIt",), -1)
+    assert first.provenance is not None and first.provenance.path == "kern[0]"
+    assert (second.stance, second.entry, second.by, second.why) == ("sole", "none", 0, "A note.")
+    assert second.right.klass == "can-enter-at-baseline"
+    assert second.right.except_ == (model.KernFollower(family=("qsIt",), exit="none"),)
+    assert rune.kern.inherits == {}
+
+
+@pytest.mark.parametrize(
+    ("record", "path", "message"),
+    [
+        ("{stance: loop, right: {family: qsIt}, by: -1}", "kern[0].stance", "unknown stance 'loop'"),
+        ("{bitmap: wide, right: {family: qsIt}, by: -1}", "kern[0].bitmap", "not a bound drawing of qsIt"),
+        ("{right: {family: qsMay}, by: -1}", "kern[0].right.family", "has no rune file"),
+        ("{right: {class: never-defined}, by: -1}", "kern[0].right.class", "unknown class 'never-defined'"),
+        ("{right: {family: qsIt, stance: half}, by: -1}", "kern[0].right.stance", "has a stance 'half'"),
+        (
+            "{right: {family: qsIt, bitmap: wide}, by: -1}",
+            "kern[0].right.bitmap",
+            "not a bound drawing of any follower",
+        ),
+        (
+            "{right: {family: qsIt, except: [{stance: half}]}, by: -1}",
+            "kern[0].right.except[0].stance",
+            "has a stance 'half'",
+        ),
+    ],
+)
+def test_a_kern_record_must_name_what_the_runes_hold(tmp_path, record, path, message):
+    error = load_tmp_error(tmp_path, {"qsIt": _kerned(record)})
+    assert any(issue.path == path and message in issue.message for issue in error.issues), error.issues
+
+
+def test_a_kern_record_may_name_a_padded_copy_a_pad_left_record_makes(tmp_path):
+    text = (
+        MINIMAL_RUNE
+        + PAD_LEFT_POLICY
+        + "kern:\n- {bitmap: padded-left-2, right: {family: qsIt, bitmap: padded-left-2}, by: -1}\n"
+    )
+    (record,) = load_tmp_spec(tmp_path, {"qsIt": text}).runes["qsIt"].kern.records
+    assert record.bitmap == record.right.bitmap == "padded-left-2"
+
+
+def test_kern_is_the_last_key_of_a_rune_file(tmp_path):
+    text = MINIMAL_RUNE.replace("stances:\n", "kern:\n- {right: {family: qsIt}, by: -1}\nstances:\n", 1)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(issue.path == "kern" and "last key" in issue.message for issue in error.issues), error.issues
+
+
+def test_each_ligature_stance_records_the_trailing_stance_it_takes_kern_records_from(spec):
+    assert dict(spec.runes["qsDay_qsUtter"].kern.inherits) == {"full": "mono", "half": "mono"}
+    assert dict(spec.runes["qsThey_qsZoo"].kern.inherits) == {"sole": "half"}
+    assert dict(spec.runes["qsOut_qsTea"].kern.inherits) == {}
+    assert all(not rune.kern.inherits for rune in spec.runes.values() if rune.sequence is None)

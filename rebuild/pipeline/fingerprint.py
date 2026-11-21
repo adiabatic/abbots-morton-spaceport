@@ -6,7 +6,7 @@ run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in 
 
 `draft_inputs` covers the approval drafter's site pages and harness: the `SITE_CORPUS_FILES` pages by raw bytes (their pins set a pin draft's `attribute` and `duplicate_of`), and the draft harness (`draft_harness_paths`) through `hash_paths`. `data`, `pipeline_code`, and `review_code` hold the drafter's other file and code inputs (the alias map, the rune schema, the validation code, and its own module). The after font the drafter shapes and classifies with is in no component; `artifact_cycle.corpus_build_skippable` and `status._freshness_check` compare the manifest's after-font sha256 with rebuild/out/m1/M1.otf instead. The shaping packages `uv.lock` pins are in no corpus component. The component's value is the digest of `draft_input_lines`, the two lines the review unit store's stamp (`unit_cache.environment_stamp`) also carries. The review build reads the pages once, before any drafter runs, and takes the drafters' index of pinned cells, the store's two lines, and the manifest's `draft_inputs` (through `stage_b`'s `draft_lines`) from that one read, so all three see the same page bytes. It hashes the harness at that point too, while each drafting process imports the harness when it drafts its first pin. Every other caller streams the pages through `file_sha256`.
 
-`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar). Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
+`tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar), and hashes each rune file without its `kern` block (`rune_table_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
 The three human-reviewed ledgers have prose-insensitive digests, like the rune files below:
 
@@ -14,7 +14,7 @@ The three human-reviewed ledgers have prose-insensitive digests, like the rune f
 - The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's prose, the keys in `LEDGER_PROSE_KEYS`. `_projected_ledger` says which code reads each of the other fields. Changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's prose into the manifest, so the prose is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class costs a corpus rebuild that reuses every cached unit and nothing else. The change groups' prose, rebuild/review/change-groups.yaml, takes the same route through `group_prose_lines` and is in no other component.
 - The standing approvals are in no component. `standing_approvals_digest` leaves out each rule's `note` and is used only by the artifact cycle's rebuild-lane closure. The verdict-update key (`artifact_cycle.verdict_update_skip_fingerprint`) hashes the file's raw bytes instead, because `standing_verdicts` copies a rule's `note` into every verdict it fills.
 
-`rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
+`rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. The digest keeps every geometric and policy field, every kern record's keys but its `why`, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records. So a kern edit moves `rune_file_digest` and every key built from it: the `data` component, the run_m1 skip key, and the per-family keys `rune_digests` and `rune_explain_digests` feed. Only the tables' stamp leaves the kern block out (`rune_table_digest`).
 
 The crate appends a refuse record's `why` to that refusal's elimination message when it builds a ranking. The table fixpoint never requests a ranking; only the review corpus's explain panel shows rankings. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the corpus. No key built from `rune_file_digest` or `rune_digests` sees it.
 
@@ -466,6 +466,8 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
     return family_digests, helpers
 
 
+KERN_KEY = "kern"  # the rune file's kern block, which `rune_table_digest` leaves out
+
 # Policy record kinds whose records carry an author `why`, and the kinds whose `why` something downstream reads. `rune_explain_digest` keeps the `why` of the second group and `rune_file_digest` drops it; that is the only difference between them.
 POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "pad_left", "resolve", "refuse")
 QUOTED_POLICY_PROSE_KINDS = ("refuse",)
@@ -493,11 +495,11 @@ def _projected_stance(stance: object) -> object:
     return {**stance, "surface": {**surface, "unlocks": [_without_why(unlock) for unlock in unlocks]}}
 
 
-def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
-    """Return the prose-insensitive view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. With `quoted_prose`, the `why` of refuse records is kept."""
+def _projected_rune(document: object, *, quoted_prose: bool = False, kern: bool = True) -> object:
+    """Return the prose-insensitive view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. With `quoted_prose`, the `why` of refuse records is kept. Without `kern`, the `kern` key is dropped whole (`rune_table_digest`)."""
     if not isinstance(document, dict):
         return document
-    projected = dict(document)
+    projected = {key: value for key, value in document.items() if kern or key != KERN_KEY}
     ductus = projected.get("ductus")
     if isinstance(ductus, dict):
         projected["ductus"] = {
@@ -519,6 +521,9 @@ def _projected_rune(document: object, *, quoted_prose: bool = False) -> object:
     stances = projected.get("stances")
     if isinstance(stances, dict):
         projected["stances"] = {name: _projected_stance(stance) for name, stance in stances.items()}
+    records = projected.get(KERN_KEY)
+    if isinstance(records, list):
+        projected[KERN_KEY] = [_without_why(record) for record in records]
     return projected
 
 
@@ -545,6 +550,15 @@ def _projected_digest(
 def rune_file_digest(path: Path) -> str:
     """One rune file's prose-insensitive content digest (the module docstring holds the contract for what the projection drops)."""
     return _projected_digest(path, _projected_rune)
+
+
+def _projected_rune_without_kern(document: object) -> object:
+    return _projected_rune(document, kern=False)
+
+
+def rune_table_digest(path: Path) -> str:
+    """Return `rune_file_digest`'s projection without the rune's `kern` key, the digest `table_data_lines` gives a rune file. No table stage reads the kern block (the kernel's spec dump leaves it out, rebuild/KERN-PLAN.md §4), so a kern edit leaves `tables_value` where it was while `rune_file_digest`, and every key built from it, still moves."""
+    return _projected_digest(path, _projected_rune_without_kern)
 
 
 def _projected_rune_keeping_quoted_prose(document: object) -> object:
@@ -647,10 +661,10 @@ def yaml_data_digest(path: Path) -> str:
     return _projected_digest(path, lambda documents: documents, _load_yaml_stream)
 
 
-def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
-    """Return one data input's digest for `data_path_lines`: the prose-insensitive digest for rune files and the divergence ledger, `schema_file_digest` for a schema, and `yaml_data_digest` for the other YAML inputs."""
+def _data_digest(root: Path, path: Path, runes: set[Path], rune_digest: Callable[[Path], str]) -> str:
+    """Return one data input's digest for `data_path_lines`: `rune_digest` (a prose-insensitive digest) for rune files, the prose-insensitive digest for the divergence ledger, `schema_file_digest` for a schema, and `yaml_data_digest` for the other YAML inputs."""
     if path in runes:
-        return rune_file_digest(path)
+        return rune_digest(path)
     if _label(root, path) == DIVERGENCE_LEDGER_LABEL:
         return divergence_ledger_digest(path)
     if path.suffix == ".json":
@@ -660,12 +674,16 @@ def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
     return file_sha256(path)
 
 
-def data_path_lines(repo_root: Path, paths: Iterable[Path]) -> list[str]:
-    """Return the sorted `label\\tdigest` lines for `paths`, one per existing file, each hashed as `_data_digest` says. `data_lines` passes every data input; the oracle row cache's and the review unit cache's whole-store stamps pass the subsets they cover."""
+def data_path_lines(
+    repo_root: Path, paths: Iterable[Path], rune_digest: Callable[[Path], str] = rune_file_digest
+) -> list[str]:
+    """Return the sorted `label\\tdigest` lines for `paths`, one per existing file, each hashed as `_data_digest` says, a rune file by `rune_digest`. `data_lines` passes every data input; the oracle row cache's and the review unit cache's whole-store stamps pass the subsets they cover; `table_data_lines` passes `rune_table_digest`."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     return sorted(
-        f"{_label(root, path)}\t{_data_digest(root, path, runes)}" for path in paths if path.is_file()
+        f"{_label(root, path)}\t{_data_digest(root, path, runes, rune_digest)}"
+        for path in paths
+        if path.is_file()
     )
 
 
@@ -688,12 +706,14 @@ NON_TABLE_DATA_LABELS = (
 
 
 def table_data_lines(repo_root: Path) -> list[str]:
-    """Return `data_lines` without `NON_TABLE_DATA_LABELS`, the data inputs no table stage reads. The oracle reads the alias map and the divergence ledger to name and classify divergences after the fixpoint has decided them. Only `oracle_positions.KernEvaluator` reads the kern sidecar, to add its kerns back before a position comparison; the font compile passes the builder an empty kerning map and never opens the file. None of the three reaches the kernel crate or any stage that builds a decision table, so including them in the tables' stamp would discard enumerations that would be rebuilt byte for byte.
+    """Return `data_lines` without `NON_TABLE_DATA_LABELS`, the data inputs no table stage reads, and with each rune file hashed by `rune_table_digest`, which leaves out its `kern` block. The oracle reads the alias map and the divergence ledger to name and classify divergences after the fixpoint has decided them. Only `oracle_positions.KernEvaluator` reads the kern sidecar, to add its kerns back before a position comparison; the font compile passes the builder an empty kerning map and never opens the file. None of the three reaches the kernel crate or any stage that builds a decision table, so including them in the tables' stamp would discard enumerations that would be rebuilt byte for byte. A rune's kern block is in the same position: the kernel's spec dump leaves it out (`model.KERNEL_FIELD`), and only `rebuild/pipeline/kern.py`, which runs after the tables exist, reads it.
 
-    All three stay in `data_lines`, so an edit to one still moves the `data` component and the run_m1 skip key. The cycle then re-runs the comparison over the tables and font on disk (`artifact_cycle.comparison_side_label`) instead of the fixpoint.
+    All three files and every rune's kern block stay in `data_lines`, so an edit to one still moves the `data` component and the run_m1 skip key. For the three files the cycle then re-runs the comparison over the tables and font on disk (`artifact_cycle.comparison_side_label`) instead of the fixpoint. A kern edit is a build-side change to a rune file, so the cycle runs the M1 build, which finds the spec dump unchanged and reuses the tables (`run_m1.build_tables`).
     """
+    root = Path(repo_root)
     excluded = set(NON_TABLE_DATA_LABELS)
-    return [line for line in data_lines(repo_root) if line.split("\t", 1)[0] not in excluded]
+    paths = [path for path in data_paths(root) if _label(root, path) not in excluded]
+    return data_path_lines(root, paths, rune_digest=rune_table_digest)
 
 
 def table_data_value(repo_root: Path) -> str:

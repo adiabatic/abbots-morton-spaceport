@@ -4,9 +4,9 @@ The resolved-spec dump (`spec_json` / `spec_of`, the bytes `spec_bytes` hands `b
 
 Canonical means byte-reproducible. Every dataclass field is written, defaults included and `None` as `null`. Separators are compact and the output is ASCII. Mappings keep their iteration order and are never key-sorted, because collection order in a resolved spec affects settlement: stance declaration order ranks the stances `policy.order` omits, exit declaration order is the final tiebreak's last key, and a rune's policy lists are gathered in declaration order. The resolved membership sets (the values of `Policy.groups` and `ScriptRegistry.predicate_classes`) are `frozenset`s and have no order, so they are written sorted to keep the dump stable across runs.
 
-The codec walks `dataclasses.fields` and the resolved type hints, so a field added to `model.py` enters the dump with no edit here. A type the codec has no rule for, or a value whose runtime type does not match its declared type, raises at dump time instead of being dropped. `Provenance` is the one type written by hand, as `[file, path]`.
+The codec walks `dataclasses.fields` and the resolved type hints, so a field added to `model.py` enters the dump with no edit here. A type the codec has no rule for, or a value whose runtime type does not match its declared type, raises at dump time instead of being dropped. `Provenance` is the one type written by hand, as `[file, path]`. A field whose metadata sets `model.KERNEL_FIELD` to False is the one kind the codec skips (`_kernel_fields`): the dump leaves it out and a parsed dump gives it its default. `Rune.kern` is the only such field, so a rune's `kern:` block reaches no byte the crate reads (rebuild/KERN-PLAN.md §4).
 
-The dump includes the prose fields (`ductus`, `notes`, `why`) verbatim even though settlement does not read them, so a dump read back through this module reproduces the spec `spec_load` built.
+The dump includes the prose fields (`ductus`, `notes`, `why`) verbatim even though settlement does not read them, so a dump read back through this module reproduces the spec `spec_load` built, less its kern blocks.
 
 The transition stream carries what the windows artifact cannot. The windows artifact keeps each row's labels and outcome beside rules the crate has already folded, and those folds cannot be rerun from it: the rule fold reads each transition's provenance and joint flag, and the join fold reads the settled cell, junction, and extension, none of which the windows TSV keeps. The stream carries the `FixpointProduct` at the grain the fixpoint produced it: rows in the product's key order, deep right slots still at class grain, and `joint` still the trace's `joint_tiebreak` before the prospect-divergence pass, plus the deep-class map, the provenance the engine fired, and the reachable cells at the same class grain. Only the rebuild tests parse the stream, through `kernel_exec.enumerate_transitions`; the build's `build-tables` folds the product in memory without writing a stream. `rebuild/test_kernel_io.py` and `rebuild/test_kernel_exec.py` test the round trip.
 
@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import IO, Any
 
-from rebuild.pipeline.model import CellId, Provenance, ResolvedSpec, ScriptRegistry, Settled
+from rebuild.pipeline.model import KERNEL_FIELD, CellId, Provenance, ResolvedSpec, ScriptRegistry, Settled
 from rebuild.pipeline.table import FixpointProduct, PartitionError, Transition, _cell_key
 
 SPEC_FORMAT = "ams-m1-spec/1"
@@ -40,6 +40,11 @@ def _hints(cls: Any) -> dict[str, Any]:
         cached = typing.get_type_hints(cls)
         _HINTS[cls] = cached
     return cached
+
+
+def _kernel_fields(cls: Any) -> list[dataclasses.Field]:
+    """Returns the dataclass's fields the dump carries, in declaration order: every field but one whose metadata sets `KERNEL_FIELD` to False."""
+    return [field for field in dataclasses.fields(cls) if field.metadata.get(KERNEL_FIELD, True)]
 
 
 def _optional_member(hint: Any) -> Any:
@@ -76,7 +81,7 @@ def _encode(hint: Any, value: Any) -> Any:
             hints = _hints(hint)
             return {
                 field.name: _encode(hints[field.name], getattr(value, field.name))
-                for field in dataclasses.fields(hint)
+                for field in _kernel_fields(hint)
             }
         if hint is bool or hint is str:
             if not isinstance(value, hint):
@@ -129,7 +134,7 @@ def _decode(hint: Any, value: Any) -> Any:
                     f"kernel_io: a {cls.__name__} is a JSON object, not a {type(value).__name__}"
                 )
             hints = _hints(hint)
-            names = [field.name for field in dataclasses.fields(hint)]
+            names = [field.name for field in _kernel_fields(hint)]
             if set(value) != set(names):
                 raise ValueError(f"kernel_io: a {cls.__name__} carries exactly the fields {sorted(names)}")
             return cls(**{name: _decode(hints[name], value[name]) for name in names})

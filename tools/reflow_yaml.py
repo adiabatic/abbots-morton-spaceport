@@ -4,7 +4,7 @@ The policy depends on the file's directory. A file in a directory named `runes` 
 
 Width rule: a mapping or list stays inline (flow style) while its whole line fits in `MAX_WIDTH` (100) columns. Past that, the outermost flow collection on the line becomes block style and the rule is applied again to the resulting lines. The break is at the outermost collection because YAML does not allow a block collection inside a flow one.
 
-Structural rule: every collection is block style except three leaf shapes that stay flow: an empty collection (`{}` or `[]`), a single-key mapping whose value is a single-line scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width plays no part, so an edit cannot change a neighboring collection's style, and diffs stay limited to the changed values. This rule also rewrites every multi-line string that is not already a `|` block scalar as one.
+Structural rule: every collection is block style except three leaf shapes that stay flow: an empty collection (`{}` or `[]`), a single-key mapping whose value is a single-line scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width plays no part, so an edit cannot change a neighboring collection's style, and diffs stay limited to the changed values. This rule also rewrites every multi-line string that is not already a `|` block scalar as one. A rune's top-level `kern:` list is the one exception: it stays a block list with each record in flow style on its own line (`- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}`), the form the kern editor writes.
 
 Under both rules, a collection with a comment anywhere in its subtree stays block, because flow style cannot hold per-item comments and inlining a `bitmap:` list would drop its `#` row markers. A long scalar (a `ductus`, a paragraph-length `why:`) is never wrapped and may exceed the width. Running the pass on already-reflowed YAML changes nothing. The file is round-tripped through ruamel, so comments, block scalars, and quoting are kept.
 
@@ -110,6 +110,27 @@ def _decide_structurally(node):
         _decide_structurally(child)
 
 
+def _multiline(node):
+    if isinstance(node, CommentedMap):
+        return any(_multiline(value) for value in node.values())
+    if isinstance(node, CommentedSeq):
+        return any(_multiline(item) for item in node)
+    return isinstance(node, str) and "\n" in node
+
+
+def _decide_kern(node):
+    """Set a rune's `kern:` block to one flow-style record per line, the form the kern editor writes (rebuild/KERN-PLAN.md section 6). A record with a comment or a multi-line string falls back to the structural rule."""
+    if not isinstance(node, CommentedSeq):
+        _decide_structurally(node)
+        return
+    node.fa.set_block_style()
+    for item in node:
+        if isinstance(item, CommentedMap) and not _has_comments(item) and not _multiline(item):
+            item.fa.set_flow_style()
+        else:
+            _decide_structurally(item)
+
+
 def reflow(path):
     """Reflow one YAML file in place. Returns True when the file's bytes changed."""
     before = path.read_text()
@@ -118,7 +139,9 @@ def reflow(path):
     if isinstance(data, CommentedMap):
         data.fa.set_block_style()
         for key, value in data.items():
-            if structural:
+            if structural and key == "kern":
+                _decide_kern(value)
+            elif structural:
                 _decide_structurally(value)
             else:
                 _decide_by_width(value, len(str(key)) + 2, 0)

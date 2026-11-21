@@ -461,6 +461,42 @@ def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path)
     assert fingerprint.tables_value(root) != moved_code
 
 
+KERNED_RUNE = textwrap.dedent("""\
+    rune: qsPea
+    stances: {}
+    kern:
+    - {right: {family: qsBay}, by: -2}
+    """)
+
+
+def test_a_kern_edit_moves_the_run_key_and_the_rune_digest_but_not_the_tables_stamp(tmp_path):
+    """A rune's `kern:` block reaches no table stage: the kernel's spec dump leaves it out, and only rebuild/pipeline/kern.py, which runs after the tables exist, reads it. So `tables_value` hashes each rune without it (`rune_table_digest`), while the `data` component, the run_m1 skip key and the per-family digest still move, and a build still runs and rewrites `kern.tsv`. Rewording a kern record's `why` moves nothing, like every other `why`."""
+    root = _fake_repo(tmp_path)
+    rune = root / "glyph_data" / "runes" / "qsPea.yaml"
+    rune.write_text(KERNED_RUNE)
+
+    def keys():
+        return (
+            fingerprint.tables_value(root),
+            fingerprint.data_value(root),
+            artifact_cycle.run_m1_skip_fingerprint(root),
+            fingerprint.rune_file_digest(rune),
+            fingerprint.rune_table_digest(rune),
+        )
+
+    before = keys()
+    rune.write_text(KERNED_RUNE.replace("by: -2", "by: -1, why: A rationale"))
+    edited = keys()
+    assert edited[0] == before[0] and edited[4] == before[4]
+    assert all(edited[index] != before[index] for index in (1, 2, 3))
+    rune.write_text(KERNED_RUNE.replace("by: -2", "by: -1, why: Another rationale"))
+    assert keys() == edited
+    rune.write_text(KERNED_RUNE.replace("kern:\n- {right: {family: qsBay}, by: -2}\n", ""))
+    assert fingerprint.tables_value(root) == before[0]
+    rune.write_text(KERNED_RUNE.replace("stances: {}", "stances: {edited: {}}"))
+    assert fingerprint.tables_value(root) != before[0]
+
+
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
     """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs all of rebuild/pipeline/ and rebuild/validation/, and `COMPARISON_CODE_MODULES` is the only subtraction, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
     root = _fake_repo(tmp_path)
