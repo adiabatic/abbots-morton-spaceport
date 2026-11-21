@@ -8,6 +8,7 @@ The build's stages (`BUILD_STAGES`):
 - `sink` records each `output_sink.write_output`, `replace_output` and `note_rewritten` call the build makes (`_sink_call`), keyed by its origin, the call and a digest of its inputs: the target's name, what it `held` before the call, the `payload` as its kind and the sha256 of the bytes the call writes (a writer's read from the target once it has run, or the bytes the call kept), the `sha256` a writer is kept against, `keep_if_equal` and the state of the counts file the call found (`counts_file`); and as its outputs what the call `returned`, the `counts` lines it appended and what it left at the target, `after`. Every file's bytes are kept once under their sha256 in `sink.blobs/` beside the stage file (`SINK_BLOBS`), from which the Rust side sets each target up again in a scratch directory and makes the call itself. Its generated lines (`_sink_cases`) put every call and payload kind to missing, equal, differing, FIFO, directory and linked targets, with and without the compare, with each state of the counts file, and `output_sink.replacing`, which the build reaches only through `row_delta.StreamedPart`.
 - `containers` records each zlib and gzip container the build writes into a file and each deflated fragment it reads back, keyed by its origin, its `framing` and a digest of its inputs, with its `output`: a `gzip.GzipFile` stream opened for writing into a file (`gzipfile`: its name, level and mtime, followed from its opening to its close, and each write's size), a `gzip.compress` member (`compress`: a locator block's or an index member's), a `unit_index._Members` sink (`members`: its member size and threads), a fragment's `unit_index.deflate_fragment` (`raw`) and an `inflate_fragment` that returns (`inflate-fragment`: the stored bytes and the length); each writer's output is the written bytes' sha256 and length, and a `read` line beside it reads those bytes whole as `gzip.GzipFile` does, and a deflated fragment's `inflate-fragment` line reads it back at its length. Every input is kept once under its sha256 in `containers.blobs/` beside the stage file (`CONTAINER_BLOBS`) and named by that digest and a length, the blob's first bytes. Its generated lines (`_containers_generated`) cover every name, level and mtime over inputs from nothing to past `INDEX_MEMBER_BYTES` cut into uneven writes, each member boundary, `inflate_fragment`'s refusals, the gzip reader's tolerances and refusals, the member readers' `zlib.decompressobj` loop (`member-read`, `_member_steps`) and `zlib.crc32` (`crc32`).
 - `json-forms` records each `json.dumps` and `json.loads` call the parent's modules make (`JSON_PARENT_MODULES`, told by the caller's frame, `_json_parents_call`) but for the key-only read's frames to and from its processes (`JSON_PROCESS_FRAMES`), keyed by its origin, its `form` and a digest of its `input`: a write in the form its arguments name (`JSON_DUMPS_FORMS`: `default`, `indent`, `sorted`, `unicode` and `compact`) with the value it writes and, as its `value`, `("text", text)`; a read (`loads`) that returns with the `str` or `bytes` it reads and `("value", value)`. Its generated lines (`_json_forms_generated`) put every form to an edge set (`_json_dumps_edges`) and the reader to texts of each kind (`_json_loads_edges`), with `("refused",)` where Python refuses and where the Rust side refuses what Python stringifies or reads (`_json_dumped_text`, `_json_read`).
+- `sample` records each `build._verification_sample` call (`_verification_sampled`), keyed by its origin, its `form` and a digest of its `input`, as the form `verification` with the `(cached, seed, size)` it draws from and, as its `value`, the id words it draws. Its generated lines (`_sample_generated`) draw from `random.Random` itself, seeded with strings whose key words `Random.seed` cuts differently (`SAMPLE_SEEDS`): `sample` over every `k` from -1 to one past the population, `("refused",)` where it raises, for populations on both sides of each `setsize` step (`_setsize`) and three populations around each step's edge; `getrandbits` at every width to 64; `randbelow` (`_randbelow_with_getrandbits`) at bounds around each word edge (`SAMPLE_BOUNDS`); and `verification` over populations around `VERIFICATION_SAMPLE` and its `setsize`.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -67,6 +68,7 @@ import importlib
 import io
 import inspect
 import json
+import math
 import os
 import pickle
 import random
@@ -3686,6 +3688,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "unit_index.inflate_fragment": ("rebuild.review.unit_index", "inflate_fragment"),
     "json.dumps": ("json", "dumps"),
     "json.loads": ("json", "loads"),
+    "build._verification_sample": ("rebuild.review.build", "_verification_sample"),
 }
 
 
@@ -4920,6 +4923,102 @@ def _json_forms_generated(_source: BuildSource) -> Iterator[Mapping[str, object]
         yield _json_form_line("generated", JSON_LOADS, data, _json_read(data))
 
 
+SAMPLE_STAGE = "sample"
+_VERIFICATION_SAMPLE = inspect.signature(build._verification_sample)
+# The seeds the `sample` stage's generated lines draw from: empty, one letter, leading NUL bytes, which the seed's integer drops, non-ASCII, an environment stamp's hex digest, and keys of fewer and of more 32-bit words than the generator's 624 state words.
+SAMPLE_SEEDS = (
+    "",
+    "a",
+    "\x00",
+    "\x00" * 9 + "seed",
+    "é·Day \U0001f600",
+    hashlib.sha256(b"environment").hexdigest(),
+    "seed " * 400,
+    "seed " * 600,
+)
+# The bounds the `randbelow` lines draw below: the smallest, each side of the 31-, 32-, 53- and 63-bit edges, and the largest a 64-bit id word allows.
+SAMPLE_BOUNDS = (
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    8,
+    9,
+    1000,
+    *(edge + step for edge in (2**31, 2**32, 2**53, 2**63) for step in (-1, 0, 1)),
+    2**64 - 1,
+)
+
+
+def _sample_line(origin: str, form: str, inputs: tuple, value: object) -> dict[str, object]:
+    """One `sample` line, keyed by its origin, its form and a digest of its input, with what Python drew as its `value`."""
+    digest = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"{origin}:{form}:{digest}", "form": form, "input": inputs, "value": value}
+
+
+def _verification_sampled(args: tuple, kwargs: dict) -> Finisher:
+    """A `build._verification_sample` call, with the id words it draws."""
+    bound = _VERIFICATION_SAMPLE.bind(*args, **kwargs)
+    bound.apply_defaults()
+    inputs = (list(bound.arguments["cached"]), bound.arguments["seed"], bound.arguments["size"])
+    return lambda result: _sample_line("run", "verification", inputs, result)
+
+
+def _setsize(k: int) -> int:
+    """`random.Random.sample`'s `setsize` for `k` selections, as its source computes it, which tells the generated lines where the branch between the pool and the set turns."""
+    return 21 + (4 ** math.ceil(math.log(k * 3, 4)) if k > 5 else 0)
+
+
+def _sample_population(size: int) -> list[int]:
+    """`size` distinct ints across the 64-bit range, ascending as the build's id words are."""
+    return sorted((index * 0x9E3779B97F4A7C15 + 0x0123456789ABCDEF) % 2**64 for index in range(size))
+
+
+def _sampled(seed: str, population: list[int], k: int) -> object:
+    try:
+        return random.Random(seed).sample(population, k)
+    except ValueError:
+        return ("refused",)
+
+
+def _sample_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `sample` stage's generated lines: `random.Random.sample` at every `k` over populations either side of `setsize`'s steps and around each step's edge, `getrandbits` at every width, `_randbelow` at `SAMPLE_BOUNDS` and `build._verification_sample` around its size, over `SAMPLE_SEEDS`."""
+    stamp = SAMPLE_SEEDS[5]
+    for seed, sized in ((stamp, _sample_population), ("a", lambda size: list(range(size)))):
+        for size in (0, 1, 2, 5, 6, 7, 20, 21, 22, 23, 63, 64, 84, 85, 86, 100, 277, 278):
+            population = sized(size)
+            for k in range(-1, size + 2):
+                yield _sample_line(
+                    "generated", "sample", (seed, population, k), _sampled(seed, population, k)
+                )
+    for k in (5, 6, 21, 22, 85, 86, 341, 342, 1365, 1366):
+        for size in (_setsize(k) - 1, _setsize(k), _setsize(k) + 1):
+            population = _sample_population(size)
+            yield _sample_line("generated", "sample", (stamp, population, k), _sampled(stamp, population, k))
+    widths = (*range(65), *range(64, -1, -1))
+    for seed in SAMPLE_SEEDS:
+        drawing = random.Random(seed)
+        yield _sample_line(
+            "generated", "getrandbits", (seed, widths), [drawing.getrandbits(width) for width in widths]
+        )
+        drawing = random.Random(seed)
+        yield _sample_line(
+            "generated",
+            "randbelow",
+            (seed, SAMPLE_BOUNDS),
+            [
+                drawing._randbelow_with_getrandbits(bound)  # pyright: ignore[reportAttributeAccessIssue]
+                for bound in SAMPLE_BOUNDS
+            ],
+        )
+        for size in (0, 1, 2, 199, 200, 201, 1044, 1045, 1046, 3000):
+            for limit in (0, 5, build.VERIFICATION_SAMPLE):
+                inputs = (_sample_population(size), seed, limit)
+                yield _sample_line("generated", "verification", inputs, build._verification_sample(*inputs))
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -4952,6 +5051,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         {"json.dumps": _json_dumped, "json.loads": _json_loaded},
         _json_forms_generated,
         run="build",
+    ),
+    SAMPLE_STAGE: Stage(
+        SAMPLE_STAGE, {"build._verification_sample": _verification_sampled}, _sample_generated, run="build"
     ),
 }
 
