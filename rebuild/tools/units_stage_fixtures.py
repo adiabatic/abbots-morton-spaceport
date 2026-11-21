@@ -24,6 +24,7 @@ The build's stages (`BUILD_STAGES`):
 - `load` is a boundary stage that records what the build's load gives the plan (`build._load_corpus`, `_corpus_loaded`), as `load_boundary` lays it out: a unit a merged unit in load order as the `workload` stage holds it, a column over the pre-merge snapshot's rows, and lines for the source the load took, the key-only read's facts, the ink-signature store's counts and new lines, the stamps, the signature stamp, the merge's stats, the held audit's parts and the console lines the load printed, read from standard error while it ran.
 - `store-records` records each unit store record the build parses, writes and slices, and each call it makes on a record's key or id, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `parsed`, each `unit_cache._parsed_cached_unit` call, with the record and the parts it trusts, valued `("parsed", record)`, `("unheld",)` for a record holding a type `CachedUnit.to_record` never writes (`_parsed_held`), or, for a generated record, `("raised", kind)`, `unreadable` for what `unit_cache.StoreUnreadable` wraps and `failed` for what fails the build (`_parsed_outcome`); `record-line`, each `unit_cache.record_line` call, with its `CachedUnit` and the line; `prior-record`, each `unit_cache.prior_record_or_none` call, with the line and the `PriorRecord`, None or `("unheld",)` (`_prior_value`); `named`, each `unit_cache.named_ordinal` call, with the line and the key it names, read by the same function over `_KeyProbe` in place of the build's index; and `id-word`, `primary-units-crc` and `content-id`, each `unit_cache.id_word`, `primary_units_crc` and `is_content_id` call, with its argument and what it gave. Its generated lines (`_store_records_generated`) parse, write, slice and name a synthetic record (`_synthetic_record`) and a sample of the dump's prior store (`_sampled_records`), put each form to its edges over the synthetic record (`_parsed_edges`, `_record_line_edges`, `_prior_record_edges`, `_named_edges`), and put ids, primary units and values to the edges of the three calls.
 - `store-load` follows each `unit_store.UnitStore` the build makes from its making (`_unit_store_followed`), each call a line keyed by the store's name, `run:store:<serial>`, and the call's place: `new` with its size and the input-key column it takes, then each call `STORE_FOLLOWED` names, the loads (`load_projection`, its projection as `_projection_value` lays it out, and `load_cached`), the prior records and their seal, the prior lines, the input-key index and the setters the whole-corpus passes and the write call, each with its arguments, valued what `_unit_store_after` reads of the store after it: a load's row and every accessor that takes only the ordinal (`_store_reading`), a setter's field read back. Its generated lines (`_store_load_generated`) replay each store the build made into a store of their own, checking every value against the build's, and continue the trace of each one whose rows were all loaded (`_store_script`): the id index and every id's ordinal, every row read, and its record line, `cached_as_is` and `predicted_unchanged` asked under its own fields and changed ones (`_patched_cases`), some rows' fields set and read again, the store emptied and each setter's refusal; then generated stores (`_store_cases`) load projections and records of every shape, put each refusal of a load to its text and each column to its width at both ends (`_projection_refusals`), and refuse a repeated id, a short input-key column and a repeated input key.
+- `scan` is a boundary stage that records the plan's reads of the prior unit store, each where the build makes it: from `unit_cache.open_store`, the store as it opened under `open`, `("none",)` or `("opened", stamps, head)` with the head's document (`_store_opened`); from `unit_cache.scan_store`, walked again over handles of its own before the build reads a line (`_store_scanned`, `_reopened`), a unit a line in the store's materialized order, its place, the ordinal whose input key it names, its parsed record and the sha256 of its bytes (`_scanned_value`), and the `scan` line, whether it parses named lines, the parts it trusts and how it ended (`_scan_failure`); from `unit_cache.locate_prior_fragments`, the wanted records and where the walk placed them under `locate` (`_located_value`, id words as `%016x`); from `unit_cache.scan_marked`, scanned again before it runs, a `marked:<place>` line a record it parses and the `marked` line; from `unit_cache.LocatedFragments.find`, each placement the plan looks up under `find:` and the class and id; and from `unit_cache.store_miss_note`, `rederiving_moved` and `adopt_single_file`, the note, the decision and the head's document. Its generated lines (`_scan_generated`) open, scan and scan again at marked places the dump's prior store and stores made from it, under a segment, as a single file, cut short, corrupted, with no header line and with lines of every shape the scan skips or refuses, and heads and single files that do not open (`_scan_store_cases`); ask which parts recorded sizes trust, the manifest's identity over manifests of every kind, the miss note over stamps that match and that moved in each way it names, whether a re-deriving label moved, and adopt single files (`_scan_stamp_cases`); and walk the prior corpus with every store record wanted, through its store, its index and its parts as each is taken away or does not read, and a corpus whose deflated fragment only its store places (`_scan_locate_cases`). Every file is kept once under its sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3839,8 +3840,16 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
             "id_word",
             "primary_units_crc",
             "is_content_id",
+            "open_store",
+            "scan_store",
+            "scan_marked",
+            "locate_prior_fragments",
+            "store_miss_note",
+            "rederiving_moved",
+            "adopt_single_file",
         )
     },
+    "unit_cache.LocatedFragments.find": ("rebuild.review.unit_cache", "LocatedFragments.find"),
     **{
         f"unit_store.UnitStore.{method}": ("rebuild.review.unit_store", f"UnitStore.{method}")
         for method in (
@@ -11061,6 +11070,674 @@ def _store_load_generated(_source: BuildSource) -> Iterator[Mapping[str, object]
             index += 1
 
 
+SCAN_STAGE = "scan"
+# The `scan` stage's directory, beside its stage file, of the files its generated lines name by sha256.
+SCAN_BLOBS = "scan.blobs"
+# The keys of the `scan` stage's lines beside its units and their column.
+SCAN_OPEN_KEY = "open"
+SCAN_KEY = "scan"
+SCAN_MISS_NOTE_KEY = "miss-note"
+SCAN_LOCATE_KEY = "locate"
+SCAN_MARKED_KEY = "marked"
+SCAN_REDERIVING_KEY = "rederiving"
+SCAN_ADOPT_KEY = "adopt"
+# The plan's reads of the prior store as `unit_cache` defines them before any build wraps them, which the `scan` recorders and generated lines run themselves, and the key index's `find`, which a recorder's walk asks through `_FoundKeys`, so the `columns` stage follows only the build's own calls.
+_OPEN_STORE = unit_cache.open_store
+_SCAN_STORE = unit_cache.scan_store
+_SCAN_MARKED = unit_cache.scan_marked
+_LOCATE_PRIOR_FRAGMENTS = unit_cache.locate_prior_fragments
+_TRUSTED_PARTS = unit_cache._trusted_parts
+_MANIFEST_STAMP = unit_cache._manifest_stamp
+_STORE_MISS_NOTE = unit_cache.store_miss_note
+_REDERIVING_MOVED = unit_cache.rederiving_moved
+_ADOPT_SINGLE_FILE = unit_cache.adopt_single_file
+_KEY_INDEX_FIND = columns.KeyIndex.find
+_SCAN_STORE_SIGNATURE = inspect.signature(unit_cache.scan_store)
+_SCAN_MARKED_SIGNATURE = inspect.signature(unit_cache.scan_marked)
+_LOCATE_SIGNATURE = inspect.signature(unit_cache.locate_prior_fragments)
+_FIND_SIGNATURE = inspect.signature(unit_cache.LocatedFragments.find)
+
+
+class _FoundKeys:
+    """The build's input-key index as a recorder's walk asks it: through `columns.KeyIndex.find` as the module defines it, so the walk's lookups are not calls the `columns` stage follows."""
+
+    def __init__(self, named: columns.KeyIndex) -> None:
+        self._named = named
+
+    def find(self, key: bytes) -> int | None:
+        return _KEY_INDEX_FIND(self._named, key)
+
+
+def _scanned_value(scanned: unit_cache.ScannedLine) -> tuple:
+    """One scanned line as the `scan` stage records it: its place, its ordinal, its parsed record and the sha256 of its bytes."""
+    return (scanned.index, scanned.ordinal, scanned.cached, hashlib.sha256(scanned.line).hexdigest())
+
+
+def _scan_failure(error: BaseException) -> tuple:
+    """How a read of the store ended that raised: `("raised", "unreadable")` for `unit_cache.StoreUnreadable`, which the plan answers by restarting over an emptied store, and `("raised", "failed")` for anything else, which fails the build."""
+    return ("raised", "unreadable" if isinstance(error, unit_cache.StoreUnreadable) else "failed")
+
+
+def _reopened(opened: unit_cache.OpenStore) -> unit_cache.OpenStore:
+    """An open store again, over handles of its own opened by the names the store's were, so a recorder's walk leaves the build's handles where they are."""
+    return unit_cache.OpenStore(
+        opened.stamps, opened.head, [open(handle.name, "rb") for handle in opened.handles]
+    )
+
+
+def _opened_value(opened: unit_cache.OpenStore | None) -> tuple:
+    """An opened store as the `open` line holds it: `("none",)`, or `("opened", stamps, head)` with the head's document, None for the single file."""
+    if opened is None:
+        return ("none",)
+    return ("opened", opened.stamps, None if opened.head is None else opened.head.document())
+
+
+def _located_value(wanted: tuple, located: unit_cache.LocatedFragments) -> tuple:
+    """The walk's placements as the `locate` line holds them: the wanted records' classes, class indexes and id words, then the located columns, each word as `%016x` and the content keys as hex."""
+    return (
+        *wanted,
+        tuple(f"{word:016x}" for word in located.words),
+        tuple(located.class_of),
+        tuple(located.part),
+        tuple(located.start),
+        tuple(located.length),
+        tuple(located.inflated),
+        bytes(located.content_keys).hex(),
+        tuple(located.parts),
+    )
+
+
+def _wanted_value(wanted: unit_cache.WantedFragments) -> tuple:
+    return (tuple(wanted.classes), tuple(wanted.class_of), tuple(f"{word:016x}" for word in wanted.words))
+
+
+def _store_opened(_args: tuple, _kwargs: dict) -> Finisher:
+    """A `unit_cache.open_store` call that returns, recorded in the `scan` boundary (`_opened_value`); the plan's second opening of an unchanged store records the same line."""
+
+    def finish(opened: object) -> Boundary:
+        assert opened is None or isinstance(
+            opened, unit_cache.OpenStore
+        ), f"open_store returned {opened!r:.80}"
+        return Boundary(0, {}, [{"key": SCAN_OPEN_KEY, "value": _opened_value(opened)}])
+
+    return finish
+
+
+def _store_scanned(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.scan_store` call recorded as the `scan` boundary's units, walked again over handles of its own (`_reopened`) before the build reads a line: a unit a scanned line (`_scanned_value`), and the `scan` line, whether it parses named lines, the parts it trusts, and how it ended, `("done", lines, bytes)` or what it raised (`_scan_failure`)."""
+    arguments = _SCAN_STORE_SIGNATURE.bind(*args, **kwargs).arguments
+    opened, named, parse, trusted = (arguments[name] for name in ("opened", "named", "parse", "trusted"))
+
+    def walk(ended: list[Mapping[str, object]]) -> Iterator[Mapping[str, object]]:
+        lines = rows_bytes = 0
+        ending: tuple | None = None
+        try:
+            found = _FoundKeys(named)
+            for scanned in _SCAN_STORE(
+                _reopened(opened), found, parse=parse, trusted=trusted  # pyright: ignore[reportArgumentType]
+            ):
+                yield {"value": _scanned_value(scanned)}
+                lines += 1
+                rows_bytes += len(scanned.line)
+        except Exception as error:
+            ending = _scan_failure(error)
+        ended.append(
+            {"key": SCAN_KEY, "value": (parse, tuple(sorted(trusted)), ending or ("done", lines, rows_bytes))}
+        )
+
+    return lambda _result: WalkedBoundary(("value",), walk)
+
+
+def _marked_scanned(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.scan_marked` call recorded in the `scan` boundary, scanned again over handles of its own before the call runs: a `marked:<place>` line a line it parses, with its place and record, and the `marked` line, the places, the parts it trusts and how it ended, `("done", count)` or what it raised."""
+    arguments = _SCAN_MARKED_SIGNATURE.bind(*args, **kwargs).arguments
+    opened, marked, trusted = (arguments[name] for name in ("opened", "marked", "trusted"))
+    lines: list[Mapping[str, object]] = []
+    ending: tuple | None = None
+    try:
+        for index, cached in _SCAN_MARKED(_reopened(opened), marked, trusted):
+            lines.append({"key": f"{SCAN_MARKED_KEY}:{index}", "value": (index, cached)})
+    except Exception as error:
+        ending = _scan_failure(error)
+    lines.append(
+        {
+            "key": SCAN_MARKED_KEY,
+            "value": (tuple(marked), tuple(sorted(trusted)), ending or ("done", len(lines))),
+        }
+    )
+    return lambda _result: Boundary(0, {}, lines)
+
+
+def _fragments_located(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.locate_prior_fragments` call recorded in the `scan` boundary with the wanted records and where the walk placed them (`_located_value`)."""
+    wanted = _wanted_value(_LOCATE_SIGNATURE.bind(*args, **kwargs).arguments["wanted"])
+
+    def finish(located: object) -> Boundary:
+        assert isinstance(
+            located, unit_cache.LocatedFragments
+        ), f"locate_prior_fragments returned {located!r:.80}"
+        return Boundary(0, {}, [{"key": SCAN_LOCATE_KEY, "value": _located_value(wanted, located)}])
+
+    return finish
+
+
+def _fragment_found(args: tuple, kwargs: dict) -> Finisher:
+    """A `unit_cache.LocatedFragments.find` call recorded in the `scan` boundary under `find:` and the class and id it asks for, with the fragment it found or None."""
+    arguments = _FIND_SIGNATURE.bind(*args, **kwargs).arguments
+    key = f"find:{json.dumps([arguments['prior_class'], arguments['unit_id']])}"
+    return lambda found: Boundary(0, {}, [{"key": key, "value": found}])
+
+
+def _scan_called(key: str, value: Callable[[Any], object]) -> Recorder:
+    """A one-line call recorded in the `scan` boundary under `key`, with `value` of what it gave."""
+
+    def record(_args: tuple, _kwargs: dict) -> Finisher:
+        return lambda result: Boundary(0, {}, [{"key": key, "value": value(result)}])
+
+    return record
+
+
+def _scan_files(directory: Path, blobs: Path) -> tuple:
+    """A corpus directory as a generated `scan` line names it, sorted: each directory `(name, ("dir",))` and each file `(name, ("file", sha256))` with its bytes kept in `blobs`."""
+    entries: list[tuple] = []
+    for path in sorted(directory.rglob("*")):
+        name = path.relative_to(directory).as_posix()
+        if path.is_dir():
+            entries.append((name, ("dir",)))
+        else:
+            entries.append((name, ("file", _blob_into(blobs, path.read_bytes()))))
+    return tuple(entries)
+
+
+def _scan_entries(directory: Path) -> tuple:
+    """A directory's files after a call, as an `adopt` line holds them: each name, sorted, with the sha256 of its bytes."""
+    return tuple(
+        sorted(
+            (path.name, hashlib.sha256(path.read_bytes()).hexdigest())
+            for path in directory.iterdir()
+            if path.is_file()
+        )
+    )
+
+
+def _scan_case(scratch: Path) -> Path:
+    return Path(tempfile.mkdtemp(dir=scratch))
+
+
+def _scan_corpus(prior: Path, target: Path, *, store: bool = True, index: bool = True) -> Path:
+    """Copy into `target` the parts of a corpus the plan's reads look at: the manifest, the shard parts, and the unit store's and the units index's files where `store` and `index` say."""
+    for path in sorted(prior.iterdir()):
+        name = path.name
+        if name == "units":
+            shutil.copytree(path, target / name)
+        elif (
+            name == "manifest.json"
+            or (store and name.startswith(unit_cache.STORE_NAME))
+            or (index and name.startswith(unit_index.INDEX_NAME))
+        ):
+            shutil.copyfile(path, target / name)
+    return target
+
+
+def _scan_outcome(
+    call: Callable[[], object], value: Callable[[Any], object] = lambda result: result
+) -> object:
+    """What a call gives as a generated line's value: `value` of its result, or what it raised (`_scan_failure`)."""
+    try:
+        result = call()
+    except Exception as error:
+        return _scan_failure(error)
+    return value(result)
+
+
+def _scan_lines_value(opened: unit_cache.OpenStore) -> tuple:
+    """An open store's lines as an `open` line's value: their count and the sha256 of each `(place, line)`'s typed encoding, or what reading them raised, as a scan takes it: what `unit_cache._STORE_ERRORS` holds is the store unreadable."""
+    try:
+        count, digest = column_digest((place, line) for place, line in opened.lines())
+    except unit_cache._STORE_ERRORS:
+        return ("raised", "unreadable")
+    except Exception as error:
+        return _scan_failure(error)
+    return ("lines", count, digest)
+
+
+def _scan_with_open(directory: Path, then: Callable[[unit_cache.OpenStore], object]) -> object:
+    """`then` over the store under `directory` once it opens, or the value of an opening that does not: `("none",)` or what it raised."""
+    try:
+        opened = _OPEN_STORE(directory)
+    except Exception as error:
+        return _scan_failure(error)
+    if opened is None:
+        return ("none",)
+    try:
+        return then(opened)
+    finally:
+        opened.close()
+
+
+def _scan_open_value(directory: Path) -> object:
+    return _scan_with_open(directory, lambda opened: (*_opened_value(opened), _scan_lines_value(opened)))
+
+
+def _scanned_digest(scan: Iterable[unit_cache.ScannedLine]) -> tuple:
+    """A scan as a generated `scan` line's value: its lines' count, the sha256 of their values (`_scanned_value`), their bytes, and how it ended."""
+    digest = hashlib.sha256()
+    count = rows_bytes = 0
+    ending: tuple = ("done",)
+    try:
+        for scanned in scan:
+            digest.update(column_entry(_scanned_value(scanned)))
+            count += 1
+            rows_bytes += len(scanned.line)
+    except Exception as error:
+        ending = _scan_failure(error)
+    return ("scanned", count, digest.hexdigest(), rows_bytes, ending)
+
+
+def _marked_digest(marked: Iterable[tuple[int, unit_cache.ParsedCachedUnit]]) -> tuple:
+    digest = hashlib.sha256()
+    count = 0
+    ending: tuple = ("done",)
+    try:
+        for index, cached in marked:
+            digest.update(column_entry((index, cached)))
+            count += 1
+    except Exception as error:
+        ending = _scan_failure(error)
+    return ("marked", count, digest.hexdigest(), ending)
+
+
+def _gzip_lines(lines: Iterable[bytes]) -> bytes:
+    return gzip.compress(b"".join(lines), compresslevel=1, mtime=0)
+
+
+def _store_under_head(directory: Path, base: bytes, stamps: dict, *, rows: int = 0) -> row_delta.Head:
+    """Write `base` as a store's generation 0 base under `directory`, with a head over it whose stamps are `stamps`."""
+    name = row_delta.base_name(unit_cache.STORE_NAME, 0)
+    (directory / name).write_bytes(base)
+    part = row_delta.Part(name, len(base), hashlib.sha256(base).hexdigest(), rows, 0)
+    head = row_delta.Head(unit_cache.STORE_NAME, 0, 0, stamps, part)
+    row_delta.commit(directory, head)
+    return head
+
+
+def _key_of(line: bytes) -> bytes:
+    return bytes.fromhex(line[len(unit_cache._KEY_PREFIX) : len(unit_cache._KEY_PREFIX) + 64].decode())
+
+
+def _scan_store_cases(
+    prior: Path, scratch: Path, blobs: Path, environment: fingerprint.EnvironmentStamp
+) -> Iterator[tuple[tuple, object]]:
+    """The store cases: the dump's prior store as it is, under a segment, as a single file, cut short, corrupted, with no header line and with lines of every shape the scan skips or refuses, each opened, scanned with keys it names and does not, with and without parsing and trusting its parts, and scanned again at marked places; and single files and heads that do not open."""
+    materialized = (
+        unit_cache.materialized_store(prior) if row_delta.read_head(prior, unit_cache.STORE_NAME) else None
+    )
+    header, lines = (
+        (materialized[0], list(materialized[1]))
+        if materialized
+        else (
+            {"format": unit_cache.STORE_FORMAT, "environment": environment.value},
+            [],
+        )
+    )
+    blank = (json.dumps(header) + "\n").encode()
+    stores: list[Path] = []
+    if materialized is not None:
+        stores.append(_scan_corpus(prior, _scan_case(scratch), index=False))
+        segmented = _scan_corpus(prior, _scan_case(scratch), index=False)
+        head = row_delta.read_head(segmented, unit_cache.STORE_NAME)
+        if head is not None and not head.segments and len(lines) >= 3:
+            rows = [
+                row_delta.Row(row_delta.UPSERT, (-1, "i"), lines[2]),
+                row_delta.Row(row_delta.TOMBSTONE, (1, ""), lines[1]),
+                row_delta.Row(row_delta.UPSERT, (2, ""), lines[0]),
+                row_delta.Row(row_delta.UPSERT, (2, "i"), lines[1]),
+            ]
+            part = row_delta.write_segment(segmented, unit_cache.STORE_NAME, head.generation, 1, rows)
+            row_delta.commit(segmented, row_delta.with_segment(head, part, head.stamps))
+            stores.append(segmented)
+        single = _scan_case(scratch)
+        unit_cache.write_materialized_store(single, header, lines)
+        stores.append(single)
+    whole = _gzip_lines([blank, *lines])
+    cut = _scan_case(scratch)
+    _store_under_head(cut, whole[: max(20, len(whole) * 2 // 3)], header)
+    stores.append(cut)
+    corrupt = _scan_case(scratch)
+    _store_under_head(corrupt, whole[:20] + bytes(byte ^ 0x55 for byte in whole[20:60]) + whole[60:], header)
+    stores.append(corrupt)
+    headless = _scan_case(scratch)
+    _store_under_head(headless, gzip.compress(b"", mtime=0), header)
+    stores.append(headless)
+    key = "ab" * 32
+    odd = _scan_case(scratch)
+    _store_under_head(
+        odd,
+        _gzip_lines(
+            [
+                blank,
+                b"not a record\n",
+                b'{"key": "' + key.upper().encode() + b'", "id": 1}\n',
+                b'{"key": "abc"}\n',
+                *lines[:1],
+                b'{"key": "' + key.encode() + b'", "id": 1}\n',
+                b'{"key": "' + key.encode() + b'"',
+            ]
+        ),
+        header,
+    )
+    stores.append(odd)
+    for line in (b"[1]\n", b"not json\n", b""):
+        bad = _scan_case(scratch)
+        (bad / unit_cache.STORE_NAME).write_bytes(gzip.compress(line, mtime=0))
+        stores.append(bad)
+    garbage = _scan_case(scratch)
+    (garbage / unit_cache.STORE_NAME).write_bytes(b"not gzip")
+    stores.append(garbage)
+    unparsed = _scan_case(scratch)
+    row_delta.head_path(unparsed, unit_cache.STORE_NAME).write_text("{", encoding="ascii")
+    stores.append(unparsed)
+    missing = _scan_case(scratch)
+    _store_under_head(missing, whole, header)
+    (missing / row_delta.base_name(unit_cache.STORE_NAME, 0)).unlink()
+    stores.append(missing)
+    resized = _scan_case(scratch)
+    _store_under_head(resized, whole, header)
+    with (resized / row_delta.base_name(unit_cache.STORE_NAME, 0)).open("ab") as handle:
+        handle.write(b"\0")
+    stores.append(resized)
+    named = [_key_of(line) for line in lines[:3] if line.startswith(unit_cache._KEY_PREFIX)]
+    keys = (*named, bytes.fromhex(key), b"\x11" * 32)
+    parts = header.get("parts")
+    recorded = tuple(sorted(parts)) if isinstance(parts, dict) else ()
+    column = bytearray(b"".join(keys))
+    index = columns.KeyIndex(column, audit.INPUT_KEY_BYTES, len(keys))
+    for store in stores:
+        files = _scan_files(store, blobs)
+        yield ("open", files), _scan_open_value(store)
+        for parse, trusted in ((True, recorded), (True, ()), (False, recorded)):
+            yield ("scan", files, keys, parse, trusted), _scan_with_open(
+                store,
+                lambda opened, parse=parse, trusted=trusted: _scanned_digest(
+                    _SCAN_STORE(opened, index, parse=parse, trusted=frozenset(trusted))
+                ),
+            )
+        for marked in ((0, 2, 1_000_000), (1, 0), ()):
+            yield ("marked", files, marked, recorded), _scan_with_open(
+                store,
+                lambda opened, marked=marked: _marked_digest(
+                    _SCAN_MARKED(opened, array("I", marked), frozenset(recorded))
+                ),
+            )
+
+
+def _scan_stamp_cases(
+    prior: Path, scratch: Path, blobs: Path, environment: fingerprint.EnvironmentStamp
+) -> Iterator[tuple[tuple, object]]:
+    """The stamp cases: the parts a store's stamps trust, under recorded sizes that hold, differ, name a missing part or are not a dict; the manifest's identity over manifests that are missing, do not parse or hold asset components; the unit store's miss note over no store, heads and single files that do not read, stamps that match and stamps that moved in each way a note names; whether a re-deriving label moved; and the single file's adoption."""
+    corpus = _scan_corpus(prior, _scan_case(scratch), store=False, index=False)
+    files = _scan_files(corpus, blobs)
+    parts = (
+        [path.relative_to(corpus).as_posix() for path in sorted((corpus / "units").glob("*.json"))]
+        if (corpus / "units").is_dir()
+        else []
+    )
+    sizes = {part: (corpus / part).stat().st_size for part in parts}
+    first = parts[0] if parts else "units/none.json"
+    for recorded in (
+        sizes,
+        {**sizes, first: sizes.get(first, 0) + 1},
+        {**sizes, "units/missing.json": 3},
+        {first: True},
+        {first: str(sizes.get(first, 0))},
+        [first],
+        None,
+        {},
+    ):
+        stamps = {"parts": recorded}
+        yield ("trusted", files, stamps), _scan_outcome(
+            lambda stamps=stamps: _TRUSTED_PARTS(corpus, stamps),
+            lambda trusted: ("trusted", tuple(sorted(trusted))),
+        )
+    yield ("manifest", files), _scan_outcome(lambda: _MANIFEST_STAMP(corpus))
+    for document in (
+        b'{"inputs_fingerprint": {"static": "s", "spec": "x"}, "classes": []}',
+        b'{"inputs_fingerprint": "s", "a": [1, {"b": null}]}',
+        b"[1, 2]",
+        b"\xef\xbb\xbf{}",
+        b"{",
+        None,
+    ):
+        manifest = _scan_case(scratch)
+        if document is not None:
+            (manifest / "manifest.json").write_bytes(document)
+        yield ("manifest", _scan_files(manifest, blobs)), _scan_outcome(
+            lambda manifest=manifest: _MANIFEST_STAMP(manifest)
+        )
+    identity = _MANIFEST_STAMP(corpus)
+    lines = list(environment.lines)
+    moved = (
+        _moved_line(lines, "corpus_code")
+        if any(line.startswith("corpus_code\t") for line in lines)
+        else lines
+    )
+    detail = {label: list(values) for label, values in environment.detail}
+    code = detail.get("corpus_code", [])
+    moved_code = _moved_line(code, code[0].partition("\t")[0]) if code else code
+    for stamps in (
+        {"format": unit_cache.STORE_FORMAT, "environment": environment.value, "manifest_sha256": identity},
+        {"format": unit_cache.STORE_FORMAT, "environment": environment.value, "manifest_sha256": "other"},
+        {"environment": environment.value},
+        {
+            "environment": "moved",
+            "environment_lines": moved,
+            "environment_detail": {**detail, "corpus_code": moved_code},
+        },
+        {"environment": "moved", "environment_lines": [*lines, "added\tx"], "environment_detail": "none"},
+        {"environment": "moved", "environment_lines": lines[1:]},
+        {"environment": "moved"},
+    ):
+        headed = _scan_case(scratch)
+        if (corpus / "manifest.json").is_file():
+            shutil.copyfile(corpus / "manifest.json", headed / "manifest.json")
+        _store_under_head(headed, _gzip_lines([(json.dumps(stamps) + "\n").encode()]), stamps)
+        yield ("miss-note", _scan_files(headed, blobs), _stamp_fields(environment)), _scan_outcome(
+            lambda headed=headed: _STORE_MISS_NOTE(headed, environment)
+        )
+        single = _scan_case(scratch)
+        (single / unit_cache.STORE_NAME).write_bytes(_gzip_lines([(json.dumps(stamps) + "\n").encode()]))
+        yield ("miss-note", _scan_files(single, blobs), _stamp_fields(environment)), _scan_outcome(
+            lambda single=single: _STORE_MISS_NOTE(single, environment)
+        )
+        yield ("rederiving", stamps, tuple(lines)), _REDERIVING_MOVED(stamps, environment)
+    for broken in ("head", "single", "none"):
+        directory = _scan_case(scratch)
+        if broken == "head":
+            row_delta.head_path(directory, unit_cache.STORE_NAME).write_text("{", encoding="ascii")
+        elif broken == "single":
+            (directory / unit_cache.STORE_NAME).write_bytes(b"not gzip")
+        yield ("miss-note", _scan_files(directory, blobs), _stamp_fields(environment)), _scan_outcome(
+            lambda directory=directory: _STORE_MISS_NOTE(directory, environment)
+        )
+    for label in unit_cache.REDERIVING_LABELS:
+        if any(line.startswith(f"{label}\t") for line in lines):
+            stamps = {"environment_lines": _moved_line(lines, label)}
+            yield ("rederiving", stamps, tuple(lines)), _REDERIVING_MOVED(stamps, environment)
+    for stamps in ({"environment_lines": "not a list"}, {"environment_lines": [1, None]}):
+        yield ("rederiving", stamps, tuple(lines)), _REDERIVING_MOVED(stamps, environment)
+    header = {"format": unit_cache.STORE_FORMAT, "environment": environment.value}
+    records = (b'{"key": "x"}\n', b"second\n")
+    for leftover in (False, True):
+        adopted = _scan_case(scratch)
+        unit_cache.write_materialized_store(adopted, header, records)
+        if leftover:
+            (adopted / row_delta.base_name(unit_cache.STORE_NAME, 3)).write_bytes(b"left over")
+            (adopted / row_delta.base_name(unit_cache.STORE_NAME, 0)).write_bytes(b"in the way")
+        inputs = ("adopt", _scan_files(adopted, blobs), header, len(records), sum(map(len, records)))
+        yield inputs, _scan_outcome(
+            lambda adopted=adopted: _ADOPT_SINGLE_FILE(adopted, header, len(records), sum(map(len, records))),
+            lambda head, adopted=adopted: (head.document(), _scan_entries(adopted)),
+        )
+
+
+def _fragment_text(fragment: Mapping[str, object]) -> bytes:
+    return json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2].encode()
+
+
+def _deflated_corpus(
+    directory: Path, *, inflated_off: int = 0, bad_key: bool = False
+) -> list[tuple[str, int]]:
+    """A corpus of one class whose unit store describes it: two plain fragments in its base part and one deflated in its overflow part, addressed by the store's records, the deflated one's inflated length off by `inflated_off` and, with `bad_key`, the second fragment's content key not in hex; return each fragment's class and id word."""
+    class_id = "c-one"
+    base, overflow = unit_index.base_part_names(class_id, 1)[0], unit_index.overflow_part_name(class_id, 0)
+    fragments = []
+    for number in range(3):
+        content_key = hashlib.sha256(f"fragment {number}".encode()).hexdigest()
+        unit_id = unit_cache.unit_id_for(content_key)
+        shown = "not hex" if bad_key and number == 1 else content_key
+        fragments.append({"id": unit_id, "class": class_id, "content_key": shown, "note": "·Pea"})
+    texts = [_fragment_text(fragment) for fragment in fragments]
+    plain = b"[" + texts[0] + b"," + texts[1] + unit_index.PART_CLOSING
+    deflated = unit_index.deflate_fragment(texts[2])
+    (directory / "units").mkdir()
+    (directory / base).write_bytes(plain)
+    (directory / overflow).write_bytes(b"[" + deflated + unit_index.PART_CLOSING)
+    (directory / "manifest.json").write_text(
+        json.dumps({"classes": [{"id": class_id, "shards": [base, overflow]}]}), encoding="ascii"
+    )
+    addresses = [
+        [base, 1, len(texts[0])],
+        [base, 2 + len(texts[0]), len(texts[1])],
+        [overflow, 1, len(deflated), len(texts[2]) + inflated_off],
+    ]
+    lines = []
+    for number, (fragment, address) in enumerate(zip(fragments, addresses)):
+        record = {
+            **_synthetic_record(),
+            "key": hashlib.sha256(f"key {number}".encode()).hexdigest(),
+            "id": fragment["id"],
+            "class": class_id,
+            "content_key": fragment["content_key"],
+            "address": address,
+        }
+        lines.append(_record_bytes(record))
+    unit_cache.write_store(directory, "e" * 64, lines, parts=[base, overflow])
+    return [(class_id, unit_cache.id_word(str(fragment["id"])) or 0) for fragment in fragments]
+
+
+def _wanted_from_store(corpus: Path) -> list[tuple[str, int]]:
+    """Each record of the corpus's store, by class and id word, as the scan would want it placed, beside a word no fragment has and a class no manifest names."""
+    materialized = unit_cache.materialized_store(corpus)
+    if materialized is None:
+        return []
+    wanted = []
+    for line in materialized[1]:
+        word = unit_cache.id_word(unit_index.record_id(line))
+        if word is not None:
+            wanted.append((unit_index.record_class(line), word))
+    if wanted:
+        wanted += [(wanted[0][0], 0), (wanted[0][0], (1 << 64) - 1), ("no-such-class", wanted[0][1])]
+    return wanted
+
+
+def _scan_locate_cases(prior: Path, scratch: Path, blobs: Path) -> Iterator[tuple[tuple, object]]:
+    """The walk's cases: the dump's prior corpus with every store record wanted, placed by its store, its index or its parts as each is taken away, by a store or an index that does not read, past a part that is not ASCII and over a fragment whose content key is not in hex; and a corpus whose deflated fragment only its store places, with that fragment's inflated length off and a content key that is not in hex."""
+    wanted = _wanted_from_store(prior)
+    corpora: list[tuple[Path, list[tuple[str, int]]]] = []
+    if wanted:
+        corpora.append((_scan_corpus(prior, _scan_case(scratch)), wanted))
+        corpora.append((_scan_corpus(prior, _scan_case(scratch), store=False), wanted))
+        corpora.append((_scan_corpus(prior, _scan_case(scratch), store=False, index=False), wanted))
+        unread_head = _scan_corpus(prior, _scan_case(scratch), store=False)
+        row_delta.head_path(unread_head, unit_cache.STORE_NAME).write_text("{", encoding="ascii")
+        corpora.append((unread_head, wanted))
+        refused = _scan_corpus(prior, _scan_case(scratch), store=False, index=False)
+        row_delta.head_path(refused, unit_cache.STORE_NAME).write_text("{", encoding="ascii")
+        corpora.append((refused, wanted))
+        unread_index = _scan_corpus(prior, _scan_case(scratch), store=False)
+        row_delta.head_path(unread_index, unit_index.INDEX_NAME).write_text("{", encoding="ascii")
+        corpora.append((unread_index, wanted))
+        no_manifest = _scan_corpus(prior, _scan_case(scratch))
+        (no_manifest / "manifest.json").unlink()
+        corpora.append((no_manifest, wanted))
+        shards = sorted((prior / "units").glob("*.json"))
+        if shards:
+            not_ascii = _scan_corpus(prior, _scan_case(scratch), store=False)
+            with (not_ascii / "units" / shards[0].name).open("ab") as handle:
+                handle.write(b"\x80")
+            corpora.append((not_ascii, wanted))
+            for raw_text in (shard.read_bytes() for shard in shards):
+                found = re.search(rb'"content_key": "([0-9a-f]{64})"', raw_text)
+                if found and raw_text.isascii():
+                    upper = _scan_corpus(prior, _scan_case(scratch), store=False, index=False)
+                    for shard in shards:
+                        data = shard.read_bytes()
+                        (upper / "units" / shard.name).write_bytes(
+                            data.replace(found.group(1), found.group(1).upper(), 1)
+                        )
+                    corpora.append((upper, wanted))
+                    break
+    for inflated_off, bad_key in ((0, False), (1, False), (0, True)):
+        synthetic = _scan_case(scratch)
+        corpora.append((synthetic, _deflated_corpus(synthetic, inflated_off=inflated_off, bad_key=bad_key)))
+        stripped = _scan_case(scratch)
+        stripped_wanted = _deflated_corpus(stripped, inflated_off=inflated_off, bad_key=bad_key)
+        for name in _store_files(stripped):
+            (stripped / name).unlink()
+        corpora.append((stripped, stripped_wanted))
+    loose = _scan_case(scratch)
+    (loose / "units").mkdir()
+    content_key = hashlib.sha256(b"loose").hexdigest()
+    unit_id = unit_cache.unit_id_for(content_key)
+    (loose / "units" / "c-two.json").write_text(
+        json.dumps(
+            [
+                1,
+                {"id": 5},
+                {"id": unit_id, "content_key": content_key},
+                {"id": unit_id, "content_key": content_key},
+            ]
+        ),
+        encoding="ascii",
+    )
+    (loose / "manifest.json").write_text(
+        json.dumps(
+            {"classes": [{"id": "c-two", "shard": "units/c-two.json"}, {"id": "c-three", "shards": []}]}
+        ),
+        encoding="ascii",
+    )
+    corpora.append((loose, [("c-two", unit_cache.id_word(unit_id) or 0), ("c-three", 1)]))
+    for corpus, entries in corpora:
+        holder = unit_cache.WantedFragments()
+        for class_id, word in entries:
+            holder.add(class_id, word)
+        inputs = ("locate", _scan_files(corpus, blobs), *_wanted_value(holder))
+        yield inputs, _scan_outcome(
+            lambda corpus=corpus, holder=holder: _LOCATE_PRIOR_FRAGMENTS(corpus, holder),
+            lambda located, holder=holder: _located_value(_wanted_value(holder), located),
+        )
+
+
+def _scan_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `scan` stage's generated lines, over the dump's prior corpus and corpora made from it and by hand (`_scan_store_cases`, `_scan_stamp_cases`, `_scan_locate_cases`), each keyed by a digest of its input, whose files are kept once under their sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`)."""
+    document = json.loads((source.out / BUILD_INPUT_FILE).read_text(encoding="ascii"))
+    stamp = document["environment"]
+    environment = fingerprint.EnvironmentStamp(
+        tuple(stamp["lines"]), tuple((label, tuple(lines)) for label, lines in stamp["detail"])
+    )
+    prior = source.out / DUMP_PRIOR
+    blobs = source.out / SCAN_BLOBS
+    with tempfile.TemporaryDirectory(prefix="scan-", dir=source.out) as held:
+        scratch = Path(held)
+        for inputs, value in chain(
+            _scan_store_cases(prior, scratch, blobs, environment),
+            _scan_stamp_cases(prior, scratch, blobs, environment),
+            _scan_locate_cases(prior, scratch, blobs),
+        ):
+            key = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+            yield {"key": f"generated:{key}", "input": inputs, "value": value}
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -11236,6 +11913,22 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         {f"unit_store.UnitStore.{method}": _unit_store_followed(method) for method in STORE_FOLLOWED},
         _store_load_generated,
         run="build",
+    ),
+    SCAN_STAGE: Stage(
+        SCAN_STAGE,
+        {
+            "unit_cache.open_store": _store_opened,
+            "unit_cache.scan_store": _store_scanned,
+            "unit_cache.scan_marked": _marked_scanned,
+            "unit_cache.locate_prior_fragments": _fragments_located,
+            "unit_cache.LocatedFragments.find": _fragment_found,
+            "unit_cache.store_miss_note": _scan_called(SCAN_MISS_NOTE_KEY, lambda note: note),
+            "unit_cache.rederiving_moved": _scan_called(SCAN_REDERIVING_KEY, lambda moved: moved),
+            "unit_cache.adopt_single_file": _scan_called(SCAN_ADOPT_KEY, lambda head: head.document()),
+        },
+        _scan_generated,
+        run="build",
+        kind="boundary",
     ),
 }
 
@@ -11440,6 +12133,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / SIGNATURE_STORE_BLOBS, ignore_errors=True)
     if any(stage.name == KEY_ONLY_STAGE for stage in stages):
         shutil.rmtree(out / KEY_ONLY_BLOBS, ignore_errors=True)
+    if any(stage.name == SCAN_STAGE for stage in stages):
+        shutil.rmtree(out / SCAN_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:

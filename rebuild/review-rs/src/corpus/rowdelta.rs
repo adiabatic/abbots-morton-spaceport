@@ -69,6 +69,8 @@ pub enum ReadError {
     Io(String),
     /// A value Python reads that the reader does not hold, which fails the Rust build.
     Unheld(String),
+    /// Another exception Python raises, by its class, which no reader's caller catches (a store base with no header line raises `RuntimeError` from its generator).
+    Raised(&'static str, String),
 }
 
 impl ReadError {
@@ -80,6 +82,7 @@ impl ReadError {
             Self::Gzip(failure) => failure.class(),
             Self::Io(_) => "OSError",
             Self::Unheld(_) => "Unheld",
+            Self::Raised(class, _) => class,
         }
     }
 
@@ -88,7 +91,8 @@ impl ReadError {
             Self::Head(message)
             | Self::Value(_, message)
             | Self::Io(message)
-            | Self::Unheld(message) => message,
+            | Self::Unheld(message)
+            | Self::Raised(_, message) => message,
             Self::Gzip(failure) => failure.message(),
         }
     }
@@ -97,7 +101,7 @@ impl ReadError {
         Self::Value("ValueError", message)
     }
 
-    fn of_io(failure: &io::Error) -> Self {
+    pub(crate) fn of_io(failure: &io::Error) -> Self {
         match GzipError::of(failure) {
             Some(gzip) => Self::Gzip(gzip.clone()),
             None => Self::Io(failure.to_string()),

@@ -2095,6 +2095,15 @@ impl ColumnDigest {
         self.add_typed(&value.to_typed());
     }
 
+    /// The sha256 of the values added, as hex.
+    pub(crate) fn hex(self) -> String {
+        self.digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    }
+
     pub(crate) fn write(self, out: &mut impl Write, name: &str) -> Result<()> {
         let digest: String = self
             .digest

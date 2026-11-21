@@ -84,7 +84,7 @@ fn failed(class: &str, message: impl fmt::Display) -> RecordError {
 
 // --- Python's operations on a value `json.loads` gives -------------------------------------------
 
-fn truthy(value: &PyValue) -> bool {
+pub(crate) fn truthy(value: &PyValue) -> bool {
     match value {
         PyValue::None => false,
         PyValue::Bool(flag) => *flag,
@@ -215,7 +215,7 @@ fn intern(value: &PyValue) -> Raised<String> {
 }
 
 /// Whether `hash(value)` returns, as pooling a tuple of it needs.
-fn hashable(value: &PyValue) -> Raised<()> {
+pub(crate) fn hashable(value: &PyValue) -> Raised<()> {
     match value {
         PyValue::List(_) | PyValue::Dict(_) | PyValue::Set(_) => Err(unreadable(
             "TypeError",
@@ -759,6 +759,23 @@ fn record_address(line: &[u8], held: &mut Held) -> Raised<Option<(String, i64, i
         None => 0,
     };
     Ok(Some((part, start, length, inflated)))
+}
+
+/// `unit_index.record_id`, as the live-fragment iterator slices a line it places by.
+pub(crate) fn line_id(line: &[u8]) -> Raised<String> {
+    record_id(line)
+}
+
+/// `unit_index.record_class`, as the live-fragment iterator slices a line it places by.
+pub(crate) fn line_class(line: &[u8]) -> Raised<PyValue> {
+    record_class(line)
+}
+
+/// `unit_index.record_address`, as the live-fragment iterator slices a line it places by.
+pub(crate) fn line_address(line: &[u8]) -> Raised<Option<(String, i64, i64, i64)>> {
+    let mut held = Held::default();
+    let address = record_address(line, &mut held)?;
+    held.finish(address)
 }
 
 fn sliced(line: &[u8], held: &mut Held) -> Raised<PriorRecord> {

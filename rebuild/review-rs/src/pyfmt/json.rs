@@ -2,7 +2,7 @@
 //!
 //! The writers cover every form the worker and the corpus build's parent write (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § JSON forms): `json.dumps(value)` ([`dumps`]), with `sort_keys=True` ([`dumps_sorted`], the carry projection whose sha256 is a unit's content key, and `manifest_sha256`), with `indent=1` ([`dumps_indent`], `manifest.json` and the row-delta heads), with `ensure_ascii=False` ([`dumps_unicode`], the index and app lines), with `separators=(",", ":")` ([`dumps_compact`], `review-facts.json`), and a fragment's shard bytes, `json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]` ([`fragment_text`]). A tuple is written as a list, as `json` writes one. A dict key must be a `str`: one `json` would stringify (an int, a bool, None) is refused, as are bytes, a set and a record, which `json` refuses; there is no float to write.
 //!
-//! The reader ([`loads`] for a `str`, [`loads_bytes`] for `bytes`) reads what `json.loads` reads into the value it gives: an object as a dict whose repeated key keeps its first place and its last value, an array as a list, and an int as an int. It refuses what `json.loads` refuses, and what `json.loads` reads but the value model cannot hold or the plan's § Reading what Python wrote has the Rust build refuse: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, a lone surrogate, escaped or in the bytes, and text `json.detect_encoding` takes for UTF-16 or UTF-32. Such a refusal names [`UNHELD`], so [`unheld`] tells it from one Python makes too: the reader reads on past a value it cannot hold and refuses it only when the rest of the text reads, so a text Python refuses anywhere is never taken for one it reads.
+//! The reader ([`loads`] for a `str`, [`loads_bytes`] for `bytes`, and [`raw_decode`] for one value inside a `str`, as a shard part's walk reads its elements) reads what `json.loads` reads into the value it gives: an object as a dict whose repeated key keeps its first place and its last value, an array as a list, and an int as an int. It refuses what `json.loads` refuses, and what `json.loads` reads but the value model cannot hold or the plan's § Reading what Python wrote has the Rust build refuse: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, a lone surrogate, escaped or in the bytes, and text `json.detect_encoding` takes for UTF-16 or UTF-32. Such a refusal names [`UNHELD`], so [`unheld`] tells it from one Python makes too: the reader reads on past a value it cannot hold and refuses it only when the rest of the text reads, so a text Python refuses anywhere is never taken for one it reads.
 
 use super::{INT_MAX_STR_DIGITS, PyFmtError, PyValue, int_digits_exceeded};
 
@@ -234,6 +234,17 @@ pub fn loads_bytes(data: &[u8]) -> Result<PyValue, PyFmtError> {
         reader.unheld = Some(format!("the JSON text holds a lone surrogate, {UNHELD}"));
     }
     reader.document()
+}
+
+/// `json.JSONDecoder().raw_decode(text, at)`: the one value that starts at byte `at` of `text`, with no whitespace skipped before it, and the byte it ends at; what follows it is not read.
+pub fn raw_decode(text: &str, at: usize) -> Result<(PyValue, usize), PyFmtError> {
+    let mut reader = Reader::new(text);
+    reader.at = at;
+    let value = reader.value()?;
+    match reader.unheld.take() {
+        Some(unheld) => Err(PyFmtError(unheld)),
+        None => Ok((value, reader.at)),
+    }
 }
 
 /// `data.decode(encoding, "surrogatepass")` for the encoding `json.detect_encoding` names, with U+FFFD standing in for each lone surrogate `surrogatepass` lets through, and whether there was one. Bytes the codec refuses are refused, as Python refuses them.

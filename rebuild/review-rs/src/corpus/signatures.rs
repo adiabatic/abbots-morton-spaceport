@@ -203,19 +203,19 @@ fn entry(line: &[u8; LINE_BYTES]) -> Option<(u64, [u8; 32])> {
     Some((key, digest))
 }
 
-fn get<'a>(entries: &'a [(PyValue, PyValue)], name: &str) -> Option<&'a PyValue> {
+pub(crate) fn get<'a>(entries: &'a [(PyValue, PyValue)], name: &str) -> Option<&'a PyValue> {
     entries.iter().find_map(|(key, value)| match key {
         PyValue::Str(key) if key == name => Some(value),
         _ => None,
     })
 }
 
-fn is_str(value: Option<&PyValue>, text: &str) -> bool {
+pub(crate) fn is_str(value: Option<&PyValue>, text: &str) -> bool {
     matches!(value, Some(PyValue::Str(held)) if held == text)
 }
 
 /// Whether a value Python's `==` holds equal to the int `value`: an equal int, or the bool of that int.
-fn int_equal(held: &PyValue, value: i64) -> bool {
+pub(crate) fn int_equal(held: &PyValue, value: i64) -> bool {
     match held {
         PyValue::Int(held) => *held == value,
         PyValue::Bool(flag) => i64::from(*flag) == value,
@@ -510,7 +510,7 @@ pub fn write_signature_arrays(
 }
 
 /// The store's header as `unit_cache.read_header` reads it: its first line parsed, None when it does not read or is not a dict.
-fn read_header(path: &Path) -> Read<Option<Vec<(PyValue, PyValue)>>> {
+pub(crate) fn read_header(path: &Path) -> Read<Option<Vec<(PyValue, PyValue)>>> {
     let Ok(file) = File::open(path) else {
         return Ok(None);
     };
@@ -522,7 +522,7 @@ fn read_header(path: &Path) -> Read<Option<Vec<(PyValue, PyValue)>>> {
 }
 
 /// `label\tdigest` lines as a label's digest by label, a later line with one label taking it (`fingerprint._labels_of`).
-fn labels_of<S: AsRef<str>>(lines: &[S]) -> HashMap<String, String> {
+pub(crate) fn labels_of<S: AsRef<str>>(lines: &[S]) -> HashMap<String, String> {
     lines
         .iter()
         .map(|line| {
@@ -536,7 +536,7 @@ fn labels_of<S: AsRef<str>>(lines: &[S]) -> HashMap<String, String> {
 }
 
 /// A header's recorded lines as labels (`unit_cache._recorded_labels`): None unless a list, each item taken as `str` takes it.
-fn recorded_labels(lines: Option<&PyValue>) -> Option<HashMap<String, String>> {
+pub(crate) fn recorded_labels(lines: Option<&PyValue>) -> Option<HashMap<String, String>> {
     let Some(PyValue::List(lines)) = lines else {
         return None;
     };
@@ -601,39 +601,62 @@ pub fn signature_miss_note(
     if !path.is_file() {
         return Ok(Some(names.no_store.clone()));
     }
-    let Some(entries) = read_header(&path)? else {
-        return Ok(Some(names.unreadable.clone()));
-    };
-    if is_str(get(&entries, "environment"), &environment.value) {
-        return Ok(None);
-    }
-    let Some(recorded) = recorded_labels(get(&entries, "environment_lines")) else {
-        return Ok(Some("the stamp moved".to_owned()));
-    };
-    let recorded_code = match get(&entries, "environment_detail") {
-        Some(PyValue::Dict(detail)) => recorded_labels(get(detail, CODE_LABEL)),
-        _ => None,
-    };
-    let current_code = environment
-        .detail
-        .iter()
-        .find(|(label, _)| label == CODE_LABEL)
-        .map(|(_, lines)| labels_of(lines))
-        .unwrap_or_default();
-    let code_note = recorded_code
-        .map(|recorded_code| moved_note(&recorded_code, &current_code, CODE_FILES_SHOWN, None));
-    let expand = code_note.as_ref().map(|note| (CODE_LABEL, note.as_deref()));
-    Ok(Some(
-        match moved_note(
-            &recorded,
-            &labels_of(&environment.lines),
-            LABELS_SHOWN,
-            expand,
-        ) {
-            Some(moved) => format!("the stamp moved at {moved}"),
-            None => "the stamp moved".to_owned(),
-        },
+    let header = read_header(&path)?;
+    Ok(miss_note(
+        header.as_deref(),
+        environment,
+        CODE_LABEL,
+        None,
+        &names.unreadable,
     ))
+}
+
+/// Why a load of a store whose header, or head's stamps, is `header` fails under `environment`, as `unit_cache._miss_note` says it: `unreadable` for no header, a stamp that moved, named through its lines with `code_label`'s per-file lines expanded, and, where `manifest` names the manifest's identity and its note, that note for a header stamped for another manifest; None when everything checked matches.
+pub(crate) fn miss_note(
+    header: Option<&[(PyValue, PyValue)]>,
+    environment: &Stamp,
+    code_label: &str,
+    manifest: Option<(&str, &str)>,
+    unreadable: &str,
+) -> Option<String> {
+    let Some(entries) = header else {
+        return Some(unreadable.to_owned());
+    };
+    if !is_str(get(entries, "environment"), &environment.value) {
+        let Some(recorded) = recorded_labels(get(entries, "environment_lines")) else {
+            return Some("the stamp moved".to_owned());
+        };
+        let recorded_code = match get(entries, "environment_detail") {
+            Some(PyValue::Dict(detail)) => recorded_labels(get(detail, code_label)),
+            _ => None,
+        };
+        let current_code = environment
+            .detail
+            .iter()
+            .find(|(label, _)| label == code_label)
+            .map(|(_, lines)| labels_of(lines))
+            .unwrap_or_default();
+        let code_note = recorded_code
+            .map(|recorded_code| moved_note(&recorded_code, &current_code, CODE_FILES_SHOWN, None));
+        let expand = code_note.as_ref().map(|note| (code_label, note.as_deref()));
+        return Some(
+            match moved_note(
+                &recorded,
+                &labels_of(&environment.lines),
+                LABELS_SHOWN,
+                expand,
+            ) {
+                Some(moved) => format!("the stamp moved at {moved}"),
+                None => "the stamp moved".to_owned(),
+            },
+        );
+    }
+    match manifest {
+        Some((stamp, moved)) if !is_str(get(entries, "manifest_sha256"), stamp) => {
+            Some(moved.to_owned())
+        }
+        _ => None,
+    }
 }
 
 fn fail(what: &str, failure: impl std::fmt::Display) -> WireError {
