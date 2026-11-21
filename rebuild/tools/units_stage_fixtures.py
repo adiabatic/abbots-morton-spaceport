@@ -24,7 +24,8 @@ The build's stages (`BUILD_STAGES`):
 - `load` is a boundary stage that records what the build's load gives the plan (`build._load_corpus`, `_corpus_loaded`), as `load_boundary` lays it out: a unit a merged unit in load order as the `workload` stage holds it, a column over the pre-merge snapshot's rows, and lines for the source the load took, the key-only read's facts, the ink-signature store's counts and new lines, the stamps, the signature stamp, the merge's stats, the held audit's parts and the console lines the load printed, read from standard error while it ran.
 - `store-records` records each unit store record the build parses, writes and slices, and each call it makes on a record's key or id, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `parsed`, each `unit_cache._parsed_cached_unit` call, with the record and the parts it trusts, valued `("parsed", record)`, `("unheld",)` for a record holding a type `CachedUnit.to_record` never writes (`_parsed_held`), or, for a generated record, `("raised", kind)`, `unreadable` for what `unit_cache.StoreUnreadable` wraps and `failed` for what fails the build (`_parsed_outcome`); `record-line`, each `unit_cache.record_line` call, with its `CachedUnit` and the line; `prior-record`, each `unit_cache.prior_record_or_none` call, with the line and the `PriorRecord`, None or `("unheld",)` (`_prior_value`); `named`, each `unit_cache.named_ordinal` call, with the line and the key it names, read by the same function over `_KeyProbe` in place of the build's index; and `id-word`, `primary-units-crc` and `content-id`, each `unit_cache.id_word`, `primary_units_crc` and `is_content_id` call, with its argument and what it gave. Its generated lines (`_store_records_generated`) parse, write, slice and name a synthetic record (`_synthetic_record`) and a sample of the dump's prior store (`_sampled_records`), put each form to its edges over the synthetic record (`_parsed_edges`, `_record_line_edges`, `_prior_record_edges`, `_named_edges`), and put ids, primary units and values to the edges of the three calls.
 - `store-load` follows each `unit_store.UnitStore` the build makes from its making (`_unit_store_followed`), each call a line keyed by the store's name, `run:store:<serial>`, and the call's place: `new` with its size and the input-key column it takes, then each call `STORE_FOLLOWED` names, the loads (`load_projection`, its projection as `_projection_value` lays it out, and `load_cached`), the prior records and their seal, the prior lines, the input-key index and the setters the whole-corpus passes and the write call, each with its arguments, valued what `_unit_store_after` reads of the store after it: a load's row and every accessor that takes only the ordinal (`_store_reading`), a setter's field read back. Its generated lines (`_store_load_generated`) replay each store the build made into a store of their own, checking every value against the build's, and continue the trace of each one whose rows were all loaded (`_store_script`): the id index and every id's ordinal, every row read, and its record line, `cached_as_is` and `predicted_unchanged` asked under its own fields and changed ones (`_patched_cases`), some rows' fields set and read again, the store emptied and each setter's refusal; then generated stores (`_store_cases`) load projections and records of every shape, put each refusal of a load to its text and each column to its width at both ends (`_projection_refusals`), and refuse a repeated id, a short input-key column and a repeated input key.
-- `scan` is a boundary stage that records the plan's reads of the prior unit store, each where the build makes it: from `unit_cache.open_store`, the store as it opened under `open`, `("none",)` or `("opened", stamps, head)` with the head's document (`_store_opened`); from `unit_cache.scan_store`, walked again over handles of its own before the build reads a line (`_store_scanned`, `_reopened`), a unit a line in the store's materialized order, its place, the ordinal whose input key it names, its parsed record and the sha256 of its bytes (`_scanned_value`), and the `scan` line, whether it parses named lines, the parts it trusts and how it ended (`_scan_failure`); from `unit_cache.locate_prior_fragments`, the wanted records and where the walk placed them under `locate` (`_located_value`, id words as `%016x`); from `unit_cache.scan_marked`, scanned again before it runs, a `marked:<place>` line a record it parses and the `marked` line; from `unit_cache.LocatedFragments.find`, each placement the plan looks up under `find:` and the class and id; and from `unit_cache.store_miss_note`, `rederiving_moved` and `adopt_single_file`, the note, the decision and the head's document. Its generated lines (`_scan_generated`) open, scan and scan again at marked places the dump's prior store and stores made from it, under a segment, as a single file, cut short, corrupted, with no header line and with lines of every shape the scan skips or refuses, and heads and single files that do not open (`_scan_store_cases`); ask which parts recorded sizes trust, the manifest's identity over manifests of every kind, the miss note over stamps that match and that moved in each way it names, whether a re-deriving label moved, and adopt single files (`_scan_stamp_cases`); and walk the prior corpus with every store record wanted, through its store, its index and its parts as each is taken away or does not read, and a corpus whose deflated fragment only its store places (`_scan_locate_cases`). Every file is kept once under its sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`).
+- `scan` is a boundary stage that records the plan's reads of the prior unit store, each where the build makes it: from `unit_cache.open_store`, the store as it opened under `open`, `("none",)` or `("opened", stamps, head)` with the head's document (`_store_opened`); from `unit_cache.scan_store`, walked again over handles of its own before the build reads a line (`_store_scanned`, `_reopened`), a unit a line in the store's materialized order, its place, the ordinal whose input key it names, its parsed record and the sha256 of its bytes (`_scanned_value`), and the `scan` line, whether it parses named lines, the parts it trusts and how it ended (`_scan_failure`); from `unit_cache.locate_prior_fragments`, the wanted records and where the walk placed them under `locate` (`_located_value`, id words as `%016x`); from `unit_cache.scan_marked`, scanned again before it runs, a `marked:<place>` line a record it parses and the `marked` line; from `unit_cache.LocatedFragments.find`, each placement the plan looks up under `find:` and the class and id; and from `unit_cache.store_miss_note`, `rederiving_moved` and `adopt_single_file`, the note, the decision and the head's document. Its generated lines (`_scan_generated`), on the mini only, open, scan and scan again at marked places the dump's prior store and stores made from it, under a segment, as a single file, cut short, corrupted, with no header line and with lines of every shape the scan skips or refuses, and heads and single files that do not open (`_scan_store_cases`); ask which parts recorded sizes trust, the manifest's identity over manifests of every kind, the miss note over stamps that match and that moved in each way it names, whether a re-deriving label moved, and adopt single files (`_scan_stamp_cases`); and walk the prior corpus with every store record wanted, through its store, its index and its parts as each is taken away or does not read, and a corpus whose deflated fragment only its store places (`_scan_locate_cases`). Every file is kept once under its sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`).
+- `plan` is a boundary stage that records what the plan gives the units phase, from `build._build_m1`'s locals as the plan's line is printed (`build._phase_timing`, `_plan_timed`), as `plan_boundary` lays it out: a unit a row of the unit store as the `store-load` stage reads one, a column over the prior records the store keeps by id and one over the recomputed ordinals, and lines for the store plan, the prior shards, the count reused, the verification sample with the units materialized for it, the plan's note and the console lines the plan printed, read from standard error between the load's line and the plan's.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3867,6 +3868,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
             "set_config_note",
         )
     },
+    "build._phase_timing": ("rebuild.review.build", "_phase_timing"),
 }
 
 
@@ -9367,17 +9369,8 @@ def _workload_ids(table: UnitTable, ordinal: int) -> tuple:
 
 def _workload_unit(table: UnitTable, keys: bytearray, ordinal: int) -> tuple:
     """A unit as the `workload` boundary holds it: the unit `UnitTable.unit` materializes without a store, as a record of `audit.Unit`'s fields in their order but `ink_deltas`, its config classes as a dict in their order; whether it is live, its survivor and its config rank; its row of the id columns (`_workload_ids`); and its input key as hex."""
-    unit = table.unit(ordinal)
     return (
-        Record(
-            "Unit",
-            tuple(
-                (item.name, dict(value.items()) if item.name == "config_classes" else value)
-                for item in dataclasses.fields(unit)
-                if item.name != "ink_deltas"
-                for value in (getattr(unit, item.name),)
-            ),
-        ),
+        _unit_value(table.unit(ordinal)),
         table.live(ordinal),
         table.survivor(ordinal),
         table.config_rank(ordinal),
@@ -11719,7 +11712,9 @@ def _scan_locate_cases(prior: Path, scratch: Path, blobs: Path) -> Iterator[tupl
 
 
 def _scan_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
-    """The `scan` stage's generated lines, over the dump's prior corpus and corpora made from it and by hand (`_scan_store_cases`, `_scan_stamp_cases`, `_scan_locate_cases`), each keyed by a digest of its input, whose files are kept once under their sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`)."""
+    """The `scan` stage's generated lines, over the dump's prior corpus and corpora made from it and by hand (`_scan_store_cases`, `_scan_stamp_cases`, `_scan_locate_cases`), each keyed by a digest of its input, whose files are kept once under their sha256 in `scan.blobs/` beside the stage file (`SCAN_BLOBS`). A live dump has none, since each case copies the prior corpus and keeps its files."""
+    if source.scenario.source != "mini":
+        return
     document = json.loads((source.out / BUILD_INPUT_FILE).read_text(encoding="ascii"))
     stamp = document["environment"]
     environment = fingerprint.EnvironmentStamp(
@@ -11736,6 +11731,109 @@ def _scan_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
         ):
             key = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
             yield {"key": f"generated:{key}", "input": inputs, "value": value}
+
+
+PLAN_STAGE = "plan"
+# The labels of the load's and the plan's `[t]` lines, which `build._build_m1` passes `build._phase_timing`.
+_LOAD_PHASE = "review.build load"
+_PLAN_PHASE = "review.build plan"
+# The keys of the `plan` stage's lines beside its units and their column: the column of the prior records the store keeps by id, the recomputed ordinals' column, the store plan, the prior shards, the count reused, the verification sample, the plan's note and the console lines the plan printed.
+PLAN_PRIOR_RECORDS = "prior-records"
+PLAN_RECOMPUTED = "recomputed"
+PLAN_STORE_PLAN_KEY = "store-plan"
+PLAN_PRIOR_SHARDS_KEY = "prior-shards"
+PLAN_CACHED_KEY = "cached"
+PLAN_SAMPLE_KEY = "sample"
+PLAN_NOTE_KEY = "note"
+PLAN_CONSOLE_KEY = "console"
+_PHASE_TIMING = inspect.signature(build._phase_timing)
+
+
+def _unit_value(unit: Unit) -> Record:
+    """A materialized unit as the build stages hold it: a record of `audit.Unit`'s fields in their order but `ink_deltas`, its config classes as a dict in their order."""
+    return Record(
+        "Unit",
+        tuple(
+            (item.name, dict(value.items()) if item.name == "config_classes" else value)
+            for item in dataclasses.fields(unit)
+            if item.name != "ink_deltas"
+            for value in (getattr(unit, item.name),)
+        ),
+    )
+
+
+def plan_boundary(held: Mapping[str, Any], note: str, printed: Sequence[str]) -> Boundary:
+    """The `plan` boundary over `build._build_m1`'s locals as the plan's line is printed (`held`): a unit a row of the unit store as the `store-load` stage reads one (`_store_reading`); a column over the prior records the store keeps by id (`_sealed_records`) and one over the recomputed ordinals; the store plan, its head as its document; the prior shards, each dict as its sorted items, or None; the count of units reused; the verification sample, its ordinals and the units materialized for it (`_unit_value`); the plan's note; and the console lines `printed` while the plan ran, its `[t]` line not among them."""
+    store: UnitStore = held["store"]
+    store_plan: unit_cache.StorePlan = held["store_plan"]
+    prior_shards: build.PriorShards | None = held["prior_shards"]
+    return Boundary(
+        store.n,
+        {"value": functools.partial(_store_reading, store)},
+        [
+            column_line(PLAN_PRIOR_RECORDS, _sealed_records(store)),
+            column_line(PLAN_RECOMPUTED, held["recomputed"]),
+            {
+                "key": PLAN_STORE_PLAN_KEY,
+                "value": (
+                    store_plan.existed,
+                    store_plan.readable,
+                    None if store_plan.head is None else store_plan.head.document(),
+                    store_plan.lines,
+                    store_plan.rows_bytes,
+                    store_plan.rederived,
+                ),
+            },
+            {
+                "key": PLAN_PRIOR_SHARDS_KEY,
+                "value": (
+                    None
+                    if prior_shards is None
+                    else (tuple(sorted(prior_shards.sizes.items())), tuple(sorted(prior_shards.live.items())))
+                ),
+            },
+            {"key": PLAN_CACHED_KEY, "value": held["cached_count"]},
+            {
+                "key": PLAN_SAMPLE_KEY,
+                "value": (tuple(held["sampled_ordinals"]), tuple(map(_unit_value, held["verify_units"]))),
+            },
+            {"key": PLAN_NOTE_KEY, "value": note},
+            {"key": PLAN_CONSOLE_KEY, "value": list(printed)},
+        ],
+    )
+
+
+# The console the plan prints to while the `plan` stage records it: standard error held from the end of the load's line to the start of the plan's.
+_plan_console: list[_Printed] = []
+
+
+def _build_locals() -> Mapping[str, Any]:
+    """The locals of the `build._build_m1` frame the hooked call was made from."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code is not build._build_m1.__code__:
+        frame = frame.f_back
+    assert frame is not None, "the plan's line is printed by build._build_m1"
+    return frame.f_locals
+
+
+def _plan_timed(args: tuple, kwargs: dict) -> Finisher | None:
+    """A `build._phase_timing` call recorded for the `plan` boundary. Once the load's line is printed, standard error is held (`_Printed`); the plan's line, before it prints, ends the hold and records the boundary over `build._build_m1`'s locals (`plan_boundary`) with the note and the lines held. Every other phase's line records nothing."""
+    arguments = _PHASE_TIMING.bind(*args, **kwargs).arguments
+    if arguments["label"] == _LOAD_PHASE:
+
+        def hold(_result: object) -> None:
+            printed = _Printed(sys.stderr)
+            sys.stderr = printed
+            _plan_console[:] = [printed]
+
+        return hold
+    if arguments["label"] != _PLAN_PHASE:
+        return None
+    (printed,) = _plan_console
+    _plan_console.clear()
+    sys.stderr = printed.through
+    boundary = plan_boundary(_build_locals(), arguments["note"], printed.lines())
+    return lambda _result: boundary
 
 
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
@@ -11930,6 +12028,7 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         run="build",
         kind="boundary",
     ),
+    PLAN_STAGE: Stage(PLAN_STAGE, {"build._phase_timing": _plan_timed}, run="build", kind="boundary"),
 }
 
 

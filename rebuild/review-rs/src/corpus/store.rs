@@ -2010,8 +2010,27 @@ fn written_value(store: &UnitStore, ordinal: usize) -> PyValue {
     ])
 }
 
+/// The store's kept prior records in its order, as `units_stage_fixtures._sealed_records` holds them: each one's id word as 16 hex digits, its part, start, length, inflated length, class, duplicate group, flag bits and primary units' CRC-32.
+pub(crate) fn sealed_records(store: &UnitStore) -> impl Iterator<Item = PyValue> + '_ {
+    store.prior_records().map(
+        |(word, part, start, length, inflated, class, group, bits, units)| {
+            tuple(vec![
+                PyValue::str(format!("{word:016x}")),
+                PyValue::str(part),
+                int(start),
+                int(length),
+                int(inflated),
+                PyValue::str(class),
+                optional_text(group),
+                int(bits),
+                int(units),
+            ])
+        },
+    )
+}
+
 /// What the stage reads of one row after a call: every accessor that takes only the ordinal, by name, in the order `units_stage_fixtures._store_reading` reads them.
-fn reading(store: &UnitStore, ordinal: usize) -> PyValue {
+pub(crate) fn reading(store: &UnitStore, ordinal: usize) -> PyValue {
     let (ink, picture, junior) = store.machine_flags(ordinal);
     let fields: Vec<(&str, PyValue)> = vec![
         ("loaded", PyValue::Bool(store.loaded(ordinal))),
@@ -2528,25 +2547,10 @@ fn answer(
         ),
         ("seal", []) => {
             store.seal_prior_records();
-            let records = store
-                .prior_records()
-                .map(
-                    |(word, part, start, length, inflated, class, group, bits, units)| {
-                        tuple(vec![
-                            PyValue::str(format!("{word:016x}")),
-                            PyValue::str(part),
-                            int(start),
-                            int(length),
-                            int(inflated),
-                            PyValue::str(class),
-                            optional_text(group),
-                            int(bits),
-                            int(units),
-                        ])
-                    },
-                )
-                .collect();
-            tuple(vec![PyValue::str("sealed"), PyValue::List(records)])
+            tuple(vec![
+                PyValue::str("sealed"),
+                PyValue::List(sealed_records(store).collect()),
+            ])
         }
         ("set-prior-line", [ordinal, line]) => {
             let row = row_of(store, ordinal, key)?;
