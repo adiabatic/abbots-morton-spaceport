@@ -15,6 +15,7 @@ The build's stages (`BUILD_STAGES`):
 - `stream` is a boundary stage that walks the audit again in lockstep (`audit_stream.lockstep`) over the descriptors, sections and family keys of the build's stream (`_stream_walked`, hooked where `build` imports `stream_workload`), a window a unit (`WalkedBoundary`): its record under `value` (`_stream_record`: the window, its rows as the walk yields them, its family lines, whether it holds siblings, each row's signature key as `%016x` and the input key of its lines in order), and how the walk ended under `end`, `("done",)` or `("raised", class, message)` for an `OrderBreak` or a `MemberError`; and, when the build runs its key-only read, that read's `audit_stream.window_ranges` call under `ranges` (`_ranges_split`): its count and each range with its walk, the windows it holds, the sha256 of their `(window, rows)` entries and how it ended (`_walk_digest`). Its generated lines (`_stream_generated`) are keyed by a digest of their input, each part's blob with its member index, the sections `audit.audit_layout` finds over them and the counts `STREAM_SPLITS`, and valued every window's record, how the walk ended, and the ranges each count splits the windows into with each range's walk, or what the split raised; every part's bytes are kept once under their sha256 in `stream.blobs/` beside the stage file (`STREAM_BLOBS`). They walk `audit-layout`'s generated audits that are in sorted sections, the stream's own (`_stream_plain_cases`: windows shared across configurations with and without siblings, every kind of break inside a section, windows that are not canonical, and a section past `audit_stream.READ_BYTES`; `_stream_head_cases`: segments that supersede, remove, revive and add rows, unknown configurations across parts, segment lines of every refused kind, a segment section past `audit_stream.SEGMENT_READ_BYTES`, member sections that break or fail, and a base held as members past a read), and two audits whose last section runs past its part (`_stream_truncated`).
 - `signature-store` records the ink-signature store as the build loads, follows and writes it, each line keyed by its origin, its `form` and a digest of its `input`: `load`, each `unit_cache.SignatureArrays.load` call, with what the store's path held (`("missing",)`, `("directory",)` or `("file", sha256)`) and the stamp's value, valued `("none",)` or `("columns", count, keys, digests, header)` with the sha256 of the keys as 8-byte big-endian words and of the digests (`_store_columns`); `miss-note`, each `unit_cache.signature_miss_note` call, with what the path held and the stamp's value, lines and detail, valued `("note", note)`; `trace`, a store the stage follows from its making (`SignatureArrays()` or a load) through every call on it the stage names (`SIGNATURE_CALLS`, nested calls among them), recorded at each `unchanged`, with its origin and its calls, keys and digests as hex, valued the calls' results and its new lines' count and sha256 (`_store_lines`); and `write`, each `unit_cache.write_signature_arrays` call, on a pooled build's write thread or inline, with the store's trace up to its last `unchanged`, the stamp's header fields (`unit_cache._stamp_header`), the stamps and what the store's path and its staging file held, valued `("written", target, staging)` with what each holds after. Every store's bytes are kept once under their sha256 in `signature-store.blobs/` beside the stage file (`SIGNATURE_STORE_BLOBS`). Its generated lines (`_signature_store_generated`) load stores Python writes, short and past one read of the body, headers of every kind the load drops or passes, bodies of every kind of line it drops and gzip files it reads, drops or raises on (`_signature_load_cases`); note stores missing, unreadable, matching and moved in each of the ways a stamp's lines and detail record (`_signature_note_cases`); trace every call's cases, the merge of hits, misses and late misses and the stamps' `==` (`_signature_traces`); and write stores under a stamp with its lines and a bare value, with stamps and without, stamps that take the header's own keys, a staging file left behind, an empty store and one past the gzip writer's buffer (`_signature_writes`).
 - `signature` records each ink signature the build shapes, keyed by its origin, its `form` and a digest of its `input` (`_shaped_line`): `pair`, each `(text, configuration)` pair a `build._shape_misses` call shapes, serially or on its pool, and `late`, each `(window, configuration)` a `build._LateShaper` call shapes rather than finds in the store, with the signature `ink.InkComparator.signature` gives, shaped again by the recorder over the call's fonts, as its `signature` and the digest the build gave, which must be that signature's `ink.signature_digest`, as its `value`. Its generated lines (`_signature_generated`) are every window of the source's audit (`_source_windows`) under each of `ACCEPTANCE_CONFIGS`, as the form `window`, shaped over the dump's units init's before and after fonts.
+- `key-only` is a boundary stage that records the load's signature resolution where the build makes it: from `build._find_misses` (`_misses_found`), a unit a miss, `(key, section, window)` with the key as `%016x`, in miss order, the hit prior entries' positions as the `column:hits` line (`_hit_positions`), and the read under `read`, `("ran", processes, break)` or `("skipped",)` when the store's stamps held (`_read_value`); from `build._shape_found_misses` (`_found_misses_shaped`), the misses' digests in miss order as the `column:digest` line, read from the store's shaped misses (`_miss_digest`), and their count under `shaped`; and from `build._LateShaper.release` (`_late_released`), under `late`, the late shaper's count with the store's hits, misses and unhit entries and its new lines' count and sha256 once the stream has looked every row up (`_late_value`). Its generated lines (`_key_only_generated`) take the prior store the build would load with every other entry dropped, once with its stamps set to the build's, so the read is skipped and the late shaper shapes what the store lacks, and once with its audit identity moved, so the read runs with hits and misses; each is kept under its sha256 in `key-only.blobs/` beside the stage file (`KEY_ONLY_BLOBS`) and valued the same resolution as one tuple, each column as its count and sha256 (`_key_only_resolved`, which walks the audit as the stream asks for digests, `_late_walk`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -63,6 +64,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import contextlib
 import copy
@@ -433,14 +435,20 @@ def column_entry(value: object) -> bytes:
     return compact(encode(value)).encode("ascii") + b"\n"
 
 
-def column_line(name: str, values: Iterable[object]) -> dict[str, object]:
-    """A boundary stage's line for one column, under `column:<name>`: how many values it holds and the sha256 of its canonical bytes, each value's `column_entry`, in the column's order. The Rust side digests its column the same way."""
+def column_digest(values: Iterable[object]) -> tuple[int, str]:
+    """How many values a column holds and the sha256 of its canonical bytes, each value's `column_entry`, in the column's order."""
     digest = hashlib.sha256()
     count = 0
     for value in values:
         digest.update(column_entry(value))
         count += 1
-    return {"key": f"column:{name}", "values": count, "sha256": digest.hexdigest()}
+    return count, digest.hexdigest()
+
+
+def column_line(name: str, values: Iterable[object]) -> dict[str, object]:
+    """A boundary stage's line for one column, under `column:<name>`, with its count and digest (`column_digest`). The Rust side digests its column the same way."""
+    count, digest = column_digest(values)
+    return {"key": f"column:{name}", "values": count, "sha256": digest}
 
 
 @dataclass(frozen=True)
@@ -3780,6 +3788,9 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "unit_cache.signature_miss_note": ("rebuild.review.unit_cache", "signature_miss_note"),
     "build._shape_misses": ("rebuild.review.build", "_shape_misses"),
     "build._LateShaper.__call__": ("rebuild.review.build", "_LateShaper.__call__"),
+    "build._find_misses": ("rebuild.review.build", "_find_misses"),
+    "build._shape_found_misses": ("rebuild.review.build", "_shape_found_misses"),
+    "build._LateShaper.release": ("rebuild.review.build", "_LateShaper.release"),
 }
 
 
@@ -8011,6 +8022,203 @@ def _signature_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
             yield _shaped_line(comparator, "generated", "window", (window, config))
 
 
+KEY_ONLY_STAGE = "key-only"
+# The `key-only` stage's directory, beside its stage file, of the signature stores its generated lines name by sha256.
+KEY_ONLY_BLOBS = "key-only.blobs"
+# The keys of the `key-only` stage's lines for the read, the count of misses shaped and the late shaper.
+KEY_ONLY_READ_KEY = "read"
+KEY_ONLY_SHAPED_KEY = "shaped"
+KEY_ONLY_LATE_KEY = "late"
+_FIND_MISSES = inspect.signature(build._find_misses)
+_SHAPE_FOUND_MISSES = inspect.signature(build._shape_found_misses)
+_LATE_RELEASE = inspect.signature(build._LateShaper.release)
+
+
+def _read_value(found: build._KeyOnly) -> tuple:
+    """The key-only read as the `read` line holds it: `("ran", processes, break)`, the break None when the read met none, or `("skipped",)` when the store's stamps held."""
+    if not found.ran:
+        return ("skipped",)
+    return ("ran", found.processes, found.broken or None)
+
+
+def _hit_positions(signatures: unit_cache.SignatureArrays) -> list[int]:
+    """The positions of the prior entries the build has hit, ascending."""
+    hit = signatures.hit
+    return [
+        position for position in range(len(signatures.keys)) if hit[position >> 3] & (1 << (position & 7))
+    ]
+
+
+def _miss_entry(found: build._KeyOnly, ordinal: int) -> tuple[str, int, str]:
+    """One miss as the stage's unit holds it: its key as `%016x`, its section's index and its window."""
+    return (f"{found.keys[ordinal]:016x}", int(found.sections[ordinal]), found.windows[ordinal])
+
+
+def _miss_digest(signatures: unit_cache.SignatureArrays, key: int) -> str:
+    """The digest the store's shaped misses hold for `key`, as hex."""
+    keys = signatures.miss_keys
+    position = bisect.bisect_left(keys, key)
+    if position == len(keys) or keys[position] != key:
+        raise ValueError(f"the shaped misses hold no key {key:016x}")
+    return bytes(signatures.miss_digests[position * 32 : position * 32 + 32]).hex()
+
+
+def _late_value(shaper: build._LateShaper) -> tuple:
+    """The late shaper's count with its store's hits, misses and unhit entries and its new lines (`_store_lines`)."""
+    signatures = shaper._signatures
+    return (
+        shaper.shaped,
+        signatures.hits(),
+        signatures.misses(),
+        signatures.unhit(),
+        _store_lines(signatures),
+    )
+
+
+def _misses_found(args: tuple, kwargs: dict) -> Finisher:
+    """A `build._find_misses` call recorded in the `key-only` boundary: a unit a miss in miss order (`_miss_entry`), the hit prior entries (`_hit_positions`) and the read (`_read_value`)."""
+    signatures = _FIND_MISSES.bind(*args, **kwargs).arguments["signatures"]
+
+    def finish(found: object) -> Boundary:
+        assert isinstance(found, build._KeyOnly), f"_find_misses returned {found!r:.80}"
+        return Boundary(
+            len(found.keys),
+            {"value": functools.partial(_miss_entry, found)},
+            [
+                {"key": KEY_ONLY_READ_KEY, "value": _read_value(found)},
+                column_line("hits", _hit_positions(signatures)),
+            ],
+        )
+
+    return finish
+
+
+def _found_misses_shaped(args: tuple, kwargs: dict) -> Finisher:
+    """A `build._shape_found_misses` call recorded in the `key-only` boundary: the misses' digests in miss order (`_miss_digest`) and how many it shaped."""
+    arguments = _SHAPE_FOUND_MISSES.bind(*args, **kwargs).arguments
+    keys = arguments["key_only"].keys
+    signatures = arguments["signatures"]
+
+    def finish(result: object) -> Boundary:
+        assert isinstance(result, tuple), f"_shape_found_misses returned {result!r:.80}"
+        return Boundary(
+            0,
+            {},
+            [
+                column_line("digest", (_miss_digest(signatures, key) for key in keys)),
+                {"key": KEY_ONLY_SHAPED_KEY, "value": result[0]},
+            ],
+        )
+
+    return finish
+
+
+def _late_released(args: tuple, kwargs: dict) -> Finisher:
+    """A `build._LateShaper.release` call, once the stream has looked every row up, recorded in the `key-only` boundary (`_late_value`)."""
+    value = _late_value(_LATE_RELEASE.bind(*args, **kwargs).arguments["self"])
+    return lambda _result: Boundary(0, {}, [{"key": KEY_ONLY_LATE_KEY, "value": value}])
+
+
+def _late_walk(
+    descriptors: Sequence[int],
+    sections: Sequence[audit_stream.Section],
+    family: audit_stream.FamilyLines,
+    late: build._LateShaper,
+) -> None:
+    """Look every row the stream keys up through `late`, as `audit.stream_workload` asks for digests: in each window of two or more units, each row's signature key under its configuration."""
+    for window, rows in audit_stream.lockstep(descriptors, sections):
+        if not audit_stream.sibling_window(rows):
+            continue
+        suffix = family.suffix(audit_stream.parse_window(window))
+        for _index, fields, _line in rows:
+            late(audit_stream.signature_key(fields, suffix), window, fields[0])
+
+
+def _key_only_resolved(
+    signatures: unit_cache.SignatureArrays,
+    descriptors: Sequence[int],
+    sections: Sequence[audit_stream.Section],
+    family_of: Mapping[int, str],
+    family_keys: Mapping[str, str],
+    stamps: Mapping[str, object],
+    fonts: tuple[Path, Path],
+) -> tuple:
+    """The load's signature resolution over `signatures` as a generated `key-only` line's value: the read, the hit prior entries and the misses (`build._find_misses`), each column as its count and digest (`column_digest`); then, unless the read broke, the misses' digests (`build._shape_found_misses`, serially), how many were shaped, and the late shaper's line once every row is looked up (`_late_walk`), or three Nones."""
+    found = build._find_misses(descriptors, sections, signatures, family_of, family_keys, stamps)
+    assert found is not None, "_find_misses skipped the merge"
+    head = (
+        _read_value(found),
+        column_digest(_hit_positions(signatures)),
+        column_digest(_miss_entry(found, ordinal) for ordinal in range(len(found.keys))),
+    )
+    if found.broken:
+        return (*head, None, None, None)
+    keys = found.keys
+    shaped, _width = build._shape_found_misses(found, sections, signatures, *fonts, 1)
+    digests = column_digest(_miss_digest(signatures, key) for key in keys)
+    late = build._LateShaper(signatures, *fonts)
+    try:
+        _late_walk(descriptors, sections, audit_stream.FamilyLines(family_of, family_keys), late)
+        value = _late_value(late)
+    finally:
+        late.release()
+    return (*head, digests, shaped, value)
+
+
+def _key_only_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `key-only` stage's generated lines, when the dump's prior corpus holds a store that loads under the build's signature stamp: that store with every other entry dropped, once with its stamps set to the build's, which skips the read and leaves the late shaper the dropped entries, and once with its audit identity moved, which runs the read over a partial store; each resolved over the dump's audit clone with the build's stamps (`_key_only_resolved`)."""
+    document = json.loads((source.out / BUILD_INPUT_FILE).read_text(encoding="ascii"))
+    environment = document["signature_environment"]["value"]
+    prior = source.out / DUMP_PRIOR
+    if unit_cache.SignatureArrays.load(prior, environment) is None:
+        return
+    header_line, _newline, body = gzip.decompress(
+        unit_cache.signature_store_path(prior).read_bytes()
+    ).partition(b"\n")
+    header = json.loads(header_line)
+    width = unit_cache._SIGNATURE_LINE_BYTES
+    kept = b"".join(body[at : at + width] for at in range(0, len(body), 2 * width))
+    stamps = {
+        unit_cache.AUDIT_IDENTITY_KEY: document["audit"]["identity"],
+        unit_cache.FAMILY_KEYS_KEY: document["family_keys_digest"],
+    }
+    family_of = {int(value): name for value, name in document["family_of"]}
+    fonts_used = json.loads(Path(document["units_init"]).read_text(encoding="utf-8"))["fonts"]
+    fonts = (Path(fonts_used["before"]), Path(fonts_used["after"]))
+    description = json.loads((source.out / SOURCE_FILE).read_text(encoding="ascii"))
+    audit_path = source.out / description["inputs"]["audit"]
+    blobs = source.out / KEY_ONLY_BLOBS
+    parts = audit.AuditParts(audit_path)
+    try:
+        layout = audit.audit_layout(parts.descriptors, audit_path, parts.members)
+        if layout.sections is None:
+            return
+        with tempfile.TemporaryDirectory(prefix="key-only-", dir=source.out) as held:
+            for label, written in (
+                ("skipped", stamps),
+                ("read", {**stamps, unit_cache.AUDIT_IDENTITY_KEY: []}),
+            ):
+                data = gzip.compress((json.dumps({**header, **written}) + "\n").encode() + kept, mtime=0)
+                inputs = (label, _blob_into(blobs, data))
+                directory = Path(tempfile.mkdtemp(dir=held))
+                unit_cache.signature_store_path(directory).write_bytes(data)
+                signatures = unit_cache.SignatureArrays.load(directory, environment)
+                assert signatures is not None, f"the {label} store does not load"
+                value = _key_only_resolved(
+                    signatures,
+                    parts.descriptors,
+                    layout.sections,
+                    family_of,
+                    document["family_keys"],
+                    stamps,
+                    fonts,
+                )
+                key = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+                yield {"key": f"generated:{key}", "input": inputs, "value": value}
+    finally:
+        parts.close()
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -8111,6 +8319,17 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _signature_generated,
         outputs=("signature", "value"),
         run="build",
+    ),
+    KEY_ONLY_STAGE: Stage(
+        KEY_ONLY_STAGE,
+        {
+            "build._find_misses": _misses_found,
+            "build._shape_found_misses": _found_misses_shaped,
+            "build._LateShaper.release": _late_released,
+        },
+        _key_only_generated,
+        run="build",
+        kind="boundary",
     ),
 }
 
@@ -8313,6 +8532,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / STREAM_BLOBS, ignore_errors=True)
     if any(stage.name == SIGNATURE_STORE_STAGE for stage in stages):
         shutil.rmtree(out / SIGNATURE_STORE_BLOBS, ignore_errors=True)
+    if any(stage.name == KEY_ONLY_STAGE for stage in stages):
+        shutil.rmtree(out / KEY_ONLY_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:

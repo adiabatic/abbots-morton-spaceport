@@ -2,22 +2,31 @@
 //!
 //! A window's signature text ([`signature_text`], `build.signature_text`) is what the misses' shaping hands [`InkComparator::signature`].
 //!
-//! [`stage_signature_store`] is the `signature-store` stage of the stage fixtures, and [`stage_signature`] the `signature` stage.
+//! The misses are found before the stream reads the audit ([`find_misses`], `build._find_misses`): skipped when the prior store's stamps hold, otherwise by the key-only read ([`key_only_read`], `build._key_only_read` and `audit_stream.main`), which cuts the windows into `KEY_ONLY_PROCESSES` ranges and walks each on a thread of its own, reading the audit through the inherited files, the hits marked and the misses kept in range order. [`InkShaping`] shapes them ([`InkShaping::shape_found_misses`], `build._shape_found_misses` and `_shape_misses`) on threads that share the font facts and the before and after fonts, each thread's shape memo released after each chunk, and the stream's late shaper ([`LateShaper`], `build._LateShaper`) shapes any key neither the prior store nor the misses hold.
+//!
+//! [`stage_signature_store`] is the `signature-store` stage of the stage fixtures, [`stage_signature`] the `signature` stage, and [`stage_key_only`] the `key-only` stage.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 use ams_m1_kernel::emit::json_string;
 use serde_json::{Map, Value};
 use sha2::{Digest as _, Sha256};
 
-use crate::corpus::audit::{integer, items, stage_line, text};
+use crate::corpus::audit::{
+    AuditError, Section, Vocabulary, audit_layout, integer, items, stage_line, text,
+};
 use crate::corpus::gzip::{GzipError, GzipReader, GzipWriter, MTIME, PART_LEVEL};
 use crate::corpus::input::{BuildInput, Stamp};
 use crate::corpus::sink::staging_path;
-use crate::corpus::stream::parse_window;
+use crate::corpus::stream::{
+    FamilyLines, Lockstep, StreamError, WindowKey, parse_window, sibling_window, signature_key,
+    window_ranges,
+};
 use crate::fontfacts::{FontFacts, Side};
 use crate::fragment::sha256_hex;
 use crate::ink::{self, InkComparator};
@@ -38,6 +47,10 @@ pub const CODE_FILES_SHOWN: usize = 4;
 pub const LABELS_SHOWN: usize = 8;
 /// The `signature-store` stage's directory, beside its stage file, of the files its lines name by sha256.
 pub const STAGE_BLOBS: &str = "signature-store.blobs";
+/// The `key-only` stage's directory, beside its stage file, of the stores its generated lines name by sha256.
+pub const KEY_ONLY_BLOBS: &str = "key-only.blobs";
+/// What a key-only read thread exits with when its walk fails but for a break or a member, in the words of the Python build's process (`build._key_only_read`).
+pub const KEY_ONLY_EXIT: &str = "a key-only read process exited 1";
 
 /// One entry line: 16 hex digits, a tab, 64 hex digits and a newline (`unit_cache._SIGNATURE_LINE_BYTES`).
 const LINE_BYTES: usize = 82;
@@ -1093,6 +1106,698 @@ pub fn stage_signature(input_path: &Path, stage_file: &Path, out: &mut impl Writ
     Ok(())
 }
 
+/// Run `job` over the indices `0..count` on at most `width` scoped threads, each thread making its own state with `make` and taking the next index as it finishes one, and give the results in index order. A thread that panics panics the caller.
+fn indexed<S, T: Send>(
+    count: usize,
+    width: usize,
+    make: impl Fn() -> S + Sync,
+    job: impl Fn(&mut S, usize) -> T + Sync,
+) -> Vec<T> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let next = AtomicUsize::new(0);
+    let mut slots: Vec<Option<T>> = std::iter::repeat_with(|| None).take(count).collect();
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..width.clamp(1, count))
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut state = make();
+                    let mut done = Vec::new();
+                    loop {
+                        let at = next.fetch_add(1, Ordering::Relaxed);
+                        if at >= count {
+                            break done;
+                        }
+                        done.push((at, job(&mut state, at)));
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            match worker.join() {
+                Ok(done) => {
+                    for (at, value) in done {
+                        slots[at] = Some(value);
+                    }
+                }
+                Err(panic) => std::panic::resume_unwind(panic),
+            }
+        }
+    });
+    slots
+        .into_iter()
+        .map(|slot| slot.expect("every index ran"))
+        .collect()
+}
+
+/// What the key-only read and the late walk read: the held audit's files and its sections, and the family keys a window's family lines name.
+#[derive(Clone, Copy)]
+pub struct HeldWindows<'a> {
+    pub files: &'a [File],
+    pub sections: &'a [Section],
+    pub family_of: &'a [(i64, String)],
+    pub family_keys: &'a [(String, String)],
+}
+
+/// What the key-only read found (`build._KeyOnly`): whether it ran, false when the prior store's stamps held; its seconds and its window ranges, a thread each at most; the misses' keys, section indices and windows in window order; and the first break in range order, the reason the Python build reads the audit through its in-memory source.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct KeyOnly {
+    pub ran: bool,
+    pub seconds: f64,
+    pub ranges: usize,
+    pub keys: Vec<u64>,
+    pub sections: Vec<u8>,
+    pub windows: Vec<String>,
+    pub broken: Option<String>,
+}
+
+/// A key-only read that fails the build, by what the Python build raises.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MissError {
+    /// `audit_stream.MemberError`: a member that does not inflate to what its index records.
+    Member(String),
+    /// A `SystemExit` with this text.
+    Exit(String),
+    /// Any other failure, which Python raises as itself.
+    Failed(String),
+}
+
+impl std::fmt::Display for MissError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Member(message) => write!(formatter, "MemberError: {message}"),
+            Self::Exit(message) => write!(formatter, "SystemExit: {message}"),
+            Self::Failed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for MissError {}
+
+/// How one range's walk ended, as its Python process ends: done, at a break it replies, at a member that fails, or at any other failure.
+enum RangeEnd {
+    Done,
+    Break(String),
+    Member(String),
+    Failed,
+}
+
+/// One range's walk (`audit_stream.main`): the prior entries it hit and the misses it found, each a key, a section index and a window, in window order, and how it ended.
+struct RangeFound {
+    hits: Vec<usize>,
+    misses: Vec<(u64, usize, String)>,
+    end: RangeEnd,
+}
+
+/// Walk one window range of the audit in lockstep, and key every row of each window that holds siblings against the prior store's keys, as one key-only read process does.
+fn read_range(
+    audit: HeldWindows,
+    prior: &[u64],
+    (low, high): &(Option<WindowKey>, Option<WindowKey>),
+) -> RangeFound {
+    let mut found = RangeFound {
+        hits: Vec::new(),
+        misses: Vec::new(),
+        end: RangeEnd::Done,
+    };
+    let mut family = FamilyLines::new(audit.family_of, audit.family_keys);
+    let mut walk = |found: &mut RangeFound| -> std::result::Result<(), StreamError> {
+        let mut stream = Lockstep::new(audit.files, audit.sections, low.as_ref(), high.as_ref())?;
+        while let Some((window, rows)) = stream.next_window()? {
+            if !sibling_window(&rows) {
+                continue;
+            }
+            let values = parse_window(&window)
+                .map_err(|failure| StreamError::Audit(AuditError::Value(failure.0)))?;
+            let suffix = family.suffix(&values);
+            for (section, fields, _line) in &rows {
+                let key = signature_key(fields, &suffix);
+                match prior.binary_search(&key) {
+                    Ok(position) => found.hits.push(position),
+                    Err(_) => found.misses.push((key, *section, window.clone())),
+                }
+            }
+        }
+        Ok(())
+    };
+    found.end = match walk(&mut found) {
+        Ok(()) => RangeEnd::Done,
+        Err(StreamError::Break(why)) => RangeEnd::Break(why),
+        Err(StreamError::Audit(AuditError::Member(message))) => RangeEnd::Member(message),
+        Err(_) => RangeEnd::Failed,
+    };
+    found
+}
+
+/// The key-only read (`build._key_only_read`): cut the windows into at most `count` ranges (`audit_stream.window_ranges`), walk each on one of at most `threads` threads, and take what they found in range order: the hits marked in `signatures`, the misses kept, and the first break. A range whose walk fails fails the read as the first failing process in range order fails the Python build: a member that does not inflate as [`MissError::Member`], any other failure as [`KEY_ONLY_EXIT`].
+pub fn key_only_read(
+    audit: HeldWindows,
+    signatures: &mut SignatureArrays,
+    count: i64,
+    threads: usize,
+) -> std::result::Result<KeyOnly, MissError> {
+    let started = Instant::now();
+    let ranges =
+        window_ranges(audit.files, audit.sections, count).map_err(|failure| match failure {
+            AuditError::Member(message) => MissError::Member(message),
+            other => MissError::Failed(other.to_string()),
+        })?;
+    let prior = signatures.prior_keys();
+    let found = indexed(
+        ranges.len(),
+        threads,
+        || (),
+        |_, at| read_range(audit, prior, &ranges[at]),
+    );
+    for range in &found {
+        match &range.end {
+            RangeEnd::Member(message) => return Err(MissError::Member(message.clone())),
+            RangeEnd::Failed => return Err(MissError::Exit(KEY_ONLY_EXIT.to_owned())),
+            RangeEnd::Done | RangeEnd::Break(_) => {}
+        }
+    }
+    let mut key_only = KeyOnly {
+        ran: true,
+        ranges: ranges.len(),
+        ..KeyOnly::default()
+    };
+    for range in found {
+        for position in range.hits {
+            signatures.mark_hit(position);
+        }
+        for (key, section, window) in range.misses {
+            key_only.keys.push(key);
+            key_only.sections.push(u8::try_from(section).map_err(|_| {
+                MissError::Failed(format!(
+                    "the section index {section} does not fit the misses' byte column"
+                ))
+            })?);
+            key_only.windows.push(window);
+        }
+        if let RangeEnd::Break(why) = range.end
+            && key_only.broken.is_none()
+        {
+            key_only.broken = Some(why);
+        }
+    }
+    key_only.seconds = started.elapsed().as_secs_f64();
+    Ok(key_only)
+}
+
+/// Find every miss before the stream reads the audit (`build._find_misses`): nothing, and the read not run, when the prior store's stamps hold for this audit's `identity` and the family keys' `family_digest`, since no key can then miss; otherwise the key-only read ([`key_only_read`]).
+pub fn find_misses(
+    audit: HeldWindows,
+    signatures: &mut SignatureArrays,
+    identity: &[i64],
+    family_digest: &str,
+    count: i64,
+    threads: usize,
+) -> std::result::Result<KeyOnly, MissError> {
+    if signatures.stamps_hold(identity, family_digest) {
+        return Ok(KeyOnly::default());
+    }
+    key_only_read(audit, signatures, count, threads)
+}
+
+/// What the misses and the late shaper shape with, opened from the units init: the font facts, the before and after fonts as HarfBuzz fonts and the ink's grid, shared by every shaping thread.
+pub struct InkShaping {
+    facts: FontFacts,
+    fonts: Fonts,
+    pixel_size: i64,
+}
+
+impl InkShaping {
+    /// Open the units init at `units_init`'s font facts and its before and after fonts, refusing an init whose HarfBuzz version is not the linked one.
+    pub fn open(units_init: &Path) -> Result<Self> {
+        let init = Init::read(units_init)?;
+        let facts = FontFacts::read(&init.font_facts)?;
+        let fonts =
+            Fonts::open_before_after(&init, &facts).map_err(|failure| WireError(failure.0))?;
+        let pixel_size = ink::pixel_size(&init).map_err(|failure| WireError(failure.0))?;
+        Ok(Self {
+            facts,
+            fonts,
+            pixel_size,
+        })
+    }
+
+    /// One text's signature digest under one configuration (`signature_digest(comparator.signature(text, config))`).
+    fn digest(&self, shaper: &mut Shaper, text: &str, config: &str) -> Result<[u8; 32]> {
+        let comparator =
+            InkComparator::new(&self.facts, self.pixel_size, Side::Before, Side::After);
+        let signature = comparator
+            .signature(shaper, text, config)
+            .map_err(|failure| {
+                WireError(format!("cannot shape {text:?} under {config}: {failure}"))
+            })?;
+        Ok(signature.digest(&self.facts))
+    }
+
+    /// Shape `count` misses, `miss` giving each one's window and configuration, and give their digests in miss order with the threads they were shaped on (`build._shape_misses`): the misses cut into chunks of about an eighth of a thread's share, as the Python pool cuts them, taken in turn by at most `threads` threads, each with its own shaper whose memo it releases after each chunk; a window's text ([`signature_text`]) is made once for a run of misses in one window.
+    pub fn shape_misses<'m>(
+        &self,
+        count: usize,
+        miss: impl Fn(usize) -> (&'m str, &'m str) + Sync,
+        threads: usize,
+    ) -> Result<(Vec<[u8; 32]>, usize)> {
+        if count == 0 {
+            return Ok((Vec::new(), 1));
+        }
+        let width = threads.clamp(1, count);
+        let chunk = (count / (width * 8)).max(1);
+        let chunks = count.div_ceil(chunk);
+        let shaped = indexed(
+            chunks,
+            width,
+            || Shaper::new(&self.fonts, &self.facts),
+            |shaper, at| -> Result<Vec<[u8; 32]>> {
+                let mut digests = Vec::with_capacity(chunk);
+                let mut last: Option<&str> = None;
+                let mut text = String::new();
+                for index in at * chunk..((at + 1) * chunk).min(count) {
+                    let (window, config) = miss(index);
+                    if last != Some(window) {
+                        text = signature_text(window)?;
+                        last = Some(window);
+                    }
+                    digests.push(self.digest(shaper, &text, config)?);
+                }
+                shaper.release();
+                Ok(digests)
+            },
+        );
+        let mut digests = Vec::with_capacity(count);
+        for chunk in shaped {
+            digests.extend(chunk?);
+        }
+        Ok((digests, width.min(chunks)))
+    }
+
+    /// Shape the key-only read's misses ([`InkShaping::shape_misses`]) into the store's columns in miss order, which is window order, each under its section's configuration, and drop the read's lists of them (`build._shape_found_misses`); give how many were shaped and on how many threads.
+    pub fn shape_found_misses(
+        &self,
+        key_only: &mut KeyOnly,
+        sections: &[Section],
+        signatures: &mut SignatureArrays,
+        threads: usize,
+    ) -> Result<(usize, usize)> {
+        let (windows, indices) = (&key_only.windows, &key_only.sections);
+        let (digests, width) = self.shape_misses(
+            key_only.keys.len(),
+            |at| {
+                (
+                    windows[at].as_str(),
+                    sections[usize::from(indices[at])].config.as_str(),
+                )
+            },
+            threads,
+        )?;
+        signatures.set_misses(&key_only.keys, &digests);
+        let shaped = key_only.keys.len();
+        key_only.keys = Vec::new();
+        key_only.sections = Vec::new();
+        key_only.windows = Vec::new();
+        Ok((shaped, width))
+    }
+
+    /// The stream's late shaper over `signatures`, shaping on this thread through one shaper made at its first shape, whose memo it releases after each.
+    pub fn late<'s>(
+        &'s self,
+        signatures: &'s mut SignatureArrays,
+    ) -> LateShaper<'s, impl FnMut(&str, &str) -> Result<[u8; 32]> + 's> {
+        let mut shaper: Option<Shaper<'s>> = None;
+        LateShaper::new(signatures, move |window: &str, config: &str| {
+            let shaper = shaper.get_or_insert_with(|| Shaper::new(&self.fonts, &self.facts));
+            let digest = signature_text(window).and_then(|text| self.digest(shaper, &text, config));
+            shaper.release();
+            digest
+        })
+    }
+}
+
+/// The stream's digest lookup (`build._LateShaper`): a key's digest from the store's columns ([`SignatureArrays::digest_of`]), or, for a key neither the prior store nor the misses hold, which only a wrong skip of the key-only read gives, the digest `shape` gives the window under the configuration, kept as a late miss ([`SignatureArrays::add_late`]) and counted in `shaped`.
+pub struct LateShaper<'s, F> {
+    signatures: &'s mut SignatureArrays,
+    shape: F,
+    pub shaped: usize,
+}
+
+impl<'s, F: FnMut(&str, &str) -> Result<[u8; 32]>> LateShaper<'s, F> {
+    pub fn new(signatures: &'s mut SignatureArrays, shape: F) -> Self {
+        Self {
+            signatures,
+            shape,
+            shaped: 0,
+        }
+    }
+
+    /// The digest of the row keyed `key` in `window` under `config`.
+    pub fn digest(&mut self, key: u64, window: &str, config: &str) -> Result<[u8; 32]> {
+        if let Some(digest) = self.signatures.digest_of(key) {
+            return Ok(digest);
+        }
+        let digest = (self.shape)(window, config)?;
+        self.signatures.add_late(key, digest);
+        self.shaped += 1;
+        Ok(digest)
+    }
+
+    pub fn signatures(&self) -> &SignatureArrays {
+        self.signatures
+    }
+}
+
+/// The `key-only` stage's key of the read's line.
+const READ_KEY: &str = "read";
+/// The `key-only` stage's key of the shaped misses' count.
+const SHAPED_KEY: &str = "shaped";
+/// The `key-only` stage's key of the late shaper's line.
+const LATE_KEY: &str = "late";
+/// The `key-only` stage's column of the misses, a unit a miss.
+const MISS_COLUMN: &str = "value";
+/// The `key-only` stage's column of the hit prior entries' positions.
+const HITS_COLUMN: &str = "hits";
+/// The `key-only` stage's column of the misses' digests in miss order.
+const DIGEST_COLUMN: &str = "digest";
+const UNIT_PREFIX: &str = "unit:";
+const KEY_ONLY_PROCESSES: &str = "rebuild.review.build.KEY_ONLY_PROCESSES";
+
+/// A column's count and the sha256 of its values' typed encodings, each followed by a newline, as the stage's `column_line` digests one.
+fn column(values: &[PyValue]) -> (i64, String) {
+    let mut digest = Sha256::new();
+    for value in values {
+        digest.update(value.to_typed().as_bytes());
+        digest.update(b"\n");
+    }
+    (values.len() as i64, hex(&digest.finalize()))
+}
+
+fn column_line(out: &mut impl Write, name: &str, values: &[PyValue]) -> Result<()> {
+    let (count, digest) = column(values);
+    writeln!(
+        out,
+        "{{\"key\":{},\"values\":{count},\"sha256\":{}}}",
+        json_string(&format!("column:{name}")),
+        json_string(&digest)
+    )
+    .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
+}
+
+fn column_value(values: &[PyValue]) -> PyValue {
+    let (count, digest) = column(values);
+    PyValue::Tuple(vec![PyValue::Int(count), PyValue::str(digest)])
+}
+
+/// The load's signature resolution as the stage records it: the read, the hit positions and the misses after [`find_misses`]; then, unless the read broke, the misses' digests in miss order, how many were shaped, and the late shaper's count with the store's hits, misses, unhit entries and new lines once every row the stream keys has been looked up through it.
+struct Resolved {
+    read: PyValue,
+    hits: Vec<PyValue>,
+    misses: Vec<PyValue>,
+    after: Option<(Vec<PyValue>, usize, PyValue)>,
+}
+
+/// Look up every row the stream keys through `late`, as `audit.stream_workload` asks for them: in each window of two or more units, every row's signature key under its configuration. The walk stops at the audit's first break or failure, as the stream stops; a shape that fails is an error.
+fn late_walk<F: FnMut(&str, &str) -> Result<[u8; 32]>>(
+    audit: HeldWindows,
+    late: &mut LateShaper<F>,
+) -> Result<()> {
+    let mut family = FamilyLines::new(audit.family_of, audit.family_keys);
+    let Ok(mut stream) = Lockstep::new(audit.files, audit.sections, None, None) else {
+        return Ok(());
+    };
+    while let Ok(Some((window, rows))) = stream.next_window() {
+        if !sibling_window(&rows) {
+            continue;
+        }
+        let suffix = family.suffix(&parse_window(&window)?);
+        for (_section, fields, _line) in &rows {
+            late.digest(signature_key(fields, &suffix), &window, &fields[0])?;
+        }
+    }
+    Ok(())
+}
+
+/// Resolve the load's signatures over `signatures` as the build does (`build._load_corpus`): find the misses, then, unless the read broke, shape them and look every row up through the late shaper ([`late_walk`]).
+fn resolve(
+    audit: HeldWindows,
+    signatures: &mut SignatureArrays,
+    input: &BuildInput,
+    shaping: &InkShaping,
+    count: i64,
+) -> Result<Resolved> {
+    let width = |value: i64| usize::try_from(value).unwrap_or(1);
+    let mut found = find_misses(
+        audit,
+        signatures,
+        &input.audit.identity,
+        &input.family_keys_digest,
+        count,
+        width(input.widths.threads),
+    )
+    .map_err(|failure| WireError(format!("the key-only read failed: {failure}")))?;
+    let read = if found.ran {
+        tagged(
+            "ran",
+            [
+                count_value(found.ranges),
+                PyValue::optional_str(found.broken.as_deref()),
+            ],
+        )
+    } else {
+        tagged("skipped", [])
+    };
+    let hits = (0..signatures.len())
+        .filter(|&position| signatures.is_hit(position))
+        .map(count_value)
+        .collect();
+    let misses = found
+        .keys
+        .iter()
+        .zip(&found.sections)
+        .zip(&found.windows)
+        .map(|((key, section), window)| {
+            PyValue::Tuple(vec![
+                PyValue::str(format!("{key:016x}")),
+                PyValue::Int(i64::from(*section)),
+                PyValue::str(window),
+            ])
+        })
+        .collect();
+    if found.broken.is_some() {
+        return Ok(Resolved {
+            read,
+            hits,
+            misses,
+            after: None,
+        });
+    }
+    let keys = found.keys.clone();
+    let (shaped, _width) = shaping.shape_found_misses(
+        &mut found,
+        audit.sections,
+        signatures,
+        width(input.widths.signature_threads),
+    )?;
+    let digests = keys
+        .iter()
+        .map(|key| match signatures.miss_keys.binary_search(key) {
+            Ok(position) => Ok(PyValue::str(hex(&signatures.miss_digests[position]))),
+            Err(_) => error(format!("the shaped misses hold no key {key:016x}")),
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut late = shaping.late(signatures);
+    late_walk(audit, &mut late)?;
+    let shaped_late = late.shaped;
+    let signatures = late.signatures();
+    let late_value = PyValue::Tuple(vec![
+        count_value(shaped_late),
+        count_value(signatures.hits()),
+        count_value(signatures.misses()),
+        count_value(signatures.unhit()),
+        lines_value(signatures)?,
+    ]);
+    Ok(Resolved {
+        read,
+        hits,
+        misses,
+        after: Some((digests, shaped, late_value)),
+    })
+}
+
+fn count_value(value: usize) -> PyValue {
+    PyValue::Int(value as i64)
+}
+
+/// The prior corpus directory of the dump `stage_file` lies in, as its `source.json` names it.
+fn dump_prior(stage_file: &Path) -> Result<PathBuf> {
+    let directory = stage_file.parent().unwrap_or_else(|| Path::new("."));
+    let path = directory.join("source.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
+    let source: Value = serde_json::from_str(&text)
+        .map_err(|failure| WireError(format!("{} is not JSON: {failure}", path.display())))?;
+    match source["prior"].as_str() {
+        Some(prior) => Ok(directory.join(prior)),
+        None => error(format!("{} names no prior corpus", path.display())),
+    }
+}
+
+/// The `key-only` stage: resolve the load's signatures over the audit its build input names, read through the descriptors the process inherits and laid out as [`audit_layout`] lays it out, at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads and shaped on its signature threads ([`resolve`]), and answer what the stage file asks. The build's lines start from the store the build loads, empty for a build that recomputes every unit or a prior corpus (as the dump's `source.json` names it) with no store that loads under the signature stamp: a `unit:<ordinal>` line for each miss asked for, a `column:value` line over every miss, `(key, section, window)`, a `column:hits` line over the hit prior entries' positions, and the read under `read`, `("ran", ranges, break)` or `("skipped",)`; then, unless the read broke, a `column:digest` line over the misses' digests in miss order, the count shaped under `shaped`, and under `late` the late shaper's count with the store's hits, misses, unhit entries and new lines' count and sha256. A generated line names a store in the [`KEY_ONLY_BLOBS`] directory beside `stage_file`, which must load under the signature stamp, and answers the same from it as one tuple, each column as its count and sha256 and the shaping's three as None after a break.
+pub fn stage_key_only(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    let input = BuildInput::read(input_path)?;
+    let names = StoreNames::of(&input)?;
+    let count = match input.constant(KEY_ONLY_PROCESSES) {
+        Some(PyValue::Int(count)) => *count,
+        _ => {
+            return error(format!(
+                "the build input's vocabulary holds no int {KEY_ONLY_PROCESSES}"
+            ));
+        }
+    };
+    let file = File::open(stage_file)
+        .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
+    let mut units: HashSet<usize> = HashSet::new();
+    let mut run = false;
+    let mut generated = Vec::new();
+    for line in BufReader::new(file).lines() {
+        let line =
+            line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
+        let record: Value = serde_json::from_str(&line)
+            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
+        let Some(key) = record["key"].as_str() else {
+            return error(format!("a stage line has no key: {line:.200}"));
+        };
+        if let Some(ordinal) = key.strip_prefix(UNIT_PREFIX) {
+            units.insert(
+                ordinal
+                    .parse()
+                    .map_err(|_| WireError(format!("the key {key} names no ordinal")))?,
+            );
+            run = true;
+        } else if [READ_KEY, SHAPED_KEY, LATE_KEY].contains(&key)
+            || [MISS_COLUMN, HITS_COLUMN, DIGEST_COLUMN]
+                .iter()
+                .any(|name| key == format!("column:{name}"))
+        {
+            run = true;
+        } else {
+            let held = PyValue::from_typed(&record["input"])
+                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
+            generated.push((key.to_owned(), held));
+        }
+    }
+    if !run && generated.is_empty() {
+        return Ok(());
+    }
+    let files = input.held_audit()?;
+    let layout = audit_layout(
+        &files,
+        &input.audit.path,
+        &input.audit.members,
+        &Vocabulary::of(&input)?,
+    )
+    .map_err(|failure| WireError(format!("cannot lay out the audit: {failure}")))?;
+    let Some(sections) = layout.sections else {
+        return error(format!(
+            "the audit is not in sorted sections: {}",
+            layout.why
+        ));
+    };
+    let audit = HeldWindows {
+        files: &files,
+        sections: &sections,
+        family_of: &input.family_of,
+        family_keys: &input.family_keys,
+    };
+    let shaping = InkShaping::open(Path::new(&input.units_init))?;
+    if run {
+        let mut signatures = if input.recompute_all {
+            SignatureArrays::new()
+        } else {
+            match SignatureArrays::load(
+                &dump_prior(stage_file)?,
+                &names,
+                &input.signature_environment.value,
+            ) {
+                Ok(loaded) => loaded.unwrap_or_default(),
+                Err(failure) => return error(format!("the prior store raised {failure}")),
+            }
+        };
+        let resolved = resolve(audit, &mut signatures, &input, &shaping, count)?;
+        for (ordinal, miss) in resolved.misses.iter().enumerate() {
+            if units.contains(&ordinal) {
+                stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), miss)?;
+            }
+        }
+        column_line(out, MISS_COLUMN, &resolved.misses)?;
+        column_line(out, HITS_COLUMN, &resolved.hits)?;
+        stage_line(out, READ_KEY, &resolved.read)?;
+        if let Some((digests, shaped, late)) = &resolved.after {
+            column_line(out, DIGEST_COLUMN, digests)?;
+            stage_line(out, SHAPED_KEY, &count_value(*shaped))?;
+            stage_line(out, LATE_KEY, late)?;
+        }
+    }
+    if generated.is_empty() {
+        return Ok(());
+    }
+    let scratch = std::env::temp_dir().join(format!("ams-review-key-only-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch)
+        .map_err(|failure| fail("make the stage's scratch", failure))?;
+    let blobs = stage_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(KEY_ONLY_BLOBS);
+    let answered = (|| {
+        for (case, (key, held)) in generated.iter().enumerate() {
+            let [_label, digest] = arguments(held, key)?;
+            let digest = text(digest, key)?;
+            let path = blobs.join(digest);
+            let data = std::fs::read(&path)
+                .map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
+            if sha256_hex(&data) != digest {
+                return error(format!(
+                    "{} does not hold the bytes it is named for",
+                    path.display()
+                ));
+            }
+            let directory = scratch.join(case.to_string());
+            std::fs::create_dir_all(&directory)
+                .map_err(|failure| fail("make a scratch directory", failure))?;
+            std::fs::write(names.path(&directory), data)
+                .map_err(|failure| fail("write a generated store", failure))?;
+            let mut signatures =
+                match SignatureArrays::load(&directory, &names, &input.signature_environment.value)
+                {
+                    Ok(Some(signatures)) => signatures,
+                    _ => return error(format!("{key}: the generated store does not load")),
+                };
+            let resolved = resolve(audit, &mut signatures, &input, &shaping, count)
+                .map_err(|failure| WireError(format!("{key}: {}", failure.0)))?;
+            let (digests, shaped, late) = match &resolved.after {
+                Some((digests, shaped, late)) => {
+                    (column_value(digests), count_value(*shaped), late.clone())
+                }
+                None => (PyValue::None, PyValue::None, PyValue::None),
+            };
+            let value = PyValue::Tuple(vec![
+                resolved.read,
+                column_value(&resolved.hits),
+                column_value(&resolved.misses),
+                digests,
+                shaped,
+                late,
+            ]);
+            stage_line(out, key, &value)?;
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&scratch);
+    answered
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1226,6 +1931,196 @@ mod tests {
             ),
             Ok(Some("no store on disk".to_owned()))
         );
+    }
+
+    #[test]
+    fn indexed_work_comes_back_in_index_order_at_any_width() {
+        for width in [0, 1, 3, 64] {
+            let found = indexed(10, width, Vec::new, |seen: &mut Vec<usize>, at| {
+                seen.push(at);
+                at * at
+            });
+            assert_eq!(found, (0..10).map(|at| at * at).collect::<Vec<_>>());
+        }
+        assert!(indexed(0, 4, || (), |_, at| at).is_empty());
+    }
+
+    fn audit_row(config: &str, window: &str, new: &str) -> String {
+        format!("{config}\t{window}\tcell\tentry\tbase\t{new}\n")
+    }
+
+    /// A single-file audit of two configurations' sections, and the sections, ranked in that order.
+    fn two_sections(
+        label: &str,
+        default: &[String],
+        ss03: &[String],
+    ) -> (PathBuf, File, Vec<Section>) {
+        let directory = scratch(label);
+        let (default, ss03) = (default.concat(), ss03.concat());
+        let path = directory.join("audit.tsv");
+        std::fs::write(&path, format!("{default}{ss03}")).expect("audit");
+        let section = |config: &str, rank: i64, start: usize, length: usize| Section {
+            config: config.to_owned(),
+            rank,
+            start: start as i64,
+            end: (start + length) as i64,
+            part: 0,
+            inflated: None,
+        };
+        let sections = vec![
+            section("default", 0, 0, default.len()),
+            section("ss03", 1, default.len(), ss03.len()),
+        ];
+        (directory, File::open(&path).expect("open"), sections)
+    }
+
+    #[test]
+    fn the_key_only_read_keys_sibling_rows_against_the_prior_store_in_window_order() {
+        let windows = [
+            ("E650", "b"),
+            ("E651", "a"),
+            ("E652", "b"),
+            ("E650:E651", "b"),
+            ("E651:E652", "a"),
+            ("E652:E653", "b"),
+        ];
+        let default: Vec<String> = windows
+            .iter()
+            .map(|(window, _new)| audit_row("default", window, "a"))
+            .collect();
+        let ss03: Vec<String> = windows
+            .iter()
+            .map(|(window, new)| audit_row("ss03", window, new))
+            .collect();
+        let (directory, file, sections) = two_sections("key-only", &default, &ss03);
+        let files = [file];
+        let family_of = [(0xE650, "qsPea".to_owned()), (0xE651, "qsBay".to_owned())];
+        let family_keys = [
+            ("qsPea".to_owned(), "p".to_owned()),
+            ("qsBay".to_owned(), "b".to_owned()),
+        ];
+        let audit = HeldWindows {
+            files: &files,
+            sections: &sections,
+            family_of: &family_of,
+            family_keys: &family_keys,
+        };
+        let mut family = FamilyLines::new(&family_of, &family_keys);
+        let fields = |config: &str, window: &str, new: &str| -> Vec<String> {
+            audit_row(config, window, new)
+                .trim_end()
+                .split('\t')
+                .map(str::to_owned)
+                .collect()
+        };
+        let key = |family: &mut FamilyLines, config: &str, window: &str, new: &str| {
+            let suffix = family.suffix(&parse_window(window).expect("a window"));
+            signature_key(&fields(config, window, new), &suffix)
+        };
+        let held = key(&mut family, "ss03", "E650:E651", "b");
+        let mut misses = Vec::new();
+        for window in ["E650", "E652", "E650:E651", "E652:E653"] {
+            misses.push((key(&mut family, "default", window, "a"), 0u8, window));
+            if window != "E650:E651" {
+                misses.push((key(&mut family, "ss03", window, "b"), 1u8, window));
+            }
+        }
+        let mut prior = SignatureArrays::with_prior(
+            vec![held - 1, held, held + 1],
+            vec![filled(1), filled(2), filled(3)],
+            PyValue::Dict(Vec::new()),
+        );
+        let mut answers = Vec::new();
+        for (count, threads) in [(1, 1), (2, 1), (3, 2), (6, 6), (6, 1)] {
+            let mut signatures = prior.clone();
+            let found = key_only_read(audit, &mut signatures, count, threads).expect("a read");
+            assert!(found.ran && found.broken.is_none());
+            let got: Vec<(u64, u8, &str)> = found
+                .keys
+                .iter()
+                .zip(&found.sections)
+                .zip(&found.windows)
+                .map(|((key, section), window)| (*key, *section, window.as_str()))
+                .collect();
+            assert_eq!(got, misses);
+            assert_eq!((signatures.hits(), signatures.unhit()), (1, 2));
+            answers.push(found.keys);
+        }
+        assert!(answers.windows(2).all(|pair| pair[0] == pair[1]));
+        assert!(!prior.stamps_hold(&[], ""));
+        prior.header = Some(PyValue::Dict(vec![
+            (
+                PyValue::str(AUDIT_IDENTITY_KEY),
+                PyValue::List(vec![PyValue::Int(7)]),
+            ),
+            (PyValue::str(FAMILY_KEYS_KEY), PyValue::str("d")),
+        ]));
+        let skipped = find_misses(audit, &mut prior, &[7], "d", 6, 2).expect("a skip");
+        assert!(!skipped.ran && skipped.keys.is_empty() && prior.hits() == 0);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn a_break_ends_its_range_and_the_first_break_in_range_order_is_kept() {
+        let default = vec![
+            audit_row("default", "E650", "a"),
+            audit_row("default", "E652", "a"),
+            audit_row("default", "E651", "a"),
+        ];
+        let ss03 = vec![
+            audit_row("ss03", "E650", "b"),
+            audit_row("ss03", "E651", "b"),
+            audit_row("ss03", "E652", "b"),
+        ];
+        let (directory, file, sections) = two_sections("key-only-break", &default, &ss03);
+        let files = [file];
+        let audit = HeldWindows {
+            files: &files,
+            sections: &sections,
+            family_of: &[],
+            family_keys: &[],
+        };
+        let mut signatures = SignatureArrays::new();
+        let found = key_only_read(audit, &mut signatures, 1, 1).expect("a read");
+        assert!(
+            found
+                .broken
+                .as_deref()
+                .is_some_and(|why| why.contains("E651"))
+        );
+        assert_eq!(found.windows, ["E650", "E650"]);
+        let _ = std::fs::remove_dir_all(directory);
+    }
+
+    #[test]
+    fn the_late_shaper_shapes_only_what_neither_the_prior_store_nor_the_misses_hold() {
+        let mut signatures = SignatureArrays::with_prior(
+            vec![10, 20],
+            vec![filled(10), filled(20)],
+            PyValue::Dict(Vec::new()),
+        );
+        signatures.set_misses(&[15], &[filled(15)]);
+        let mut asked = Vec::new();
+        let mut late = LateShaper::new(&mut signatures, |window: &str, config: &str| {
+            asked.push(format!("{window} {config}"));
+            Ok(filled(99))
+        });
+        assert_eq!(
+            late.digest(20, "E650", "default").expect("a hit"),
+            filled(20)
+        );
+        assert_eq!(late.digest(15, "E650", "ss03").expect("a miss"), filled(15));
+        assert_eq!(late.digest(30, "E651", "ss05").expect("a late"), filled(99));
+        assert_eq!(late.shaped, 1);
+        assert_eq!(
+            (
+                late.signatures().hits(),
+                late.signatures().misses(),
+                late.signatures().unhit()
+            ),
+            (1, 2, 1)
+        );
+        assert_eq!(asked, ["E651 ss05"]);
     }
 
     #[test]

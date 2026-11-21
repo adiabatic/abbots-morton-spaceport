@@ -216,44 +216,55 @@ fn clusters_value(clusters: &[u32]) -> PyValue {
     )
 }
 
-/// The worker's three fonts as HarfBuzz fonts, shared read-only by every thread.
+/// The worker's fonts as HarfBuzz fonts, shared read-only by every thread: all three, or the before and after fonts alone for the ink signatures.
 pub struct Fonts {
     before: Font,
     after: Font,
-    junior: Font,
+    junior: Option<Font>,
 }
 
 impl Fonts {
     /// Open the init's three fonts, refusing an init whose `harfbuzz` is not [`harfbuzz_version`] and a font whose glyph count differs from its glyph order in `facts`.
     pub fn open(init: &Init, facts: &FontFacts) -> Result<Self> {
+        let mut fonts = Self::open_before_after(init, facts)?;
+        fonts.junior = Some(open_font(init, facts, Side::Junior)?);
+        Ok(fonts)
+    }
+
+    /// Open the init's before and after fonts only, with [`Fonts::open`]'s refusals; shaping on the Junior side then fails.
+    pub fn open_before_after(init: &Init, facts: &FontFacts) -> Result<Self> {
         check_harfbuzz(&init.harfbuzz)?;
-        let open = |side: Side| -> Result<Font> {
-            let path = init_font(init, side);
-            let font = Font::open(Path::new(path)).map_err(ShapeError)?;
-            let ordered = facts.font(side).len();
-            if font.glyph_count() as usize != ordered {
-                return Err(ShapeError(format!(
-                    "the {} font {path} has {} glyphs and its facts' glyph order {ordered}",
-                    side.name(),
-                    font.glyph_count()
-                )));
-            }
-            Ok(font)
-        };
         Ok(Self {
-            before: open(Side::Before)?,
-            after: open(Side::After)?,
-            junior: open(Side::Junior)?,
+            before: open_font(init, facts, Side::Before)?,
+            after: open_font(init, facts, Side::After)?,
+            junior: None,
         })
     }
 
-    fn font(&self, side: Side) -> &Font {
+    fn font(&self, side: Side) -> Result<&Font> {
         match side {
-            Side::Before => &self.before,
-            Side::After => &self.after,
-            Side::Junior => &self.junior,
+            Side::Before => Ok(&self.before),
+            Side::After => Ok(&self.after),
+            Side::Junior => self
+                .junior
+                .as_ref()
+                .ok_or_else(|| ShapeError("the junior font is not open".to_owned())),
         }
     }
+}
+
+fn open_font(init: &Init, facts: &FontFacts, side: Side) -> Result<Font> {
+    let path = init_font(init, side);
+    let font = Font::open(Path::new(path)).map_err(ShapeError)?;
+    let ordered = facts.font(side).len();
+    if font.glyph_count() as usize != ordered {
+        return Err(ShapeError(format!(
+            "the {} font {path} has {} glyphs and its facts' glyph order {ordered}",
+            side.name(),
+            font.glyph_count()
+        )));
+    }
+    Ok(font)
 }
 
 fn init_font(init: &Init, side: Side) -> &str {
@@ -314,7 +325,7 @@ impl<'a> Shaper<'a> {
         let hb_features = features.hb_features()?;
         self.buffer
             .shape(
-                self.fonts.font(side),
+                self.fonts.font(side)?,
                 &codepoints,
                 &hb_features,
                 &mut self.glyphs,
