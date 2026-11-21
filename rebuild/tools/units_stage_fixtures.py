@@ -1,6 +1,6 @@
 """Record what the real Python corpus units worker's and corpus build's stages take and return, for the ports of the units recompute and of the build's parent to Rust (`rebuild/CORPUS-UNITS-PORT-PLAN.md` and `rebuild/CORPUS-PARENT-PORT-PLAN.md`, each § Stage fixtures).
 
-A stage runs the worker or the build (`Stage.run`). The worker's stages (`STAGES`) are described below. The build's (`BUILD_STAGES`) take a build source, `--scenario S` beside `--source`: the scenario's one build, prepared over the source's base prior (`open_build_source`, which `prepare --source SOURCE --scenario NAME|all [--check]` runs alone). A build stage is a call stage, whose recorders record a hooked call (`BUILD_HOOKS`) as the worker's stages do, or a boundary stage (`Stage.kind`), whose recorder returns the build's state at a phase boundary as a `Boundary`: a line a unit, every unit on the mini and every `--every`th ordinal on live (`LIVE_EVERY` by default), and a line a column with the digest of its canonical bytes over every unit (`column_line`). `dump --scenario` writes `source.json`, the prior corpus as the build finds it (`prior/`), clones of what the build reads (`inputs/`), the units init with its spec dump (`init/`) and the Rust build's input for that run's values without descriptors (`build.json`, `build._rust_inputs` through `corpus_exec.write_input`), then runs `build_m1` in this process over a clone of the prior, at the harness's default width under the Rust units engine and one write job, with the selected stages recording (`build_dump`). `selfcheck --scenario` runs that build twice, plain and with every build stage recording, and fails unless the two output trees are identical (`build_selfcheck`). `compare` takes a build stage too (`build_compare`): it opens the dump's audit clone (`audit.AuditParts`), writes `build.json` again with those descriptors, runs the Rust stage with them inherited, after the compares of the upstream build stages a boundary stage follows, and reports as for a worker stage.
+A stage runs the worker or the build (`Stage.run`). The worker's stages (`STAGES`) are described below. The build's (`BUILD_STAGES`) take a build source, `--scenario S` beside `--source`: the scenario's one build, prepared over the source's base prior (`open_build_source`, which `prepare --source SOURCE --scenario NAME|all [--check]` runs alone). A build stage is a call stage, whose recorders record a hooked call (`BUILD_HOOKS`) as the worker's stages do, or a boundary stage (`Stage.kind`), whose recorder returns the build's state at a phase boundary as a `Boundary`: a line a unit, every unit on the mini and every `--every`th ordinal on live (`LIVE_EVERY` by default), and a line a column with the digest of its canonical bytes over every unit (`column_line`). `dump --scenario` writes `source.json`, the prior corpus as the build finds it (`prior/`), clones of what the build reads (`inputs/`), the units init with its spec dump (`init/`) and the Rust build's input for that run's values without descriptors (`build.json`, `build._rust_inputs` through `corpus_exec.write_input`), then runs `build_m1` in this process over a clone of the prior, at the harness's default width under the Rust units engine and one write job, with the selected stages recording (`build_dump`). `selfcheck --scenario` runs that build twice, plain and with every build stage recording, and fails unless the two output trees are identical (`build_selfcheck`). `compare` takes a build stage too (`build_compare`): it opens the dump's audit clone (`audit.AuditParts`), writes `build.json` again with those descriptors, runs the Rust stage with them inherited, after the compares of the upstream build stages a boundary stage follows, and reports as for a worker stage; `compare write --write-threads N` runs the `write` stage's Rust side at that width in place of the dump's.
 
 The build's stages (`BUILD_STAGES`):
 
@@ -3910,6 +3910,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     },
     "app_index.LocatorBlocks.add": ("rebuild.review.app_index", "LocatorBlocks.add"),
     "unit_index.LineCursor.take": ("rebuild.review.unit_index", "LineCursor.take"),
+    "build._write_json": ("rebuild.review.build", "_write_json"),
 }
 
 
@@ -14574,6 +14575,172 @@ def _sidecar_taken_lines(source: BuildSource) -> list[bytes]:
     return taken
 
 
+WRITE_STAGE = "write"
+# The keys of the `write` stage's lines beside its units: a line a class in shard order under its place, the files under the corpus's `units/` and `fonts/`, the fonts' records, the write's counters, its runs' sidecar lines taken together and the facts its checkers folded.
+WRITE_CLASS_PREFIX = "class:"
+WRITE_UNITS_FILES_KEY = "units-files"
+WRITE_FONTS_KEY = "fonts"
+WRITE_FONTS_FILES_KEY = "fonts-files"
+WRITE_COUNTERS_KEY = "counters"
+WRITE_SIDECARS_KEY = "sidecars"
+WRITE_FACTS_KEY = "facts"
+# The files a `generated:static:` case's directory holds before `build.copy_static` runs over it, with how often it runs: an empty directory, once and twice, and one holding an `index.html` with other bytes and a file the copy does not name.
+_STATIC_CASES: tuple[tuple[dict[str, bytes], int], ...] = (
+    ({}, 1),
+    ({}, 2),
+    ({"index.html": b"<p>other</p>\n", "extra.txt": b"kept\n"}, 1),
+)
+# The `generated:font:` cases: the files the corpus holds before `build._copy_font` runs, whether the digest it checks against is the font's own, and how often it runs.
+_FONT_CASES: tuple[tuple[dict[str, bytes], bool, int], ...] = (
+    ({}, True, 1),
+    ({}, True, 2),
+    ({"fonts/before.otf": b"other bytes\n"}, True, 1),
+    ({}, False, 1),
+)
+
+
+def _write_reading(store: UnitStore, ordinal: int) -> tuple[object, int, str | None, str | None]:
+    """One unit as the `write` stage reads it from the store once the write has committed: its shard address, part, start and length, or None, the inflated length of a deflated fragment, and its config note and policy file."""
+    return (
+        store.written_address(ordinal),
+        store.written_inflated(ordinal),
+        store.config_note(ordinal),
+        store.policy_file(ordinal),
+    )
+
+
+def _files_held(directory: Path) -> list[tuple[str, int, str]]:
+    """Each regular file under `directory`, by its path relative to it in code-point order, with its size and sha256; none for a directory that is not there."""
+    if not directory.is_dir():
+        return []
+    held: list[tuple[str, int, str]] = []
+    for name, path in sorted(
+        (path.relative_to(directory).as_posix(), path) for path in directory.rglob("*") if path.is_file()
+    ):
+        with path.open("rb") as handle:
+            held.append((name, path.stat().st_size, hashlib.file_digest(handle, "sha256").hexdigest()))
+    return held
+
+
+def _write_sidecars_value(written: Mapping[int, build._RunWritten]) -> tuple:
+    """The runs' sidecar lines taken together, in shard order: the app-index and locator row counts, the rows copied forward, the index lines', the app-index lines' and the locator rows' bytes run after run as their length and sha256, and the locator blocks' table entries, each `byte_start` moved by the rows of the runs before it, as `app_index.write_app_artifacts_lines` moves them."""
+    digests = {name: hashlib.sha256() for name in (unit_index.INDEX_NAME, app_index.APP_INDEX_NAME)}
+    sizes = dict.fromkeys(digests, 0)
+    rows = hashlib.sha256()
+    base = 0
+    blocks: list[dict] = []
+    for index in range(len(written)):
+        run = written[index]
+        for name, digest in digests.items():
+            with gzip.GzipFile(fileobj=io.BytesIO(run.lines[name]), mode="rb") as stream:
+                while chunk := stream.read(1 << 20):
+                    digest.update(chunk)
+                    sizes[name] += len(chunk)
+        members = run.lines[app_index.LOCATOR_ROWS_NAME]
+        blocks.extend({**entry, "byte_start": base + entry["byte_start"]} for entry in run.sidecars.blocks)
+        rows.update(members)
+        base += len(members)
+    return (
+        sum(run.sidecars.human for run in written.values()),
+        sum(run.sidecars.machine for run in written.values()),
+        sum(run.sidecars.copied_forward for run in written.values()),
+        *((sizes[name], digest.hexdigest()) for name, digest in digests.items()),
+        (base, rows.hexdigest()),
+        blocks,
+    )
+
+
+def write_boundary(held: Mapping[str, Any]) -> Boundary:
+    """The `write` boundary over `build._write_corpus`'s locals as the manifest is about to be written, every run's parts committed and the fonts copied (`held`): a unit as `_write_reading` reads it; a line a class in shard order, under its place there, with its id and manifest record, its `shards` filled; the files under the corpus's `units/` and `fonts/` (`_files_held`); the fonts' records; the write's counters, the classes folded and those written directly among them, as `_WrittenCorpus` takes them; the runs' sidecar lines taken together (`_write_sidecars_value`); and the facts the folding checker holds (`_check_facts`)."""
+    table: UnitTable = held["table"]
+    store: UnitStore = held["store"]
+    to_write: Sequence[build._ClassToWrite] = held["to_write"]
+    metas: Mapping[str, dict] = held["metas"]
+    written: Mapping[int, build._RunWritten] = held["written"]
+    out_dir = Path(held["out_dir"])
+    counters = {
+        "byte_copied": held["byte_copied"],
+        "kept": held["kept"],
+        "appended": held["appended"],
+        "appended_inflated": held["appended_inflated"],
+        "deflated": held["deflated"],
+        "dead": held["dead"],
+        "folded": sum(entry.route == build.FOLD for entry in to_write),
+        "direct": sum(entry.route in (build.DIRECT, build.FIRST) for entry in to_write),
+        "copied_forward": sum(run.sidecars.copied_forward for run in written.values()),
+    }
+    return Boundary(
+        table.n,
+        {"value": functools.partial(_write_reading, store)},
+        [
+            *(
+                {"key": f"{WRITE_CLASS_PREFIX}{place}", "value": (entry.id, copy.deepcopy(metas[entry.id]))}
+                for place, entry in enumerate(to_write)
+            ),
+            {"key": WRITE_UNITS_FILES_KEY, "value": _files_held(out_dir / "units")},
+            {"key": WRITE_FONTS_KEY, "value": copy.deepcopy(held["fonts"])},
+            {"key": WRITE_FONTS_FILES_KEY, "value": _files_held(out_dir / "fonts")},
+            {"key": WRITE_COUNTERS_KEY, "value": counters},
+            {"key": WRITE_SIDECARS_KEY, "value": _write_sidecars_value(written)},
+            {"key": WRITE_FACTS_KEY, "value": _check_facts(held["check"])},
+        ],
+    )
+
+
+def _manifest_writing(_args: tuple, _kwargs: dict) -> Finisher | None:
+    """`build._write_json` as `build._write_corpus` calls it for the manifest, recorded as the `write` boundary over that frame's locals before the manifest is written (`write_boundary`); a call from anywhere else records nothing."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code is not build._write_corpus.__code__:
+        frame = frame.f_back
+    if frame is None:
+        return None
+    boundary = write_boundary(frame.f_locals)
+    return lambda _result: boundary
+
+
+def _write_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `write` stage's generated lines: `build.copy_static` from the repository's static files into a directory holding each case of `_STATIC_CASES`, as often as the case says, under `generated:static:<n>`, valued what its last call returned, the counts lines its calls appended and the files the directory holds then (`_files_held`); and `build._copy_font` of the dump's clone of the before font into a corpus holding each case of `_FONT_CASES`, against the font's own digest or another, as often as the case says, under `generated:font:<n>`, valued the refusal's message or None, the counts lines and the files the corpus's `fonts/` holds then. Each case's input is the files held and the call's further arguments."""
+    for index, (files, times) in enumerate(_STATIC_CASES):
+        with tempfile.TemporaryDirectory(prefix="write-static-") as scratch:
+            directory, counts = Path(scratch) / "out", Path(scratch) / "counts"
+            directory.mkdir()
+            counts.write_bytes(b"")
+            for name, data in files.items():
+                (directory / name).write_bytes(data)
+            copied: list[str] = []
+            with _counts_named(counts):
+                for _ in range(times):
+                    copied = build.copy_static(directory, build.STATIC_DIR)
+            yield {
+                "key": f"generated:static:{index}",
+                "input": (files, times),
+                "value": (copied, counts.read_bytes(), _files_held(directory)),
+            }
+    font = (source.out / DUMP_INPUTS / build.SITE_BEFORE_FONT.name).absolute()
+    own = hashlib.sha256(font.read_bytes()).hexdigest()
+    for index, (files, owned, times) in enumerate(_FONT_CASES):
+        expected = own if owned else "0" * 64
+        with tempfile.TemporaryDirectory(prefix="write-font-") as scratch:
+            corpus, counts = Path(scratch) / "out", Path(scratch) / "counts"
+            corpus.mkdir()
+            counts.write_bytes(b"")
+            for name, data in files.items():
+                (corpus / name).parent.mkdir(parents=True, exist_ok=True)
+                (corpus / name).write_bytes(data)
+            refusal = None
+            with _counts_named(counts):
+                try:
+                    for _ in range(times):
+                        build._copy_font(font, corpus, "before.otf", "AMS Review Before", REPO_ROOT, expected)
+                except SystemExit as stop:
+                    refusal = str(stop.code)
+            yield {
+                "key": f"generated:font:{index}",
+                "input": (files, str(font), "before.otf", "AMS Review Before", expected, times),
+                "value": (refusal, counts.read_bytes(), _files_held(corpus / "fonts")),
+            }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -14837,6 +15004,9 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         },
         _sidecar_lines_generated,
         run="build",
+    ),
+    WRITE_STAGE: Stage(
+        WRITE_STAGE, {"build._write_json": _manifest_writing}, _write_generated, run="build", kind="boundary"
     ),
 }
 
@@ -15309,8 +15479,10 @@ def _run_worker_stage(stage: Stage[Any], stages: Path, stage_file: Path) -> tupl
     return init, process.returncode, stdout, stderr
 
 
-def _run_build_stage(stage: Stage[Any], stages: Path, stage_file: Path) -> tuple[dict, int, bytes, bytes]:
-    """Run a build stage's Rust side over a dump: open the dump's audit clone as the build holds an audit (`audit.AuditParts`), write the dump's `BUILD_INPUT_FILE` again with those descriptors into a directory held for the run, and run the stage with them inherited. Return the input's document with the process's status and output."""
+def _run_build_stage(
+    stage: Stage[Any], stages: Path, stage_file: Path, arguments: Sequence[str] = ()
+) -> tuple[dict, int, bytes, bytes]:
+    """Run a build stage's Rust side over a dump: open the dump's audit clone as the build holds an audit (`audit.AuditParts`), write the dump's `BUILD_INPUT_FILE` again with those descriptors into a directory held for the run, and run the stage with them inherited, `arguments` after its `--init`. Return the input's document with the process's status and output."""
     description = json.loads((stages / SOURCE_FILE).read_text(encoding="ascii"))
     document = json.loads((stages / BUILD_INPUT_FILE).read_text(encoding="ascii"))
     parts = audit.AuditParts(stages / description["inputs"]["audit"])
@@ -15320,7 +15492,8 @@ def _run_build_stage(stage: Stage[Any], stages: Path, stage_file: Path) -> tuple
             input_path = Path(scratch) / BUILD_INPUT_FILE
             input_path.write_text(compact(document) + "\n", encoding="ascii")
             process = units_exec.spawn(
-                ["stage", stage.name, f"--init={input_path}", str(stage_file)], pass_fds=parts.descriptors
+                ["stage", stage.name, f"--init={input_path}", *arguments, str(stage_file)],
+                pass_fds=parts.descriptors,
             )
             stdout, stderr = process.communicate()
     finally:
@@ -15328,8 +15501,17 @@ def _run_build_stage(stage: Stage[Any], stages: Path, stage_file: Path) -> tuple
     return document, process.returncode, stdout, stderr
 
 
-def build_compare(stage: Stage[BuildSource], stages: Path, checked: Sequence[str] | None = None) -> bool:
-    """`compare` a build stage. Before a boundary stage's own compare, compare each build stage registered ahead of it (`BUILD_STAGES`) whose lines the dump holds, every output checked, and stop at the first that differs, which names the stage a disagreement starts in."""
+def build_compare(
+    stage: Stage[BuildSource],
+    stages: Path,
+    checked: Sequence[str] | None = None,
+    write_threads: int | None = None,
+) -> bool:
+    """`compare` a build stage. Before a boundary stage's own compare, compare each build stage registered ahead of it (`BUILD_STAGES`) whose lines the dump holds, every output checked, and stop at the first that differs, which names the stage a disagreement starts in. `write_threads`, which only the `write` stage takes, sets the width its own Rust side writes at in place of the dump's."""
+    if write_threads is not None and stage.name != WRITE_STAGE:
+        raise SystemExit(
+            f"--write-threads sets the {WRITE_STAGE} stage's width, not the {stage.name} stage's"
+        )
     if stage.kind == "boundary":
         for upstream in BUILD_STAGES.values():
             if upstream.name == stage.name:
@@ -15339,11 +15521,15 @@ def build_compare(stage: Stage[BuildSource], stages: Path, checked: Sequence[str
                     f"compare {stage.name}: the upstream {upstream.name} stage differs first", file=sys.stderr
                 )
                 return False
-    return compare(stage, stages, checked)
+    return compare(
+        stage, stages, checked, () if write_threads is None else (f"--write-threads={write_threads}",)
+    )
 
 
-def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = None) -> bool:
-    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, a boundary stage's `column:` line by its count and digest (`COLUMN_FIELDS`), every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`); a worker stage reads an init written for the dump's source (`_run_worker_stage`), and a build stage the dump's build input with the dump's audit clone held and inherited (`_run_build_stage`), whose document its answer checks see in place of the init."""
+def compare(
+    stage: Stage[Any], stages: Path, checked: Sequence[str] | None = None, arguments: Sequence[str] = ()
+) -> bool:
+    """Run the Rust side of `stage` over the dump under `stages` and report every line whose expected output it does not reproduce, a boundary stage's `column:` line by its count and digest (`COLUMN_FIELDS`), every problem the stage's answer checks find in an answer, every key it does not answer, and every key it answers that the dump does not hold. Only the outputs `checked` names are checked, every output when None. The crate is built first (`units_exec.ensure_built`); a worker stage reads an init written for the dump's source (`_run_worker_stage`), and a build stage the dump's build input with the dump's audit clone held and inherited (`_run_build_stage`), with `arguments` after its `--init`, whose document its answer checks see in place of the init."""
     outputs = tuple(checked) if checked is not None else stage.outputs
     stage_file = stages / f"{stage.name}.ndjson"
     if not stage_file.is_file():
@@ -15352,8 +15538,10 @@ def compare(stage: Stage[Any], stages: Path, checked: Sequence[str] | None = Non
         stage_file.read_text(encoding="ascii").splitlines(), (*outputs, *COLUMN_FIELDS), str(stage_file)
     )
     units_exec.ensure_built()
-    run = _run_build_stage if stage.run == "build" else _run_worker_stage
-    init, returncode, stdout, stderr = run(stage, stages, stage_file)
+    if stage.run == "build":
+        init, returncode, stdout, stderr = _run_build_stage(stage, stages, stage_file, arguments)
+    else:
+        init, returncode, stdout, stderr = _run_worker_stage(stage, stages, stage_file)
     if returncode != 0 or stderr:
         print(
             f"compare {stage.name}: ams-review exited {returncode}: "
@@ -15516,6 +15704,9 @@ def main(argv: list[str] | None = None) -> int:
     compare_parser.add_argument(
         "--fields", metavar="NAMES", help="check only these comma-separated output fields and field groups"
     )
+    compare_parser.add_argument(
+        "--write-threads", type=int, metavar="N", help="the width the write stage's Rust side writes at"
+    )
     tables_parser = commands.add_parser("unicode-tables", help="write the crate's str predicate tables")
     tables_parser.add_argument("--check", action="store_true", help="fail when the tables are stale")
     prepare_parser = commands.add_parser("prepare", help="prepare build scenarios over a source's base prior")
@@ -15543,7 +15734,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.stage in BUILD_STAGES:
             (build_stage,) = _selected([args.stage], BUILD_STAGES)
             return (
-                0 if build_compare(build_stage, args.stages, compared_fields(build_stage, args.fields)) else 1
+                0
+                if build_compare(
+                    build_stage,
+                    args.stages,
+                    compared_fields(build_stage, args.fields),
+                    args.write_threads,
+                )
+                else 1
+            )
+        if args.write_threads is not None:
+            raise SystemExit(
+                f"--write-threads sets the {WRITE_STAGE} stage's width, not the {args.stage} stage's"
             )
         (stage,) = _selected([args.stage], STAGES)
         return 0 if compare(stage, args.stages, compared_fields(stage, args.fields)) else 1
