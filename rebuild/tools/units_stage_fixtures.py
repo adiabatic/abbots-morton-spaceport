@@ -32,6 +32,7 @@ The build's stages (`BUILD_STAGES`):
 - `route` is a boundary stage that records how the write routes each class and cuts the runs, from `build._write_corpus`'s locals once `build._write_runs` returns (`_runs_cut`), as `route_boundary` lays it out: a unit whether its fragment is predicted unchanged, and lines for each class in shard order with its route, prior parts and manifest record, a column over each class's ordinals, the width and the runs, and whether the previous sidecars are copied forward. Its generated lines (`_route_generated`) cut runs over class sizes and widths at the edges, read the previous corpus's parts from manifests of every shape, and ask whether the dump's prior corpus holds a current units index, app index and locator.
 - `shards` records each class the write's shard writer (`build._ShardWriter`) writes, from its `open` to its `close`, under `class:<id>`: its input the cap (None, the build's `SHARD_PART_BYTES`), the parts the class appends to as the build's directory held them when it opened, and each call made on the writer (`open`, `holds`, `keep`, `add_bytes`, which `add` makes too, and `close`) with its arguments, a fragment as the sha256 of its bytes; its value each call's result, the close's parts, total and pending renames with each staged part's size and sha256, and the counters the class moved (`_shard_closed`). Every fragment and held part is kept once under its sha256 in `shards.blobs/` beside the stage file (`SHARDS_BLOBS`), from which the Rust side makes the held parts again, as clones, in a scratch directory and replays the calls there. Its generated lines (`_shards_generated`, `_shard_cases`) replay writers of their own under small caps through `_shard_replay`, which also takes, commits, aborts and lists what a writer staged, and deletes staged parts by class ids that are wildcards themselves (`build._discard_runs`).
 - `prior-read` records each read the write makes of a fragment it emits, keyed by its origin, its `form` and a digest of its `input`: `read`, `read-bytes` and `same-bytes`, each `unit_cache.PriorFragmentReader.read`, `read_bytes` and `same_bytes` call (`_prior_reading`), with the part it opens as the reader's directory held it (`_prior_held`), its address (`_prior_located`) and, for `same-bytes`, the body it compares, valued `("fragment", value)`, `("bytes", sha256)` or `("same", flag)` (`_prior_given`); and `arena`, each `build._FragmentArena.read` call (`_arena_read`), with the arena's dictionary, the span's bytes and the address, valued `("fragment", value)`. Every part, body, span and dictionary is kept once under its sha256 in `prior-read.blobs/` beside the stage file (`PRIOR_READ_BLOBS`), from which the Rust side makes each line's parts again in a scratch directory, or places its span at its start in an arena of its own, and makes the read there. Its generated lines (`_prior_read_generated`, `_prior_read_cases`) read plain and deflated fragments, as bytes and compared, under their own address and moved ones, and arena spans under their own dictionary and others, through every refusal of the reader's, each refusal valued `("raised", "ValueError", message)`, `("os-error", errno)` or, where `json.loads` refuses the bytes, `("undecoded",)` (`_prior_outcome`).
+- `emit` records each unit the write receives, each `build._emission` call (`_emitted`), under `unit:<ordinal>`: its kind, `fragment` for a fragment the write serializes or `bytes` for a cached fragment's stored bytes, its unit id, content key and policy file, the sha256 of the bytes the write takes from it, the config note the write keeps for it, and, for stored bytes, their address and the identity that stands in for the fragment (`_emission_value`). The Rust side runs the build through the routing and emits every unit of every class in shard order.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3888,6 +3889,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
         for name in ("read", "read_bytes", "same_bytes")
     },
     "build._FragmentArena.read": ("rebuild.review.build", "_FragmentArena.read"),
+    "build._emission": ("rebuild.review.build", "_emission"),
 }
 
 
@@ -13039,6 +13041,47 @@ def _prior_read_generated(source: BuildSource) -> Iterator[Mapping[str, object]]
         yield {"key": f"generated:{name}", "input": inputs, "value": value}
 
 
+EMIT_STAGE = "emit"
+_EMISSION = inspect.signature(build._emission)
+
+
+def _emitted(args: tuple, kwargs: dict) -> Finisher:
+    """`build._emission`: the unit at its ordinal as the write receives it, under `unit:<ordinal>`, valued `_emission_value`. The dump's write runs at one job, so the ordinal is the full table's."""
+    bound = _EMISSION.bind(*args, **kwargs)
+    ordinal: int = bound.arguments["ordinal"]
+    table: UnitTable = bound.arguments["table"]
+
+    def finish(emission: object) -> Mapping[str, object]:
+        assert isinstance(emission, build._Emission), emission
+        return {"key": f"unit:{ordinal}", "value": _emission_value(emission, table, ordinal)}
+
+    return finish
+
+
+def _emission_value(emission: build._Emission, table: UnitTable, ordinal: int) -> tuple:
+    """An emission as an `emit` line's value: its kind, `fragment` or `bytes`, its unit id, content key and policy file, the sha256 of the bytes the write takes from it (a fragment's `build._fragment_bytes`, or the stored bytes as they are), the config note `_write_chunk` keeps for it (the fragment's, or `build.config_note` over the table's configurations for stored bytes), and, for stored bytes, their address and the identity that stands in for the fragment."""
+    if emission.fragment is not None:
+        body = build._fragment_bytes(emission.fragment)
+        note = emission.fragment["config_note"]
+        address = identity = None
+    else:
+        assert emission.body is not None and emission.source is not None
+        body = emission.body
+        note = build.config_note(table.configs(ordinal), ACCEPTANCE_CONFIGS)
+        address = _prior_located(emission.source)
+        identity = emission.identity
+    return (
+        "fragment" if emission.fragment is not None else "bytes",
+        emission.unit_id,
+        emission.content_key,
+        emission.policy_file,
+        hashlib.sha256(body).hexdigest(),
+        note,
+        address,
+        identity,
+    )
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -13269,6 +13312,7 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _prior_read_generated,
         run="build",
     ),
+    EMIT_STAGE: Stage(EMIT_STAGE, {"build._emission": _emitted}, run="build"),
 }
 
 
