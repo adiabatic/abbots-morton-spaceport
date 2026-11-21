@@ -1,4 +1,6 @@
 //! The review corpus build's parent, which `rebuild/CORPUS-PARENT-PORT-PLAN.md` moves from `rebuild/review/build.py` into the crate beside the units engine, with `rebuild/review/corpus_exec.py` as its Python half. [`input`] reads the build input that interface writes, [`console`] prints the build's console lines, [`sink`] writes its whole-file outputs as `output_sink` does, [`gzip`] writes and reads its zlib and gzip containers as Python's `zlib` and `gzip` do, [`random`] draws the verification sample as CPython's `random.Random` does, [`rowdelta`] reads and writes the segment format's heads, parts and segments as `row_delta` does, [`audit`] finds the held audit's sections as `audit.audit_layout` does, [`stream`] walks them a window at a time as `audit_stream.lockstep` does, [`signatures`] loads and writes the ink-signature store as `unit_cache.SignatureArrays` does and finds and shapes its misses on threads as the build's key-only read and shaping do, [`columns`] holds the string table, the pools and the indexes the build's columns are built on as `rebuild/review/columns.py` does, and [`table`] orders the unit table's rows by `audit.triage_key` as `audit`'s counting sorts do, merges a window's ink-duplicate units as `audit._merge_members` does, and holds the unit table the build's stream loads as `audit.stream_workload` loads it; [`premerge`] holds the pre-merge snapshot the review facts are derived from, rebased onto the merge, as `facts.PremergeSnapshot` holds it.
+//!
+//! The build's load phase is here ([`load_phase`], [`load_corpus`]), as `build._build_m1` runs it: the ink-signature store loaded, the misses found and shaped, the audit read as a stream into the unit table and the pre-merge snapshot. The Rust build reads an audit only as a stream, so an audit that is not in sorted sections, or whose key-only read or stream breaks, is refused, naming the Python build that reads it ([`not_a_stream`]). [`stage_load`] is the `load` stage of the stage fixtures.
 
 pub mod audit;
 pub mod columns;
@@ -12,3 +14,488 @@ pub mod signatures;
 pub mod sink;
 pub mod stream;
 pub mod table;
+
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+use std::time::Instant;
+
+use audit::{Section, Vocabulary, audit_layout, stage_line};
+use input::{BuildInput, Member};
+use premerge::PremergeSnapshot;
+use signatures::{
+    AUDIT_IDENTITY_KEY, FAMILY_KEYS_KEY, HeldWindows, InkShaping, MissError, SignatureArrays,
+    StoreNames, dump_prior, find_misses, key_only_count, lines_value, signature_miss_note,
+};
+use stream::{Lockstep, StreamError};
+use table::{
+    ColumnDigest, InkDigest, MergeStats, UNIT_PREFIX, Workload, WorkloadError, count_value, int,
+    stage_units, stream_workload, workload_unit,
+};
+
+use crate::pyfmt::PyValue;
+use crate::wire::{Result, WireError};
+
+/// The switch setting that builds what the Rust build refuses (`corpus_exec.ENGINE_VARIABLE`).
+pub const PYTHON_BUILD: &str = "AMS_CORPUS_BUILD_ENGINE=python";
+/// The label of the load phase's console lines.
+pub const LOAD_LABEL: &str = "review.build load";
+/// The load's source, as the load phase's note names it.
+pub const STREAM_SOURCE: &str = "read as a stream";
+
+/// What stops the build, by how the Python build stops: a `SystemExit` with this text, or any other failure, which the result line carries as an `error`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BuildError {
+    Exit(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Exit(message) => write!(formatter, "SystemExit: {message}"),
+            Self::Failed(message) => formatter.write_str(message),
+        }
+    }
+}
+
+impl std::error::Error for BuildError {}
+
+impl From<WireError> for BuildError {
+    fn from(failure: WireError) -> Self {
+        Self::Failed(failure.0)
+    }
+}
+
+fn failed(failure: impl std::fmt::Display) -> BuildError {
+    BuildError::Failed(failure.to_string())
+}
+
+/// The refusal of an audit the Rust build does not read, where the Python build reads it through its in-memory source instead: why the audit at `path` is not read as a stream, and the switch setting that builds it.
+pub fn not_a_stream(path: &str, why: &str) -> BuildError {
+    BuildError::Exit(format!(
+        "the Rust build reads an audit only as a stream, and {path} is not one, since {why}; {PYTHON_BUILD} builds it"
+    ))
+}
+
+/// What the key-only read did, for the load phase's note: skipped, since the prior store's stamps held, or run over its window ranges on threads, in seconds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum KeyOnlyRun {
+    Skipped,
+    Ran {
+        seconds: f64,
+        ranges: usize,
+        threads: usize,
+    },
+}
+
+impl KeyOnlyRun {
+    /// The key-only read's part of the load phase's note (`build._key_only_note`).
+    pub fn note(&self) -> String {
+        match self {
+            Self::Skipped => "skipped, the store's stamps held".to_owned(),
+            Self::Ran {
+                seconds,
+                ranges,
+                threads,
+            } => format!("ran {seconds:.2} s across {ranges} ranges on {threads} threads"),
+        }
+    }
+}
+
+/// What the load gives the plan (`build._Loaded` from the stream): the workload, its table merged and in load order; the pre-merge snapshot, rebased onto the merge; each unit's input key in load order; the ink-signature store's columns, hits marked and misses shaped, and the stamps its header records; the merge's stats; what the key-only read did; the misses shaped, late ones among them, and the threads the key-only read's misses were shaped on; and the held audit's parts, those held as gzip members and its segments' rows.
+#[derive(Debug)]
+pub struct Loaded {
+    pub workload: Workload,
+    pub premerge: PremergeSnapshot,
+    pub input_keys: Vec<u8>,
+    pub signatures: SignatureArrays,
+    pub stamps: Vec<(PyValue, PyValue)>,
+    pub merge_stats: MergeStats,
+    pub key_only: KeyOnlyRun,
+    pub shaped: usize,
+    pub width: usize,
+    pub parts: usize,
+    pub compressed: i64,
+    pub segment_rows: i64,
+}
+
+impl Loaded {
+    /// The load phase's note (`_Loaded.note`), after the `build=rust` token: the signatures the store answered and those shaped, and on how many threads, what the key-only read did, the source, the held audit's parts, and the prior store's hits, unhit entries and misses.
+    pub fn note(&self) -> String {
+        let signatures = &self.signatures;
+        let how = match (self.shaped, self.width) {
+            (0, _) => String::new(),
+            (_, 1) => " serially".to_owned(),
+            (_, width) => format!(" across {width} threads"),
+        };
+        format!(
+            "build=rust (signatures: {} cached, {} shaped{how}) (key-only read {}; {STREAM_SOURCE}; audit {} parts, {} compressed, {} segment rows; prior store {} hit, {} unhit, {} missed)",
+            thousands(signatures.hits()),
+            thousands(self.shaped),
+            self.key_only.note(),
+            self.parts,
+            self.compressed,
+            thousands(usize::try_from(self.segment_rows).unwrap_or(0)),
+            thousands(signatures.hits()),
+            thousands(signatures.unhit()),
+            thousands(signatures.misses()),
+        )
+    }
+}
+
+/// A count with a comma every three digits, as Python's `f"{count:,}"` writes it.
+fn thousands(count: usize) -> String {
+    let digits = count.to_string();
+    let mut written = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            written.push(',');
+        }
+        written.push(digit);
+    }
+    written
+}
+
+/// The audit's sections in sorted order, as `audit.audit_layout` finds them over `files`, or the refusal of an audit that is not in sorted sections ([`not_a_stream`]); an audit with no header or another header, or a member that does not inflate to what its index records, fails as Python's raises.
+pub fn sorted_sections(
+    files: &[File],
+    path: &str,
+    members: &[Option<Vec<Member>>],
+    vocabulary: &Vocabulary,
+) -> std::result::Result<Vec<Section>, BuildError> {
+    let layout = audit_layout(files, path, members, vocabulary).map_err(failed)?;
+    layout
+        .sections
+        .ok_or_else(|| not_a_stream(path, &layout.why))
+}
+
+/// What the stream's load raised, by how the build stops on it: a break refuses the audit ([`not_a_stream`]), a classing `ValueError` is an `exit` with its text, and anything else fails.
+fn stream_failure(path: &str, failure: WorkloadError) -> BuildError {
+    match failure {
+        WorkloadError::Stream(StreamError::Break(why)) => not_a_stream(path, &why),
+        WorkloadError::Value(message) => BuildError::Exit(message),
+        other => failed(other),
+    }
+}
+
+/// Load the audit for the build (`build._load_corpus`'s stream path), the prior store read from `out_dir` and the audit through `files`, the parts the build input's descriptors hold: the ink-signature store read into columns, unless the build recomputes every unit, with its miss note on `console` when none loads, said for no store and warned otherwise; the audit's sections found ([`sorted_sections`]); the misses found by the key-only read at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads, unless the store's stamps hold, and shaped on its signature threads; the audit read as a stream ([`stream_workload`]), each digest the store does not hold shaped late; and the pre-merge snapshot taken over the ledger's `ink_identical` classes and rebased onto the merge. The shaping's fonts are dropped as the load returns.
+pub fn load_corpus(
+    input: &BuildInput,
+    files: &[File],
+    out_dir: &Path,
+    console: &mut impl Write,
+) -> std::result::Result<Loaded, BuildError> {
+    let names = StoreNames::of(input)?;
+    let environment = &input.signature_environment;
+    let prior = if input.recompute_all {
+        None
+    } else {
+        SignatureArrays::load(out_dir, &names, &environment.value).map_err(failed)?
+    };
+    if !input.recompute_all && prior.is_none() {
+        let note = signature_miss_note(out_dir, &names, environment)
+            .map_err(failed)?
+            .unwrap_or_else(|| names.unreadable.clone());
+        let line = format!("ink-signature store: {note}");
+        if note == names.no_store {
+            console::say(console, &line)
+        } else {
+            console::warn(console, &line)
+        }
+        .map_err(failed)?;
+    }
+    let mut signatures = prior.unwrap_or_default();
+    let stamps = vec![
+        (
+            PyValue::str(AUDIT_IDENTITY_KEY),
+            PyValue::List(
+                input
+                    .audit
+                    .identity
+                    .iter()
+                    .copied()
+                    .map(PyValue::Int)
+                    .collect(),
+            ),
+        ),
+        (
+            PyValue::str(FAMILY_KEYS_KEY),
+            PyValue::str(&input.family_keys_digest),
+        ),
+    ];
+    let path = input.audit.path.as_str();
+    let vocabulary = Vocabulary::of(input)?;
+    let sections = sorted_sections(files, path, &input.audit.members, &vocabulary)?;
+    let held = HeldWindows {
+        files,
+        sections: &sections,
+        family_of: &input.family_of,
+        family_keys: &input.family_keys,
+    };
+    let width = |value: i64| usize::try_from(value).unwrap_or(1).max(1);
+    let threads = width(input.widths.threads);
+    let mut found = find_misses(
+        held,
+        &mut signatures,
+        &input.audit.identity,
+        &input.family_keys_digest,
+        key_only_count(input)?,
+        threads,
+    )
+    .map_err(|failure| match failure {
+        MissError::Exit(message) => BuildError::Exit(message),
+        other => failed(other),
+    })?;
+    if let Some(why) = &found.broken {
+        return Err(not_a_stream(path, why));
+    }
+    let key_only = if found.ran {
+        KeyOnlyRun::Ran {
+            seconds: found.seconds,
+            ranges: found.ranges,
+            threads: threads.min(found.ranges).max(1),
+        }
+    } else {
+        KeyOnlyRun::Skipped
+    };
+    let shaping = InkShaping::open(Path::new(&input.units_init))?;
+    let (shaped, shaped_width) = shaping.shape_found_misses(
+        &mut found,
+        &sections,
+        &mut signatures,
+        width(input.widths.signature_threads),
+    )?;
+    let mut late = shaping.late(&mut signatures);
+    let streamed = {
+        let digest: InkDigest<'_> =
+            &mut |key: u64, window: &str, config: &str| late.digest(key, window, config);
+        Lockstep::new(files, &sections, None, None)
+            .map_err(WorkloadError::from)
+            .and_then(|mut stream| {
+                stream_workload(
+                    || stream.next_window(),
+                    path,
+                    &input.ledger_path,
+                    &sections,
+                    &input.ledger,
+                    &input.family_of,
+                    &input.family_keys,
+                    &vocabulary.configs,
+                    Some(digest),
+                )
+            })
+    };
+    let late_shaped = late.shaped;
+    drop(late);
+    drop(shaping);
+    let streamed = streamed.map_err(|failure| stream_failure(path, failure))?;
+    let identical = input
+        .ledger
+        .iter()
+        .filter(|entry| entry.ink_identical)
+        .map(|entry| entry.id.clone());
+    let mut premerge = PremergeSnapshot::from_columns(streamed.premerge, identical);
+    premerge
+        .rebase(streamed.compaction)
+        .map_err(|uneven| BuildError::Failed(format!("ValueError: {uneven}")))?;
+    Ok(Loaded {
+        workload: streamed.workload,
+        premerge,
+        input_keys: streamed.input_keys,
+        signatures,
+        stamps,
+        merge_stats: streamed.merge_stats,
+        key_only,
+        shaped: shaped + late_shaped,
+        width: if shaped > 0 { shaped_width } else { 1 },
+        parts: files.len(),
+        compressed: input.audit.compressed,
+        segment_rows: input.audit.segment_rows,
+    })
+}
+
+/// The build's load phase (`build._build_m1` up to the plan): its `[phase]` line, the load over the audit's held parts and the prior store in the input's output directory ([`load_corpus`]), the refusal of a table with no units, and the `[t]` line that closes it with the load's note.
+pub fn load_phase(
+    input: &BuildInput,
+    files: &[File],
+    console: &mut impl Write,
+) -> std::result::Result<Loaded, BuildError> {
+    console::phase(console, LOAD_LABEL).map_err(failed)?;
+    let started = Instant::now();
+    let loaded = load_corpus(input, files, Path::new(&input.out_dir), console)?;
+    if loaded.workload.table.n == 0 {
+        return Err(BuildError::Exit(format!(
+            "{} records no divergent rows, so there is nothing to build a review corpus over",
+            input.audit.path
+        )));
+    }
+    console::phase_timing(
+        console,
+        LOAD_LABEL,
+        started.elapsed().as_secs_f64(),
+        &loaded.note(),
+    )
+    .map_err(failed)?;
+    Ok(loaded)
+}
+
+/// The keys of the `load` stage's lines beside its units and its pre-merge column (`units_stage_fixtures.LOAD_*_KEY`).
+const SOURCE_KEY: &str = "source";
+const KEY_ONLY_KEY: &str = "key-only";
+const SIGNATURES_KEY: &str = "signatures";
+const STAMPS_KEY: &str = "stamps";
+const ENVIRONMENT_KEY: &str = "environment";
+const MERGE_KEY: &str = "merge";
+const AUDIT_KEY: &str = "audit";
+const CONSOLE_KEY: &str = "console";
+
+/// Write the `load` stage's lines over what the load gave, as the Python stage's `load_boundary` lays them out: a `unit:<ordinal>` line for each ordinal in `units`, the unit as the `workload` stage holds it, and the column over every unit; a column over the pre-merge snapshot's rows; the source, the key-only read's facts, the store's counts and new lines, the stamps, the signature stamp's value, the merge's stats, the held audit's facts, and the console lines the load printed.
+fn load_lines(
+    loaded: &Loaded,
+    input: &BuildInput,
+    printed: &[u8],
+    units: &std::collections::HashSet<usize>,
+    out: &mut impl Write,
+) -> Result<()> {
+    let table = &loaded.workload.table;
+    let mut digest = ColumnDigest::new();
+    for ordinal in 0..table.n {
+        let value = workload_unit(table, &loaded.input_keys, ordinal);
+        if units.contains(&ordinal) {
+            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
+        }
+        digest.add(&value);
+    }
+    digest.write(out, "value")?;
+    let snapshot = &loaded.premerge;
+    let (Some(survivor), Some(removed)) = (&snapshot.survivor, &snapshot.removed) else {
+        return Err(WireError(
+            "the load stage answers over a rebased snapshot".to_owned(),
+        ));
+    };
+    let mut rows = ColumnDigest::new();
+    for at in 0..snapshot.len() {
+        rows.add(&PyValue::Tuple(vec![
+            int(snapshot.class_id[at]),
+            int(snapshot.no_verdict[at]),
+            int(snapshot.configs[at]),
+            int(snapshot.window_start[at]),
+            int(snapshot.window_n[at]),
+            int(survivor[at]),
+            int(removed[at]),
+        ]));
+    }
+    rows.write(out, "premerge")?;
+    stage_line(out, SOURCE_KEY, &PyValue::str(STREAM_SOURCE))?;
+    let key_only = match loaded.key_only {
+        KeyOnlyRun::Skipped => PyValue::Tuple(vec![PyValue::str("skipped")]),
+        KeyOnlyRun::Ran { ranges, .. } => {
+            PyValue::Tuple(vec![PyValue::str("ran"), count_value(ranges)])
+        }
+    };
+    stage_line(out, KEY_ONLY_KEY, &key_only)?;
+    let signatures = &loaded.signatures;
+    stage_line(
+        out,
+        SIGNATURES_KEY,
+        &PyValue::Tuple(vec![
+            count_value(signatures.hits()),
+            count_value(loaded.shaped),
+            count_value(signatures.unhit()),
+            count_value(signatures.misses()),
+            PyValue::Bool(signatures.unchanged()),
+            lines_value(signatures)?,
+        ]),
+    )?;
+    stage_line(out, STAMPS_KEY, &PyValue::Dict(loaded.stamps.clone()))?;
+    stage_line(
+        out,
+        ENVIRONMENT_KEY,
+        &PyValue::str(&input.signature_environment.value),
+    )?;
+    stage_line(out, MERGE_KEY, &loaded.merge_stats.to_py())?;
+    stage_line(
+        out,
+        AUDIT_KEY,
+        &PyValue::Tuple(vec![
+            count_value(loaded.parts),
+            PyValue::Int(loaded.compressed),
+            PyValue::Int(loaded.segment_rows),
+        ]),
+    )?;
+    let printed = String::from_utf8_lossy(printed);
+    stage_line(
+        out,
+        CONSOLE_KEY,
+        &PyValue::List(printed.lines().map(PyValue::str).collect()),
+    )
+}
+
+/// The `load` stage: run the build's load ([`load_corpus`]) over the audit its build input names, read through the descriptors the process inherits, and the prior store of the dump's prior corpus, as its `source.json` names it, its console lines kept rather than printed, and answer with the lines `load_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose load did not return, is answered with none.
+pub fn stage_load(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
+    let input = BuildInput::read(input_path)?;
+    let (units, lines) = stage_units(stage_file)?;
+    if lines == 0 {
+        return Ok(());
+    }
+    let files = input.held_audit()?;
+    let mut printed = Vec::new();
+    let loaded = load_corpus(&input, &files, &dump_prior(stage_file)?, &mut printed)
+        .map_err(|failure| WireError(format!("the load failed: {failure}")))?;
+    load_lines(&loaded, &input, &printed, &units, out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_audit_out_of_section_order_is_refused_naming_why_and_the_python_build() {
+        let scratch =
+            std::env::temp_dir().join(format!("ams-review-load-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let header = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew\n";
+        let path = scratch.join("audit.tsv");
+        std::fs::write(
+            &path,
+            format!(
+                "{header}ss03\tE650\tcell\tentry\tbase\tnew\ndefault\tE650\tcell\tentry\tbase\tnew\n"
+            ),
+        )
+        .expect("audit");
+        let vocabulary = Vocabulary {
+            configs: ["default", "ss03"].map(str::to_owned).to_vec(),
+            header: header.trim_end().split('\t').map(str::to_owned).collect(),
+        };
+        let files = [File::open(&path).expect("open")];
+        let refusal = sorted_sections(&files, "audit.tsv", &[None], &vocabulary)
+            .expect_err("the audit is out of section order");
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert_eq!(
+            refusal,
+            BuildError::Exit(format!(
+                "the Rust build reads an audit only as a stream, and audit.tsv is not one, since the 'ss03' rows from byte {} of part 0 end in a row of 'default'; AMS_CORPUS_BUILD_ENGINE=python builds it",
+                header.len()
+            ))
+        );
+    }
+
+    #[test]
+    fn a_note_counts_as_python_writes_counts() {
+        assert_eq!(thousands(0), "0");
+        assert_eq!(thousands(999), "999");
+        assert_eq!(thousands(1_000), "1,000");
+        assert_eq!(thousands(1_234_567), "1,234,567");
+        assert_eq!(
+            KeyOnlyRun::Ran {
+                seconds: 1.234,
+                ranges: 6,
+                threads: 4
+            }
+            .note(),
+            "ran 1.23 s across 6 ranges on 4 threads"
+        );
+    }
+}

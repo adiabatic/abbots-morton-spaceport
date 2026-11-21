@@ -307,6 +307,24 @@ pub struct MergeStats {
     pub kept_split_matched_classes: i64,
 }
 
+impl MergeStats {
+    /// The stats as Python holds them, a dict of the counts in their order.
+    pub fn to_py(&self) -> PyValue {
+        let counts = [
+            self.windows_merged,
+            self.units_merged,
+            self.kept_split_matched_classes,
+        ];
+        PyValue::Dict(
+            MERGE_STATS
+                .iter()
+                .zip(counts)
+                .map(|(name, count)| (PyValue::str(*name), PyValue::Int(count)))
+                .collect(),
+        )
+    }
+}
+
 /// What `audit._merge_members` raises: `IndexError` for no members, and `KeyError` from `set.pop` when an absorbed member leaves the survivor no class, which only members with no config classes reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MergeError {
@@ -2120,7 +2138,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// A merged unit as the `workload` stage holds it: the unit [`UnitTable::unit`] materializes without a store, whether it is live, its survivor, its config rank, its row of the id columns and its input key as hex.
-fn workload_unit(table: &UnitTable, input_keys: &[u8], ordinal: usize) -> PyValue {
+pub(crate) fn workload_unit(table: &UnitTable, input_keys: &[u8], ordinal: usize) -> PyValue {
     let ids = table
         .ids(ordinal)
         .iter()
@@ -2289,23 +2307,7 @@ fn workload_lines(
         ])
     });
     stage_line(out, INDEX_KEY, &shape)?;
-    let stats = &loaded.merge_stats;
-    let counts = [
-        stats.windows_merged,
-        stats.units_merged,
-        stats.kept_split_matched_classes,
-    ];
-    stage_line(
-        out,
-        MERGE_KEY,
-        &PyValue::Dict(
-            MERGE_STATS
-                .iter()
-                .zip(counts)
-                .map(|(name, count)| (PyValue::str(*name), int(count)))
-                .collect(),
-        ),
-    )?;
+    stage_line(out, MERGE_KEY, &loaded.merge_stats.to_py())?;
     stage_line(out, ROWS_KEY, &count_value(loaded.workload.row_count))?;
     stage_line(
         out,

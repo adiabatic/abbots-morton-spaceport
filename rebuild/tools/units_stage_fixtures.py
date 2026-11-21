@@ -21,6 +21,7 @@ The build's stages (`BUILD_STAGES`):
 - `merge` records each `audit._merge_members` call the build makes (`_members_merged`), keyed by its origin and a digest of its `input`: the window's members as given, each an `audit._Member` record with its config classes as a dict in their order (`_member_value`), the exempt classes sorted, the stats and each member's run of rows as `(merge key, config)` pairs, read from the call's `absorb` closure, the stream's keyed by section and the in-memory source's by config rank (`_member_runs`); with, as its `value`, whether any member was absorbed, the members in the order the call leaves them, the stats and each member's run once the call returns, or what it raised. Its generated lines (`_merge_generated`) record every call made by the stream over the source's audit under three ink digests and by the in-memory source's merge under two signatures (`_merge_sources`), and merge windows at the edges (`_merge_edges`) over runs of sections by the stream's `absorb` (`_section_absorb`).
 - `workload` is a boundary stage that records what the build's stream returns (`audit.stream_workload`, hooked where `build` imports it, `_workload_streamed`), as `workload_boundary` lays it out: a unit a merged unit in load order, the unit `UnitTable.unit` materializes without a store beside its liveness, survivor, config rank, row of the id columns and input key (`_workload_unit`); a column each for the string table, the pools in id order, the tuple ranks, the window values, the window index's ordinals and keys, the pre-merge units and the compaction, and each class's ordinals (`UnitTable.rows_by_class`); and lines for the pools' sizes, the window index's shape, the merge's stats, the audit's rows, the ledger classes the units reach, the classes present and the change groups' counts.
 - `premerge` is a boundary stage that records the pre-merge snapshot once the build rebases it onto the merge (`facts.PremergeSnapshot.rebase`, `_premerge_rebased`), as `premerge_boundary` lays it out: a unit a pre-merge unit in capture order, its row of the snapshot's columns with its grain as `PremergeSnapshot.grains` yields it; and lines for the identical classes and each column's length.
+- `load` is a boundary stage that records what the build's load gives the plan (`build._load_corpus`, `_corpus_loaded`), as `load_boundary` lays it out: a unit a merged unit in load order as the `workload` stage holds it, a column over the pre-merge snapshot's rows, and lines for the source the load took, the key-only read's facts, the ink-signature store's counts and new lines, the stamps, the signature stamp, the merge's stats, the held audit's parts and the console lines the load printed, read from standard error while it ran.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3824,6 +3825,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build.triage_key": ("rebuild.review.build", "triage_key"),
     "audit._merge_members": ("rebuild.review.audit", "_merge_members"),
     "facts.PremergeSnapshot.rebase": ("rebuild.review.facts", "PremergeSnapshot.rebase"),
+    "build._load_corpus": ("rebuild.review.build", "_load_corpus"),
 }
 
 
@@ -9472,6 +9474,108 @@ def _premerge_rebased(args: tuple, _kwargs: dict) -> Finisher:
     return lambda _result: premerge_boundary(snapshot)
 
 
+LOAD_STAGE = "load"
+# The keys of the `load` stage's lines beside its units and the pre-merge column: the source the load took, the key-only read, the signature store's state, the stamps, the signature stamp's value, the merge's stats, the held audit's facts and the console lines the load printed.
+LOAD_SOURCE_KEY = "source"
+LOAD_KEY_ONLY_KEY = "key-only"
+LOAD_SIGNATURES_KEY = "signatures"
+LOAD_STAMPS_KEY = "stamps"
+LOAD_ENVIRONMENT_KEY = "environment"
+LOAD_MERGE_KEY = "merge"
+LOAD_AUDIT_KEY = "audit"
+LOAD_CONSOLE_KEY = "console"
+# The key-only read's part of the load's note when the read ran, whose seconds and resident peak vary from run to run.
+_KEY_ONLY_RAN = re.compile(r"ran [0-9.]+ s across ([0-9]+) processes, ")
+
+
+def _key_only_fact(note: str) -> tuple:
+    """The key-only read's part of the load's note (`build._key_only_note`) as its facts: `("ran", processes)`, `("skipped",)` when the store's stamps held, or `("not run", note)`."""
+    if ran := _KEY_ONLY_RAN.match(note):
+        return ("ran", int(ran.group(1)))
+    if note.startswith("skipped, "):
+        return ("skipped",)
+    return ("not run", note)
+
+
+def load_boundary(loaded: build._Loaded, printed: Sequence[str]) -> Boundary:
+    """The `load` boundary over what the build's load gives the plan (`build._Loaded`): a unit a merged unit in load order as the `workload` boundary holds it (`_workload_unit`); a column over the pre-merge snapshot's rows as the `premerge` boundary holds them, without their grains; the source, the key-only read's facts (`_key_only_fact`), the signature store's hits, misses shaped, unhit entries, misses, whether it is unchanged and its new lines (`_store_lines`), the stamps, the signature stamp's value, the merge's stats, the held audit's parts, compressed parts and segment rows, and the console lines `printed` while the load ran."""
+    table = loaded.workload.table
+    snapshot = loaded.premerge
+    survivor, removed = snapshot.survivor, snapshot.removed
+    assert survivor is not None and removed is not None, "the load rebases its pre-merge snapshot"
+    signatures = loaded.signatures
+    return Boundary(
+        table.n,
+        {"value": functools.partial(_workload_unit, table, loaded.input_keys)},
+        [
+            column_line(
+                "premerge",
+                (
+                    (
+                        snapshot.class_id[at],
+                        snapshot.no_verdict[at],
+                        snapshot.configs[at],
+                        snapshot.window_start[at],
+                        snapshot.window_n[at],
+                        survivor[at],
+                        removed[at],
+                    )
+                    for at in range(len(snapshot))
+                ),
+            ),
+            {"key": LOAD_SOURCE_KEY, "value": loaded.source},
+            {"key": LOAD_KEY_ONLY_KEY, "value": _key_only_fact(loaded.key_only)},
+            {
+                "key": LOAD_SIGNATURES_KEY,
+                "value": (
+                    signatures.hits(),
+                    loaded.shaped,
+                    signatures.unhit(),
+                    signatures.misses(),
+                    signatures.unchanged(),
+                    _store_lines(signatures),
+                ),
+            },
+            {"key": LOAD_STAMPS_KEY, "value": loaded.stamps},
+            {"key": LOAD_ENVIRONMENT_KEY, "value": loaded.environment.value},
+            {"key": LOAD_MERGE_KEY, "value": loaded.merge_stats},
+            {"key": LOAD_AUDIT_KEY, "value": (loaded.parts, loaded.compressed, loaded.segment_rows)},
+            {"key": LOAD_CONSOLE_KEY, "value": list(printed)},
+        ],
+    )
+
+
+class _Printed(io.TextIOBase):
+    """Standard error while the load runs: each write goes on to `through`, and the text is kept to be split into the lines the load printed."""
+
+    def __init__(self, through: IO[str]) -> None:
+        self.through = through
+        self.text: list[str] = []
+
+    def write(self, text: str) -> int:
+        self.text.append(text)
+        return self.through.write(text)
+
+    def flush(self) -> None:
+        self.through.flush()
+
+    def lines(self) -> list[str]:
+        return "".join(self.text).splitlines()
+
+
+def _corpus_loaded(_args: tuple, _kwargs: dict) -> Finisher:
+    """The build's load (`build._load_corpus`) recorded as the `load` boundary once it returns (`load_boundary`), with the console lines it printed, read from standard error, which is held for the length of the call."""
+    printed = _Printed(sys.stderr)
+    sys.stderr = printed
+
+    def finish(loaded: object) -> Boundary:
+        sys.stderr = printed.through
+        assert isinstance(loaded, build._Loaded), f"_load_corpus returned {loaded!r:.80}"
+        return load_boundary(loaded, printed.lines())
+
+    return finish
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -9627,6 +9731,7 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     PREMERGE_STAGE: Stage(
         PREMERGE_STAGE, {"facts.PremergeSnapshot.rebase": _premerge_rebased}, run="build", kind="boundary"
     ),
+    LOAD_STAGE: Stage(LOAD_STAGE, {"build._load_corpus": _corpus_loaded}, run="build", kind="boundary"),
 }
 
 

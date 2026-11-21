@@ -863,7 +863,7 @@ fn replay(signatures: &mut SignatureArrays, op: &PyValue, key: &str) -> Result<P
 }
 
 /// A store's new lines as a trace's value ends with them: `("lines", count, sha256)` over the lines joined.
-fn lines_value(signatures: &SignatureArrays) -> Result<PyValue> {
+pub(crate) fn lines_value(signatures: &SignatureArrays) -> Result<PyValue> {
     let mut joined = Vec::new();
     let written = signatures
         .write_lines(&mut joined)
@@ -1624,7 +1624,7 @@ fn count_value(value: usize) -> PyValue {
 }
 
 /// The prior corpus directory of the dump `stage_file` lies in, as its `source.json` names it.
-fn dump_prior(stage_file: &Path) -> Result<PathBuf> {
+pub(crate) fn dump_prior(stage_file: &Path) -> Result<PathBuf> {
     let directory = stage_file.parent().unwrap_or_else(|| Path::new("."));
     let path = directory.join("source.json");
     let text = std::fs::read_to_string(&path)
