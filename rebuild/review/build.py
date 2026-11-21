@@ -2039,55 +2039,50 @@ class _Emission:
     identity: dict | None = None
 
 
-def _emissions(
-    ordinals: Iterable[int],
+def _emission(
+    ordinal: int,
+    source: unit_cache.PriorFragment,
     table: UnitTable,
     store: UnitStore,
     arena: _FragmentArena,
     prior: unit_cache.PriorFragmentReader,
-) -> Iterator[_Emission]:
-    """Yield the units at `ordinals` as the write receives them, one at a time, each read by the address the store holds for it. A recomputed fragment is read from the arena (`arena`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is yielded as bytes without parsing, as stored, a deflated fragment's deflated once its inflated bytes passed the read's check, which lets the shard writer keep it at its address on a class it appends to, or copy it as it was into a class it writes directly, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, inflated first when it is deflated, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
-    for ordinal in ordinals:
-        recomputed_unit = not store.flags(ordinal).cached
-        source = store.source(ordinal)
-        assert source is not None, ordinal
-        junction_assign = store.primary_units(ordinal)
-        try:
-            if recomputed_unit:
-                fragment = arena.read(source)
-            elif store.cached_as_is(
-                ordinal,
-                class_id=table.class_id(ordinal),
-                duplicate_group=table.duplicate_group(ordinal),
-                exemplar=table.exemplar(ordinal),
-                no_verdict=table.no_verdict(ordinal),
-            ):
-                yield _Emission(
-                    store.unit_id(ordinal),
-                    store.content_key_hex(ordinal),
-                    store.policy_file(ordinal),
-                    body=prior.read_bytes(source),
-                    source=source,
-                    identity=_cached_identity(table, store, ordinal, junction_assign),
-                )
-                continue
-            else:
-                fragment = prior.read(source)
-        except ValueError as error:
-            raise SystemExit(
-                f"the fragment for {store.unit_id(ordinal)} cannot be read back: {error}"
-            ) from None
-        unit = table.unit(ordinal, store)
-        unit.ledger_class = store.ledger_class(ordinal)
-        fragment = patch_fragment(
-            fragment,
-            unit,
-            store.junction_rects(ordinal),
-            junction_assign,
-            check=recomputed_unit,
-            ink_deltas=store.ink_deltas(ordinal),
-        )
-        yield _Emission(unit.unit_id, fragment["content_key"], _policy_file(fragment), fragment=fragment)
+) -> _Emission:
+    """Return the unit at `ordinal` as the write receives it, read by the address the store holds for it (`source`, `UnitStore.source`, which carries the unit's id). A recomputed fragment is read from the arena (`arena`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is returned as bytes without parsing, as stored, a deflated fragment's deflated once its inflated bytes passed the read's check, which lets the shard writer keep it at its address on a class it appends to, or copy it as it was into a class it writes directly, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, inflated first when it is deflated, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
+    recomputed_unit = not store.flags(ordinal).cached
+    junction_assign = store.primary_units(ordinal)
+    try:
+        if recomputed_unit:
+            fragment = arena.read(source)
+        elif store.cached_as_is(
+            ordinal,
+            class_id=table.class_id(ordinal),
+            duplicate_group=table.duplicate_group(ordinal),
+            exemplar=table.exemplar(ordinal),
+            no_verdict=table.no_verdict(ordinal),
+        ):
+            return _Emission(
+                source.unit_id,
+                store.content_key_hex(ordinal),
+                store.policy_file(ordinal),
+                body=prior.read_bytes(source),
+                source=source,
+                identity=_cached_identity(table, store, ordinal, source.unit_id, junction_assign),
+            )
+        else:
+            fragment = prior.read(source)
+    except ValueError as error:
+        raise SystemExit(f"the fragment for {source.unit_id} cannot be read back: {error}") from None
+    unit = table.unit(ordinal, store)
+    unit.ledger_class = store.ledger_class(ordinal)
+    fragment = patch_fragment(
+        fragment,
+        unit,
+        store.junction_rects(ordinal),
+        junction_assign,
+        check=recomputed_unit,
+        ink_deltas=store.ink_deltas(ordinal),
+    )
+    return _Emission(unit.unit_id, fragment["content_key"], _policy_file(fragment), fragment=fragment)
 
 
 @dataclass(frozen=True)
@@ -2741,10 +2736,11 @@ def _write_chunk(
     appended = writer.appended
     appended_inflated = writer.appended_inflated
     deflated = writer.deflated
-    for ordinal, emission in zip(
-        ordinals, _emissions(ordinals, table, store, chunk.arena, prior), strict=True
-    ):
-        assert emission.unit_id == store.unit_id(ordinal), (emission.unit_id, ordinal)
+    for ordinal in ordinals:
+        source = store.source(ordinal)
+        assert source is not None, ordinal
+        emission = _emission(ordinal, source, table, store, chunk.arena, prior)
+        assert emission.unit_id == source.unit_id, (emission.unit_id, ordinal)
         if emission.fragment is not None:
             fragment = emission.fragment
             body = _fragment_bytes(fragment)
@@ -3371,14 +3367,14 @@ def _policy_file(fragment: Mapping) -> str | None:
     return file if isinstance(file, str) else None
 
 
-def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, junction_assign) -> dict:
+def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, unit_id: str, junction_assign) -> dict:
     """The dict that stands in for a byte-copied fragment when `_CorpusCheck.unit` and the locator row read it. It carries every field the cross-unit predicates and the locator read, taken from the workload table and the unit store, so a cached unit is checked against its neighbors on every build without parsing its fragment or materializing a unit record."""
     pair = store.cell_pair(ordinal)
     policy_file = store.policy_file(ordinal)
     ink_identical, picture_identical, junior_equivalent = store.machine_flags(ordinal)
     configs = table.configs(ordinal)
     return {
-        "id": store.unit_id(ordinal),
+        "id": unit_id,
         "ink_identical": ink_identical,
         "picture_identical": picture_identical,
         "junior_equivalent": junior_equivalent,
@@ -4076,7 +4072,7 @@ def _build_m1(
             f"jobs={units_jobs}{runner.engine_note} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()}; {signature_note})",
         )
 
-        # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emissions`): a recomputed one from the runner's arena, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the arena belongs to the runner, which frees it once the write is done.
+        # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emission`): a recomputed one from the runner's arena, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the arena belongs to the runner, which frees it once the write is done.
         runner.stop_workers()
         console.phase("review.build manifest+check", file=sys.stderr)
         phase = time.perf_counter()

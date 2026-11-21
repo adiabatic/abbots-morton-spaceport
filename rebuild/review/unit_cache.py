@@ -103,16 +103,20 @@ BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 # 58**10 < 2**64 <= 58**11, so eleven symbols hold any 64-bit value and the width never varies.
 ID_SYMBOLS = 11
 _ID_PATTERN = re.compile(rf"^[ue]-[{BASE58_ALPHABET}]{{{ID_SYMBOLS}}}$")
+# Every two-symbol string indexed by its value, so `base58_64` spells two symbols a division: the leading symbol and five pairs make `ID_SYMBOLS`.
+_PAIR_BASE = 58 * 58
+_BASE58_PAIRS = tuple(high + low for high in BASE58_ALPHABET for low in BASE58_ALPHABET)
 
 
 def base58_64(digest_hex: str) -> str:
     """Return the first 64 bits of a hex digest as `ID_SYMBOLS` base58 symbols, most significant first, padded with the zero symbol `1`. The width is fixed and the alphabet is in ascending ASCII order, so the strings sort in the same order as the numbers. Case is significant."""
-    value = int(digest_hex[:16], 16)
-    symbols = []
-    for _ in range(ID_SYMBOLS):
-        value, remainder = divmod(value, 58)
-        symbols.append(BASE58_ALPHABET[remainder])
-    return "".join(reversed(symbols))
+    pairs = _BASE58_PAIRS
+    value, p0 = divmod(int(digest_hex[:16], 16), _PAIR_BASE)
+    value, p1 = divmod(value, _PAIR_BASE)
+    value, p2 = divmod(value, _PAIR_BASE)
+    value, p3 = divmod(value, _PAIR_BASE)
+    value, p4 = divmod(value, _PAIR_BASE)
+    return BASE58_ALPHABET[value] + pairs[p4] + pairs[p3] + pairs[p2] + pairs[p1] + pairs[p0]
 
 
 def unit_id_for(content_key: str) -> str:
