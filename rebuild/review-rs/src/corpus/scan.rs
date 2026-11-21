@@ -26,6 +26,7 @@ use super::rowdelta::{
     head_path, keyed_segment_rows, merge_keyed, merge_placed, open_parts, py_str, read_head,
     remove_unlisted, segment_rows,
 };
+use super::shards::overflow_index;
 use super::signatures::{
     StoreError, dump_prior, get, int_equal, is_str, labels_of, miss_note, read_header,
     recorded_labels,
@@ -34,7 +35,7 @@ use super::sink::Sink;
 use super::store::{KEY_BYTES, PriorFragment};
 use super::table::{ColumnDigest, UNIT_PREFIX, count_value};
 use crate::fragment::{lookup, py_eq, sha256_hex};
-use crate::pyfmt::{PyValue, decimal_value, json};
+use crate::pyfmt::{PyValue, json};
 use crate::wire::{Result, WireError, error};
 
 /// What `io.BufferedReader` over a `gzip.GzipFile` reads its plain bytes in (`gzip.READ_BUFFER_SIZE`).
@@ -947,24 +948,9 @@ fn class_shards(meta: &PyValue) -> std::result::Result<Vec<String>, Thrown> {
     }
 }
 
-/// `unit_index.overflow_index(class_id, part) is not None`: whether `part` is `units/<class>.x<digits>.json`, three digits or more, each any decimal digit.
+/// `unit_index.overflow_index(class_id, part) is not None`: whether `part` is one of the class's overflow parts ([`overflow_index`]).
 fn is_overflow(class_id: &str, part: &str) -> bool {
-    let Some(rest) = part
-        .strip_prefix("units/")
-        .and_then(|rest| rest.strip_prefix(class_id))
-        .and_then(|rest| rest.strip_prefix(".x"))
-    else {
-        return false;
-    };
-    let digits = rest
-        .chars()
-        .take_while(|&letter| decimal_value(letter).is_some())
-        .count();
-    let tail = rest
-        .char_indices()
-        .nth(digits)
-        .map_or("", |(at, _)| &rest[at..]);
-    digits >= 3 && tail == ".json"
+    overflow_index(class_id, part).is_some()
 }
 
 /// `unit_index._manifest`: the manifest under `corpus` read as UTF-8 text and parsed, empty when it does not read, parse or hold an object.

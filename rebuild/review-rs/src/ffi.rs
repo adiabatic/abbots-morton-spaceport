@@ -1,4 +1,4 @@
-//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]), the plain compressor and decompressor the corpus build's containers are written and read with ([`Compressor`], [`Inflater`]), its CRC-32 ([`crc32_of`]) and its version ([`zlib_version`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]), and its resident peak and resident set, which the build's phase lines carry ([`peak_rss_self_bytes`], [`resident_bytes`]); and the descriptors a parent passes the process, taken as files ([`inherited_files`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check and the `containers` stage guard zlib's by inflating every deflated fragment through Python's `zlib` and by reproducing every container the Python build writes.
+//! The HarfBuzz the crate links (`build.rs`), through hand-written declarations against the 12.3.2 headers, and the safe types the rest of the crate shapes with ([`Font`], [`Feature`], [`Buffer`]); the C library's `mmap`, behind the read-only file mapping the subset pack is read through ([`Mapping`]); the system zlib, behind the primed compressor the fragments are deflated with ([`Deflater`]) and the pool its buffers are drawn from ([`BufferPool`]), the plain compressor and decompressor the corpus build's containers are written and read with ([`Compressor`], [`Inflater`]), its CRC-32 ([`crc32_of`]) and its version ([`zlib_version`]); the process's peak footprint, which the `stopped` reply carries ([`peak_footprint`]), and its resident peak and resident set, which the build's phase lines carry ([`peak_rss_self_bytes`], [`resident_bytes`]); the descriptors a parent passes the process, taken as files ([`inherited_files`]); and Darwin's `clonefile(2)`, which the shard writer clones a part it appends to with ([`clone_file`]). This is the only module that allows `unsafe`; no compiler checks the declarations' ABI, so `rebuild/test_units_exec.py::test_harfbuzz_shapes_like_uharfbuzz_on_the_mini_texts` guards HarfBuzz's by comparing every field with uharfbuzz, and the `fragment` stage's answer check and the `containers` stage guard zlib's by inflating every deflated fragment through Python's `zlib` and by reproducing every container the Python build writes.
 
 #![allow(unsafe_code, non_camel_case_types)]
 
@@ -218,6 +218,48 @@ pub fn inherited_files(descriptors: &[i64]) -> Result<Vec<std::fs::File>, String
         // SAFETY: each descriptor is open, came from the parent at the process's start, so no file of this process owns it, and is taken once, by the guard above, so the file made here is its one owner.
         .map(|fd| unsafe { std::fs::File::from_raw_fd(fd) })
         .collect())
+}
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn clonefile(src: *const c_char, dst: *const c_char, flags: u32) -> c_int;
+}
+
+/// The `errno` values `clonefile(2)` sets where the volume cannot clone a file (`ENOTSUP`, `EXDEV`), which `build._clone` answers with a copy.
+#[cfg(target_os = "macos")]
+pub const CANNOT_CLONE: [i32; 2] = [45, 18];
+
+/// No platform but Darwin has `clonefile(2)`, so no `errno` says a volume cannot clone.
+#[cfg(not(target_os = "macos"))]
+pub const CANNOT_CLONE: [i32; 0] = [];
+
+/// `clonefile(source, target, 0)`, as `build._clonefile` calls it: `target`, which must not exist, made a copy-on-write clone of `source`, or the `errno` it fails with; a path holding a NUL is refused before the call. None on a platform without `clonefile(2)`.
+#[cfg(target_os = "macos")]
+pub fn clone_file(source: &Path, target: &Path) -> Option<std::io::Result<()>> {
+    use std::os::unix::ffi::OsStrExt;
+    let (Ok(source), Ok(target)) = (
+        CString::new(source.as_os_str().as_bytes()),
+        CString::new(target.as_os_str().as_bytes()),
+    ) else {
+        return Some(Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "embedded null byte",
+        )));
+    };
+    // SAFETY: both paths are NUL-terminated and outlive the call, which only reads them.
+    Some(
+        if unsafe { clonefile(source.as_ptr(), target.as_ptr(), 0) } == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        },
+    )
+}
+
+/// None: this platform has no `clonefile(2)`.
+#[cfg(not(target_os = "macos"))]
+pub fn clone_file(_source: &Path, _target: &Path) -> Option<std::io::Result<()>> {
+    None
 }
 
 /// The linked HarfBuzz's version, `hb_version_string()`.

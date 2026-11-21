@@ -30,6 +30,7 @@ The build's stages (`BUILD_STAGES`):
 - `triage` is a boundary stage that records the whole-corpus passes from the change-group promotion to the batches, from `build._build_m1`'s locals once `audit.assign_batches` returns (`_batches_assigned`), as `triage_boundary` lays it out: a unit its final class, unmatched group, exemplar flag, place in the triage index and batch, and lines for the classes in manifest order, each class's section in the order the build met the classes, a column over the triage order and the batch count.
 - `passes` is a boundary stage that records the whole-corpus passes from the duplicate groups through the stale check, from `build._build_m1`'s locals as the units phase's line is printed (`build._phase_timing`, `_passes_timed`), as `passes_boundary` lays it out: a unit its duplicate group, cluster and primary units, and lines for the duplicate-group count, a column over the classes' rows, the secondary-junction counts, the verification's keys, sorted, the re-settlement mismatches and the units phase's note. Its generated lines (`_passes_generated`) put duplicate-group keys over one configuration and several, a judged pair and None, and text `repr` quotes and escapes to `unit_cache.duplicate_group_id_for`.
 - `route` is a boundary stage that records how the write routes each class and cuts the runs, from `build._write_corpus`'s locals once `build._write_runs` returns (`_runs_cut`), as `route_boundary` lays it out: a unit whether its fragment is predicted unchanged, and lines for each class in shard order with its route, prior parts and manifest record, a column over each class's ordinals, the width and the runs, and whether the previous sidecars are copied forward. Its generated lines (`_route_generated`) cut runs over class sizes and widths at the edges, read the previous corpus's parts from manifests of every shape, and ask whether the dump's prior corpus holds a current units index, app index and locator.
+- `shards` records each class the write's shard writer (`build._ShardWriter`) writes, from its `open` to its `close`, under `class:<id>`: its input the cap (None, the build's `SHARD_PART_BYTES`), the parts the class appends to as the build's directory held them when it opened, and each call made on the writer (`open`, `holds`, `keep`, `add_bytes`, which `add` makes too, and `close`) with its arguments, a fragment as the sha256 of its bytes; its value each call's result, the close's parts, total and pending renames with each staged part's size and sha256, and the counters the class moved (`_shard_closed`). Every fragment and held part is kept once under its sha256 in `shards.blobs/` beside the stage file (`SHARDS_BLOBS`), from which the Rust side makes the held parts again, as clones, in a scratch directory and replays the calls there. Its generated lines (`_shards_generated`, `_shard_cases`) replay writers of their own under small caps through `_shard_replay`, which also takes, commits, aborts and lists what a writer staged, and deletes staged parts by class ids that are wildcards themselves (`build._discard_runs`).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3876,6 +3877,11 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._RecomputeRunner.phase1": ("rebuild.review.build", "_RecomputeRunner.phase1"),
     "build.assign_batches": ("rebuild.review.build", "assign_batches"),
     "build._write_runs": ("rebuild.review.build", "_write_runs"),
+    "build._ShardWriter.open": ("rebuild.review.build", "_ShardWriter.open"),
+    "build._ShardWriter.holds": ("rebuild.review.build", "_ShardWriter.holds"),
+    "build._ShardWriter.keep": ("rebuild.review.build", "_ShardWriter.keep"),
+    "build._ShardWriter.add_bytes": ("rebuild.review.build", "_ShardWriter.add_bytes"),
+    "build._ShardWriter.close": ("rebuild.review.build", "_ShardWriter.close"),
 }
 
 
@@ -12145,6 +12151,543 @@ def _route_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
     }
 
 
+SHARDS_STAGE = "shards"
+# The `shards` stage's directory, beside its stage file, of the bytes its lines name by sha256: each fragment handed to a writer and each part a class it appends to held as the class opened.
+SHARDS_BLOBS = "shards.blobs"
+# The blob directory of the build whose `shards` stage records, for the length of that build (`_shards_blobs_at`).
+_SHARDS_BLOBS_AT: list[Path] = []
+_SHARD_OPEN = inspect.signature(build._ShardWriter.open)
+_SHARD_HOLDS = inspect.signature(build._ShardWriter.holds)
+_SHARD_KEEP = inspect.signature(build._ShardWriter.keep)
+_SHARD_ADD = inspect.signature(build._ShardWriter.add_bytes)
+_SHARD_CLOSE = inspect.signature(build._ShardWriter.close)
+
+
+@dataclass
+class _ShardClass:
+    """A class one writer of the recorded build has open: the parts it appends to as the directory held them when it opened (`_shard_held`), each call made on the writer since `open` with its result, and how many renames were pending and where the writer's counters stood as it opened."""
+
+    held: list[tuple[str, str]]
+    ops: list[tuple]
+    results: list[object]
+    pending: int
+    counters: tuple[int, int, int]
+
+
+# The class each writer of the recorded build has open, by the writer's `id`.
+_SHARD_CLASSES: dict[int, _ShardClass] = {}
+
+
+@contextlib.contextmanager
+def _shards_blobs_at(directory: Path) -> Iterator[None]:
+    _SHARDS_BLOBS_AT.append(directory)
+    try:
+        yield
+    finally:
+        _SHARDS_BLOBS_AT.pop()
+        _SHARD_CLASSES.clear()
+
+
+def _shard_counters(writer: build._ShardWriter) -> tuple[int, int, int]:
+    return writer.appended, writer.appended_inflated, writer.deflated
+
+
+def _shard_counted(writer: build._ShardWriter, since: tuple[int, int, int]) -> tuple[int, ...]:
+    """The writer's counters past where they stood at `since`, as a writer made for the class alone counts them."""
+    return tuple(now - then for now, then in zip(_shard_counters(writer), since, strict=True))
+
+
+def _shard_held(directory: Path, parts: Iterable[str], blobs: Path) -> list[tuple[str, str]]:
+    """Each of `parts` that `directory` holds as a file, by its path there, with its bytes kept in `blobs` under their sha256."""
+    return [
+        (part, _blob_into(blobs, (directory / part).read_bytes()))
+        for part in parts
+        if (directory / part).is_file()
+    ]
+
+
+def _shard_file(directory: Path, path: Path) -> tuple[str, int, str]:
+    """A file under `directory` as the `shards` stage names it: its path there, its size and its sha256."""
+    data = path.read_bytes()
+    return path.relative_to(directory).as_posix(), len(data), hashlib.sha256(data).hexdigest()
+
+
+def _shard_pending(writer: build._ShardWriter, since: int) -> list[tuple[str, str, int, str]]:
+    """The renames pending on `writer` past the first `since`, each as its staging file's path under the writer's directory, its target's, and the staging file's size and sha256."""
+    directory = writer._out_dir
+    pending = []
+    for staging, target in writer._pending[since:]:
+        name, size, digest = _shard_file(directory, staging)
+        pending.append((name, target.relative_to(directory).as_posix(), size, digest))
+    return pending
+
+
+def _shard_entries(directory: Path) -> list[tuple[str, int, str]]:
+    """Every file under `directory`, sorted by its path there (`_shard_file`)."""
+    return sorted(_shard_file(directory, path) for path in directory.rglob("*") if path.is_file())
+
+
+def _shard_writer_call(
+    signature: inspect.Signature, args: tuple, kwargs: dict
+) -> tuple[build._ShardWriter, dict[str, Any]]:
+    bound = signature.bind(*args, **kwargs)
+    bound.apply_defaults()
+    arguments = dict(bound.arguments)
+    return arguments.pop("self"), arguments
+
+
+def _shard_step(writer: build._ShardWriter, op: tuple) -> Finisher:
+    def finish(result: object) -> None:
+        opened = _SHARD_CLASSES[id(writer)]
+        opened.ops.append(op)
+        opened.results.append(tuple(result) if isinstance(result, tuple) else result)
+
+    return finish
+
+
+def _shard_opened(args: tuple, kwargs: dict) -> Finisher:
+    """`build._ShardWriter.open`: the class's first call, with the parts the writer appends to held as its directory holds them now."""
+    writer, arguments = _shard_writer_call(_SHARD_OPEN, args, kwargs)
+    prior_parts = tuple(arguments["prior_parts"])
+    held = _shard_held(writer._out_dir, prior_parts, _SHARDS_BLOBS_AT[-1]) if arguments["append"] else []
+    op = ("open", arguments["class_id"], prior_parts, arguments["append"], arguments["deflate"])
+
+    def finish(_result: object) -> None:
+        _SHARD_CLASSES[id(writer)] = _ShardClass(
+            held, [op], [None], len(writer._pending), _shard_counters(writer)
+        )
+
+    return finish
+
+
+def _shard_holds(args: tuple, kwargs: dict) -> Finisher:
+    writer, arguments = _shard_writer_call(_SHARD_HOLDS, args, kwargs)
+    return _shard_step(writer, ("holds", arguments["part"]))
+
+
+def _shard_keep(args: tuple, kwargs: dict) -> Finisher:
+    writer, arguments = _shard_writer_call(_SHARD_KEEP, args, kwargs)
+    source: unit_cache.PriorFragment = arguments["source"]
+    return _shard_step(writer, ("keep", source.part, source.start, source.length, source.inflated))
+
+
+def _shard_added(args: tuple, kwargs: dict) -> Finisher:
+    """`build._ShardWriter.add_bytes`, which `add` makes too, with the fragment's bytes kept as a blob."""
+    writer, arguments = _shard_writer_call(_SHARD_ADD, args, kwargs)
+    digest = _blob_into(_SHARDS_BLOBS_AT[-1], bytes(arguments["body"]))
+    return _shard_step(writer, ("add", digest, arguments["inflated"]))
+
+
+def _shard_closed(args: tuple, kwargs: dict) -> Finisher:
+    """`build._ShardWriter.close`, which ends the class's line: its key the class id, its input the cap (None, the build's), the parts the writer appends to as it found them and every call since `open`, and its value each call's result, the close's parts, total and the staged parts it leaves pending with their sizes and sha256, then the counters the class moved (`_shard_counted`)."""
+    writer, _arguments = _shard_writer_call(_SHARD_CLOSE, args, kwargs)
+    class_id = writer._class_id
+
+    def finish(result: object) -> Mapping[str, object]:
+        opened = _SHARD_CLASSES.pop(id(writer))
+        assert isinstance(result, tuple), result
+        names, total = result
+        opened.ops.append(("close",))
+        opened.results.append((list(names), total, _shard_pending(writer, opened.pending)))
+        return {
+            "key": f"class:{class_id}",
+            "input": (None, opened.held, opened.ops),
+            "value": (opened.results, _shard_counted(writer, opened.counters)),
+        }
+
+    return finish
+
+
+@contextlib.contextmanager
+def _shard_cap(cap: int | None) -> Iterator[None]:
+    """`build.SHARD_PART_BYTES`, the cap `_ShardWriter` cuts its parts at, set to `cap` while the block runs, and left as it stands for None."""
+    standing = build.SHARD_PART_BYTES
+    if cap is not None:
+        build.SHARD_PART_BYTES = cap
+    try:
+        yield
+    finally:
+        build.SHARD_PART_BYTES = standing
+
+
+def _shard_call(writer: build._ShardWriter, directory: Path, op: tuple, blobs: Path, since: int) -> object:
+    """Make one call a `shards` line names on `writer` over `directory` and return its result as the line records it. `since` is how many renames were pending as the open class opened."""
+    match op:
+        case ("open", str(class_id), tuple(prior_parts), bool(append), bool(deflate)):
+            writer.open(class_id, prior_parts, append=append, deflate=deflate)
+            return None
+        case ("holds", str(part)):
+            return writer.holds(part)
+        case ("keep", str(part), int(start), int(length), int(inflated)):
+            return tuple(
+                writer.keep(unit_cache.PriorFragment(part, start, length, "", None, inflated=inflated))
+            )
+        case ("add", str(digest), int(inflated)):
+            return tuple(writer.add_bytes((blobs / digest).read_bytes(), inflated))
+        case ("close",):
+            names, total = writer.close()
+            return list(names), total, _shard_pending(writer, since)
+        case ("take-pending",):
+            return [
+                (staging.relative_to(directory).as_posix(), target.relative_to(directory).as_posix())
+                for staging, target in writer.take_pending()
+            ]
+        case ("commit",):
+            writer.commit()
+            return None
+        case ("abort",):
+            writer.abort()
+            return None
+        case ("entries",):
+            return _shard_entries(directory)
+        case ("discard", tuple(class_ids)):
+            build._discard_runs(
+                directory,
+                [
+                    [
+                        build._ClassToWrite(class_id, "", "", "", "", "", False, False, "", array("I"), ())
+                        for class_id in class_ids
+                    ]
+                ],
+            )
+            return None
+    raise TypeError(f"no shard writer call {op!r}")
+
+
+def _shard_replay(
+    directory: Path, cap: int | None, held: Sequence[tuple[str, str]], ops: Sequence[tuple], blobs: Path
+) -> tuple[list[object], tuple[int, int, int]]:
+    """Make the files `held` names in `directory` from `blobs`, then make each call of `ops` on a new `build._ShardWriter` over it, with the parts cut at `cap` (`_shard_cap`), as the Rust side replays a line: each call's result, `("raised", class, message)` for one that raises ValueError or KeyError, and the writer's counters after the last."""
+    for name, digest in held:
+        target = directory / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes((blobs / digest).read_bytes())
+    with _shard_cap(cap):
+        writer = build._ShardWriter(directory)
+        results: list[object] = []
+        since = 0
+        for op in ops:
+            try:
+                results.append(_shard_call(writer, directory, op, blobs, since))
+            except (ValueError, KeyError) as error:
+                results.append(("raised", type(error).__name__, str(error)))
+            if op[0] == "open":
+                since = len(writer._pending)
+    return results, _shard_counters(writer)
+
+
+def _shard_body(length: int, seed: int) -> bytes:
+    """A generated fragment's plain bytes: `length` ASCII letters, varied by `seed`."""
+    return bytes(0x61 + (seed * 7 + index * index) % 26 for index in range(length))
+
+
+def _shard_part(*bodies: bytes) -> bytes:
+    """A shard part holding `bodies`, framed as `_ShardWriter` frames one."""
+    return b"[" + b",".join(bodies) + unit_index.PART_CLOSING
+
+
+def _shard_cases() -> Iterator[tuple[str, int | None, dict[str, bytes], list[tuple]]]:
+    """The `shards` stage's generated writers, each its name, its cap (None for `SHARD_PART_BYTES`), the parts its directory holds and its calls, with each fragment as its bytes: base parts cut where a fragment would pass the cap, exactly at it, and past it alone; an empty class; a first base handed deflated fragments, good and refused by each of `inflate_fragment`'s checks; a fold that deflates plain fragments, an empty one among them, and keeps deflated ones as they are; appends to a last overflow part that has room, that has none, that is missing, that the parts list out of number order, that is numbered past three digits or in other decimal digits, beside a part that is not an overflow part and one that only a pattern without the class id escaped would take, and that does not end as a part ends; plain appends; kept fragments in held parts and in one the class does not hold; two classes on one writer; aborts mid-class; and the deletion of staged parts by class ids that are wildcards themselves."""
+    deflate = unit_index.deflate_fragment
+    body = _shard_body
+    yield "first-empty", None, {}, [
+        ("open", "c", (), False, False),
+        ("close",),
+        ("take-pending",),
+        ("commit",),
+        ("entries",),
+    ]
+    yield "first-one", 48, {}, [
+        ("open", "c", (), False, False),
+        ("add", body(5, 1), 0),
+        ("close",),
+        ("commit",),
+        ("entries",),
+    ]
+    yield (
+        "first-cut",
+        48,
+        {},
+        [
+            ("open", "c", (), False, False),
+            *(
+                ("add", body(length, seed), 0)
+                for seed, length in enumerate((10, 10, 10, 20, 23, 60, 1, 0, 40))
+            ),
+            ("close",),
+            ("entries",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "first-inflating",
+        48,
+        {"units/c.json": _shard_part(body(5, 2))},
+        [
+            ("open", "c", ("units/c.json",), False, False),
+            ("holds", "units/c.json"),
+            ("add", deflate(body(30, 3)), 30),
+            ("add", body(12, 4), 0),
+            ("add", deflate(body(30, 5)), 29),
+            ("add", deflate(body(30, 5)), 31),
+            ("add", b"\xff\xff", 4),
+            ("add", deflate(body(8, 6))[:-1], 8),
+            ("add", deflate(body(8, 6)) + b"x", 8),
+            ("add", deflate(b""), 1),
+            ("close",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "fold",
+        48,
+        {"units/c.x000.json": _shard_part(body(5, 7))},
+        [
+            ("open", "c", ("units/c.x000.json",), False, True),
+            ("add", body(30, 8), 0),
+            ("add", deflate(body(40, 9)), 40),
+            ("add", b"x" * 100, 0),
+            ("add", b"", 0),
+            ("add", body(3, 10), 0),
+            ("close",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    base = _shard_part(body(10, 11), body(10, 12))
+    yield (
+        "append-room",
+        64,
+        {"units/c.json": base, "units/c.x000.json": _shard_part(body(10, 13))},
+        [
+            ("open", "c", ("units/c.json", "units/c.x000.json"), True, True),
+            ("holds", "units/c.json"),
+            ("holds", "units/d.json"),
+            ("keep", "units/c.json", 12, 10, 0),
+            ("keep", "units/c.x000.json", 1, 10, 7),
+            ("keep", "units/zz.json", 1, 1, 0),
+            ("add", body(20, 14), 0),
+            ("add", deflate(body(20, 15)), 20),
+            ("add", body(20, 16), 0),
+            ("add", body(200, 17), 0),
+            ("add", body(5, 18), 0),
+            ("holds", "units/c.x001.json"),
+            ("close",),
+            ("take-pending",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "append-new",
+        64,
+        {"units/c.000.json": _shard_part(body(10, 19)), "units/c.001.json": _shard_part(body(10, 20))},
+        [
+            ("open", "c", ("units/c.000.json", "units/c.001.json"), True, True),
+            *(("add", body(10, seed), 0) for seed in range(21, 27)),
+            ("close",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "append-full",
+        32,
+        {"units/c.json": _shard_part(body(5, 27)), "units/c.x000.json": _shard_part(body(20, 28))},
+        [
+            ("open", "c", ("units/c.json", "units/c.x000.json"), True, True),
+            ("add", body(30, 29), 0),
+            ("add", body(2, 30), 0),
+            ("close",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "append-plain",
+        64,
+        {"units/c.json": _shard_part(body(10, 31))},
+        [
+            ("open", "c", ("units/c.json",), True, False),
+            ("add", body(10, 32), 0),
+            ("add", deflate(body(10, 33)), 10),
+            ("close",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "append-unordered",
+        32,
+        {
+            "units/c.json": _shard_part(body(5, 34)),
+            "units/c.x003.json": _shard_part(body(5, 35)),
+            "units/c.x001.json": _shard_part(body(5, 36)),
+        },
+        [
+            ("open", "c", ("units/c.json", "units/c.x003.json", "units/c.x001.json"), True, True),
+            ("add", body(5, 37), 0),
+            ("add", body(60, 38), 0),
+            ("close",),
+            ("take-pending",),
+            ("entries",),
+        ],
+    )
+    for name, parts in (
+        ("append-wide", ("units/c.json", "units/c.x٠٠٢.json", "units/c.x1000.json")),
+        ("append-digits", ("units/c.json", "units/c.x00.json", "units/c.x٠٠٢.json")),
+    ):
+        yield (
+            name,
+            32,
+            {part: _shard_part(body(5, 39 + index)) for index, part in enumerate(parts)},
+            [
+                ("open", "c", parts, True, True),
+                ("add", body(5, 42), 0),
+                ("add", body(60, 43), 0),
+                ("add", body(5, 44), 0),
+                ("close",),
+                ("commit",),
+                ("entries",),
+            ],
+        )
+    escaped = ("units/a.b+c.json", "units/a.b+c.x000.json", "units/aXb+c.x009.json")
+    yield (
+        "append-escaped",
+        32,
+        {part: _shard_part(body(5, 45 + index)) for index, part in enumerate(escaped)},
+        [
+            ("open", "a.b+c", escaped, True, True),
+            ("add", body(5, 48), 0),
+            ("add", body(60, 49), 0),
+            ("close",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "append-bad-ending",
+        64,
+        {"units/c.json": _shard_part(body(5, 50)), "units/c.x000.json": b"[abc]"},
+        [
+            ("open", "c", ("units/c.json", "units/c.x000.json"), True, True),
+            ("add", body(5, 51), 0),
+            ("add", body(5, 52), 0),
+            ("close",),
+            ("entries",),
+            ("abort",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "two-classes",
+        None,
+        {"units/b.json": _shard_part(body(5, 53))},
+        [
+            ("open", "a", (), False, False),
+            ("add", body(5, 54), 0),
+            ("add", body(6, 55), 0),
+            ("close",),
+            ("open", "b", ("units/b.json",), True, True),
+            ("holds", "units/b.json"),
+            ("keep", "units/b.json", 1, 5, 0),
+            ("add", body(7, 56), 0),
+            ("close",),
+            ("take-pending",),
+            ("commit",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "abort-direct",
+        48,
+        {},
+        [
+            ("open", "c", (), False, True),
+            ("add", body(30, 57), 0),
+            ("add", body(40, 58), 0),
+            ("entries",),
+            ("abort",),
+            ("entries",),
+        ],
+    )
+    yield (
+        "abort-append",
+        64,
+        {"units/c.json": _shard_part(body(5, 59)), "units/c.x000.json": _shard_part(body(5, 60))},
+        [
+            ("open", "c", ("units/c.json", "units/c.x000.json"), True, True),
+            ("add", body(5, 61), 0),
+            ("entries",),
+            ("abort",),
+            ("entries",),
+        ],
+    )
+    staged = {
+        f"units/{name}": b"[]\n"
+        for name in (
+            "a.000.json.partial",
+            "a..json.partial",
+            "a.x000.json.partial",
+            "a.000.json",
+            "ab.000.json.partial",
+            "b.1.json.partial",
+            "[ab].1.json.partial",
+            "a*.1.json.partial",
+            "-.2.json.partial",
+            "].3.json.partial",
+            "^.4.json.partial",
+            "!.4.json.partial",
+            "a[.5.json.partial",
+            "a-b.6.json.partial",
+            "e.7.json.partial",
+            "\\.8.json.partial",
+            "&.9.json.partial",
+            "·Tea.1.json.partial",
+            "c.000.json",
+        )
+    }
+    for index, class_ids in enumerate(
+        (
+            ("a",),
+            ("[ab]",),
+            ("[!a]",),
+            ("a*",),
+            ("?",),
+            ("*",),
+            ("a[",),
+            ("[z-a]",),
+            ("[!z-a]",),
+            ("[a-c-e]",),
+            ("[]a]",),
+            ("[!]a]",),
+            ("[a-]",),
+            ("[-a]",),
+            ("[!-a]",),
+            ("[z-a!b]",),
+            ("[z-a^b]",),
+            ("[\\-]",),
+            ("[&]",),
+            ("[a-b-a]",),
+            ("·Tea",),
+            ("a-b", "e"),
+            ("nothing",),
+        )
+    ):
+        yield f"discard-{index}", None, staged, [("discard", class_ids), ("entries",)]
+
+
+def _shards_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `shards` stage's generated lines, one a writer of `_shard_cases`, each under `generated:<name>`: its input the cap, the parts its directory holds and its calls, each part's and fragment's bytes kept in the dump's `SHARDS_BLOBS` under their sha256, and its value what `_shard_replay` gives over a fresh directory."""
+    blobs = source.out / SHARDS_BLOBS
+    for name, cap, held, ops in _shard_cases():
+        kept = [(part, _blob_into(blobs, data)) for part, data in held.items()]
+        calls = [("add", _blob_into(blobs, op[1]), op[2]) if op[0] == "add" else op for op in ops]
+        with tempfile.TemporaryDirectory(prefix="shards-stage-") as directory:
+            value = _shard_replay(Path(directory), cap, kept, calls, blobs)
+        yield {"key": f"generated:{name}", "input": (cap, kept, calls), "value": value}
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -12354,6 +12897,18 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     ROUTE_STAGE: Stage(
         ROUTE_STAGE, {"build._write_runs": _runs_cut}, _route_generated, run="build", kind="boundary"
     ),
+    SHARDS_STAGE: Stage(
+        SHARDS_STAGE,
+        {
+            "build._ShardWriter.open": _shard_opened,
+            "build._ShardWriter.holds": _shard_holds,
+            "build._ShardWriter.keep": _shard_keep,
+            "build._ShardWriter.add_bytes": _shard_added,
+            "build._ShardWriter.close": _shard_closed,
+        },
+        _shards_generated,
+        run="build",
+    ),
 }
 
 
@@ -12559,6 +13114,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / KEY_ONLY_BLOBS, ignore_errors=True)
     if any(stage.name == SCAN_STAGE for stage in stages):
         shutil.rmtree(out / SCAN_BLOBS, ignore_errors=True)
+    if any(stage.name == SHARDS_STAGE for stage in stages):
+        shutil.rmtree(out / SHARDS_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
@@ -12577,6 +13134,7 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
                     _row_delta_blobs_at(out / ROW_DELTA_BLOBS),
                     _row_delta_write_blobs_at(out / ROW_DELTA_WRITE_BLOBS),
                     _signature_store_blobs_at(out / SIGNATURE_STORE_BLOBS),
+                    _shards_blobs_at(out / SHARDS_BLOBS),
                     _columns_following(),
                     _unit_store_following(),
                 ):
@@ -12642,6 +13200,7 @@ def build_selfcheck(source: str, scenario: str) -> bool:
                 _row_delta_blobs_at(built.out / ROW_DELTA_BLOBS),
                 _row_delta_write_blobs_at(built.out / ROW_DELTA_WRITE_BLOBS),
                 _signature_store_blobs_at(built.out / SIGNATURE_STORE_BLOBS),
+                _shards_blobs_at(built.out / SHARDS_BLOBS),
                 _columns_following(),
                 _unit_store_following(),
             ):

@@ -4,7 +4,7 @@
 //!
 //! The build's plan phase is here too ([`plan_phase`]), as `build._build_m1` runs it after the load: the unit store made over the load's units and input keys, the prior unit store scanned and every unit it can reuse loaded, the records it cannot reuse kept by id, a store that stops reading partway answered by a restart over an emptied store, and the verification sample drawn from the reused units ([`Planned`]). [`stage_plan`] is the `plan` stage of the stage fixtures.
 //!
-//! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches, the duplicate groups and the primary units, to the verification and its stale check. [`route`] decides how the write takes each class before it writes: each class's route and prediction, its manifest record, whether the previous sidecars are copied forward, and the runs.
+//! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches, the duplicate groups and the primary units, to the verification and its stale check. [`route`] decides how the write takes each class before it writes: each class's route and prediction, its manifest record, whether the previous sidecars are copied forward, and the runs. [`shards`] writes each class's fragments into its shard parts, directly into base parts or appended to the overflow parts after the parts the previous corpus holds, each part staged until the write commits.
 
 pub mod audit;
 pub mod columns;
@@ -19,6 +19,7 @@ pub mod records;
 pub mod route;
 pub mod rowdelta;
 pub mod scan;
+pub mod shards;
 pub mod signatures;
 pub mod sink;
 pub mod store;
