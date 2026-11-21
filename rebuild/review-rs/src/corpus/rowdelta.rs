@@ -18,7 +18,9 @@ use sha2::Digest as _;
 use crate::corpus::gzip::{Decompressor, GzipError, GzipReader, bytes_repr};
 use crate::fragment::sha256_hex;
 use crate::pyfmt::repr::{repr, repr_str};
-use crate::pyfmt::{PyValue, decimal_value, is_space, json};
+use crate::pyfmt::{
+    INT_MAX_STR_DIGITS, PyValue, decimal_value, int_digits_exceeded, is_space, json,
+};
 use crate::wire::{Result, WireError, error};
 
 pub const HEAD_FORMAT: &str = "ams-row-delta-head/1";
@@ -161,8 +163,19 @@ fn type_name(value: &PyValue) -> &'static str {
     }
 }
 
-/// An int literal as CPython's `PyLong_FromString` reads one at base 10: ASCII whitespace around it, a sign, and digits with single underscores between them. None for a literal it refuses, and `Err` for one beyond 64 bits.
-fn parse_int(text: &[u8]) -> Option<std::result::Result<i64, ()>> {
+/// Why [`parse_int`] gives no int.
+#[derive(Debug, PartialEq, Eq)]
+enum NotInt {
+    /// A literal CPython refuses as invalid.
+    Invalid,
+    /// A valid literal of this many digits, past [`INT_MAX_STR_DIGITS`], which CPython refuses.
+    Long(usize),
+    /// An int CPython reads that is beyond 64 bits.
+    Wide,
+}
+
+/// An int literal as CPython's `PyLong_FromString` reads one at base 10: ASCII whitespace around it, a sign, and digits with single underscores between them.
+fn parse_int(text: &[u8]) -> std::result::Result<i64, NotInt> {
     let space = |byte: u8| matches!(byte, b' ' | b'\t' | b'\n' | 0x0b | 0x0c | b'\r');
     let mut at = 0;
     while at < text.len() && space(text[at]) {
@@ -195,16 +208,19 @@ fn parse_int(text: &[u8]) -> Option<std::result::Result<i64, ()>> {
         }
     }
     if digits == 0 {
-        return None;
+        return Err(NotInt::Invalid);
     }
     while at < text.len() && space(text[at]) {
         at += 1;
     }
     if at != text.len() {
-        return None;
+        return Err(NotInt::Invalid);
+    }
+    if digits > INT_MAX_STR_DIGITS {
+        return Err(NotInt::Long(digits));
     }
     let value = if negative { -value } else { value };
-    Some(i64::try_from(value).map_err(|_| ()))
+    i64::try_from(value).map_err(|_| NotInt::Wide)
 }
 
 /// `int(value)` for a value `json.loads` gives: an int, a bool, or a `str` CPython reads at base 10, its other characters' whitespace and decimal digits read as ASCII ones.
@@ -226,12 +242,13 @@ fn py_int(value: &PyValue) -> std::result::Result<i64, Unread> {
                 })
                 .collect();
             match parse_int(&ascii) {
-                Some(Ok(number)) => Ok(number),
-                Some(Err(())) => Err(Unread::Unheld(format!(
+                Ok(number) => Ok(number),
+                Err(NotInt::Wide) => Err(Unread::Unheld(format!(
                     "the int {} does not fit 64 bits",
                     repr_str(text)
                 ))),
-                None => Err(raised(
+                Err(NotInt::Long(digits)) => Err(raised("ValueError", int_digits_exceeded(digits))),
+                Err(NotInt::Invalid) => Err(raised(
                     "ValueError",
                     format!(
                         "invalid literal for int() with base 10: {}",
@@ -253,17 +270,18 @@ fn py_int(value: &PyValue) -> std::result::Result<i64, Unread> {
     }
 }
 
-/// `int(data)` for `bytes`, a segment row's anchor.
+/// `int(data)` for `bytes`, a segment row's anchor. An invalid literal's refusal shows the `repr` of its first [`LITERAL_SHOWN`] bytes, as `_PyLong_FromBytes` cuts them before `%.200R`.
 fn bytes_int(data: &[u8]) -> std::result::Result<i64, ReadError> {
     match parse_int(data) {
-        Some(Ok(number)) => Ok(number),
-        Some(Err(())) => Err(ReadError::Unheld(format!(
+        Ok(number) => Ok(number),
+        Err(NotInt::Wide) => Err(ReadError::Unheld(format!(
             "the anchor {} does not fit 64 bits",
             bytes_repr(data)
         ))),
-        None => Err(ReadError::value(format!(
+        Err(NotInt::Long(digits)) => Err(ReadError::value(int_digits_exceeded(digits))),
+        Err(NotInt::Invalid) => Err(ReadError::value(format!(
             "invalid literal for int() with base 10: {}",
-            bytes_repr(data)
+            bytes_repr(&data[..data.len().min(LITERAL_SHOWN)])
                 .chars()
                 .take(LITERAL_SHOWN)
                 .collect::<String>()
@@ -1978,7 +1996,7 @@ mod tests {
             (b"\x0b3\x0c", 3),
             (b"-9223372036854775808", i64::MIN),
         ] {
-            assert_eq!(parse_int(literal), Some(Ok(value)), "{literal:?}");
+            assert_eq!(parse_int(literal), Ok(value), "{literal:?}");
         }
         for literal in [
             "".as_bytes(),
@@ -1992,9 +2010,21 @@ mod tests {
             b"\x1c5",
             b"5\0",
         ] {
-            assert_eq!(parse_int(literal), None, "{literal:?}");
+            assert_eq!(parse_int(literal), Err(NotInt::Invalid), "{literal:?}");
         }
-        assert_eq!(parse_int(b"9223372036854775808"), Some(Err(())));
+        assert_eq!(parse_int(b"9223372036854775808"), Err(NotInt::Wide));
+        let long = [b'1'; INT_MAX_STR_DIGITS + 1];
+        assert_eq!(parse_int(&long[1..]), Err(NotInt::Wide));
+        assert_eq!(parse_int(&long), Err(NotInt::Long(INT_MAX_STR_DIGITS + 1)));
+        assert_eq!(parse_int(&[&long[..], b"x"].concat()), Err(NotInt::Invalid));
+        let quoted = [&[b'x'; 250][..], b"'"].concat();
+        assert_eq!(
+            bytes_int(&quoted),
+            Err(ReadError::value(format!(
+                "invalid literal for int() with base 10: b'{}",
+                "x".repeat(LITERAL_SHOWN - 2)
+            )))
+        );
         assert!(matches!(py_int(&PyValue::str("\u{a0}5\u{2003}")), Ok(5)));
         assert!(matches!(py_int(&PyValue::str("\u{663}_\u{664}")), Ok(34)));
         assert!(matches!(py_int(&PyValue::Bool(true)), Ok(1)));

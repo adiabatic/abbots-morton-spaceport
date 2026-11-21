@@ -28,6 +28,16 @@ impl fmt::Display for PyFmtError {
 
 impl std::error::Error for PyFmtError {}
 
+/// CPython's default `sys.get_int_max_str_digits()`: `int` and `json.loads` refuse a decimal literal of more digits, sign and underscores aside, with [`int_digits_exceeded`]'s text.
+pub const INT_MAX_STR_DIGITS: usize = 4300;
+
+/// The `ValueError` text CPython raises for a decimal literal of `digits` digits, past [`INT_MAX_STR_DIGITS`].
+pub fn int_digits_exceeded(digits: usize) -> String {
+    format!(
+        "Exceeds the limit ({INT_MAX_STR_DIGITS} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit"
+    )
+}
+
 fn in_ranges(ranges: &[(u32, u32)], letter: char) -> bool {
     let point = u32::from(letter);
     let index = ranges.partition_point(|&(_, end)| end < point);

@@ -5365,6 +5365,7 @@ def _head_cases() -> Iterator[bytes]:
         _with_base(size="-12"),
         _with_base(size="١٢"),
         _with_base(size="x" * 300),
+        _with_base(size="1" * 4301),
         _with_base(size="it's"),
         _with_base(size=None),
         _with_base(size=[]),
@@ -5430,6 +5431,7 @@ def _head_cases() -> Iterator[bytes]:
         b"\xef\xbb\xbf" + valid,
         b'{"generation": 1, "generation": 2}',
         valid.replace(b'"content": 7', b'"content": 7, "content": 9'),
+        valid.replace(b'"content": 7', b'"content": ' + b"7" * 4301),
         valid.replace(b'"format": "ams', b'"format": "\\u0061ms'),
     )
 
@@ -5474,6 +5476,7 @@ def _segment_header_cases() -> Iterator[tuple]:
         (header(format="ams-row-delta-segment/2"), row_delta.MERGE_PLACE),
         (header(format=_ABSENT), row_delta.MERGE_PLACE),
         (header(extra={"x": 1}), row_delta.MERGE_PLACE),
+        (header().replace(b'"segment": 1', b'"segment": ' + b"1" * 4301), row_delta.MERGE_PLACE),
         (b"[]\n", row_delta.MERGE_PLACE),
         (b"5", row_delta.MERGE_PLACE),
         (b"", row_delta.MERGE_PLACE),
@@ -5544,6 +5547,8 @@ def _part_rows_cases() -> Iterator[tuple[str, int, bytes]]:
         b"+\t_1\t\tp\n",
         b"+\t1 2\t\tp\n",
         b"+\t" + b"x" * 250 + b"\t\tp\n",
+        b"+\t" + b"x" * 250 + b"'\t\tp\n",
+        b"+\t" + b"1" * 4301 + b"\t\tp\n",
         b"+\t1\t\xc3\xa9\tp\n",
         b"+\t1\ta\xff\tp\n",
         b"*\t1\t\tp\n",

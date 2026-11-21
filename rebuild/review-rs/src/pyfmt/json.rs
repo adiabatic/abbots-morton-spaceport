@@ -4,7 +4,7 @@
 //!
 //! The reader ([`loads`] for a `str`, [`loads_bytes`] for `bytes`) reads what `json.loads` reads into the value it gives: an object as a dict whose repeated key keeps its first place and its last value, an array as a list, and an int as an int. It refuses what `json.loads` refuses, and what `json.loads` reads but the value model cannot hold or the plan's § Reading what Python wrote has the Rust build refuse: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, a lone surrogate, escaped or in the bytes, and text `json.detect_encoding` takes for UTF-16 or UTF-32. Such a refusal names [`UNHELD`], so [`unheld`] tells it from one Python makes too: the reader reads on past a value it cannot hold and refuses it only when the rest of the text reads, so a text Python refuses anywhere is never taken for one it reads.
 
-use super::{PyFmtError, PyValue};
+use super::{INT_MAX_STR_DIGITS, PyFmtError, PyValue, int_digits_exceeded};
 
 /// `json.dumps(value)`: `", "` between items, `": "` after a key, ASCII, every dict in its insertion order.
 pub fn dumps(value: &PyValue) -> Result<String, PyFmtError> {
@@ -507,6 +507,10 @@ impl<'a> Reader<'a> {
             return Ok(self.unheld("a float", start));
         }
         let digits = &self.text[start..int_end];
+        let count = digits.trim_start_matches('-').len();
+        if count > INT_MAX_STR_DIGITS {
+            return Err(PyFmtError(int_digits_exceeded(count)));
+        }
         Ok(match digits.parse::<i64>() {
             Ok(number) => PyValue::Int(number),
             Err(_) => self.unheld(&format!("the int {digits} does not fit 64 bits"), start),
@@ -848,6 +852,17 @@ mod tests {
             assert!(
                 !unheld(&refused),
                 "{data:?} was refused as a text Python reads"
+            );
+        }
+        let long = "1".repeat(INT_MAX_STR_DIGITS + 1);
+        assert_eq!(
+            loads(&long[1..]).map_err(|failure| unheld(&failure)),
+            Err(true)
+        );
+        for text in [format!("[1.5, -{long}]"), format!("[{long}, x]")] {
+            assert_eq!(
+                loads(&text),
+                Err(PyFmtError(int_digits_exceeded(INT_MAX_STR_DIGITS + 1)))
             );
         }
     }
