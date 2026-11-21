@@ -1,0 +1,21 @@
+{
+"page": 12,
+"lines": [
+{"n": 1, "base": [260, 713, 1660, 710], "short": 34},
+{"n": 2, "base": [380, 1512, 1250, 1512], "short": 33},
+{"n": 3, "base": [515, 1813, 1080, 1813], "short": 35}
+],
+"words": [
+{"id": "p12-w001", "gloss": "", "letters": ["qsSee", "qsAwe"], "joins": ["|"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 1, "x": [268, 328], "cuts": [290], "note": "·Awe starts inside the lower curve of ·See"},
+{"id": "p12-w002", "gloss": "", "letters": ["qsSee", "qsAwe", "qsRoe"], "joins": ["|", "b"], "src": "font", "font": "senior", "pattern": "LLL", "expect": "", "line": 1, "x": [491, 572], "cuts": [516, 543], "note": "·Awe starts on the middle of ·See, touching it without a join"},
+{"id": "p12-w003", "gloss": "", "letters": ["qsAh", "qsMay", "qsZoo"], "joins": ["|", "|"], "src": "font", "font": "junior", "pattern": "LLL", "expect": "", "line": 1, "x": [764, 862], "cuts": [801, 828], "note": ""},
+{"id": "p12-w004", "gloss": "", "letters": ["qsAh", "qsRoe", "qsMay", "qsZoo"], "joins": ["x", "|", "|"], "src": "font", "font": "senior", "pattern": "LLLL", "expect": "", "line": 1, "x": [1038, 1146], "cuts": [1070, 1093, 1118], "note": ""},
+{"id": "p12-w005", "gloss": "", "letters": ["qsHe", "qsUtter", "qsTea"], "joins": ["|", "|"], "src": "font", "font": "junior", "pattern": "LLL", "expect": "", "line": 1, "x": [1348, 1401], "cuts": [1359, 1388], "note": "the top of ·He overhangs ·Utter"},
+{"id": "p12-w006", "gloss": "", "letters": ["qsHe", "qsUtter", "qsRoe", "qsTea"], "joins": ["|", "|", "|"], "src": "font", "font": "junior", "pattern": "LLLL", "expect": "", "line": 1, "x": [1576, 1655], "cuts": [1587, 1617, 1645], "note": "the top of ·He overhangs ·Utter"},
+{"id": "p12-w007", "gloss": "", "letters": ["qsAh", "qsRoe"], "joins": ["x"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 2, "x": [392, 454], "cuts": [431], "note": ""},
+{"id": "p12-w008", "gloss": "", "letters": ["qsAwe", "qsRoe"], "joins": ["b"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 2, "x": [795, 864], "cuts": [834], "note": ""},
+{"id": "p12-w009", "gloss": "", "letters": ["qsUtter", "qsRoe"], "joins": ["x"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 2, "x": [1182, 1247], "cuts": [1219], "note": ""},
+{"id": "p12-w010", "gloss": "", "letters": ["qsUtter", "qsRoe", "qsOwe", "qsZoo"], "joins": ["x", "|", "|"], "src": "font", "font": "senior", "pattern": "LLLL", "expect": "", "line": 3, "x": [523, 659], "cuts": [569, 593, 633], "note": "·Owe touches the start of ·Zoo at the upper parallel; read as a touch, not a join"},
+{"id": "p12-w011", "gloss": "", "letters": ["qsAt", "qsRoe", "qsOwe", "qsZoo"], "joins": ["|", "|", "|"], "src": "font", "font": "junior", "pattern": "LLLL", "expect": "", "line": 3, "x": [929, 1077], "cuts": [965, 996, 1041], "note": ""}
+]
+}

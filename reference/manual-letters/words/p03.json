@@ -1,0 +1,15 @@
+{
+"page": 3,
+"lines": [
+{"n": 1, "base": [480, 1194, 1245, 1194], "short": 74}
+],
+"words": [
+{"id": "p03-w001", "gloss": "", "letters": ["qsThey", "qsSee"], "joins": ["|"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 1, "x": [480, 613], "cuts": [552], "note": "the tail of ·See runs back left under the top of ·They without touching it; cut where the top of ·They ends"},
+{"id": "p03-w002", "gloss": "", "letters": ["qsZoo"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 1, "x": [637, 699], "cuts": [], "note": ""},
+{"id": "p03-w003", "gloss": "", "letters": ["qsThey"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 1, "x": [740, 809], "cuts": [], "note": ""},
+{"id": "p03-w004", "gloss": "", "letters": ["qsWay", "qsEight"], "joins": ["x"], "src": "font", "font": "senior", "pattern": "LL", "expect": "", "line": 1, "x": [816, 978], "cuts": [913], "note": ""},
+{"id": "p03-w005", "gloss": "", "letters": ["qsTea"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 1, "x": [1017, 1081], "cuts": [], "note": ""},
+{"id": "p03-w006", "gloss": "", "letters": ["qsDay"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 1, "x": [1087, 1160], "cuts": [], "note": ""},
+{"id": "p03-w007", "gloss": "", "letters": ["qsIt"], "joins": [], "src": "font", "font": "senior", "pattern": "L.", "expect": "", "line": 1, "x": [1201, 1243], "cuts": [], "note": ""}
+]
+}

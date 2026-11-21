@@ -1,0 +1,37 @@
+{
+"page": 14,
+"lines": [
+{"n": 1, "base": [440, 825, 1660, 825], "short": 34},
+{"n": 2, "base": [500, 1762, 1540, 1762], "short": 34},
+{"n": 3, "base": [530, 2261, 1750, 2266], "short": 37},
+{"n": 4, "base": [1500, 2392, 1650, 2392], "short": 32}
+],
+"words": [
+{"id": "p14-w001", "gloss": "Mr", "letters": ["qsMay", "qsRoe"], "joins": ["x"], "src": "expect", "font": "senior", "pattern": "·LL", "expect": "\\· | ·May ~x~ ·Roe", "line": 1, "x": [470, 543], "cuts": [507], "note": "the namer dot sits over the left end of ·May's baseline tail, inside its cell"},
+{"id": "p14-w002", "gloss": "Mrs", "letters": ["qsMay", "qsZoo"], "joins": ["x"], "src": "expect", "font": "senior", "pattern": "·LL", "expect": "\\· | ·May ~x~ ·Zoo", "line": 1, "x": [960, 1046], "cuts": [1003], "note": "the namer dot sits over the left end of ·May's baseline tail, inside its cell"},
+{"id": "p14-w003", "gloss": "Dr", "letters": ["qsDay", "qsUtter", "qsRoe"], "joins": ["+", "x"], "src": "expect", "font": "senior", "pattern": "·LLL", "expect": "\\· | ·Day+Utter ~x~ ·Roe", "line": 1, "x": [1549, 1623], "cuts": [1557, 1593], "note": ""},
+{"id": "p14-w004", "gloss": "the", "letters": ["qsThey"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [532, 559], "cuts": [], "note": ""},
+{"id": "p14-w005", "gloss": "of", "letters": ["qsVie"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [668, 708], "cuts": [], "note": ""},
+{"id": "p14-w006", "gloss": "and", "letters": ["qsNo"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [812, 852], "cuts": [], "note": ""},
+{"id": "p14-w007", "gloss": "to", "letters": ["qsTea"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [974, 982], "cuts": [], "note": ""},
+{"id": "p14-w008", "gloss": "it", "letters": ["qsIt"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [1090, 1098], "cuts": [], "note": ""},
+{"id": "p14-w009", "gloss": "is", "letters": ["qsZoo"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [1206, 1247], "cuts": [], "note": ""},
+{"id": "p14-w010", "gloss": "for", "letters": ["qsFee"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [1340, 1376], "cuts": [], "note": "·Fee rises only about 10 pixels above the upper parallel, well short of a Tall height"},
+{"id": "p14-w011", "gloss": "be", "letters": ["qsBay"], "joins": [], "src": "font", "font": "senior", "pattern": "L", "expect": "", "line": 2, "x": [1482, 1509], "cuts": [], "note": ""},
+{"id": "p14-w012", "gloss": "", "letters": ["qsIt"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [544, 554], "cuts": [], "note": ""},
+{"id": "p14-w013", "gloss": "", "letters": ["qsZoo"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [597, 625], "cuts": [], "note": ""},
+{"id": "p14-w014", "gloss": "", "letters": ["qsGay", "qsFoot", "qsDay"], "joins": ["x", "x"], "src": "font", "font": "senior", "pattern": "LLL", "expect": "", "line": 3, "x": [675, 767], "cuts": [701, 741], "note": ""},
+{"id": "p14-w015", "gloss": "", "letters": ["qsTea"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [795, 806], "cuts": [], "note": ""},
+{"id": "p14-w016", "gloss": "", "letters": ["qsBay"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [853, 880], "cuts": [], "note": ""},
+{"id": "p14-w017", "gloss": "", "letters": ["qsHe", "qsEat", "qsUtter", "qsRoe"], "joins": ["|", "b", "x"], "src": "font", "font": "junior", "pattern": "LLLL", "expect": "", "line": 3, "x": [917, 1005], "cuts": [929, 952, 978], "note": "the top hook of ·He overhangs ·Eat"},
+{"id": "p14-w018", "gloss": "", "letters": ["qsFee"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [1052, 1077], "cuts": [], "note": ""},
+{"id": "p14-w019", "gloss": "", "letters": ["qsThey"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [1117, 1136], "cuts": [], "note": ""},
+{"id": "p14-w020", "gloss": "", "letters": ["qsRoe", "qsEt", "qsSee", "qsTea"], "joins": ["|", "|", "t"], "src": "font", "font": "junior", "pattern": "LLLL", "expect": "", "line": 3, "x": [1183, 1290], "cuts": [1211, 1247, 1280], "note": ""},
+{"id": "p14-w021", "gloss": "", "letters": ["qsVie"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [1338, 1362], "cuts": [], "note": ""},
+{"id": "p14-w022", "gloss": "", "letters": ["qsThey"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [1410, 1433], "cuts": [], "note": ""},
+{"id": "p14-w023", "gloss": "", "letters": ["qsDay", "qsEight"], "joins": ["|"], "src": "font", "font": "junior", "pattern": "LL", "expect": "", "line": 3, "x": [1480, 1547], "cuts": [1506], "note": "the foot of ·Day runs under the entry tick of ·Eight; the pen lifts between them"},
+{"id": "p14-w024", "gloss": "", "letters": ["qsNo"], "joins": [], "src": "font", "font": "junior", "pattern": "L", "expect": "", "line": 3, "x": [1585, 1616], "cuts": [], "note": ""},
+{"id": "p14-w025", "gloss": "", "letters": ["qsNo", "qsI", "qsTea"], "joins": ["|", "|"], "src": "font", "font": "junior", "pattern": "LLL.", "expect": "", "line": 3, "x": [1653, 1737], "cuts": [1686, 1728], "note": "the exit tick of ·I stops a pixel or two short of ·Tea's stem"},
+{"id": "p14-w026", "gloss": "and-and-and", "letters": ["qsNo", "qsNo", "qsNo"], "joins": ["x", "x"], "src": "font", "font": "senior", "pattern": "LLL", "expect": "", "line": 4, "x": [1530, 1620], "cuts": [1562, 1587], "note": ""}
+]
+}

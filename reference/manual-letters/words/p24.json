@@ -1,0 +1,27 @@
+{
+"page": 24,
+"lines": [
+{"n": 1, "base": [1800, 252, 1870, 252], "short": 34},
+{"n": 2, "base": [1790, 323, 1860, 323], "short": 30},
+{"n": 3, "base": [890, 429, 1770, 427], "short": 31},
+{"n": 4, "base": [880, 575, 1860, 574], "short": 32},
+{"n": 5, "base": [830, 653, 880, 653], "short": 32},
+{"n": 6, "base": [1850, 853, 1925, 853], "short": 31},
+{"n": 7, "base": [1660, 983, 1760, 983], "short": 33},
+{"n": 8, "base": [1780, 1183, 1880, 1183], "short": 34},
+{"n": 9, "base": [1865, 1339, 1920, 1339], "short": 35}
+],
+"words": [
+{"id": "p24-w001", "gloss": "ob-", "letters": ["qsUtter", "qsBay"], "joins": ["x"], "src": "expect", "font": "senior", "pattern": "LL-", "expect": "·Utter ~x~ ·Bay", "line": 1, "x": [1815, 1862], "cuts": [1849], "note": "the unstressed prefix; the typed hyphen after it is not a letter"},
+{"id": "p24-w002", "gloss": "ob-", "letters": ["qsOx", "qsBay"], "joins": ["|"], "src": "expect", "font": "senior", "pattern": "LL-", "expect": "·Ox | ·Bay", "line": 2, "x": [1796, 1850], "cuts": [1825], "note": "the stressed prefix; the typed hyphen after it is not a letter"},
+{"id": "p24-w003", "gloss": "of-", "letters": ["qsUtter", "qsFee"], "joins": ["x"], "src": "expect", "font": "senior", "pattern": "LL-:", "expect": "·Utter ~x~ ·Fee", "line": 3, "x": [902, 961], "cuts": [929], "note": "the unstressed prefix; the bowl of ·Fee closes on the end of ·Utter, and its top reaches back over it"},
+{"id": "p24-w004", "gloss": "of-", "letters": ["qsOx", "qsFee"], "joins": ["|"], "src": "expect", "font": "senior", "pattern": "LL-", "expect": "·Ox | ·Fee", "line": 3, "x": [1703, 1765], "cuts": [1731], "note": "the stressed prefix"},
+{"id": "p24-w005", "gloss": "be-", "letters": ["qsBay", "qsIt"], "joins": ["b"], "src": "expect", "font": "senior", "pattern": "LL-:", "expect": "·Bay ~b~ ·It", "line": 4, "x": [893, 932], "cuts": [916], "note": "·It is written from its foot up"},
+{"id": "p24-w006", "gloss": "de-", "letters": ["qsDay", "qsIt"], "joins": ["b"], "src": "expect", "font": "senior", "pattern": "LL-:", "expect": "·Day ~b~ ·It", "line": 4, "x": [1815, 1850], "cuts": [1840], "note": "·It is written from its foot up"},
+{"id": "p24-w007", "gloss": "re-", "letters": ["qsRoe", "qsIt"], "joins": ["|"], "src": "expect", "font": "senior", "pattern": "LL-", "expect": "·Roe | ·It", "line": 5, "x": [837, 877], "cuts": [866], "note": ""},
+{"id": "p24-w008", "gloss": "pre-", "letters": ["qsPea.half", "qsRoe", "qsIt"], "joins": ["x", "|"], "src": "expect", "font": "senior", "pattern": "LLL-.", "expect": "·Pea.half ~x~ ·Roe | ·It", "line": 6, "x": [1857, 1919], "cuts": [1884, 1908], "note": "the unstressed prefix; the foot of ·Roe reaches back under the stem of ·Pea.half"},
+{"id": "p24-w009", "gloss": "pro-", "letters": ["qsPea.half", "qsRoe", "qsUtter"], "joins": ["x", "|"], "src": "expect", "font": "senior", "pattern": "LLL-.", "expect": "·Pea.half ~x~ ·Roe | ·Utter", "line": 7, "x": [1667, 1753], "cuts": [1697, 1722], "note": "the unstressed prefix; the stem of ·Pea.half runs a little below the upper parallel beside the start of ·Roe"},
+{"id": "p24-w010", "gloss": "per-", "letters": ["qsPea", "qsUtter", "qsRoe"], "joins": ["b", "x"], "src": "expect", "font": "senior", "pattern": "LLL-.", "expect": "·Pea ~b~ ·Utter ~x~ ·Roe", "line": 8, "x": [1788, 1872], "cuts": [1817, 1846], "note": "stands for both per- and pur-"},
+{"id": "p24-w011", "gloss": "in-", "letters": ["qsIt", "qsNo.alt"], "joins": ["b"], "src": "font", "font": "senior", "pattern": "LL-.", "expect": "", "line": 9, "x": [1872, 1916], "cuts": [1882], "note": "stands for both in- and en-"}
+]
+}
