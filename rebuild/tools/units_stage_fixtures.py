@@ -34,6 +34,7 @@ The build's stages (`BUILD_STAGES`):
 - `prior-read` records each read the write makes of a fragment it emits, keyed by its origin, its `form` and a digest of its `input`: `read`, `read-bytes` and `same-bytes`, each `unit_cache.PriorFragmentReader.read`, `read_bytes` and `same_bytes` call (`_prior_reading`), with the part it opens as the reader's directory held it (`_prior_held`), its address (`_prior_located`) and, for `same-bytes`, the body it compares, valued `("fragment", value)`, `("bytes", sha256)` or `("same", flag)` (`_prior_given`); and `arena`, each `build._FragmentArena.read` call (`_arena_read`), with the arena's dictionary, the span's bytes and the address, valued `("fragment", value)`. Every part, body, span and dictionary is kept once under its sha256 in `prior-read.blobs/` beside the stage file (`PRIOR_READ_BLOBS`), from which the Rust side makes each line's parts again in a scratch directory, or places its span at its start in an arena of its own, and makes the read there. Its generated lines (`_prior_read_generated`, `_prior_read_cases`) read plain and deflated fragments, as bytes and compared, under their own address and moved ones, and arena spans under their own dictionary and others, through every refusal of the reader's, each refusal valued `("raised", "ValueError", message)`, `("os-error", errno)` or, where `json.loads` refuses the bytes, `("undecoded",)` (`_prior_outcome`).
 - `emit` records each unit the write receives, each `build._emission` call (`_emitted`), under `unit:<ordinal>`: its kind, `fragment` for a fragment the write serializes or `bytes` for a cached fragment's stored bytes, its unit id, content key and policy file, the sha256 of the bytes the write takes from it, the config note the write keeps for it, and, for stored bytes, their address and the identity that stands in for the fragment (`_emission_value`). The Rust side runs the build through the routing and emits every unit of every class in shard order.
 - `check-patched` records each fragment the write checks, `check_unit` at `PATCHED` as `build._CorpusCheck.unit` calls it (`_patched_checked`), under `patched:` and a digest of the fragment, as the `fragment` and, as its value, the error list. Its generated lines (`_check_patched_generated`), under `generated:` and the same digest, mutate the smallest patched fragment of each shape (`_patched_shape`), generically over the keys the check reads (`PATCHED_DEPTHS`) and once or more for each predicate (`_patched_extras`), and record the error list, or the class of the exception the check raises, as `{"raised": name}`.
+- `corpus-check` records the write's corpus check (`build._CorpusCheck`) as its checkers run, fed and folded. Each chunk a run checker hands over (`take_facts`) is a line under `chunk:`, the class's id and the units of it fed before: the class record it opened (`class_start`) or None, each unit it was fed (`unit`) with whether the cache supplied it, whether it closed the class (`class_end`), and the ids among its units the checker keeps identities for (`identity_for`), or None when it keeps every unit's; valued the facts it handed over, `_CorpusCheck._FACTS` by name without the underscore (`_check_facts`). Each `finish` of the checker that folds the chunks (`absorb`) is a line under `finish:`, with the chunk keys it absorbed in order and the manifest, valued the facts it folded and the errors `finish` returns. The Rust side feeds the chunks in order to one checker over the build input's settings and folds the named chunks into a fresh one for each finish. Its generated lines (`_corpus_check_generated`) finish each folding again over the manifest with each predicate broken (`_manifest_mutations`), under `generated:finish:`, and run small cases of their own through a run checker and a folding one (`_check_cases`, over `_check_base`), under `generated:case:` with their settings, chunks and manifest, each predicate made to fail, to pass a value Python reads as equal and to raise, a raise valued `{"raised": name}`.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3896,6 +3897,12 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "build._FragmentArena.read": ("rebuild.review.build", "_FragmentArena.read"),
     "build._emission": ("rebuild.review.build", "_emission"),
     "build.check_unit": ("rebuild.review.build", "check_unit"),
+    "build._CorpusCheck.class_start": ("rebuild.review.build", "_CorpusCheck.class_start"),
+    "build._CorpusCheck.unit": ("rebuild.review.build", "_CorpusCheck.unit"),
+    "build._CorpusCheck.class_end": ("rebuild.review.build", "_CorpusCheck.class_end"),
+    "build._CorpusCheck.take_facts": ("rebuild.review.build", "_CorpusCheck.take_facts"),
+    "build._CorpusCheck.absorb": ("rebuild.review.build", "_CorpusCheck.absorb"),
+    "build._CorpusCheck.finish": ("rebuild.review.build", "_CorpusCheck.finish"),
 }
 
 
@@ -13245,6 +13252,640 @@ def _check_patched_generated(_source: BuildSource) -> Iterator[Mapping[str, obje
             yield _patched_line("generated", mutated)
 
 
+CORPUS_CHECK_STAGE = "corpus-check"
+
+
+@dataclass
+class _CheckChunk:
+    """What one of the write's run checkers has been fed since it last handed its facts over: the class record it opened, if any, each unit with whether the cache supplied it, whether it closed the class, and the class's id and the units of it fed before."""
+
+    meta: object = None
+    opened: bool = False
+    units: list[tuple[object, object]] = field(default_factory=list)
+    end: bool = False
+    class_id: object = None
+    offset: int = 0
+
+
+# What the `corpus-check` stage's recorders hold while the build writes: each run checker's chunk in progress, by the checker's id; each handed-over checker's chunk key, by its id, until the folding checker absorbs it; the keys each folding checker absorbed, in order, by its id; each chunk's facts, by key; and each finish's settings, chunk keys and manifest, for the generated lines (`_corpus_check_generated`).
+_CHECK_RUNS: dict[int, _CheckChunk] = {}
+_CHECK_TAKEN: dict[int, str] = {}
+_CHECK_ABSORBED: dict[int, list[str]] = {}
+_CHECK_CHUNKS: dict[str, build._CorpusCheck] = {}
+_CHECK_FINISHED: list[tuple[dict[str, object], list[str], object]] = []
+_CHECK_CLASS_START = inspect.signature(build._CorpusCheck.class_start)
+_CHECK_UNIT = inspect.signature(build._CorpusCheck.unit)
+_CHECK_FINISH = inspect.signature(build._CorpusCheck.finish)
+
+
+def _writes_check(check: build._CorpusCheck) -> bool:
+    """Whether `check` is one of the write's checkers, which check at `PATCHED` alone, rather than `check_shards`'."""
+    return check._mode == "m1-audit" and check._at == (build.PATCHED,)
+
+
+def _check_facts(check: build._CorpusCheck) -> dict[str, object]:
+    """A copy of what `check` has accumulated, `_CorpusCheck._FACTS` by name without its underscore."""
+    return copy.deepcopy({name.removeprefix("_"): getattr(check, name) for name in build._CorpusCheck._FACTS})
+
+
+def _check_class_start(args: tuple, kwargs: dict) -> None:
+    bound = _CHECK_CLASS_START.bind(*args, **kwargs)
+    check = bound.arguments["self"]
+    if _writes_check(check):
+        chunk = _CHECK_RUNS.setdefault(id(check), _CheckChunk())
+        if chunk.opened or chunk.units:
+            raise ValueError("a run checker opened a class in a chunk it had already fed")
+        meta = copy.deepcopy(bound.arguments["meta"])
+        chunk.meta, chunk.opened, chunk.class_id, chunk.offset = meta, True, meta.get("id"), 0
+
+
+def _check_fed(args: tuple, kwargs: dict) -> None:
+    bound = _CHECK_UNIT.bind(*args, **kwargs)
+    check = bound.arguments["self"]
+    if _writes_check(check):
+        _CHECK_RUNS.setdefault(id(check), _CheckChunk()).units.append(
+            (copy.deepcopy(bound.arguments["unit"]), bound.arguments.get("cached"))
+        )
+
+
+def _check_class_end(args: tuple, _kwargs: dict) -> None:
+    if _writes_check(args[0]):
+        _CHECK_RUNS.setdefault(id(args[0]), _CheckChunk()).end = True
+
+
+def _check_take_facts(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`_CorpusCheck.take_facts` on a run checker: a `chunk:` line under the class's id and the units of it fed before, with the class record it opened, the units it was fed, whether it closed the class, and the ids among its units the checker keeps identities for (`identity_for`), valued the facts it hands over."""
+    check = args[0]
+    if not _writes_check(check):
+        return None
+    chunk = _CHECK_RUNS.setdefault(id(check), _CheckChunk())
+    identity_for = check._identity_for
+
+    def finish(facts: object) -> Mapping[str, object]:
+        assert isinstance(facts, build._CorpusCheck)
+        key = f"chunk:{chunk.class_id}:{chunk.offset}"
+        ids = None
+        if identity_for is not None:
+            fed = (unit.get("id") for unit, _cached in chunk.units if isinstance(unit, dict))
+            ids = sorted({unit_id for unit_id in fed if isinstance(unit_id, str) and unit_id in identity_for})
+        line = {
+            "key": key,
+            "meta": chunk.meta if chunk.opened else None,
+            "units": chunk.units,
+            "end": chunk.end,
+            "identity_for": ids,
+            "value": _check_facts(facts),
+        }
+        _CHECK_TAKEN[id(facts)] = key
+        _CHECK_CHUNKS[key] = copy.deepcopy(facts)
+        chunk.offset += len(chunk.units)
+        chunk.units, chunk.opened, chunk.end = [], False, False
+        return line
+
+    return finish
+
+
+def _check_absorb(args: tuple, _kwargs: dict) -> None:
+    check, other = args[0], args[1]
+    if _writes_check(check) and id(other) in _CHECK_TAKEN:
+        _CHECK_ABSORBED.setdefault(id(check), []).append(_CHECK_TAKEN.pop(id(other)))
+
+
+def _check_finished(args: tuple, kwargs: dict) -> Finisher | None:
+    """`_CorpusCheck.finish` on the write's folding checker: a `finish:` line with the chunk keys it absorbed, in order, and the manifest, valued the facts it folded and the errors `finish` returns."""
+    bound = _CHECK_FINISH.bind(*args, **kwargs)
+    check = bound.arguments["self"]
+    if not _writes_check(check):
+        return None
+    keys = _CHECK_ABSORBED.pop(id(check), [])
+    facts = _check_facts(check)
+    manifest = copy.deepcopy(bound.arguments["manifest"])
+    settings = {
+        "descriptions": check._descriptions,
+        "batch_size": check._batch_size,
+        "repo_root": check._repo_root,
+    }
+    _CHECK_FINISHED.append((settings, keys, manifest))
+    key = f"finish:{len(_CHECK_FINISHED)}"
+    return lambda errors: {
+        "key": key,
+        "chunks": keys,
+        "manifest": manifest,
+        "value": {"facts": facts, "errors": list(errors)},  # pyright: ignore[reportArgumentType]
+    }
+
+
+def _check_outcome(check: Callable[[], object]) -> object:
+    """What `check` returns, or `{"raised": name}` for the exception Python raises."""
+    try:
+        return check()
+    except (*CHECK_RAISES, KeyError) as error:
+        return {"raised": type(error).__name__}
+
+
+def _check_folded(
+    parent: build._CorpusCheck, taken: Iterable[build._CorpusCheck], manifest: object
+) -> object:
+    """Fold `taken` into `parent` in order and finish it over `manifest`: the folded facts and the errors."""
+    for facts in taken:
+        parent.absorb(facts)
+    folded = _check_facts(parent)
+    return {"facts": folded, "errors": list(parent.finish(manifest))}  # pyright: ignore[reportArgumentType]
+
+
+def _write_checker(
+    settings: Mapping[str, object], identity_for: Collection[str] | None = None
+) -> build._CorpusCheck:
+    """A checker as the write makes one, over `settings`' descriptions, batch size and repo root."""
+    root = settings["repo_root"]
+    return build._CorpusCheck(
+        mode="m1-audit",
+        descriptions=settings["descriptions"],  # pyright: ignore[reportArgumentType]
+        batch_size=settings["batch_size"],
+        repo_root=None if root is None else Path(root),  # pyright: ignore[reportArgumentType]
+        cached_ids=(),
+        at=(build.PATCHED,),
+        identity_for=None if identity_for is None else frozenset(identity_for),
+    )
+
+
+def _manifest_mutations(manifest: dict) -> Iterator[tuple[str, object]]:
+    """The build's manifest with each predicate `finish` checks it by broken once: its totals, its triage index, its machine-approved counts, its classes and their batches, and its secondary-junction counts, each moved, dropped or of another type."""
+
+    def edit(
+        name: str, path: tuple[object, ...], change: Callable[[Any], object] | None
+    ) -> tuple[str, object]:
+        mutated = copy.deepcopy(manifest)
+        held: Any = mutated
+        for step in path[:-1]:
+            held = held[step]
+        if change is None:
+            del held[path[-1]]
+        else:
+            held[path[-1]] = change(held[path[-1]])
+        return name, mutated
+
+    def plus(value: Any) -> object:
+        return value + 1
+
+    yield "manifest-empty", {}
+    yield "manifest-list", []
+    for name in ("units", "rows", "batches"):
+        yield edit(f"totals-{name}", ("totals", name), plus)
+    yield edit("totals-dropped", ("totals",), None)
+    yield edit("totals-none", ("totals",), lambda _old: None)
+    yield edit("index-reversed", ("human_unit_ids",), lambda old: list(reversed(old)))
+    yield edit("index-short", ("human_unit_ids",), lambda old: old[1:])
+    yield edit("index-extra", ("human_unit_ids",), lambda old: [*old, "u-extra"])
+    yield edit("index-tuple", ("human_unit_ids",), lambda old: tuple(old))
+    yield edit("index-non-str", ("human_unit_ids",), lambda old: [*old, None])
+    yield edit("index-none", ("human_unit_ids",), lambda _old: None)
+    yield edit("machine-units", ("machine_approved", "units"), plus)
+    yield edit("machine-none", ("machine_approved",), lambda _old: None)
+    yield edit("machine-str", ("machine_approved",), lambda _old: "x")
+    yield edit("by-class-empty", ("machine_approved", "by_class"), lambda _old: {})
+    yield edit("by-class-extra", ("machine_approved", "by_class"), lambda old: {**old, "extra": 1})
+    yield edit("by-class-reversed", ("machine_approved", "by_class"), lambda old: dict(reversed(old.items())))
+    yield edit("classes-reversed", ("classes",), lambda old: list(reversed(old)))
+    yield edit("classes-none", ("classes",), lambda _old: None)
+    yield edit("classes-repeated", ("classes",), lambda old: [*old, *old[:1]])
+    for index, meta in enumerate(manifest.get("classes") or ()):
+        if meta.get("batches"):
+            yield edit(f"class-batches:{index}", ("classes", index, "batches"), lambda _old: [7])
+            yield edit(f"class-batches-tuple:{index}", ("classes", index, "batches"), lambda old: tuple(old))
+            break
+    for name in ("units_with_markers", "junctions_with_primary_unit", "junctions_without_primary_unit"):
+        yield edit(f"junctions-{name}", ("secondary_junctions", name), plus)
+    yield edit("junctions-none", ("secondary_junctions",), lambda _old: None)
+    yield edit("junctions-empty", ("secondary_junctions",), lambda _old: {})
+
+
+# The policy file the `corpus-check` stage's generated cases name, which is a file in the repo.
+CHECK_CASE_POLICY = "glyph_data/runes/qsPea.yaml"
+CHECK_CASE_BATCH = 2
+
+
+@dataclass
+class _CheckCase:
+    """One generated case of the `corpus-check` stage: the run checker's settings (`_write_checker`, with `identity_for`), the chunks fed to it in order, each a class record or None, its units as `[unit, cached]`, and whether it closes the class, and the manifest the folding checker finishes over."""
+
+    settings: dict[str, Any]
+    chunks: list[dict[str, Any]]
+    manifest: Any
+
+    def fed(self, unit_id: str) -> list:
+        for chunk in self.chunks:
+            for fed in chunk["units"]:
+                if isinstance(fed[0], dict) and fed[0].get("id") == unit_id:
+                    return fed
+        raise KeyError(unit_id)
+
+    def set(self, unit_id: str, **fields: object) -> None:
+        self.fed(unit_id)[0].update(fields)
+
+    def meta(self, class_id: str) -> dict:
+        return next(meta for meta in self.manifest["classes"] if meta["id"] == class_id)
+
+
+def _case_unit(unit_id: str, class_id: str, **fields: object) -> dict:
+    """A unit as the write feeds a cached one (`build._cached_identity`), in a human class's default window."""
+    return {
+        "id": unit_id,
+        "ink_identical": False,
+        "picture_identical": False,
+        "junior_equivalent": False,
+        "no_verdict": False,
+        "duplicate_group": None,
+        "cluster": None,
+        "class": class_id,
+        "group": "qsPea:qsTea",
+        "codepoints": "E650:E652",
+        "configs": ["default"],
+        "config_gate": None,
+        "pair": {"left": 0, "right": 1},
+        "secondary_junctions": None,
+        "drafts": None,
+    } | fields
+
+
+def _check_base() -> _CheckCase:
+    """The generated cases' base: three classes, a human one fed in two chunks with a machine-approved unit, a config-gated one, a unit naming a primary unit and one with a junction naming none, a no-verdict one, and a human one of a single unit; and the manifest that matches them, which the base passes."""
+    classes = [
+        (
+            "A",
+            False,
+            [
+                [
+                    _case_unit(
+                        "u-a1",
+                        "A",
+                        duplicate_group="e-1",
+                        cluster="c-1",
+                        drafts={"policy": {"file": CHECK_CASE_POLICY}},
+                    ),
+                    _case_unit(
+                        "u-a2",
+                        "A",
+                        duplicate_group="e-2",
+                        cluster="c-1",
+                        group="qsPea:qsTea:qsPea",
+                        codepoints="E650:E652:E650",
+                        secondary_junctions=[{"primary_unit": "u-a1"}],
+                    ),
+                    _case_unit("u-a3", "A", ink_identical=True),
+                ],
+                [
+                    _case_unit(
+                        "u-a4",
+                        "A",
+                        duplicate_group="e-3",
+                        cluster="c-2",
+                        group="qsTea",
+                        codepoints="E652",
+                        pair=None,
+                        configs=["ss03"],
+                        config_gate=[{"feature": "ss03"}],
+                    ),
+                    _case_unit(
+                        "u-a5",
+                        "A",
+                        duplicate_group="e-4",
+                        cluster="c-1",
+                        group="qsTea:qsPea",
+                        codepoints="E652:E650",
+                        secondary_junctions=[{"primary_unit": None}],
+                    ),
+                ],
+            ],
+        ),
+        (
+            "B",
+            True,
+            [
+                [
+                    _case_unit("u-b1", "B", no_verdict=True),
+                    _case_unit("u-b2", "B", no_verdict=True, picture_identical=True),
+                ]
+            ],
+        ),
+        (
+            "C",
+            False,
+            [
+                [
+                    _case_unit(
+                        "u-c1", "C", duplicate_group="e-5", cluster="c-3", group="qsBay", codepoints="E651"
+                    )
+                ]
+            ],
+        ),
+    ]
+    rank = audit.family_ranks(dict(LETTERS))
+    index = {class_id: place for place, (class_id, _no_verdict, _chunks) in enumerate(classes)}
+    units = [unit for _class_id, _no_verdict, chunks in classes for chunk in chunks for unit in chunk]
+    order = [
+        unit["id"]
+        for unit in sorted(
+            (unit for unit in units if not audit.slim_fragment(unit)),
+            key=lambda unit: audit.triage_key(
+                index[unit["class"]],
+                unit["group"],
+                audit.parse_codepoints(unit["codepoints"]),
+                unit["id"],
+                rank,
+            ),
+        )
+    ]
+    place = {unit_id: position for position, unit_id in enumerate(order)}
+    metas = []
+    fed = []
+    for class_id, no_verdict, chunks in classes:
+        members = [unit for chunk in chunks for unit in chunk]
+        checks = {check: sum(unit.get(check) is True for unit in members) for check in audit.MACHINE_CHECKS}
+        meta = {
+            "id": class_id,
+            "no_verdict": no_verdict,
+            "unit_count": len(members),
+            "row_count": 2 * len(members),
+            "machine_approved_count": sum(checks.values()),
+            "machine_checks": checks,
+            "batches": sorted(
+                {place[unit["id"]] // CHECK_CASE_BATCH for unit in members if unit["id"] in place}
+            ),
+        }
+        metas.append(meta)
+        for number, chunk in enumerate(chunks):
+            fed.append(
+                {
+                    "meta": meta if number == 0 else None,
+                    "units": [[unit, True] for unit in chunk],
+                    "end": number == len(chunks) - 1,
+                }
+            )
+    junctioned = [unit for unit in units if unit["secondary_junctions"]]
+    links = [link for unit in junctioned for link in unit["secondary_junctions"]]
+    manifest = {
+        "totals": {
+            "units": len(units),
+            "rows": sum(meta["row_count"] for meta in metas),
+            "batches": -(-len(order) // CHECK_CASE_BATCH),
+        },
+        "human_unit_ids": order,
+        "machine_approved": {
+            "units": sum(meta["machine_approved_count"] for meta in metas),
+            "by_class": {
+                meta["id"]: meta["machine_approved_count"] for meta in metas if meta["machine_approved_count"]
+            },
+        },
+        "secondary_junctions": {
+            "units_with_markers": len(junctioned),
+            "junctions_with_primary_unit": sum(link["primary_unit"] is not None for link in links),
+            "junctions_without_primary_unit": sum(link["primary_unit"] is None for link in links),
+        },
+        "classes": metas,
+    }
+    settings = {
+        "descriptions": {"ss03": "gloss"},
+        "batch_size": CHECK_CASE_BATCH,
+        "repo_root": str(REPO_ROOT),
+        "identity_for": ["u-a1"],
+    }
+    return _CheckCase(settings, fed, manifest)
+
+
+def _check_cases() -> Iterator[tuple[str, _CheckCase]]:
+    """The `corpus-check` stage's generated cases, each the base (`_check_base`) with one predicate broken: every per-unit, class-level and cross-unit predicate the write's checkers run, each made to fail, to pass a value Python reads as equal, and to raise where Python raises, with repeats and two-cluster groups inside one chunk and across chunks and classes."""
+    base = _check_base()
+
+    def case(name: str, *changes: Callable[[_CheckCase], object]) -> tuple[str, _CheckCase]:
+        mutated = copy.deepcopy(base)
+        for change in changes:
+            change(mutated)
+        return name, mutated
+
+    def unit(unit_id: str, **fields: object) -> Callable[[_CheckCase], object]:
+        return lambda held: held.set(unit_id, **fields)
+
+    def meta(class_id: str, **fields: object) -> Callable[[_CheckCase], object]:
+        return lambda held: held.meta(class_id).update(fields)
+
+    def setting(**fields: object) -> Callable[[_CheckCase], object]:
+        return lambda held: held.settings.update(fields)
+
+    def totals(**fields: object) -> Callable[[_CheckCase], object]:
+        return lambda held: held.manifest["totals"].update(fields)
+
+    def manifest(**fields: object) -> Callable[[_CheckCase], object]:
+        return lambda held: held.manifest.update(fields)
+
+    def dropped(class_id: str, key: str) -> Callable[[_CheckCase], object]:
+        return lambda held: held.meta(class_id).pop(key)
+
+    def chunk(index: int, **fields: object) -> Callable[[_CheckCase], object]:
+        return lambda held: held.chunks[index].update(fields)
+
+    def replaced(unit_id: str, value: object, cached: bool = True) -> Callable[[_CheckCase], object]:
+        def change(held: _CheckCase) -> None:
+            held.fed(unit_id)[:] = [value, cached]
+
+        return change
+
+    def uncached(*unit_ids: str) -> Callable[[_CheckCase], object]:
+        def change(held: _CheckCase) -> None:
+            for unit_id in unit_ids:
+                held.fed(unit_id)[1] = False
+
+        return change
+
+    missing = "glyph_data/runes/qsMissing.yaml"
+    yield case("base")
+    yield case("identity-for-none", setting(identity_for=None))
+    yield case("identity-for-empty", setting(identity_for=[]))
+    yield case("no-verdict-class-batches", meta("B", batches=[0]))
+    yield case("no-verdict-class-one", meta("B", no_verdict=1))
+    for value in (False, 1, None):
+        yield case(f"no-verdict-unit:{value}", unit("u-b2", no_verdict=value))
+    yield case("class-mismatch", unit("u-c1", **{"class": "A"}))
+    yield case("duplicate-id-in-chunk", unit("u-a2", id="u-a1"))
+    yield case("duplicate-id-across-chunks", unit("u-a4", id="u-a1"))
+    yield case("duplicate-id-across-classes", unit("u-c1", id="u-a1"))
+    yield case("duplicate-ids-sorted", unit("u-a4", id="u-a2"), unit("u-a5", id="u-a1"))
+    yield case("duplicate-id-none", unit("u-b1", id=None), unit("u-b2", id=None))
+    yield case("two-clusters-in-chunk", unit("u-a2", duplicate_group="e-1", cluster="c-9"))
+    yield case("two-clusters-across-chunks", unit("u-a4", duplicate_group="e-1"))
+    yield case(
+        "two-clusters-first-kept",
+        unit("u-a4", duplicate_group="e-1", cluster="c-9"),
+        unit("u-a5", duplicate_group="e-1", cluster="c-9"),
+    )
+    yield case("group-spans-classes", unit("u-c1", duplicate_group="e-1", cluster="c-1"))
+    yield case("cluster-spans-configs", unit("u-a4", cluster="c-1"))
+    yield case("group-none-human", unit("u-c1", duplicate_group=None, cluster=None))
+    yield case("keys-unorderable", unit("u-a1", **{"class": None}), unit("u-a2", duplicate_group="e-1"))
+    yield case("keys-configs-str", unit("u-a1", configs="default"))
+    yield case("keys-configs-dict", unit("u-a1", configs={"default": 1}))
+    yield case("keys-configs-int", unit("u-a1", configs=5))
+    yield case("keys-configs-nested", unit("u-a1", configs=[["default"]]))
+    yield case("keys-class-list", unit("u-a1", **{"class": ["A"]}))
+    yield case("keys-group-unhashable", unit("u-a1", duplicate_group=["e-1"]))
+    yield case("config-gate-unglossed", unit("u-a4", config_gate=[{"feature": "ss99"}]))
+    yield case("config-gate-empty-gloss", setting(descriptions={"ss03": ""}))
+    yield case(
+        "config-gate-mixed", unit("u-a4", config_gate=["ss03", None, {"feature": "ss03"}, {}, {"feature": 3}])
+    )
+    yield case("config-gate-str", unit("u-a4", config_gate="ss03"))
+    yield case("config-gate-dict", unit("u-a4", config_gate={"feature": "ss99"}))
+    yield case("config-gate-int", unit("u-a4", config_gate=5))
+    yield case("config-gate-unhashable", unit("u-a4", config_gate=[{"feature": ["ss03"]}]))
+    yield case("policy-missing", unit("u-a1", drafts={"policy": {"file": missing}}))
+    yield case(
+        "policy-two",
+        unit("u-c1", drafts={"policy": {"file": missing}}),
+        unit("u-a1", drafts={"policy": {"file": "glyph_data/runes/qsAnother.yaml"}}),
+    )
+    yield case("policy-empty-name", unit("u-a1", drafts={"policy": {"file": ""}}))
+    yield case("policy-not-str", unit("u-a1", drafts={"policy": {"file": 5}}))
+    yield case("policy-none", unit("u-a1", drafts={"policy": None}))
+    yield case("policy-drafts-str", unit("u-a1", drafts="x"))
+    yield case("policy-list", unit("u-a1", drafts={"policy": ["x"]}))
+    yield case("policy-no-root", unit("u-a1", drafts={"policy": {"file": missing}}), setting(repo_root=None))
+    yield case("unit-count", meta("C", unit_count=2))
+    yield case("unit-count-no-id", meta("C", unit_count=2), dropped("C", "id"))
+    yield case("machine-count", meta("A", machine_approved_count=0))
+    yield case("machine-checks", meta("A", machine_checks=dict.fromkeys(audit.MACHINE_CHECKS, 0)))
+    yield case(
+        "machine-checks-reordered",
+        meta("A", machine_checks={"junior_equivalent": 0, "picture_identical": 0, "ink_identical": 1}),
+    )
+    yield case("machine-checks-list", meta("A", machine_checks=[1]))
+    yield case("machine-no-id", dropped("B", "id"))
+    yield case("row-count-none", meta("C", row_count=None))
+    yield case("row-count-dropped", dropped("C", "row_count"))
+    yield case("row-count-bool", meta("C", row_count=True))
+    yield case("no-class-start", chunk(2, meta=None))
+    yield case("machine-before-class-start", chunk(0, meta=None))
+    yield case("class-left-open", chunk(3, end=False))
+    yield case("junction-self", unit("u-a2", secondary_junctions=[{"primary_unit": "u-a2"}]))
+    yield case("junction-missing", unit("u-a2", secondary_junctions=[{"primary_unit": "u-zz"}]))
+    yield case(
+        "junction-not-substring",
+        unit("u-a2", secondary_junctions=[{"primary_unit": "u-c1"}]),
+        setting(identity_for=None),
+    )
+    yield case("junction-not-substring-unkept", unit("u-a2", secondary_junctions=[{"primary_unit": "u-c1"}]))
+    yield case("junction-no-pair", unit("u-a1", pair=None))
+    yield case("junction-primary-identical", unit("u-a1", ink_identical=True))
+    yield case("junction-unit-identical", unit("u-a2", picture_identical=True))
+    yield case("junction-codepoints-int", unit("u-a1", codepoints=5))
+    yield case("junction-codepoints-none", unit("u-a1", codepoints=None))
+    yield case("junction-entries", unit("u-a5", secondary_junctions=["x", None, {"primary_unit": None}, {}]))
+    yield case("junction-str", unit("u-a5", secondary_junctions="ab"))
+    yield case("junction-dict", unit("u-a5", secondary_junctions={"primary_unit": "u-a1"}))
+    yield case("junction-int", unit("u-a5", secondary_junctions=5))
+    yield case("junction-empty", unit("u-a5", secondary_junctions=[]))
+    yield case("junction-unhashable", unit("u-a2", secondary_junctions=[{"primary_unit": ["u-a1"]}]))
+    yield case(
+        "junction-counts", lambda held: held.manifest["secondary_junctions"].update(units_with_markers=9)
+    )
+    yield case("junction-counts-none", manifest(secondary_junctions=None))
+    yield case("junction-counts-list", manifest(secondary_junctions=[]))
+    yield case("totals-units", totals(units=0))
+    yield case("totals-rows", totals(rows=True))
+    yield case("totals-dropped", lambda held: held.manifest.pop("totals"))
+    yield case("totals-none", manifest(totals=None))
+    yield case("manifest-list", lambda held: setattr(held, "manifest", []))
+    yield case("index-swapped", lambda held: held.manifest["human_unit_ids"].reverse())
+    yield case("index-missing", lambda held: held.manifest["human_unit_ids"].pop())
+    yield case("index-extra", lambda held: held.manifest["human_unit_ids"].append("u-extra"))
+    yield case("index-non-str", lambda held: held.manifest["human_unit_ids"].append(5))
+    yield case(
+        "index-tuple",
+        lambda held: held.manifest.update(human_unit_ids=tuple(held.manifest["human_unit_ids"])),
+    )
+    yield case("index-none", manifest(human_unit_ids=None))
+    yield case("machine-units", lambda held: held.manifest["machine_approved"].update(units=0))
+    yield case("machine-none", manifest(machine_approved=None))
+    yield case("machine-str", manifest(machine_approved="x"))
+    yield case("by-class-empty", lambda held: held.manifest["machine_approved"].update(by_class={}))
+    yield case("by-class-list", lambda held: held.manifest["machine_approved"].update(by_class=[["A", 1]]))
+    yield case(
+        "by-class-bool",
+        lambda held: held.manifest["machine_approved"].update(by_class={"A": True, "B": True}),
+    )
+    for size in (0, True, None, 3, "2", -1):
+        yield case(f"batch-size:{size!r}", setting(batch_size=size))
+    yield case("class-batches", meta("A", batches=[7]))
+    yield case("class-batches-tuple", meta("C", batches=(1,)))
+    yield case("classes-reversed", lambda held: held.manifest["classes"].reverse())
+    yield case("classes-none", manifest(classes=None))
+    yield case(
+        "classes-repeated", lambda held: held.manifest["classes"].append(copy.deepcopy(held.meta("A")))
+    )
+    yield case("classes-str", manifest(classes="A"))
+    yield case("classes-int", manifest(classes=5))
+    yield case("classes-int-index-none", manifest(classes=5, human_unit_ids=None))
+    yield case("group-unranked", unit("u-c1", group="qsNope:qsBay"))
+    yield case("codepoints-bad", unit("u-c1", codepoints="ZZ"))
+    yield case("codepoints-forms", unit("u-c1", codepoints=" 0x0e6_51 "), unit("u-a4", codepoints="e652"))
+    yield case("codepoints-negative", unit("u-c1", codepoints="-1"))
+    yield case("unit-not-dict", replaced("u-c1", []))
+    yield case("unit-not-dict-uncached", replaced("u-c1", [], cached=False))
+    yield case("uncached", uncached("u-a1", "u-a2", "u-b1"))
+    yield case("uncached-junction-int", uncached("u-c1"), unit("u-c1", secondary_junctions=5))
+    for value in (None, 5, ("u-c1",), ["u-c1"]):
+        yield case(f"id:{value!r}", unit("u-c1", id=value))
+
+
+def _corpus_check_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `corpus-check` stage's generated lines: each finish the build made, again over its chunks' facts with its manifest mutated (`_manifest_mutations`), under `generated:finish:`; and each case of `_check_cases`, run through the write's checkers over its own settings and chunks, under `generated:case:`, each valued as the build's lines are or `{"raised": name}`."""
+    for number, (settings, keys, held) in enumerate(_CHECK_FINISHED, 1):
+        if not isinstance(held, dict):
+            continue
+        for name, mutated in _manifest_mutations(held):
+            value = _check_outcome(
+                lambda mutated=mutated: _check_folded(
+                    _write_checker(settings), (copy.deepcopy(_CHECK_CHUNKS[key]) for key in keys), mutated
+                )
+            )
+            yield {
+                "key": f"generated:finish:{number}:{name}",
+                "chunks": keys,
+                "manifest": mutated,
+                "value": value,
+            }
+    outcome = _check_case_value(_check_base())
+    if not isinstance(outcome, dict) or outcome.get("errors") != []:
+        raise ValueError(f"the corpus-check stage's base case does not pass the check: {outcome!r:.400}")
+    for name, held in _check_cases():
+        yield {
+            "key": f"generated:case:{name}",
+            "settings": held.settings,
+            "chunks": held.chunks,
+            "manifest": held.manifest,
+            "value": _check_case_value(held),
+        }
+
+
+def _check_case_value(held: _CheckCase) -> object:
+    """Run one generated case as the write runs its checkers: one run checker fed each chunk in order, each chunk's facts handed over and folded into a fresh checker, finished over the case's manifest."""
+    copied = copy.deepcopy(held)
+
+    def check() -> object:
+        run = _write_checker(copied.settings, copied.settings["identity_for"])
+        taken = []
+        for chunk in copied.chunks:
+            if chunk["meta"] is not None:
+                run.class_start(chunk["meta"])
+            for unit, cached in chunk["units"]:
+                run.unit(unit, cached=cached)
+            if chunk["end"]:
+                run.class_end()
+            taken.append(run.take_facts())
+        return _check_folded(_write_checker(copied.settings), taken, copied.manifest)
+
+    return _check_outcome(check)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -13480,6 +14121,19 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         CHECK_PATCHED_STAGE,
         {"build.check_unit": _patched_checked},
         _check_patched_generated,
+        run="build",
+    ),
+    CORPUS_CHECK_STAGE: Stage(
+        CORPUS_CHECK_STAGE,
+        {
+            "build._CorpusCheck.class_start": _check_class_start,
+            "build._CorpusCheck.unit": _check_fed,
+            "build._CorpusCheck.class_end": _check_class_end,
+            "build._CorpusCheck.take_facts": _check_take_facts,
+            "build._CorpusCheck.absorb": _check_absorb,
+            "build._CorpusCheck.finish": _check_finished,
+        },
+        _corpus_check_generated,
         run="build",
     ),
 }

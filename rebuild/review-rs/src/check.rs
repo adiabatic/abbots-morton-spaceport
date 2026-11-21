@@ -67,16 +67,16 @@ impl fmt::Display for CheckError {
 
 impl std::error::Error for CheckError {}
 
-type Result<T> = std::result::Result<T, CheckError>;
+pub(crate) type Result<T> = std::result::Result<T, CheckError>;
 
-fn raise<T>(kind: &'static str, message: impl Into<String>) -> Result<T> {
+pub(crate) fn raise<T>(kind: &'static str, message: impl Into<String>) -> Result<T> {
     Err(CheckError {
         raised: Some(kind),
         message: message.into(),
     })
 }
 
-fn engine<T>(message: impl Into<String>) -> Result<T> {
+pub(crate) fn engine<T>(message: impl Into<String>) -> Result<T> {
     Err(CheckError {
         raised: None,
         message: message.into(),
@@ -99,7 +99,7 @@ fn is_none(value: Option<&PyValue>) -> bool {
     matches!(value, None | Some(PyValue::None))
 }
 
-fn is_true(value: Option<&PyValue>) -> bool {
+pub(crate) fn is_true(value: Option<&PyValue>) -> bool {
     matches!(value, Some(PyValue::Bool(true)))
 }
 
@@ -134,7 +134,7 @@ fn nonempty_list(value: Option<&PyValue>) -> bool {
 }
 
 /// The value of an `int`, a bool counting as the int it is, or None for any other value.
-fn int_of(value: Option<&PyValue>) -> Option<i64> {
+pub(crate) fn int_of(value: Option<&PyValue>) -> Option<i64> {
     match value {
         Some(PyValue::Int(number)) => Some(*number),
         Some(PyValue::Bool(flag)) => Some(i64::from(*flag)),
@@ -154,7 +154,7 @@ fn str_is(value: Option<&PyValue>, text: &str) -> bool {
     matches!(value, Some(PyValue::Str(held)) if held == text)
 }
 
-fn truthy(value: &PyValue) -> bool {
+pub(crate) fn truthy(value: &PyValue) -> bool {
     match value {
         PyValue::None => false,
         PyValue::Bool(flag) => *flag,
@@ -179,7 +179,7 @@ fn length(value: &PyValue) -> Result<usize> {
 }
 
 /// What a `for` loop over `value` walks: a string's characters, the ints of bytes, a container's items or a dict's keys, raising TypeError for a value that is not iterable.
-fn members(value: &PyValue) -> Result<Vec<PyValue>> {
+pub(crate) fn members(value: &PyValue) -> Result<Vec<PyValue>> {
     match value {
         PyValue::Str(text) => Ok(text
             .chars()
@@ -195,7 +195,7 @@ fn members(value: &PyValue) -> Result<Vec<PyValue>> {
     }
 }
 
-fn hashable(value: &PyValue) -> bool {
+pub(crate) fn hashable(value: &PyValue) -> bool {
     match value {
         PyValue::None
         | PyValue::Bool(_)
@@ -259,7 +259,7 @@ fn compare(left: &PyValue, right: &PyValue) -> Result<Ordering> {
 }
 
 /// `sorted(items)`, raising where a comparison between two of the items raises.
-fn sorted(items: &[PyValue]) -> Result<Vec<&PyValue>> {
+pub(crate) fn sorted(items: &[PyValue]) -> Result<Vec<&PyValue>> {
     for (index, left) in items.iter().enumerate() {
         for right in &items[index + 1..] {
             compare(left, right)?;
@@ -271,7 +271,7 @@ fn sorted(items: &[PyValue]) -> Result<Vec<&PyValue>> {
 }
 
 /// `str(value)`, which is `repr` for every value the check names but a string.
-fn text_of(value: &PyValue) -> Result<String> {
+pub(crate) fn text_of(value: &PyValue) -> Result<String> {
     match value {
         PyValue::Str(text) => Ok(text.clone()),
         other => repr(other).or_else(|failure| engine(failure.0)),
@@ -1013,6 +1013,11 @@ impl PatchedCheck {
             })
             .collect::<Result<_>>()?;
         Ok(Self::new(machine_checks))
+    }
+
+    /// The machine checks, in `MACHINE_CHECKS` order.
+    pub fn machine_checks(&self) -> &[String] {
+        &self.machine_checks
     }
 
     /// `check_unit(fragment, "m1-audit", at=(PATCHED,))`: the errors in Python's order, or the raise Python meets first.
