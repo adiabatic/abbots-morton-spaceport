@@ -1990,11 +1990,11 @@ def _combinable_digest(rules):
     return tuple((rule["id"], json.dumps(rule["match"], sort_keys=True)) for rule in rules)
 
 
-def _candidate_counts(rules, unit):
-    """Return each rule's number of candidate positions in the window (`_candidates`), by id in rules-file order, or an empty dict when the unit lacks a before or after record. `Decider.evaluate` computes it once and uses it for both the name-only precheck and the memo entry's `relevant` rules."""
+def _candidate_positions(rules, unit):
+    """Return each rule's candidate positions in the window (`_candidates`), by id in rules-file order, or an empty dict when the unit lacks a before or after record. `Decider.evaluate` computes them once and uses them for the name-only precheck, the combined walk, the memo entry's `relevant` rules, and the single-rule pass's skip of the rules no matcher can reach."""
     if not unit.get("before") or not unit.get("after"):
         return {}
-    return {rule["id"]: len(_candidates(rule["match"], unit)) for rule in rules}
+    return {rule["id"]: _candidates(rule["match"], unit) for rule in rules}
 
 
 def _candidates(match, unit):
@@ -2374,10 +2374,10 @@ def _carried_past(event, follower_event):
     return event.follower_columns if follower_event.kind == "retarget" else event.advance
 
 
-def _combined_walk(rules, unit, context):
+def _combined_walk(rules, unit, context, positions=None):
     """Walk the window left to right under a running column displacement and return each counted rule's event positions, or None when the combinable rules cannot account for every rendered pixel together. The module docstring describes each event kind's placement and the cases in which two events share a letter; this function implements them.
 
-    The unit's ink-delta digest must be the same under every config, and the window is shaped under the first. Both shaped runs must match the index record letter for letter. Every candidate of every rule is tested against its event check (`_slide_event` and the others). A candidate that fails is not an event, and its ink is judged as span ink, so a rule that fails at a position does not stop the other rules from explaining the window. Two judged events at one position, or a retarget or created-join event whose follower position is also an event, return None unless they form one of the cases the module docstring lists. Every span between events must pass `_span_explained` under the displacement at its start.
+    The unit's ink-delta digest must be the same under every config, and the window is shaped under the first. Both shaped runs must match the index record letter for letter. Every candidate of every rule is tested against its event check (`_slide_event` and the others); a caller that already has the candidates (`_candidate_positions(rules, unit)`) passes them as `positions`. A candidate that fails is not an event, and its ink is judged as span ink, so a rule that fails at a position does not stop the other rules from explaining the window. Two judged events at one position, or a retarget or created-join event whose follower position is also an event, return None unless they form one of the cases the module docstring lists. Every span between events must pass `_span_explained` under the displacement at its start.
 
     There is no minimum event count here, so tests can compare a single-event walk with each single-shape matcher. `_combined_match` requires two events (`_event_count`).
     """
@@ -2420,9 +2420,11 @@ def _combined_walk(rules, unit, context):
     found: dict[int, list[Event]] = {}
     failed_entries: dict[int, list[dict]] = {}
     failed_redraws: dict[int, list[dict]] = {}
+    if positions is None:
+        positions = _candidate_positions(rules, unit)
     for rule in rules:
         match = rule["match"]
-        for index in _candidates(match, unit):
+        for index in positions[rule["id"]]:
             if _is_slide_match(match):
                 event = _slide_event(match, rule["id"], index, after_names, before_pieces, after_pieces)
             elif _is_gain_match(match):
@@ -2776,17 +2778,17 @@ def _event_count(rules, events):
     return sum(len(ats) for ats in events.values()) - sum(count - 1 for count in shared.values()) + composed
 
 
-def _combined_match(rules, unit, context, digest=None, counts=None):
-    """Return the combined match a fill may use: each counted rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk counts fewer than two events (`_event_count`). A single event belongs on that rule's own line, while one rule matched at two positions is a combined match. The walk is memoized per rules digest and unit id in `context.combined`. A caller that already has `digest` (`_combinable_digest(rules)`) or `counts` (`_candidate_counts(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
+def _combined_match(rules, unit, context, digest=None, positions=None):
+    """Return the combined match a fill may use: each counted rule's event positions, before any guard is read, or None. It returns None without shaping when the rules have fewer than two candidate positions in total, and None when the walk counts fewer than two events (`_event_count`). A single event belongs on that rule's own line, while one rule matched at two positions is a combined match. The walk is memoized per rules digest and unit id in `context.combined`. A caller that already has `digest` (`_combinable_digest(rules)`) or `positions` (`_candidate_positions(rules, unit)`) passes them, as `Decider.evaluate` does; otherwise they are computed here."""
     if not unit.get("before") or not unit.get("after"):
         return None
-    if counts is None:
-        counts = _candidate_counts(rules, unit)
-    if sum(counts.values()) < 2:
+    if positions is None:
+        positions = _candidate_positions(rules, unit)
+    if sum(len(at) for at in positions.values()) < 2:
         return None
     key = (_combinable_digest(rules) if digest is None else digest, unit["id"])
     if key not in context.combined:
-        context.combined[key] = _combined_walk(rules, unit, context)
+        context.combined[key] = _combined_walk(rules, unit, context, positions)
     events = context.combined[key]
     return events if events is not None and _event_count(rules, events) > 1 else None
 
@@ -3243,7 +3245,7 @@ def _combined_note(by_id, combined: CombinedMatch) -> str:
 
 
 class Decision(NamedTuple):
-    """Everything a run needs about one unit apart from the verdict store: the combined match when one explains the window, else the rules whose own matchers accept it and the rules whose except_left blocks it. A combined-match window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the combinable rules with a candidate position in this window (`_candidate_counts`), in rules-file order. Only these rules add a term to the name-only precheck or an event to `_combined_walk`, so a change to any other rule cannot change the combined part. It is empty when the combined match is off (`Decider.gate`)."""
+    """Everything a run needs about one unit apart from the verdict store: the combined match when one explains the window, else the rules whose own matchers accept it and the rules whose except_left blocks it. A combined-match window has no per-rule results, because the single-rule pass never sees it. `relevant` is not part of the verdict; it is part of the memo entry's key: the combinable rules with a candidate position in this window (`_candidate_positions`), in rules-file order. Only these rules add a term to the name-only precheck or an event to `_combined_walk`, so a change to any other rule cannot change the combined part. It is empty when the combined match is off (`Decider.gate`)."""
 
     combined: CombinedMatch | None
     matched: frozenset[str]
@@ -3661,14 +3663,15 @@ class Decider:
         return split_view(unit, self.splits)
 
     def evaluate(self, unit) -> Decision:
-        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard blocked the window. The candidate counts for the name-only precheck are computed once and also give the entry's `relevant` rules. Every matcher reads the unit's `view`."""
+        """Compute the decision. The combined match runs first, because it takes a window before any single rule is checked. For any other window each rule's own matcher runs, and a guarded rule that fails is run again unguarded to find whether its guard blocked the window. The candidate positions are computed once, for the name-only precheck, the combined walk and the entry's `relevant` rules. They also skip the matchers of every combinable rule with no candidate here, which `_reachable` says can neither accept nor block the window, apart from extension rules, which `_reachable` judges by the wider `_extension_positions`. Every matcher reads the unit's `view`."""
         unit = self.view(unit)
         combined = None
         relevant: tuple[str, ...] = ()
+        positions = {}
         if self.gate:
-            counts = _candidate_counts(self.combinable, unit)
-            relevant = tuple(rule_id for rule_id, count in counts.items() if count)
-            events = _combined_match(self.combinable, unit, self.context, self.combinable_digest, counts)
+            positions = _candidate_positions(self.combinable, unit)
+            relevant = tuple(rule_id for rule_id, at in positions.items() if at)
+            events = _combined_match(self.combinable, unit, self.context, self.combinable_digest, positions)
             if events is not None:
                 counted = tuple(rule["id"] for rule in self.rules if rule["id"] in events)
                 blocked = _combined_blocked(self.rules, unit, events, self.context)
@@ -3679,8 +3682,11 @@ class Decider:
         matched: list[str] = []
         blocked_by: list[str] = []
         if combined is None:
+            extension = SHAPES["extension-dropped"].keyed_by
             for rule in self.rules:
                 match = rule["match"]
+                if rule["id"] in positions and not positions[rule["id"]] and extension not in match["after"]:
+                    continue
                 if _matches(match, unit, context=self.context):
                     matched.append(rule["id"])
                 elif not _guard_is_inert(match) and _matches(match, unit, guard=False, context=self.context):
