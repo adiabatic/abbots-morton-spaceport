@@ -11,6 +11,7 @@ The build's stages (`BUILD_STAGES`):
 - `sample` records each `build._verification_sample` call (`_verification_sampled`), keyed by its origin, its `form` and a digest of its `input`, as the form `verification` with the `(cached, seed, size)` it draws from and, as its `value`, the id words it draws. Its generated lines (`_sample_generated`) draw from `random.Random` itself, seeded with strings whose key words `Random.seed` cuts differently (`SAMPLE_SEEDS`): `sample` over every `k` from -1 to one past the population, `("refused",)` where it raises, for populations on both sides of each `setsize` step (`_setsize`) and three populations around each step's edge; `getrandbits` at every width to 64; `randbelow` (`_randbelow_with_getrandbits`) at bounds around each word edge (`SAMPLE_BOUNDS`); and `verification` over populations around `VERIFICATION_SAMPLE` and its `setsize`.
 - `row-delta-read` records each `row_delta.read_head`, `open_parts` and `check_segment_header` call the build makes, each read again by the recorder before the call runs, so a refusal is recorded too, keyed by its origin, its `form` and a digest of its `input`: `read-head` with the output and what its head's path holds and, as its `value`, `("none",)`, `("head", document)` (`Head.document`) or `("refused", message)`; `check-segment-header` with the header line, output, generation, number and merge and `("checked",)` or a refusal; and `open-parts` with the head's document, `sha256` and what each part's path holds, and `("opened",)` or a refusal, followed, for a head that opens and merges by place or is the units index's, by a `part-rows` line a part, its kind (`base`, `place` or `key`), output, generation, number and file, and a `merge` line over all of them, by key with each payload's key as `unit_index.index_key` gave it to the merge (`_merge_outcome`), each valued `("rows", count, sha256)` over its rows' typed encodings (`_rows_outcome`) or `("raised", class, message)`. A refusal's text leaves out what `json.loads` raised (`_JSON_DETAIL`). Every part's bytes are kept once under their sha256 in `row-delta-read.blobs/` beside the stage file (`ROW_DELTA_BLOBS`). Its generated lines (`_row_delta_generated`) put heads to every refusal of `parse_head` and `Part.parse` and every value `int` and `str` take leniently (`_head_cases`), header lines to every refusal of `check_segment_header` (`_segment_header_cases`), heads to missing, resized and rehashed parts (`_open_parts_cases`), bases, segments by place and by key to every row, header and gzip refusal (`_part_rows_cases`), merges by place and by key to superseded, revived and out-of-order rows (`_merge_cases`), and parts held as gzip members to every refusal of `row_delta._Inflating`, read as an `inflating` line a buffer of `INFLATE_READ_BYTES` at a time (`_inflating_cases`, `_inflated`).
 - `row-delta-write` records each call the build makes to `row_delta`'s writers and the rules that route them, keyed by its origin, its `form` and a digest of its `input`, with what Python gave as its `value`: `places-between` with the bounds and the count and the places or what it raised; `row-line`, `row-length` and `segment-header` with the row or the header's fields and the line, its length or the header line; `write-part` with the part's name, gzip name, what its target held (`("missing",)` or `("file", sha256)`), its plain bytes, read back from the part it wrote, the cuts its `fill` wrote them in and the rows `fill` returned, `write-segment` with its output, generation, number, what its target held and its rows, read back from the segment it wrote, and `streamed-part`, a gzipped `row_delta.StreamedPart`'s `close`, with its name, header, what its target held and the bytes written past its header, each valued its part's document or what it raised, with what its target and its staging file hold after; `commit` with the head's document, the directory's entries by kind (`_entries`) and what the head's path held, valued the names it removed, the head file and whether the file was kept (its inode and modification time unchanged); `remove-unlisted` and `remove-staging` with their arguments and the directory's entries, valued the names removed; `writes-base`, `fold-due` and `fold-forced` with their arguments, valued the decision; `claim-fold` with the output, the cycle's run, what the claim file in the cycle's directory held and the output this process held its claim for there, valued the claim, the claim file and the holder after; and `with-segment` with the head's and the part's documents and the stamps, valued the head's document. Every file's bytes are kept once under their sha256 in `row-delta-write.blobs/` beside the stage file (`ROW_DELTA_WRITE_BLOBS`). Its generated lines (`_row_delta_write_generated`) cut places at the edges, around each power of 36, past 128 bits and from fractions `int(text, 36)` reads leniently or refuses (`_places_cases`), write parts under every kind of gzip name, past the gzip writer's buffer and with a failing `fill` (`_write_part_cases`), segments with rows out of place order (`_write_segment_cases`) and streamed parts closed and abandoned (`_streamed_cases`), commit heads over directories of listed, unlisted, near-miss, staging, linked and Unicode-digit names (`_part_entries`), decide the fold over segment counts around the cap and the overrun (`_fold_cases`), and claim the fold with no run, this run's claim and another run's (`_claim_cases`, `_claim_state`).
+- `audit-layout` is a boundary stage that records the build's `audit.audit_layout` call (`_layout_found`, hooked where `build` imports it) under `layout`: what it finds, an `audit.AuditLayout` of the sections, the reason or none and the byte the base's rows start at, which the Rust side finds again over the audit its build input names, read through the descriptors it inherits. Its generated lines (`_audit_layout_generated`) are keyed by a digest of their input, the path messages name and each part's blob with its member index, and valued what `audit_layout` finds or `("raised", class, message)` for its `ValueError` and `MemberError`; every part's bytes are kept once under their sha256 in `audit-layout.blobs/` beside the stage file (`AUDIT_LAYOUT_BLOBS`). They cover single files (`_layout_plain_cases`: no header, headers that end in a carriage return, are not UTF-8 or are another, sections in order and out of it, a stray row at each place in a section, rows past several line probes, configurations that are not UTF-8) and audits under a head (`_layout_head_cases`: the mini audit as `oracle.AuditWriter` writes it, a plain base with segments held as gzip members, plain segments, a folded base, then segments and header members made by hand that fail each check).
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -59,6 +60,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import argparse
+import collections
 import contextlib
 import copy
 import dataclasses
@@ -101,6 +103,7 @@ from rebuild.pipeline.model import feature_config_token
 from rebuild.review import (
     app_index,
     audit,
+    audit_stream,
     build,
     corpus_exec,
     drafts,
@@ -3714,6 +3717,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
             "with_segment",
         )
     },
+    "build.audit_layout": ("rebuild.review.build", "audit_layout"),
 }
 
 
@@ -6606,6 +6610,251 @@ def _row_delta_write_generated(source: BuildSource) -> Iterator[Mapping[str, obj
                 yield _row_delta_line("generated", "with-segment", inputs, ("head", result.document()))
 
 
+AUDIT_LAYOUT_STAGE = "audit-layout"
+# The `audit-layout` stage's directory, beside its stage file, of the audit parts its generated lines name by sha256.
+AUDIT_LAYOUT_BLOBS = "audit-layout.blobs"
+# The key of the `audit-layout` line that records the build's own call.
+LAYOUT_KEY = "layout"
+# The path a generated audit's messages name.
+LAYOUT_AUDIT_PATH = Path("out") / "m1" / oracle.AUDIT_NAME
+# A generated row's last field this long crosses several of `audit_stream.PROBE_BYTES`' reads.
+LAYOUT_LONG_FIELD = 3 * audit_stream.PROBE_BYTES + 17
+# Configuration fields that are not UTF-8, each read with its invalid bytes replaced (`audit_stream._field`): a lone byte, overlong and surrogate forms, a cut sequence, one past U+10FFFF, a stray continuation, and a cut sequence inside a name.
+LAYOUT_NOT_UTF8 = (
+    b"\xff",
+    b"\xf0\x80\x80",
+    b"\xed\xa0\x80",
+    b"\xe2\x82",
+    b"\xc0\xaf",
+    b"\xf4\x90\x80\x80",
+    b"\x80\x80",
+    b"def\xe2\x82ault",
+    b"\xf0\x9f\x98",
+)
+
+
+def _layout_found(_args: tuple, _kwargs: dict) -> Finisher:
+    """The build's `audit_layout` call over the audit it holds, recorded as the `audit-layout` boundary: what it finds (`audit.AuditLayout`) under `LAYOUT_KEY`."""
+    return lambda result: Boundary(0, {}, [{"key": LAYOUT_KEY, "value": result}])
+
+
+def _layout_line(blobs: Path, parts: Sequence[tuple[bytes, Sequence[row_delta.Member] | None]]) -> dict:
+    """One generated `audit-layout` line: the audit's parts, each kept in `blobs` and read through a descriptor opened there, base first, with its member index or None, and what `audit.audit_layout` finds over them, every part plain when none has an index, or what it raises, `("raised", class, message)`. Its input is the path its messages name and each part's blob with its index as `(section, length, inflated)` tuples."""
+    held = [(_blob_into(blobs, data), None if index is None else tuple(index)) for data, index in parts]
+    indexes = tuple(index for _digest, index in held)
+    descriptors = [os.open(blobs / digest, os.O_RDONLY) for digest, _index in held]
+    try:
+        value: object = audit.audit_layout(
+            descriptors, LAYOUT_AUDIT_PATH, None if all(index is None for index in indexes) else indexes
+        )
+    except (ValueError, audit_stream.MemberError) as error:
+        value = ("raised", type(error).__name__, str(error))
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+    inputs = (
+        str(LAYOUT_AUDIT_PATH),
+        tuple(
+            (digest, None if index is None else tuple(tuple(member) for member in index))
+            for digest, index in held
+        ),
+    )
+    digest = hashlib.sha1(compact(encode(inputs)).encode("ascii")).hexdigest()[:20]
+    return {"key": f"generated:{digest}", "input": inputs, "value": value}
+
+
+def _layout_rows(config: bytes, count: int, width: int = 3, shift: bytes = b"") -> bytes:
+    """`count` rows of `config` in window order, each ending in a field of `width` bytes, each led by `shift` (a segment's `+\\t`)."""
+    return b"".join(
+        shift + config + f"\t{0xE650 + index:04X}\tcell\tentry\tbase\t".encode() + b"x" * width + b"\n"
+        for index in range(count)
+    )
+
+
+def _layout_plain_cases() -> Iterator[bytes]:
+    """The generated single-file audits: none, a header alone with and without its newline, headers that end in a carriage return, are not UTF-8 or are another header, sections in rank order and out of it, a section with another configuration's row at each place in it, rows past several line probes, a last row without its newline, blank and tabless lines, configurations that are not UTF-8 or hold a carriage return, and the mini audit."""
+    header = ("\t".join(audit.AUDIT_HEADER) + "\n").encode()
+    configs = [config.encode() for config in ACCEPTANCE_CONFIGS]
+    default, ss03, ss04 = configs[0], configs[1], configs[2]
+    yield b""
+    yield header
+    yield header[:-1]
+    yield header[:-1] + b"\r\n" + _layout_rows(default, 2)
+    yield header[:-1] + b"\r"
+    yield header.replace(b"kinds", b"kin\xffds") + _layout_rows(default, 2)
+    yield header.replace(b"kinds", b"kin\xe2\x82ds")
+    yield b"\n" + _layout_rows(default, 2)
+    yield header.replace(b"\tnew", b"\tnew\tmore")
+    yield header.replace(b"\tnew", b"")
+    yield header.replace(b"kinds", "k\u00efnds\x01\x7f'\"\\\u2028".encode())
+    yield header[:-1] + b"\t" + b"y" * (2 * audit_stream.PROBE_BYTES) + b"\n"
+    yield "\ufeff".encode() + header
+    yield header + b"".join(_layout_rows(config, count) for config, count in zip(configs, (5, 1, 9, 3, 2, 4)))
+    yield header + _layout_rows(default, 3) + _layout_rows(b"ss08", 2)
+    yield header + _layout_rows(b"ss08", 2) + _layout_rows(b"zz", 2)
+    yield header + _layout_rows(ss03, 3) + _layout_rows(default, 3)
+    yield header + _layout_rows(ss04, 2) + _layout_rows(ss03, 2) + _layout_rows(configs[3], 1)
+    for stray in range(12):
+        rows = [_layout_rows(default, 1)] * 12
+        rows[stray] = _layout_rows(ss03, 1)
+        yield header + b"".join(rows) + _layout_rows(ss04, 3)
+        rows[stray] = _layout_rows(ss04, 1)
+        yield header + b"".join(rows) + _layout_rows(ss03, 1)
+    yield (
+        header
+        + _layout_rows(default, 3)
+        + _layout_rows(ss03, 3)
+        + _layout_rows(default, 1)
+        + _layout_rows(ss03, 3)
+        + _layout_rows(ss04, 2)
+    )
+    yield (
+        header
+        + _layout_rows(default, 7, LAYOUT_LONG_FIELD)
+        + _layout_rows(ss03, 1, LAYOUT_LONG_FIELD)
+        + _layout_rows(configs[3], 30)
+        + _layout_rows(configs[5], 3, LAYOUT_LONG_FIELD)
+    )
+    yield header + _layout_rows(default, 3) + _layout_rows(ss03, 2)[:-1]
+    yield header + _layout_rows(default, 2) + _layout_rows(ss03, 1, LAYOUT_LONG_FIELD)[:-1]
+    yield header + b"\n\n" + _layout_rows(default, 2)
+    yield header + _layout_rows(default, 2) + b"\n"
+    yield header + _layout_rows(default, 2) + b"default\n" + _layout_rows(ss03, 1)
+    yield header + _layout_rows(default, 2) + b"ss03"
+    yield header + _layout_rows(default, 2) + b"\t\t\n"
+    for config in LAYOUT_NOT_UTF8:
+        yield header + _layout_rows(default, 2) + _layout_rows(config, 2)
+        yield header + _layout_rows(config, 2) + _layout_rows(default, 1)
+    yield header + _layout_rows(b"default\r", 2)
+    yield header + _layout_rows(default, 2) + _layout_rows(b"default\r", 1)
+    yield (MINI / "audit.tsv").read_bytes()
+
+
+def _layout_member(data: bytes) -> bytes:
+    return gzip.compress(data, compresslevel=1, mtime=0)
+
+
+def _layout_members(sections: Sequence[tuple[str, bytes]]) -> tuple[bytes, list[row_delta.Member]]:
+    """A part held as gzip members, a section a member at level 1 with mtime 0, as `row_delta.MemberPart` writes one, and its member index."""
+    members = [_layout_member(data) for _section, data in sections]
+    index = [
+        row_delta.Member(section, len(member), len(data))
+        for (section, data), member in zip(sections, members)
+    ]
+    return b"".join(members), index
+
+
+def _written_audit(
+    directory: Path, passes: Sequence[Sequence[str]], capped: int = 0
+) -> list[tuple[bytes, Sequence[row_delta.Member] | None]]:
+    """The parts of an audit `oracle.AuditWriter` writes into `directory` over `passes`, each pass's rows in the audit's order, the first `capped` of them at a segment cap of one, so each folds what the last wrote: each part's bytes, base first, with its member index or None."""
+    directory.mkdir(parents=True)
+    held_cap = row_delta.AUDIT_SEGMENT_CAP
+    try:
+        for at, lines in enumerate(passes):
+            row_delta.AUDIT_SEGMENT_CAP = 1 if at < capped else held_cap
+            with oracle.AuditWriter(directory) as writer:
+                writer.feed(("\n".join(lines) + "\n").encode("utf-8"))
+    finally:
+        row_delta.AUDIT_SEGMENT_CAP = held_cap
+    head = row_delta.read_head(directory, oracle.AUDIT_NAME)
+    assert head is not None, f"{directory} holds no audit head"
+    return [((directory / part.name).read_bytes(), part.members) for part in head.parts]
+
+
+def _plain_segments(
+    parts: Sequence[tuple[bytes, Sequence[row_delta.Member] | None]],
+) -> list[tuple[bytes, Sequence[row_delta.Member] | None]]:
+    """`parts` with every segment held as gzip members rewritten as the plain lines its members inflate to, as #618's change 31 wrote every segment."""
+    return [
+        (gzip.decompress(data) if number and index is not None else data, None if number else index)
+        for number, (data, index) in enumerate(parts)
+    ]
+
+
+def _layout_head_cases(scratch: Path) -> Iterator[list[tuple[bytes, Sequence[row_delta.Member] | None]]]:
+    """The generated audits under a head, from the mini audit: as `oracle.AuditWriter` writes it over passes that drop rows and change others, a plain base with one and two segments held as gzip members, those segments plain, a folded base held as members with segments, and a lone folded base; then parts made by hand, a segment's members out of rank order or of one rank, a segment of its header alone, plain segments of upserts and tombstones in order, out of it and empty, and bases held as members whose header member fails each of `audit_stream._MemberReader`'s checks or holds another header."""
+    header, *rows = (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()
+    counts = collections.Counter(row.split("\t", 1)[0] for row in rows)
+    sparse = min(counts, key=lambda config: (counts[config], config))
+    first = [
+        "\t".join((*fields[:2], fields[2] + ",first", *fields[3:])) if index % 5 == 1 else row
+        for index, row in enumerate(rows)
+        for fields in [row.split("\t")]
+        if index % 7 != 3 and fields[0] != sparse
+    ]
+    middle = [
+        "\t".join((*fields[:2], fields[2] + ",middle", *fields[3:])) if index % 11 == 5 else row
+        for index, row in enumerate(rows)
+        for fields in [row.split("\t")]
+    ]
+    one = _written_audit(scratch / "one", [first, rows])
+    yield one
+    two = _written_audit(scratch / "two", [first, middle, rows])
+    yield two
+    yield _plain_segments(one)
+    yield _plain_segments(two)
+    yield [two[0], _plain_segments(two)[1], two[2]]
+    yield _written_audit(scratch / "folded", [first, middle, first, middle, rows], capped=3)
+    yield _written_audit(scratch / "lone", [rows[:-1], rows[1:], rows], capped=3)
+    base = (header + "\n" + "\n".join(rows) + "\n").encode("utf-8")
+    segment_header = row_delta.segment_header(oracle.AUDIT_NAME, 0, 1, row_delta.MERGE_PLAIN_KEY)
+    lines = _layout_rows(b"ss03", 2, shift=b"+\t")
+    for sections in (
+        [("", segment_header), ("ss03", lines), ("default", _layout_rows(b"default", 1, shift=b"+\t"))],
+        [("", segment_header), ("ss08", _layout_rows(b"ss08", 1, shift=b"+\t")), ("zz", b"+\tzz\n")],
+        [("", segment_header)],
+        [("", segment_header), ("default", b"-\tdefault\tE650\n"), ("ss03", lines), ("ss10", b"")],
+    ):
+        data, index = _layout_members(sections)
+        yield [(base, None), (data, index)]
+        yield [(base, None), (data, index), (data, index)]
+    for plain in (
+        segment_header + _layout_rows(b"default", 2, shift=b"+\t") + b"-\tss03\tE650\n" + lines,
+        segment_header + lines + _layout_rows(b"default", 2, shift=b"+\t"),
+        segment_header + _layout_rows(b"default", 2, shift=b"+\t") + lines + b"-\tdefault\tE659\n",
+        segment_header,
+        segment_header[:-1],
+        b"",
+        b"+\tdefault\tE650\n" + lines,
+    ):
+        yield [(base, None), (plain, None)]
+    header_line = (header + "\n").encode("utf-8")
+    body = "\n".join(rows[:40]).encode("utf-8") + b"\n"
+    data, index = _layout_members([("", header_line), ("default", body)])
+    header_length, header_inflated = (index[0].length, index[0].inflated)
+    rest = data[header_length:]
+    yield [(data, index)]
+    yield [(data, index), (segment_header + lines, None)]
+    for recorded in (
+        (header_length, header_inflated + 1),
+        (header_length, header_inflated - 1),
+        (header_length - 3, header_inflated),
+        (header_length + 3, header_inflated),
+    ):
+        yield [(data, [row_delta.Member("", *recorded), *index[1:]])]
+    yield [(data[: header_length - 5], index)]
+    yield [(_flipped(data, header_length - 6), index)]
+    yield [(_flipped(data, 12), index)]
+    yield [(b"\xff" * header_length + rest, index)]
+    for other in (header_line + header_line, header_line[:-1] + b"\r\n", b"kin\xffds\n", b""):
+        member = _layout_member(other)
+        yield [(member + rest, [row_delta.Member("", len(member), len(other)), *index[1:]])]
+
+
+def _audit_layout_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `audit-layout` stage's generated lines (the module docstring), each found by `audit.audit_layout` over parts kept in the stage's blob directory, the head forms written in a scratch directory under the dump with the journal and the cycle directory redirected there (`_as_build_child`)."""
+    blobs = source.out / AUDIT_LAYOUT_BLOBS
+    for data in _layout_plain_cases():
+        yield _layout_line(blobs, [(data, None)])
+    with tempfile.TemporaryDirectory(prefix="audit-layout-", dir=source.out) as held:
+        scratch = Path(held)
+        with _as_build_child(scratch / "writer"):
+            cases = list(_layout_head_cases(scratch / "audits"))
+        for parts in cases:
+            yield _layout_line(blobs, parts)
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -6673,6 +6922,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         },
         _row_delta_write_generated,
         run="build",
+    ),
+    AUDIT_LAYOUT_STAGE: Stage(
+        AUDIT_LAYOUT_STAGE,
+        {"build.audit_layout": _layout_found},
+        _audit_layout_generated,
+        run="build",
+        kind="boundary",
     ),
 }
 
@@ -6869,6 +7125,8 @@ def build_dump(source: BuildSource, stages: Sequence[Stage[BuildSource]]) -> Non
         shutil.rmtree(out / ROW_DELTA_BLOBS, ignore_errors=True)
     if any(stage.name == ROW_DELTA_WRITE_STAGE for stage in stages):
         shutil.rmtree(out / ROW_DELTA_WRITE_BLOBS, ignore_errors=True)
+    if any(stage.name == AUDIT_LAYOUT_STAGE for stage in stages):
+        shutil.rmtree(out / AUDIT_LAYOUT_BLOBS, ignore_errors=True)
     scratch = out / DUMP_SCRATCH
     shutil.rmtree(scratch, ignore_errors=True)
     try:
