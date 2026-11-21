@@ -2873,3 +2873,123 @@ E67D 200C E653           # ZWNJ severs ·Foot's exit into ·Day
 200C E67D E65D           # the locked ·Foot's x-height exit into ·J’ai, whose entry contracts by one
 00B7 E67D                # namer dot before ·Foot
 00B7 E67D E653           # namer dot, then ·Foot joins ·Day as at a word start
+
+# ·Exam
+E66C                     # ·Exam in isolation
+E650 E66C                # ·Pea before ·Exam (break)
+E66C E650                # ·Exam before ·Pea (break)
+E651 E66C                # ·Bay's baseline exit into ·Exam
+E66C E651                # ·Exam before ·Bay (break)
+E652 E66C                # ·Tea before ·Exam (break)
+E66C E652                # ·Exam before ·Tea (break)
+E653 E66C                # ·Day's baseline exit into ·Exam
+E66C E653                # ·Exam before ·Day (break)
+E654 E66C                # ·Key's baseline exit into ·Exam
+E66C E654                # ·Exam before ·Key (break)
+E655 E66C                # ·Gay's baseline exit, extended by one, into ·Exam
+E66C E655                # ·Exam before ·Gay (break)
+E656 E66C                # ·Thaw before ·Exam (break)
+E66C E656                # ·Exam before ·Thaw (break)
+E657 E66C                # ·They before ·Exam (break)
+E66C E657                # ·Exam before ·They (break)
+E658 E66C                # ·Fee before ·Exam (break)
+E66C E658                # ·Exam before ·Fee (break)
+E659 E66C                # ·Vie before ·Exam (break)
+E66C E659                # ·Exam before ·Vie (break)
+E65A E66C                # ·See before ·Exam (break)
+E66C E65A                # ·Exam before ·See (break)
+E65B E66C                # ·Zoo's baseline exit into ·Exam
+E66C E65B                # ·Exam before ·Zoo (break)
+E65C E66C                # ·She's flattened baseline exit into ·Exam
+E66C E65C                # ·Exam before ·She (break)
+E65D E66C                # ·J’ai's baseline exit, extended by one, into ·Exam
+E66C E65D                # ·Exam before ·J’ai (break)
+E65E E66C                # ·Cheer's baseline exit into ·Exam
+E66C E65E                # ·Exam before ·Cheer (break)
+E65F E66C                # ·Jay's baseline exit, extended by one, into ·Exam
+E66C E65F                # ·Exam before ·Jay (break)
+E660 E66C                # ·Ye before ·Exam (break)
+E66C E660                # ·Exam before ·Ye (break)
+E661 E66C                # half-·Way's baseline exit into ·Exam
+E66C E661                # ·Exam before ·Way (break)
+E662 E66C                # ·He's baseline exit, extended by one, into ·Exam
+E66C E662                # ·Exam before ·He (break)
+E663 E66C                # ·Why before ·Exam (break)
+E66C E663                # ·Exam before ·Why (break)
+E664 E66C                # ·-ing's baseline exit into ·Exam
+E66C E664                # ·Exam before ·-ing (break)
+E665 E66C                # the grounded ·May's baseline exit into ·Exam
+E66C E665                # ·Exam before ·May (break)
+E666 E66C                # the flipped ·No's baseline exit into ·Exam
+E66C E666                # ·Exam before ·No (break)
+E667 E66C                # ·Low before ·Exam (break)
+E66C E667                # ·Exam before ·Low (break)
+E668 E66C                # ·Roe before ·Exam (break)
+E66C E668                # ·Exam before ·Roe (break)
+E669 E66C                # ·Loch before ·Exam (break)
+E66C E669                # ·Exam before ·Loch (break)
+E66A E66C                # ·Llan's baseline exit into ·Exam
+E66C E66A                # ·Exam before ·Llan (break)
+E66B E66C                # ·Excite's splayed right foot joins ·Exam at the baseline
+E66C E66B                # ·Exam before ·Excite (break)
+E670 E66C                # ·It before ·Exam (break)
+E66C E670                # ·Exam before ·It (break)
+E671 E66C                # ·Eat before ·Exam (break)
+E66C E671                # ·Exam before ·Eat (break)
+E672 E66C                # ·Et's baseline exit into ·Exam
+E66C E672                # ·Exam before ·Et (break)
+E673 E66C                # ·Eight's baseline exit, extended by one, into ·Exam
+E66C E673                # ·Exam before ·Eight (break)
+E674 E66C                # ·At before ·Exam (break)
+E66C E674                # ·Exam before ·At (break)
+E675 E66C                # ·I before ·Exam (break)
+E66C E675                # ·Exam before ·I (break)
+E676 E66C                # ·Ah before ·Exam (break)
+E66C E676                # ·Exam before ·Ah (break)
+E677 E66C                # ·Awe's baseline exit into ·Exam
+E66C E677                # ·Exam before ·Awe (break)
+E678 E66C                # ·Ox's baseline exit into ·Exam
+E66C E678                # ·Exam before ·Ox (break)
+E679 E66C                # ·Oy's baseline exit into ·Exam
+E66C E679                # ·Exam before ·Oy (break)
+E67A E66C                # the alternate ·Utter's baseline exit into ·Exam
+E66C E67A                # ·Exam before ·Utter (break)
+E67B E66C                # ·Out before ·Exam (break)
+E66C E67B                # ·Exam before ·Out (break)
+E67D E66C                # ·Foot before ·Exam (break)
+E66C E67D                # ·Exam before ·Foot (break)
+E67E E66C                # ·Ooze's baseline exit into ·Exam
+E66C E67E                # ·Exam before ·Ooze (break)
+E66C E66C                # ·Exam before a second ·Exam (break)
+E66B E66B E66C           # ·Excite ~b~ ·Excite ~b~ ·Exam: the middle ·Excite splays both feet
+E652 E679 E66C           # ·Tea+Oy's baseline exit into ·Exam
+E657 E65B E66C           # ·They+Zoo before ·Exam (break)
+E67B E652 E66C           # ·Out+Tea before ·Exam (break)
+E653 E671 E66C           # ·Day+Eat before ·Exam (break)
+E65A E671 E66C           # ·See+Eat before ·Exam (break)
+E653 E67A E66C           # ·Day | ·Utter ~b~ ·Exam: no ·Day+Utter before ·Exam
+E65D E67A E66C           # ·J’ai | ·Utter ~b~ ·Exam: no ·J’ai+Utter before ·Exam
+E66C E653 E67A           # ·Exam before ·Day+Utter (break)
+E66C E652 E679           # ·Exam before ·Tea+Oy (break)
+E66C E657 E65B           # ·Exam before ·They+Zoo (break)
+E66C E67B E652           # ·Exam before ·Out+Tea (break)
+E651 E655 E66C           # ·Bay | ·Gay ~b~ ·Exam: ·Gay takes its extended exit
+E67A E655 E66C           # ·Utter ~x~ ·Gay ~b~ ·Exam: the entered ·Gay's exit extends by one too
+E675 E657 E66C           # ·I ~x~ ·They | ·Exam: the entered ·They still breaks before ·Exam
+E676 E657 E66C           # ·Ah ~x~ ·They | ·Exam
+E658 E652 E66C           # ·Fee before ·Tea, which never joins ·Exam at the baseline
+E672 E652 E66C           # ·Et ~b~ ·Tea | ·Exam, under ss05 too
+E653 E670 E66C           # ·Day ~b~ ·It | ·Exam, under ss04 too
+E651 E670 E66C           # ·Bay ~b~ ·It | ·Exam
+E650 E665 E66C           # ·Pea ~b~ ·May | ·Exam
+E650 E666 E66C           # ·Pea ~b~ ·No ~b~ ·Exam, as before ·Excite
+E657 E65B E660 E66C      # ·They+Zoo ~b~ ·Ye | ·Exam
+E67A E652 E653 E66C      # ·Utter·Tea·Day·Exam: ·Tea keeps ·Day, and ·Day joins ·Exam
+E66C E67A E652 E653      # ·Exam | ·Utter, and ·Tea keeps ·Day
+E652 E653 E66C           # ·Tea ~b~ half-·Day ~b~ ·Exam
+200C E66C                # ZWNJ before ·Exam (the locked copy)
+E66C 200C E66C           # ZWNJ between two ·Exam
+E651 200C E66C           # ZWNJ severs ·Bay's exit into ·Exam
+0020 E66B E66C           # word-initial ·Excite joins ·Exam, as at a text edge
+00B7 E66C                # namer dot before ·Exam
+00B7 E66B E66C           # namer dot, then ·Excite joins ·Exam as at a word start

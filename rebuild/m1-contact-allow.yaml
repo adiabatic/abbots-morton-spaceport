@@ -2924,3 +2924,7 @@
 - signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5.ex-y0:y4
 - signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5:y3
 - signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5:y4
+
+# ·Exam's left column carries ink at y4 and y5 above its baseline entry, so the grounded ·May, whose x-height stroke ends in the rightmost column of its top row, touches ·Exam's top-left corner at y5 when the two join at the baseline. The old font joins this pair at the baseline (baseline rows E665:E66C and 200C:E665:E66C, junction y0) with the same bitmap and anchors (`qsMay.ex-y0` exits at x=4 and ·Exam enters at x=0), so the composite is pixel-identical to the rebuild's. There is one signature per ·May variant; the lock does not move the off-junction contact.
+- signature: contact:qsMay.grounded-loop.ex-y0.locked:qsExam.sole.en-y0:y5
+- signature: contact:qsMay.grounded-loop.ex-y0:qsExam.sole.en-y0:y5

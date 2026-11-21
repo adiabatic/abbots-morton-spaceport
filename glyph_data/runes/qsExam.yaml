@@ -1,0 +1,77 @@
+rune: qsExam
+codepoint: 0xE66C
+ductus:
+  sole: |  # DRAFT — pending author sign-off
+    Begun at the bottom left on the baseline, where a previous letter may connect, the first stroke rises up and to the right through the crossing point and straight up the right side to the x-height. The pen lifts, and the second stroke begins at the top left at the x-height, falls straight down, angles down and to the right through the crossing point to the baseline, then drops straight down the right side to the bottom of the descender.
+mono:
+  bitmap:
+  - "#   #"  #
+  - "#   #"
+  - " # # "
+  - "  #  "
+  - " # # "
+  - "#  # "  #
+  - "    #"
+  - "    #"
+  - "    #"
+  y_offset: -3
+stances:
+  sole:
+    motion: sole
+    traits: []
+    bitmap:
+    - "#   #"  #
+    - "#   #"
+    - " # # "
+    - "  #  "
+    - " # # "
+    - "#  # "  #
+    - "    #"
+    - "    #"
+    - "    #"
+    y_offset: -3
+    surface:
+      entries:
+        baseline:
+          x: 0
+          stroke: diagonal
+          from:
+          - family:
+            - qsBay
+            - qsDay
+            - qsKey
+            - qsGay
+            - qsZoo
+            - qsShe
+            - qsJai
+            - qsCheer
+            - qsJay
+            - qsWay
+            - qsHe
+            - qsIng
+            - qsMay
+            - qsNo
+            - qsLlan
+            - qsExcite
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOy
+            - qsUtter
+            - qsOoze
+            except:
+            - {family: qsThey_qsZoo}
+      exits: {}
+      cells: []
+      unlocks: []
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend: []
+  contract: []
+  resolve: []
+  groups: {}

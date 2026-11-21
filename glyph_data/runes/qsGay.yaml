@@ -151,6 +151,7 @@ policy:
         - qsDay_qsUtter
         - qsZoo
         - qsRoe
+        - qsExam
         - qsIt
         - qsI
         - qsOut_qsTea
@@ -175,6 +176,7 @@ policy:
           - qsDay_qsUtter
           - qsZoo
           - qsRoe
+          - qsExam
           - qsIt
           - qsI
           - qsOut_qsTea
@@ -194,6 +196,7 @@ policy:
         - qsDay_qsUtter
         - qsZoo
         - qsRoe
+        - qsExam
         - qsIt
         - qsI
         - qsOut_qsTea
