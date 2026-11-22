@@ -1950,6 +1950,19 @@ def test_an_audit_not_in_sorted_sections_builds_through_the_in_memory_source(
         assert manifest["totals"] == expected["totals"]
 
 
+def test_the_default_build_refuses_an_audit_not_in_sorted_sections(mini_bundle, tmp_path, monkeypatch):
+    """With the build switch unset the Rust build runs, and it reads an audit only as a stream, so an audit run_m1 never writes is refused naming the Python build that reads it, rather than built by that build unasked, which would hide that the audit is not in the form the oracle writes (`corpus_exec.engine`)."""
+    for variable in (corpus_exec.ENGINE_VARIABLE, units_exec.ENGINE_VARIABLE, "AMS_CORPUS_MEMORY_TALLY"):
+        monkeypatch.delenv(variable, raising=False)
+    assert corpus_exec.engine() == "rust"
+    header, rows = _mini_audit_lines()
+    audit = _write_audit(tmp_path / "audit.tsv", header, _reordered(rows, "sections out of rank order"))
+    with pytest.raises(
+        SystemExit, match=r"reads an audit only as a stream.*AMS_CORPUS_BUILD_ENGINE=python builds it"
+    ):
+        _build(tmp_path / "corpus", mini_bundle, audit_path=audit, jobs=1)
+
+
 @pytest.mark.parametrize("shape", ["sorted", "sections out of rank order"])
 def test_an_audit_replaced_by_rename_after_the_load_opened_it_is_not_read(
     shape, mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build

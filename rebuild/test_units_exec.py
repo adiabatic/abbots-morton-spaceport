@@ -387,6 +387,25 @@ def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
     assert "reused 0 of" in err
 
 
+def test_a_crate_edit_reaches_the_signature_store_under_either_build(
+    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """The ink-signature store's stamp carries a `crate_code` line, the review crate's digest, since the Rust build, the default, shapes the signatures in the crate, and the Python build stamps it too, so the two write the same header. So a crate edit misses the signature store under either build, as it misses a unit store the Rust units engine stamped, and each miss note names the line that moved; the comparator's Python closure stays the stamp's code line, and the line adds nothing else."""
+    base = unit_cache.signature_environment(REPO_ROOT, MINI_FONT, "helpers")
+    stamped = unit_cache.signature_environment(REPO_ROOT, MINI_FONT, "helpers", "crate")
+    assert stamped.lines == (*base.lines, "crate_code\tcrate")
+    assert stamped.detail == base.detail
+    rebuilt = tmp_path / "rebuilt"
+    shutil.copytree(mini_corpus, rebuilt)
+    monkeypatch.setattr(units_exec, "crate_digest", lambda: "0" * 64)
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    capfd.readouterr()
+    _build_mini(rebuilt, mini_bundle, jobs=2)
+    err = capfd.readouterr().err
+    assert re.search(r"ink-signature store: the stamp moved at [^\n]*crate_code", err), err
+    assert re.search(r"unit cache: the stamp moved at [^\n]*units_engine", err), err
+
+
 def test_every_kernel_module_the_review_crate_names_is_stamped():
     """The Rust engine runs the kernel library in process, so each kernel module the review crate names (`ams_m1_kernel::<module>`) must be in the unit store's `corpus_code` closure (`unit_cache.corpus_code_paths`), outside `unit_cache.KERNEL_NON_CORPUS_MODULES`, or a kernel edit could leave a store the engine wrote serving stale units."""
     named: set[str] = set()

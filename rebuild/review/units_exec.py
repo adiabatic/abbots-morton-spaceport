@@ -118,11 +118,16 @@ def crate_paths() -> list[Path]:
     return sorted(paths)
 
 
+def crate_digest() -> str:
+    """The digest of `crate_paths` through `fingerprint.code_file_digest`: the unit store stamp's `units_engine` line under the Rust engine (`engine_stamp`), and the ink-signature store stamp's `crate_code` line under either corpus build (`unit_cache.signature_environment`)."""
+    return fingerprint.digest_lines(fingerprint.path_lines(REPO_ROOT, crate_paths()))
+
+
 def engine_stamp() -> str | None:
-    """The unit store stamp's `units_engine` digest (`unit_cache.environment_stamp`): under the Rust engine, the digest of `crate_paths` through `fingerprint.code_file_digest`, so a crate edit invalidates a store the engine wrote; under the Python engine, None, which adds no line."""
+    """The unit store stamp's `units_engine` digest (`unit_cache.environment_stamp`): under the Rust engine, `crate_digest`, so a crate edit invalidates a store the engine wrote; under the Python engine, None, which adds no line."""
     if engine() != "rust":
         return None
-    return fingerprint.digest_lines(fingerprint.path_lines(REPO_ROOT, crate_paths()))
+    return crate_digest()
 
 
 # --- the typed encoding -------------------------------------------------------------------------

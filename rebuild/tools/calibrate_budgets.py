@@ -40,6 +40,9 @@ CORPUS_SOURCE = "rebuild/tools/artifact_cycle.py"
 CORPUS_PARENT_NAME = "CORPUS_PARENT_BYTES"
 CORPUS_WORKER_NAME = "CORPUS_WORKER_BYTES"
 CORPUS_WRITE_WORKER_NAME = "CORPUS_WRITE_WORKER_BYTES"
+CORPUS_BUILD_RS_PROCESS_NAME = "CORPUS_BUILD_RS_PROCESS_BYTES"
+CORPUS_BUILD_RS_THREAD_NAME = "CORPUS_BUILD_RS_THREAD_BYTES"
+CORPUS_BUILD_RS_LAUNCHER_NAME = "CORPUS_BUILD_RS_LAUNCHER_BYTES"
 STANDING_FILL_PARENT_NAME = "STANDING_FILL_PARENT_BYTES"
 STANDING_FILL_WORKER_NAME = "STANDING_FILL_WORKER_BYTES"
 LAND_NAME = "LAND_BYTES"
@@ -818,7 +821,7 @@ def _oracle_absorb_excess(shard_bytes: int, absorb_bytes: int, configs: int) -> 
 def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: int, root: Path) -> str:
     """Return the width this constant implies on the given machine, computed the way the code that sizes that pool computes it.
 
-    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores a hand run takes, the gate lane's share a cycle whose build lane runs gives gate:make-test's pool (`memory_budget.split_cores`), and, beside them, the width memory would allow. The kernel's table build runs every settlement configuration at once when its whole booking fits (`DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` for each settlement configuration, `DELTA_SLOT_BYTES` for each delta and `FOLD_PREPARATION_BYTES`, or the rendezvous, `READ_BACK_FOLD_BYTES` for each settlement configuration, where that is higher, as at every width), and otherwise divides by `DELTA_SLOT_BYTES` after subtracting `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` for each settlement configuration, capped at the delta count, the arithmetic `kernel_exec.kernel_threads_default` does; `run_m1._table_build_threads` then caps it at the cores, which the clause states in words. The clause then says how many of the heaviest deltas the build starts from scratch beside `default` on top of that width's booking, each booked at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, with the start booked at a `SCRATCH_PEAK_BYTES` for each of them and `UNCAPPED_SCRATCH_PEAK_BYTES` for `default` while a delta is left to read its memo, and the whole at no less than the rendezvous: the largest count whose booking fits, which can be every delta where one fewer does not fit (`kernel_exec.deltas_from_scratch`). The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant; both print the width at each of the build's caps, every core less the parent by hand and under --skip-gates, and the build lane's share less the parent under a gated cycle. The corpus write's pool fits in the memory the units pool held at either cap, so its row prints how many of its workers each of those widths makes room for. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant and prints two widths: with the build lane idle, capped at the cores, and beside a corpus build at its width under a gated cycle, capped at the cores less the build's parent and workers but never below the acceptance-configuration count (or the cores, where there are fewer), as `artifact_cycle._conform_core_cap` caps it on a pass that skips gate:make-test. The string replay and the deep replay divide by their per-walk constants: the string replay capped at the settlement configuration count and the cores, as `run_m1._replay_threads` caps it, and the deep replay, whose units are each one configuration over the texts ending in one symbol, at the cores (`deep_replay.replay_threads`). The oracle's two rows print the oracle's width, capped at the cores, with the settle-memo absorbs' excess over ORACLE_SHARD_BYTES taken off first (`artifact_cycle.sweep_job_budget`), and the land row names the build-lane parents it has to stay below. None of these widths subtracts gate:make-test's pool; the corpus-worker, standing-fill-parent, conform-sweep, and replay-walk clauses say where a cycle subtracts it. On a pass that runs that gate, a cycle subtracts it before sizing the corpus build under either policy, so the build beside the sweep can be narrower than the clause's, and, under the overlap policy on a pass that also runs run_m1 or the corpus build, before sizing both of the sweep's widths as well. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
+    The font suite's pool takes the cores without dividing by its constant, so the clause prints the cores a hand run takes, the gate lane's share a cycle whose build lane runs gives gate:make-test's pool (`memory_budget.split_cores`), and, beside them, the width memory would allow. The kernel's table build runs every settlement configuration at once when its whole booking fits (`DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` for each settlement configuration, `DELTA_SLOT_BYTES` for each delta and `FOLD_PREPARATION_BYTES`, or the rendezvous, `READ_BACK_FOLD_BYTES` for each settlement configuration, where that is higher, as at every width), and otherwise divides by `DELTA_SLOT_BYTES` after subtracting `DEFAULT_MEMO_BYTES` and `PARKED_FOLD_BYTES` for each settlement configuration, capped at the delta count, the arithmetic `kernel_exec.kernel_threads_default` does; `run_m1._table_build_threads` then caps it at the cores, which the clause states in words. The clause then says how many of the heaviest deltas the build starts from scratch beside `default` on top of that width's booking, each booked at `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot, with the start booked at a `SCRATCH_PEAK_BYTES` for each of them and `UNCAPPED_SCRATCH_PEAK_BYTES` for `default` while a delta is left to read its memo, and the whole at no less than the rendezvous: the largest count whose booking fits, which can be every delta where one fewer does not fit (`kernel_exec.deltas_from_scratch`). The corpus build subtracts its parent constant and divides by its worker constant, so neither corpus row is the whole width alone and each reads the other's constant; both print the width at each of the build's caps, every core less the parent by hand and under --skip-gates, and the build lane's share less the parent under a gated cycle. The corpus write's pool fits in the memory the units pool held at either cap, so its row prints how many of its workers each of those widths makes room for. The standing fill's parent is subtracted the same way before dividing by `STANDING_FILL_WORKER_BYTES`. The conformance sweep divides by its own constant and prints two widths: with the build lane idle, capped at the cores, and beside the Rust corpus build, the default, at its width under a gated cycle, its process and launcher co-resident and its threads at CORPUS_BUILD_RS_THREAD_BYTES, capped at the cores less the build's process and threads but never below the acceptance-configuration count (or the cores, where there are fewer), as `artifact_cycle._conform_build_lane` books it and `artifact_cycle._conform_core_cap` caps it on a pass that skips gate:make-test. The string replay and the deep replay divide by their per-walk constants: the string replay capped at the settlement configuration count and the cores, as `run_m1._replay_threads` caps it, and the deep replay, whose units are each one configuration over the texts ending in one symbol, at the cores (`deep_replay.replay_threads`). The oracle's two rows print the oracle's width, capped at the cores, with the settle-memo absorbs' excess over ORACLE_SHARD_BYTES taken off first (`artifact_cycle.sweep_job_budget`), and the land row names what the build-lane steps before it hold, under either corpus build, which it has to stay below. None of these widths subtracts gate:make-test's pool; the corpus-worker, standing-fill-parent, conform-sweep, and replay-walk clauses say where a cycle subtracts it. On a pass that runs that gate, a cycle subtracts it before sizing the corpus build under either policy, so the build beside the sweep can be narrower than the clause's, and, under the overlap policy on a pass that also runs run_m1 or the corpus build, before sizing both of the sweep's widths as well. Caps and sibling constants are read from `root`, like the constants, so a test can supply both the machine and the tree.
     """
     if unit.name == "font-suite":
         allowed = memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
@@ -923,29 +926,39 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
             return f"the oracle runs {fit}; {absorbs} ({ORACLE_ABSORB_NAME} each){fits}"
         return f"no width divides by it: {absorbs}{fits}, and the oracle runs {fit} ({ORACLE_SHARD_NAME} divided in)"
     if unit.name == "land":
+        source = root / CORPUS_SOURCE
         parents = {
-            name: _int_constant(root / CORPUS_SOURCE, name)
-            for name in (CORPUS_PARENT_NAME, STANDING_FILL_PARENT_NAME)
+            CORPUS_PARENT_NAME: _int_constant(source, CORPUS_PARENT_NAME),
+            f"{CORPUS_BUILD_RS_PROCESS_NAME} and {CORPUS_BUILD_RS_LAUNCHER_NAME} together": _int_constant(
+                source, CORPUS_BUILD_RS_PROCESS_NAME
+            )
+            + _int_constant(source, CORPUS_BUILD_RS_LAUNCHER_NAME),
+            STANDING_FILL_PARENT_NAME: _int_constant(source, STANDING_FILL_PARENT_NAME),
         }
-        stated = " and ".join(f"{name} ({format_gb(value)} GB)" for name, value in parents.items())
+        named = [f"{name} ({format_gb(value)} GB)" for name, value in parents.items()]
+        stated = ", ".join(named[:-1]) + f" and {named[-1]}"
         if constant_bytes < min(parents.values()):
-            return f"no width divides by it or subtracts it; it is below {stated}, the build-lane steps before it, so the conformance sweep's reservation for the larger of those steps covers it"
+            return f"no width divides by it or subtracts it; it is below {stated}, what the build-lane steps before it hold under either corpus build, so the conformance sweep's reservation for the larger of those steps covers it"
         return f"no width divides by it or subtracts it, and it is not below {stated}, so the conformance sweep's reservation for the build lane (`artifact_cycle._conform_build_lane`) no longer covers it"
     if unit.name == "conform-sweep":
         floor = min(_acceptance_config_count(root / CONFORM_SOURCE), cores)
-        parent = _int_constant(root / CORPUS_SOURCE, CORPUS_PARENT_NAME)
-        worker = _int_constant(root / CORPUS_SOURCE, CORPUS_WORKER_NAME)
+        source = root / CORPUS_SOURCE
+        process = _int_constant(source, CORPUS_BUILD_RS_PROCESS_NAME) + _int_constant(
+            source, CORPUS_BUILD_RS_LAUNCHER_NAME
+        )
+        thread = _int_constant(source, CORPUS_BUILD_RS_THREAD_NAME)
         corpus_width = memory_budget.how_many_fit(
-            worker, coresident_bytes=parent, cap=_corpus_caps(cores)[1], total_bytes=total_bytes
+            thread, coresident_bytes=process, cap=_corpus_caps(cores)[1], total_bytes=total_bytes
         )
         idle = memory_budget.describe_fit(constant_bytes, cap=cores, total_bytes=total_bytes)
         beside = memory_budget.describe_fit(
             constant_bytes,
-            coresident_bytes=parent + corpus_width * worker,
+            coresident_bytes=process + corpus_width * thread,
             cap=max(floor, cores - 1 - corpus_width),
             total_bytes=total_bytes,
         )
-        return f"the conformance sweep runs {idle} with the build lane idle, and {beside} beside a corpus build of its parent and {corpus_width} workers; on a pass that runs gate:make-test the corpus build can be narrower, as the corpus-worker clause says, and under the overlap policy, on a pass that also runs run_m1 or the corpus build, that gate's pool is subtracted from the machine's memory before both divisions and its workers come off both caps, neither of which drops below the acceptance-configuration count or the cores, whichever is fewer"
+        threads = f"{corpus_width} thread" + ("" if corpus_width == 1 else "s")
+        return f"the conformance sweep runs {idle} with the build lane idle, and {beside} beside the Rust corpus build, the default, its process and launcher and {threads}; on a pass that runs gate:make-test the corpus build can be narrower, since a cycle subtracts that gate's pool from the machine's memory before sizing it, and under the overlap policy, on a pass that also runs run_m1 or the corpus build, that gate's pool is subtracted from the machine's memory before both divisions and its workers come off both caps, neither of which drops below the acceptance-configuration count or the cores, whichever is fewer"
     return memory_budget.describe_fit(constant_bytes, total_bytes=total_bytes)
 
 

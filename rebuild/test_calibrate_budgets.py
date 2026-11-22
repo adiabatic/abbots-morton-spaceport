@@ -689,11 +689,13 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits seven of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. On six cores the gated build's parent and 2 workers leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits seven of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. The conformance sweep's second width is beside the Rust corpus build, the default, whose process and launcher come to the tree's Python parent and whose threads weigh what its workers do, so on twelve cores it fits 5 threads beside 35 GB, and on six cores the gated build's process and 2 threads leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
         f"{cb.CORPUS_PARENT_NAME} = 10_000_000_000\n{cb.CORPUS_WORKER_NAME} = 5_000_000_000\n"
+        f"{cb.CORPUS_BUILD_RS_PROCESS_NAME} = 8_000_000_000\n{cb.CORPUS_BUILD_RS_LAUNCHER_NAME} = 2_000_000_000\n"
+        f"{cb.CORPUS_BUILD_RS_THREAD_NAME} = 5_000_000_000\n"
         f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n"
         f"{cb.ORACLE_SHARD_NAME} = {CONSTANTS['oracle-absorb']}\n{cb.ORACLE_ABSORB_NAME} = 3_000_000_000\n",
         encoding="utf-8",
@@ -778,7 +780,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert idle.endswith("capped at 12")
     assert "less 35.00 GB co-resident, capped at 6" in beside
     assert (
-        "beside a corpus build of its parent and 5 workers; on a pass that runs gate:make-test the corpus build can be narrower"
+        "beside the Rust corpus build, the default, its process and launcher and 5 threads; on a pass that runs gate:make-test the corpus build can be narrower"
         in beside
     )
     oracle_block = out.split("\noracle-shard  ")[1].split("\n\n")[0]
@@ -802,7 +804,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert f"`make replay-deep` walks {deep}, one unit a crate process" in out
     land_block = out.split("\nland  ")[1].split("\n\n")[0]
     assert (
-        "it is below CORPUS_PARENT_BYTES (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)" in land_block
+        "it is below CORPUS_PARENT_BYTES (10.00 GB), CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES together (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)"
+        in land_block
     )
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
     small_block = small.split("\nconform-sweep  ")[1].split("\n\n")[0]
@@ -810,7 +813,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     _idle, small_beside = small_width.split(" with the build lane idle, and ")
     assert "capped at 4" in small_beside
     assert (
-        "beside a corpus build of its parent and 2 workers; on a pass that runs gate:make-test the corpus build can be narrower"
+        "beside the Rust corpus build, the default, its process and launcher and 2 threads; on a pass that runs gate:make-test the corpus build can be narrower"
         in small_beside
     )
 

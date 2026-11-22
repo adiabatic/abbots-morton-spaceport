@@ -3461,8 +3461,10 @@ def _load_corpus(
     recompute_all: bool,
     identical_classes: frozenset[str],
 ) -> _Loaded:
-    """Load the audit for the build through `parts`, the descriptors of the audit's parts that `build_m1` opened once and holds until the build returns (`audit.AuditParts`), every read of the audit going through them (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through a path again, since a `--gates-only` pass can commit a new head meanwhile, and a part held as gzip members read through the member index the head gave them (`audit.AuditParts.members`), its sections inflated as they are read; a member that does not inflate to what its index records raises `audit_stream.MemberError`, from the key-only read or the stream, which fails the build rather than send it to the in-memory source. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
-    environment = unit_cache.signature_environment(repo_root, before_font, helpers_digest)
+    """Load the audit for the build through `parts`, the descriptors of the audit's parts that `build_m1` opened once and holds until the build returns (`audit.AuditParts`), every read of the audit going through them (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through a path again, since a `--gates-only` pass can commit a new head meanwhile, and a part held as gzip members read through the member index the head gave them (`audit.AuditParts.members`), its sections inflated as they are read; a member that does not inflate to what its index records raises `audit_stream.MemberError`, from the key-only read or the stream, which fails the build rather than send it to the in-memory source. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`), under a stamp that names the review crate (`units_exec.crate_digest`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
+    environment = unit_cache.signature_environment(
+        repo_root, before_font, helpers_digest, units_exec.crate_digest()
+    )
     prior = None if recompute_all else unit_cache.SignatureArrays.load(out_dir, environment)
     if not recompute_all and prior is None:
         note = unit_cache.signature_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
@@ -4391,7 +4393,9 @@ def _rust_inputs(
         "change_groups": {"order": CHANGE_GROUP_ORDER, "prose": load_change_group_prose()},
         "environment": _stamp_values(environment),
         "signature_environment": _stamp_values(
-            unit_cache.signature_environment(repo_root, before_font, helpers_digest)
+            unit_cache.signature_environment(
+                repo_root, before_font, helpers_digest, units_exec.crate_digest()
+            )
         ),
         "manifest": {
             "generated_at": _generated_at(ledger_path, before_font, after_font, mtimes=(parts.content_time,)),

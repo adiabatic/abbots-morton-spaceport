@@ -1722,6 +1722,23 @@ def signature_job_derivation(*, ncores: int | None = None) -> str:
     return f"{width} of {cores} cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
 
 
+def _corpus_build_lead() -> str:
+    """Name the corpus build's process that holds the corpus, for a plan clause: the Rust build's process, or the Python build's parent, by the engine `corpus_exec.engine()` resolves."""
+    from rebuild.review import corpus_exec
+
+    return (
+        "the Rust corpus build's process" if corpus_exec.engine() == "rust" else "the corpus build's parent"
+    )
+
+
+def _corpus_build_processes(jobs: int) -> str:
+    """Name the corpus build's processes at `jobs`, for a plan clause: the Rust build's process and its threads, or the Python build's parent and its workers (`_corpus_build_lead`)."""
+    from rebuild.review import corpus_exec
+
+    noun = "thread" if corpus_exec.engine() == "rust" else "worker"
+    return f"{_corpus_build_lead()} and its {jobs} {noun}" + ("" if jobs == 1 else "s")
+
+
 def _contracts_pool_terms(
     *,
     skip_gates: bool,
@@ -1826,11 +1843,11 @@ def contracts_pool_derivation(
         machine = "the machine" if make_test else "the whole machine"
         clause = f"{width} of {cores} cores, {machine} (no corpus build to share it with)"
     else:
-        workers = f"{corpus - 1} worker" + ("" if corpus - 1 == 1 else "s")
+        processes = _corpus_build_processes(corpus - 1)
         clause = (
-            f"{width} of {cores} cores, the gate lane's share: less the corpus build's parent and its {workers} at the build lane's share, which the suite keeps after the build's units pool finishes"
+            f"{width} of {cores} cores, the gate lane's share: less {processes} at the build lane's share, which the suite keeps after the build's units pool finishes"
             if after_units
-            else f"{width} of {cores} cores, less the corpus build's parent and its {workers}"
+            else f"{width} of {cores} cores, less {processes}"
         )
     if make_test:
         clause += f", less gate:make-test's {make_test} (overlap policy)"
@@ -1921,8 +1938,7 @@ def _conform_core_cap(
     left = cores - corpus - make_test
     parts = []
     if corpus:
-        workers = f"{corpus - 1} worker" + ("" if corpus - 1 == 1 else "s")
-        parts.append(f"less the corpus build's parent and its {workers}")
+        parts.append(f"less {_corpus_build_processes(corpus - 1)}")
     if make_test:
         parts.append(f"less gate:make-test's {make_test} (overlap policy)")
     lane = f"{cores} cores " + ", ".join(parts)
@@ -2252,8 +2268,7 @@ def build_plan(
     )
     make_test_beside_conform = not (no_make_test or gates_queue(pool_policy, build_lane_runs=build_lane_runs))
     if conform_beside == "corpus-build":
-        corpus_workers = f"{corpus_jobs} worker" + ("" if corpus_jobs == 1 else "s")
-        conform_head = f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside the corpus build's parent and its {corpus_workers}"
+        conform_head = f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {_corpus_build_processes(corpus_jobs)}"
     elif conform_beside == "verdict-update":
         fill_workers = f"{fill_jobs} refill worker" + ("" if fill_jobs == 1 else "s")
         conform_head = (
@@ -2261,7 +2276,7 @@ def build_plan(
             + (
                 "the corpus build not running this pass, so beside "
                 if skip_corpus
-                else "the verdict-update step outweighing the corpus build, so beside the corpus build's parent writing its unit store, "
+                else f"the verdict-update step outweighing the corpus build, so beside {_corpus_build_lead()} writing its unit store, "
             )
             + f"the verdict update's process and its {fill_workers}"
         )

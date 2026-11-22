@@ -281,7 +281,9 @@ def _load_table(
     keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
     identical_classes = frozenset(entry.id for entry in ledger if entry.ink_identical)
     if not recompute_all:
-        environment = unit_cache.signature_environment(REPO_ROOT, build.SITE_BEFORE_FONT, helpers_digest)
+        environment = unit_cache.signature_environment(
+            REPO_ROOT, build.SITE_BEFORE_FONT, helpers_digest, units_exec.crate_digest()
+        )
         stale = unit_cache.signature_miss_note(out_dir, environment)
         if stale is not None:
             raise SystemExit(f"the ink-signature store under {out_dir} does not serve this checkout: {stale}")

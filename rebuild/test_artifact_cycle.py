@@ -3152,7 +3152,7 @@ class TestTheConformSweepWidth:
         assert 40 - 1 - corpus - make_test == 0
         assert ac.conform_job_budget(**beside, pool_policy="overlap") == configs
         assert ac.conform_job_derivation(**beside, pool_policy="queue").endswith(
-            f"; the cap is 40 cores less the corpus build's parent and its {corpus} workers"
+            f"; the cap is 40 cores less {ac._corpus_build_processes(corpus)}"
         )
         assert ac.conform_job_derivation(**beside, pool_policy="overlap").endswith(
             f"less gate:make-test's {make_test} (overlap policy) leave none"
@@ -3201,7 +3201,7 @@ class TestTheConformSweepWidth:
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **machine)
             assert (
-                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the corpus build's parent writing its unit store, the verdict update's process and its {plan.standing_fill_jobs} refill workers"
+                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside {ac._corpus_build_lead()} writing its unit store, the verdict update's process and its {plan.standing_fill_jobs} refill workers"
                 in line
             )
             assert line.endswith(f"; {derivation})")
@@ -3229,7 +3229,7 @@ class TestTheConformSweepWidth:
         assert not corpus_only.runs("verdict-update")
         line = _lane_conform_line(corpus_only)
         assert (
-            f"(--jobs {corpus_only.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside the corpus build's parent and its {corpus_only.corpus_jobs} workers; "
+            f"(--jobs {corpus_only.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {ac._corpus_build_processes(corpus_only.corpus_jobs)}; "
             in line
         )
         assert line.endswith(f"; {_plan_conform_derivation(corpus_only, **machine)})")
@@ -3274,7 +3274,7 @@ class TestTheConformSweepWidth:
         outweighed = _plan(**wide, pool_policy="queue")
         line = _lane_conform_line(outweighed)
         assert (
-            f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside the corpus build's parent writing its unit store, the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
+            f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the verdict-update step outweighing the corpus build, so beside {ac._corpus_build_lead()} writing its unit store, the verdict update's process and its {outweighed.standing_fill_jobs} refill workers; "
             in line
         )
         assert line.endswith(f"; {_plan_conform_derivation(outweighed, **wide)})")
@@ -4533,7 +4533,7 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
         skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
     )
     assert queue == 10 - 1 - corpus >= 1
-    assert f"{queue} of 10 cores, less the corpus build's parent and its {corpus} workers" == (
+    assert f"{queue} of 10 cores, less {ac._corpus_build_processes(corpus)}" == (
         ac.contracts_pool_derivation(
             skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
         )
@@ -4584,6 +4584,29 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
     assert ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB).endswith(
         "floored at one"
     )
+
+
+def test_the_plan_names_the_processes_of_the_corpus_build_that_will_run(monkeypatch):
+    """The plan's clauses name what they subtract for the corpus build as the engine `corpus_exec.engine()` resolves it: the Rust build's process and its threads by default, and the Python build's parent and its workers under `AMS_CORPUS_BUILD_ENGINE=python`, so the clause and the width it explains count the same processes."""
+    from rebuild.review import corpus_exec, units_exec
+
+    monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    kw: dict[str, Any] = dict(skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
+    for value, processes in (
+        (None, "the Rust corpus build's process and its"),
+        ("python", "the corpus build's parent and its"),
+    ):
+        if value is None:
+            monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
+        else:
+            monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, value)
+        corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
+        noun = "threads" if value is None else "workers"
+        assert ac.contracts_pool_derivation(**kw).endswith(f"less {processes} {corpus} {noun}")
+        assert ac.conform_job_derivation(**kw, skip_corpus=False, verdict_update_runs=False).endswith(
+            f"since 10 cores less {processes} {corpus} {noun} leave {10 - 1 - corpus}"
+        )
 
 
 def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeypatch):
@@ -4673,7 +4696,7 @@ def test_a_pass_with_no_other_gate_pool_holds_the_suite_until_the_units_pool_fin
         in text
     )
     assert (
-        "Lane rebuild-contracts           : held until the corpus build's units pool finishes, -n 9 (9 of 18 cores, the gate lane's share: less the corpus build's parent and its 8 workers at the build lane's share, which the suite keeps after the build's units pool finishes);"
+        f"Lane rebuild-contracts           : held until the corpus build's units pool finishes, -n 9 (9 of 18 cores, the gate lane's share: less {ac._corpus_build_processes(8)} at the build lane's share, which the suite keeps after the build's units pool finishes);"
         in text
     )
     assert {step.name: step for step in held.steps}["gate:rebuild-contracts"].note == (

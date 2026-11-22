@@ -1,6 +1,6 @@
 # Corpus units port plan
 
-This plan moves the review corpus build's unit recompute into Rust: what one units-pool worker does per unit, `_corpus_worker` in `rebuild/review/build.py` and everything it calls. The parent stays in Python, Python stays the engine of record, and the Rust engine is the build's default, with the Python workers one switch away.
+This plan moves the review corpus build's unit recompute into Rust: what one units-pool worker does per unit, `_corpus_worker` in `rebuild/review/build.py` and everything it calls. The Rust engine is the Python build's default units engine, with the Python workers one switch away. The corpus build's default is the Rust build of `rebuild/CORPUS-PARENT-PORT-PLAN.md`, which runs this engine's worker code on its threads in process, and the Python build, its parent and its workers, is the reference the dual runs compare it with.
 
 The measurements behind it are in `var/keep/rust-port/profile-corpus-units.md`, and the HarfBuzz spike's notes, results, harness and Rust source are in `var/keep/rust-port/spike-harfbuzz/`; both are kept on the M4 Pro Mac mini and not checked in. The profile's split table says where worker wall time goes, its port-surface table lists the Python this plan mirrors, and its byte-identity section names the targets.
 
@@ -12,9 +12,9 @@ These are settled and are not reopened here.
 2. Shaping uses the real HarfBuzz library through FFI, and a test on our fonts and texts proves its identity with uharfbuzz.
 3. Settlement runs in process through the kernel crate's own engine, so the Rust path starts no `settle-cases` process.
 4. One Rust process with threads replaces the pool of Python workers and shares the fonts, the spec and the mapped subset pack.
-5. Python stays the engine of record. The Rust path is the default behind a switch that selects the Python workers instead, as commit f8e4d7bd offered the grouped sweep. No Python is deleted, and no existing test changes to fit the port.
+5. The Python workers are the reference the dual runs compare the Rust engine with. The Rust path is the default behind a switch that selects the Python workers instead, as commit f8e4d7bd offered the grouped sweep. No Python is deleted, and no existing test changes to fit the port.
 6. The acceptance gate is a dual run over every unit of the full corpus: every projection field equal, and every fragment equal after inflating. The deflated bytes need not match.
-7. The parent (load, plan, write, manifest, cache) stays in Python. It is the next candidate, so the boundary keeps that move open.
+7. The parent (load, plan, write, manifest, cache) is outside this plan. Its port, `rebuild/CORPUS-PARENT-PORT-PLAN.md`, is the corpus build's default, and the Python parent is the reference it is compared with.
 
 ## Layout
 
@@ -454,7 +454,7 @@ Every `compare` command below runs from the repository root as `uv run python -m
 
 ## What stays in Python
 
-- The parent: load, plan, the unit store and the cache, the triage order, the whole-corpus passes (duplicate groups, primary-unit resolution, class promotion), the write and its `PATCHED` check, the sidecars and the manifest. Decision 7 keeps them, and they are the next port.
+- The Python build's parent: load, plan, the unit store and the cache, the triage order, the whole-corpus passes (duplicate groups, primary-unit resolution, class promotion), the write and its `PATCHED` check, the sidecars and the manifest. Decision 7 leaves them to `rebuild/CORPUS-PARENT-PORT-PLAN.md`, whose Rust build ports them and is the default.
 - The serial path (`--jobs 1`) and the in-process verification sample it runs. They are the reference the existing byte-identity tests compare pooled builds against.
 - Everything derived once per build from the fonts or the pages: `ConfigFold`'s trigger derivation (`feature_reach.derive_fold`), the font facts and the Junior tracking (fontTools is the outline reference), the curs sets and the site corpus index. Each crosses as data.
 - The outline-level delta (`InkComparator._piece_diff`), which no corpus text reaches; the engine refuses a unit that needs it.
@@ -467,5 +467,4 @@ Every `compare` command below runs from the repository root as `uv run python -m
 
 - Retiring the Python twin is the owner's decision; it is outside this plan. Until then every units-pipeline edit is written twice, which is the cost §14.1 records for a Python twin of settlement.
 - The HarfBuzz source is fetched by `build.rs` and pinned by digest (§ HarfBuzz and outlines). Checking the source in under `rebuild/review-rs/` instead removes the network from a fresh checkout's first build and adds the source to the history for good; that trade is the owner's to make.
-- Once the engine is fast, the parent's serial loading of replies may bound the units phase. The dual-run report gives each side's wall time, and the `[t] review.build units` line gives the phase's; that measurement is what orders the parent's port.
 - The manifest's Stage B `review_code` hashes `units_exec.py` but not the crate, so `make verdict-ready` judges a Rust-built corpus by the Python sources. The unit store's `units_engine` line keeps a crate edit from serving stale units.
