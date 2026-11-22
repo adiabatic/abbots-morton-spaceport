@@ -956,8 +956,10 @@ def appended_corpus(mini_corpus, mini_bundle, tmp_path) -> tuple[Path, Path]:
 
 
 @pytest.fixture
-def plain_appended_corpus(mini_corpus, mini_bundle, tmp_path, monkeypatch) -> tuple[Path, Path]:
-    """`_appended` with its appends written plain, so its parts are ASCII JSON throughout and the index can walk them."""
+def plain_appended_corpus(
+    python_mini_corpus, mini_bundle, tmp_path, monkeypatch, python_build
+) -> tuple[Path, Path]:
+    """`_appended` with its appends written plain, so its parts are ASCII JSON throughout and the index can walk them: built by the Python build, whose shard writer this patches, over the mini corpus's Python build."""
     from rebuild.review import build
 
     real = build._ShardWriter.open
@@ -966,7 +968,7 @@ def plain_appended_corpus(mini_corpus, mini_bundle, tmp_path, monkeypatch) -> tu
         real(self, class_id, prior_parts, append=append)
 
     monkeypatch.setattr(build._ShardWriter, "open", plain)
-    found = _appended(mini_corpus, mini_bundle, tmp_path)
+    found = _appended(python_mini_corpus, mini_bundle, tmp_path)
     monkeypatch.setattr(build._ShardWriter, "open", real)
     return found
 

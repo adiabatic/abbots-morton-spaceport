@@ -1,4 +1,4 @@
-"""Tests of the corpus build interface, `rebuild/review/corpus_exec.py`, the Python side of the Rust build of the review corpus's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md`): the switch, the vocabulary and the fields the build input carries, which the crate's reader names too, the Rust build behind the switch writing the Python build's corpus over the mini bundle's `first`, `warm` and `incremental` scenarios, and its refusals of the environments it cannot build in. From the plan's `opt-in-switch` task on, a change to the Python a build stage mirrors fails the mini test until the crate follows it."""
+"""Tests of the corpus build interface, `rebuild/review/corpus_exec.py`, the Python side of the Rust build of the review corpus's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md`): the switch and the engine it resolves, the vocabulary and the fields the build input carries, which the crate's reader names too, the Rust build writing the Python build's corpus over the mini bundle's `first`, `warm` and `incremental` scenarios, its refusals of the environments it cannot build in under an explicit `rust`, and the Python build those environments get with the switch unset. A change to the Python a build stage mirrors fails the mini test until the crate follows it."""
 
 from __future__ import annotations
 
@@ -21,9 +21,23 @@ REUSED = re.compile(r"reused (\d[\d,]*) of (\d[\d,]*) units from the cache")
 
 
 def test_the_switch_reads_the_environment_and_the_build_runs_both_engines(monkeypatch):
-    """`corpus_exec.engine()` reads `AMS_CORPUS_BUILD_ENGINE` at call time, `python` by default, and refuses a value the switch does not know; the build runs either engine."""
+    """`corpus_exec.engine()` reads `AMS_CORPUS_BUILD_ENGINE` at call time and refuses a value the switch does not know; the build runs either engine. Unset, the engine is `rust`, unless the process sets `AMS_CORPUS_UNITS_ENGINE=python` or `AMS_CORPUS_MEMORY_TALLY=1`, which only the Python build serves (`python_only_requests`), and then it is `python`; a switch that is set names the engine beside either, an explicit `rust` for the build to refuse."""
     monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
-    assert corpus_exec.engine() == "python"
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
+    assert corpus_exec.switch() is None
+    assert corpus_exec.python_only_requests() == []
+    assert corpus_exec.engine() == "rust"
+    for variable, value in ((units_exec.ENGINE_VARIABLE, "python"), (memory_tally.TALLY_ENV, "1")):
+        with monkeypatch.context() as patch:
+            patch.setenv(variable, value)
+            assert corpus_exec.python_only_requests() == [f"{variable}={value}"]
+            assert corpus_exec.engine() == "python"
+            for engine in corpus_exec.SWITCH_VALUES:
+                patch.setenv(corpus_exec.ENGINE_VARIABLE, engine)
+                assert corpus_exec.engine() == engine
+    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
+    assert corpus_exec.engine() == "rust"
     monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "cobol")
     with pytest.raises(ValueError, match="cobol"):
         corpus_exec.engine()
@@ -117,7 +131,7 @@ def test_the_rust_build_writes_the_python_build_s_corpus_over_the_mini_s_first_w
 def test_the_rust_build_refuses_the_python_units_engine_and_the_memory_tally(
     variable, value, mini_bundle, tmp_path, monkeypatch
 ):
-    """The Rust build computes every unit with the Rust units engine and holds none of the Python objects the debug tally reads, so behind the switch `build_m1` refuses `AMS_CORPUS_UNITS_ENGINE=python` and `AMS_CORPUS_MEMORY_TALLY=1` before it writes anything, naming both variables."""
+    """The Rust build computes every unit with the Rust units engine and holds none of the Python objects the debug tally reads, so under an explicit `AMS_CORPUS_BUILD_ENGINE=rust` `build_m1` refuses `AMS_CORPUS_UNITS_ENGINE=python` and `AMS_CORPUS_MEMORY_TALLY=1` before it writes anything, naming both variables."""
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
     monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
     monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "rust")
@@ -131,3 +145,33 @@ def test_the_rust_build_refuses_the_python_units_engine_and_the_memory_tally(
     message = str(stop.value.code)
     assert f"{variable}={value}" in message and f"{corpus_exec.ENGINE_VARIABLE}=rust" in message, message
     assert not out.exists()
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [(units_exec.ENGINE_VARIABLE, "python"), (memory_tally.TALLY_ENV, "1")],
+    ids=["python-units-engine", "memory-tally"],
+)
+def test_with_the_switch_unset_a_request_only_the_python_build_serves_runs_the_python_build(
+    variable, value, mini_bundle, tmp_path, capfd, monkeypatch
+):
+    """With `AMS_CORPUS_BUILD_ENGINE` unset, `AMS_CORPUS_UNITS_ENGINE=python` or `AMS_CORPUS_MEMORY_TALLY=1` alone gives the Python build, since the caller asked by name for something that is the Python build's: its load line names no `build=rust`, it files no `corpus-build-rs` pool record, and it writes the corpus."""
+    monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
+    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
+    monkeypatch.setenv(variable, value)
+    inputs = units_stage_fixtures.BuildInputs(
+        MINI_AUDIT, mini_bundle.ledger, MINI, mini_bundle.subset_pack, MINI_FONT, mini_bundle.spec_root
+    )
+    out = tmp_path / "corpus"
+    manifest = _build_mini(out, inputs)
+    err = capfd.readouterr().err
+    assert "[t] review.build load " in err and "\tbuild=rust " not in err, err
+    assert manifest == json.loads((out / "manifest.json").read_bytes())
+    journal = cycle_timings.JOURNAL
+    records = (
+        [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
+        if journal.is_file()
+        else []
+    )
+    assert not [record for record in records if record["unit"] == "corpus-build-rs"], records

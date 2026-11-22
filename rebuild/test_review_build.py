@@ -1229,7 +1229,7 @@ def test_a_serial_signature_pass_files_no_pool_record(tmp_path, monkeypatch):
 
 
 def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
-    tmp_path, mini_bundle, capfd, monkeypatch
+    tmp_path, mini_bundle, capfd, monkeypatch, python_build
 ):
     """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. It selects the Python units engine, whose workers' tally and units line it pins. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary, and with whether the ink-signature store was written. The load line names the signatures cached and shaped, what the key-only read did, the source and the prior store's hits (`_SIGNATURE_NOTE`). The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
 
@@ -1320,7 +1320,9 @@ def test_the_units_pool_takes_the_gates_idle_width_only_while_the_marker_exists(
     assert review_build._units_pool_width(8, 17, marker) == (17, "gate lane idle")
 
 
-def test_the_write_reads_the_gate_lanes_state_again_as_it_starts(tmp_path, mini_bundle, monkeypatch, capfd):
+def test_the_write_reads_the_gate_lanes_state_again_as_it_starts(
+    tmp_path, mini_bundle, monkeypatch, capfd, python_build
+):
     """The write's pool fits in the memory a units pool started as the write starts would hold (`artifact_cycle.corpus_write_job_budget`), so the build reads the gates-idle marker again then. A marker the driver writes after the units pool started at the build lane's share sizes the write from the gate-idle width, a units phase after the units pool read it."""
     from rebuild.tools import artifact_cycle
 
@@ -1370,7 +1372,9 @@ def test_the_pool_is_handed_the_recomputed_units_in_configuration_order(mini_bun
 
 
 @pytest.mark.parametrize("shape", ["sorted", "an order break partway"])
-def test_the_key_only_misses_die_where_they_are_shaped(shape, tmp_path, mini_bundle, monkeypatch):
+def test_the_key_only_misses_die_where_they_are_shaped(
+    shape, tmp_path, mini_bundle, monkeypatch, python_build
+):
     """The key-only read's misses, each one's key, section and window (`_KeyOnly`), are read only by the shaping that turns them into the store's columns (`_shape_found_misses`), so they must be alive when the misses are shaped and collected before the stream reads its first window. The stream keeps no window-keyed table of digests: it looks each sibling row's key up in the columns as it reads the window. A key-only read that meets a break partway, here two rows of one section swapped, never has its misses shaped, and they are collected before the in-memory source loads, so they never sit beside that source's row columns and the misses it keys and shapes itself. The build runs cold with the tally on, so every sibling row misses and the test also fails if the tally's readings keep a reference to the misses."""
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     read = review_build._key_only_read
@@ -1429,7 +1433,9 @@ def test_the_key_only_misses_die_where_they_are_shaped(shape, tmp_path, mini_bun
 
 
 @pytest.mark.parametrize("jobs", [1, 2])
-def test_the_signature_store_columns_die_where_the_store_is_written(tmp_path, mini_bundle, monkeypatch, jobs):
+def test_the_signature_store_columns_die_where_the_store_is_written(
+    tmp_path, mini_bundle, monkeypatch, jobs, python_build
+):
     """The ink-signature store's columns (`unit_cache.SignatureArrays`), its prior keys and digests, hit bits and shaped misses, are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_RecomputeRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the misses' key column, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     shape = review_build._shape_found_misses
@@ -1579,7 +1585,7 @@ def _packed_collections(text: str) -> dict[str, dict[str, int]]:
 
 
 def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writes_the_same_bytes(
-    tmp_path, mini_bundle, capsys, monkeypatch
+    tmp_path, mini_bundle, capsys, monkeypatch, python_build
 ):
     """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The stream reads the mini audit one window at a time, so the audit's row columns are empty at every boundary, and the ink-signature store's columns stay from the load through the plan, until the store write that opens the units phase. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The runner's arena holds a deflated fragment for every unit, all recomputed here, through the write, and none once the runner frees it. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
 
@@ -1690,11 +1696,11 @@ def _strip_addresses(corpus: Path) -> None:
 
 
 def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
-    tmp_path, mini_corpus, mini_bundle, capsys, monkeypatch
+    tmp_path, python_mini_corpus, mini_bundle, capsys, monkeypatch, python_build
 ):
     """A rebuild over a copy of the mini corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the scan yields it. `unit_cache.named` never prints, and `unit_cache.addressless` (the records the walk places) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
     corpus = tmp_path / "corpus"
-    shutil.copytree(mini_corpus, corpus)
+    shutil.copytree(python_mini_corpus, corpus)
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     manifest = _cached_build(corpus, mini_bundle)
     captured = capsys.readouterr()
@@ -1710,11 +1716,11 @@ def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it
 
 
 def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
-    tmp_path, mini_corpus, mini_bundle, capsys, monkeypatch
+    tmp_path, python_mini_corpus, mini_bundle, capsys, monkeypatch, python_build
 ):
     """The records a cached plan keeps for the walk, as columns of their places, ordinals, classes and id words, are measured whenever there are any, by their columns' own sizes. In a store written before addresses were recorded, every record waits for the walk, so the `locate` boundary, read as the walk returns, counts one record per unit under `unit_cache.addressless` and the walk's result for each under `unit_cache.addressless_located`, which is freed before the plan boundary, and the plan boundary counts the records' columns alone, released once it is read. Every unit is still reused, each from the second scan of the store."""
     corpus = tmp_path / "corpus"
-    shutil.copytree(mini_corpus, corpus)
+    shutil.copytree(python_mini_corpus, corpus)
     _strip_addresses(corpus)
     monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
     manifest = _cached_build(corpus, mini_bundle)
@@ -1797,7 +1803,9 @@ def _spy_on_releases(monkeypatch) -> list[int]:
     return seen
 
 
-def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(mini_bundle, tmp_path, monkeypatch):
+def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(
+    mini_bundle, tmp_path, monkeypatch, python_build
+):
     """The serial build's shape memo is bounded by a unit batch, not by the build. The shared shapers reach each boundary loaded, since the signature pass and phase 1 both shape through them, and every boundary empties them, so a finished build holds no shapes. The mini bundle fits in one batch, so this checks that the bound exists, not its size; `EXPLAIN_UNIT_BATCH_SIZE` sets the size."""
     seen = _spy_on_releases(monkeypatch)
     review_build.build_m1(

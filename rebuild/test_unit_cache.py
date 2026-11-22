@@ -1,6 +1,8 @@
 """Tests for the persisted per-unit corpus cache, whose contract the docstring of rebuild/review/unit_cache.py states. The tests check that an incremental rebuild over an edited audit writes the same bytes as a from-scratch build of the same inputs, the store included. They also check that a no-change rebuild reuses every unit, that a corrupt or bypassed store falls back to a full build instead of reusing stale bytes, that a cold build ships each unit's per-config class map in the order the audit lists its configs, that neither a cold nor a cached build writes through a pooled map, and that the serial and parallel paths agree.
 
 None of these properties depends on a glyph, so the workload is the frozen mini-M1 bundle under rebuild/review/fixtures/mini/ (real windows, their subset-table slices, and the after font they were extracted with) instead of the live build. That keeps the module in the contracts lane, with each build taking seconds. `fixtures/mini/regenerate.py` refreshes the bundle. The content-key and cluster-id tests further down use synthetic inputs.
+
+The builds run under the corpus build engine the run resolves (`corpus_exec.engine()`), the Rust build by default. A test that pins what only the Python build does, a Python internal it patches or spies on, its pools or its phase notes, requests `python_build`, and when it builds over or compares with the mini corpus or the edited audits' from-scratch builds it takes their Python builds, `python_mini_corpus` and `python_edited_scratch`.
 """
 
 import filecmp
@@ -21,7 +23,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, fixtures, kernel_exec, output_sink, row_delta, spec_load
-from rebuild.review import app_index, audit_stream, landing, unit_cache, unit_index, units_exec
+from rebuild.review import app_index, audit_stream, corpus_exec, landing, unit_cache, unit_index, units_exec
 from rebuild.review import build as review_build
 from rebuild.review import enrich as review_enrich
 from rebuild.review.audit import (
@@ -338,19 +340,21 @@ def _out_of_order_audit(tmp_path: Path) -> tuple[Path, dict[str, list[str]]]:
 
 
 @pytest.fixture(scope="module")
-def edited_scratch(build_once, mini_bundle) -> tuple[list[Path], list[Path]]:
-    """Return two edited mini audits (`_edited_audit`, with one window retagged and then two) and a from-scratch build of each, built once a run (`build_once`) for every case of the incremental-rebuild test, which only read them."""
+def python_edited_scratch(build_once, mini_bundle) -> tuple[list[Path], list[Path]]:
+    """Return two edited mini audits (`_edited_audit`, with one window retagged and then two) and a from-scratch build of each as the Python build writes it, built once a run (`build_once`) for every case of the incremental-rebuild tests, which select the Python build and only read them, as `python_mini_corpus` is the mini corpus's Python build."""
 
     def build(directory: Path) -> None:
-        for retags in (1, 2):
-            _build(
-                directory / f"scratch-{retags}",
-                mini_bundle,
-                audit_path=_edited_audit(directory, retags),
-                jobs=1,
-            )
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setenv(corpus_exec.ENGINE_VARIABLE, "python")
+            for retags in (1, 2):
+                _build(
+                    directory / f"scratch-{retags}",
+                    mini_bundle,
+                    audit_path=_edited_audit(directory, retags),
+                    jobs=1,
+                )
 
-    directory = build_once("mini-corpus-edited-audits", build)
+    directory = build_once("mini-corpus-edited-audits-python", build)
     return [directory / f"audit-edited-{retags}.tsv" for retags in (1, 2)], [
         directory / f"scratch-{retags}" for retags in (1, 2)
     ]
@@ -362,10 +366,18 @@ def _overflow_parts(corpus: Path) -> list[str]:
 
 @pytest.mark.parametrize(("seed", "cloning"), [("copy", True), ("clone", True), ("copy", False)])
 def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
-    mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, monkeypatch, seed, cloning
+    python_mini_corpus,
+    mini_bundle,
+    python_edited_scratch,
+    tmp_path,
+    capfd,
+    monkeypatch,
+    seed,
+    cloning,
+    python_build,
 ):
-    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves every shard part it found in place, appends the retagged unit's fragment to its new class's first overflow part, deflated (#618's change 35), with its store record's fourth address element and its row's marker (`_held_deflated`), leaves its old slot dead, and writes the store as a segment and the units index as one segment of the records the edit changed. The files on disk differ from a from-scratch build's (decision 48), but read through the live-fragment iterator, which inflates, its fragments are that build's by id, and materialized (`build.materialize_corpus`) the two corpora are byte for byte the same files, store included. A second edit that retags one more window into the same class appends to that overflow part, beside the deflated fragment it holds, which the shard writer clones to its staging name (`build._clone`), or copies where the volume cannot clone, and cuts before its closing bytes, to the same bytes. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Every case compares against the from-scratch builds `edited_scratch` makes."""
-    audits, scratches = edited_scratch
+    """After an audit edit that drops one window and retags another, an incremental rebuild reuses all but at most two units, leaves every shard part it found in place, appends the retagged unit's fragment to its new class's first overflow part, deflated (#618's change 35), with its store record's fourth address element and its row's marker (`_held_deflated`), leaves its old slot dead, and writes the store as a segment and the units index as one segment of the records the edit changed. The files on disk differ from a from-scratch build's (decision 48), but read through the live-fragment iterator, which inflates, its fragments are that build's by id, and materialized (`build.materialize_corpus`) the two corpora are byte for byte the same files, store included. A second edit that retags one more window into the same class appends to that overflow part, beside the deflated fragment it holds, which the shard writer clones to its staging name (`build._clone`), or copies where the volume cannot clone, and cuts before its closing bytes, to the same bytes. The same holds for a build seeded as the artifact cycle seeds it beside the served corpus, a copy-on-write clone (`landing.clone_tree`), and that build leaves the tree it was cloned from byte for byte as it was. Every case compares against the from-scratch builds `python_edited_scratch` makes."""
+    audits, scratches = python_edited_scratch
     clones: list[bool] = []
     clone = review_build._clone
 
@@ -375,7 +387,7 @@ def test_incremental_rebuild_matches_a_from_scratch_build_after_an_edit(
         return made
 
     monkeypatch.setattr(review_build, "_clone", spy)
-    served = _copy(mini_corpus, tmp_path)
+    served = _copy(python_mini_corpus, tmp_path)
     before = _tree(served)
     if seed == "clone":
         incremental = tmp_path / "corpus.next"
@@ -466,7 +478,7 @@ def _assert_no_pooled_map_was_written(table: UnitTable, snapshot: PoolSnapshot) 
 
 
 def test_a_cold_build_ships_a_class_map_in_the_order_its_audit_states_it_and_no_build_writes_through_a_pooled_one(
-    mini_bundle, tmp_path, monkeypatch, capfd
+    mini_bundle, tmp_path, monkeypatch, capfd, python_build
 ):
     """A cold build ships a per-config class map in the order its audit lists the configs. That order is part of the shard bytes, beside a `configs` list that is always in config order, while the content key and the id hash the map without regard to order, so a pool keyed on sorted items would ship two maps with equal contents in whichever order it saw first. Neither the cold build nor a cached rebuild over the same audit writes through a pooled map. Both run at one job, so phase 1 runs in this process, and a write through a pooled map would change the instance the test holds, not a worker's pickled copy. The cached rebuild reuses every unit and is byte-identical to the cold build. Because it copies every fragment as it is, it checks that the pool is unwritten and the bytes are stable; it does not check the order a rebuild ships after an audit edit that lists a window's configs in another order."""
     audit, stated = _out_of_order_audit(tmp_path)
@@ -623,7 +635,7 @@ def _walked(monkeypatch) -> list[dict[str, set[int]]]:
 
 
 def test_a_recomputed_fragment_the_parent_would_patch_under_another_scaffold_fails_the_build(
-    mini_bundle, tmp_path, monkeypatch
+    mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """End-to-end check of the write's guard: a cold build whose parent holds a different value for a stamped scaffold key than the worker drafted under fails with `check_scaffold`'s `SystemExit` naming the key, instead of shipping a fragment whose id names other content. A recomputed unit's id is empty until `unit_to_json` stamps it, so a scaffold taken over a unit that already has an id is the write's, and changing its group there makes the parent disagree with the worker. `jobs=1` drafts in this process, so the patched `unit_scaffold` reaches both calls."""
     unit_scaffold = review_build.unit_scaffold
@@ -640,10 +652,10 @@ def test_a_recomputed_fragment_the_parent_would_patch_under_another_scaffold_fai
 
 
 def test_a_cached_build_places_every_unit_from_the_store_without_walking_the_shards(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """Each store record carries the address the shard writer returned for its fragment, so a no-change rebuild plans by looking units up in the store. It never parses the previous corpus's shards to find a unit, and at the write the reader checks each cached fragment against the record's id and stamp."""
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     store = unit_cache.load_store(corpus, _environment(corpus))
     assert store is not None and all(cached.address is not None for cached in store.values())
     calls = _walked(monkeypatch)
@@ -651,7 +663,7 @@ def test_a_cached_build_places_every_unit_from_the_store_without_walking_the_sha
     cached, total = _cached(capfd)
     assert cached == total
     assert calls == []
-    assert _tree(corpus) == _tree(mini_corpus)
+    assert _tree(corpus) == _tree(python_mini_corpus)
 
 
 def _environment(corpus: Path) -> str:
@@ -672,23 +684,23 @@ def _settled(monkeypatch) -> list[int]:
 
 
 def test_a_cached_build_settles_its_verification_sample_in_one_pass(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """A build that reuses every unit still recomputes its verification sample, and it settles the sample in one `explain_units` call per chunk instead of one per unit. A one-window settlement spawns a kernel process per position, so a per-unit sample would cost hundreds of spawns. The sample is smaller than a chunk, so it is one call. `jobs=1` keeps the enricher in this process, where the spy can see it."""
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     widths = _settled(monkeypatch)
     _build(corpus, mini_bundle, jobs=1)
     cached, total = _cached(capfd)
     assert cached == total
     assert widths == [min(review_build.VERIFICATION_SAMPLE, total)]
-    assert _tree(corpus) == _tree(mini_corpus)
+    assert _tree(corpus) == _tree(python_mini_corpus)
 
 
 def test_a_store_without_addresses_still_supplies_every_unit_through_the_walk(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """A store whose records have no address names each unit's fragment by id and class only. The build still reuses every unit from it, placing the units by a walk over the previous corpus's shards, and writes the same bytes as a build reused from an addressed store, including the addresses in the rewritten store."""
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     _rewrite_store(corpus, lambda record: {key: value for key, value in record.items() if key != "address"})
     store = unit_cache.load_store(corpus, _environment(corpus))
     assert store is not None and all(cached.address is None for cached in store.values())
@@ -698,14 +710,14 @@ def test_a_store_without_addresses_still_supplies_every_unit_through_the_walk(
     cached, total = _cached(capfd)
     assert cached == total
     assert sum(len(ids) for call in calls for ids in call.values()) == total
-    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
+    assert _form(corpus, tmp_path) == _form(python_mini_corpus, tmp_path)
 
 
 def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """An address is valid only for the bytes it was taken from, and the manifest stamp says nothing about a shard's bytes. So the store records each part's size, and a part rewritten underneath it (here compactly, with every stamp intact) is placed by the walk again. Every unit is still reused, and the parts that did not change are trusted as before. The walked units are not copied as they are, so nothing predicts them unchanged, and the share rule writes their class directly, deflated (#618's change 35), with each record's fourth address element and each row's marker, while every other part stays as it was. The corpus materializes to the files the unedited build wrote (decision 48)."""
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     path = next(path for path in _shard_paths(corpus) if json.loads(path.read_text(encoding="utf-8")))
     fragments = json.loads(path.read_text(encoding="utf-8"))
     path.write_text(json.dumps(fragments), encoding="utf-8")
@@ -724,20 +736,20 @@ def test_a_shard_rewritten_underneath_the_store_is_walked_rather_than_trusted(
         if name.startswith("units/") and name != f"units/{path.name}"
     } == {
         name: data
-        for name, data in _tree(mini_corpus).items()
+        for name, data in _tree(python_mini_corpus).items()
         if name.startswith("units/") and name != f"units/{path.name}"
     }
-    assert _live(corpus) == _live(mini_corpus)
-    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
+    assert _live(corpus) == _live(python_mini_corpus)
+    assert _form(corpus, tmp_path) == _form(python_mini_corpus, tmp_path)
 
 
 @pytest.mark.parametrize("write_jobs", [1, 3])
 def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
-    mini_corpus, mini_bundle, tmp_path, monkeypatch, write_jobs
+    python_mini_corpus, mini_bundle, tmp_path, monkeypatch, write_jobs, python_build
 ):
     """The size check cannot see an edit that leaves a part the same length, so such a fragment is trusted into the plan. The reader catches it at the write, where every cached fragment is checked against its record, and the build fails instead of reusing bytes the store does not describe. The write fails the same way in this process and in a write worker, which hands the parent its message, and either way it leaves no staged part behind. A build that recomputes every unit recovers the corpus: it reuses no record, and the write's compare finds the edited slot unequal to the recomputed fragment and appends it, so the corpus holds the unedited build's fragments and materializes to its files. The width is set because the mini bundle's largest class would bound it below three (`_write_width`)."""
     monkeypatch.setattr("rebuild.review.build._write_width", lambda classes, fit: fit)
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     path = next(path for path in _shard_paths(corpus) if json.loads(path.read_text(encoding="utf-8")))
     fragments = json.loads(path.read_text(encoding="utf-8"))
     stamp = fragments[0]["content_key"]
@@ -751,8 +763,8 @@ def test_an_edit_in_place_under_a_trusted_address_is_refused_at_the_write(
     assert not list(corpus.rglob("*.partial"))
     _build(corpus, mini_bundle, jobs=1, write_jobs=write_jobs, recompute_all_units=True)
     assert _overflow_parts(corpus)
-    assert _live(corpus) == _live(mini_corpus)
-    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
+    assert _live(corpus) == _live(python_mini_corpus)
+    assert _form(corpus, tmp_path) == _form(python_mini_corpus, tmp_path)
 
 
 def test_a_store_whose_ink_deltas_moved_fails_the_verification_sample(mini_corpus, mini_bundle, tmp_path):
@@ -798,7 +810,9 @@ def test_a_store_that_fails_midway_degrades_to_a_full_build(mini_corpus, mini_bu
     assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
 
 
-def test_two_units_spelling_one_input_key_are_refused_at_the_plan(mini_bundle, tmp_path, monkeypatch):
+def test_two_units_spelling_one_input_key_are_refused_at_the_plan(
+    mini_bundle, tmp_path, monkeypatch, python_build
+):
     """Two units cannot have the same input key: every row belongs to one triple and every key line includes the row's window and names, so a repeat means a sha256 collision. The plan fails on it as it builds its index over the input keys (`UnitStore.input_key_index`), naming both units, before the store is opened, instead of supplying both units from one record and failing later on the store's duplicate-id check. The stream computes the keys (`audit_stream.input_key`), so the test makes every one the same there."""
     monkeypatch.setattr(audit_stream, "input_key", lambda lines, suffix: bytes(32))
     with pytest.raises(SystemExit) as raised:
@@ -808,10 +822,10 @@ def test_two_units_spelling_one_input_key_are_refused_at_the_plan(mini_bundle, t
 
 
 def test_a_load_that_raises_is_not_swallowed_by_the_store_parse(
-    mini_corpus, mini_bundle, tmp_path, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """The load runs in the plan's frame, not the stream's, so an error the load itself raises (a row loaded twice, an id that does not match its content key, a coding error) propagates unchanged instead of being read as an unreadable store and falling back to a full build."""
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
 
     def refuse(self, ordinal, cached, *, codepoints, found=None):
         raise ValueError("the load's own error")
@@ -844,12 +858,14 @@ def test_recompute_all_units_reuses_no_record_and_keeps_every_fragment_in_place(
     assert after == before
 
 
-def test_serial_and_parallel_builds_are_byte_identical(mini_corpus, mini_bundle, tmp_path, monkeypatch):
-    """The pooled builds this module compares with the serial one select the Python units engine, whose pool they pin; `rebuild/test_units_exec.py` compares the Rust engine's. A pooled build drafts the recomputed units in configuration order (`_configuration_order`) across two workers, and the serial `mini_corpus` drafts the same units in load order in one process. Both produce the same bytes because every order-sensitive whole-corpus pass runs in the parent over all the projections, so this comparison would show any effect of a worker's hand-out order on the output. A first build writes the units index as a head over generation 0's base and no single file (#618's change 32)."""
+def test_serial_and_parallel_builds_are_byte_identical(
+    python_mini_corpus, mini_bundle, tmp_path, monkeypatch, python_build
+):
+    """The pooled builds this module compares with the serial one select the Python units engine, whose pool they pin; `rebuild/test_units_exec.py` compares the Rust engine's. A pooled build drafts the recomputed units in configuration order (`_configuration_order`) across two workers, and the serial `python_mini_corpus` drafts the same units in load order in one process. Both produce the same bytes because every order-sensitive whole-corpus pass runs in the parent over all the projections, so this comparison would show any effect of a worker's hand-out order on the output. A first build writes the units index as a head over generation 0's base and no single file (#618's change 32)."""
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     parallel = tmp_path / "parallel"
     _build(parallel, mini_bundle, jobs=2)
-    assert _tree(parallel) == _tree(mini_corpus)
+    assert _tree(parallel) == _tree(python_mini_corpus)
     assert sorted(path.name for path in parallel.glob(f"{unit_index.INDEX_NAME}*")) == [
         row_delta.base_name(unit_index.INDEX_NAME, 0),
         row_delta.head_name(unit_index.INDEX_NAME),
@@ -888,7 +904,9 @@ def _sidecars_held_whole(corpus: Path, scratch: Path) -> dict[str, bytes]:
     return _sidecars(scratch)
 
 
-def test_a_pooled_write_is_byte_identical_to_the_serial_one(mini_bundle, tmp_path, capfd, monkeypatch):
+def test_a_pooled_write_is_byte_identical_to_the_serial_one(
+    mini_bundle, tmp_path, capfd, monkeypatch, python_build
+):
     """The write cuts the classes into runs of shard order (`_write_runs`) and, wider than one, writes the runs in worker processes, each fed its run a chunk at a time from the parent's columns (`_write_chunks`), with its own shard writer, compressed sidecar lines and copy-forward cursors, while the parent writes each chunk's results into the store and folds its checker's facts as they arrive. Once the manifest is written the parent pulls each run's lines from the worker that wrote it and writes the sidecars. So a cold build and a cached rebuild whose write runs three wide match a serial build byte for byte, and the sidecars of all three are the bytes the writers that hold every fragment at once write over the same shards (`_sidecars_held_whole`), the units index's head and parts among them, since every writer of the index takes the same route (#618's change 32). A rebuild over an edited audit that appends changed fragments to a class's overflow parts lays them out the same at either width, overflow parts and store segment included, since a class's appends go in its id order in the one process that writes it, and deflates each in that process (#618's change 35). So does a later rebuild that folds two classes (`_fold_due`), copying the deflated fragments one holds as they were stored and deflating every plain one. The chunk width is lowered so the larger classes span many chunks, some ending on a chunk's last unit. The cold build reads, patches and serializes every fragment in the workers. The cached rebuild copies every fragment and every sidecar row forward, each run's cursors reading past the lines of the runs before it. Each pooled pass files one `corpus-write` pool record in the journal the autouse fixture redirects. The width is set because the mini bundle's largest class would bound it below three (`_write_width`).
 
     The one value the write reads at another unit is the id of a secondary junction's primary unit, which a chunk carries as an id word (`ChunkStore.primary_units`). The mini bundle's junctions find no primary unit under the real matcher, since their two-letter windows are not units, so every build here accepts any containing window (`enrich._junction_outcomes_match`). That names a visible primary unit for some junctions and an ink-identical one, suppressing the junction, for others, and the corpus checks still pass. A missing word then changes the cold build's bytes, and keeps the cached rebuild from copying those units as they are.
@@ -972,18 +990,18 @@ def test_the_write_cuts_shard_order_into_contiguous_runs_no_wider_than_its_large
 
 
 def test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build(
-    mini_corpus, mini_bundle, tmp_path, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """The pool hands the recomputed units out one batch at a time, so which worker drafts which unit depends on timing. Narrowing the hand-out splits the mini bundle's recomputed units into a few dozen batches over two workers, where per-worker state leaking into the output would show up as a changed byte against the serial build. At the checked-in `PHASE1_HANDOUT_UNITS`, `_handout_width` splits them into only a handful of batches, which exercises little interleaving."""
     monkeypatch.setattr("rebuild.review.build.PHASE1_HANDOUT_UNITS", 37)
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     parallel = tmp_path / "narrowed"
     _build(parallel, mini_bundle, jobs=2)
-    assert _tree(parallel) == _tree(mini_corpus)
+    assert _tree(parallel) == _tree(python_mini_corpus)
 
 
 def test_a_pool_handed_the_recomputed_units_in_any_configuration_order_is_byte_identical_to_the_serial_build(
-    mini_corpus, mini_bundle, tmp_path, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """The configuration sort exists to save memory, not for correctness, so the byte identity above must hold under any hand-out order. With the sort reversed (the last acceptance configuration first, load order within each), a two-worker pool over the narrowed hand-out still builds the serial corpus byte for byte, which shows that the sort changes no bytes."""
     from rebuild.review.audit import _config_index
@@ -996,23 +1014,23 @@ def test_a_pool_handed_the_recomputed_units_in_any_configuration_order_is_byte_i
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
     parallel = tmp_path / "reversed"
     _build(parallel, mini_bundle, jobs=2)
-    assert _tree(parallel) == _tree(mini_corpus)
+    assert _tree(parallel) == _tree(python_mini_corpus)
 
 
 def test_a_pooled_cached_rebuild_is_byte_identical_to_the_serial_one(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """The pooled verify branch settles each worker's share of the sample and zips the reports back to `(unit, injection)` pairs by position. A report zipped onto its neighbor's unit would recompute that unit under another window, miss its content key, and fail the build. A cached rebuild at two jobs runs that branch, and its output matches the serial build byte for byte."""
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     _build(corpus, mini_bundle, jobs=2)
     cached, total = _cached(capfd)
     assert cached == total
-    assert _tree(corpus) == _tree(mini_corpus)
+    assert _tree(corpus) == _tree(python_mini_corpus)
 
 
 def test_both_pooled_hand_outs_go_through_the_configuration_sort_and_cover_their_units(
-    mini_bundle, tmp_path, capfd, monkeypatch
+    mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """The parent applies the configuration sort at two call sites: the recomputed units in `_drive_phase1` and the verification sample in `verify`. The byte-identity tests above cannot detect a fault at either, because the corpus is the same bytes under any hand-out order, and a sampled unit that no worker receives goes unverified without changing a byte. So this test spies on the helper instead of replacing it. A cold two-worker build passes it every recomputed unit once. A cached rebuild over that corpus passes it no recomputed units and then the whole sample (every cached unit, up to `VERIFICATION_SAMPLE`). The units phase's `verified=` count equals the sample size, which checks that the contiguous shares `verify` cuts cover the whole sample and drop no tail past the last worker."""
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
@@ -1047,7 +1065,7 @@ def _signatures(capfd) -> tuple[int, int]:
 
 
 def test_a_pooled_signature_pass_is_byte_identical_to_the_serial_one(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """The signature phase's pool maps chunks of the signature misses, each reply carrying its worker's peak memory beside the chunk's digests, and `pool.map` keeps the chunks in miss order. So a pooled pass over a cold store puts every digest on the row that requested it, and the corpus it builds, including the ink-signature store, is byte-identical to the serial one. The pass also writes one `signature` pool record to the journal (redirected by the autouse fixture), with the peaks recorded under the worker labels; the serial build before it wrote nothing. The mini bundle's signature misses are few enough that one worker can finish them before the other has spawned, so the test checks the record's worker names and width, not that two workers replied. The threshold is lowered because the mini bundle's signature misses fall far below the checked-in one, and the units runner runs at one job so that the signature pool is the only pool in this build."""
     from rebuild.tools import cycle_timings
@@ -1063,7 +1081,7 @@ def test_a_pooled_signature_pass_is_byte_identical_to_the_serial_one(
     match = re.search(r"signatures: (\d[\d,]*) cached, (\d[\d,]*) shaped across 2 workers", err)
     assert match, err
     assert int(match.group(2).replace(",", "")) == serial_shaped
-    assert _tree(pooled) == _tree(mini_corpus)
+    assert _tree(pooled) == _tree(python_mini_corpus)
     lines = cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
     record = json.loads(lines[0])
@@ -1073,7 +1091,9 @@ def test_a_pooled_signature_pass_is_byte_identical_to_the_serial_one(
     assert all(isinstance(peak, int) and peak > 0 for peak in peaks.values())
 
 
-def test_signature_misses_under_the_threshold_stay_serial(mini_corpus, mini_bundle, tmp_path, capfd):
+def test_signature_misses_under_the_threshold_stay_serial(
+    python_mini_corpus, mini_bundle, tmp_path, capfd, python_build
+):
     """Giving the signature phase its own width must not push a small set of signature misses off the serial path. Below `_SIGNATURE_POOL_THRESHOLD` the parent shapes through its shared shapers at any width, starts no pool, writes no pool record, and builds the same bytes. The autouse fixture redirects the journal, so the test checks that nothing was written to it."""
     from rebuild.tools import cycle_timings
 
@@ -1081,7 +1101,7 @@ def test_signature_misses_under_the_threshold_stay_serial(mini_corpus, mini_bund
     _build(corpus, mini_bundle, jobs=1, signature_jobs=4)
     assert " shaped serially)" in capfd.readouterr().err
     assert not cycle_timings.JOURNAL.exists()
-    assert _tree(corpus) == _tree(mini_corpus)
+    assert _tree(corpus) == _tree(python_mini_corpus)
 
 
 def test_no_change_rebuild_reuses_every_signature(mini_corpus, mini_bundle, tmp_path, capfd):
@@ -1684,7 +1704,7 @@ def _spy_signature_write(monkeypatch) -> list[tuple[bool, str]]:
 
 
 def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins_it(
-    mini_bundle, tmp_path, monkeypatch
+    mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """At `jobs=2` the units phase is pooled and the parent waits on the workers' replies, so the signature store is written on a thread during that phase, and the build joins the thread in the cache phase before it returns. The mini bundle's store is small enough that the thread would finish before the build returns whether or not the build joined it, so the test holds the write until the build calls `join`: a build that returned without joining would return with the store unwritten. `test_serial_and_parallel_builds_are_byte_identical` and `test_a_narrowed_hand_out_pool_is_byte_identical_to_the_serial_build` compare the bytes the thread writes against the inline path's, since they compare the whole tree, including the store and any staging file. The autouse fixture redirects the journal, so the pool record this build writes does not reach the real one."""
     calls: list[tuple[bool, str]] = []
@@ -1722,7 +1742,7 @@ def test_a_pooled_build_writes_its_signature_store_off_the_main_thread_and_joins
 
 
 def test_a_serial_build_writes_its_signature_store_inline_before_the_units_phase_drafts_anything(
-    mini_bundle, tmp_path, monkeypatch
+    mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """The serial build has no idle parent to overlap the write with, and a CPU-bound parent would compete with a thread instead. So at `jobs=1` the store is written inline on the main thread at the units-phase boundary, where the pooled build starts its thread. The store is on disk, stamped for this build's environment, before `_RecomputeRunner.phase1` drafts a unit, so the columns are freed before the units phase instead of after the cache phase."""
     calls = _spy_signature_write(monkeypatch)
@@ -1784,7 +1804,7 @@ def test_the_signature_write_holds_no_columns_once_the_store_is_written(tmp_path
 
 
 def test_a_failing_build_abandons_the_signature_write_rather_than_waiting_on_it(
-    mini_bundle, tmp_path, monkeypatch
+    mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """The thread is joined only on the success path, so a build that raises after starting it exits through its `finally` without waiting for the write. The spy holds the write open until the test releases it, so a build that joined would hang here instead of raising. The test then releases the write and joins its thread so nothing outlives the test."""
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
@@ -1912,7 +1932,7 @@ def _reordered(rows: list[str], shape: str) -> list[str]:
 
 @pytest.mark.parametrize("shape", ["sections out of rank order", "an order break partway"])
 def test_an_audit_not_in_sorted_sections_builds_through_the_in_memory_source(
-    shape, mini_corpus, mini_bundle, tmp_path, capfd
+    shape, mini_corpus, mini_bundle, tmp_path, capfd, python_build
 ):
     """An audit whose rows run_m1 never orders this way is no error: the build reads it through the in-memory source and says why on its load line. A break partway, two rows of one section swapped, leaves every unit's configs in their order, so the corpus is the sorted audit's. With the sections out of rank order a unit's per-config classes come in the file's order, which reaches its fragment, so that corpus holds the sorted audit's units and rows under other bytes."""
     header, rows = _mini_audit_lines()
@@ -1932,7 +1952,7 @@ def test_an_audit_not_in_sorted_sections_builds_through_the_in_memory_source(
 
 @pytest.mark.parametrize("shape", ["sorted", "sections out of rank order"])
 def test_an_audit_replaced_by_rename_after_the_load_opened_it_is_not_read(
-    shape, mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    shape, mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """The build holds the descriptor it opened the audit with until its load returns and reads every byte of the audit through it, never by the path again, since a `--gates-only` pass can replace the audit by rename during a build. An audit replaced by a shorter one just after the build opened it is read as it was when opened: by the key-only read and the stream when it is in sorted sections, by the in-memory source otherwise."""
     header, rows = _mini_audit_lines()
@@ -1972,7 +1992,7 @@ def test_an_audit_replaced_by_rename_after_the_load_opened_it_is_not_read(
 @pytest.mark.parametrize("damage", ["a flipped bit", "rows that break the walk first"])
 @pytest.mark.parametrize("reader", ["the key-only read", "the stream"])
 def test_a_member_that_does_not_inflate_fails_the_build_naming_its_configuration(
-    reader, damage, mini_bundle, tmp_path, monkeypatch
+    reader, damage, mini_bundle, tmp_path, monkeypatch, python_build
 ):
     """An audit whose base a fold wrote as gzip members (#618's change 36) is read by member, and a reader that seeks checks only the parts' sizes, so a member whose bytes are damaged at its recorded size is found as it is inflated: by a key-only read process, which replies with the failure the build raises, or by the stream when the store's stamps skip that read. Either fails the build with `audit_stream.MemberError` naming the section's configuration, and the build never reads the audit through its in-memory source. That holds for damage zlib catches as it inflates, and for damage that inflates to rows that break the walk before the member's end is checked, as damage inside a large member usually does: here a whole gzip member of a row repeated at a window past every other, so only the last window range reaches it, then padding to the member's recorded length."""
     from rebuild.pipeline import oracle
@@ -2058,7 +2078,7 @@ def test_the_store_stamps_skip_the_key_only_read_while_both_hold(
 
 
 def test_a_wrong_skip_shapes_the_miss_in_the_parent_and_writes_the_store(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """A store whose stamps hold but which lacks an entry, which the stamps say cannot happen, costs time and never a byte: the pass skips the key-only read, the stream meets the missing key, shapes it in the parent as the serial path does, releasing the shape memo after it, so a wrong skip that misses every row holds one signature's shapes at a time, and the store is written with it again, so the corpus and the store's entries come out as they were."""
     late = review_build._LateShaper.__call__
@@ -2072,7 +2092,7 @@ def test_a_wrong_skip_shapes_the_miss_in_the_parent_and_writes_the_store(
         return digest
 
     monkeypatch.setattr(review_build._LateShaper, "__call__", watching)
-    corpus = _copy(mini_corpus, tmp_path)
+    corpus = _copy(python_mini_corpus, tmp_path)
     path = unit_cache.signature_store_path(corpus)
     header, _, body = gzip.decompress(path.read_bytes()).partition(b"\n")
     lines = body.splitlines(keepends=True)
@@ -2085,9 +2105,9 @@ def test_a_wrong_skip_shapes_the_miss_in_the_parent_and_writes_the_store(
     assert memo_after_shape == [0]
     assert "ink-signature store written" in report
     assert _signature_lines(path.read_bytes()) == _signature_lines(
-        unit_cache.signature_store_path(mini_corpus).read_bytes()
+        unit_cache.signature_store_path(python_mini_corpus).read_bytes()
     )
-    assert _form(corpus, tmp_path) == _form(mini_corpus, tmp_path)
+    assert _form(corpus, tmp_path) == _form(python_mini_corpus, tmp_path)
 
 
 def test_cluster_id_from_repr_matches_the_tuple_recipe():
@@ -2901,11 +2921,11 @@ def test_the_units_index_takes_each_route_from_its_head_and_materializes_to_the_
 
 
 def test_a_build_puts_a_single_file_store_under_a_head_before_it_appends(
-    mini_corpus, mini_bundle, edited_scratch, tmp_path, monkeypatch
+    python_mini_corpus, mini_bundle, python_edited_scratch, tmp_path, monkeypatch, python_build
 ):
     """A store written before the segment format, the single file `unit-cache.ndjson.gz` with no head, is put under a head as generation 0's base, a link to the file, as soon as the plan has read it (`unit_cache.adopt_single_file`), before the write appends to any shard part. So a build that appends and then fails before its store write leaves a corpus with a head, which the iterator never walks part by part, so it never takes the dead slot the append left as live. It takes the corpus from the index, whose walk as JSON cannot read the append, held deflated (#618's change 35), so it refuses the corpus (`unit_index.LayoutError`) rather than read it wrong, and the next build completes it into the from-scratch build's materialized form and removes the single file."""
-    audits, scratches = edited_scratch
-    corpus = _copy(mini_corpus, tmp_path)
+    audits, scratches = python_edited_scratch
+    corpus = _copy(python_mini_corpus, tmp_path)
     head = row_delta.read_head(corpus, unit_cache.STORE_NAME)
     assert head is not None and not head.segments
     single = unit_cache.store_path(corpus)
@@ -2971,11 +2991,11 @@ def test_a_stamp_move_that_moves_no_fragment_writes_no_shard_byte(
 
 
 def test_a_class_whose_dead_bytes_reach_its_live_bytes_is_folded_deflated_into_a_from_scratch_layout(
-    mini_corpus, mini_bundle, edited_scratch, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, python_edited_scratch, tmp_path, capfd, monkeypatch, python_build
 ):
     """A class whose dead bytes reach its live bytes on disk as the pass opens is folded: its live fragments rewritten in id order into base parts cut and named by the rule a from-scratch build follows (`unit_index.PartLayout`, `unit_index.base_part_names`), over their bytes on disk, its overflow parts left unlisted and pruned. A fold writes deflated (#618's change 35): a fragment the class held deflated is copied in as it was stored, never deflated twice, and a plain one is deflated. Here `RETAG_CLASS` holds two retagged units appended deflated beside its plain base part, and copies of that part as overflow parts no record names, so its dead bytes reach its live bytes (`_fold_due`); the pass that folds it moves one retagged unit back out. The cap is lowered below the class's deflated bytes, so the fold crosses from the bare name to numbered parts. The files on disk differ from a from-scratch build's (decision 48), but the corpus holds that build's fragments by id and materializes to its files byte for byte."""
-    audits, scratches = edited_scratch
-    corpus = _copy(mini_corpus, tmp_path)
+    audits, scratches = python_edited_scratch
+    corpus = _copy(python_mini_corpus, tmp_path)
     _build(corpus, mini_bundle, audit_path=audits[1], jobs=1)
     with unit_index.LiveCorpus(corpus) as live:
         before = {

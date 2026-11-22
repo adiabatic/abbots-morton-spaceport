@@ -512,7 +512,7 @@ def _build_once(
 ) -> Path:
     """Return the directory `name` under `run_temp_root`, which the first process of the run to ask for it fills by calling `build` on it and every other process reads as it stands, so a fixture scoped wider than a function is built once a run and not once an xdist worker.
 
-    An exclusive lock beside the directory (`store_lock.hold_flock`) holds the other processes off until the build returns, and a record beside it, written last, marks the build done. A build that raised leaves no record, so the next process to ask removes what it left and builds again. The record holds what the build added to the input closure: its repo reads, the files of the modules it imported, and whether it spawned the kernel or an untraced child. A process that finds the build done adds the same to its own closure, so a test's recorded closure does not depend on which worker built the fixture.
+    An exclusive lock beside the directory (`store_lock.hold_flock`) holds the other processes off until the build returns, and a record beside it, written last, marks the build done. For the length of the build the timings journal (`cycle_timings.JOURNAL`) is a file beside the record, as `_redirect_cycle_writes` points a test's, since a fixture scoped wider than a function is set up before that redirect: a corpus build's pool record, which the Rust build writes at any width, lands there and not in the live journal. A build that raised leaves no record, so the next process to ask removes what it left and builds again. The record holds what the build added to the input closure: its repo reads, the files of the modules it imported, and whether it spawned the kernel or an untraced child. A process that finds the build done adds the same to its own closure, so a test's recorded closure does not depend on which worker built the fixture.
 
     Every worker reads the one copy, so nothing writes into it once it is built; a test that changes a fixture's files works on its own copy.
     """
@@ -540,9 +540,12 @@ def _build_once(
         directory.mkdir()
         sink = _Sink()
         _guard.fixtures.append(sink)
+        journal = cycle_timings.JOURNAL
+        cycle_timings.JOURNAL = root / f"{name}.cycle-timings.ndjson"
         try:
             build(directory)
         finally:
+            cycle_timings.JOURNAL = journal
             _guard.fixtures.pop()
         modules = {path for module in sink.module_names if (path := _module_file(module)) is not None}
         record.write_text(
@@ -600,24 +603,46 @@ def mini_bundle(build_once) -> MiniBundle:
     )
 
 
-@pytest.fixture(scope="session")
-def mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
-    """Build the frozen mini bundle's corpus once a run (`build_once`), for every test that needs the bundle's unmodified corpus. `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one job, so it writes no pool record."""
+def _mini_corpus_build(mini_bundle: MiniBundle, engine: str | None) -> Callable[[Path], None]:
+    """Return the build of the frozen mini bundle's corpus into a directory's `corpus`, at one job, under the corpus build `engine` names (`AMS_CORPUS_BUILD_ENGINE` set for the length of the build), or under the one the run resolves when it is None."""
     build = announced_import("rebuild.review.build")
+    corpus_exec = announced_import("rebuild.review.corpus_exec")
 
     def build_corpus(directory: Path) -> None:
-        build.build_m1(
-            directory / "corpus",
-            audit_path=MINI / "audit.tsv",
-            ledger_path=mini_bundle.ledger,
-            subset_dir=MINI,
-            after_font=MINI / "M1.otf",
-            spec_root=mini_bundle.spec_root,
-            subset_pack=mini_bundle.subset_pack,
-            jobs=1,
-        )
+        with pytest.MonkeyPatch.context() as patch:
+            if engine is not None:
+                patch.setenv(corpus_exec.ENGINE_VARIABLE, engine)
+            build.build_m1(
+                directory / "corpus",
+                audit_path=MINI / "audit.tsv",
+                ledger_path=mini_bundle.ledger,
+                subset_dir=MINI,
+                after_font=MINI / "M1.otf",
+                spec_root=mini_bundle.spec_root,
+                subset_pack=mini_bundle.subset_pack,
+                jobs=1,
+            )
 
-    return build_once("mini-corpus", build_corpus) / "corpus"
+    return build_corpus
+
+
+@pytest.fixture(scope="session")
+def mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
+    """Build the frozen mini bundle's corpus once a run (`build_once`), for every test that needs the bundle's unmodified corpus, under the corpus build engine the run resolves (`corpus_exec.engine()`). `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one job, and its pool record, if it writes one, goes to the journal `build_once` points beside it."""
+    return build_once("mini-corpus", _mini_corpus_build(mini_bundle, None)) / "corpus"
+
+
+@pytest.fixture(scope="session")
+def python_mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
+    """`mini_corpus` as the Python build writes it (`AMS_CORPUS_BUILD_ENGINE=python`), built once a run, for a test that selects the Python build (`python_build`) and builds over the mini corpus or compares a tree with it. The Python build at one job stamps no units engine in its unit store, where the Rust build stamps the crate, so the two trees differ in that stamp and a Python build over the Rust build's corpus recomputes every unit."""
+    return build_once("mini-corpus-python", _mini_corpus_build(mini_bundle, "python")) / "corpus"
+
+
+@pytest.fixture
+def python_build(monkeypatch) -> None:
+    """Select the Python corpus build (`AMS_CORPUS_BUILD_ENGINE=python`) for the test, which pins something only the Python build does: its phase notes, its pools, its memory tally, or a Python internal the test patches."""
+    corpus_exec = announced_import("rebuild.review.corpus_exec")
+    monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "python")
 
 
 @pytest.fixture(scope="session")

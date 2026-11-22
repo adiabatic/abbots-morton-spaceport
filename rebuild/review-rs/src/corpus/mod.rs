@@ -1096,7 +1096,7 @@ pub struct Built {
     pub signature_threads: usize,
 }
 
-/// The manifest+check phase's note, as `build._build_m1` closes its line: the write's width and counters, each run's spilled sidecar lines in MB, and what the units index's write did.
+/// The manifest+check phase's note, as `build._build_m1` closes its line: the write's width and counters, the plain bytes of each run's sidecar spill files in MB, where the Python build's note gives the compressed sidecar lines each run holds in memory, and what the units index's write did.
 fn write_note(
     jobs: usize,
     units: usize,
@@ -1116,7 +1116,7 @@ fn write_note(
         })
         .collect();
     format!(
-        "jobs={jobs} (byte-copied {} of {} fragments, copied forward {} sidecar rows; sidecar lines {} MB by run; appended {:.1} MB ({:.1} MB inflated), kept {} by compare, folded {} classes, wrote {} directly, deflated {} fragments, dead {:.1} MB) (index: {index})",
+        "jobs={jobs} (byte-copied {} of {} fragments, copied forward {} sidecar rows; sidecar spill files {} MB by run; appended {:.1} MB ({:.1} MB inflated), kept {} by compare, folded {} classes, wrote {} directly, deflated {} fragments, dead {:.1} MB) (index: {index})",
         count(counters.byte_copied),
         thousands(units),
         count(counters.copied_forward),

@@ -2750,24 +2750,26 @@ class TestTheCorpusBuildWidth:
             ).startswith(f"{width} at ")
 
     def test_the_pytest_pool_comes_off_the_machine_before_the_division(self, monkeypatch):
-        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term, and the cap is the build lane's share less the parent. On nine cores the build lane holds five and the gate lane four. The terms are the default engine's, the Rust engine's threads beside its process. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
-        from rebuild.review import units_exec
+        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term, and the cap is the build lane's share less the parent. On nine cores the build lane holds five and the gate lane four. The terms are the default build's, the Rust build's threads beside its process and its launcher. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
+        from rebuild.review import corpus_exec, units_exec
 
         monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+        monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
         solo = ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
         beside = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
         unpooled = ac._corpus_fit_terms(skip_gates=False, skip_make_test=True, ncores=9)
-        process = ac.CORPUS_PARENT_BYTES + ac.CORPUS_UNITS_RS_PROCESS_BYTES
-        assert solo == (ac.CORPUS_UNITS_RS_THREAD_BYTES, process, 8)
-        assert beside == (ac.CORPUS_UNITS_RS_THREAD_BYTES, process + 4 * ac._font_suite_worker_bytes(), 4)
-        assert unpooled == (ac.CORPUS_UNITS_RS_THREAD_BYTES, process, 4)
+        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
+        assert solo == (ac.CORPUS_BUILD_RS_THREAD_BYTES, process, 8)
+        assert beside == (ac.CORPUS_BUILD_RS_THREAD_BYTES, process + 4 * ac._font_suite_worker_bytes(), 4)
+        assert unpooled == (ac.CORPUS_BUILD_RS_THREAD_BYTES, process, 4)
 
     def test_the_rust_engine_fits_threads_beside_its_process(self, monkeypatch):
-        """Under the Rust units engine the width is a thread count: CORPUS_UNITS_RS_THREAD_BYTES divides, and CORPUS_UNITS_RS_PROCESS_BYTES comes off the machine beside the parent, under the Python engine's cap. Without an engine the width is the one the switch names, the Rust engine's when it is unset."""
-        from rebuild.review import units_exec
+        """Under the Python build (`AMS_CORPUS_BUILD_ENGINE=python`) with the Rust units engine the width is a thread count: CORPUS_UNITS_RS_THREAD_BYTES divides, and CORPUS_UNITS_RS_PROCESS_BYTES comes off the machine beside the parent, under the Python engine's cap. Without an engine the width is the one the units switch names, the Rust engine's when it is unset."""
+        from rebuild.review import corpus_exec, units_exec
         from rebuild.tools import memory_budget
 
         monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+        monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "python")
 
         assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9, engine="rust") == (
             ac.CORPUS_UNITS_RS_THREAD_BYTES,
@@ -2786,7 +2788,7 @@ class TestTheCorpusBuildWidth:
         )
 
     def test_the_rust_build_fits_threads_beside_its_process_and_launcher(self, monkeypatch):
-        """Under the Rust build (`AMS_CORPUS_BUILD_ENGINE=rust`) the width is the thread count of its one process: CORPUS_BUILD_RS_THREAD_BYTES divides, and the process's CORPUS_BUILD_RS_PROCESS_BYTES and the Python process waiting on it, CORPUS_BUILD_RS_LAUNCHER_BYTES, come off the machine in place of the parent and the units engine, beside gate:make-test's pool when that gate runs, under the same cap. A width for the Python units engine is a Python build's, which the Rust build refuses to run beside, and without the switch the width is the Python build's."""
+        """Under the Rust build (`AMS_CORPUS_BUILD_ENGINE=rust`) the width is the thread count of its one process: CORPUS_BUILD_RS_THREAD_BYTES divides, and the process's CORPUS_BUILD_RS_PROCESS_BYTES and the Python process waiting on it, CORPUS_BUILD_RS_LAUNCHER_BYTES, come off the machine in place of the parent and the units engine, beside gate:make-test's pool when that gate runs, under the same cap. A width for the Python units engine is a Python build's, which the Rust build refuses to run beside. Without the switch the width is the Rust build's, the default, unless the process asks for the Python units engine, which runs the Python build (`corpus_exec.engine`), so its width is that build's."""
         from rebuild.review import corpus_exec, units_exec
         from rebuild.tools import memory_budget
 
@@ -2820,7 +2822,17 @@ class TestTheCorpusBuildWidth:
             8,
         )
         monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE)
-        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9) == python_build
+        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9) == (
+            ac.CORPUS_BUILD_RS_THREAD_BYTES,
+            process,
+            8,
+        )
+        monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
+        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9) == (
+            ac.CORPUS_WORKER_BYTES,
+            ac.CORPUS_PARENT_BYTES,
+            8,
+        )
 
     def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_worker(self):
         """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: the parent runs the units phase itself instead of handing it to a worker pool."""
@@ -2923,11 +2935,17 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 class TestTheConformSweepWidth:
     """The cycle sizes gate:conform's sweep: one spawn process per unit, each holding `CONFORM_SWEEP_UNIT_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division. Its cap is the cores less the corpus build's processes and gate:make-test's pool under the overlap policy, never below the acceptance-configuration count."""
 
-    def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's parent plus the workers `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead, and one that runs both subtracts that step with the build's whole parent beside it, since the parent writes its unit store as the verdict update starts. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
+    def test_the_corpus_build_comes_off_the_machine_before_the_division(self, monkeypatch):
+        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the default build's, the Rust build's process and its launcher plus the threads `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead, and one that runs both subtracts that step with the build's process and launcher beside it, since the build writes its unit store as the verdict update starts. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
+
+        from rebuild.review import corpus_exec, units_exec
+
+        monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+        monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
+        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
 
         def corpus(skip_make_test):
-            return ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(
+            return process + ac.CORPUS_BUILD_RS_THREAD_BYTES * ac.corpus_job_budget(
                 skip_gates=False, skip_make_test=skip_make_test, ncores=16, total_bytes=MACHINE_48_GIB
             )
 
@@ -2976,7 +2994,7 @@ class TestTheConformSweepWidth:
         )
         assert terms(skip_make_test=True) == (per_unit, corpus(True), cap(skip_make_test=True))
 
-        store_write = ac.CORPUS_PARENT_BYTES
+        store_write = process
         assert 0 < corpus(False) < verdict_update(False) + store_write
         assert terms(verdict_update_runs=True) == (per_unit, verdict_update(False) + store_write, cap())
         assert terms(verdict_update_runs=True, pool_policy="overlap") == (
@@ -3001,7 +3019,10 @@ class TestTheConformSweepWidth:
         )
 
     def test_the_larger_build_lane_step_is_the_one_that_comes_off(self, monkeypatch):
-        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. On a pass that runs the build, the verdict-update step counts the build's whole parent too, which writes the unit store as the verdict update starts (`_do_corpus_build`); a pass that skips the build counts none. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so with no verdict-update process held the corpus build is the larger there, the build's parent counting on both sides; the test states that ordering before relying on it."""
+        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. On a pass that runs the build, the verdict-update step counts the build's whole parent too, which writes the unit store as the verdict update starts (`_do_corpus_build`); a pass that skips the build counts none. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted. On one core each pool runs one worker, and a corpus worker outweighs a refill worker, so with no verdict-update process held the corpus build is the larger there, the build's parent counting on both sides; the test states that ordering before relying on it. These are the Python build's terms (`AMS_CORPUS_BUILD_ENGINE=python`), its parent and its workers; the next test checks the Rust build's."""
+        from rebuild.review import corpus_exec
+
+        monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "python")
         machine: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB)
         wide: dict[str, Any] = dict(machine, ncores=40)
         corpus = ac.CORPUS_PARENT_BYTES + ac.CORPUS_WORKER_BYTES * ac.corpus_job_budget(**wide)

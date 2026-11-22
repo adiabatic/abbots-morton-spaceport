@@ -302,14 +302,14 @@ def _tree(path: Path) -> dict[str, bytes]:
 
 
 def test_a_rust_build_writes_the_python_build_s_corpus_files(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """A pooled build under the Rust engine writes the serial Python build's corpus byte for byte, as `rebuild/test_unit_cache.py`'s serial-versus-parallel test compares a pooled Python build, once the unit store's `units_engine` line, which only says which engine wrote the store, is held out; its units line names the engine and it files the engine's `corpus-units-rs` pool record. A no-change rebuild under the engine reuses every unit, recomputes its verification sample through the engine's `verify`, and leaves the corpus as it was, and so does one whose sample is a single unit, which the engine takes too."""
     monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
     monkeypatch.setattr(units_exec, "engine_stamp", lambda: None)
     rust = tmp_path / "rust"
     _build_mini(rust, mini_bundle, jobs=2)
-    assert _tree(rust) == _tree(mini_corpus)
+    assert _tree(rust) == _tree(python_mini_corpus)
     err = capfd.readouterr().err
     assert re.search(r"\[t\] review\.build units .*\tjobs=2 engine=rust \(recomputed=", err), err
     records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
@@ -322,16 +322,16 @@ def test_a_rust_build_writes_the_python_build_s_corpus_files(
     assert f"reused {total:,} of {total:,} units from the cache" in err
     verified = re.search(r"\tjobs=2 engine=rust \(recomputed=0, verified=(\d+) cached;", err)
     assert verified and int(verified.group(1)) == min(build.VERIFICATION_SAMPLE, total), err
-    assert _tree(rust) == _tree(mini_corpus)
+    assert _tree(rust) == _tree(python_mini_corpus)
     sample = build._verification_sample
     monkeypatch.setattr(build, "_verification_sample", lambda cached, seed: sample(cached, seed, 1))
     _build_mini(rust, mini_bundle, jobs=2)
     assert "\tjobs=2 engine=rust (recomputed=0, verified=1 cached;" in capfd.readouterr().err
-    assert _tree(rust) == _tree(mini_corpus)
+    assert _tree(rust) == _tree(python_mini_corpus)
 
 
 def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
-    mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch
+    python_mini_corpus, mini_bundle, tmp_path, capfd, monkeypatch, python_build
 ):
     """Under the Python engine the unit store's stamp has no `units_engine` line and keeps the bytes it had before the switch existed; under the Rust engine it gains one, the digest of every file of the review crate outside `target/`, and nothing else moves. So a store the Python engine wrote is a miss to a Rust build, which names the line that moved. A build at one job computes its units with the Python code under either switch value and stamps them as the Python engine's, so it misses a store the Rust engine wrote."""
     with warnings.catch_warnings():
@@ -375,7 +375,7 @@ def test_the_unit_store_stamp_names_the_crate_only_under_the_rust_engine(
     assert {"Cargo.toml", "Cargo.lock", "build.rs", "src/lib.rs", "src/ffi.rs"} <= set(paths)
     assert not any(path.startswith("target/") for path in paths)
     rebuilt = tmp_path / "rebuilt"
-    shutil.copytree(mini_corpus, rebuilt)
+    shutil.copytree(python_mini_corpus, rebuilt)
     capfd.readouterr()
     _build_mini(rebuilt, mini_bundle, jobs=2)
     err = capfd.readouterr().err

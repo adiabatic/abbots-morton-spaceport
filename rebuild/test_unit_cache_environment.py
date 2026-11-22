@@ -122,11 +122,11 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 
 
 def test_a_recompiled_font_reuses_the_untouched_units_and_matches_a_from_scratch_build(
-    mini_corpus, mini_bundle, tmp_path, capfd
+    python_mini_corpus, mini_bundle, tmp_path, capfd, python_build
 ):
-    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be, materialized (`build.materialize_corpus`), byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled."""
+    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be, materialized (`build.materialize_corpus`), byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `python_mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled. The test selects the Python build, since the Rust units engine refuses a window of the recompiled font that needs the outline-level delta (`InkComparator._piece_diff`), which only the Python build at one job computes."""
     incremental = tmp_path / "corpus"
-    shutil.copytree(mini_corpus, incremental)
+    shutil.copytree(python_mini_corpus, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
 
     capfd.readouterr()

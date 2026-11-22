@@ -1151,7 +1151,7 @@ def _build_mini(out: Path, mini_bundle) -> None:
     )
 
 
-def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeypatch, tmp_path):
+def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeypatch, tmp_path, python_build):
     """Tests the drafting-time subset through a real serial build. A failing pin written onto every human fragment by `unit_to_json` is caught by `DRAFTED` where the fragment is drafted, and fails the build at the write in the parent's `contract check failed` list with the predicate's message. The build is serial because a spawned worker does not see the monkeypatch; the pooled path runs the same `_phase1_unit`."""
     unit_to_json = review_build.unit_to_json
 
@@ -1168,7 +1168,9 @@ def test_a_fragment_the_worker_drafts_wrong_fails_the_build(mini_bundle, monkeyp
     assert "drafts.pin.syntax is 'fail: refuted for the test'" in str(raised.value)
 
 
-def test_a_duplicate_group_the_parent_nulls_still_fails_the_build(mini_bundle, monkeypatch, tmp_path):
+def test_a_duplicate_group_the_parent_nulls_still_fails_the_build(
+    mini_bundle, monkeypatch, tmp_path, python_build
+):
     """Tests the write-time subset through the same serial build. A null duplicate group on every human unit, a field the parent assigns after drafting, is caught by `PATCHED` at the write and fails the build with the predicate's message."""
     monkeypatch.setattr(review_build.unit_cache, "duplicate_group_id_for", lambda key: None)
     with pytest.raises(SystemExit) as raised:
