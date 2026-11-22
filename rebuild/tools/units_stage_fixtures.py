@@ -2771,7 +2771,7 @@ def _clone_live_inputs(target: Path) -> None:
 
 
 def _live_base() -> BasePrior:
-    """Refresh the live base prior under `LIVE_BASE`: clone `rebuild/out/review` into its `out/` the first time (`landing.clone_tree`), clone the build's inputs into its `inputs/` again (`_clone_live_inputs`), and run one Python build at the current tree into `out/`, so every live scenario starts from the engine of record's output for the tree as it stands."""
+    """Refresh the live base prior under `LIVE_BASE`: clone `rebuild/out/review` into its `out/` the first time (`landing.clone_tree`), clone the build's inputs into its `inputs/` again (`_clone_live_inputs`), and run one Python build at the current tree into `out/`, so every live scenario starts from the Python build's output for the tree as it stands."""
     for needed in (build.DEFAULT_OUT / "manifest.json", build.M1_AFTER_FONT):
         if not needed.is_file():
             raise SystemExit(f"the live source needs the last cycle's {needed.relative_to(REPO_ROOT)}")
