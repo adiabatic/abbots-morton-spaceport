@@ -2337,7 +2337,44 @@ impl<'i> Engine<'i> {
         Ok((false, None))
     }
 
-    /// Every exit this stance can offer: the declared rows in declaration order at their own indexes, then the heights an active unlock grants that no declared row already declares, at indexes past the declared ones. The unlocks fire on every call, cache hit included, because an enumeration that hits the cache depends on them as much as the one that filled it.
+    /// Whether an active exit unlock grants this stance its exit at `height` in this window, as `entry_available` reads an entry unlock: an unlock naming the height whose feature is active and whose `when:` does not definitely refuse the window, read with this candidate's entry and that exit. At a height the stance declares, such an unlock admits a right neighbor the row's toward-scope does not; at a height only an unlock grants (`exit_sources`), it is what admits any neighbor at all. Treating an unknown verdict as a grant matches the closure. The unlock that grants fires.
+    #[allow(clippy::too_many_arguments)]
+    fn exit_unlocked(
+        &mut self,
+        rune: &'i Rune,
+        stance: &'i Stance,
+        height: Sym,
+        left: &LeftContext,
+        entry: Option<Sym>,
+        right1: RightToken,
+        right2: RightToken,
+    ) -> Result<bool, SettleError> {
+        for unlock in &stance.surface.unlocks {
+            if unlock.exit != Some(height) || !self.features.contains(&unlock.feature) {
+                continue;
+            }
+            let granted = match unlock.when.as_ref() {
+                None => true,
+                Some(when) => {
+                    self.when_matches(
+                        Some(rune.name),
+                        when,
+                        left,
+                        entry,
+                        Some(height),
+                        Slots::pair(right1, right2),
+                    )? != Some(false)
+                }
+            };
+            if granted {
+                self.record_fired(unlock.provenance.as_ref());
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Every exit this stance can offer: the declared rows in declaration order at their own indexes, then the heights an active unlock grants that no declared row already declares, at indexes past the declared ones. Whether an unlock admits a given right neighbor is decided per window (`exit_unlocked`). The unlocks fire on every call, cache hit included, because an enumeration that hits the cache depends on them as much as the one that filled it.
     fn exit_sources(&mut self, id: StanceId) -> Vec<ExitSource<'i>> {
         if let Some((sources, fired)) = self.exit_sources_cache.get(&id) {
             let sources = sources.clone();
@@ -2770,39 +2807,46 @@ impl<'i> Engine<'i> {
                         );
                         continue;
                     }
-                    if let Some(row) = source.row
-                        && !row.scope.is_empty()
+                    let admitted = match source.row {
+                        Some(row) if !row.scope.is_empty() => {
+                            // Every scope condition is evaluated before the verdicts are read, so a later condition that raises still raises after an earlier one has matched.
+                            let mut verdicts: Vec<Option<bool>> =
+                                Vec::with_capacity(row.scope.len());
+                            for cond in &row.scope {
+                                verdicts.push(self.cond_matches_right(
+                                    Some(rune_name),
+                                    cond,
+                                    &[right1, right2],
+                                )?);
+                            }
+                            if verdicts.contains(&Some(true)) {
+                                self.record_fired(row.provenance.as_ref());
+                            }
+                            verdicts.iter().any(|verdict| *verdict != Some(false))
+                        }
+                        Some(_) => true,
+                        None => false,
+                    };
+                    if !admitted
+                        && !self.exit_unlocked(rune, stance, height, left, entry, right1, right2)?
                     {
-                        // Every scope condition is evaluated before the verdicts are read, so a later condition that raises still raises after an earlier one has matched.
-                        let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(row.scope.len());
-                        for cond in &row.scope {
-                            verdicts.push(self.cond_matches_right(
-                                Some(rune_name),
-                                cond,
-                                &[right1, right2],
-                            )?);
-                        }
-                        let scoped = verdicts.iter().any(|verdict| *verdict != Some(false));
-                        if verdicts.contains(&Some(true)) {
-                            self.record_fired(row.provenance.as_ref());
-                        }
-                        if !scoped {
-                            record_elimination(
-                                &mut eliminations,
-                                EliminationStage::RowScope,
-                                || {
-                                    format!(
-                                        "{}.{}: exit {} toward-scope does not admit {}",
-                                        index.resolve(rune_name),
-                                        index.resolve(*stance_name),
-                                        index.resolve(height),
-                                        index.resolve(right1.letter())
-                                    )
-                                },
-                                row.provenance.as_ref(),
-                            );
-                            continue;
-                        }
+                        let declared = source.row.is_some();
+                        record_elimination(
+                            &mut eliminations,
+                            EliminationStage::RowScope,
+                            || {
+                                format!(
+                                    "{}.{}: exit {} {} does not admit {}",
+                                    index.resolve(rune_name),
+                                    index.resolve(*stance_name),
+                                    index.resolve(height),
+                                    if declared { "toward-scope" } else { "unlock" },
+                                    index.resolve(right1.letter())
+                                )
+                            },
+                            source.row.and_then(|row| row.provenance.as_ref()),
+                        );
+                        continue;
                     }
                     if !self.acceptor_exists(&candidate, rune_name, right1, right2)? {
                         record_elimination(
@@ -5570,6 +5614,125 @@ mod tests {
             )
         };
         spec_of(&[pea, acceptor("qsTea", "plain"), acceptor("qsIt", "solo")])
+    }
+
+    /// `qsPea.half` declares a baseline exit scoped toward `qsTea` and an `ss03` exit unlock at that height whose `when:` names `qsIt` on the right; `qsTea`, `qsIt` and `qsDay` each accept a baseline join. With `undeclared`, the stance declares no exit and the unlock grants the x-height instead, where the three accept too.
+    fn exit_unlock_spec(undeclared: bool) -> SpecIndex {
+        let toward_tea = fixtures::condition(&[("family", &fixtures::names(&["qsTea"]))]);
+        let right_it = fixtures::condition(&[("family", &fixtures::names(&["qsIt"]))]);
+        let when = fixtures::when(&[("right", right_it.as_str())]);
+        let height = if undeclared { "x-height" } else { "baseline" };
+        let unlock = format!(
+            r#"{{"feature":"ss03","entry":null,"exit":"{height}","pairing":null,"when":{when},"why":null,"provenance":["qsPea.yaml","stances.half.unlocks[0]"]}}"#
+        );
+        let exits = if undeclared {
+            "{}".to_owned()
+        } else {
+            object(&[row(
+                "baseline",
+                &[
+                    ("scope", &fixtures::seq(&[toward_tea.as_str()])),
+                    (
+                        "provenance",
+                        &fixtures::names(&["qsPea.yaml", "stances.half.exits.baseline"]),
+                    ),
+                ],
+            )])
+        };
+        let pea = letter(
+            "qsPea",
+            &[stance(
+                "half",
+                &surface(
+                    "{}",
+                    &exits,
+                    &[("unlocks", &fixtures::seq(&[unlock.as_str()]))],
+                ),
+            )],
+            &plain_policy(),
+        );
+        let acceptor = |name: &str| {
+            letter(
+                name,
+                &[stance(
+                    "plain",
+                    &surface(&object(&[row(height, &[])]), "{}", &[]),
+                )],
+                &plain_policy(),
+            )
+        };
+        spec_of(&[pea, acceptor("qsTea"), acceptor("qsIt"), acceptor("qsDay")])
+    }
+
+    /// The joining heights `qsPea.half` offers before `follower` under `features`.
+    fn exit_unlock_joins(
+        index: &SpecIndex,
+        features: Vec<Sym>,
+        follower: &str,
+    ) -> Vec<Option<Sym>> {
+        let mut engine = Engine::new(index, features);
+        engine
+            .candidates(
+                &LeftContext::boundary(TokenKind::Edge),
+                fixtures::sym(index, "qsPea"),
+                letter_token(index, follower),
+                EDGE,
+                None,
+            )
+            .expect("the fixture raises nothing")
+            .iter()
+            .filter_map(|candidate| candidate.junction)
+            .map(Some)
+            .collect()
+    }
+
+    #[test]
+    fn an_exit_unlock_at_a_declared_height_widens_its_toward_scope_as_far_as_its_when() {
+        let index = exit_unlock_spec(false);
+        let baseline = fixtures::sym(&index, "baseline");
+        let ss03 = || vec![fixtures::sym(&index, "ss03")];
+        assert_eq!(
+            exit_unlock_joins(&index, no_features(), "qsTea"),
+            vec![Some(baseline)]
+        );
+        assert_eq!(
+            exit_unlock_joins(&index, no_features(), "qsIt"),
+            Vec::<Option<Sym>>::new(),
+            "without its feature the unlock admits nothing the row's scope refuses"
+        );
+        assert_eq!(
+            exit_unlock_joins(&index, ss03(), "qsTea"),
+            vec![Some(baseline)]
+        );
+        assert_eq!(
+            exit_unlock_joins(&index, ss03(), "qsIt"),
+            vec![Some(baseline)],
+            "under its feature the unlock admits the neighbor its when: names"
+        );
+        assert_eq!(
+            exit_unlock_joins(&index, ss03(), "qsDay"),
+            Vec::<Option<Sym>>::new(),
+            "and no neighbor its when: refuses"
+        );
+    }
+
+    #[test]
+    fn an_exit_unlock_at_an_undeclared_height_admits_only_what_its_when_admits() {
+        let index = exit_unlock_spec(true);
+        let x_height = fixtures::sym(&index, "x-height");
+        let ss03 = || vec![fixtures::sym(&index, "ss03")];
+        assert_eq!(
+            exit_unlock_joins(&index, no_features(), "qsIt"),
+            Vec::<Option<Sym>>::new()
+        );
+        assert_eq!(
+            exit_unlock_joins(&index, ss03(), "qsIt"),
+            vec![Some(x_height)]
+        );
+        assert_eq!(
+            exit_unlock_joins(&index, ss03(), "qsTea"),
+            Vec::<Option<Sym>>::new()
+        );
     }
 
     #[test]

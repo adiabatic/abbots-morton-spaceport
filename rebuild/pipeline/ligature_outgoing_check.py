@@ -21,6 +21,7 @@ from rebuild.pipeline.model import (
     Stance,
     When,
     isolated_overlay_active,
+    settlement_features,
 )
 from rebuild.pipeline.settle import EDGE, NAMER_DOT, SPACE, ZWNJ, LeftContext, RightToken
 from rebuild.tools import console
@@ -191,7 +192,7 @@ def _right_windows(spec: ResolvedSpec) -> Iterable[tuple[RightToken, ...]]:
 
 
 def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]) -> dict:
-    """Checks every mapped ligature stance in each configuration of `conform.ACCEPTANCE_CONFIGS` that the spec supports, skipping configurations under the isolated overlay. Raises `LigatureOutgoingError` naming the stance, configuration, and window of the first window whose junction differs from the source's, after the declared exceptions are applied. Returns the `mappings` and `windows` counts, which `run_m1.run_ligature_outgoing` logs on its `[t] ligature_outgoing` line, and the configurations checked (`configurations`) and skipped under the isolated overlay (`overlay_configurations`)."""
+    """Checks every mapped ligature stance in each configuration of `conform.ACCEPTANCE_CONFIGS` that the spec supports, skipping configurations under the isolated overlay and the cosmetic ones, which settle as their settlement configuration does. Raises `LigatureOutgoingError` naming the stance, configuration, and window of the first window whose junction differs from the source's, after the declared exceptions are applied. Returns the `mappings` and `windows` counts, which `run_m1.run_ligature_outgoing` logs on its `[t] ligature_outgoing` line, and the configurations checked (`configurations`) and skipped under the isolated overlay (`overlay_configurations`)."""
     mappings = []
     for name, rune in spec.runes.items():
         if not rune.sequence:
@@ -207,6 +208,8 @@ def validate_ligature_outgoing(spec: ResolvedSpec, rune_raws: Mapping[str, dict]
     for config in conform.ACCEPTANCE_CONFIGS:
         features = frozenset() if config == "default" else frozenset(config.split("+"))
         if not features.issubset(spec.registry.features):
+            continue
+        if settlement_features(spec, features) != features:
             continue
         if isolated_overlay_active(spec, features):
             overlays.append(config)

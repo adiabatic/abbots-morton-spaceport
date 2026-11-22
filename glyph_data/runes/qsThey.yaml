@@ -75,6 +75,7 @@ stances:
             - qsNo
             - qsLow
             - qsRoe
+            - qsExam
             - qsIt
             - qsAt
             - qsI
@@ -96,6 +97,7 @@ stances:
             - qsEight
             - qsAwe
             - qsOx
+            - qsOwe
             - qsFoot
       pairings:
         never:

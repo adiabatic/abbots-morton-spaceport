@@ -1,8 +1,8 @@
 rune: qsExam
 codepoint: 0xE66C
 ductus:
-  sole: |  # DRAFT — pending author sign-off
-    Begun at the bottom left on the baseline, where a previous letter may connect, the first stroke rises up and to the right through the crossing point and straight up the right side to the x-height. The pen lifts, and the second stroke begins at the top left at the x-height, falls straight down, angles down and to the right through the crossing point to the baseline, then drops straight down the right side to the bottom of the descender.
+  sole: |
+    Begun at the bottom left on the baseline, where a previous letter may connect, the first stroke rises diagonally up and to the right through the crossing point to the x-height. The pen lifts, and the second stroke begins at the top left at the x-height, goes diagonally down and to the right through the crossing point to the baseline to the bottom of the descender.
 mono:
   bitmap:
   - "#   #"  #
@@ -41,6 +41,8 @@ stances:
             - qsDay
             - qsKey
             - qsGay
+            - qsThey
+            - qsVie
             - qsZoo
             - qsShe
             - qsJai
@@ -60,8 +62,6 @@ stances:
             - qsOy
             - qsUtter
             - qsOoze
-            except:
-            - {family: qsThey_qsZoo}
       exits: {}
       cells: []
       unlocks: []

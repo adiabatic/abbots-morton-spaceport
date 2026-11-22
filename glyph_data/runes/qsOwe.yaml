@@ -1,0 +1,149 @@
+rune: qsOwe
+codepoint: 0xE67C
+ductus:
+  sole: |  # DRAFT — pending author sign-off
+    Begun at the top of the ring at the x-height, just left of center, the stroke runs counterclockwise down the left side, around the bottom on the baseline, and back up the right side to close the ring at the top. When a previous letter connects at the x-height, the stroke arrives along the top from the left and turns down the left side, so the ring stays open at the top where it ends. When the next letter connects at the x-height, the stroke leaves the top of the right side rightward, so the ring stays open where it began.
+mono:
+  bitmap:
+  - " ### "  #
+  - "#   #"
+  - "#   #"
+  - "#   #"
+  - "#   #"
+  - " ### "  #
+stances:
+  sole:
+    motion: sole
+    traits: []
+    bitmap:
+    - " ### "  #
+    - "#   #"
+    - "#   #"
+    - "#   #"
+    - "#   #"
+    - " ### "  #
+    bitmaps:
+      open-on-the-left:
+        bitmap:
+        - "## # "  #
+        - " #  #"
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
+      open-on-the-right:
+        bitmap:
+        - " # ##"  #
+        - "#  # "
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
+      open-on-both-sides:
+        bitmap:
+        - "## ##"  #
+        - " # # "
+        - "#   #"
+        - "#   #"
+        - "#   #"
+        - " ### "  #
+    surface:
+      entries:
+        x-height:
+          x: 0
+          stroke: horizontal
+          joined: open-on-the-left
+          from:
+          - family:
+            - qsGay
+            - qsThey
+            - qsFee
+            - qsWay
+            - qsMay
+            - qsNo
+            - qsIt
+            - qsAt
+            - qsI
+            - qsAh
+            - qsUtter
+            - qsOut
+            - qsOwe
+            - qsFoot
+      exits:
+        x-height:
+          x: 5
+          stroke: horizontal
+          unjoined: safe
+          toward:
+          - family:
+            - qsTea
+            - qsFee
+            - qsZoo
+            - qsJai
+            - qsJai_qsUtter
+            - qsCheer
+            - qsJay
+            - qsJay_qsUtter
+            - qsYe
+            - qsNo
+            - qsRoe
+            - qsIt
+            - qsEt
+            - qsEight
+            - qsAwe
+            - qsOx
+            - qsOwe
+            - qsFoot
+      cells:
+      - entry: none
+        exit: x-height
+        bitmap: open-on-the-right
+      - entry: x-height
+        exit: x-height
+        bitmap: open-on-both-sides
+      unlocks:
+      - exit: x-height
+        feature: ss07
+        when:
+          right:
+            family:
+            - qsDay
+            - qsDay_qsEat
+            - qsDay_qsUtter
+      require: []
+policy:
+  order:
+  - sole
+  refuse: []
+  prefer: []
+  extend:
+  - exit: x-height
+    by: 1
+    when:
+      right:
+        family:
+        - qsCheer
+        - qsRoe
+        - qsIt
+  - exit: x-height
+    by: 2
+    when:
+      right: {family: qsFee}
+  - exit: x-height
+    by: 1
+    when:
+      feature: ss03
+      right: {family: qsTea}
+  contract: []
+  resolve: []
+  groups: {}
+cosmetic:
+- feature: ss06
+  stance: sole
+  bitmap:
+  - " # # "  #
+  - "#   #"
+  - "#   #"
+  - "#   #"
+  - "#   #"
+  - " ### "  #

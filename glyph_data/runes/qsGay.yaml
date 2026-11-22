@@ -113,6 +113,7 @@ stances:
             - qsAwe
             - qsOx
             - qsOy
+            - qsOwe
             - qsFoot
       pairings:
         never:
@@ -134,7 +135,10 @@ policy:
   - exit: x-height
     when:
       self: {entry: none}
-      right: {family: qsEt}
+      right:
+        family:
+        - qsEt
+        - qsOwe
   prefer:
   - cell:
       entry: none
@@ -216,6 +220,7 @@ policy:
         - qsCheer
         - qsJay
         - qsJay_qsUtter
+        - qsOwe
   - exit: x-height
     by: 1
     when:

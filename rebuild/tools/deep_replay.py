@@ -75,9 +75,11 @@ def replay_threads(total_bytes: int | None = None, ncores: int | None = None) ->
 
 
 def walk_units(spec: ResolvedSpec, max_length: int) -> tuple[SweepUnit, ...]:
-    """Return the walk's units in the order the pool takes them: each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, once per symbol of the spec's alphabet in its order, over the texts of length 1 to `max_length` that end in that symbol. They are cut as the deep sweep's settlement units are (`run_m1_gates.sweep_units`), with no trigger letters, so each walks every text that ends in its symbol; the ss10 overlay has no tables to replay."""
+    """Return the walk's units in the order the pool takes them: each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, once per symbol of the spec's alphabet in its order, over the texts of length 1 to `max_length` that end in that symbol. They are cut as the deep sweep's settlement units are (`run_m1_gates.sweep_units`), with no trigger letters, so each walks every text that ends in its symbol; the ss10 overlay and the cosmetic configurations have no tables to replay."""
     return tuple(
-        unit for unit in run_m1_gates.sweep_units(conform.spec_alphabet(spec), max_length) if not unit.overlay
+        unit
+        for unit in run_m1_gates.sweep_units(conform.spec_alphabet(spec), max_length)
+        if not unit.overlay and not unit.cosmetic
     )
 
 

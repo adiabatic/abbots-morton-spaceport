@@ -48,7 +48,7 @@
           "properties": {
             "kind": {"enum": ["capability", "taste"]},
             "description": {"type": "string"},
-            "overlay": {"type": "string"}
+            "overlay": {"enum": ["isolated", "cosmetic"]}
           }
         }
       }

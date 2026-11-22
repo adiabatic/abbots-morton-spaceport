@@ -323,14 +323,28 @@ def test_the_overlay_runs_in_a_settlement_units_slot_and_its_need_is_subtracted(
     )
 
 
+def _longest(config: str, max_length: int) -> int:
+    """The longest text `config`'s units shape in a sweep to `max_length`."""
+    if config in conform.OVERLAY_CONFIGS:
+        return conform.OVERLAY_MAX_LENGTH
+    if config in conform.COSMETIC_CONFIGS:
+        return conform.COSMETIC_MAX_LENGTH
+    return max_length
+
+
 def test_the_units_are_the_overlay_whole_then_each_settlement_configuration_by_last_symbol():
-    """The pool takes the overlay first, whole, then each settlement configuration in order, one unit per alphabet symbol in the alphabet's order. A settlement unit shapes one text in every alphabet's worth of each length, so a configuration's units shape every text between them, and the overlay shapes its own two lengths."""
+    """The pool takes the overlay first, whole, then each cosmetic configuration, whole, then each settlement configuration in order, one unit per alphabet symbol in the alphabet's order. A settlement unit shapes one text in every alphabet's worth of each length, so a configuration's units shape every text between them, the overlay shapes its own two lengths, and a cosmetic configuration its own three."""
     units = deep_sweep.sweep_units(TOY_ALPHABET, 4)
-    assert [(unit.config, unit.last) for unit in units] == [("ss10", None)] + [
+    whole = [("ss10", None)] + [(config, None) for config in conform.COSMETIC_CONFIGS]
+    assert [(unit.config, unit.last) for unit in units] == whole + [
         (config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in TOY_ALPHABET
     ]
     assert units[0].overlay and units[0].texts == 3 + 9
-    assert all(unit.texts == 1 + 3 + 9 + 27 and not unit.overlay for unit in units[1:])
+    assert all(unit.cosmetic and unit.texts == 3 + 9 + 27 for unit in units[1 : len(whole)])
+    assert all(
+        unit.texts == 1 + 3 + 9 + 27 and not unit.overlay and not unit.cosmetic
+        for unit in units[len(whole) :]
+    )
     assert sum(unit.texts for unit in units if unit.config == "default") == 3 + 9 + 27 + 81
 
 
@@ -344,6 +358,9 @@ def test_a_unit_with_trigger_letters_counts_the_texts_that_contain_one():
         if unit.overlay:
             assert unit.texts == 3 + 9 and not unit.triggers
             continue
+        if unit.cosmetic:
+            assert unit.texts == 3 + 9 + 27 and not unit.triggers
+            continue
         assert unit.triggers == triggers.get(unit.config, frozenset())
         assert unit.texts == sum(
             1
@@ -354,7 +371,7 @@ def test_a_unit_with_trigger_letters_counts_the_texts_that_contain_one():
     letters = {"ss03": frozenset(alphabet[1])}
     counts = deep_sweep.config_texts(spec, 4, letters)
     for config in conform.ACCEPTANCE_CONFIGS:
-        longest = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else 4
+        longest = _longest(config, 4)
         assert counts[config] == sum(
             1
             for length in range(1, longest + 1)
@@ -718,12 +735,13 @@ def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(t
     shown = next(
         lines for _, lines in reports if f"{halves}/{sum(unit.texts for unit in units)} texts" in lines[0]
     )
+    whole = len(conform.OVERLAY_CONFIGS) + len(conform.COSMETIC_CONFIGS)
     assert f"{len(units)} workers hold {len(units)}.00 GB" in shown[0]
-    assert shown[1].endswith("holding 1.00 GB")
+    assert all(line.endswith("holding 1.00 GB") for line in shown[1 : 1 + whole])
     assert all(
         f"{len(TOY_ALPHABET)} of {len(TOY_ALPHABET)} units running, running for" in line
         and line.endswith(f"holding {len(TOY_ALPHABET)}.00 GB")
-        for line in shown[2:]
+        for line in shown[1 + whole :]
     )
     assert set(footprint_pids) == {os.getpid()}
     for slot, walk in enumerate(progress.walks):
@@ -756,7 +774,8 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
             time.sleep(0.01 * (len(TOY_ALPHABET) - ranks[last]))
         result = conform.ConformanceConfigResult(config=config)
         tally = conform.DivergenceTally(result, TOY_ALPHABET)
-        for text in (text for length in (1, 2) for text in conform.sweep_texts(TOY_ALPHABET, length, last)):
+        lengths = range(1, _longest(config, 2) + 1)
+        for text in (text for length in lengths for text in conform.sweep_texts(TOY_ALPHABET, length, last)):
             result.sequences += 1
             if config in lost and text == "aa":
                 result.sequences -= 1
@@ -771,7 +790,10 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
         for text in ("a", "b", "c", "aa", "ab", "ac", "ba", "bb", "bc", "ca", "cb", "cc")
     ][: conform.EXEMPLAR_LIMIT]
     assert summary["divergence_exemplars"] == expected
-    assert summary["divergences"] == 12 * len(conform.ACCEPTANCE_CONFIGS)
+    assert summary["divergences"] == sum(
+        sum(3**length for length in range(1, _longest(config, 2) + 1))
+        for config in conform.ACCEPTANCE_CONFIGS
+    )
     written = json.loads((tmp_path / deep_sweep.SUMMARY_NAME).read_text())
     assert list(written["divergences_by_kind"]) == ["kind-a", "kind-b", "kind-c"]
     (tmp_path / deep_sweep.SUMMARY_NAME).unlink()
@@ -804,7 +826,7 @@ def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_
     ):
         assert triggers == units[slot].triggers and memo_windows == 4_321
         letters = frozenset() if config in ignoring else triggers
-        longest = conform.OVERLAY_MAX_LENGTH if last is None else max_length
+        longest = _longest(config, max_length)
         result = conform.ConformanceConfigResult(config=config)
         result.sequences = sum(
             1
@@ -822,6 +844,7 @@ def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_
         **{config: every for config in conform.SETTLEMENT_CONFIGS},
         "ss03": every - (2 + 4 + 8),
         "ss10": 3 + 9,
+        **{config: 3 + 9 + 27 for config in conform.COSMETIC_CONFIGS},
     }
     (tmp_path / deep_sweep.SUMMARY_NAME).unlink()
     ignoring.append("ss03")

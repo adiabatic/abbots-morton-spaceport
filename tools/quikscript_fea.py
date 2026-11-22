@@ -6654,7 +6654,7 @@ def _emit_quikscript_curs(
 
 
 def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph], *, ss10_reverts_stances: bool = True) -> str | None:
-    """Emit the stylistic-set features that run after `calt`: each stance's `revert_feature`, each `replaces_family_feature`, and, when `ss10_reverts_stances` is set, an ss10 that substitutes every non-ligature stance by its bare glyph. Junior uses that ss10. Senior passes False and gets its ss10 from `emit_ss10_isolated_input`."""
+    """Emit the stylistic-set features that run after `calt`: each stance's `revert_feature`, each `replaces_unjoined_feature` (which substitutes the stance for every glyph of its family with no cursive anchor, the forms that join neither neighbor, so the set changes how an unjoined letter looks and never whether it joins), and, when `ss10_reverts_stances` is set, an ss10 that substitutes every non-ligature stance by its bare glyph. Junior uses that ss10. Senior passes False and gets its ss10 from `emit_ss10_isolated_input`."""
     groups: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for name, meta in glyph_meta.items():
         if meta.revert_feature:
@@ -6666,11 +6666,14 @@ def emit_quikscript_ss(glyph_meta: dict[str, JoinGlyph], *, ss10_reverts_stances
             groups[NOJOIN_TAG].append((name, meta.base_name))
 
     for name, meta in glyph_meta.items():
-        if meta.replaces_family_feature:
+        if meta.replaces_unjoined_feature:
             base = meta.base_name
             for other_name, other_meta in glyph_meta.items():
-                if other_meta.base_name == base and other_name != name:
-                    groups[meta.replaces_family_feature].append((other_name, name))
+                if other_meta.base_name != base or other_name == name:
+                    continue
+                if other_meta.entry or other_meta.entry_curs_only or other_meta.exit:
+                    continue
+                groups[meta.replaces_unjoined_feature].append((other_name, name))
 
     if not groups:
         return None

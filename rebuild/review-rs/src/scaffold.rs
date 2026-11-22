@@ -26,6 +26,8 @@ use crate::wire::{Init, UnitRecord, WireError};
 
 /// The vocabulary name of `audit.ACCEPTANCE_CONFIGS`, the configurations a unit can hold, which the badge resolves a unit's configurations against and `_config_index` orders them by.
 pub const ACCEPTANCE_CONFIGS_NAME: &str = "rebuild.review.audit.ACCEPTANCE_CONFIGS";
+/// The vocabulary name of `audit.WINDOW_SCOPED_CONFIGS`, the configurations a unit holds only when its window spells one of their letters, which [`Roster::window`] drops from the badge's configurations for any other window.
+pub const WINDOW_SCOPED_CONFIGS_NAME: &str = "rebuild.review.audit.WINDOW_SCOPED_CONFIGS";
 
 /// `build.GATE_CONSTRAINT_CAP`: the most on/off constraints a config gate holds.
 pub const GATE_CONSTRAINT_CAP: usize = 3;
@@ -85,6 +87,73 @@ pub fn acceptance_configs(init: &Init) -> Result<Vec<String>> {
             )),
         })
         .collect()
+}
+
+/// The configurations a unit can hold, `audit.ACCEPTANCE_CONFIGS`, and the window-scoped ones among them, `audit.WINDOW_SCOPED_CONFIGS`, each with the code points a window must spell for a unit of it to hold that configuration.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Roster {
+    pub acceptance: Vec<String>,
+    pub scoped: Vec<(String, Vec<String>)>,
+}
+
+impl Roster {
+    /// The init's `ACCEPTANCE_CONFIGS` and `WINDOW_SCOPED_CONFIGS`, the latter a tuple of (configuration, tuple of code point strings) pairs.
+    pub fn read(init: &Init) -> Result<Self> {
+        let Some(PyValue::Tuple(items)) = init.constant(WINDOW_SCOPED_CONFIGS_NAME) else {
+            return error(format!(
+                "the init's {WINDOW_SCOPED_CONFIGS_NAME} is not a tuple"
+            ));
+        };
+        let mut scoped = Vec::with_capacity(items.len());
+        for item in items {
+            let PyValue::Tuple(pair) = item else {
+                return error(format!(
+                    "the init's {WINDOW_SCOPED_CONFIGS_NAME} holds {}, not a pair",
+                    item.kind()
+                ));
+            };
+            let [PyValue::Str(config), PyValue::Tuple(letters)] = pair.as_slice() else {
+                return error(format!(
+                    "the init's {WINDOW_SCOPED_CONFIGS_NAME} holds a pair that is not (str, tuple)"
+                ));
+            };
+            let letters = letters
+                .iter()
+                .map(|letter| match letter {
+                    PyValue::Str(letter) => Ok(letter.clone()),
+                    other => error(format!(
+                        "the init's {WINDOW_SCOPED_CONFIGS_NAME} names {}, not a str, as a letter of {config}",
+                        other.kind()
+                    )),
+                })
+                .collect::<Result<_>>()?;
+            scoped.push((config.clone(), letters));
+        }
+        Ok(Self {
+            acceptance: acceptance_configs(init)?,
+            scoped,
+        })
+    }
+
+    /// `audit.window_configs`: the configurations a unit of the window `codepoints` (colon-separated) can hold, `acceptance` less each window-scoped configuration none of whose letters the window spells.
+    pub fn window(&self, codepoints: &str) -> Vec<String> {
+        let letters: Vec<&str> = codepoints.split(':').collect();
+        let dropped: Vec<&str> = self
+            .scoped
+            .iter()
+            .filter(|(_, scope)| {
+                !scope
+                    .iter()
+                    .any(|letter| letters.contains(&letter.as_str()))
+            })
+            .map(|(config, _)| config.as_str())
+            .collect();
+        self.acceptance
+            .iter()
+            .filter(|config| !dropped.contains(&config.as_str()))
+            .cloned()
+            .collect()
+    }
 }
 
 /// One clause of a config gate: a feature, whether it is `on` or `off`, and the text the app prints for it.
@@ -323,14 +392,14 @@ fn str_dict(pairs: &[(String, String)]) -> PyValue {
     )
 }
 
-/// `build.unit_scaffold` with its default `full_configs`, `acceptance`: the fragment fields the build derives from the workload, a dict in its literal order, with the unit's phase-1 `flags` and the comparator's `ink_deltas`.
+/// `build.unit_scaffold` with its default `full_configs`, the roster's `acceptance`, its badge resolved against the configurations the unit's window can hold (`Roster::window`): the fragment fields the build derives from the workload, a dict in its literal order, with the unit's phase-1 `flags` and the comparator's `ink_deltas`.
 pub fn unit_scaffold(
     unit: &UnitRecord,
     flags: &Flags,
     ink_deltas: &[(String, String)],
-    acceptance: &[String],
+    roster: &Roster,
 ) -> PyValue {
-    let badge = config_badge(&unit.configs, acceptance);
+    let badge = config_badge(&unit.configs, &roster.window(&unit.codepoints));
     let optional = |value: &Option<String>| PyValue::optional_str(value.as_deref());
     let entries = vec![
         ("id", PyValue::str(&unit.unit_id)),
@@ -365,7 +434,9 @@ pub fn unit_scaffold(
         ),
         (
             "config_class_note",
-            PyValue::optional_str(config_class_note(&unit.config_classes, acceptance).as_deref()),
+            PyValue::optional_str(
+                config_class_note(&unit.config_classes, &roster.acceptance).as_deref(),
+            ),
         ),
         (
             "render_groups",
@@ -460,7 +531,7 @@ fn line_configs(record: &Value, key: &str) -> Result<Vec<String>> {
 /// The `scaffold` stage. A `scaffold:` line's unit, which its `record` carries as phase 1 received it, goes through phase 1 up to its fragment: its ink is read and checked first against the line's `ink_deltas`, which the worker's comparator found, so a failure there names the ink stage; the unit is re-routed (`reroutes`), which sets its ledger class and clears its exemplar flag, and enriched under its first configuration; and the line's answer is a dict of the `scaffold` `unit_scaffold` returns, the `change_group` of an UNMATCHED or re-routed unit (empty for any other), and the `cluster` over the unit's configurations, the line's `final_class` or else the unit's class, and the diffs' repr. A `badge:` line's answer is the `gate` and the `note` `config_badge` gives its `configs` against `ACCEPTANCE_CONFIGS`. The shaper's and the settler's memos carry from line to line as a batch's do.
 pub fn stage_scaffold(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
     let init = Init::read(init_path)?;
-    let acceptance = acceptance_configs(&init)?;
+    let roster = Roster::read(&init)?;
     let facts = FontFacts::read(&init.font_facts)?;
     let fonts = Fonts::open(&init, &facts)?;
     let reader = InkReader::new(&init, &facts)?;
@@ -552,13 +623,13 @@ pub fn stage_scaffold(init_path: &Path, stage_file: &Path, out: &mut impl Write)
             PyValue::Dict(vec![
                 (
                     PyValue::str("scaffold"),
-                    unit_scaffold(&unit, &flags, &ink.ink_deltas, &acceptance),
+                    unit_scaffold(&unit, &flags, &ink.ink_deltas, &roster),
                 ),
                 (PyValue::str("change_group"), PyValue::str(change_group)),
                 (PyValue::str("cluster"), PyValue::str(cluster)),
             ])
         } else if key.starts_with("badge:") {
-            let badge = config_badge(&line_configs(&record, key)?, &acceptance);
+            let badge = config_badge(&line_configs(&record, key)?, &roster.acceptance);
             PyValue::Dict(vec![
                 (PyValue::str("gate"), badge.gate_py()),
                 (PyValue::str("note"), badge.note_py()),
@@ -642,6 +713,34 @@ mod tests {
         assert_eq!(
             fallback.note.as_deref(),
             Some("only under: default, ss03+ss05")
+        );
+    }
+
+    #[test]
+    fn a_window_without_a_scoped_configurations_letters_cannot_hold_it() {
+        let with = texts(&[
+            "default",
+            "ss03",
+            "ss04",
+            "ss05",
+            "ss03+ss05",
+            "ss07",
+            "ss10",
+        ]);
+        let without = acceptance();
+        let roster = Roster {
+            acceptance: with.clone(),
+            scoped: vec![("ss07".to_owned(), vec!["E67C".to_owned()])],
+        };
+        assert_eq!(roster.window("E650:E651"), without);
+        assert_eq!(roster.window("E650:E67C"), with);
+        assert_eq!(
+            config_badge(
+                &texts(&["default", "ss04", "ss05", "ss10"]),
+                &roster.window("E650")
+            ),
+            config_badge(&texts(&["default", "ss04", "ss05", "ss10"]), &without),
+            "a window without ·Owe reads as it did before ss07 joined the roster"
         );
     }
 

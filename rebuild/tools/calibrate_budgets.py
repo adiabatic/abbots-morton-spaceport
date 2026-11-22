@@ -345,8 +345,8 @@ def _settlement_config_count(path: Path) -> int:
 
 @functools.cache
 def _acceptance_config_count(path: Path) -> int:
-    """Return the number of acceptance configurations `path` defines: the summed lengths of its module-scope `SETTLEMENT_CONFIGS` and `OVERLAY_CONFIGS` tuples, which `conform.ACCEPTANCE_CONFIGS` concatenates, parsed with `ast` like the constants. It is the floor of the conformance sweep's cap beside a corpus build (`artifact_cycle._conform_core_cap`). A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
-    names = ("SETTLEMENT_CONFIGS", "OVERLAY_CONFIGS")
+    """Return the number of acceptance configurations `path` defines: the summed lengths of its module-scope `SETTLEMENT_CONFIGS`, `OVERLAY_CONFIGS` and `COSMETIC_CONFIGS` tuples, which `conform.ACCEPTANCE_CONFIGS` concatenates, parsed with `ast` like the constants. It is the floor of the conformance sweep's cap beside a corpus build (`artifact_cycle._conform_core_cap`). A missing name or a value that is not a literal tuple raises, because the report would otherwise state a wrong width."""
+    names = ("SETTLEMENT_CONFIGS", "OVERLAY_CONFIGS", "COSMETIC_CONFIGS")
     lengths: dict[str, int] = {}
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in tree.body:

@@ -48,6 +48,7 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     """Stubs the glyph chain: every stage returns an empty value, the compile writes a placeholder file and calls `on_compile`, and the read-back passes or fails according to `readback_pass`."""
     monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
     monkeypatch.setattr(run_m1, "mint_raw_glyphs", lambda spec: ({}, {}, {}))
+    monkeypatch.setattr(run_m1, "mint_cosmetic_glyphs", lambda spec, cell_glyphs: ({}, {}))
     monkeypatch.setattr(run_m1, "namer_dot_glyphs", lambda: {})
     monkeypatch.setattr(
         run_m1, "_run_defect_gates", lambda spec, tables, glyphs, kerned=None: defects.DefectReport()
@@ -67,7 +68,9 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(
         run_m1.emit_gsub,
         "emit_gsub",
-        lambda spec, tables, glyphs, ss10_copies: SimpleNamespace(fea_text="", rule_count=0),
+        lambda spec, tables, glyphs, ss10_copies, cosmetic_substitutions=None: SimpleNamespace(
+            fea_text="", rule_count=0
+        ),
     )
     monkeypatch.setattr(run_m1.emit_gsub, "behavior_classes", lambda plan: [])
     monkeypatch.setattr(run_m1.emit_gpos, "emit_gpos", lambda glyphs, spec, kern=None: "")

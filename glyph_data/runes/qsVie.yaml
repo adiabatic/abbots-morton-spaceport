@@ -71,6 +71,7 @@ stances:
             - qsLow
             - qsRoe
             - qsExcite
+            - qsExam
             - qsUtter
       cells: []
       unlocks: []
@@ -128,6 +129,7 @@ policy:
         - qsIng
         - qsNo
         - qsExcite
+        - qsExam
         - qsUtter
   resolve: []
   groups: {}

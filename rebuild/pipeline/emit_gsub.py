@@ -9,12 +9,13 @@ Lookups are defined in the order they must apply, because definition order fixes
 5. The settlement rows' outcome lookups, registered in no feature and referenced by name from those rows. Each is a single substitution, and lookup k holds each input glyph's k-th distinct outcome, for the input glyphs whose rows name that many, so there are as many as the most outcomes any input glyph has (`_settle_outcome_lookups`). feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
 7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10.
+8. One single-substitution lookup per cosmetic set (`model.cosmetic_features`), `m1_<set>_cosmetic`, registered under that set alone: each unjoined cell glyph a `cosmetic:` record redraws to its cosmetic copy (`run_m1.mint_cosmetic_glyphs`). It comes last, so every settlement row and the namer dot have read the cell glyph before it is redrawn, and the set changes no join.
 
 The rules are read by duck typing against `table.Rule`: `input_glyph`, `backtrack`, `look1` to `look4` (tuples of glyph labels or None), `outcome`, `joint`, and `provenance`. `look3` and `look4` are read with `getattr`, so tables without them still work. A live `look3` compiles to a third lookahead class after `look2`, the raw third slot a depth-3 record reads, and a live `look4` to a fourth. The rule lists of all configurations in `tables_by_config` are folded into one by exact-duplicate union, after each configuration's raw labels are renamed to its marker copies (`model.raw_rename_map`). Two rules with the same window key and different outcomes raise EmitError.
 
 Before returning, `emit_gsub` asserts that no locked copy or ZWNJ lock output appears in a raw lookahead class, that every glyph a rule names is in the planned glyph set, that the only `ignore sub` rows are the namer-dot guard and the generated late-formation guard rows, and that every emitted row and every table rule are matched to each other (`_assert_fold_sources`).
 
-Besides the FEA text, the plan holds a structured copy of every stage: the ss10 input map, the guarded formation rows and plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, and the calt lookup order. Each structured row is recorded where its FEA line is appended, so the two are always in the same order. `rebuild/pipeline/readback.py` checks the compiled font against this copy, and `behavior_classes` summarizes the HarfBuzz-facing shapes in it for the deep sweep. Nothing is parsed back out of the FEA text.
+Besides the FEA text, the plan holds a structured copy of every stage: the ss10 input map, the guarded formation rows and plain ligatures, the per-feature marker substitutions, the settlement rows, the namer-dot row pair, the calt lookup order, and the cosmetic substitutions. Each structured row is recorded where its FEA line is appended, so the two are always in the same order. `rebuild/pipeline/readback.py` checks the compiled font against this copy, and `behavior_classes` summarizes the HarfBuzz-facing shapes in it for the deep sweep. Nothing is parsed back out of the FEA text.
 """
 
 from __future__ import annotations
@@ -59,6 +60,7 @@ _KNOWN_PLAN_FIELDS = frozenset(
         "settle_rules",
         "namer_dot_stage",
         "calt_stages",
+        "cosmetic_lines",
     }
 )
 _CALT_STAGE_NAMES = frozenset(
@@ -101,6 +103,9 @@ class GsubPlan:
     settle_rules: tuple[SettleRule, ...] = ()
     namer_dot_stage: tuple[str, str, frozenset[str]] | None = None  # (dot, lowered, followers)
     calt_stages: tuple[str, ...] = ()  # lookup names in calt definition order
+    cosmetic_lines: dict[str, dict[str, str]] = field(
+        default_factory=dict
+    )  # cosmetic set -> {cell glyph: copy}
 
 
 def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
@@ -116,6 +121,8 @@ def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
     tokens: set[str] = set()
     if plan.ss10_input:
         tokens.add("ss10-input")
+    if plan.cosmetic_lines:
+        tokens.add("cosmetic-substitution")
     sequences = [sequence for sequence, _ligature in plan.formation_plain]
     sequences += [row.sequence for row in plan.formation_guarded_rows]
     for sequence in sequences:
@@ -773,6 +780,7 @@ def emit_gsub(
     glyphs: Mapping[CellId, GlyphRecord] | None = None,
     ss10_copies: Mapping[str, str] | None = None,
     namer_dot: tuple[str, str] | None = ("periodcentered", "periodcentered.lowered"),
+    cosmetic_substitutions: Mapping[str, Mapping[str, str]] | None = None,
 ) -> GsubPlan:
     """Emit the GSUB feature code and its structured plan. `glyphs` supplies the glyph names that the rules are checked against and the namer-dot follower class. Without it, the namer-dot stage is left out. `ss10_copies` maps raw cmap glyph names to their anchor-free `.ss10` copies for the ss10 input substitution. Without it, the ss10 input substitution is left out and the FEA says so in a comment."""
     registry = _ClassRegistry()
@@ -856,6 +864,16 @@ def emit_gsub(
         parts.append("")
         parts.extend(namer_lines)
 
+    cosmetic_lines = {
+        feature: dict(sorted(pairs.items()))
+        for feature, pairs in sorted((cosmetic_substitutions or {}).items())
+        if pairs
+    }
+    for feature, pairs in cosmetic_lines.items():
+        lookup_name = f"m1_{feature}_cosmetic"
+        body = "\n".join(f"    sub {source} by {copy};" for source, copy in pairs.items())
+        parts.append(f"\nlookup {lookup_name} {{\n{body}\n}} {lookup_name};")
+
     calt_lookups = []
     if formation_guarded:
         calt_lookups.append("m1_formation_guarded")
@@ -876,6 +894,9 @@ def emit_gsub(
     else:
         parts.append("\n# ss10 input substitution skipped: no ss10 copy inventory supplied.")
 
+    for feature in cosmetic_lines:
+        parts.append(f"\nfeature {feature} {{\n    lookup m1_{feature}_cosmetic;\n}} {feature};")
+
     fea = "\n".join(parts) + "\n"
 
     named_glyphs: set[str] = set(capable_members) | set(locked_members) | set(marker_glyphs)
@@ -883,6 +904,8 @@ def emit_gsub(
     named_glyphs.update(spec.runes)
     if ss10_copies:
         named_glyphs.update(ss10_copies.values())
+    for pairs in cosmetic_lines.values():
+        named_glyphs.update(pairs.values())
     locked_set = frozenset(name for name in named_glyphs if ".noentry" in name) | frozenset(locked_members)
     allowed_ignores = (
         frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()
@@ -904,4 +927,5 @@ def emit_gsub(
         settle_rules=tuple(_settle_rule_of(rule) for rule in grouped_rules),
         namer_dot_stage=namer_dot_stage,
         calt_stages=tuple(calt_lookups),
+        cosmetic_lines=cosmetic_lines,
     )

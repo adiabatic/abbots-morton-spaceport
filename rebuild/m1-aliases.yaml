@@ -380,6 +380,19 @@ qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
 qsOut.ss10: {rune: qsOut, stance: normal}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: sole}
 qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: sole, entry: baseline, adjustments: [en-bind-low-bend]}
+qsOwe: {rune: qsOwe, stance: sole}
+qsOwe.en-y5: {rune: qsOwe, stance: sole, entry: x-height}
+qsOwe.en-y5.ex-y5: {rune: qsOwe, stance: sole, entry: x-height, exit: x-height}
+qsOwe.en-y5.ex-y5.before-day: {rune: qsOwe, stance: sole, entry: x-height, exit: x-height}
+qsOwe.en-y5.ex-y5.ex-ext-1: {rune: qsOwe, stance: sole, entry: x-height, exit: x-height, adjustments: [ex-ext-1]}
+qsOwe.en-y5.ex-y5.ex-ext-2: {rune: qsOwe, stance: sole, entry: x-height, exit: x-height, adjustments: [ex-ext-2]}
+qsOwe.ex-y5: {rune: qsOwe, stance: sole, exit: x-height}
+qsOwe.ex-y5.before-day: {rune: qsOwe, stance: sole, exit: x-height}
+qsOwe.ex-y5.ex-ext-1: {rune: qsOwe, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
+qsOwe.ex-y5.ex-ext-2: {rune: qsOwe, stance: sole, exit: x-height, adjustments: [ex-ext-2]}
+qsOwe.gapped: {rune: qsOwe, stance: sole}
+qsOwe.noentry: {rune: qsOwe, stance: sole, adjustments: [locked]}
+qsOwe.ss10: {rune: qsOwe, stance: sole}
 qsFoot: {rune: qsFoot, stance: sole}
 qsFoot.en-ext-1: {rune: qsFoot, stance: sole, entry: x-height, adjustments: [en-ext-1]}
 qsFoot.ex-con-1: {rune: qsFoot, stance: sole, exit: x-height}

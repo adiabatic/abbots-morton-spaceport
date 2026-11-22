@@ -18,7 +18,7 @@ from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.run_m1 import OUT_DIR
 from rebuild.pipeline.spec_load import load_default_spec
 
-CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss08", "ss10"]
+CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss07", "ss08", "ss10"]
 USAGE = "usage: uv run python rebuild/tools/probe.py [--no-baseline] E6XX:E6XX [E6XX:E6XX:E6XX ...]"
 NOT_IN_SUBSET = "(not in subset)"
 

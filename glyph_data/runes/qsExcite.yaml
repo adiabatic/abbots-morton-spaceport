@@ -95,8 +95,6 @@ stances:
             - qsOy
             - qsUtter
             - qsOoze
-            except:
-            - {family: qsThey_qsZoo}
       exits:
         baseline:
           x: 6

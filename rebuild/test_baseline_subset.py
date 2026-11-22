@@ -30,9 +30,9 @@ class TestFilterTable:
         source = tmp_path / "baseline-default.tsv.gz"
         rows = [
             "E670\tqsIt\t0\t\t0,0,150",
-            "E67C\tqsOwe\t0\t\t0,0,250",
+            "0041\tA\t0\t\t0,0,250",
             "E652:E670\tqsTea.half.ex-y5|qsIt.en-y5.ex-y0\t0,1\ty5\t0,0,100|0,0,100",
-            "E652:E67C\tqsTea|qsOwe\t0,1\tbreak\t0,0,100|0,0,250",
+            "E652:0041\tqsTea|A\t0,1\tbreak\t0,0,100|0,0,250",
         ]
         _write_table(source, rows)
         destination = tmp_path / "out" / "baseline-default.subset.tsv.gz"
@@ -43,7 +43,7 @@ class TestFilterTable:
         assert content.startswith(f"# baseline-extract v1.0.0\n# font: {FONT_RELATIVE_PATH}\n")
         assert "E670\t" in content
         assert "E652:E670\t" in content
-        assert "E67C" not in content
+        assert "0041" not in content
 
     def test_canonical_order_preserved(self, tmp_path):
         source = tmp_path / "baseline-ss03.tsv.gz"
@@ -65,12 +65,23 @@ class TestFilterTable:
         assert not baseline_subset._codepoints_in_alphabet("garbage", baseline_subset.M1_ALPHABET)
 
 
-SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "E67C\tqsOwe\t0\t\t0,0,250"]
+SEED_ROWS = ["E670\tqsIt\t0\t\t0,0,150", "0041\tA\t0\t\t0,0,250"]
+# Every configuration the identity checks read: each renamed or window-scoped configuration and its reference.
+ROSTER = tuple(
+    dict.fromkeys(
+        [
+            *(reference for reference, _rename in baseline_subset.RENAME_COVERED_CONFIGS.values()),
+            *baseline_subset.RENAME_COVERED_CONFIGS,
+            *(reference for reference, _letters in baseline_subset.WINDOW_SCOPED_CONFIGS.values()),
+            *baseline_subset.WINDOW_SCOPED_CONFIGS,
+        ]
+    )
+)
 
 
 def _write_sources(out, rows):
-    """Write the reference table and the three configurations the acceptance gate covers through it, all filtering to the same rows, as the identity check requires."""
-    for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
+    """Write every configuration the identity checks read, all with the same rows, which hold no ·Owe, so each check passes."""
+    for config in ROSTER:
         _write_table(out / f"baseline-{config}.tsv.gz", rows)
 
 
@@ -185,8 +196,8 @@ class TestEnsureFresh:
         before = stamp.read_bytes()
         original = baseline_subset.filter_table
 
-        def filter_then_crash(source, destination, alphabet=baseline_subset.M1_ALPHABET):
-            original(source, destination, alphabet)
+        def filter_then_crash(source, destination, alphabet=baseline_subset.M1_ALPHABET, **options):
+            original(source, destination, alphabet, **options)
             written = destination.read_bytes()
             destination.write_bytes(written[: len(written) // 2])
             raise OSError("simulated crash mid-refilter")
@@ -300,10 +311,7 @@ class TestFontProvenance:
     def test_matching_headers_pass_and_return_the_tables(self, tmp_path):
         root = _seed_repo(tmp_path)
         checked = baseline_subset.check_font_provenance(root)
-        assert set(checked) == {
-            f"baseline-{config}.tsv.gz"
-            for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS
-        }
+        assert set(checked) == {f"baseline-{config}.tsv.gz" for config in ROSTER}
         assert set(checked.values()) == {FONT_SHA256}
         assert baseline_subset.ensure_fresh(root) is True
 
@@ -362,8 +370,83 @@ class TestFontProvenance:
             baseline_subset.main()
 
 
-class TestDefaultCovered:
-    """The check, made where the tables are written, that ss06, ss07, and ss06+ss07 filter to default's rows. The acceptance gate covers those three by running default alone, which is only sound while their filtered rows are default's."""
+class TestIdentities:
+    """The checks, made where the tables are written, that the old font's cosmetic ss06 changes only an unjoined ·Owe's glyph name (`RENAME_COVERED_CONFIGS`) and that ss07 changes only windows that hold ·Owe (`WINDOW_SCOPED_CONFIGS`), whose sub-table keeps only those windows."""
+
+    OWE_ALPHABET = frozenset({0xE670, 0xE653, 0xE67C})
+    DEFAULT = [
+        "E670\tqsIt\t0\t\t0,0,150",
+        "E67C\tqsOwe\t0\t\t0,0,250",
+        "E653:E670\tqsDay|qsIt\t0,1\tbreak\t0,0,300|0,0,150",
+        "E67C:E653\tqsOwe|qsDay\t0,1\tbreak\t0,0,250|0,0,300",
+        "E670:E67C\tqsIt.ex-y5|qsOwe.en-y5\t0,1\ty5\t0,0,150|0,0,250",
+    ]
+    SS07 = [*DEFAULT[:3], "E67C:E653\tqsOwe.ex-y5.before-day|qsDay\t0,1\ty5\t0,0,250|0,0,300", DEFAULT[4]]
+
+    @staticmethod
+    def _gapped(rows):
+        return [
+            row.replace("\tqsOwe\t", "\tqsOwe.gapped\t")
+            .replace("|qsOwe\t", "|qsOwe.gapped\t")
+            .replace("\tqsOwe|", "\tqsOwe.gapped|")
+            for row in rows
+        ]
+
+    def _filtered(self, tmp_path, tables):
+        filtered = {}
+        for config, rows in tables.items():
+            source = tmp_path / f"baseline-{config}.tsv.gz"
+            _write_table(source, rows)
+            filtered[config] = baseline_subset.filter_table(
+                source,
+                tmp_path / "m1" / f"baseline-{config}.subset.tsv.gz",
+                self.OWE_ALPHABET,
+                **baseline_subset.filter_options(config),
+            )
+        return filtered
+
+    def _tables(self, **overrides):
+        tables = {
+            "default": self.DEFAULT,
+            "ss06": self._gapped(self.DEFAULT),
+            "ss07": self.SS07,
+            "ss06+ss07": self._gapped(self.SS07),
+        }
+        return {**tables, **overrides}
+
+    def test_gapped_renames_and_an_owe_only_ss07_pass(self, tmp_path):
+        filtered = self._filtered(tmp_path, self._tables())
+        baseline_subset.check_identities(filtered)
+        assert filtered["ss07"].kept == 3
+        with gzip.open(tmp_path / "m1" / "baseline-ss07.subset.tsv.gz", "rt") as fh:
+            assert all("E67C" in line.split("\t", 1)[0] for line in fh if not line.startswith("#"))
+        assert filtered["default"].kept == len(self.DEFAULT)
+
+    def test_an_ss06_that_breaks_a_join_refuses(self, tmp_path):
+        broken = self._gapped(self.DEFAULT)
+        broken[4] = "E670:E67C\tqsIt|qsOwe.gapped\t0,1\tbreak\t0,0,150|0,0,250"
+        with pytest.raises(baseline_subset.SubsetIdentityError, match="ss06 differs from default"):
+            baseline_subset.check_identities(self._filtered(tmp_path, self._tables(ss06=broken)))
+
+    def test_an_ss06_ss07_that_differs_from_renamed_ss07_refuses(self, tmp_path):
+        with pytest.raises(baseline_subset.SubsetIdentityError, match=r"ss06\+ss07 differs from ss07"):
+            baseline_subset.check_identities(
+                self._filtered(tmp_path, self._tables(**{"ss06+ss07": self._gapped(self.DEFAULT)}))
+            )
+
+    def test_an_ss07_change_outside_owe_windows_refuses(self, tmp_path):
+        moved = [
+            self.SS07[0],
+            self.SS07[1],
+            "E653:E670\tqsDay.ex-y0|qsIt.en-y0\t0,1\ty0\t0,0,300|0,0,150",
+            *self.SS07[3:],
+        ]
+        with pytest.raises(
+            baseline_subset.SubsetIdentityError, match="ss07 differs from default on a window"
+        ):
+            baseline_subset.check_identities(
+                self._filtered(tmp_path, self._tables(ss07=moved, **{"ss06+ss07": self._gapped(moved)}))
+            )
 
     def test_identical_roster_tables_stamp_fresh(self, tmp_path):
         root = _seed_repo(tmp_path)
@@ -374,16 +457,14 @@ class TestDefaultCovered:
         root = _seed_repo(tmp_path)
         _write_table(
             root / "rebuild" / "out" / "baseline-ss06.tsv.gz",
-            ["E670\tqsIt.x\t0\t\t0,0,150", "E67C\tqsOwe\t0\t\t0,0,250"],
+            ["E670\tqsIt.x\t0\t\t0,0,150", "0041\tA\t0\t\t0,0,250"],
         )
         with pytest.raises(baseline_subset.SubsetIdentityError) as error:
             baseline_subset.refresh(root)
         message = str(error.value)
         assert "ss06" in message
         assert "default" in message
-        assert "ACCEPTANCE_CONFIGS" in message
-        differing = ("E670\tqsIt.x\t0\t\t0,0,150\n", "E670\tqsIt\t0\t\t0,0,150\n")
-        assert f"first differing pair {differing}" in message
+        assert "COSMETIC_CONFIGS" in message
         assert baseline_subset.is_fresh(root) is False
 
     def test_a_missing_roster_source_refuses_naming_it(self, tmp_path):
@@ -402,7 +483,7 @@ class TestSubsetNames:
         names = baseline_subset.read_subset_names(root / "rebuild" / "out" / "m1")
         assert names["default"] == ["qsIt"]
         assert names["ss06"] == ["qsIt"]
-        assert "qsOwe" not in names["default"]
+        assert "A" not in names["default"]
 
     def test_ligation_grain_names_are_split_and_sorted(self, tmp_path):
         root = _seed_repo(tmp_path)
@@ -489,7 +570,7 @@ def _seed_sfnt_repo(tmp_path):
     font = root / FONT_RELATIVE_PATH
     font.write_bytes(MINI_FONT.read_bytes())
     digest = hashlib.sha256(font.read_bytes()).hexdigest()
-    for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
+    for config in ROSTER:
         _write_table(root / "rebuild" / "out" / f"baseline-{config}.tsv.gz", SEED_ROWS, font_sha256=digest)
     return root, font, digest
 
@@ -601,7 +682,7 @@ class TestFontProvenanceThroughAVersionBump:
         baseline_subset.check_font_provenance(root)
         _sfnt_font(MINI_FONT, font, _widen_a_glyph)
         moved = hashlib.sha256(font.read_bytes()).hexdigest()
-        for config in (baseline_subset.IDENTITY_REFERENCE,) + baseline_subset.DEFAULT_COVERED_CONFIGS:
+        for config in ROSTER:
             _write_table(root / "rebuild" / "out" / f"baseline-{config}.tsv.gz", SEED_ROWS, font_sha256=moved)
         baseline_subset.check_font_provenance(root)
         recorded = baseline_subset.read_font_content_digests(root / "rebuild" / "out")

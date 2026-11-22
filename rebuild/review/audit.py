@@ -37,7 +37,9 @@ from rebuild.review.columns import (
 )
 
 # Restate `conform.ORACLE_CONFIGS` and `conform.M1_ONLY_CONFIGS`, not `conform.ACCEPTANCE_CONFIGS`: importing conform would pull it into the corpus code closure. `rebuild/test_review_tablediff.py` ties them.
-ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss10")
+ACCEPTANCE_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07", "ss10")
+# Restate `baseline_subset.WINDOW_SCOPED_CONFIGS`, each configuration the oracle compares only on the windows that hold one of its letters, with those letters as the code point strings a window spells; `rebuild/test_review_tablediff.py` ties the two. A unit of any other window cannot hold the configuration, so its config badge is resolved without it (`window_configs`).
+WINDOW_SCOPED_CONFIGS = (("ss07", ("E67C",)),)
 M1_ONLY_CONFIGS = ("ss08",)
 BATCH_SIZE = 300
 
@@ -299,6 +301,13 @@ def synthesize_unmatched_group_classes(
 def group_for(codepoint_values: tuple[int, ...], family_of: Mapping[int, str]) -> str:
     families = [family_of[value] for value in codepoint_values if value in family_of]
     return ":".join(families[:2]) if families else "(boundaries)"
+
+
+def window_configs(codepoints: str, full_configs: tuple[str, ...] = ACCEPTANCE_CONFIGS) -> tuple[str, ...]:
+    """Return the configurations a unit of the window `codepoints` (colon-separated code points) can hold: `full_configs` less each window-scoped configuration none of whose letters the window spells, since the oracle compares that configuration nowhere else. A unit's config badge is resolved against these, so a window a scoped configuration cannot change reads as it did before that configuration joined the roster."""
+    letters = set(codepoints.split(":"))
+    dropped = {config for config, scope in WINDOW_SCOPED_CONFIGS if not letters.intersection(scope)}
+    return tuple(config for config in full_configs if config not in dropped)
 
 
 def _config_index(config: str) -> int:

@@ -813,7 +813,8 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Vie's swept-out tail into ·-ing, the alternate ·No, ·Excite and ·Utter, in two defect formats: an E-UNREALIZED junction gap and an E-ANCHOR on ·Vie's contracted exit. The one-pixel exit contraction removes ·Vie's last tail pixel and moves the anchor onto its cell, so the follower's first pixel takes that cell. ·-ing, the alternate ·No and ·Excite also reach the baseline on a diagonal, so the uncontracted join draws a two-pixel flat bottom, ·Vie's last tail pixel beside the follower's first left-leg pixel; contracted, the two diagonals meet in a single-pixel point, which the author asked for in review of ·Pea·-ing·Vie·No. ·Utter's stem rises from that cell, which draws ·Vie·Utter exactly as the old font's ·Vie+Utter ligature does. ·Vie then has no ink on the baseline right of its bar, so `junction_gap` finds a gap and the anchor check finds the rightmost baseline ink at the bar's end; the tail's last pixel, one row above the baseline, touches the follower's baseline pixel at the corner. There is one junction signature per pair of ·Vie and follower variants and one anchor signature per ·Vie variant.
+# ·Vie's swept-out tail into ·-ing, the alternate ·No, ·Excite, ·Exam and ·Utter, in two defect formats: an E-UNREALIZED junction gap and an E-ANCHOR on ·Vie's contracted exit. The one-pixel exit contraction removes ·Vie's last tail pixel and moves the anchor onto its cell, so the follower's first pixel takes that cell. ·-ing, the alternate ·No, ·Excite and ·Exam also reach the baseline on a diagonal, so the uncontracted join draws a two-pixel flat bottom, ·Vie's last tail pixel beside the follower's first left-leg pixel; contracted, the two diagonals meet in a single-pixel point, which the author asked for in review of ·Pea·-ing·Vie·No. ·Utter's stem rises from that cell, which draws ·Vie·Utter exactly as the old font's ·Vie+Utter ligature does. ·Vie then has no ink on the baseline right of its bar, so `junction_gap` finds a gap and the anchor check finds the rightmost baseline ink at the bar's end; the tail's last pixel, one row above the baseline, touches the follower's baseline pixel at the corner. There is one junction signature per pair of ·Vie and follower variants and one anchor signature per ·Vie variant.
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -824,6 +825,7 @@
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -834,6 +836,7 @@
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -844,6 +847,7 @@
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -854,6 +858,7 @@
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -2928,3 +2933,187 @@
 # ·Exam's left column carries ink at y4 and y5 above its baseline entry, so the grounded ·May, whose x-height stroke ends in the rightmost column of its top row, touches ·Exam's top-left corner at y5 when the two join at the baseline. The old font joins this pair at the baseline (baseline rows E665:E66C and 200C:E665:E66C, junction y0) with the same bitmap and anchors (`qsMay.ex-y0` exits at x=4 and ·Exam enters at x=0), so the composite is pixel-identical to the rebuild's. There is one signature per ·May variant; the lock does not move the off-junction contact.
 - signature: contact:qsMay.grounded-loop.ex-y0.locked:qsExam.sole.en-y0:y5
 - signature: contact:qsMay.grounded-loop.ex-y0:qsExam.sole.en-y0:y5
+
+# ·Owe's declined x-height exit (E-DANGLE, "declined side has reaching ink and no unjoined binding"). The top of the closed ring and of the ring entered at the x-height ends at x=3 on y5, and the ring's right side continues diagonally to x=4 on y4, so the terminal has no ink directly below it and `geometry.verify_unjoined_safe` does not accept it. That pixel is the ring itself, not a connector: the old font draws `qsOwe` and `qsOwe.en-y5` with the same rows whether or not ·Owe's exit joins, and glyph_data/quikscript.yaml has no exit-side unjoined shape for ·Owe. There is one signature per entry and lock variant because the gate checks each cell separately; all show the same ring.
+- signature: dangle:qsOwe.sole.en-y5:exit:x-height
+  why: ·Owe entered at the x-height keeps the same ring top on a declined exit.
+- signature: dangle:qsOwe.sole.locked:exit:x-height
+  why: The ZWNJ-locked copy of ·Owe's closed ring; identical drawing.
+- signature: dangle:qsOwe.sole:exit:x-height
+  why: ·Owe's closed ring, whose top ends at x=3 and turns down the right side; the old font draws it whether or not the exit joins.
+
+# A doubled ·Owe joined at the x-height sets the second ring's left column (x=0) directly beside the first ring's right column (x=4), because ·Owe exits at x=5 and enters at x=0, so the two rings touch side by side on y1–y3 below the junction at y5. The old font joins ·Owe·Owe at the x-height (baseline row E67C:E67C, junction y5) with the same bitmaps and anchors (`qsOwe.ex-y5` exits at x=5, `qsOwe.en-y5` enters at x=0), so the composite is pixel-identical to the rebuild's. There is one signature per entry, exit-extension and lock variant of the two sides.
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsOwe.sole.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y2
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y1
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y2
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5:y1
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5:y2
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5:y3
+
+# ·Owe joined to ·Et at the x-height sets ·Et's left side directly beside ·Owe's right column at y3. The old font joins this pair at the x-height (baseline row E67C:E672, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Owe and ·Et variant.
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsEt.sole.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsEt.sole.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsEt.sole.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsEt.sole.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsEt.sole.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsEt.sole.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsEt.sole.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsOwe.sole.ex-y5:qsEt.sole.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.ex-y5:qsEt.sole.en-y5:y3
+
+# ·Owe joined to ·Foot at the x-height sets ·Foot's left side directly beside ·Owe's right column at y3. The old font joins this pair at the x-height (baseline row E67C:E67D, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Owe and ·Foot variant.
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsFoot.sole.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsFoot.sole.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsFoot.sole.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsFoot.sole.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsFoot.sole.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsFoot.sole.en-y5:y3
+
+# ·At's rising stroke joined to ·Owe at the x-height sets ·Owe's left column directly beside ·At's right side at y3. The old font joins this pair at the x-height (baseline row E674:E67C, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·At and ·Owe variant.
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5:y3
+- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5:y3
+- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5:y3
+
+# ·Foot joined to ·Owe at the x-height sets ·Owe's left column directly beside ·Foot's right side at y3. The old font joins this pair at the x-height (baseline row E67D:E67C, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Foot and ·Owe variant.
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsFoot.sole.en-y5.ex-y5:qsOwe.sole.en-y5:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsFoot.sole.ex-y5.locked:qsOwe.sole.en-y5:y3
+- signature: contact:qsFoot.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsFoot.sole.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
+- signature: contact:qsFoot.sole.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
+- signature: contact:qsFoot.sole.ex-y5:qsOwe.sole.en-y5:y3
+
+# Under ss07, ·Owe joined to ·Day at the x-height sets ·Day's left side directly beside ·Owe's right column on y1–y3 below the junction at y5, and ·Day+Utter and ·Day+Eat begin with the same ·Day stroke. The old font joins these under ss07 (baseline rows E67C:E653, E67C:E653:E67A and E67C:E653:E671 in ss07, junction y5, `qsOwe.ex-y5.before-day`) with the same bitmaps and anchors, so each composite is pixel-identical to the rebuild's. There is one signature per ·Owe and ·Day variant.
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5.ex-y0:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5.ex-y0:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsEat.full.en-y5:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5:y1
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5:y2
+- signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay_qsUtter.full.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0.ex-con-1:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0.ex-con-1:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay.full.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5.ex-y0:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5.ex-y0:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsEat.full.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5.locked:qsDay_qsUtter.full.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5.ex-y0:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5.ex-y0:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay.full.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5.ex-y0:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5.ex-y0:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5.ex-y0:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsEat.full.en-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5:y3
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5:y1
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5:y2
+- signature: contact:qsOwe.sole.ex-y5:qsDay_qsUtter.full.en-y5:y3

@@ -73,6 +73,7 @@ from rebuild.pipeline.model import (
     CellId,
     GlyphRecord,
     ResolvedSpec,
+    cosmetic_copies,
     locked_glyph_name,
     relevant_marker_features,
     ss10_copy_name,
@@ -1096,6 +1097,22 @@ def mint_raw_glyphs(
     return bare, copies, ss10_copies
 
 
+def mint_cosmetic_glyphs(
+    spec: ResolvedSpec, cell_glyphs: Mapping[CellId, GlyphRecord]
+) -> tuple[dict[CellId, GlyphRecord], dict[str, dict[str, str]]]:
+    """Return the cosmetic copies and, for each cosmetic set, the map from cell glyph to copy that its lookup substitutes (`emit_gsub`). A copy (`model.cosmetic_copies`) is its cell's record under the copy's name with the cosmetic record's drawing: the cell has no anchor, so neither has the copy, and `spec_load` holds the drawing to its stance's width and `y_offset`, so the copy keeps the cell's advance. Copies are keyed under the synthetic `RAW_STANCE`, after the cell's own adjustments, then the feature and the copy's name, so no cosmetic record or settled-cell reader takes one for a cell, and a locked cell's copy keeps the `locked` adjustment that gives it the cell's coverage-only cursive registrations (`emit_gpos.cursive_registrations`)."""
+    names = {cell: record.name for cell, record in cell_glyphs.items()}
+    copies: dict[CellId, GlyphRecord] = {}
+    substitutions: dict[str, dict[str, str]] = {}
+    for copy_name, (cell, record) in sorted(cosmetic_copies(spec, names).items()):
+        source = cell_glyphs[cell]
+        copies[CellId(cell.rune, RAW_STANCE, None, None, (*cell.adjustments, record.feature, copy_name))] = (
+            replace(source, name=copy_name, bitmap=record.bitmap.rows, y_offset=record.bitmap.y_offset)
+        )
+        substitutions.setdefault(record.feature, {})[source.name] = copy_name
+    return copies, substitutions
+
+
 def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
     raw = yaml.safe_load(PUNCTUATION_YAML.read_text())["glyphs"]
     records: dict[CellId, GlyphRecord] = {}
@@ -1414,6 +1431,7 @@ def _run_glyph_chain(
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
     bare, copies, ss10_copies = mint_raw_glyphs(spec)
+    cosmetic, cosmetic_substitutions = mint_cosmetic_glyphs(spec, cell_glyphs)
     dots = namer_dot_glyphs()
     console.timing("glyph_minting", time.perf_counter() - start)
 
@@ -1434,8 +1452,14 @@ def _run_glyph_chain(
 
     console.phase("emit_gsub_gpos")
     start = time.perf_counter()
-    curs_glyphs = {**cell_glyphs, **bare, **copies}
-    gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
+    curs_glyphs = {**cell_glyphs, **bare, **copies, **cosmetic}
+    gsub_plan = emit_gsub.emit_gsub(
+        spec,
+        tables,
+        glyphs={**cell_glyphs, **bare},
+        ss10_copies=ss10_copies,
+        cosmetic_substitutions=cosmetic_substitutions,
+    )
     classes = sorted({*emit_gsub.behavior_classes(gsub_plan), *kern_plan.behavior_classes()})
     (out_dir / "behavior_classes.json").write_text(
         json.dumps(

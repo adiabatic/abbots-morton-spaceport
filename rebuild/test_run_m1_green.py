@@ -466,6 +466,7 @@ def test_a_failed_manual_pin_gate_clears_the_record(monkeypatch, tmp_path):
 def test_a_manual_pin_summary_that_comes_out_the_same_is_left_in_place(monkeypatch, tmp_path):
     """A second run of the Manual-pin gate whose summary comes out the same leaves `manual_pins_summary.json` in place, keeping its inode and its modification time, here set long ago so that any write would move it."""
     monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
+    monkeypatch.setattr(run_m1_gates, "check_window_scopes", lambda spec: [])
     monkeypatch.setattr(run_m1_gates.manual_pins, "run_gate", lambda font, spec: None)
     monkeypatch.setattr(
         run_m1_gates.manual_pins,
@@ -675,6 +676,7 @@ def test_a_conform_only_refusal_files_why_and_clears_a_matching_green_unless_a_c
     monkeypatch.setattr(run_m1, "tables_inputs", lambda: "fp")
     monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
     monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: object())
+    monkeypatch.setattr(run_m1_gates, "check_window_scopes", lambda spec: [])
     monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: None)
     if cycle:
         monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
@@ -834,6 +836,7 @@ class TestOracleFanIn:
             run_m1_gates.baseline_subset, "subset_row_counts", lambda out_dir: dict(rows or {})
         )
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
+        monkeypatch.setattr(run_m1_gates, "check_window_scopes", lambda spec: [])
         monkeypatch.setattr(
             run_m1_gates,
             "oracle_row_cache_keys",
@@ -1113,7 +1116,10 @@ class TestOracleFanIn:
         monkeypatch.setattr(run_m1, "_spawn_pool", pool)
         memo_inputs = self._memos(monkeypatch, order)
         run_m1_gates.run_oracle(
-            out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs, memo_ready=lambda: order.append("ready")
+            out_dir=tmp_path,
+            jobs=len(conform.ORACLE_CONFIGS),
+            memo_inputs=memo_inputs,
+            memo_ready=lambda: order.append("ready"),
         )
         assert widths == [1]
         ranges = len(conform.ORACLE_CONFIGS)
@@ -1377,14 +1383,17 @@ class TestOracleFanIn:
         standing = tmp_path / "divergence-audit.tsv"
         standing.write_bytes(b"the audit of the last green run\n")
         self._pool(monkeypatch, self._worker(overcount=conform.ORACLE_CONFIGS[2]))
-        with pytest.raises(ValueError, match="7 divergent"):
+        returned = len(conform.ORACLE_CONFIGS)
+        with pytest.raises(
+            ValueError, match=f"returned {returned} audit rows where they counted {returned + 1} divergent"
+        ):
             run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
         assert standing.read_bytes() == b"the audit of the last green run\n"
         assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
 
 
 class TestConformFanIn:
-    """The conformance sweep's fan-in runs one unit per process (the ss10 overlay whole and each settlement configuration once per final symbol), writes its units' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, prunes and absorbs each settlement configuration's memo in the parent, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), over a three-symbol alphabet, so the real unit worker, `run_conformance`, and both merges run in every mode."""
+    """The conformance sweep's fan-in runs one unit per process (the ss10 overlay and each cosmetic configuration whole, and each settlement configuration once per final symbol), writes its units' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, prunes and absorbs each settlement configuration's memo in the parent, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), over a three-symbol alphabet, so the real unit worker, `run_conformance`, and both merges run in every mode."""
 
     ALPHABET = ("a", "b", "c")
     ROWS = 4
@@ -1410,7 +1419,11 @@ class TestConformFanIn:
         """A deterministic sweep that shapes nothing: every text of the configuration's lengths that ends in `last` (every text without it) is a sequence costing the configuration's own count of shaping runs, and every text ending in the configuration's own symbol diverges, so a merge that misordered the units or the configurations would write a different report. The per-edit sweep shapes every text in every configuration, so no unit gets trigger letters, and its walks share a settle memo, so none gets a window ceiling."""
         assert not triggers and max_windows is None
         index = conform.ACCEPTANCE_CONFIGS.index(config)
-        top = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
+        top = (
+            conform.OVERLAY_MAX_LENGTH
+            if config in conform.OVERLAY_CONFIGS
+            else conform.COSMETIC_MAX_LENGTH if config in conform.COSMETIC_CONFIGS else max_length
+        )
         result = conform.ConformanceConfigResult(config=config)
         tally = conform.DivergenceTally(result, alphabet)
         for length in range(1, top + 1):
@@ -1442,6 +1455,7 @@ class TestConformFanIn:
         monkeypatch.setattr(run_m1, "tables_inputs", lambda: None)
         monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: None)
+        monkeypatch.setattr(run_m1_gates, "check_window_scopes", lambda spec: [])
         monkeypatch.setattr(run_m1, "serialized_tables", lambda out_dir, inputs: {})
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, decisions: {})
         monkeypatch.setattr(run_m1_gates, "load_build_kern_sides", lambda out_dir: None)
@@ -1877,6 +1891,7 @@ class TestGatesOnly:
         (tmp_path / "M1.otf").write_bytes(b"font")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: object())
+        monkeypatch.setattr(run_m1_gates, "check_window_scopes", lambda spec: [])
         monkeypatch.setattr(run_m1, "run_ligature_outgoing", lambda spec: {})
         monkeypatch.setattr(run_m1.table_module, "read_join_tsv", lambda path: f"joins {path.name}")
         monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})

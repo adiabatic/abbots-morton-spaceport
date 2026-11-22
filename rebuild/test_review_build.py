@@ -40,6 +40,7 @@ from rebuild.review.audit import (
     load_workload,
     machine_approved,
     slim_fragment,
+    window_configs,
 )
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
@@ -503,8 +504,18 @@ def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
     assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
 
 
+def test_a_window_without_owe_badges_as_if_ss07_were_not_on_the_roster():
+    """ss07 changes only windows that hold ·Owe, and the oracle compares it nowhere else (`audit.WINDOW_SCOPED_CONFIGS`), so a unit of any other window never holds it. Its badge is resolved against the configurations its window can hold (`audit.window_configs`), so it reads as it did before ss07 joined the roster, and only an ·Owe window's badge can name ss07."""
+    configs = ("default", "ss04", "ss05", "ss10")
+    assert window_configs("E650:E651") == tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss07")
+    assert window_configs("E650:E67C") == ACCEPTANCE_CONFIGS
+    assert config_note(configs, window_configs("E650:E651")) == "only when ss03 is off"
+    assert config_note(configs, window_configs("E650:E67C")) == "only when ss03 is off and ss07 is off"
+    assert config_note(("default", "ss03", "ss04", "ss05", "ss03+ss05"), window_configs("E650")) is None
+
+
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():
-    full = ACCEPTANCE_CONFIGS
+    full = window_configs("E650")
     non_ss10 = tuple(config for config in full if config != "ss10")
     assert config_note(non_ss10, full) is None
     assert config_note(full, full) is None
@@ -523,7 +534,7 @@ def test_config_badge_caches_list_and_tuple_equivalents_together():
 
 def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
     """A config set narrower than "every config with ss03 on" can still be described by a feature conjunction: a unit can differ under ss03 alone because turning ss05 on as well produces a different unit. Such a set resolves to the conjunction that selects it, so the badge names the features in their own colors instead of listing configs."""
-    full = ACCEPTANCE_CONFIGS
+    full = window_configs("E650")
     assert config_note(("ss03",), full) == "only when ss03 is on and ss05 is off"
     assert config_note(("ss05",), full) == "only when ss05 is on and ss03 is off"
     assert config_note(("ss03+ss05",), full) == "only when ss03 is on and ss05 is on"
@@ -534,7 +545,7 @@ def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
 
 def test_config_gate_leaves_the_literal_fallback_to_sets_no_conjunction_pins():
     """The literal fallback remains for a disjunction such as ss04 or ss10, which no conjunction selects, because every all-off conjunction also admits default. The other fallback case, a set that needs more constraints than `GATE_CONSTRAINT_CAP`, cannot occur while there are only three joining features, since the cap covers all of them."""
-    full = ACCEPTANCE_CONFIGS
+    full = window_configs("E650")
     assert config_gate(("ss04", "ss10"), full) is None
     assert config_note(("ss04", "ss10"), full) == "only under: ss04, ss10"
     assert config_gate(("ss03", "ss03+ss05", "ss10"), full) is None

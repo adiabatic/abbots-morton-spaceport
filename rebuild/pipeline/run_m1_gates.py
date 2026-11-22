@@ -321,13 +321,18 @@ class SweepUnit:
     def overlay(self) -> bool:
         return self.config in conform.OVERLAY_CONFIGS
 
+    @property
+    def cosmetic(self) -> bool:
+        return self.config in conform.COSMETIC_CONFIGS
+
 
 def sweep_units(
     alphabet: Sequence[str], max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
 ) -> tuple[SweepUnit, ...]:
-    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol. A settlement configuration that `triggers` maps to letters shapes only the texts that contain one of them: all of a unit's texts when its symbol is one, and otherwise each length's texts less the ones whose other characters avoid them all."""
+    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each cosmetic configuration whole, to `conform.COSMETIC_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol. A settlement configuration that `triggers` maps to letters shapes only the texts that contain one of them: all of a unit's texts when its symbol is one, and otherwise each length's texts less the ones whose other characters avoid them all."""
     size = len(alphabet)
     overlay = sum(size**length for length in range(1, conform.OVERLAY_MAX_LENGTH + 1))
+    cosmetic = sum(size**length for length in range(1, conform.COSMETIC_MAX_LENGTH + 1))
     unit = sum(size ** (length - 1) for length in range(1, max_length + 1))
 
     def settlement_unit(config: str, symbol: str) -> SweepUnit:
@@ -338,20 +343,28 @@ def sweep_units(
         texts = sum(size ** (length - 1) - rest ** (length - 1) for length in range(1, max_length + 1))
         return SweepUnit(config, symbol, texts, letters)
 
-    return tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS) + tuple(
-        settlement_unit(config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
+    return (
+        tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS)
+        + tuple(SweepUnit(config, None, cosmetic) for config in conform.COSMETIC_CONFIGS)
+        + tuple(
+            settlement_unit(config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
+        )
     )
 
 
 def config_texts(
     spec: ResolvedSpec, max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
 ) -> dict[str, int]:
-    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration and `conform.OVERLAY_MAX_LENGTH` for an overlay, and for a settlement configuration that `triggers` maps to letters, only the texts that contain one of them. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything, and `deep_replay.main` each settlement configuration's merged texts and skipped texts."""
+    """Return how many texts each acceptance configuration's units shape between them: every text of one letter up to its maximum length over the spec's alphabet, which is `max_length` for a settlement configuration, `conform.OVERLAY_MAX_LENGTH` for an overlay and `conform.COSMETIC_MAX_LENGTH` for a cosmetic configuration, and for a settlement configuration that `triggers` maps to letters, only the texts that contain one of them. `run_font_conformance` and `deep_sweep.run_sweep` check each configuration's merged `sequences` against it before they write anything, and `deep_replay.main` each settlement configuration's merged texts and skipped texts."""
     alphabet = conform.spec_alphabet(spec)
     size = len(alphabet)
     counts: dict[str, int] = {}
     for config in conform.ACCEPTANCE_CONFIGS:
-        longest = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
+        longest = (
+            conform.OVERLAY_MAX_LENGTH
+            if config in conform.OVERLAY_CONFIGS
+            else conform.COSMETIC_MAX_LENGTH if config in conform.COSMETIC_CONFIGS else max_length
+        )
         letters = (triggers or {}).get(config, frozenset())
         rest = size - len(letters.intersection(alphabet))
         counts[config] = sum(
@@ -868,6 +881,34 @@ def run_oracle(
         return _run_oracle(out_dir, spec, jobs, write_cache, fresh_cache, memo_inputs, memo_ready)
 
 
+def check_window_scopes(spec: ResolvedSpec) -> list[str]:
+    """Return why each `baseline_subset.WINDOW_SCOPED_CONFIGS` configuration the oracle compares could settle a window outside its scope differently from its reference, or nothing. Its sub-table holds only the windows inside the scope, so the oracle compares it nowhere else, and that is sound only while the configuration settles every other window as its reference does: `baseline_subset` checks the old font's side, and this the spec's, by the deep sweep's plan-time check (`conform.unconfined_feature_records`, `conform.renamed_runes`): every record gated on one of the configuration's features must restrict a slot to a rune its features rename, and every renamed rune's letters must be in the scope."""
+    problems: list[str] = []
+    for config, (reference, letters) in baseline_subset.WINDOW_SCOPED_CONFIGS.items():
+        if config not in conform.ORACLE_CONFIGS:
+            continue
+        if reference != "default":
+            problems.append(
+                f"{config}: its reference is {reference}, and the plan-time check proves only against default"
+            )
+            continue
+        unconfined = conform.unconfined_feature_records(spec, config)
+        if unconfined:
+            problems.append(
+                f"{config}: records gated on its features restrict no slot to a rune they rename: {', '.join(unconfined)}"
+            )
+        outside = sorted(
+            f"U+{ord(letter):04X}"
+            for letter in conform.trigger_letters(spec, conform.renamed_runes(spec, config))
+            if ord(letter) not in letters
+        )
+        if outside:
+            problems.append(
+                f"{config}: its features rename runes spelled with {', '.join(outside)}, outside its scope"
+            )
+    return problems
+
+
 def _run_oracle(
     out_dir: Path,
     spec: ResolvedSpec | None,
@@ -880,6 +921,12 @@ def _run_oracle(
     setup_started = time.perf_counter()
     if spec is None:
         spec = load_default_spec()
+    scope_problems = check_window_scopes(spec)
+    if scope_problems:
+        raise RuntimeError(
+            "a window-scoped configuration's sub-table would hide a change the spec can make outside its scope:\n  "
+            + "\n  ".join(scope_problems)
+        )
     oracle.discard_oracle_audit_scratch(out_dir)
     if fresh_cache and write_cache:
         oracle_cache.discard_stores(out_dir, conform.ORACLE_CONFIGS)

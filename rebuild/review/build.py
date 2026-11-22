@@ -91,6 +91,7 @@ from rebuild.review.audit import (
     stream_workload,
     synthesize_unmatched_group_classes,
     triage_key,
+    window_configs,
 )
 from rebuild.review.columns import RepeatedKey
 from rebuild.review.change_groups import (
@@ -431,7 +432,7 @@ def unit_scaffold(
     unit, full_configs=ACCEPTANCE_CONFIGS, *, ink_deltas: Mapping[str, str] | None = None
 ) -> dict:
     """Return every fragment field the build derives from the workload instead of from the enrichment: the unit's identity, its ledger-derived values, and the phase-1 machine flags. `ink_deltas` is passed in because the unit does not carry the deltas: drafting passes the comparator's values and the write passes the unit store's. Without it the unit's own mapping is used, which on every unit the build materializes is the shared empty `audit.NO_DELTAS`. `ledger_class` is the unit's own (`Unit.ledger_class`), which phase 1 sets on a re-routed unit and the write copies from the unit store, and is written null on every other unit. A fragment carries no batch, because a batch is a slice of the manifest's triage index and a fragment's bytes depend only on its own content and the ledger. `unit_to_json` and `patch_fragment` both build the scaffold here, so a fragment cannot keep a stale value of a field a full build would change."""
-    gate, note = config_badge(unit.configs, full_configs)
+    gate, note = config_badge(unit.configs, window_configs(unit.codepoints, tuple(full_configs)))
     return {
         "id": unit.unit_id,
         "ink_identical": unit.ink_identical,
@@ -2766,7 +2767,7 @@ def _write_chunk(
                 span = writer.add_bytes(emission.body, emission.source.inflated)
             check.unit(emission.identity, cached=True)
             sidecars.cached(emission, span, table.order(ordinal), table.batch(ordinal))
-            note = config_note(table.configs(ordinal), ACCEPTANCE_CONFIGS)
+            note = config_note(table.configs(ordinal), window_configs(table.codepoints_text(ordinal)))
             byte_copied += 1
         assert emission.content_key == store.content_key_hex(ordinal), emission.unit_id
         parts.append(span[0])
@@ -3387,7 +3388,7 @@ def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, unit_id: 
         "group": table.group(ordinal),
         "codepoints": table.codepoints_text(ordinal),
         "configs": list(configs),
-        "config_gate": config_gate(configs, ACCEPTANCE_CONFIGS),
+        "config_gate": config_gate(configs, window_configs(table.codepoints_text(ordinal))),
         "pair": {"left": pair[0], "right": pair[1]} if pair else None,
         "secondary_junctions": [
             {"primary_unit": primary_unit} for primary_unit, suppressed in junction_assign if not suppressed
