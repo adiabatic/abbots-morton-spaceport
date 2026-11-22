@@ -4,7 +4,7 @@ The scenarios are `units_stage_fixtures`' (`open_build_source`): each prepares i
 
 `--engines` names the two sides, `python,rust` by default. Each side builds in a fresh process (`units_stage_fixtures.run_engine_build`, through its `python-build` child) as the cycle's step runs the build: under the Rust units engine, its journal redirected into the side's run directory, its own counts file, no cycle run unless the build's pass holds a fold claim another output took, and on macOS the allocator's large cache off. A Python side is `build.build_m1` at the harness's default width (`units_stage_fixtures.default_width`); a Rust side is `build._rust_build_m1`, which runs `ams-review build` (`corpus_exec.run_build`), at `--threads`, by default the same width. `--engines python,python` runs the first side at the default width and the second at two, which `_write_corpus` holds to write the same tree; a case that names its own width (`BuildCase.jobs`) runs at that width on both sides. The sides run one after the other, each case on both sides before the next case, and each side builds over a clone of the case's prior, or over its own output of the case before.
 
-Before comparing bytes, each case compares the fields that move when the inputs move between the sides (`manifest.json`'s `repo_head`, `inputs_fingerprint` and `generated_at`, the unit store's and the ink-signature store's `environment`) where both sides wrote them, and both sides' zlib versions; a difference stops the run with exit status 3 naming the field, and the run is repeated rather than debugged. The comparison then takes the set of relative paths under each side's output, every file byte for byte (with the first differing offset and, for a gzip file, whether the inflated bytes agree), the `[phase]` and `[t]` labels in order, the `[warn]` lines, the plain miss notes and the `Pruned` line, each with the side's own output directory written `<out>`, the counts files as sorted lists, both exit statuses, and the scenario's checks (`BuildCase.check`, and `check_chain` over a chain) on every Python side.
+Before comparing bytes, each case compares the fields that move when the inputs move between the sides (`manifest.json`'s `repo_head`, `inputs_fingerprint` and `generated_at`, the unit store's and the ink-signature store's `environment`) where both sides wrote them, and both sides' zlib versions; a difference stops the run with exit status 3 naming the field, and the run is repeated rather than debugged. The comparison then takes the set of relative paths under each side's output, every file byte for byte (with the first differing offset and, for a gzip file, whether the inflated bytes agree), the `[phase]` and `[t]` labels in order, the `[warn]` lines, the plain miss notes and the `Pruned` line, each with the side's own output directory written `<out>`, the counts files as sorted lists, both exit statuses, how each build ended (done, a refusal's `SystemExit`, or another failure, as `python_build_child` records it), a refusal's message as the plan's § Failures compares it (`refusal_lines`: the whole message, but for the contract check's, whose first line and mismatch line compare as written and whose other errors compare as a sorted list), and the scenario's checks (`BuildCase.check`, and `check_chain` over a chain) on every Python side.
 
 The report is JSON under `var/rust-port/corpus-dual-run/` (`--report` names another path): per scenario and case, the files compared and each difference, and each side's width, exit status, wall time, phase seconds, peak footprints from its pool records (a Python side's parent and units engine, a Rust side's build process) and zlib version, a Rust side's as `ams-review version` prints it. Any difference, or a scenario check a Python side does not pass, exits 1. `--plant shard` changes one byte of the second side's first shard part after its last build, to show that the comparison reports it.
 
@@ -58,6 +58,9 @@ DIFFERENCES_SHOWN = 10
 CHUNK = 1 << 20
 MANIFEST_STAMPS = ("repo_head", "inputs_fingerprint", "generated_at")
 MISS_NOTE = re.compile(r"(unit cache|ink-signature store): ")
+# The contract check's refusal (`build._write_corpus`): its first line, and the start of the mismatch line that follows it when any unit's re-settled cells diverge.
+CONTRACT_REFUSAL = "contract check failed:"
+MISMATCH_LINE = "enricher: re-settled cells diverge from the audit in "
 
 
 @dataclass
@@ -141,6 +144,7 @@ class SideRun:
             "engine": self.side.engine,
             "width": self.width,
             "returncode": self.run.returncode,
+            "ending": self.run.ending,
             "wall_seconds": round(self.wall_seconds, 3),
             "phase_seconds": self.phases(),
             "peak_footprint_bytes": {
@@ -337,6 +341,37 @@ def console_lines(run: BuildRun) -> dict[str, list[str]]:
     return lines
 
 
+def refusal_lines(message: str | None, out: Path) -> dict:
+    """A refusal's message as the dual run compares it (the plan's § Failures), the build's own output directory written `<out>`: every line in order, but for the contract check's, whose first line and the mismatch line after it, when any unit's re-settled cells diverge, are kept as written, and whose other errors, which a pooled build keeps in arrival order, are sorted."""
+    if message is None:
+        return {"lines": None}
+    lines = message.replace(str(out), "<out>").split("\n")
+    if lines[0] != CONTRACT_REFUSAL:
+        return {"lines": lines}
+    errors = lines[1:]
+    mismatch = errors.pop(0) if errors and errors[0].startswith(MISMATCH_LINE) else None
+    return {"first": lines[0], "mismatch": mismatch, "errors": sorted(errors)}
+
+
+def _ending_kind(run: BuildRun) -> str | None:
+    return None if run.ending is None else run.ending["kind"]
+
+
+def compare_endings(left: BuildRun, right: BuildRun, result: CaseResult) -> None:
+    """Compare how the two builds ended, and the messages of two refusals, adding each difference to `result`."""
+    left_kind, right_kind = _ending_kind(left), _ending_kind(right)
+    if left_kind != right_kind:
+        result.differences.append({"kind": "ending", "left": left_kind, "right": right_kind})
+        return
+    if left_kind != "exit":
+        return
+    assert left.ending is not None and right.ending is not None
+    left_refusal = refusal_lines(left.ending["message"], left.out)
+    right_refusal = refusal_lines(right.ending["message"], right.out)
+    if left_refusal != right_refusal:
+        result.differences.append({"kind": "refusal", "left": left_refusal, "right": right_refusal})
+
+
 def _counts(side_run: SideRun) -> list[str]:
     return sorted(side_run.counts.read_text(encoding="utf-8").splitlines())
 
@@ -347,6 +382,7 @@ def compare_case(left: SideRun, right: SideRun, result: CaseResult) -> None:
         result.differences.append(
             {"kind": "status", "left": left.run.returncode, "right": right.run.returncode}
         )
+    compare_endings(left.run, right.run, result)
     compare_trees(left.run.out, right.run.out, result)
     left_lines, right_lines = console_lines(left.run), console_lines(right.run)
     for kind, lines in left_lines.items():
@@ -376,6 +412,12 @@ def describe_difference(difference: dict) -> str:
         return text
     if kind == "status":
         return f"the builds exited {difference['left']} and {difference['right']}"
+    if kind == "ending":
+        return (
+            f"the builds ended {difference['left'] or 'unrecorded'} and {difference['right'] or 'unrecorded'}"
+        )
+    if kind == "refusal":
+        return "the refusals' messages differ"
     return f"the {kind.replace('_', ' ')} differ"
 
 

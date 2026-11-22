@@ -1066,7 +1066,7 @@ pub fn stage_build_input(input_path: &Path, out: &mut impl Write) -> Result<()> 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn vocabulary() -> String {
@@ -1077,7 +1077,7 @@ mod tests {
             .join(",")
     }
 
-    fn input_text(vocabulary: &str) -> String {
+    pub(crate) fn input_text(vocabulary: &str) -> String {
         let stamp = r#"{"value":"v","lines":["format\tf","code\tc"],"detail":[["code",["a.py\td"]]],"header":{"environment":"v","environment_lines":["format\tf"],"environment_detail":{"code":["a.py\td"]}}}"#;
         format!(
             concat!(

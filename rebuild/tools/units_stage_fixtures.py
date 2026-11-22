@@ -2456,7 +2456,7 @@ class BuildInputs:
 
 @dataclass
 class BuildRun:
-    """One build as `run_engine_build` ran it: its label, the tree it started from, the tree it wrote, its exit status, what it printed, and the cycle directory of a pass whose claim another output holds."""
+    """One build as `run_engine_build` ran it: its label, the tree it started from, the tree it wrote, its exit status, what it printed, the cycle directory of a pass whose claim another output holds, and how it ended as its child recorded it (`python_build_child`), None when the child recorded nothing."""
 
     label: str
     prior: Path
@@ -2464,6 +2464,7 @@ class BuildRun:
     returncode: int
     log: str
     cycle_var: Path | None = None
+    ending: dict | None = None
 
     @functools.cached_property
     def notes(self) -> dict[str, str]:
@@ -2636,8 +2637,11 @@ def run_engine_build(
         "signature_jobs": signature_jobs,
         "journal": str(logs / "journal.ndjson"),
         "cycle_var": None if cycle_var is None else str(cycle_var),
+        "ending": str(logs / f"{label}.ending.json"),
     }
     request_path = logs / f"{label}.json"
+    ending_path = Path(request["ending"])
+    ending_path.unlink(missing_ok=True)
     request_path.write_text(json.dumps(request, indent=1) + "\n", encoding="utf-8")
     log_path = logs / f"{label}.log"
     with log_path.open("wb") as log:
@@ -2657,14 +2661,32 @@ def run_engine_build(
         process.returncode,
         log_path.read_text(encoding="utf-8", errors="replace"),
         cycle_var,
+        json.loads(ending_path.read_text(encoding="utf-8")) if ending_path.is_file() else None,
     )
 
 
 def python_build_child(request_path: Path) -> int:
-    """Run the build one `run_engine_build` request describes, in this process, with the engine it names: `build.build_m1`, or for `rust` `build._rust_build_m1` over the audit held as `build_m1` holds it (`audit.AuditParts`) with `build_m1`'s defaults for every argument the request leaves out; the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them."""
+    """Run the build one `run_engine_build` request describes, in this process, with the engine it names: `build.build_m1`, or for `rust` `build._rust_build_m1` over the audit held as `build_m1` holds it (`audit.AuditParts`) with `build_m1`'s defaults for every argument the request leaves out; the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them. How the build ended is written to the request's `ending` file as one JSON object before the child exits: `{"kind": "done"}`; `{"kind": "exit", "message": …}` for a `SystemExit`, the refusal the Rust build's `exit` result raises among them, its message None when its code is not text; or `{"kind": "error", "class": …}` for any other exception."""
     request = json.loads(request_path.read_text(encoding="utf-8"))
     if request.get("format") != BUILD_REQUEST_FORMAT:
         raise SystemExit(f"{request_path} is not a {BUILD_REQUEST_FORMAT} request")
+    ending_path = Path(request["ending"])
+    try:
+        _requested_build(request)
+    except SystemExit as stop:
+        message = stop.code if isinstance(stop.code, str) else None
+        ending_path.write_text(json.dumps({"kind": "exit", "message": message}) + "\n", encoding="utf-8")
+        raise
+    except BaseException as failure:
+        ending_path.write_text(
+            json.dumps({"kind": "error", "class": type(failure).__name__}) + "\n", encoding="utf-8"
+        )
+        raise
+    ending_path.write_text(json.dumps({"kind": "done"}) + "\n", encoding="utf-8")
+    return 0
+
+
+def _requested_build(request: Mapping) -> None:
     cycle_timings.JOURNAL = Path(request["journal"])
     if request["cycle_var"] is not None:
         cycle_paths.CYCLE_VAR = Path(request["cycle_var"])
@@ -2695,7 +2717,7 @@ def python_build_child(request_path: Path) -> int:
             )
         finally:
             parts.close()
-        return 0
+        return
     build.build_m1(
         Path(request["out"]),
         audit_path=inputs.audit,
@@ -2708,7 +2730,6 @@ def python_build_child(request_path: Path) -> int:
         spec_root=inputs.spec_root,
         subset_pack=inputs.subset_pack,
     )
-    return 0
 
 
 _BASES: dict[str, BasePrior] = {}
@@ -3262,7 +3283,7 @@ def _torn(base: BasePrior, directory: Path) -> list[BuildCase]:
 
 
 def _refusals(base: BasePrior, directory: Path) -> list[BuildCase]:
-    """One case a refusal point past the plan, each over its own clone of the base prior. The two that refuse a unit reused from the store run at the harness's default width: a build at one job stamps no `units_engine` line, so it reuses nothing from a store the Rust units engine stamped, and over unchanged inputs neither writes the signature store. The contract check's case rewrites the signature store, since its audit's identity moves, so it runs at one job, where the store is written inline (§ Failures)."""
+    """One case a refusal point past the plan, each over its own clone of the base prior. The two that refuse a unit reused from the store run at the harness's default width: a build at one job stamps no `units_engine` line, so it reuses nothing from a store the Rust units engine stamped, and over unchanged inputs neither writes the signature store. The contract check's case rewrites the signature store, since its audit's identity moves, so it runs at one job, where the store is written inline (§ Failures); its prior has no unit store head, since the Python build at one job reads the store's stamp as moved at `units_engine` where the Rust build, which stamps that line, reads it as holding, and with no head both say the no-store note and recompute every unit, as the Python build at one job does over any store the Rust units engine wrote."""
     stale = _prior(base, directory, "prior-stale-sample")
     stale_id = stale_sample_store(stale)
     unreadable = _prior(base, directory, "prior-unreadable-fragment")
@@ -3270,6 +3291,8 @@ def _refusals(base: BasePrior, directory: Path) -> list[BuildCase]:
     diverging = dataclasses.replace(
         base.inputs, audit=diverging_audit(base.inputs.audit, directory / "inputs" / base.inputs.audit.name)
     )
+    unstored = _prior(base, directory, "prior-contract-check")
+    row_delta.head_path(unstored, unit_cache.STORE_NAME).unlink()
     return [
         BuildCase("stale-sample", base.inputs, stale, _refused(_STALE_SAMPLE, stale_id)),
         BuildCase(
@@ -3278,7 +3301,7 @@ def _refusals(base: BasePrior, directory: Path) -> list[BuildCase]:
         BuildCase(
             "contract-check",
             diverging,
-            _prior(base, directory, "prior-contract-check"),
+            unstored,
             _refused(
                 _CONTRACT_CHECK, "enricher: re-settled cells diverge from the audit in 1 units", written=True
             ),

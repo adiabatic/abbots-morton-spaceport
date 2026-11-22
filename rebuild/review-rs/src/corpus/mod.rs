@@ -1392,11 +1392,19 @@ pub fn build(
 
 /// Run the build the input at `input_path` describes, over the audit parts whose descriptors the process inherits, its console lines on `console` ([`build`]), and return its result line: `done` with the process's peak footprint and the widths it ran at; `exit` with the text of a refusal the Python build raises as `SystemExit`; or `error` with any other failure, a panic among them.
 pub fn build_result(input_path: &Path, console: &mut impl Write) -> serde_json::Value {
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let input = BuildInput::read(input_path)?;
-        let files = input.held_audit()?;
-        build(&input, &files, console)
-    }));
+    result_line(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || {
+            let input = BuildInput::read(input_path)?;
+            let files = input.held_audit()?;
+            build(&input, &files, console)
+        },
+    )))
+}
+
+/// The result line for how a build ended ([`build_result`]).
+fn result_line(
+    outcome: std::thread::Result<std::result::Result<Built, BuildError>>,
+) -> serde_json::Value {
     match outcome {
         Ok(Ok(built)) => serde_json::json!({
             "op": "done",
@@ -1450,6 +1458,79 @@ mod tests {
                 header.len()
             ))
         );
+    }
+
+    // The vocabulary as `corpus_exec.vocabulary()` holds it.
+    const PYTHON_VOCABULARY: &str = concat!(
+        r#"["rebuild.pipeline.row_delta.AUDIT_SEGMENT_CAP",32],["rebuild.pipeline.row_delta.CONTENT_TIME_STAMP","content_mtime_ns"],["rebuild.pipeline.row_delta.FOLD_OVERRUN",5],["rebuild.pipeline.row_delta.SEGMENT_CAP",16],"#,
+        r#"["rebuild.review.app_index.APP_INDEX_FORMAT","ams-review-app-index/1"],["rebuild.review.app_index.APP_INDEX_NAME","app-units.ndjson.gz"],["rebuild.review.app_index.LOCATOR_BLOCK_ROWS",1024],["rebuild.review.app_index.LOCATOR_FORMAT","ams-review-app-locator/2"],["rebuild.review.app_index.LOCATOR_NAME","app-locator.ndjson.gz"],["rebuild.review.app_index.LOCATOR_ROWS_NAME","app-locator-rows.ndjson.gz"],"#,
+        r#"["rebuild.review.audit.ACCEPTANCE_CONFIGS",{"tuple":["default","ss03","ss04","ss05","ss03+ss05","ss10"]}],["rebuild.review.audit.AUDIT_HEADER",{"tuple":["config","codepoints","kinds","matched_entry","baseline","new"]}],["rebuild.review.audit.BATCH_SIZE",300],["rebuild.review.audit.INPUT_KEY_BYTES",32],["rebuild.review.audit.LEDGER_STATUSES",{"tuple":["by-design","approved","per-unit"]}],["rebuild.review.audit.MACHINE_CHECKS",{"tuple":["ink_identical","picture_identical","junior_equivalent"]}],["rebuild.review.audit.RULED_STATUSES",{"tuple":["by-design","approved"]}],["rebuild.review.audit.SECTIONS",{"tuple":["open-questions","spot-check","no-review-needed"]}],["rebuild.review.audit.UNMATCHED_CLASS","UNMATCHED"],"#,
+        r#"["rebuild.review.build.CONTRACT_ERRORS_SHOWN",20],["rebuild.review.build.KEY_ONLY_PROCESSES",6],["rebuild.review.build.MANIFEST_FORMAT","ams-review-manifest/2"],["rebuild.review.build.PHASE1_HANDOUT_UNITS",8192],["rebuild.review.build.VERIFICATION_SAMPLE",200],"#,
+        r#"["rebuild.review.facts.CLASS_UNIT_COUNT_KEYS",{"tuple":["split-by-space-or-zwnj","identical-unused-join-name","identical-variant-name"]}],["rebuild.review.facts.FACTS_FILENAME","review-facts.json"],["rebuild.review.facts.FACTS_FORMAT","ams-review-facts/8"],["rebuild.review.facts.REFERENCE_WINDOW_CODEPOINTS","E670:E653:E652:E666"],"#,
+        r#"["rebuild.review.unit_cache.MANIFEST_MOVED_NOTE","the manifest it describes moved"],["rebuild.review.unit_cache.NO_STORE_NOTE","no store on disk"],["rebuild.review.unit_cache.REDERIVING_LABELS",{"tuple":["spec_structure","capability_features","alphabet"]}],["rebuild.review.unit_cache.SIGNATURE_STORE_FORMAT","ams-review-ink-signatures/2"],["rebuild.review.unit_cache.SIGNATURE_STORE_NAME","ink-signatures.tsv.gz"],["rebuild.review.unit_cache.STORE_FORMAT","ams-review-unit-cache/9"],["rebuild.review.unit_cache.STORE_NAME","unit-cache.ndjson.gz"],["rebuild.review.unit_cache.UNREADABLE_NOTE","the store will not read"],"#,
+        r#"["rebuild.review.unit_index.ASSET_COMPONENTS",{"tuple":["static"]}],["rebuild.review.unit_index.INDEX_DEFLATE_THREADS",2],["rebuild.review.unit_index.INDEX_FORMAT","ams-review-unit-index/1"],["rebuild.review.unit_index.INDEX_MEMBER_BYTES",4194304],["rebuild.review.unit_index.INDEX_NAME","units-index.ndjson.gz"],["rebuild.review.unit_index.PART_CLOSING",{"bytes":"0a5d0a"}],["rebuild.review.unit_index.SHARD_PART_BYTES",268435456]"#,
+    );
+
+    #[test]
+    fn a_build_over_an_audit_out_of_section_order_exits_at_its_load_naming_the_python_build_and_writes_nothing()
+     {
+        let scratch =
+            std::env::temp_dir().join(format!("ams-review-build-order-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).expect("scratch");
+        let header = "config\tcodepoints\tkinds\tmatched_entry\tbaseline\tnew\n";
+        let audit = scratch.join("audit.tsv");
+        std::fs::write(
+            &audit,
+            format!(
+                "{header}ss03\tE650\tcell\tentry\tbase\tnew\ndefault\tE650\tcell\tentry\tbase\tnew\n"
+            ),
+        )
+        .expect("audit");
+        let out = scratch.join("out");
+        let quoted =
+            |path: &Path| serde_json::to_string(path.to_str().expect("utf-8")).expect("json");
+        let text = input::tests::input_text(PYTHON_VOCABULARY)
+            .replacen(
+                r#""out_dir":"/o","scratch":"/s""#,
+                &format!(
+                    r#""out_dir":{},"scratch":{}"#,
+                    quoted(&out),
+                    quoted(&scratch.join("spill"))
+                ),
+                1,
+            )
+            .replacen(
+                r#""members":[null,[["",10,20],["default",5,9]]]"#,
+                r#""members":[null]"#,
+                1,
+            )
+            .replacen(r#""recompute_all":false"#, r#""recompute_all":true"#, 1)
+            .replacen(r#""counts":"/c/counts""#, r#""counts":null"#, 1);
+        let input = BuildInput::parse(&text).expect("input");
+        let files = [File::open(&audit).expect("open")];
+        let mut console = Vec::new();
+        let result = result_line(Ok(build(&input, &files, &mut console)));
+        let written: Vec<_> = std::fs::read_dir(&out)
+            .expect("the output directory")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect();
+        let _ = std::fs::remove_dir_all(&scratch);
+        assert_eq!(
+            result,
+            serde_json::json!({
+                "op": "exit",
+                "message": format!(
+                    "the Rust build reads an audit only as a stream, and audit.tsv is not one, since the 'ss03' rows from byte {} of part 0 end in a row of 'default'; AMS_CORPUS_BUILD_ENGINE=python builds it",
+                    header.len()
+                ),
+            })
+        );
+        assert_eq!(
+            String::from_utf8(console).expect("utf-8"),
+            "[phase] review.build load\n"
+        );
+        assert!(written.is_empty(), "{written:?}");
     }
 
     #[test]
