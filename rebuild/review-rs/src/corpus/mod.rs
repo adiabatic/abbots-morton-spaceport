@@ -51,9 +51,9 @@ use random::verification_sample;
 use records::{ParsedCachedUnit, id_word, prior_record, truthy};
 use rowdelta::Head;
 use scan::{
-    OpenStore, ScanError, ScanNames, WantedFragments, adopt_single_file, locate_prior_fragments,
-    manifest_stamp, open_store, rederiving_moved, scan_marked, scan_store, store_miss_note,
-    trusted_parts,
+    OpenStore, ScanError, ScanNames, ScannedLine, WantedFragments, adopt_single_file,
+    locate_prior_fragments, manifest_stamp, open_store, rederiving_moved, scan_marked,
+    scan_store_threaded, store_miss_note, trusted_parts,
 };
 use signatures::{
     AUDIT_IDENTITY_KEY, FAMILY_KEYS_KEY, HeldWindows, InkShaping, MissError, SignatureArrays,
@@ -596,7 +596,7 @@ struct PriorRead {
     live: BTreeMap<String, i64>,
 }
 
-/// What the plan scans with: the prior corpus and its names, the input keys' index over the column it reads, whether the scan parses named lines and keeps addresses, the parts an address is trusted in, and the table the loads read.
+/// What the plan scans with: the prior corpus and its names, the input keys' index over the column it reads, whether the scan parses named lines and keeps addresses, the parts an address is trusted in, the table the loads read, and the threads the scan parses on.
 struct PriorScan<'a> {
     out_dir: &'a Path,
     names: &'a ScanNames,
@@ -606,6 +606,7 @@ struct PriorScan<'a> {
     addresses_hold: bool,
     trusted: &'a HashSet<String>,
     table: &'a UnitTable,
+    threads: usize,
 }
 
 impl PriorScan<'_> {
@@ -635,7 +636,7 @@ impl PriorScan<'_> {
             && cached.slim == slim_for(self.table.no_verdict(ordinal as usize), cached)
     }
 
-    /// The plan's reads of the open store `opened` as `_build_m1`'s `try` makes them: every record in the store's materialized order, each named one giving its unit its prior line, each reusable one loaded, each one not loaded kept by id while the addresses hold; then the records found without an address placed by one walk over the prior corpus and parsed again alone, each reusable one loaded at the place the walk found.
+    /// The plan's reads of the open store `opened` as `_build_m1`'s `try` makes them: every record in the store's materialized order, read on one thread and parsed on the scan's threads ([`scan_store_threaded`]), each named one giving its unit its prior line, each reusable one loaded, each one not loaded kept by id while the addresses hold; then the records found without an address placed by one walk over the prior corpus and parsed again alone, each reusable one loaded at the place the walk found.
     fn read(
         &self,
         opened: &OpenStore,
@@ -649,44 +650,65 @@ impl PriorScan<'_> {
         };
         let mut addressless: Vec<(u32, u32)> = Vec::new();
         let mut wanted = WantedFragments::new();
-        for scanned in scan_store(opened, self.named, self.column, self.loadable, self.trusted) {
-            let scanned = scanned?;
-            read.lines += 1;
-            read.rows_bytes += scanned.line.len();
-            let index = i64::try_from(scanned.index).map_err(failed)?;
-            if let Some(ordinal) = scanned.ordinal {
-                store
-                    .set_prior_line(ordinal as usize, index)
-                    .map_err(failed)?;
-            }
-            if let (Some(cached), Some(ordinal)) = (&scanned.cached, scanned.ordinal) {
-                let Some(found) = cached.located() else {
-                    if let Some(word) = id_word(&cached.prior_id) {
-                        addressless.push((u32::try_from(index).map_err(failed)?, ordinal));
-                        wanted.add(&cached.prior_class, word);
-                    }
-                    continue;
-                };
-                if self.reusable(ordinal, cached, &found) {
-                    self.load(store, ordinal, cached, &found)?;
-                    *cached_count += 1;
-                    if self.addresses_hold {
-                        *read.live.entry(found.part).or_default() += found.length + 1;
-                    }
-                    continue;
+        // The parse threads read each kept record beside the line's parse, for every line the load will not take.
+        let kept_record = |scanned: &ScannedLine| {
+            let loads = matches!(
+                (&scanned.cached, scanned.ordinal),
+                (Some(cached), Some(ordinal))
+                    if cached.located().is_some_and(|found| self.reusable(ordinal, cached, &found))
+            );
+            (self.addresses_hold && !loads).then(|| prior_record(&scanned.line))
+        };
+        scan_store_threaded(
+            opened,
+            self.named,
+            self.column,
+            self.loadable,
+            self.trusted,
+            self.threads,
+            kept_record,
+            |scanned, kept| -> std::result::Result<(), ScanStop> {
+                read.lines += 1;
+                read.rows_bytes += scanned.line.len();
+                let index = i64::try_from(scanned.index).map_err(failed)?;
+                if let Some(ordinal) = scanned.ordinal {
+                    store
+                        .set_prior_line(ordinal as usize, index)
+                        .map_err(failed)?;
                 }
-            }
-            if self.addresses_hold {
-                let record = prior_record(&scanned.line)
-                    .map_err(|why| failed(format!("a value the reader does not hold: {why}")))?;
-                if let Some(record) = record
-                    && let Some((part, _, length)) = &record.address
-                {
-                    *read.live.entry(part.clone()).or_default() += length + 1;
-                    store.add_prior_record(&record).map_err(failed)?;
+                if let (Some(cached), Some(ordinal)) = (&scanned.cached, scanned.ordinal) {
+                    let Some(found) = cached.located() else {
+                        if let Some(word) = id_word(&cached.prior_id) {
+                            addressless.push((u32::try_from(index).map_err(failed)?, ordinal));
+                            wanted.add(&cached.prior_class, word);
+                        }
+                        return Ok(());
+                    };
+                    if self.reusable(ordinal, cached, &found) {
+                        self.load(store, ordinal, cached, &found)?;
+                        *cached_count += 1;
+                        if self.addresses_hold {
+                            *read.live.entry(found.part).or_default() += found.length + 1;
+                        }
+                        return Ok(());
+                    }
                 }
-            }
-        }
+                if self.addresses_hold {
+                    let record = kept
+                        .unwrap_or_else(|| prior_record(&scanned.line))
+                        .map_err(|why| {
+                            failed(format!("a value the reader does not hold: {why}"))
+                        })?;
+                    if let Some(record) = record
+                        && let Some((part, _, length)) = &record.address
+                    {
+                        *read.live.entry(part.clone()).or_default() += length + 1;
+                        store.add_prior_record(&record).map_err(failed)?;
+                    }
+                }
+                Ok(())
+            },
+        )?;
         if !wanted.is_empty() {
             let located = locate_prior_fragments(self.out_dir, &wanted, self.names)?;
             let Some(again) = open_store(self.out_dir, self.names)? else {
@@ -847,6 +869,7 @@ pub fn plan_phase(
             addresses_hold,
             trusted: &trusted,
             table,
+            threads: usize::try_from(input.widths.threads).unwrap_or(1).max(1),
         };
         match scan.read(&opened, &mut store, &mut cached) {
             Err(ScanStop::Failed(failure)) => return Err(failure),
@@ -1108,7 +1131,7 @@ fn write_note(
     )
 }
 
-/// The whole build, as `build._build_m1` runs it from the load to the cache, over the audit's held parts `files` into the input's output directory, its console lines on `console`: the load and the plan; the units phase, which writes the ink-signature store when it changed, recomputes the plan's units on the worker pool with their fragments in the arena's spill files under the input's scratch directory, and runs the passes through the stale check, after which the pool and its resources are dropped; the manifest+check phase, which routes and writes the classes' runs, writes the manifest, prunes the shards it no longer names, copies the static files and writes the units index and the app sidecars, then refuses the build when the re-settlement, the drafting-time check or the corpus check found an error; the review facts; and the unit store. Every whole-file write counts itself in the input's counts file, and the units index and the unit store take the pass's fold claim as the input's cycle names it.
+/// The whole build, as `build._build_m1` runs it from the load to the cache, over the audit's held parts `files` into the input's output directory, its console lines on `console`: the load and the plan, whose scan of the prior unit store parses on the input's threads; the units phase, which starts the ink-signature store's write on a thread of its own when the store changed ([`signatures::SignatureWrite`]), recomputes the plan's units on the worker pool with their fragments in the arena's spill files under the input's scratch directory, and runs the passes through the stale check, after which the pool and its resources are dropped; the manifest+check phase, which routes and writes the classes' runs, writes the manifest, prunes the shards it no longer names, copies the static files and writes the units index and the app sidecars, then refuses the build when the re-settlement, the drafting-time check or the corpus check found an error; the review facts; and the unit store, after which the ink-signature store's write is joined. A build that stops early waits for that write before it returns. Every whole-file write counts itself in the input's counts file, and the units index and the unit store take the pass's fold claim as the input's cycle names it.
 pub fn build(
     input: &BuildInput,
     files: &[File],
@@ -1164,14 +1187,24 @@ pub fn build(
         std::sync::Arc::clone(&arena),
     )?;
     let signature_note = passes::signature_note(&signatures);
-    if !signatures.unchanged() {
+    let signature_write = if signatures.unchanged() {
+        drop((signatures, stamps));
+        None
+    } else {
         let PyValue::Dict(header) = input::json_map_py(&input.signature_environment.header)? else {
             unreachable!("a map converts to a dict");
         };
-        signatures::write_signature_arrays(out_dir, &store_names, &header, &signatures, &stamps)
-            .map_err(failed)?;
-    }
-    drop((signatures, stamps));
+        Some(
+            signatures::SignatureWrite::start(
+                out_dir.to_path_buf(),
+                store_names,
+                header,
+                signatures,
+                stamps,
+            )
+            .map_err(failed)?,
+        )
+    };
     units.phase1(&mut table, &mut planned.store, &planned.recomputed, console)?;
     let triage = passes::triage(
         input,
@@ -1340,6 +1373,9 @@ pub fn build(
         &claim,
         &sink,
     )?;
+    if let Some(write) = signature_write {
+        write.join().map_err(failed)?;
+    }
     console::phase_timing(
         console,
         CACHE_LABEL,

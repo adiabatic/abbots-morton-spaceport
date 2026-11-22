@@ -509,6 +509,52 @@ pub fn write_signature_arrays(
     written
 }
 
+/// The store's write on a thread of its own (`build._SignatureWrite`), which owns the columns and drops them once the store is written. The build starts it as the units phase starts and joins it in the cache phase; dropped unjoined, as a build that stops early drops it, it waits for the write to end, so the build's result follows the store's write as the serial Python build's does.
+pub struct SignatureWrite {
+    thread: Option<std::thread::JoinHandle<io::Result<()>>>,
+}
+
+impl SignatureWrite {
+    /// Start writing the store under `out_dir` as [`write_signature_arrays`] writes it.
+    pub fn start(
+        out_dir: PathBuf,
+        names: StoreNames,
+        stamp_header: Vec<(PyValue, PyValue)>,
+        signatures: SignatureArrays,
+        stamps: Vec<(PyValue, PyValue)>,
+    ) -> io::Result<Self> {
+        let thread = std::thread::Builder::new()
+            .name("ink-signature-store".to_owned())
+            .spawn(move || {
+                write_signature_arrays(&out_dir, &names, &stamp_header, &signatures, &stamps)
+            })?;
+        Ok(Self {
+            thread: Some(thread),
+        })
+    }
+
+    /// Wait for the write and give what it gave, a panic in it as an error.
+    pub fn join(mut self) -> io::Result<()> {
+        match self.thread.take() {
+            Some(thread) => thread.join().map_err(|panic| {
+                io::Error::other(format!(
+                    "the ink-signature store's write panicked: {}",
+                    crate::pool::panic_message(&*panic)
+                ))
+            })?,
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for SignatureWrite {
+    fn drop(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
 /// The store's header as `unit_cache.read_header` reads it: its first line parsed, None when it does not read or is not a dict.
 pub(crate) fn read_header(path: &Path) -> Read<Option<Vec<(PyValue, PyValue)>>> {
     let Ok(file) = File::open(path) else {
@@ -1898,6 +1944,46 @@ mod tests {
             })
             .collect();
         assert_eq!(keys, [(1, 1), (5, 5), (6, 61), (7, 71), (9, 9), (9, 90)]);
+    }
+
+    #[test]
+    fn the_threaded_write_writes_what_the_inline_write_writes_joined_or_dropped() {
+        let names = names();
+        let mut signatures = SignatureArrays::new();
+        signatures.set_misses(&[3, 1], &[filled(3), filled(1)]);
+        let stamp_header = vec![(PyValue::str("environment"), PyValue::str("e"))];
+        let stamps = vec![(PyValue::str(FAMILY_KEYS_KEY), PyValue::str("k"))];
+        let inline = scratch("inline");
+        write_signature_arrays(&inline, &names, &stamp_header, &signatures, &stamps)
+            .expect("written");
+        let expected = std::fs::read(names.path(&inline)).expect("the store");
+        for joined in [true, false] {
+            let directory = scratch(if joined { "joined" } else { "dropped" });
+            let write = SignatureWrite::start(
+                directory.clone(),
+                names.clone(),
+                stamp_header.clone(),
+                signatures.clone(),
+                stamps.clone(),
+            )
+            .expect("started");
+            if joined {
+                write.join().expect("written");
+            } else {
+                drop(write);
+            }
+            assert_eq!(
+                std::fs::read(names.path(&directory)).expect("the store"),
+                expected
+            );
+            assert!(!staging_path(&names.path(&directory)).exists());
+            let _ = std::fs::remove_dir_all(&directory);
+        }
+        let missing = inline.join("missing");
+        let write = SignatureWrite::start(missing, names.clone(), stamp_header, signatures, stamps)
+            .expect("started");
+        assert!(write.join().is_err());
+        let _ = std::fs::remove_dir_all(&inline);
     }
 
     #[test]

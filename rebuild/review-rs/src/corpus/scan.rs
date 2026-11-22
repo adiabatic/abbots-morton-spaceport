@@ -1,4 +1,4 @@
-//! The plan's reads of the prior corpus, as `rebuild/review/unit_cache.py` makes them: the unit store opened ([`open_store`], `unit_cache.open_store`), its materialized lines read in order as `unit_index.store_lines` merges its base and segments ([`OpenStore::lines`]), each matched to a unit of this build by its input key and, where the plan may reuse it, parsed ([`scan_store`]), and the lines the walk placed parsed again alone ([`scan_marked`]); the parts a record's address is trusted in ([`trusted_parts`]) and the manifest identity the store is stamped with ([`manifest_stamp`], [`manifest_identity`]); the records the scan found without an address ([`WantedFragments`]) placed by a walk over the prior corpus's live fragments ([`locate_prior_fragments`], [`LocatedFragments`]), read through the live-fragment iterator as `unit_index.LiveCorpus` reads them, from the store's addresses, the index's ids or the parts themselves; the single file a store written before the segment format leaves put under a head ([`adopt_single_file`]); and why a store does not load ([`store_miss_note`]) and whether its stamps say every record is re-derived ([`rederiving_moved`]).
+//! The plan's reads of the prior corpus, as `rebuild/review/unit_cache.py` makes them: the unit store opened ([`open_store`], `unit_cache.open_store`), its materialized lines read in order as `unit_index.store_lines` merges its base and segments ([`OpenStore::lines`]), each matched to a unit of this build by its input key and, where the plan may reuse it, parsed ([`scan_store`]), the plan's scan reading the lines on one thread and parsing them on several, handed back in the store's order ([`scan_store_threaded`]), and the lines the walk placed parsed again alone ([`scan_marked`]); the parts a record's address is trusted in ([`trusted_parts`]) and the manifest identity the store is stamped with ([`manifest_stamp`], [`manifest_identity`]); the records the scan found without an address ([`WantedFragments`]) placed by a walk over the prior corpus's live fragments ([`locate_prior_fragments`], [`LocatedFragments`]), read through the live-fragment iterator as `unit_index.LiveCorpus` reads them, from the store's addresses, the index's ids or the parts themselves; the single file a store written before the segment format leaves put under a head ([`adopt_single_file`]); and why a store does not load ([`store_miss_note`]) and whether its stamps say every record is re-derived ([`rederiving_moved`]).
 //!
 //! What a read raises is taken as the plan takes it ([`ScanError`]): what `unit_cache.StoreUnreadable` stands for, which the plan answers by restarting over an emptied store; another exception, which fails the Python build; or a value Python reads that the reader does not hold, which fails the Rust build. The walk keeps what it placed before an `OSError` or a `ValueError` stops it, as `locate_prior_fragments` does, and fails on anything else.
 //!
@@ -573,6 +573,174 @@ impl Iterator for Scan<'_> {
             line,
         }))
     }
+}
+
+/// How many lines the threaded scan hands a parse thread at once.
+const SCAN_BATCH_LINES: usize = 512;
+
+/// A run of lines the reading thread hands the parse threads: its place among the batches, the index of its first line, its lines, and the failure that ended the read after them.
+struct ReadBatch {
+    sequence: usize,
+    first: usize,
+    lines: Vec<Vec<u8>>,
+    failure: Option<ReadError>,
+}
+
+/// A batch as the parse threads give it back: each line scanned with what `beside` gave for it, up to the first line that does not parse, and the failure that ends the scan after them.
+struct ParsedBatch<T> {
+    sequence: usize,
+    scanned: Vec<(ScannedLine, T)>,
+    failure: Option<ScanError>,
+}
+
+/// [`scan_store`] on threads: the store's lines read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread, so `apply` sees what the serial scan yields, in its order, and the first failure, the scan's or `apply`'s, ends it. At most two batches a parse thread are in flight between the read and `apply`.
+#[allow(clippy::too_many_arguments)]
+pub fn scan_store_threaded<T, E>(
+    opened: &OpenStore,
+    named: &KeyIndex,
+    column: &[u8],
+    parse: bool,
+    trusted: &HashSet<String>,
+    threads: usize,
+    beside: impl Fn(&ScannedLine) -> T + Sync,
+    mut apply: impl FnMut(ScannedLine, T) -> std::result::Result<(), E>,
+) -> std::result::Result<(), E>
+where
+    T: Send,
+    E: From<ScanError>,
+{
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Mutex, mpsc};
+
+    let threads = threads.max(1);
+    let stopped = AtomicBool::new(false);
+    let in_flight = 2 * threads;
+    let (tokens, token_source) = mpsc::sync_channel::<()>(in_flight);
+    for _ in 0..in_flight {
+        let _ = tokens.send(());
+    }
+    let (batches, batch_source) = mpsc::channel::<ReadBatch>();
+    let batch_source = Mutex::new(batch_source);
+    let (parsed, parsed_source) = mpsc::channel::<ParsedBatch<T>>();
+    std::thread::scope(|scope| {
+        let stopped = &stopped;
+        std::thread::Builder::new()
+            .name("store-scan-read".to_owned())
+            .spawn_scoped(scope, move || {
+                let mut lines = opened.lines();
+                let mut first = 0;
+                for sequence in 0.. {
+                    if token_source.recv().is_err() || stopped.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let mut batch = ReadBatch {
+                        sequence,
+                        first,
+                        lines: Vec::with_capacity(SCAN_BATCH_LINES),
+                        failure: None,
+                    };
+                    let mut ended = false;
+                    while batch.lines.len() < SCAN_BATCH_LINES {
+                        match lines.next() {
+                            None => {
+                                ended = true;
+                                break;
+                            }
+                            Some(Err(failure)) => {
+                                batch.failure = Some(failure);
+                                ended = true;
+                                break;
+                            }
+                            Some(Ok((_, line))) => batch.lines.push(line),
+                        }
+                    }
+                    first += batch.lines.len();
+                    if (!batch.lines.is_empty() || batch.failure.is_some())
+                        && batches.send(batch).is_err()
+                    {
+                        return;
+                    }
+                    if ended {
+                        return;
+                    }
+                }
+            })
+            .expect("the store scan's reading thread starts");
+        for _ in 0..threads {
+            let parsed = parsed.clone();
+            let batch_source = &batch_source;
+            let beside = &beside;
+            std::thread::Builder::new()
+                .name("store-scan-parse".to_owned())
+                .spawn_scoped(scope, move || {
+                    loop {
+                        let next = match batch_source.lock() {
+                            Ok(source) => source.recv(),
+                            Err(_) => return,
+                        };
+                        let Ok(batch) = next else {
+                            return;
+                        };
+                        if stopped.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        let mut out = ParsedBatch {
+                            sequence: batch.sequence,
+                            scanned: Vec::with_capacity(batch.lines.len()),
+                            failure: batch.failure.map(store_failure),
+                        };
+                        for (offset, line) in batch.lines.into_iter().enumerate() {
+                            let ordinal = named_ordinal(named, column, &line);
+                            let mut cached = None;
+                            if parse && ordinal.is_some() {
+                                match parse_line(&line, trusted) {
+                                    Ok(record) => cached = Some(record),
+                                    Err(failure) => {
+                                        out.failure = Some(record_failure(failure));
+                                        break;
+                                    }
+                                }
+                            }
+                            let scanned = ScannedLine {
+                                index: batch.first + offset,
+                                ordinal,
+                                cached,
+                                line,
+                            };
+                            let extra = beside(&scanned);
+                            out.scanned.push((scanned, extra));
+                        }
+                        if parsed.send(out).is_err() {
+                            return;
+                        }
+                    }
+                })
+                .expect("a store scan's parse thread starts");
+        }
+        drop(parsed);
+        let mut waiting: std::collections::BTreeMap<usize, ParsedBatch<T>> =
+            std::collections::BTreeMap::new();
+        let mut following = 0;
+        let outcome = (|| {
+            for batch in parsed_source {
+                waiting.insert(batch.sequence, batch);
+                while let Some(batch) = waiting.remove(&following) {
+                    following += 1;
+                    for (scanned, extra) in batch.scanned {
+                        apply(scanned, extra)?;
+                    }
+                    if let Some(failure) = batch.failure {
+                        return Err(failure.into());
+                    }
+                    let _ = tokens.send(());
+                }
+            }
+            Ok(())
+        })();
+        stopped.store(true, Ordering::Relaxed);
+        drop(tokens);
+        outcome
+    })
 }
 
 /// `unit_cache.scan_marked`: the lines of an open store at the materialized places `marked` names, ascending, each with its place and parsed as [`scan_store`] parses it. A line is read before the first place is looked for, as the loop's first iteration reads one before it can stop.
@@ -2518,5 +2686,146 @@ mod tests {
             &labels
         ));
         assert!(rederiving_moved(&[], &environment, &labels));
+    }
+
+    fn record(key: &str, index: usize) -> Vec<u8> {
+        let unit = crate::corpus::records::CachedUnit {
+            key: key.to_owned(),
+            prior_id: format!("u-{:011}", index + 10_000_000_000),
+            prior_class: "new-joins-near-tea-oy".to_owned(),
+            content_key: "d177".to_owned(),
+            slim: false,
+            address: Some(("units/new-joins-near-tea-oy.json".to_owned(), 1, 5064)),
+            ink_identical: false,
+            picture_identical: false,
+            junior_equivalent: false,
+            ink_deltas: vec![("default".to_owned(), "d-34947e8c5c7e".to_owned())],
+            diffs_digest: "758a".to_owned(),
+            cluster: "c-33bad1c7".to_owned(),
+            change_group: String::new(),
+            ledger_class: String::new(),
+            pair_codepoints: Some((0, 1)),
+            proj: json::loads(
+                r#"{"pair": [0, 1], "after_spans": [[0, 1], [1, 2]], "after_cells": ["qsMay/loop", "qsIt/sole"], "after_junctions": ["y5"], "before_spans": [[0, 2]], "before_glyphs": ["qsMay"], "before_junctions": []}"#,
+            )
+            .expect("JSON"),
+            junctions: json::loads("[]").expect("JSON"),
+            mismatches: Vec::new(),
+            duplicate_group: None,
+            exemplar: false,
+            no_verdict: false,
+            primary_units: Vec::new(),
+            policy_file: None,
+            inflated: 0,
+        };
+        crate::corpus::records::record_line(&unit).expect("a line")
+    }
+
+    /// A single-file store under a directory of its own, of `count` record lines, every third one naming a unit outside the column and the line at `broken` (if any) not a record, cut to `kept` percent of its bytes; and the column of the named units' keys.
+    fn single_file_store(
+        name: &str,
+        count: usize,
+        broken: Option<usize>,
+        kept: Option<usize>,
+    ) -> (PathBuf, ScanNames, Vec<u8>) {
+        use crate::corpus::gzip::{GzipWriter, MTIME, PART_LEVEL};
+        let directory = std::env::temp_dir().join(format!(
+            "ams-review-threaded-scan-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("a directory");
+        let names = ScanNames {
+            store_name: "unit-cache.ndjson.gz".to_owned(),
+            store_format: "unit-cache/1".to_owned(),
+            index_name: "units-index.ndjson.gz".to_owned(),
+            index_format: "units-index/1".to_owned(),
+            no_store: String::new(),
+            unreadable: String::new(),
+            manifest_moved: String::new(),
+            rederiving: Vec::new(),
+            asset_components: Vec::new(),
+        };
+        let mut column = Vec::new();
+        let mut stream =
+            GzipWriter::new(Vec::new(), &names.store_name, PART_LEVEL, MTIME).expect("opens");
+        stream
+            .write_all(b"{\"format\": \"unit-cache/1\"}\n")
+            .expect("written");
+        for index in 0..count {
+            let key = sha256_hex(format!("unit {index}").as_bytes());
+            if index % 3 != 2 {
+                column.extend(content_bytes(&key).expect("hex"));
+            }
+            let line = if broken == Some(index) {
+                format!("{{\"key\": \"{key}\", \"id\": 5}}\n").into_bytes()
+            } else {
+                record(&key, index)
+            };
+            stream.write_all(&line).expect("written");
+        }
+        let bytes = stream.finish().expect("finished");
+        let bytes = &bytes[..bytes.len() * kept.unwrap_or(100) / 100];
+        std::fs::write(names.store_path(&directory), bytes).expect("written");
+        (directory, names, column)
+    }
+
+    #[test]
+    fn the_threaded_scan_applies_what_the_serial_scan_yields_in_its_order() {
+        let cases = [
+            ("whole", 1500, None, None, None),
+            ("broken", 1500, Some(1101), None, None),
+            ("cut", 1500, None, Some(80), None),
+            ("stopped", 1500, None, None, Some(1201)),
+        ];
+        for (name, count, broken, kept, stop) in cases {
+            let (directory, names, column) = single_file_store(name, count, broken, kept);
+            let named = KeyIndex::new(&column, KEY_BYTES, column.len() / KEY_BYTES).expect("keys");
+            let trusted = HashSet::new();
+            let opened = open_store(&directory, &names)
+                .expect("opens")
+                .expect("a store");
+            let mut serial = Vec::new();
+            let mut serial_end = Ok(());
+            for item in scan_store(&opened, &named, &column, true, &trusted) {
+                match item {
+                    Ok(scanned) if Some(scanned.index) == stop => {
+                        serial_end =
+                            Err(ScanError::Failed(format!("stopped at {}", scanned.index)));
+                        break;
+                    }
+                    Ok(scanned) => serial.push((scanned.index * 2, scanned)),
+                    Err(failure) => {
+                        serial_end = Err(failure);
+                        break;
+                    }
+                }
+            }
+            assert!(serial.iter().any(|(_, scanned)| scanned.cached.is_some()));
+            assert!(serial.len() > 2 * SCAN_BATCH_LINES, "{name}");
+            assert_eq!(serial_end.is_err(), name != "whole", "{name}");
+            for threads in [1, 2, 5] {
+                let mut applied = Vec::new();
+                let end = scan_store_threaded(
+                    &opened,
+                    &named,
+                    &column,
+                    true,
+                    &trusted,
+                    threads,
+                    |scanned| scanned.index * 2,
+                    |scanned, doubled| -> std::result::Result<(), ScanError> {
+                        if Some(scanned.index) == stop {
+                            return Err(ScanError::Failed(format!("stopped at {}", scanned.index)));
+                        }
+                        applied.push((doubled, scanned));
+                        Ok(())
+                    },
+                );
+                assert_eq!(end, serial_end, "{name} at {threads}");
+                assert!(applied == serial, "{name} at {threads}");
+            }
+            let _ = std::fs::remove_dir_all(&directory);
+        }
     }
 }
