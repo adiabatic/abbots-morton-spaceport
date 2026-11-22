@@ -75,6 +75,7 @@ stances:
             - qsNo
             - qsLow
             - qsRoe
+            - qsExam
             - qsIt
             - qsAt
             - qsI

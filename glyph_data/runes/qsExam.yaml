@@ -41,6 +41,8 @@ stances:
             - qsDay
             - qsKey
             - qsGay
+            - qsThey
+            - qsVie
             - qsZoo
             - qsShe
             - qsJai
@@ -60,8 +62,6 @@ stances:
             - qsOy
             - qsUtter
             - qsOoze
-            except:
-            - {family: qsThey_qsZoo}
       exits: {}
       cells: []
       unlocks: []

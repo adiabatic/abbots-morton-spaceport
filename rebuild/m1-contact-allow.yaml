@@ -813,7 +813,8 @@
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsTea.full.en-y8.ex-y0:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·Vie's swept-out tail into ·-ing, the alternate ·No, ·Excite and ·Utter, in two defect formats: an E-UNREALIZED junction gap and an E-ANCHOR on ·Vie's contracted exit. The one-pixel exit contraction removes ·Vie's last tail pixel and moves the anchor onto its cell, so the follower's first pixel takes that cell. ·-ing, the alternate ·No and ·Excite also reach the baseline on a diagonal, so the uncontracted join draws a two-pixel flat bottom, ·Vie's last tail pixel beside the follower's first left-leg pixel; contracted, the two diagonals meet in a single-pixel point, which the author asked for in review of ·Pea·-ing·Vie·No. ·Utter's stem rises from that cell, which draws ·Vie·Utter exactly as the old font's ·Vie+Utter ligature does. ·Vie then has no ink on the baseline right of its bar, so `junction_gap` finds a gap and the anchor check finds the rightmost baseline ink at the bar's end; the tail's last pixel, one row above the baseline, touches the follower's baseline pixel at the corner. There is one junction signature per pair of ·Vie and follower variants and one anchor signature per ·Vie variant.
+# ·Vie's swept-out tail into ·-ing, the alternate ·No, ·Excite, ·Exam and ·Utter, in two defect formats: an E-UNREALIZED junction gap and an E-ANCHOR on ·Vie's contracted exit. The one-pixel exit contraction removes ·Vie's last tail pixel and moves the anchor onto its cell, so the follower's first pixel takes that cell. ·-ing, the alternate ·No, ·Excite and ·Exam also reach the baseline on a diagonal, so the uncontracted join draws a two-pixel flat bottom, ·Vie's last tail pixel beside the follower's first left-leg pixel; contracted, the two diagonals meet in a single-pixel point, which the author asked for in review of ·Pea·-ing·Vie·No. ·Utter's stem rises from that cell, which draws ·Vie·Utter exactly as the old font's ·Vie+Utter ligature does. ·Vie then has no ink on the baseline right of its bar, so `junction_gap` finds a gap and the anchor check finds the rightmost baseline ink at the bar's end; the tail's last pixel, one row above the baseline, touches the follower's baseline pixel at the corner. There is one junction signature per pair of ·Vie and follower variants and one anchor signature per ·Vie variant.
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -824,6 +825,7 @@
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-con-1.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -834,6 +836,7 @@
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -844,6 +847,7 @@
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.en-y0.ex-y0.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline
@@ -854,6 +858,7 @@
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsUtter.mono.en-y0.ex-y5:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.ex-con-1:qsUtter.mono.en-y0:baseline
+- signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsExam.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsExcite.sole.en-y0.ex-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsExcite.sole.en-y0:baseline
 - signature: unrealized:qsVie.swept-out.ex-y0.locked.ex-con-1:qsIng.sole.en-y0.ex-y0.ex-ext-2:baseline

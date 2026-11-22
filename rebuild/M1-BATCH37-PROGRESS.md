@@ -7,7 +7,7 @@ Scratch for the ·Exam migration. Delete it when the review session closes the b
 - The drafted ductus in `glyph_data/runes/qsExam.yaml` waits for the author's review, and its `# DRAFT` marker marks what to review. The old record has no ductus or notes for ·Exam, so the motion, including the order of its two strokes, is drafted from the bitmap.
 - The new review units wait for their review session. `make verdict-ready` reports whether the corpus is ready for it. Every new unmatched row holds ·Exam. Nearly all repeat a change the same window shows, in the same configuration, with ·Excite in ·Exam's place (`·May ~x~ ·Utter ~b~ ·Exam`, `·Utter ~x~ ·May ~b~ ·Exam`, `·Pea ~b~ ·No ~b~ ·Exam`, `·Bay ~b~ ·Gay ~x~ ·No | ·Exam`), or a change at a junction ·Exam does not touch. The changes at ·Exam's own junction are the rulings below:
   - after the namer dot, ·Excite joins ·Exam as at a word start, where the old font breaks (the ·Excite batch's namer-dot ruling);
-  - `·{I,Ah} ~x~ ·They | ·Exam`, under ss03 `·Fee ~x~ ·Tea | ·Exam`, and under ss05 `·Et ~b~ ·Tea | ·Exam`, where the old font joins;
+  - under ss03 `·Fee ~x~ ·Tea | ·Exam` and under ss05 `·Et ~b~ ·Tea | ·Exam`, where the old font joins;
   - under ss04, `·Day ~b~ ·It | ·Exam`, where the old font joins;
   - `·Utter ~x~ ·Gay ~b~ ·Exam` with ·Gay's exit extension, which the old font draws only after an unentered ·Gay.
 - The table build's kernel terms are not re-measured: the issue-492, issue-534 and issue-516 harnesses the skill names are not under `var/keep/` on the 18-core M5 Pro MacBook Pro.
@@ -15,7 +15,7 @@ Scratch for the ·Exam migration. Delete it when the review session closes the b
 
 ## Recorded design overrides
 
-The old record is one Deep bitmap with a baseline entry at its bottom-left corner, no exit, and a `nonjoining-left` stance after ·{Pea,Tea,Ye,It,Eat}, so the rune is one `sole` stance with a baseline entry and no exit. Its entry `from:` names the lefts the old font joins at the baseline. It excludes the ·They+Zoo ligature, which the old font never joins to ·Exam, on the qsExcite precedent. ·Day, ·They, ·See, ·J’ai, ·Jay, ·Way and ·Why form no ligature with ·Utter before ·Exam in either font, as before ·Excite.
+The old record is one Deep bitmap with a baseline entry at its bottom-left corner, no exit, and a `nonjoining-left` stance after ·{Pea,Tea,Ye,It,Eat}, so the rune is one `sole` stance with a baseline entry and no exit. Its entry `from:` names the lefts the old font joins at the baseline, ·They among them, which ·They's baseline-exit `toward:` names back: the x-height-entered ·They joins ·Exam as in the old font, and the unentered ·They's refusal of a baseline exit except before ·May keeps `·They | ·Exam`. The author added ·Vie, which the old font breaks before ·Exam: ·Vie's swept-out baseline exit names ·Exam in its `toward:` and contracts by one before it, as before ·{-ing,No,Excite}, whose baseline entries rise on the same diagonal. The ·They+Zoo ligature, which the old font never joins to ·Exam or ·Excite, joins both by the author's ruling, as ·Zoo does: neither entry `from:` excludes it. ·Day, ·They, ·See, ·J’ai, ·Jay, ·Way and ·Why form no ligature with ·Utter before ·Exam in either font, as before ·Excite.
 
 Records already waiting on ·Exam take effect: the by-one baseline exit extensions of ·{J’ai,Jay,He,Eight} before ·Exam and qsTea's refusal of a baseline exit before ·Exam. The old `gay_reaches_baseline_exit_forward` set names ·Exam, so qsGay's three records that transcribe it (the unentered ·Gay's exit preferred over its entry, the left's yield before ·Gay·X, and the by-one baseline exit extension) name qsExam. The extension is pair-wide: the old font draws it after an unentered ·Gay and drops it after an x-height-entered one, as it does before ·{Day,Zoo}.
 
@@ -23,9 +23,8 @@ Records already waiting on ·Exam take effect: the by-one baseline exit extensio
 
 The author ruled that ·It never joins ·Exam: qsIt stays off ·Exam's entry `from:`, under ss04 too, as ·It breaks before ·{Pea,Tea,Ye} there. The old font's after-·Day ·It stance under ss04 draws `·Day ~b~ ·It ~b~ ·Exam`.
 
-The author's rulings from the ·Excite and ·Eat batches decide three more old-font joins:
+The author's rulings from the ·Excite and ·Eat batches decide two more old-font joins:
 
-- `·{I,Ah} ~x~ ·They ~b~ ·Exam`, through ·They's tuck for ·May, breaks: qsThey stays off ·Exam's entry `from:`.
 - `·Fee ~x~ ·Tea ~b~ ·Exam` under ss03 and `·Et ~b~ ·Tea ~b~ ·Exam` under ss05 break through qsTea's existing refusal of a baseline exit before ·Exam.
 - After the namer dot, ·Excite joins ·Exam as at a word start.
 
