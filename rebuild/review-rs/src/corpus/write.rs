@@ -250,7 +250,7 @@ fn write_unit(
                 batch,
             )?;
             class.byte_copied += 1;
-            (span, shared.emitter.config_note(table.configs(ordinal)))
+            (span, shared.emitter.config_note(table, ordinal))
         }
     };
     if emission.content_key != store.content_key_hex(ordinal) {

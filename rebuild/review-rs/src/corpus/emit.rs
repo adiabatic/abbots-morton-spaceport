@@ -19,7 +19,7 @@ use super::{BuildError, failed};
 use crate::enrich::{Flags, Highlight, SecondaryJunction};
 use crate::fragment::{FragmentBuilder, fragment_bytes, lookup, sha256_hex};
 use crate::pyfmt::PyValue;
-use crate::scaffold::{acceptance_configs, config_badge};
+use crate::scaffold::{Badge, Roster, config_badge};
 use crate::wire::{Init, Result, WireError};
 
 /// What the write takes from one unit (`build._Emission`): a fragment to serialize, or a cached fragment's bytes as they are stored, deflated when its address records an inflated length, with that address and the identity the cross-unit checks and the sidecars read in place of the fragment.
@@ -42,10 +42,10 @@ pub struct Emission {
     pub emitted: Emitted,
 }
 
-/// What every emission reads besides the unit: the patcher over the units init's acceptance configurations, those configurations, which the config badge reads, and the preset dictionary the arena's fragments inflate under.
+/// What every emission reads besides the unit: the patcher over the units init's acceptance configurations, those configurations with the window-scoped ones among them, which the config badge reads, and the preset dictionary the arena's fragments inflate under.
 pub struct Emitter {
     builder: FragmentBuilder,
-    acceptance: Vec<String>,
+    roster: Roster,
     dictionary: Vec<u8>,
 }
 
@@ -124,7 +124,7 @@ impl Emitter {
     pub fn open(input: &BuildInput) -> std::result::Result<Self, BuildError> {
         let init = Init::read(Path::new(&input.units_init))?;
         let builder = FragmentBuilder::new(&init).map_err(failed)?;
-        let acceptance = acceptance_configs(&init).map_err(failed)?;
+        let roster = Roster::read(&init).map_err(failed)?;
         let dictionary = std::fs::read(&init.dictionary).map_err(|failure| {
             failed(format!(
                 "cannot read the preset dictionary {}: {failure}",
@@ -133,14 +133,20 @@ impl Emitter {
         })?;
         Ok(Self {
             builder,
-            acceptance,
+            roster,
             dictionary,
         })
     }
 
-    /// `build.config_note` over `configs` and the acceptance configurations.
-    pub fn config_note(&self, configs: &[String]) -> PyValue {
-        config_badge(configs, &self.acceptance).note_py()
+    /// `build.config_badge` over `configs` and the configurations a unit of the window `codepoints` can hold (`audit.window_configs`), as `_write_chunk` and `_cached_identity` resolve a byte-copied fragment's badge.
+    fn window_badge(&self, configs: &[String], codepoints: &str) -> Badge {
+        config_badge(configs, &self.roster.window(codepoints))
+    }
+
+    /// `build.config_note` over the table's configurations of the unit at `ordinal` and the configurations its window can hold.
+    pub fn config_note(&self, table: &UnitTable, ordinal: usize) -> PyValue {
+        self.window_badge(table.configs(ordinal), &table.codepoints_text(ordinal))
+            .note_py()
     }
 
     /// `build._cached_identity`: the dict that stands in for a byte-copied fragment when the cross-unit check and the locator row read it, from the table's and the store's columns.
@@ -155,6 +161,7 @@ impl Emitter {
         let (ink_identical, picture_identical, junior_equivalent) = store.machine_flags(ordinal);
         let policy_file = store.policy_file(ordinal).filter(|file| !file.is_empty());
         let configs = table.configs(ordinal);
+        let codepoints = table.codepoints_text(ordinal);
         let primary_units: Vec<PyValue> = junction_assign
             .iter()
             .filter(|(_, suppressed)| !suppressed)
@@ -178,14 +185,14 @@ impl Emitter {
             ("cluster", PyValue::optional_str(table.cluster(ordinal))),
             ("class", PyValue::str(table.class_id(ordinal))),
             ("group", PyValue::str(table.group(ordinal))),
-            ("codepoints", PyValue::str(table.codepoints_text(ordinal))),
+            ("codepoints", PyValue::str(&codepoints)),
             (
                 "configs",
                 PyValue::List(configs.iter().map(PyValue::str).collect()),
             ),
             (
                 "config_gate",
-                config_badge(configs, &self.acceptance).gate_py(),
+                self.window_badge(configs, &codepoints).gate_py(),
             ),
             (
                 "pair",
@@ -308,7 +315,7 @@ impl Emitter {
         })
     }
 
-    /// The config note the write keeps for the unit: a fragment's own, or `config_note` over the table's configurations for stored bytes.
+    /// The config note the write keeps for the unit: a fragment's own, or [`Emitter::config_note`] for stored bytes.
     pub fn emitted_note(
         &self,
         emission: &Emission,
@@ -324,7 +331,7 @@ impl Emitter {
                     ))
                 })
             }
-            Emitted::Bytes { .. } => Ok(self.config_note(table.configs(ordinal))),
+            Emitted::Bytes { .. } => Ok(self.config_note(table, ordinal)),
         }
     }
 }
@@ -375,11 +382,42 @@ fn emission_value(
     ]))
 }
 
-/// The `emit` stage: when the stage file holds lines from the build's run, run the build through phase 1 ([`through_units`]), then [`triage`], [`passes`] and [`route_classes`] over the corpus directory the build ran in, and emit every unit of every class in shard order, each class's units by id, as the serial write does, through one reader over that directory and the units phase's arena; answer with a `unit:<ordinal>` line an emission.
+/// The `emit` stage: when the stage file holds lines from the build's run, run the build through phase 1 ([`through_units`]), then [`triage`], [`passes`] and [`route_classes`] over the corpus directory the build ran in, and emit every unit of every class in shard order, each class's units by id, as the serial write does, through one reader over that directory and the units phase's arena; answer with a `unit:<ordinal>` line an emission. A generated line's input is a window's code points and a config tuple, and its answer the gate and the note of a byte-copied fragment's badge over them.
 pub fn stage_emit(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
     let input = BuildInput::read(input_path)?;
     let names = RouteNames::of(&input)?;
-    if !stage_lines(stage_file)?.ran {
+    let lines = stage_lines(stage_file)?;
+    if !lines.generated.is_empty() {
+        let emitter = Emitter::open(&input)
+            .map_err(|failure| WireError(format!("the emitter cannot open: {failure}")))?;
+        for (key, generated) in &lines.generated {
+            let PyValue::Tuple(fields) = generated else {
+                return Err(WireError(format!("{key}: the input is not a tuple")));
+            };
+            let [PyValue::Str(codepoints), PyValue::Tuple(configs)] = fields.as_slice() else {
+                return Err(WireError(format!(
+                    "{key}: the input is not a window and a config tuple"
+                )));
+            };
+            let configs = configs
+                .iter()
+                .map(|config| match config {
+                    PyValue::Str(config) => Ok(config.clone()),
+                    other => Err(WireError(format!(
+                        "{key}: the configs hold {}, not a str",
+                        other.kind()
+                    ))),
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let badge = emitter.window_badge(&configs, codepoints);
+            stage_line(
+                out,
+                key,
+                &PyValue::Tuple(vec![badge.gate_py(), badge.note_py()]),
+            )?;
+        }
+    }
+    if !lines.ran {
         return Ok(());
     }
     through_units(&input, stage_file, "emit", |run| {

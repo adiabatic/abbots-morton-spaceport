@@ -32,7 +32,7 @@ The build's stages (`BUILD_STAGES`):
 - `route` is a boundary stage that records how the write routes each class and cuts the runs, from `build._write_corpus`'s locals once `build._write_runs` returns (`_runs_cut`), as `route_boundary` lays it out: a unit whether its fragment is predicted unchanged, and lines for each class in shard order with its route, prior parts and manifest record, a column over each class's ordinals, the width and the runs, and whether the previous sidecars are copied forward. Its generated lines (`_route_generated`) cut runs over class sizes and widths at the edges, read the previous corpus's parts from manifests of every shape, and ask whether the dump's prior corpus holds a current units index, app index and locator.
 - `shards` records each class the write's shard writer (`build._ShardWriter`) writes, from its `open` to its `close`, under `class:<id>`: its input the cap (None, the build's `SHARD_PART_BYTES`), the parts the class appends to as the build's directory held them when it opened, and each call made on the writer (`open`, `holds`, `keep`, `add_bytes`, which `add` makes too, and `close`) with its arguments, a fragment as the sha256 of its bytes; its value each call's result, the close's parts, total and pending renames with each staged part's size and sha256, and the counters the class moved (`_shard_closed`). Every fragment and held part is kept once under its sha256 in `shards.blobs/` beside the stage file (`SHARDS_BLOBS`), from which the Rust side makes the held parts again, as clones, in a scratch directory and replays the calls there. Its generated lines (`_shards_generated`, `_shard_cases`) replay writers of their own under small caps through `_shard_replay`, which also takes, commits, aborts and lists what a writer staged, and deletes staged parts by class ids that are wildcards themselves (`build._discard_runs`).
 - `prior-read` records each read the write makes of a fragment it emits, keyed by its origin, its `form` and a digest of its `input`: `read`, `read-bytes` and `same-bytes`, each `unit_cache.PriorFragmentReader.read`, `read_bytes` and `same_bytes` call (`_prior_reading`), with the part it opens as the reader's directory held it (`_prior_held`), its address (`_prior_located`) and, for `same-bytes`, the body it compares, valued `("fragment", value)`, `("bytes", sha256)` or `("same", flag)` (`_prior_given`); and `arena`, each `build._FragmentArena.read` call (`_arena_read`), with the arena's dictionary, the span's bytes and the address, valued `("fragment", value)`. Every part, body, span and dictionary is kept once under its sha256 in `prior-read.blobs/` beside the stage file (`PRIOR_READ_BLOBS`), from which the Rust side makes each line's parts again in a scratch directory, or places its span at its start in an arena of its own, and makes the read there. Its generated lines (`_prior_read_generated`, `_prior_read_cases`) read plain and deflated fragments, as bytes and compared, under their own address and moved ones, and arena spans under their own dictionary and others, through every refusal of the reader's, each refusal valued `("raised", "ValueError", message)`, `("os-error", errno)` or, where `json.loads` refuses the bytes, `("undecoded",)` (`_prior_outcome`).
-- `emit` records each unit the write receives, each `build._emission` call (`_emitted`), under `unit:<ordinal>`: its kind, `fragment` for a fragment the write serializes or `bytes` for a cached fragment's stored bytes, its unit id, content key and policy file, the sha256 of the bytes the write takes from it, the config note the write keeps for it, and, for stored bytes, their address and the identity that stands in for the fragment (`_emission_value`). The Rust side runs the build through the routing and emits every unit of every class in shard order.
+- `emit` records each unit the write receives, each `build._emission` call (`_emitted`), under `unit:<ordinal>`: its kind, `fragment` for a fragment the write serializes or `bytes` for a cached fragment's stored bytes, its unit id, content key and policy file, the sha256 of the bytes the write takes from it, the config note the write keeps for it, and, for stored bytes, their address and the identity that stands in for the fragment (`_emission_value`). The Rust side runs the build through the routing and emits every unit of every class in shard order. Its generated lines (`_emit_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` in each window of `BADGE_WINDOWS` to `build.config_badge` against the configurations the window can hold (`audit.window_configs`), as a byte-copied fragment's config note and config gate are resolved, valued the gate and the note.
 - `check-patched` records each fragment the write checks, `check_unit` at `PATCHED` as `build._CorpusCheck.unit` calls it (`_patched_checked`), under `patched:` and a digest of the fragment, as the `fragment` and, as its value, the error list. Its generated lines (`_check_patched_generated`), under `generated:` and the same digest, mutate the smallest patched fragment of each shape (`_patched_shape`), generically over the keys the check reads (`PATCHED_DEPTHS`) and once or more for each predicate (`_patched_extras`), and record the error list, or the class of the exception the check raises, as `{"raised": name}`.
 - `corpus-check` records the write's corpus check (`build._CorpusCheck`) as its checkers run, fed and folded. Each chunk a run checker hands over (`take_facts`) is a line under `chunk:`, the class's id and the units of it fed before: the class record it opened (`class_start`) or None, each unit it was fed (`unit`) with whether the cache supplied it, whether it closed the class (`class_end`), and the ids among its units the checker keeps identities for (`identity_for`), or None when it keeps every unit's; valued the facts it handed over, `_CorpusCheck._FACTS` by name without the underscore (`_check_facts`). Each `finish` of the checker that folds the chunks (`absorb`) is a line under `finish:`, with the chunk keys it absorbed in order and the manifest, valued the facts it folded and the errors `finish` returns. The Rust side feeds the chunks in order to one checker over the build input's settings and folds the named chunks into a fresh one for each finish. Its generated lines (`_corpus_check_generated`) finish each folding again over the manifest with each predicate broken (`_manifest_mutations`), under `generated:finish:`, and run small cases of their own through a run checker and a folding one (`_check_cases`, over `_check_base`), under `generated:case:` with their settings, chunks and manifest, each predicate made to fail, to pass a value Python reads as equal and to raise, a raise valued `{"raised": name}`.
 - `sidecar-lines` records each run of the write's sidecar lines (`build._SidecarLines`) under `run:<n>`: its `open` (`_sidecars_opened`), with whether it copies the previous sidecars forward, valued whether each cursor opened to lines; each top-level `unit` and `cached` call (`_sidecar_unit`, `_sidecar_cached`) under `call:<n>`, with the fragment, or the cached unit's id, stored bytes, inflated length and identity, and the span and place, valued the events the call made in order, each cursor's `take` (`unit_index.LineCursor.take`) with the id and what it returned and each line written to a sidecar (`gzip.GzipFile.write`, `app_index.LocatorBlocks.add`), as lengths and sha256s, beside the run's counts after it; and its `close` (`_sidecars_closed`), valued the counts, the locator blocks' table entries and the digests of the lines each sidecar holds. Fragments, stored bytes and corpora are kept once under their sha256 in `sidecar-lines.blobs/` beside the stage file (`SIDECAR_LINES_BLOBS`). The Rust side replays each run's calls over the dump's prior corpus, or a generated run's own corpus made again from the blobs. Its generated lines (`_sidecar_lines_generated`) replay each build run that copied lines forward over corpora without copy-forward, without either sidecar, with a gap in either, with an index segment and with an index cut short (`_sidecar_variants`); project fragments with each field dropped and set to each kind of value (`generated:line:`); copy lines forward through every seam's edge (`generated:copy:`); take from cursors over sidecars that are missing, empty, not gzip, cut short or followed by other bytes, and over the prior's index as a head, a single file and without its head or its part (`generated:cursor:`); and cut locator rows into blocks across classes and block edges and refuse rows that do not ascend (`generated:locator:`).
@@ -59,7 +59,7 @@ The stages (`STAGES`):
 - `explain` records each explain text `Enricher.enrich` writes, the `_filter_explain` call over the `ExplainReport.render` call just before it, under `explain:` with the report's configuration token (`model.feature_config_token`), its code points and the divergent positions, as the report's `codepoints`, that `config` and the `diff_positions` the filter receives, and as its outputs the `rendered` text and the `filtered` text the filter returns.
 - `subset` records each lookup `Enricher.enrich` makes in the subset pack, `SubsetPack.row`, under `subset:` with its configuration and its code points, as the `config` and the `codepoints` it receives and the `SubsetRow` or None it returns. Its generated lines (`_subset_generated`), under `generated:` with the same two, look up each configuration's first and last window, the first window spelled each way `int(part, 16)` reads it (`_SUBSET_SPELLINGS`), its misspellings `pack_key` refuses (`_SUBSET_MISSPELLINGS`), strings that refuse or miss whatever the source (`_SUBSET_MISSES`), and a configuration the pack does not hold.
 - `enrich` records each unit `Enricher.enrich` enriches, under `enrich:<ordinal>`, as the unit's `record` as a request frame carries it (`units_exec.unit_record`, written as one compact JSON line) and the phase-1 `flags` the worker set on it (`ink_identical`, `picture_identical`, `junior_equivalent`), and as its outputs every `EnrichedUnit` field but the unit itself, which is the input, the `mismatches` lines the call added to the enricher's list, and the unit's `primary_unit_projection`. Its generated lines (`_enrich_generated`) make both mismatch lines fire: a unit whose `new` has one cell token replaced, under `generated:new:<ordinal>`, and a unit enriched against a subset row with a renamed glyph, which the line carries as its `row`, under `generated:row:<ordinal>`. Its field groups (`compare --fields`) name `geometry`, the fields `Enricher.enrich` computes before its summary (`ENRICH_GEOMETRY`).
-- `scaffold` records each unit `_phase1_unit` drafts, under `scaffold:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the `ink_deltas` and the `final_class` (the change group, or None) the call drafts its fragment with, read from its projection, and as its value the `scaffold` that call's `unit_scaffold` returned, copied before `unit_to_json` gives it the final class, with the projection's `change_group` and `cluster`. Its generated lines (`_scaffold_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` to `build.config_badge`, under `badge:` and the subset, as the `configs` and, as the value, the `gate` and the `note`.
+- `scaffold` records each unit `_phase1_unit` drafts, under `scaffold:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the `ink_deltas` and the `final_class` (the change group, or None) the call drafts its fragment with, read from its projection, and as its value the `scaffold` that call's `unit_scaffold` returned, copied before `unit_to_json` gives it the final class, with the projection's `change_group` and `cluster`. Its generated lines (`_scaffold_generated`) put every non-empty subset of `ACCEPTANCE_CONFIGS` to `build.config_badge`, under `badge:` and the subset, as the `configs` and, as the value, the `gate` and the `note`; and, under `window:`, the window and the subset, the same against the configurations each window of `BADGE_WINDOWS` can hold (`audit.window_configs`), as `unit_scaffold` resolves a unit's badge, with the window as the `codepoints`.
 - `expect` records each call to `drafts.expect_string`, under `string:` and a digest of the call, as the `codepoints`, `spans` and `junctions` it receives and, as its value, the expect string it returns; and each pin the drafter replays against the after font, the drafted pin through `Drafter.validate_semantics` and each any-of candidate `Drafter.draft_any_of` returns, replayed as the pin is, under `pin:` and a digest of the replay's inputs, as the `text`, the `expect` and the `features` and, as its value, the pin's parse or its error, its interpretations, the after font's row and the replay's verdict (`_expect_line`). Its generated lines (`_expect_generated`) add `expect_string` calls over every boundary and connector, and the replay of every pinned cell of the site pages and of an edge set of pins (`_expect_edges`).
 - `schema` records each record the drafter's checkers check, `_SchemaValidator.check` on a `for_definition` checker, under `drafted:` and a digest of the call, as the `definition` the checker checks against and the `record` and, as its value, the verdict: whether `check` found no problem, which is all the drafter's output reads. Its generated lines (`_schema_generated`), under `generated:` and the same digest, check one drafted record of each shape and every policy record of the source's rune files against each of the drafter's definitions, and mutations of each against its own (`_schema_mutations`).
 - `draft` records each unit `_phase1_unit` drafts a full fragment for, under `draft:<ordinal>`, as the unit's `record` as a request frame carries it, taken before phase 1 sets its flags and re-routes it, and the phase-1 `flags` the worker set on it, and as its value the fragment's `drafts`: the pin, the policy record or None, and the any-of record, each as its `to_json` writes it. A slim fragment, which the drafter skips, records nothing.
@@ -147,7 +147,7 @@ from rebuild.review import (
     unit_store,
     units_exec,
 )
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, Unit, UnitTable, load_ledger
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, BATCH_SIZE, Unit, UnitTable, load_ledger, window_configs
 from rebuild.review.change_groups import CHANGE_GROUP_ORDER
 from rebuild.review.drafts import Drafter, corpus_index_from_pages
 from rebuild.review.enrich import LETTERS, EnrichedUnit, Enricher, load_spec, primary_unit_projection
@@ -1306,13 +1306,31 @@ def _scaffold_unit(args: tuple, _kwargs: dict) -> Finisher:
     return finish
 
 
-def _scaffold_generated(_source: Source) -> Iterator[Mapping[str, object]]:
-    """The `scaffold` stage's generated lines: every non-empty subset of `ACCEPTANCE_CONFIGS`, its members in config order, put to `build.config_badge` against `ACCEPTANCE_CONFIGS`, under `badge:` and the subset. The corpus's config sets reach neither the three-clause gates nor the `only under:` fallback."""
+# The windows the generated badge lines resolve a unit's configurations in (`audit.window_configs`): one that holds ·Owe, ss07's scope letter, among others, ·Owe alone, one whose longer code point spells ·Owe's only as a substring, and one that holds no scope letter.
+BADGE_WINDOWS = ("E650:E67C", "E67C", "1E67C:E650", "E650:E651")
+
+
+def _config_subsets() -> Iterator[tuple[str, ...]]:
+    """Every non-empty subset of `ACCEPTANCE_CONFIGS`, its members in config order."""
     for size in range(1, len(ACCEPTANCE_CONFIGS) + 1):
-        for configs in combinations(ACCEPTANCE_CONFIGS, size):
-            gate, note = build.config_badge(configs, ACCEPTANCE_CONFIGS)
+        yield from combinations(ACCEPTANCE_CONFIGS, size)
+
+
+def _scaffold_generated(_source: Source) -> Iterator[Mapping[str, object]]:
+    """The `scaffold` stage's generated lines: every non-empty subset of `ACCEPTANCE_CONFIGS` put to `build.config_badge` against `ACCEPTANCE_CONFIGS`, under `badge:` and the subset, and against the configurations each window of `BADGE_WINDOWS` can hold, under `window:`, the window and the subset. The corpus's config sets reach neither the three-clause gates nor the `only under:` fallback."""
+    for configs in _config_subsets():
+        gate, note = build.config_badge(configs, ACCEPTANCE_CONFIGS)
+        yield {
+            "key": "badge:" + ",".join(configs),
+            "configs": configs,
+            "value": {"gate": gate, "note": note},
+        }
+    for codepoints in BADGE_WINDOWS:
+        for configs in _config_subsets():
+            gate, note = build.config_badge(configs, window_configs(codepoints))
             yield {
-                "key": "badge:" + ",".join(configs),
+                "key": f"window:{codepoints}/" + ",".join(configs),
+                "codepoints": codepoints,
                 "configs": configs,
                 "value": {"gate": gate, "note": note},
             }
@@ -13136,7 +13154,7 @@ def _emitted(args: tuple, kwargs: dict) -> Finisher:
 
 
 def _emission_value(emission: build._Emission, table: UnitTable, ordinal: int) -> tuple:
-    """An emission as an `emit` line's value: its kind, `fragment` or `bytes`, its unit id, content key and policy file, the sha256 of the bytes the write takes from it (a fragment's `build._fragment_bytes`, or the stored bytes as they are), the config note `_write_chunk` keeps for it (the fragment's, or `build.config_note` over the table's configurations for stored bytes), and, for stored bytes, their address and the identity that stands in for the fragment."""
+    """An emission as an `emit` line's value: its kind, `fragment` or `bytes`, its unit id, content key and policy file, the sha256 of the bytes the write takes from it (a fragment's `build._fragment_bytes`, or the stored bytes as they are), the config note `_write_chunk` keeps for it (the fragment's, or `build.config_note` over the table's configurations and the configurations the unit's window can hold for stored bytes), and, for stored bytes, their address and the identity that stands in for the fragment."""
     if emission.fragment is not None:
         body = build._fragment_bytes(emission.fragment)
         note = emission.fragment["config_note"]
@@ -13144,7 +13162,7 @@ def _emission_value(emission: build._Emission, table: UnitTable, ordinal: int) -
     else:
         assert emission.body is not None and emission.source is not None
         body = emission.body
-        note = build.config_note(table.configs(ordinal), ACCEPTANCE_CONFIGS)
+        note = build.config_note(table.configs(ordinal), window_configs(table.codepoints_text(ordinal)))
         address = _prior_located(emission.source)
         identity = emission.identity
     return (
@@ -13157,6 +13175,17 @@ def _emission_value(emission: build._Emission, table: UnitTable, ordinal: int) -
         address,
         identity,
     )
+
+
+def _emit_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `emit` stage's generated lines: every non-empty subset of `ACCEPTANCE_CONFIGS` in each window of `BADGE_WINDOWS`, put to `build.config_badge` against the configurations the window can hold, as `_write_chunk` resolves a byte-copied fragment's config note and `_cached_identity` its config gate, each under `generated:window-badge:`, the window and the subset."""
+    for codepoints in BADGE_WINDOWS:
+        for configs in _config_subsets():
+            yield {
+                "key": f"generated:window-badge:{codepoints}/" + ",".join(configs),
+                "input": (codepoints, configs),
+                "value": build.config_badge(configs, window_configs(codepoints)),
+            }
 
 
 CHECK_PATCHED_STAGE = "check-patched"
@@ -16010,7 +16039,7 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         _prior_read_generated,
         run="build",
     ),
-    EMIT_STAGE: Stage(EMIT_STAGE, {"build._emission": _emitted}, run="build"),
+    EMIT_STAGE: Stage(EMIT_STAGE, {"build._emission": _emitted}, _emit_generated, run="build"),
     CHECK_PATCHED_STAGE: Stage(
         CHECK_PATCHED_STAGE,
         {"build.check_unit": _patched_checked},

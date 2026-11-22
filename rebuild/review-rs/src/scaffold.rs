@@ -528,7 +528,7 @@ fn line_configs(record: &Value, key: &str) -> Result<Vec<String>> {
         .collect()
 }
 
-/// The `scaffold` stage. A `scaffold:` line's unit, which its `record` carries as phase 1 received it, goes through phase 1 up to its fragment: its ink is read and checked first against the line's `ink_deltas`, which the worker's comparator found, so a failure there names the ink stage; the unit is re-routed (`reroutes`), which sets its ledger class and clears its exemplar flag, and enriched under its first configuration; and the line's answer is a dict of the `scaffold` `unit_scaffold` returns, the `change_group` of an UNMATCHED or re-routed unit (empty for any other), and the `cluster` over the unit's configurations, the line's `final_class` or else the unit's class, and the diffs' repr. A `badge:` line's answer is the `gate` and the `note` `config_badge` gives its `configs` against `ACCEPTANCE_CONFIGS`. The shaper's and the settler's memos carry from line to line as a batch's do.
+/// The `scaffold` stage. A `scaffold:` line's unit, which its `record` carries as phase 1 received it, goes through phase 1 up to its fragment: its ink is read and checked first against the line's `ink_deltas`, which the worker's comparator found, so a failure there names the ink stage; the unit is re-routed (`reroutes`), which sets its ledger class and clears its exemplar flag, and enriched under its first configuration; and the line's answer is a dict of the `scaffold` `unit_scaffold` returns, the `change_group` of an UNMATCHED or re-routed unit (empty for any other), and the `cluster` over the unit's configurations, the line's `final_class` or else the unit's class, and the diffs' repr. A `badge:` line's answer is the `gate` and the `note` `config_badge` gives its `configs` against `ACCEPTANCE_CONFIGS`, and a `window:` line's the same against the configurations its `codepoints` window can hold ([`Roster::window`]), as [`unit_scaffold`] resolves a unit's badge. The shaper's and the settler's memos carry from line to line as a batch's do.
 pub fn stage_scaffold(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
     let init = Init::read(init_path)?;
     let roster = Roster::read(&init)?;
@@ -634,9 +634,18 @@ pub fn stage_scaffold(init_path: &Path, stage_file: &Path, out: &mut impl Write)
                 (PyValue::str("gate"), badge.gate_py()),
                 (PyValue::str("note"), badge.note_py()),
             ])
+        } else if key.starts_with("window:") {
+            let Some(codepoints) = record["codepoints"].as_str() else {
+                return error(format!("{key}: the line has no window"));
+            };
+            let badge = config_badge(&line_configs(&record, key)?, &roster.window(codepoints));
+            PyValue::Dict(vec![
+                (PyValue::str("gate"), badge.gate_py()),
+                (PyValue::str("note"), badge.note_py()),
+            ])
         } else {
             return error(format!(
-                "{key}: the scaffold stage answers scaffold: and badge: lines"
+                "{key}: the scaffold stage answers scaffold:, badge: and window: lines"
             ));
         };
         writeln!(
