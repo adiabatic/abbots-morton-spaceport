@@ -16,8 +16,12 @@ from rebuild.pipeline import fixtures, kernel_exec, kernel_io, spec_load
 from rebuild.pipeline import table as table_module
 from rebuild.pipeline.kernel_exec import enumerate_transitions
 from rebuild.pipeline.model import (
+    KERNEL_FIELD,
     Bitmap,
     Condition,
+    KernBlock,
+    KernFollower,
+    KernRecord,
     Pairing,
     PolicyRecord,
     ResolvedSpec,
@@ -234,6 +238,31 @@ class TestAnOutgrownCodecFailsLoudly:
 
         with pytest.raises(TypeError):
             kernel_io._encode(Widened, Widened(3))
+
+
+class TestFieldsOutsideTheKernel:
+    """A field whose metadata sets `model.KERNEL_FIELD` to False (`Rune.kern`) is the codec's one exception: the dump leaves it out, and a parsed dump gives it its default."""
+
+    def test_a_field_marked_outside_the_kernel_is_left_out_of_the_dump_and_defaulted_on_the_way_back(self):
+        @dataclasses.dataclass(frozen=True)
+        class Marked:
+            kept: str
+            skipped: list[str] = dataclasses.field(default_factory=list, metadata={KERNEL_FIELD: False})
+
+        assert kernel_io._encode(Marked, Marked("a", ["b"])) == {"kept": "a"}
+        assert kernel_io._decode(Marked, {"kept": "a"}) == Marked("a")
+        with pytest.raises(ValueError):
+            kernel_io._decode(Marked, {"kept": "a", "skipped": []})
+
+    def test_a_runes_kern_block_never_reaches_the_dump(self, spec):
+        rune = next(iter(spec.runes.values()))
+        record = KernRecord(rune=rune.name, right=KernFollower(family=(rune.name,)), by=-1)
+        kerned = dataclasses.replace(
+            spec,
+            runes={**spec.runes, rune.name: dataclasses.replace(rune, kern=KernBlock(records=(record,)))},
+        )
+        assert kernel_io.spec_json(kerned) == kernel_io.spec_json(spec)
+        assert "kern" not in json.loads(kernel_io.spec_json(kerned))["runes"][rune.name]
 
 
 class TestRefusals:

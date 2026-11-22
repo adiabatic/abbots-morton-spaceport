@@ -315,6 +315,58 @@ class TestContact:
         assert not [d for d in report.errors if d.code == "E-CONTACT"]
 
 
+class TestKernedContact:
+    """A break sits at the left glyph's compiled advance (its widest row plus two blank pixels, less the Senior tightening's pixel) plus the kern stage's value, so two bars one pixel wide stand one blank column apart unkerned, touch at a kern of -1, and overlap at -2. Touching across a break is no error; an overlap is E-CONTACT."""
+
+    def _pair(self):
+        left_cell = CellId("qsIt", "sole", None, None, ())
+        right_cell = CellId("qsMay", "loop", None, None, ())
+        left = GlyphRecord(name="l", bitmap=("#",), y_offset=0)
+        right = GlyphRecord(name="r", bitmap=("#",), y_offset=0)
+        return left_cell, right_cell, {left_cell: left, right_cell: right}
+
+    def _contacts(self, spec, kern, rows=True):
+        left_cell, right_cell, glyphs = self._pair()
+        table_rows = [FakeJoinRow(left=left_cell, right=right_cell, join=None)] if rows else []
+        report = defects.run_gates(
+            spec,
+            _tables(rules=[_cite_all_policy(spec)], rows=table_rows),
+            glyphs,
+            kern={(left_cell, right_cell): kern} if kern else None,
+        )
+        return [d.signature for d in report.errors if d.code == "E-CONTACT"]
+
+    def test_a_break_overlaps_only_at_the_kern_that_pushes_ink_into_ink(self, spec):
+        assert self._contacts(spec, 0) == []
+        assert self._contacts(spec, -1) == []
+        assert self._contacts(spec, -2) == ["contact:l:r:overlap:kern-2"]
+
+    def test_a_kerned_break_no_join_row_records_is_checked_too(self, spec):
+        assert self._contacts(spec, -2, rows=False) == ["contact:l:r:overlap:kern-2"]
+
+    def test_a_bless_at_one_kern_does_not_cover_a_deeper_one(self, spec):
+        """The signature names the kern, so the entry blessing the overlap at -2 leaves the same pair at -4 an error. The bars are three pixels wide, so both kerns overlap."""
+        left_cell, right_cell, _glyphs = self._pair()
+        glyphs = {
+            left_cell: GlyphRecord(name="l", bitmap=("###",), y_offset=0),
+            right_cell: GlyphRecord(name="r", bitmap=("###",), y_offset=0),
+        }
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join=None)]
+
+        def errors(kern):
+            report = defects.run_gates(
+                spec,
+                _tables(rules=[_cite_all_policy(spec)], rows=rows),
+                glyphs,
+                allow=frozenset({"contact:l:r:overlap:kern-2"}),
+                kern={(left_cell, right_cell): kern},
+            )
+            return [d.signature for d in report.errors if d.code == "E-CONTACT"]
+
+        assert errors(-2) == []
+        assert errors(-4) == ["contact:l:r:overlap:kern-4"]
+
+
 class TestDeadPolicy:
     def test_cited_records_are_live(self, spec):
         report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})

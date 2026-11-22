@@ -35,16 +35,16 @@ qsTea\tqsOy.sole.ex-y0\t-\t-\tqsTea.full.en-y0\t-\t
 """
 
 JOINS_OLD = """# join table, config default
-left\tright\tjunction\textension\tkern
-qsIt.sole\tqsIt.sole\tbreak\t0\t0
-qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t0\t0
+left\tright\tjunction\textension
+qsIt.sole\tqsIt.sole\tbreak\t0
+qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t0
 """
 
 JOINS_NEW = """# join table, config default
-left\tright\tjunction\textension\tkern
-qsIt.sole\tqsIt.sole\tbreak\t0\t0
-qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t1\t0
-qsOy.sole.ex-y0\tqsTea.full.en-y0\ty0\t0\t0
+left\tright\tjunction\textension
+qsIt.sole\tqsIt.sole\tbreak\t0
+qsTea.half.ex-y5\tqsIt.sole.en-y5\ty5\t1
+qsOy.sole.ex-y0\tqsTea.full.en-y0\ty0\t0
 """
 
 
@@ -198,6 +198,22 @@ def test_example_text_resettles_to_the_settlement_row(example_index):
     for (key, value, _example_text), report in zip(asked, reports):
         labels = [cell_label(spec, item.cell) for item in report.settled]
         assert value.outcome in labels, (key.label(), value.outcome, labels)
+
+
+def test_a_join_table_with_the_old_kern_column_reads_as_the_same_rows(tmp_path):
+    """A baseline build directory written while the join table had a `kern` column (always 0) still loads: the fifth field is ignored, and the rows equal the four-column table's."""
+    current = MINI / "joins-default.tsv"
+    lines = current.read_text().splitlines()
+    widened = [
+        line if line.startswith("#") else line + ("\tkern" if line.startswith("left\t") else "\t0")
+        for line in lines
+    ]
+    old = tmp_path / "joins-default.tsv"
+    old.write_text("\n".join(widened) + "\n")
+    assert tablediff.load_joins(old) == tablediff.load_joins(current)
+    assert len(tablediff.load_joins(old)) == len(
+        [line for line in lines if not line.startswith(("#", "left\t"))]
+    )
 
 
 def test_example_text_resettles_to_the_join_row_pair(example_index):

@@ -11,6 +11,7 @@ Start here:
 - `review_queue.py`: writes a snapshot of the review queue for a review session; the live view is `#view=queue`
 - `standing_probe.py`: explains, without writing anything, why a unit is still in the queue under the standing approvals
 - `probe.py`: compares the old-font baseline with the new settlement for one or more codepoint windows, in every configuration
+- `import_kerning.py`: carries the old font's Senior kerning over into the rune files' `kern:` blocks (rebuild/KERN-PLAN.md §8); a dry run by default, `--apply` writes
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
 - `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
 - `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer maximum length on demand

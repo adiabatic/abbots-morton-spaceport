@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LETTER_CODEPOINTS, normalizeName, parsePreview } from '../static/preview.js';
+import { readFile } from 'node:fs/promises';
+import { LETTER_CODEPOINTS, normalizeName, parsePreview, stylisticSetsOf } from '../static/preview.js';
 
 test('the letter map covers all 44 letters at their doc/glyph-names.md codepoints', () => {
   assert.equal(LETTER_CODEPOINTS.size, 44);
@@ -74,4 +75,55 @@ test('unrecognized names are reported and contribute nothing', () => {
 test('empty and blank input parse to nothing', () => {
   assert.deepEqual(parsePreview(''), { text: '', unknown: [] });
   assert.deepEqual(parsePreview('   '), { text: '', unknown: [] });
+});
+
+// A font file holding only the table directory and, for each of `tables`, a header whose feature list names `features`. stylisticSetsOf reads nothing else.
+function fontWithFeatures(tables) {
+  const entries = Object.entries(tables);
+  const directoryEnd = 12 + entries.length * 16;
+  const bodies = entries.map(([, features]) => 10 + features.length * 6);
+  const bytes = new Uint8Array(directoryEnd + bodies.reduce((sum, length) => sum + length, 0));
+  const view = new DataView(bytes.buffer);
+  const writeTag = (offset, tag) => bytes.set([...tag].map((char) => char.charCodeAt(0)), offset);
+  view.setUint32(0, 0x4f54544f);
+  view.setUint16(4, entries.length);
+  let tableStart = directoryEnd;
+  for (const [index, [tag, features]] of entries.entries()) {
+    const record = 12 + index * 16;
+    writeTag(record, tag);
+    view.setUint32(record + 8, tableStart);
+    view.setUint32(record + 12, bodies[index]);
+    view.setUint16(tableStart, 1);
+    view.setUint16(tableStart + 6, 8);
+    view.setUint16(tableStart + 8, features.length);
+    for (const [position, feature] of features.entries()) writeTag(tableStart + 10 + position * 6, feature);
+    tableStart += bodies[index];
+  }
+  return bytes;
+}
+
+test('stylisticSetsOf lists the GSUB and GPOS stylistic sets once each, sorted, and skips other features and tables', () => {
+  const font = fontWithFeatures({
+    'CFF ': ['ss01'],
+    GPOS: ['curs', 'ss04'],
+    GSUB: ['calt', 'ss10', 'ss03', 'ss03', 'ss04', 'ss21', 'ss00'],
+  });
+  assert.deepEqual(stylisticSetsOf(font), ['ss03', 'ss04', 'ss10']);
+  assert.deepEqual(stylisticSetsOf(font.buffer), ['ss03', 'ss04', 'ss10']);
+});
+
+test('stylisticSetsOf finds no sets in a font without them', () => {
+  assert.deepEqual(stylisticSetsOf(fontWithFeatures({ GSUB: ['calt'], GPOS: ['curs'] })), []);
+  assert.deepEqual(stylisticSetsOf(fontWithFeatures({})), []);
+});
+
+test('stylisticSetsOf reads a real rebuild font, including through a view that starts partway into its buffer', async () => {
+  const font = await readFile(new URL('../fixtures/mini/M1.otf', import.meta.url));
+  const sets = stylisticSetsOf(font);
+  const padded = new Uint8Array(font.length + 7);
+  padded.set(font, 7);
+  assert.deepEqual(stylisticSetsOf(padded.subarray(7)), sets);
+  assert.ok(sets.includes('ss10'), `the mini M1 font's sets ${sets.join(', ')} should include ss10`);
+  for (const set of sets) assert.match(set, /^ss\d{2}$/u);
+  assert.deepEqual(sets, [...sets].sort());
 });

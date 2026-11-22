@@ -119,3 +119,8 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsGay}, by: -1}
+- {right: {family: qsEt}, by: -1}
+- {right: {family: qsEight}, by: -1}
+- {right: {family: qsFoot}, by: -1}

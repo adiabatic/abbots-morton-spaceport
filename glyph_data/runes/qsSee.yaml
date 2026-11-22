@@ -182,3 +182,24 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -1}
+- {right: {family: qsDay}, by: -1}
+- {right: {family: qsGay}, by: -2}
+- {right: {family: qsZoo}, by: -1}
+- {right: {family: qsShe}, by: -1}
+- {right: {family: qsWay}, by: -2}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsIng}, by: -1}
+- {right: {family: qsMay}, by: -1}
+- {right: {family: qsNo}, by: -2}
+- {right: {family: qsLoch}, by: -1}
+- {right: {family: qsLlan}, by: -1}
+- {right: {family: qsIt}, by: -1}
+- {right: {family: qsEt}, by: -1}
+- {right: {family: qsEight}, by: -2}
+- {right: {family: qsI}, by: -1}
+- {right: {family: qsAh}, by: -1}
+- {right: {family: qsAwe}, by: -2}
+- {right: {family: qsOx}, by: -2}
+- {right: {family: qsOy}, by: -1}

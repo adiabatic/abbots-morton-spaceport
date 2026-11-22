@@ -1,7 +1,8 @@
 import { parseHash, writeHash, shedWorklist } from './state.js';
 import { actionForKey, isEditableTarget } from './keyboard.js';
-import { parsePreview } from './preview.js';
+import { parsePreview, stylisticSetsOf } from './preview.js';
 import { bannerModel, retryAfterMs, withLocalBlanks } from './status.js';
+import { createKernView } from './kern-view.js';
 import {
   createStore,
   recordVerdict,
@@ -45,6 +46,7 @@ import {
   loadConflicts,
 } from './outbox.js';
 import {
+  featureSettingsValue,
   configGateChips,
   configFilterOptions,
   pinStylisticSetScope,
@@ -211,6 +213,8 @@ let locatorReady = null;
 let familyOptions = [];
 let worklist = null;
 const queueShown = loadQueueShown();
+// The kerning view (`#view=kern`, static/kern-view.js), created the first time the view opens.
+let kernView = null;
 let lastQueueShownKey = null;
 let indexReady = null;
 let indexLoaded = false;
@@ -1391,6 +1395,8 @@ function updateProgress() {
   if (state.view === 'queue') {
     // In the queue view renderQueue writes the batch-progress line, so a store mutation (undo, import, a sync from another session) only re-derives the queue.
     scheduleQueueRefresh();
+  } else if (state.view === 'kern') {
+    setText(document.getElementById('batch-progress'), '');
   } else {
     let batchVerdicted = 0;
     for (const unit of visibleUnits) if (store.records.has(unit.id)) batchVerdicted += 1;
@@ -1427,6 +1433,10 @@ function updateClassProgress(tallies = verdictTallies()) {
 }
 
 function updateTitle() {
+  if (state.view === 'kern') {
+    document.title = 'Kerning — AMS review';
+    return;
+  }
   if (state.view === 'queue') {
     document.title = 'Review queue — AMS review';
     return;
@@ -1525,7 +1535,7 @@ function updateClassCounts(tallies = verdictTallies()) {
 function renderClassHeader() {
   const header = document.getElementById('class-header');
   const cls = state.class ? classById.get(state.class) : null;
-  if (!cls || state.units || state.view === 'queue') {
+  if (!cls || state.units || state.view === 'queue' || state.view === 'kern') {
     header.hidden = true;
     return;
   }
@@ -1934,6 +1944,24 @@ async function applyHashState(resume = false) {
     state = { ...state, class: null };
     history.replaceState(null, '', `#${writeHash(state)}`);
   }
+  const kernOn = state.view === 'kern';
+  document.body.classList.toggle('kern-view', kernOn);
+  document.getElementById('kern').hidden = !kernOn;
+  if (kernOn) {
+    document.body.classList.remove('queue-view');
+    document.getElementById('queue').hidden = true;
+    renderClassHeader();
+    closeRejectMenu();
+    closeNeitherMenu();
+    visibleUnits = [];
+    machineUnits = [];
+    foldRecords.clear();
+    renderedKey = null;
+    updateTitle();
+    updateProgress();
+    await kernViewOf().show({ pair: state.pair, facing: state.facing });
+    return;
+  }
   const queueView = state.view === 'queue';
   document.body.classList.toggle('queue-view', queueView);
   document.getElementById('queue').hidden = !queueView;
@@ -2028,6 +2056,17 @@ async function applyHashState(resume = false) {
   updateTitle();
   updateBatchNav();
   updateSidebarHighlights();
+}
+
+function kernViewOf() {
+  kernView ??= createKernView({ root: document.getElementById('kern'), toast, writeSelection: writeKernSelection });
+  return kernView;
+}
+
+// Put the kerning view's selection in the URL hash without a hashchange, so a reload or a shared link reopens it.
+function writeKernSelection({ pair, facing }) {
+  state = { ...state, pair, facing };
+  history.replaceState(null, '', `#${writeHash(state)}`);
 }
 
 let toastTimer = null;
@@ -3420,6 +3459,56 @@ function updateTypePreview() {
   panel.hidden = false;
 }
 
+let previewSetsLoad = null;
+
+// The checked boxes in the sets popover are the preview's only record of which stylistic sets are on, so the rendering and the toggle's label are both read from them.
+function updatePreviewSets() {
+  const on = [];
+  for (const box of document.querySelectorAll('#type-preview-set-list input:checked')) on.push(box.value);
+  document.getElementById('type-preview-render').style.fontFeatureSettings = featureSettingsValue(on.join('+'));
+  const toggle = document.getElementById('type-preview-sets-toggle');
+  toggle.replaceChildren();
+  if (on.length === 0) toggle.textContent = 'ss';
+  for (const set of on) {
+    const chip = el('span', 'type-preview-set-chip', set);
+    chip.dataset.ss = set;
+    toggle.append(chip);
+  }
+  toggle.classList.toggle('sets-on', on.length > 0);
+  toggle.title = on.length > 0 ? `Stylistic sets on in the preview: ${on.join(', ')}` : 'Turn stylistic sets on in the preview';
+}
+
+// Lists every stylistic set the After font declares, read from the font file itself, so the popover never offers a set the font lacks; each is glossed from the manifest's feature descriptions. The server sends the font uncached, so this runs once per page, when the popover first opens (`previewSetsLoad`), rather than at every load.
+async function loadPreviewSets() {
+  const list = document.getElementById('type-preview-set-list');
+  const note = el('p', 'type-preview-sets-note', 'Reading the After font’s stylistic sets…');
+  list.append(note);
+  let sets;
+  try {
+    const response = await fetch(manifest.fonts.after.file);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    sets = stylisticSetsOf(await response.arrayBuffer());
+  } catch (error) {
+    note.textContent = `Could not read the After font’s stylistic sets (${error.message}).`;
+    return;
+  }
+  if (sets.length === 0) {
+    note.textContent = 'The After font has no stylistic sets.';
+    return;
+  }
+  note.remove();
+  for (const set of sets) {
+    const row = el('label', 'type-preview-set');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = set;
+    const name = el('span', 'type-preview-set-name', set);
+    name.dataset.ss = set;
+    row.append(box, name, el('span', 'type-preview-set-gloss', manifest.feature_descriptions?.[set] ?? ''));
+    list.append(row);
+  }
+}
+
 async function runSearch() {
   const input = document.getElementById('unit-search');
   const query = input.value;
@@ -3444,6 +3533,7 @@ function wireEvents() {
 
   document.addEventListener('keydown', (event) => {
     const overlayOpen = helpDialog.open || importDialog.open;
+    const kernOn = state.view === 'kern';
     const action = actionForKey(event.key, {
       inInput: isEditableTarget(event.target),
       overlayOpen,
@@ -3452,10 +3542,17 @@ function wireEvents() {
       neitherMenuOpen: neitherMenuUnitId !== null,
       noteInput: Boolean(event.target.closest?.('.note')),
       shift: event.shiftKey,
+      view: kernOn ? 'kern' : null,
+      kernPane: kernOn ? kernViewOf().pane() : 'grid',
     });
     if (!action) return;
     if (action === 'escape') {
       if (isEditableTarget(event.target)) event.target.blur();
+      return;
+    }
+    if (action.startsWith('kern-')) {
+      event.preventDefault();
+      kernViewOf().handle(action);
       return;
     }
     if (action === 'note-advance') {
@@ -3738,12 +3835,20 @@ function wireEvents() {
   });
 
   document.getElementById('type-preview-input').addEventListener('input', updateTypePreview);
+  document.getElementById('type-preview-set-list').addEventListener('change', updatePreviewSets);
+  document.getElementById('type-preview-sets').addEventListener('beforetoggle', (event) => {
+    if (event.newState === 'open') previewSetsLoad ??= loadPreviewSets();
+  });
   document.getElementById('open-queue').addEventListener('click', () => {
     syncVerdictsFromServer();
     const next = 'view=queue';
     // Clicking Queue while in the queue view leaves the hash unchanged and fires no hashchange, so call applyHashState directly, which also refreshes the view.
     if (location.hash.replace(/^#/, '') === next) applyHashState();
     else location.hash = next;
+  });
+  document.getElementById('open-kern').addEventListener('click', () => {
+    if (state.view === 'kern') return;
+    location.hash = writeHash({ view: 'kern', pair: state.pair, facing: state.facing });
   });
   document.getElementById('jump-unverdicted').addEventListener('click', jumpToFirstUnverdicted);
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));
@@ -3767,12 +3872,14 @@ function wireEvents() {
   window.addEventListener('focus', () => {
     syncVerdictsFromServer();
     refreshStatus();
+    if (state.view === 'kern') kernViewOf().refresh();
   });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       settleAndReload();
       syncVerdictsFromServer();
       refreshStatus();
+      if (state.view === 'kern') kernViewOf().refresh();
     }
   });
 
@@ -3803,7 +3910,17 @@ function wireEvents() {
     if (state.view === 'queue' && !document.hidden) syncVerdictsFromServer();
   }, 3000);
 
+  // The kerning view polls the server's values while it is visible, so a kern edit, a build or a pass's end reaches it without a tab switch.
+  setInterval(() => {
+    if (state.view === 'kern' && !document.hidden) kernViewOf().refresh();
+  }, 5000);
+
   window.addEventListener('beforeunload', (event) => {
+    if (kernView?.unsent()) {
+      event.preventDefault();
+      event.returnValue = '';
+      return;
+    }
     if (store.unexported.size === 0) return;
     if (autosaveHealthy() || outboxWorks) return;
     event.preventDefault();

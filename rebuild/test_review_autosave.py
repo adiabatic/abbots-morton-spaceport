@@ -620,6 +620,7 @@ root = Path(sys.argv[1])
 serve.REPO_ROOT = root
 serve.REVIEW_DIR = root / "rebuild" / "out" / "review"
 serve.M1_OUT = root / "rebuild" / "out" / "m1"
+serve.RUNES_DIR = root / "glyph_data" / "runes"
 serve.CYCLE_SUMMARY_PATH = root / "rebuild" / "out" / "cycle_summary.json"
 serve.AUTOSAVE_PATH = root / "verdicts-autosave.json"
 serve.JOURNAL_PATH = root / journal.JOURNAL_NAME

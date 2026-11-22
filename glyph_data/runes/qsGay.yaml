@@ -113,6 +113,7 @@ stances:
             - qsAwe
             - qsOx
             - qsOy
+            - qsFoot
       pairings:
         never:
         - entry: baseline
@@ -150,6 +151,7 @@ policy:
         - qsDay_qsUtter
         - qsZoo
         - qsRoe
+        - qsExam
         - qsIt
         - qsI
         - qsOut_qsTea
@@ -174,6 +176,7 @@ policy:
           - qsDay_qsUtter
           - qsZoo
           - qsRoe
+          - qsExam
           - qsIt
           - qsI
           - qsOut_qsTea
@@ -193,6 +196,7 @@ policy:
         - qsDay_qsUtter
         - qsZoo
         - qsRoe
+        - qsExam
         - qsIt
         - qsI
         - qsOut_qsTea
@@ -220,6 +224,7 @@ policy:
         - qsYe
         - qsNo
         - qsLlan
+        - qsFoot
   contract:
   - entry: baseline
     by: 1
@@ -245,3 +250,6 @@ policy:
     why: An improvement but I'd like a 1-pixel contraction between ·Cheer and ·Gay (regardless of what comes before or after)
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -1}
+- {right: {family: qsEt}, by: -1}

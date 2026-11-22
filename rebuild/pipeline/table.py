@@ -10,14 +10,14 @@ Rows carry two deep slots, `right3` and `right4`. The kernel splits a window by 
 
 A row is joint when either §6.1 flag applies: the final tiebreak broke a ranking tie between candidates that differ in junction, or the optimistic prospect differs from the follower's settled choice. Both TSV artifacts are diff-stable (§8): a deterministic row order, provenance pointers, and deterministic labels.
 
-The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells, the witness stage's certificates, the windows the table imported from other configurations, which the string replay's narrowing reads, and where the crate's exchange expects the emitter to ship each rule (`fold_order`, `buckets`), which `emit_gsub._fold_rules` checks against the order it ships. Neither digest in this module reads the certificates, the imports or that expectation, because they are evidence about the rules, not part of what the rules say.
+The windows artifact stores a built table so the conformance sweep does not rebuild from unchanged sources: the rules, the reachable cells, one certificate per rule, and the enumerated windows, stamped with `fingerprint.tables_value` over the sources the fixpoint read. `read_windows` returns the windows as `Window` rows, labels only, which is all a replay reads. The head alone gives the reachable cells, the witness stage's certificates, the windows the table imported from other configurations, which the string replay's narrowing reads, where the crate's exchange expects the emitter to ship each rule (`fold_order`, `buckets`), which `emit_gsub._fold_rules` checks against the order it ships, and the cells settled immediately before and after a ZWNJ (`zwnj_before`, `zwnj_after`, the crate's `fold::zwnj_cells`), whose product is the set of pairs a ZWNJ separates and which the kern stage reads as breaks, since no join row crosses a boundary. Neither digest in this module reads the certificates, the imports, that expectation or the ZWNJ cells: the first three are evidence about the rules, not part of what the rules say, and the ZWNJ cells are a function of the window rows the digests already cover.
 
 Each configuration's windows artifact is held in two files and the segment format (`rebuild/pipeline/row_delta.py`), all written by `run_m1.build_tables`:
 
 - The head file, `windows-<config>.head.json.gz` (`windows_head_file`): the payload's head line exactly as the crate writes it, the marker, a tab, the JSON head and a newline, gzipped as a base is, so `read_windows` reads it with `windows=False` as it reads a whole payload.
 - The rows, the output `windows-<config>.tsv.gz` (`windows_output`): a head, `windows-<config>.tsv.gz.head` (`windows_head_path`), which merges its parts by key (`row_delta.MERGE_KEY`), lists a base, a whole payload as the crate wrote it once, its inline head line included, and the segments of the rows that differ that later builds wrote over it. Its stamps are the build's `inputs`, the crate's `table_digest` over the table's own rows and the head file's name, size and sha256, so the head is the single commit point for both files.
 
-`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it (`read_head_line`, which also hands a pass that reuses the tables the line it re-stamps, `restamped_head_line`), so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest` and `deep_sweep.targeted_lines`) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
+`read_windows_head` is the one reader of a configuration's head: it checks the head file against the head's stamps before it parses it (`read_head_line`, which also hands a pass that reuses the tables the line it re-stamps, `restamped_head_line`), so a head file a build left without committing its head reads as a missing build, never as a current stamp over old rows. Every reader of the head (`run_m1.serialized_tables` and through it the conformance sweep, `--gates-only`, the artifact cycle's stamp checks and the deep tools, `artifact_cycle.tables_imports_digest`, `deep_sweep.targeted_lines`, and the review server's kern routes, which read only the cells (`cells_only`)) goes through it, and `rebuild/test_windows.py`'s contract test fails on any other. The materialized form of the rows (`materialized_windows`) is the head file's line, the column line and the base and segments merged by key: the whole payload the crate would write for the same table, byte for byte (#618's decision 48), which `read_materialized_windows` reads, and `materialized_table_digest` hashes as it streams for `perf_fingerprint` without building the rows. A tree from before the segment format holds the whole payload gzipped in the single file `windows-<config>.tsv.gz` (`windows_path`), which the next build adopts as its output's first base.
 """
 
 from __future__ import annotations
@@ -126,7 +126,6 @@ class JoinRow:
     right: str
     junction: str  # a height name or "break"
     extension: int
-    kern: int = 0
 
 
 @dataclass
@@ -151,6 +150,10 @@ class DecisionTable:
     buckets: tuple[int, ...] = (
         ()
     )  # each rule's place in `emit_gsub._ordered_settle_rules`' sort as the crate's exchange computes it (crossconfig.rs `bucket`), in rule order; the emitter checks each
+    zwnj_before: frozenset[str] | None = (
+        None  # the labels of the cells settled immediately before a ZWNJ (the crate's `fold::zwnj_cells`); None for a head that lists none
+    )
+    zwnj_after: frozenset[str] | None = None  # the labels of the cells settled immediately after a ZWNJ
     _cells: frozenset[CellId] = field(default_factory=frozenset)
 
     def reachable_cells(self) -> frozenset[CellId]:
@@ -221,14 +224,14 @@ class JoinTable:
     rows: tuple[JoinRow, ...] = ()
 
     def write_tsv(self, path: Path) -> None:
-        lines = [f"# join table, config {self.config}", "left\tright\tjunction\textension\tkern"]
+        lines = [f"# join table, config {self.config}", "left\tright\tjunction\textension"]
         for row in self.rows:
-            lines.append("\t".join((row.left, row.right, row.junction, str(row.extension), str(row.kern))))
+            lines.append("\t".join((row.left, row.right, row.junction, str(row.extension))))
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("\n".join(lines) + "\n")
 
 
-JOIN_COLUMNS = ("left", "right", "junction", "extension", "kern")
+JOIN_COLUMNS = ("left", "right", "junction", "extension")
 
 
 def read_join_tsv(path: Path) -> JoinTable:
@@ -243,8 +246,8 @@ def read_join_tsv(path: Path) -> JoinTable:
         fields = line.split("\t")
         if len(fields) != len(JOIN_COLUMNS):
             raise ValueError(f"{path}: line {number} has {len(fields)} fields, expected {len(JOIN_COLUMNS)}")
-        left, right, junction, extension, kern = fields
-        rows.append(JoinRow(left, right, junction, int(extension), int(kern)))
+        left, right, junction, extension = fields
+        rows.append(JoinRow(left, right, junction, int(extension)))
     return JoinTable(config=lines[0].removeprefix("# join table, config "), rows=tuple(rows))
 
 
@@ -329,11 +332,14 @@ def restamped_head_line(line: bytes, config: str, stamped: str, inputs: str) -> 
     return opening(inputs) + line[len(old) :]
 
 
-def read_windows_head(out_dir: Path, config: str) -> tuple[str, DecisionTable]:
-    """Read one configuration's table from its head file, without the window rows, as `read_windows` reads a payload with `windows=False`: the fingerprint of the sources it was built from and the decision table. The one reader of a configuration's head: it reads the windows output's head and checks the head file against the name, size and sha256 its stamps record before it parses it (`read_head_line`). Raises OSError when the head or the head file is missing, and ValueError when either does not read, the head file is not the one the head records, or it is not a head line in this format, so a head file a build left without committing reads as a missing build."""
+def read_windows_head(out_dir: Path, config: str, *, cells_only: bool = False) -> tuple[str, DecisionTable]:
+    """Read one configuration's table from its head file, without the window rows, as `read_windows` reads a payload with `windows=False`: the fingerprint of the sources it was built from and the decision table. The one reader of a configuration's head: it reads the windows output's head and checks the head file against the name, size and sha256 its stamps record before it parses it (`read_head_line`). Raises OSError when the head or the head file is missing, and ValueError when either does not read, the head file is not the one the head records, or it is not a head line in this format, so a head file a build left without committing reads as a missing build.
+
+    `cells_only` keeps only the reachable cells and the cells settled beside a ZWNJ, with no rule, certificate, import or deep class, which is all the kern stage reads of a head. The review server's kern routes (`rebuild/review/kern_routes.py`) read every configuration's head this way and keep the tables for their lifetime, and the rules and certificates would hold several hundred megabytes beside them.
+    """
     head, line = read_head_line(out_dir, config)
     path = windows_head_file(out_dir, config)
-    stamp, decision = _windows_of(_Lines(iter((line,))), False, str(path))
+    stamp, decision = _windows_of(_Lines(iter((line,))), False, str(path), cells_only=cells_only)
     if stamp != head.stamps.get(INPUTS_STAMP):
         raise ValueError(
             f"{path.name} is stamped {stamp!r} where its head records {head.stamps.get(INPUTS_STAMP)!r}"
@@ -449,11 +455,24 @@ def read_windows(source: Path | IO[str], windows: bool = True) -> tuple[str, Dec
     return _windows_of(source, windows, str(getattr(source, "name", source)))
 
 
-def _windows_of(handle: IO[str] | _LineSource, windows: bool, name: str) -> tuple[str, DecisionTable]:
+def _windows_of(
+    handle: IO[str] | _LineSource, windows: bool, name: str, cells_only: bool = False
+) -> tuple[str, DecisionTable]:
     marker, _, payload = handle.readline().rstrip("\n").partition("\t")
     if marker != f"# {WINDOWS_FORMAT}":
         raise ValueError(f"{name}: not a {WINDOWS_FORMAT} enumeration")
     head = json.loads(payload)
+    del payload
+    cells = frozenset(
+        CellId(rune, stance, entry, exit_, tuple(adjustments))
+        for rune, stance, entry, exit_, adjustments in head["cells"]
+    )
+    zwnj_before = frozenset(head["zwnj_before"]) if "zwnj_before" in head else None
+    zwnj_after = frozenset(head["zwnj_after"]) if "zwnj_after" in head else None
+    if cells_only:
+        return head["inputs"], DecisionTable(
+            config=head["config"], zwnj_before=zwnj_before, zwnj_after=zwnj_after, _cells=cells
+        )
     rows: tuple[Window, ...] = ()
     if windows:
         if tuple(handle.readline().rstrip("\n").split("\t")) != WINDOWS_COLUMNS:
@@ -474,10 +493,9 @@ def _windows_of(handle: IO[str] | _LineSource, windows: bool, name: str) -> tupl
         imports=tuple(tuple(fields) for fields in head.get("imports", ())),
         fold_order=tuple(head.get("fold_order", ())),
         buckets=tuple(head.get("buckets", ())),
-        _cells=frozenset(
-            CellId(rune, stance, entry, exit_, tuple(adjustments))
-            for rune, stance, entry, exit_, adjustments in head["cells"]
-        ),
+        zwnj_before=zwnj_before,
+        zwnj_after=zwnj_after,
+        _cells=cells,
     )
     return head["inputs"], decision
 
@@ -575,7 +593,6 @@ def _table_digest_parts(decision: DecisionTable, joins: JoinTable, rows: Iterabl
                     join_row.right,
                     join_row.junction,
                     str(join_row.extension),
-                    str(join_row.kern),
                 )
             ).encode()
             + b"\n"

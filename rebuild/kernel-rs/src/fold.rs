@@ -34,6 +34,9 @@ pub const NA_LABEL: &str = "#NA";
 /// The lookahead class every boundary-outcome rule carries, `table.BOUNDARY_LOOKAHEAD_CLASS`. Its order is fixed here and is not sorted.
 pub const BOUNDARY_LOOKAHEAD_CLASS: [&str; 3] = ["uni200C", "space", "periodcentered"];
 
+/// The ZWNJ's label, the boundary [`zwnj_cells`] reads at a row's left slot and its first right slot.
+pub const ZWNJ_LABEL: &str = "uni200C";
+
 /// Every label a window slot can carry that is not a letter, `table.BOUNDARYISH`. A deep-class id is never one.
 pub fn boundaryish(label: &str) -> bool {
     matches!(
@@ -74,14 +77,13 @@ impl Rule {
     }
 }
 
-/// One join row, `table.JoinRow`: the two settled cells a junction joins, the height it joins at (or `break`), and the connector pixels the junction carries. `kern` is always zero and is written anyway, because the TSV has the column.
+/// One join row, `table.JoinRow`: the two settled cells a junction joins, the height it joins at (or `break`), and the connector pixels the junction carries.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct JoinRow {
     pub left: Rc<str>,
     pub right: Rc<str>,
     pub junction: String,
     pub extension: i64,
-    pub kern: i64,
 }
 
 #[derive(Debug)]
@@ -105,6 +107,9 @@ pub struct DecisionTable {
     /// The build's configurations in [`Spellings::rank`] order and each rule's [`crate::crossconfig::bucket`] in rule order: where the exchange expects the emitter to ship the rules, which the windows head carries for `emit_gsub._fold_rules` to check. Both are empty for a fold outside a table build.
     pub fold_order: Vec<String>,
     pub buckets: Vec<u8>,
+    /// The cells that settle immediately before a ZWNJ and the cells that settle immediately after one, each sorted ([`zwnj_cells`]). No join row crosses a boundary, so these are the only record of the pairs a ZWNJ separates, which the kern stage (`rebuild/pipeline/kern.py`) reads from the windows head as breaks.
+    pub zwnj_before: Vec<String>,
+    pub zwnj_after: Vec<String>,
 }
 
 impl DecisionTable {
@@ -572,6 +577,7 @@ impl Prepared {
             .iter()
             .map(|cell| (cell, entry_extension(cell)))
             .collect();
+        let (zwnj_before, zwnj_after) = zwnj_cells(&product);
         let mut seen: HashSet<(Rc<str>, Rc<str>, String, i64)> = HashSet::default();
         for row in 0..rows.len() {
             let base = rows.base(row);
@@ -605,7 +611,6 @@ impl Prepared {
                 right,
                 junction,
                 extension,
-                kern: 0,
             })
             .collect();
         join_rows.sort();
@@ -700,6 +705,8 @@ impl Prepared {
                 .collect(),
             fold_order: crossing.map_or_else(Vec::new, |(spellings, _)| spellings.fold_order()),
             buckets,
+            zwnj_before,
+            zwnj_after,
         };
         Ok(Folded {
             decision,
@@ -1492,6 +1499,24 @@ fn input_runs(rows: &LabelRows<'_>) -> Vec<(usize, usize)> {
         start = end;
     }
     runs
+}
+
+/// The cells one configuration settles immediately before a ZWNJ (the outcomes of the rows whose first right slot is the ZWNJ) and immediately after one (the outcomes of the rows whose left slot is the ZWNJ), each sorted and without repeats. A row whose first right slot is a boundary reads nothing past it and a row whose left is the ZWNJ reads nothing before it, so every cell of the first set meets every cell of the second across a ZWNJ in some text: their product is exactly the set of pairs a ZWNJ separates, which no join row records. The class rows are read, since the left and the first right slot are class-row fields.
+pub fn zwnj_cells(product: &FixpointProduct) -> (Vec<String>, Vec<String>) {
+    let mut before: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let mut after: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for row in &product.transitions {
+        if &**product.labels.text(row.right1) == ZWNJ_LABEL {
+            before.insert(product.outcome(row));
+        }
+        if &**product.labels.text(row.left) == ZWNJ_LABEL {
+            after.insert(product.outcome(row));
+        }
+    }
+    (
+        before.into_iter().map(str::to_owned).collect(),
+        after.into_iter().map(str::to_owned).collect(),
+    )
 }
 
 /// How far one settled cell's own adjustments move its entry. The join fold adds this to the left's extension.
@@ -2315,7 +2340,7 @@ mod tests {
         assert!(before.iter().zip(&after).all(|(was, now)| *now || !*was));
     }
 
-    /// The join rows are sorted and distinct, at least one break row has extension 0, and `kern` is always 0.
+    /// The join rows are sorted and distinct, and at least one break row has extension 0.
     #[test]
     fn the_join_rows_are_sorted_and_distinct() {
         let (_index, _product, folded) = built();
@@ -2329,7 +2354,41 @@ mod tests {
             rows.iter()
                 .any(|row| row.junction == "break" && row.extension == 0)
         );
-        assert!(rows.iter().all(|row| row.kern == 0));
+    }
+
+    /// The table's ZWNJ cells are the sorted outcomes of the rows whose first right slot is the ZWNJ and of the rows whose left is: no cell before a ZWNJ has a live exit, no cell after one has a live entry, and a cell after one carries the lock exactly when its rune has an entry on some stance.
+    #[test]
+    fn the_zwnj_cells_are_the_outcomes_beside_a_zwnj() {
+        let (index, product, folded) = built();
+        let decision = &folded.decision;
+        let mut before: Vec<String> = Vec::new();
+        let mut after: Vec<String> = Vec::new();
+        for row in &product.transitions {
+            let cell = &product.settled(row).cell;
+            if &**product.labels.text(row.right1) == ZWNJ_LABEL {
+                assert!(cell.exit.is_none(), "a cell before a ZWNJ keeps no exit");
+                before.push(product.outcome(row).to_string());
+            }
+            if &**product.labels.text(row.left) == ZWNJ_LABEL {
+                assert!(cell.entry.is_none(), "a cell after a ZWNJ takes no entry");
+                assert_eq!(
+                    cell.adjustments.contains(&AdjustmentToken::Locked),
+                    index.is_entry_bearing(cell.rune),
+                    "the ZWNJ lock is on exactly the cells of runes with an entry"
+                );
+                after.push(product.outcome(row).to_string());
+            }
+        }
+        for cells in [&mut before, &mut after] {
+            cells.sort();
+            cells.dedup();
+        }
+        assert!(
+            !before.is_empty() && !after.is_empty(),
+            "the fixture enumerates ZWNJ windows"
+        );
+        assert_eq!(decision.zwnj_before, before);
+        assert_eq!(decision.zwnj_after, after);
     }
 
     /// Two folds of one product write the same bytes, and dropping a rule or a row changes the table digest.

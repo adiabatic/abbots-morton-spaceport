@@ -55,8 +55,22 @@
             autocomplete="off"
             spellcheck="false"
             aria-label="Type Quikscript to preview it in the rebuild font"
-            title="Render arbitrary Quikscript in the rebuild (after) font: letter names joined with middots (·day·utter; plain dots work too), spaces between words, zwnj for a non-joiner, uniXXXX or a bare PUA hex like e653 for raw codepoints — or paste Quikscript characters directly. Kerning off, default features, like the After column."
+            title="Render arbitrary Quikscript in the rebuild (after) font: letter names joined with middots (·day·utter; plain dots work too), spaces between words, zwnj for a non-joiner, uniXXXX or a bare PUA hex like e653 for raw codepoints — or paste Quikscript characters directly. Kerning off, like the After column, and default features unless the ss button beside the box turns stylistic sets on."
           />
+          <button
+            type="button"
+            id="type-preview-sets-toggle"
+            popovertarget="type-preview-sets"
+            aria-label="Stylistic sets in the preview"
+            title="Turn stylistic sets on in the preview"
+          >
+            ss
+          </button>
+          <div id="type-preview-sets" popover>
+            <fieldset id="type-preview-set-list">
+              <legend>Stylistic sets in the preview</legend>
+            </fieldset>
+          </div>
           <div id="type-preview-panel" hidden>
             <div class="type-preview-render" id="type-preview-render"></div>
             <p class="type-preview-hint" id="type-preview-hint" hidden></p>
@@ -64,6 +78,7 @@
         </div>
         <button type="button" id="open-import">Import…</button>
         <button type="button" id="open-queue" title="A live work order over the units that still need a verdict: clusters sharing one before→after ink delta, largest first. Every button stacks a decision as a worklist here in the app, and the view re-sorts itself as verdicts land.">Queue</button>
+        <button type="button" id="open-kern" title="The kerning view: every pair of letters that meet at a break, drawn from the last build's pixels with the kern values the rune files set, which it edits.">Kerning</button>
         <button type="button" id="jump-unverdicted" title="Jump to the first unverdicted unit, across every class and batch">First unverdicted</button>
         <button type="button" id="download-verdicts">Download verdicts.json</button>
         <button type="button" id="open-help" aria-keyshortcuts="?">Keys <kbd>?</kbd></button>
@@ -132,6 +147,7 @@
 
         <section id="batch" aria-label="Units in this batch"></section>
         <section id="queue" aria-label="Review queue" hidden></section>
+        <section id="kern" aria-label="Kerning" hidden></section>
       </main>
     </div>
 
@@ -156,6 +172,19 @@
           <tr><td><kbd>[</kbd> / <kbd>]</kbd></td><td>Previous / next kind of change in the sidebar (wraps; skips No review needed). Stepping into Spot-check (already ruled) says so and opens that section</td></tr>
           <tr><td><kbd>/</kbd></td><td>Focus the unit search (matches id, notation, codepoints, a kind of change’s title or id, and group and kind, across every kind of change); <kbd>↓</kbd>/<kbd>↑</kbd> move, <kbd>Enter</kbd> jumps, <kbd>Escape</kbd> closes</td></tr>
           <tr><td><kbd>?</kbd></td><td>This overlay</td></tr>
+          <tr><td colspan="2"><strong>In the kerning view</strong> (the header’s Kerning button)</td></tr>
+          <tr><td><kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd></td><td>In the grid: move the cursor to another pair of letters</td></tr>
+          <tr><td><kbd>Enter</kbd></td><td>In the grid: move to the detail panel</td></tr>
+          <tr><td><kbd>-</kbd> / <kbd>=</kbd></td><td>In the grid: tighten / loosen the two letters by a pixel, for every unjoined pair of them without a value of its own</td></tr>
+          <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>In the detail panel: choose a facing pair; <kbd>Escape</kbd> returns to the grid</td></tr>
+          <tr><td><kbd>←</kbd> / <kbd>→</kbd></td><td>In the detail panel: tighten / loosen the selected scope by a pixel</td></tr>
+          <tr><td><kbd>s</kbd></td><td>In the detail panel: switch the scope between this shape pair and all unjoined pairs of the two letters</td></tr>
+          <tr><td><kbd>0</kbd></td><td>In the detail panel: drop the scope’s own value, so it takes what it inherits</td></tr>
+          <tr><td><kbd>n</kbd></td><td>In the detail panel: write the note (<code>why:</code>) of the scope’s record; <kbd>Enter</kbd> saves</td></tr>
+          <tr><td><kbd>r</kbd></td><td>In the detail panel: mark the scope’s values carried over from the old font reviewed, or take the mark off</td></tr>
+          <tr><td><kbd>]</kbd> / <kbd>[</kbd></td><td>Next / previous pair of letters with a carried-over value not reviewed yet</td></tr>
+          <tr><td><kbd>u</kbd></td><td>Undo the last kern change</td></tr>
+          <tr><td><kbd>/</kbd></td><td>Jump to a pair of letters by name (<code>·no·tea</code>)</td></tr>
           <tr><td><kbd>Escape</kbd></td><td>Blur input / close overlay</td></tr>
         </tbody>
       </table>
@@ -173,10 +202,10 @@
       </section>
       <h3>How the app works</h3>
       <p>Verdicting a unit that has no verdict yet advances to the next unverdicted unit; re-verdicting a unit that already has a verdict updates it in place and keeps the cursor put, so you can revise without losing your spot. The “First unverdicted” button up top jumps to the first unverdicted unit anywhere on the corpus — scanning every batch in order across every class, switching batch (and clearing the class filter if needed) to land on it.</p>
-      <p>The small text box left of “First unverdicted” previews arbitrary Quikscript in the rebuild (after) font. Type letter names joined with middots (<code>·day·utter</code>; plain dots work too), separate words with spaces, and insert <code>◊ZWNJ</code> directly between letters for a zero-width non-joiner (<code>·They·It◊ZWNJ·Day</code>). The token <code>zwnj</code> also works between middots. Use <code>uniXXXX</code> (or a bare PUA hex like <code>e653</code>) for a raw codepoint — pasted Quikscript characters render as-is. It renders with kerning off and default features, matching the After column; clear the box to dismiss the preview.</p>
+      <p>The small text box left of “First unverdicted” previews arbitrary Quikscript in the rebuild (after) font. Type letter names joined with middots (<code>·day·utter</code>; plain dots work too), separate words with spaces, and insert <code>◊ZWNJ</code> directly between letters for a zero-width non-joiner (<code>·They·It◊ZWNJ·Day</code>). The token <code>zwnj</code> also works between middots. Use <code>uniXXXX</code> (or a bare PUA hex like <code>e653</code>) for a raw codepoint — pasted Quikscript characters render as-is. It renders with kerning off, matching the After column, and with default features unless you turn stylistic sets on: the <strong>ss</strong> button beside the box opens a list of every set the After font carries, and while any is on the button names them. Clear the box to dismiss the preview.</p>
       <p>Most units diverge under every non-ss10 config and carry no config marker; a unit whose config set is informative shows a badge of one chip per stylistic set that pins it, in that set’s color and glossed with what the set does — “only when ss03 is on”, “only when ss03 is on” + “and ss02 is off”, “only under ss10”, … A set that has to be <em>off</em> is drawn muted, so the lit chips are the ones a divergence depends on. Hover any chip for the full config list. The same chips head each cluster in the queue view. A config set no conjunction of sets pins falls back to one gray chip listing it. A verdict always covers all of the unit’s configs. If a unit ever has configs that render differently, each distinct rendering is stacked below the first with its own label.</p>
       <p>Units whose ink is pixel-identical in both fonts under every config (or whose two renderings fill exactly the same pixel cells and differ only in which glyph owns each pixel; or, for ss10-only divergences, pixel-identical to the Junior font’s isolated rendering) were machine-approved at build time, and units covered by a ruling (like “Split by a space or ZWNJ”, whose windows the word-boundary rule decides as a whole) never need individual verdicts; both kinds are hidden by default. The “Show units that need no review” toggle reveals them, badged and with verdict controls disabled — batches, progress counts, and the verdict keys cover the human units only.</p>
-      <p>Both columns render with kerning disabled (<code>font-kerning: none</code>), and every build-time comparison shapes with <code>kern</code> off: the rebuild has no kerning until its own later milestone, so the old font’s kern feature would be pure comparison noise. Kern differences get their own review when that milestone lands.</p>
+      <p>Both columns render with kerning disabled (<code>font-kerning: none</code>), and every build-time comparison shapes with <code>kern</code> off: the corpus compares settlement and joins, and the rebuild’s kerning stays out of it, so a kern edit changes no unit and neither font’s kerning enters a comparison.</p>
       <p>Unmarked regions render identically in both fonts (or differ only invisibly, at name grain); a dim dashed band marks a secondary divergent junction that is judged at its linked primary unit — click the band’s chip to jump there (“only here” means the junction has no shorter primary unit and is judged in this unit).</p>
       <p>A “duplicate ×N” chip means the unit’s before→after change is pixel-identical in N windows of the same kind of change with the same judged pair — the surrounding letters differ but the change is the same picture, so it is one question. A verdict (other than skip) on any member fills the unverdicted rest, with the toast confirming the count and <kbd>u</kbd> undoing the whole fill; already-verdicted members are never overwritten, and each member can still be overridden or cleared individually. Click the chip to view the whole duplicate group stacked as a worklist.</p>
       <p>The “Queue” button opens a live work order over the units in Open questions that still need a verdict (no verdict yet, or skipped; Spot-check classes are left out): clusters that share one before→after ink delta across duplicate groups, largest first, then singletons and any duplicate groups whose recorded verdicts disagree. Every button stacks a decision as a worklist in this app, and the queue recomputes as verdicts land — clusters shrink, empty, and promote without a new snapshot. Judging the last unit of a queue worklist advances straight to the next decision in queue order (it passes over any duplicate group that holds a skipped unit, but the cluster’s “Judge” button in the queue stacks those groups again), the progress line up top counts down the units in the queue that still need a verdict, and the strip above the rows links back to the full queue. Typing a duplicate-group id (like <code>e-3mJ7kPq2Xw9</code>) into the search offers the whole group stacked as a worklist.</p>

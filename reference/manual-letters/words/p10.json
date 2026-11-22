@@ -1,0 +1,19 @@
+{
+"page": 10,
+"lines": [
+{"n": 1, "base": [600, 1792, 1525, 1795], "short": 35},
+{"n": 2, "base": [1370, 2476, 1440, 2476], "short": 37},
+{"n": 3, "base": [1370, 2525, 1430, 2525], "short": 35}
+],
+"words": [
+{"id": "p10-w001", "gloss": "", "letters": ["qsAt", "qsTea"], "joins": ["|"], "src": "font", "font": "junior", "pattern": "LL", "expect": "", "line": 1, "x": [602, 646], "cuts": [635], "note": ""},
+{"id": "p10-w002", "gloss": "", "letters": ["qsRoe", "qsOwe", "qsMay"], "joins": ["|", "|"], "src": "font", "font": "junior", "pattern": "·LLL,", "expect": "", "line": 1, "x": [700, 800], "cuts": [726, 766], "note": ""},
+{"id": "p10-w003", "gloss": "", "letters": ["qsJay", "qsAt", "qsKey"], "joins": ["|", "|"], "src": "font", "font": "junior", "pattern": "·LLL", "expect": "", "line": 1, "x": [860, 959], "cuts": [894, 932], "note": ""},
+{"id": "p10-w004", "gloss": "", "letters": ["qsMay", "qsEt", "qsTea"], "joins": ["|", "|"], "src": "font", "font": "junior", "pattern": "LLL", "expect": "", "line": 1, "x": [989, 1061], "cuts": [1019, 1050], "note": ""},
+{"id": "p10-w005", "gloss": "", "letters": ["qsMay", "qsRoe"], "joins": ["|"], "src": "font", "font": "junior", "pattern": "·LL", "expect": "", "line": 1, "x": [1104, 1163], "cuts": [1139], "note": ""},
+{"id": "p10-w006", "gloss": "", "letters": ["qsHe", "qsAt", "qsRoe", "qsUtter", "qsLow", "qsDay"], "joins": ["|", "|", "|", "|", "|"], "src": "font", "font": "junior", "pattern": "LLLLLL", "expect": "", "line": 1, "x": [1186, 1352], "cuts": [1198, 1230, 1259, 1289, 1326], "note": "the top of ·He overhangs ·At; the foot of ·Low runs under the top of ·Utter"},
+{"id": "p10-w007", "gloss": "", "letters": ["qsJay", "qsOwe", "qsNo", "qsZoo"], "joins": ["|", "|", "|"], "src": "font", "font": "junior", "pattern": "LLLL", "expect": "", "line": 1, "x": [1371, 1523], "cuts": [1413, 1456, 1489], "note": ""},
+{"id": "p10-w008", "gloss": "", "letters": ["qsLoch"], "joins": [], "src": "font", "font": "senior", "pattern": "…L.", "expect": "", "line": 2, "x": [1382, 1426], "cuts": [], "note": ""},
+{"id": "p10-w009", "gloss": "", "letters": ["qsLlan"], "joins": [], "src": "font", "font": "senior", "pattern": "Short…L.", "expect": "", "line": 3, "x": [1381, 1416], "cuts": [], "note": ""}
+]
+}

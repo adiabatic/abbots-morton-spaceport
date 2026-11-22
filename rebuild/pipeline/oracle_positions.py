@@ -36,7 +36,7 @@ def _shaper_for(
 def _kern_normalized_positions(
     kern: "KernEvaluator | None", row: Row, pixel: int
 ) -> tuple[tuple[tuple[int, int, int], ...], tuple[bool, ...]]:
-    """Return the baseline row's per-slot position triples with sidecar kerns subtracted from the old advances (the new font has no kerning), plus a per-slot kern-attribution mask. A slot is attributable when its old advance carried a nonzero sidecar kern, when it is a ZWNJ, or when a ZWNJ follows it. A slot's kern partner is the next non-ZWNJ glyph: uni200C is default-ignorable, so HarfBuzz's GPOS pair matching skips it and the old font kerns across a ZWNJ (checked against the baseline: ·Oy ZWNJ ·Pea carries the ·Oy·Pea kern)."""
+    """Return the baseline row's per-slot position triples with sidecar kerns subtracted from the old advances (the new font is shaped with its `kern` feature off), plus a per-slot kern-attribution mask. A slot is attributable when its old advance carried a nonzero sidecar kern, when it is a ZWNJ, or when a ZWNJ follows it. A slot's kern partner is the next non-ZWNJ glyph: uni200C is default-ignorable, so HarfBuzz's GPOS pair matching skips it and the old font kerns across a ZWNJ (checked against the baseline: ·Oy ZWNJ ·Pea carries the ·Oy·Pea kern)."""
 
     def slot_is_zwnj(index: int) -> bool:
         return row.codepoints[row.clusters[index]] == ZWNJ_CODEPOINT
@@ -63,8 +63,8 @@ def _kern_normalized_positions(
 def _position_mismatch(
     shaper: "Shaper | IsolatedOverlayShaper", kern: "KernEvaluator | None", features: frozenset[str], row: Row
 ) -> tuple[tuple[str, ...], bool] | None:
-    """Shape the row with the new font through the shaper's position projection (offsets and advances only) and compare the drawn positions with the kern-normalized baseline. The comparison is visual: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts can split a junction differently between the left glyph's advance and the right glyph's x_offset while drawing the same join. Returns None when every slot and the total match, and otherwise the mismatch descriptions and whether every mismatch follows a kern-attributable slot. A slot-count mismatch returns one description and False."""
-    shaped = shaper.positions(row.text, features)
+    """Shape the row with the new font through the shaper's position projection (offsets and advances only), with the font's `kern` feature off, and compare the drawn positions with the kern-normalized baseline. Kerning is compared nowhere here: the old font's kerns are normalized away and the new font's are never applied, so a kern edit moves no position verdict. The comparison is visual: per-slot glyph origins (pen + x_offset, y_offset) plus the run's total advance, because the two fonts can split a junction differently between the left glyph's advance and the right glyph's x_offset while drawing the same join. Returns None when every slot and the total match, and otherwise the mismatch descriptions and whether every mismatch follows a kern-attributable slot. A slot-count mismatch returns one description and False."""
+    shaped = shaper.positions(row.text, features, kern=False)
     if len(shaped) != len(row.glyphs):
         return ((f"slot-count {len(row.glyphs)} (old) vs {len(shaped)} (new)",), False)
     expected, attributable = _kern_normalized_positions(kern, row, geometry.PIXEL)

@@ -1,4 +1,6 @@
-"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, ligature outgoing inheritance, and left-facing ligature expansion.
+"""Load the rune files and the script registry into a `ResolvedSpec` (rebuild/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, `kern:` as the file's last key, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, the kern records' reference checks (`_check_kern`), ligature outgoing inheritance, and left-facing ligature expansion.
+
+A rune's `kern:` block becomes its `Rune.kern` (`model.KernBlock`), which the kernel's spec dump leaves out (rebuild/KERN-PLAN.md §4). Ligature outgoing inheritance records which trailing stance each ligature stance takes its kern records from (`KernBlock.inherits`); `rebuild/pipeline/kern.py` applies them.
 
 Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under rebuild/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 
@@ -32,6 +34,9 @@ from rebuild.pipeline.model import (
     Condition,
     FamilyInfo,
     FeatureInfo,
+    KernBlock,
+    KernFollower,
+    KernRecord,
     Pairing,
     Pairings,
     Policy,
@@ -67,6 +72,7 @@ _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbor
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/rebuild-design.md section 3.3)"
 _OVER_RULE = "a prefer's over: names the candidates its cell: outranks, so over: takes effect only beside a cell: and needs one (doc/rebuild-design.md section 3.3)"
 _CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
+_KERN_LAST_RULE = "kern: is the last key of a rune file, so the kern editor can rewrite the block from its first line to the end of the file without touching anything before it (rebuild/KERN-PLAN.md sections 2 and 6)"
 _CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/rebuild-design.md section 3.4)"
 
 
@@ -615,6 +621,36 @@ def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Pro
     )
 
 
+def _kern_follower(raw: dict) -> KernFollower:
+    return KernFollower(
+        family=_as_tuple(raw.get("family")),
+        klass=raw.get("class"),
+        stance=raw.get("stance"),
+        exit=raw.get("exit"),
+        bitmap=raw.get("bitmap"),
+        except_=tuple(_kern_follower(item) for item in raw.get("except", ())),
+    )
+
+
+def _kern_block(rune_name: str, raw: dict, context: _FileContext) -> KernBlock:
+    """Build a rune's `kern:` records (rebuild/KERN-PLAN.md §2), each carrying the rune that holds it and its `kern[index]` provenance. The inheritance map is filled in later, by `_inherit_ligature_outgoing`."""
+    return KernBlock(
+        records=tuple(
+            KernRecord(
+                rune=rune_name,
+                right=_kern_follower(item["right"]),
+                by=item["by"],
+                stance=item.get("stance"),
+                entry=item.get("entry"),
+                bitmap=item.get("bitmap"),
+                why=item.get("why"),
+                provenance=context.provenance(f"kern[{index}]"),
+            )
+            for index, item in enumerate(raw.get("kern") or ())
+        )
+    )
+
+
 @lru_cache(maxsize=16)
 def _schema_from_text(name: str, text: str) -> _SchemaValidator:
     return _SchemaValidator(json.loads(text), name)
@@ -680,6 +716,7 @@ class _Linter:
         self._lint_refuse_window_rule()
         self._lint_prefer_over_needs_cell()
         self._lint_right_chain_depth()
+        self._lint_kern_is_last()
 
     def run_deep(self) -> None:
         self.stance_rows = _stance_rows(self.raw)
@@ -782,6 +819,11 @@ class _Linter:
                     self.context.error(
                         f"stances.{stance_name}.surface.unlocks[{index}].when.right", _CHAIN_RULE
                     )
+
+    def _lint_kern_is_last(self) -> None:
+        keys = list(self.raw)
+        if "kern" in keys and keys[-1] != "kern":
+            self.context.error("kern", _KERN_LAST_RULE)
 
     def _lint_ductus_parity(self) -> None:
         ductus = self.raw.get("ductus")
@@ -1157,6 +1199,80 @@ def _evaluate_predicate_classes(registry_raw: dict, rune_raws: dict[str, dict]) 
     return members
 
 
+def _check_kern(
+    runes: dict[str, Rune], contexts: dict[str, _FileContext], classes: dict[str, frozenset[str]]
+) -> None:
+    """Check each kern record's references against the built runes (rebuild/KERN-PLAN.md §2): its `stance` is one of the rune's stances, its `bitmap` is a bound drawing of that stance (of any stance when it names none), a `bitmaps:` sibling or a `padded-left-N` copy a `pad_left` record makes, and its `right:` names only runes that have a rune file, and classes that are predicate classes or the rune's own groups. A `right.stance` must be a stance of at least one follower the record names, and a `right.bitmap` a bound drawing of one of them; an `except:` entry that names no follower of its own is checked against its parent's. Class membership is the loader's own: `classes` and the rune's resolved `policy.groups`."""
+    for name, rune in runes.items():
+        context = contexts[name]
+        for index, record in enumerate(rune.kern.records):
+            path = f"kern[{index}]"
+            if record.stance is not None and record.stance not in rune.stances:
+                context.error(
+                    f"{path}.stance", f"kern record names unknown stance {record.stance!r} of {name}"
+                )
+            if record.bitmap is not None and (record.stance is None or record.stance in rune.stances):
+                owners = [rune.stances[record.stance]] if record.stance else list(rune.stances.values())
+                if not any(record.bitmap in stance.bitmaps for stance in owners):
+                    context.error(
+                        f"{path}.bitmap",
+                        f"bitmap {record.bitmap!r} is not a bound drawing of {name}{'.' + record.stance if record.stance else ''}: name a bitmaps: sibling or a padded-left-N copy a pad_left record makes",
+                    )
+            _check_kern_follower(
+                record.right, f"{path}.right", rune, runes, classes, context, frozenset(runes)
+            )
+
+
+def _check_kern_follower(
+    follower: KernFollower,
+    path: str,
+    rune: Rune,
+    runes: dict[str, Rune],
+    classes: dict[str, frozenset[str]],
+    context: _FileContext,
+    parent: frozenset[str],
+) -> None:
+    followers = parent
+    if follower.family:
+        for family in follower.family:
+            if family not in runes:
+                context.error(
+                    f"{path}.family",
+                    f"kern follower {family!r} has no rune file; a kern record names only loaded runes",
+                )
+        followers = frozenset(follower.family) & frozenset(runes)
+    if follower.klass is not None:
+        members = classes.get(follower.klass)
+        if members is None:
+            members = rune.policy.groups.get(follower.klass)
+        if members is None:
+            context.error(
+                f"{path}.class",
+                f"unknown class {follower.klass!r}; not a registry predicate class and not a rune-local group of this rune",
+            )
+            members = frozenset()
+        followers = (followers if follower.family else frozenset(runes)) & members
+    if follower.stance is not None and not any(follower.stance in runes[name].stances for name in followers):
+        context.error(
+            f"{path}.stance",
+            f"no follower this record names ({', '.join(sorted(followers)) or 'none'}) has a stance {follower.stance!r}",
+        )
+    if follower.bitmap is not None:
+        stances = [
+            stance
+            for name in followers
+            for stance_name, stance in runes[name].stances.items()
+            if follower.stance in (None, stance_name)
+        ]
+        if not any(follower.bitmap in stance.bitmaps for stance in stances):
+            context.error(
+                f"{path}.bitmap",
+                f"bitmap {follower.bitmap!r} is not a bound drawing of any follower this record names ({', '.join(sorted(followers)) or 'none'})",
+            )
+    for index, atom in enumerate(follower.except_):
+        _check_kern_follower(atom, f"{path}.except[{index}]", rune, runes, classes, context, followers)
+
+
 def _ligatures_by_trailing(rune_raws: dict[str, dict]) -> dict[str, tuple[str, ...]]:
     """Return the modeled ligature runes keyed by trailing component, for left-facing family transparency (`_expand_ligature_lefts`). A registry family with a sequence but no rune file is not included."""
     by_trailing: dict[str, list[str]] = {}
@@ -1265,7 +1381,7 @@ def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: 
 
 
 def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _FileContext]) -> dict[str, Rune]:
-    """Give each ligature stance the outgoing stroke it preserves from its trailing component (the stance's `outgoing:` declaration): the exit scopes, the exit-only unlocks with no left, word-position, or self-entry condition, and the applicable policy records (`outgoing_policy_record`). This runs before left-family transparency. The ligature keeps its own drawings. A missing exit row, a `toward:` override without an exception, an exception that matches nothing, and an inherited policy that binds a component bitmap are errors. These checks do not depend on the formation guard's probe of the unformed components."""
+    """Give each ligature stance the outgoing stroke it preserves from its trailing component (the stance's `outgoing:` declaration): the exit scopes, the exit-only unlocks with no left, word-position, or self-entry condition, and the applicable policy records (`outgoing_policy_record`). It also records the trailing stance each such ligature stance takes its kern records from (`KernBlock.inherits`); `rebuild/pipeline/kern.py` decides which of them apply, and a stance that opts out with `outgoing: {exception: …}` takes none. This runs before left-family transparency. The ligature keeps its own drawings. A missing exit row, a `toward:` override without an exception, an exception that matches nothing, and an inherited policy that binds a component bitmap are errors. These checks do not depend on the formation guard's probe of the unformed components."""
     resolved: dict[str, Rune] = {}
     visiting: set[str] = set()
 
@@ -1279,6 +1395,7 @@ def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _File
             return rune
         visiting.add(name)
         stances = dict(rune.stances)
+        kern_sources: dict[str, str] = {}
         records = {kind: list(getattr(rune.policy, kind)) for kind in _RECORD_KINDS}
         groups = dict(rune.policy.groups)
         source_rune = inherit(rune.sequence[-1]) if rune.sequence and rune.sequence[-1] in runes else None
@@ -1314,6 +1431,7 @@ def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _File
             if source is None:
                 context.error(path, f"unknown trailing stance {source_name!r} on {source_rune.name}")
                 continue
+            kern_sources[stance_name] = source_name
             exceptions = declaration.get("exceptions", {})
             used: set[str] = set()
 
@@ -1431,6 +1549,7 @@ def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _File
             policy=replace(
                 rune.policy, groups=groups, **{kind: tuple(items) for kind, items in records.items()}
             ),
+            kern=replace(rune.kern, inherits=kern_sources),
         )
         return resolved[name]
 
@@ -1573,6 +1692,7 @@ def _build_rune(
         mono=_bitmap(raw["mono"]) if raw.get("mono") else None,
         stances=stances,
         policy=policy,
+        kern=_kern_block(raw["rune"], raw, context),
     )
 
 
@@ -1694,6 +1814,9 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
     if issues:
         raise SpecError.from_issues(issues)
     context_by_rune = {context.data["rune"]: context for context in contexts}
+    _check_kern(runes, context_by_rune, classes)
+    if issues:
+        raise SpecError.from_issues(issues)
     runes = _inherit_ligature_outgoing(runes, context_by_rune)
     if issues:
         raise SpecError.from_issues(issues)

@@ -67,6 +67,7 @@ policy:
         - qsLow
         - qsAt
         - qsI
+        - qsFoot
   - entry: x-height
     by: 2
     when:

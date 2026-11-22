@@ -26,7 +26,8 @@
       "propertyNames": {"$ref": "#/$defs/motionName"},
       "additionalProperties": {"$ref": "#/$defs/stance"}
     },
-    "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nIts keys: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `pad_left` (blank columns before the letter), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."}
+    "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nIts keys: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `pad_left` (blank columns before the letter), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."},
+    "kern": {"type": "array", "items": {"$ref": "#/$defs/kernRecord"}, "description": "How far this letter sits from the letter after it when the two don't join.\n\nEach record names a follower with `right:` and moves it by `by:` whole pixels: negative pulls it closer, positive pushes it away, and `0` cancels a broader record. A pair's kerning lives in the leading letter's file and nowhere else, and it never touches a joined pair; a join's length belongs to `extend` and `contract`.\n\nWhen several records match one pair, the narrowest one decides, and values never add up. Two records that both match a pair, ask for different values, and don't nest are an error (E-KERN-INCOMPARABLE), and so is a record that matches no pair the font can produce (E-KERN-UNMATCHED). A ligature stance that keeps its last letter's outgoing stroke also takes that letter's records, below its own.\n\nThis is the last key in the file, one record per line.\n\nExample: `{right: {family: qsBay}, by: -2}` in ·No's file pulls every unjoined ·Bay two pixels closer to every unjoined ·No."}
   },
   "oneOf": [
     {"required": ["codepoint"], "not": {"required": ["sequence"]}},
@@ -458,6 +459,47 @@
       "properties": {
         "entry": {"enum": ["live", "none"]},
         "exit": {"enum": ["live", "none"]}
+      }
+    },
+    "kernRecord": {
+      "description": "One kerning value: how far a follower sits from this letter when the two don't join.\n\n`right` names the follower and `by` the pixels. `stance`, `entry` and `bitmap` narrow which of this letter's shapes it covers; leave them off to cover every shape.\n\nA record reads both letters as they finally settled, so it can name the follower's stance, which no `when:` can. It never reads a space, a text edge or the namer dot, and a ZWNJ between the two letters changes nothing.\n\nExample: `{stance: flipped, right: {family: qsTea, stance: half}, by: -1}` in ·No's file pulls a half ·Tea one pixel closer to a flipped ·No.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["right", "by"],
+      "properties": {
+        "stance": {"$ref": "#/$defs/motionName", "description": "Covers only this letter's shapes in this stance.\n\nLeave it off to cover every stance. Name one only where the stances look different on their right-hand side; a record that tells apart two shapes with the same right-hand edge is refused.\n\nExample: ·No's `flipped`."},
+        "entry": {"$ref": "#/$defs/heightOrNone", "description": "Covers only this letter's shapes entered at this height, or not entered at all (`none`).\n\nFor a letter whose right-hand side changes with how it was entered. A ligature never inherits a record that sets it.\n\nExample: `entry: none`."},
+        "bitmap": {"$ref": "#/$defs/motionName", "description": "Covers only this letter's shapes drawn with this bound bitmap: one a `bind:` names, or the `padded-left-N` copy a `pad_left` record makes.\n\nFor a right-hand edge only that bitmap produces. A ligature never inherits a record that sets it.\n\nExample: ·Roe's `shortened-top`."},
+        "right": {"$ref": "#/$defs/kernFollower"},
+        "by": {"type": "integer", "minimum": -64, "not": {"minimum": 65}, "description": "The pixels to move the follower: negative pulls it closer, positive pushes it away, at most 64 either way (a value above 64 is refused as a forbidden form). The font's kern value is a 16-bit count of font units, which the compile overflows at 655 pixels, so the bound keeps every value far inside it.\n\n`0` is a real value: it cancels a broader record for the pairs this one covers.\n\nExample: `by: -2`."},
+        "why": {"type": "string", "description": "An optional note saying why this pair is kerned this way. It records the author's rationale and changes no spacing."}
+      }
+    },
+    "kernFollower": {
+      "description": "The letter after this one, as it finally settled.\n\nName it by `family` (one or a list) or `class`, and narrow it by its settled `stance`, its `exit` and a bound `bitmap`; `except` skips some of what the rest matches. A ligature is named explicitly: `family: qsTea` does not cover ·Out·Tea.\n\nExample: `{family: qsTea, stance: half}`.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName", "description": "A named set of letters: a group from this rune's `policy.groups`, or a script-wide predicate class. Matches if the follower is a member."},
+        "stance": {"$ref": "#/$defs/motionName", "description": "The stance the follower settled into.\n\nOnly a kern record can name it, because kerning runs after both letters have settled.\n\nExample: ·Tea's `half`."},
+        "exit": {"$ref": "#/$defs/heightOrNone", "description": "How the follower leaves toward the letter after it: the height it joins at, or `none`.\n\nFor a follower whose left-hand side changes with its exit.\n\nExample: `exit: none`."},
+        "bitmap": {"$ref": "#/$defs/motionName", "description": "The bound bitmap the follower is drawn with: one a `bind:` names, or the `padded-left-N` copy a `pad_left` record makes.\n\nExample: ·Tea's `padded-left-1`."},
+        "except": {"description": "Followers this record skips even when the rest of `right` matches them. Each entry takes the same keys as `right`, without an `except` of its own.\n\nExample: `{class: can-enter-at-baseline, except: [{family: qsNo}]}`.", "type": "array", "items": {"$ref": "#/$defs/kernFollowerAtom"}, "minItems": 1}
+      }
+    },
+    "kernFollowerAtom": {
+      "description": "One follower a kern record's `except` skips: the keys of `right`, without an `except` of its own.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "family": {"$ref": "#/$defs/familyOrList"},
+        "class": {"$ref": "#/$defs/motionName"},
+        "stance": {"$ref": "#/$defs/motionName"},
+        "exit": {"$ref": "#/$defs/heightOrNone"},
+        "bitmap": {"$ref": "#/$defs/motionName"}
       }
     }
   }

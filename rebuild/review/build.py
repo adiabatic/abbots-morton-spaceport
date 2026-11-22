@@ -4486,13 +4486,9 @@ def _settlement_explain(entry: tablediff.SettlementDiffEntry) -> str:
 def _join_explain(entry: tablediff.JoinDiffEntry) -> str:
     lines = [f"join diff ({entry.bucket}), config {entry.config}", f"  pair: {entry.key.label()}"]
     if entry.old is not None:
-        lines.append(
-            f"    old: junction {entry.old.junction}, extension {entry.old.extension}, kern {entry.old.kern}"
-        )
+        lines.append(f"    old: junction {entry.old.junction}, extension {entry.old.extension}")
     if entry.new is not None:
-        lines.append(
-            f"    new: junction {entry.new.junction}, extension {entry.new.extension}, kern {entry.new.kern}"
-        )
+        lines.append(f"    new: junction {entry.new.junction}, extension {entry.new.extension}")
     return "\n".join(lines)
 
 
@@ -5613,8 +5609,15 @@ def check_shards(
     return check.finish(manifest)
 
 
+def _font_copy_current(side: str, copy: Path, digest: str, source: Path) -> bool:
+    """Return whether a corpus's copied font still stands for the font it was copied from. The before font must equal its source byte for byte. The after font may differ from `rebuild/out/m1/M1.otf` in the `kern` feature's lookups alone (`fingerprint.after_font_current`): the corpus shapes with kerning off, so a kern edit recompiles M1.otf without making the corpus's copy stale (rebuild/KERN-PLAN.md section 7)."""
+    if side == "after":
+        return fingerprint.after_font_current(copy, digest, source)
+    return _sha256(source) == digest
+
+
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """Check the files beside the manifest: every shard part the manifest lists, base and overflow, is present and non-empty, a reader of part names that never opens one, the per-unit index and the app's two sidecars are present and stamped for this manifest, index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `rebuild/out/m1/M1.otf`; the comparison here is for `check_output_dir` and `refresh_assets`."""
+    """Check the files beside the manifest: every shard part the manifest lists, base and overflow, is present and non-empty, a reader of part names that never opens one, the per-unit index and the app's two sidecars are present and stamped for this manifest, index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `rebuild/out/m1/M1.otf`; the comparison here is for `check_output_dir` and `refresh_assets`. The after font is compared as those two compare it (`_font_copy_current`), so a kern-only rebuild of M1.otf leaves the copy current."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         for part in unit_index.class_shards(meta):
@@ -5635,7 +5638,7 @@ def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = 
             source = Path(record["source"])
             if not source.is_absolute():
                 source = Path(repo_root) / source
-            if source.is_file() and _sha256(source) != digest:
+            if source.is_file() and not _font_copy_current(side, font_path, digest, source):
                 errors.append(f"fonts.{side}: the copy is not {record['source']} as it stands on disk")
     if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")

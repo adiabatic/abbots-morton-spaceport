@@ -64,3 +64,12 @@ policy:
       right: {family: qsNo}
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -1}
+- {right: {family: qsLlan}, by: -1}
+- {right: {family: qsEt}, by: -1}
+- {right: {family: qsEight}, by: -1}
+- {right: {family: qsAwe}, by: -1}
+- {right: {family: qsOx}, by: -1}
+- {right: {family: qsOy}, by: -1}
+- {right: {family: qsFoot}, by: -1}

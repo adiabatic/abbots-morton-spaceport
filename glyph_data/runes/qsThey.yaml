@@ -96,6 +96,7 @@ stances:
             - qsEight
             - qsAwe
             - qsOx
+            - qsFoot
       pairings:
         never:
         - entry: x-height
@@ -132,3 +133,20 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsPea}, by: -2}
+- {right: {family: qsThaw}, by: -1}
+- {right: {family: qsFee}, by: -2}
+- {right: {family: qsSee}, by: -1}
+- {right: {family: qsCheer}, by: -1}
+- {right: {family: qsYe}, by: -2}
+- {right: {family: qsHe}, by: -2}
+- {right: {family: qsIng}, by: -2}
+- {right: {family: qsLow}, by: -2}
+- {right: {family: qsEat}, by: -1}
+- {right: {family: qsAt}, by: -1}
+- {right: {family: qsI}, by: -2}
+- {right: {family: qsAh}, by: -1}
+- {right: {family: qsOy}, by: -2}
+- {right: {family: qsOut}, by: -1}
+- {right: {family: qsOoze}, by: -3}

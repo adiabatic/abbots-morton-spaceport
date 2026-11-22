@@ -1,8 +1,10 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz against the settlement function, and the settlement function against the section 13.1 baseline oracle.
 
-`run_conformance` runs the conformance sweep. For each settlement configuration it shapes every text of length 1 to the maximum length (`SWEEP_MAX_LENGTH`, 4 by default) over the alphabet and compares the result with settlement: glyph names (`check_oracle`), split-buffer equivalence (`check_split_buffer`), and zero gaps at joins (`check_join_gaps`). This comparison uses no ledger, so any divergence is a compiler defect. `Shaper` (rebuild/pipeline/shapers.py) shapes at the MONOTONE_CHARACTERS cluster level and reads glyph names through TTFont, because HarfBuzz's name API truncates them.
+`run_conformance` runs the conformance sweep. For each settlement configuration it shapes every text of length 1 to the maximum length (`SWEEP_MAX_LENGTH`, 4 by default) over the alphabet and compares the result with settlement: glyph names (`check_oracle`), split-buffer equivalence (`check_split_buffer`), zero gaps at joins (`check_join_gaps`), and the advance at every other slot (`check_break_advances`), which must be the glyph's `hmtx` advance plus the kern the build compiled for it and the glyph after it, read from `kern-classes.json` (`KernSides`). This comparison uses no ledger, so any divergence is a compiler defect. `Shaper` (rebuild/pipeline/shapers.py) shapes at the MONOTONE_CHARACTERS cluster level and reads glyph names through TTFont, because HarfBuzz's name API truncates them.
 
-The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against. Read-back checks on every build that the ss10 input substitution covers every letter cmap glyph and that no copy appears in any formation sequence, marker line, ZWNJ lock class, or settlement input. So under ss10 every letter renders as its copy at its `hmtx` advance, and nothing forms or attaches. The conformance sweep checks this at `OVERLAY_MAX_LENGTH`: single letters show that each letter maps to its copy, and pairs show that no pair forms, joins, or moves.
+The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against. Read-back checks on every build that the ss10 input substitution covers every letter cmap glyph and that no copy appears in any formation sequence, marker line, ZWNJ lock class, or settlement input. So under ss10 every letter renders as its copy at its `hmtx` advance plus its kern, and nothing forms or attaches. The conformance sweep checks this at `OVERLAY_MAX_LENGTH`: single letters show that each letter maps to its copy, and pairs show that no pair forms or joins, and that each moves by exactly its kern.
+
+**Kerning.** At a break the kern lookup adds the stage's value to the first glyph's advance, across a ZWNJ as at any other break, and a space or the namer dot between two letters leaves them unkerned. HarfBuzz's cursive attachment sets an attached glyph's offset and advance from its entry anchor without changing their difference, so at every slot that does not exit into a join, `x_advance − x_offset` is the glyph's `hmtx` advance plus that kern (`check_break_advances`). A shaped break between two letters whose sides are no facing pair in the stage's assignment is a divergence of its own (`kern-side`): the stage missed a break HarfBuzz reaches, even when each glyph has its sides from other breaks. A text split at a ZWNJ equals its segments shaped alone once the kern across the split is added to the slot before it (`check_split_buffer`). These checks read the assignment the font was compiled from, `kern-classes.json` beside it (`load_kern_sides`); read-back has already checked that the font's kern lookup gives exactly that assignment.
 
 The conformance sweep does not check rule coverage; other stages do. Read-back (rebuild/pipeline/readback.py) checks that the compiled font holds every emitted rule at its planned position. The crate's fold fails the table build on any rule that no replayed row first-matches (`fold::assert_outcome_partition`). The witness stage (`witness.check_rule_certificates`, run by `run_m1` over the certificates the crate writes beside the rules) settles a string that fires each rule. The crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`) checks enumeration completeness: whether each live raw window a string reaches is one the fixpoint enumerated with its slot restrictions satisfied, or one it left at `#NA` or never reached, which the font handles with a wildcard or default rule. It replays `_SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules at `run_m1.REPLAY_MAX_LENGTH` on every build, over every text after a code or structure change and, after a rune edit, over the texts naming an edited rune or a rune whose records read one (`run_m1.replay_families`).
 
@@ -234,8 +236,116 @@ def check_oracle(text, config, shaped, expected, divergences: DivergenceSink, mo
             return
 
 
-def _slot_signature(shaper: Shaper, glyph: dict) -> tuple:
-    return (shaper.outline_signature(glyph["name"]), glyph["x_advance"], glyph["x_offset"], glyph["y_offset"])
+KERN_CLASSES_JSON = "kern-classes.json"
+# The format `kern.write_classes` writes (`kern.KERN_CLASSES_FORMAT`). conform.py does not import the kern stage, which would put it in the oracle row cache's code closure; rebuild/test_conform.py checks that the two agree.
+KERN_CLASSES_FORMAT = "ams-m1-kern-classes/2"
+KERN_PIXEL = geometry.PIXEL
+
+
+@dataclass(frozen=True)
+class KernSides:
+    """The kern lookup's assignment as the build compiled it (`kern-classes.json`): each glyph's leading side and following side by name, and the value of every facing pair in font units, 0 included, keyed by the two side names."""
+
+    leading: Mapping[str, str]
+    following: Mapping[str, str]
+    values: Mapping[tuple[str, str], int]
+
+    def value(self, left: str, right: str) -> int | None:
+        """The kern the font adds to `left`'s advance before `right`, in font units, or None when the two glyphs' sides are not a facing pair: either glyph has no side on its face, or each has one from other breaks and the stage never met the two across one. Only a break missing from the stage's list gives None."""
+        lead = self.leading.get(left)
+        follow = self.following.get(right)
+        if lead is None or follow is None:
+            return None
+        return self.values.get((lead, follow))
+
+
+def load_kern_sides(path: Path) -> KernSides:
+    """Read `kern-classes.json` (`kern.classes_document`) into a `KernSides`. Raises `ValueError` for a document in another format and `OSError` for a file that does not read."""
+    document = json.loads(Path(path).read_text())
+    if not isinstance(document, dict) or document.get("format") != KERN_CLASSES_FORMAT:
+        raise ValueError(f"{path}: not a {KERN_CLASSES_FORMAT} document")
+    return KernSides(
+        leading=dict(document["leading"]),
+        following=dict(document["following"]),
+        values={(lead, follow): by * KERN_PIXEL for lead, follow, by in document["values"]},
+    )
+
+
+def _next_slot(shaped: list[dict], index: int, hidden: set[int]) -> int | None:
+    """The first slot after `index` that is not a ZWNJ slot, the glyph a GPOS lookup reads after slot `index`, or None at the end of the run."""
+    for following in range(index + 1, len(shaped)):
+        if following not in hidden:
+            return following
+    return None
+
+
+def _kern_after(shaped: list[dict], index: int, following: int | None, kern_sides: KernSides) -> int | None:
+    """The kern the font adds to slot `index`'s advance: the stage's value when it and the slot after it (`following`, ZWNJ slots skipped) are both letters, 0 when either is a boundary glyph or there is none, and None when the two letters have no facing pair in `kern_sides`."""
+    if following is None:
+        return 0
+    left, right = shaped[index]["name"], shaped[following]["name"]
+    if left in BOUNDARY_GLYPH_NAMES or right in BOUNDARY_GLYPH_NAMES:
+        return 0
+    return kern_sides.value(left, right)
+
+
+def check_break_advances(
+    text,
+    config,
+    shaper: Shaper,
+    shaped,
+    anchors_of: Callable[[str], dict | None] | None,
+    kern_sides: KernSides,
+    divergences: DivergenceSink,
+) -> None:
+    """Check every slot that does not exit into a join: its `x_advance − x_offset` must be its `hmtx` advance plus the kern the stage gives it and the glyph after it, ZWNJ slots skipped (the module docstring says why the difference). A break between two letters whose sides are no facing pair in `kern_sides` is a `kern-side` divergence, whether or not each glyph has sides from other breaks; a wrong advance is a `kern` divergence. A slot whose exit anchor meets the next glyph's entry anchor at one height is a join, which `check_join_gaps` checks."""
+    hidden = zwnj_slots(text, shaped)
+    for index, glyph in enumerate(shaped):
+        if index in hidden:
+            continue
+        following = _next_slot(shaped, index, hidden)
+        if following is not None and anchors_of is not None:
+            exit_anchor = (anchors_of(glyph["name"]) or {}).get("exit")
+            entry_anchor = (anchors_of(shaped[following]["name"]) or {}).get("entry")
+            if exit_anchor is not None and entry_anchor is not None and exit_anchor[1] == entry_anchor[1]:
+                continue
+        kerned = _kern_after(shaped, index, following, kern_sides)
+        if kerned is None:
+            assert following is not None
+            divergences.append(
+                Divergence(
+                    text,
+                    config,
+                    index,
+                    f"a facing pair in kern-classes.json for {glyph['name']} | {shaped[following]['name']}",
+                    "no facing pair of their sides",
+                    "kern-side",
+                )
+            )
+            return
+        want = shaper.advance(glyph["name"]) + kerned
+        got = glyph["x_advance"] - glyph["x_offset"]
+        if got != want:
+            divergences.append(
+                Divergence(
+                    text,
+                    config,
+                    index,
+                    f"advance {want} ({glyph['name']}: hmtx plus kern {kerned})",
+                    f"advance {got}",
+                    "kern",
+                )
+            )
+            return
+
+
+def _slot_signature(shaper: Shaper, glyph: dict, kern: int = 0) -> tuple:
+    return (
+        shaper.outline_signature(glyph["name"]),
+        glyph["x_advance"] - kern,
+        glyph["x_offset"],
+        glyph["y_offset"],
+    )
 
 
 def check_split_buffer(
@@ -246,14 +356,23 @@ def check_split_buffer(
     shaped,
     divergences: DivergenceSink,
     splitters: frozenset[str] = frozenset({ZWNJ}),
+    kern_sides: KernSides | None = None,
 ) -> None:
-    """Check that the shaped buffer, with its splitter slots dropped, matches its splitter-separated segments shaped alone. Slots are compared on outline, advance, and offsets, not names, because the locked copies have the same bitmaps as the bare runes."""
+    """Check that the shaped buffer, with its splitter slots dropped, matches its splitter-separated segments shaped alone. Slots are compared on outline, advance, and offsets, not names, because the locked copies have the same bitmaps as the bare runes. The kern lookup reads across a ZWNJ, so a slot whose next glyph lies past one or more ZWNJ slots in the whole buffer carries the kern for that pair (`kern_sides`), which its segment shaped alone cannot; it is compared with that kern taken off. Across a space the pair is the letter and the space, which no kern reaches."""
     slots = {
         index
         for index, glyph in enumerate(shaped)
         if glyph["cluster"] < len(text) and text[glyph["cluster"]] in splitters
     }
-    full = [glyph for index, glyph in enumerate(shaped) if index not in slots]
+    hidden = zwnj_slots(text, shaped)
+    kept = [index for index in range(len(shaped)) if index not in slots]
+    crossing: dict[int, int] = {}
+    if kern_sides is not None:
+        for index in kept:
+            following = _next_slot(shaped, index, hidden)
+            if following is not None and following > index + 1:
+                crossing[index] = _kern_after(shaped, index, following, kern_sides) or 0
+    full = [shaped[index] for index in kept]
     segments, current = [], []
     for ch in text:
         if ch in splitters:
@@ -275,7 +394,9 @@ def check_split_buffer(
         )
         return
     for index, (full_glyph, split_glyph) in enumerate(zip(full, split)):
-        if _slot_signature(shaper, full_glyph) != _slot_signature(shaper, split_glyph):
+        if _slot_signature(shaper, full_glyph, crossing.get(kept[index], 0)) != _slot_signature(
+            shaper, split_glyph
+        ):
             divergences.append(
                 Divergence(
                     text,
@@ -379,11 +500,31 @@ class IsolatedOverlayWalk:
         return None
 
 
-def check_isolated_positions(text, config, shaper: Shaper, shaped, divergences: DivergenceSink) -> None:
-    """Check that every shaped slot sits at zero offset with its glyph's `hmtx` advance, as it must when nothing attaches under the overlay. A ZWNJ slot, which HarfBuzz shows as the space glyph at zero advance, must have zero advance. This check is what allows `IsolatedOverlayShaper` to replace HarfBuzz on the oracle's side."""
+def check_isolated_positions(
+    text, config, shaper: Shaper, shaped, divergences: DivergenceSink, kern_sides: KernSides | None = None
+) -> None:
+    """Check that every shaped slot sits at zero offset with its glyph's `hmtx` advance plus its kern (`kern_sides`: the stage's value for it and the next glyph, ZWNJ slots skipped), as it must when nothing attaches under the overlay. A ZWNJ slot, which HarfBuzz shows as the space glyph at zero advance, must have zero advance. A pair of copies with no facing pair in `kern_sides` is a `kern-side` divergence. Read-back shows that no cursive lookup covers a copy and the kern lookup is the only other GPOS lookup, so with `kern` off each slot sits at its `hmtx` advance, which is what allows `IsolatedOverlayShaper` to replace HarfBuzz on the oracle's side."""
     hidden = zwnj_slots(text, shaped)
     for index, glyph in enumerate(shaped):
-        want = (0, 0, 0 if index in hidden else shaper.advance(glyph["name"]))
+        kerned = 0
+        if kern_sides is not None and index not in hidden:
+            following = _next_slot(shaped, index, hidden)
+            found = _kern_after(shaped, index, following, kern_sides)
+            if found is None:
+                assert following is not None
+                divergences.append(
+                    Divergence(
+                        text,
+                        config,
+                        index,
+                        f"a facing pair in kern-classes.json for {glyph['name']} | {shaped[following]['name']}",
+                        "no facing pair of their sides",
+                        "kern-side",
+                    )
+                )
+                return
+            kerned = found
+        want = (0, 0, 0 if index in hidden else shaper.advance(glyph["name"]) + kerned)
         got = (glyph["x_offset"], glyph["y_offset"], glyph["x_advance"])
         if got != want:
             divergences.append(
@@ -3909,8 +4050,9 @@ def run_conformance(
     out_dir: Path | None = None,
     summary_name: str = "conform_summary.json",
     settle_memos: Mapping[str, SettleMemoFile] | None = None,
+    kern_sides: KernSides | None = None,
 ) -> ConformReport:
-    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1_gates.run_font_conformance`, which submits `conformance_config_worker` once per unit of each configuration (the ss10 overlay whole, and each settlement configuration once per final symbol) and prunes the memo in the parent. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself."""
+    """Run the conformance sweep serially: one shared Shaper, each configuration in turn through `_conformance_config`, and the results merged by `merge_conformance_results`. The parallel form is `run_m1_gates.run_font_conformance`, which submits `conformance_config_worker` once per unit of each configuration (the ss10 overlay whole, and each settlement configuration once per final symbol) and prunes the memo in the parent. The sweep reads no decision table: it shapes the font and settles the same texts through the kernel, and read-back checks that the font holds the planned rules. `summary_name` is the file written under `out_dir`, so a caller can keep its report apart from the per-edit sweep's. `settle_memos` names each configuration's shared settle memo file, and a configuration without one settles every window itself. `kern_sides` is the build's kern assignment (`load_kern_sides`); without it the sweep checks no kerned advance."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -3931,6 +4073,7 @@ def run_conformance(
             max_length,
             guard_verdicts,
             settle_memo=(settle_memos or {}).get(config),
+            kern_sides=kern_sides,
         )
         for config in configs
     ]
@@ -4064,8 +4207,9 @@ def _conformance_config(
     last: str | None = None,
     triggers: frozenset[str] = frozenset(),
     max_windows: int | None = None,
+    kern_sides: KernSides | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks. Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
+    """One configuration's conformance-sweep run: every string of length 1 to `max_length` over the alphabet, shaped with the font and compared with the settled stream, plus the split-buffer and zero-gap checks, and, given `kern_sides`, the advance at every slot that does not exit into a join (`check_break_advances`). Configurations share nothing, so both the serial `run_conformance` and the process-pool worker call this.
 
     With `last`, the run sweeps one unit of the configuration: only the texts that end in `last` (`sweep_texts`), in the same order. The units of every symbol in the alphabet partition the configuration's texts, and `merge_unit_results` merges their results into this function's result without `last`. A unit's `settle_memo`, when it has one, is `returns_fresh`: the unit prints no `[t] settle_memo` line and returns its use of the memo, with the windows it settled fresh, as `result.memo_reach` (`_SettledWindowWalk.memo_reach`), from which the parent prunes the memo and writes every unit's fresh windows into one segment of it once every unit of the configuration has finished (`absorb_settle_memo`). A unit that pruned the shared memo would drop every row its share of the texts never reached, so a memo that is not `returns_fresh` fails the unit's assertion.
 
@@ -4093,10 +4237,12 @@ def _conformance_config(
                 shaped = shaper.shape(text, features)
                 result.shaping_runs += 1
                 if set(text) & splitters:
-                    check_split_buffer(text, config, features, shaper, shaped, divergences, splitters)
+                    check_split_buffer(
+                        text, config, features, shaper, shaped, divergences, splitters, kern_sides
+                    )
                 expected = isolated_overlay_labels(spec, isolated_overlay_tokens(spec, text))
                 check_oracle(text, config, shaped, expected, divergences, modes)
-                check_isolated_positions(text, config, shaper, shaped, divergences)
+                check_isolated_positions(text, config, shaper, shaped, divergences, kern_sides)
             if progress is not None:
                 progress(result.sequences)
         result.modes = sorted(modes)
@@ -4119,10 +4265,12 @@ def _conformance_config(
         shaped = shaper.shape(text, features)
         result.shaping_runs += 1
         if set(text) & splitters:
-            check_split_buffer(text, config, features, shaper, shaped, divergences, splitters)
+            check_split_buffer(text, config, features, shaper, shaped, divergences, splitters, kern_sides)
         check_oracle(text, config, shaped, names, divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
+        if kern_sides is not None:
+            check_break_advances(text, config, shaper, shaped, anchors_of, kern_sides, divergences)
 
     for length in range(1, max_length + 1):
         stream = sweep_texts(alphabet, length, last, triggers)
@@ -4159,8 +4307,9 @@ def conformance_config_worker(
     last: str | None = None,
     triggers: frozenset[str] = frozenset(),
     max_windows: int | None = None,
+    kern_sides: KernSides | None = None,
 ) -> ConformanceConfigResult:
-    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the memo itself, or, for a unit (`last`), reads it and returns its fresh windows on its result's reach. `progress`, `last`, `triggers` and `max_windows` are `_conformance_config`'s."""
+    """One configuration's conformance-sweep run in its own process, building what it needs from the spec and the font. That includes the section 5.7 guard verdicts when the caller passes none (a fifth of a second against a sweep that runs for a minute); an overlay configuration forms nothing and skips them. `settle_memo` is only a path and keys, so the worker reads and writes the memo itself, or, for a unit (`last`), reads it and returns its fresh windows on its result's reach. `progress`, `last`, `triggers`, `max_windows` and `kern_sides` are `_conformance_config`'s."""
     shaper = Shaper(Path(font_path))
     alphabet = spec_alphabet(spec)
     splitters = splitting_boundary_chars(spec)
@@ -4184,6 +4333,7 @@ def conformance_config_worker(
         last=last,
         triggers=triggers,
         max_windows=max_windows,
+        kern_sides=kern_sides,
     )
 
 

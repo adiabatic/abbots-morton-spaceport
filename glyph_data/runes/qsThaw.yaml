@@ -81,3 +81,13 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsSee}, by: -1}
+- {right: {family: qsWay}, by: -1}
+- {right: {family: qsMay}, by: -1}
+- {right: {family: qsLow}, by: -1}
+- {right: {family: qsEat}, by: -1}
+- {right: {family: qsAt}, by: -1}
+- {right: {family: qsAh}, by: -1}
+- {right: {family: qsUtter}, by: -1}
+- {right: {family: qsOut}, by: -1}

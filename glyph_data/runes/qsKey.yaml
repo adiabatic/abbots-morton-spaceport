@@ -71,3 +71,10 @@ policy:
         - qsIt
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsEt}, by: -1}
+- {right: {family: qsEight}, by: -1}
+- {right: {family: qsAwe}, by: -1}
+- {right: {family: qsOx}, by: -1}
+- {right: {family: qsOy}, by: -1}
+- {right: {family: qsFoot}, by: -1}

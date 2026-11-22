@@ -1,0 +1,101 @@
+{
+ "format": "ams-kern-values/1",
+ "inventory": {
+  "present": true,
+  "stamp": {
+   "tables": "9391becb33b2bad8370dfa949e6113e2a2ff61434547a4dd063329363c8024d5+simulated-prospect+follower-prefer-slots+deep-classes",
+   "manual": "0ad754c959e98a4123b6ad09fe5a4e2d8f763b7a326ca803f7bf59ae5ef953ef"
+  },
+  "tables_current": true,
+  "manual_current": true
+ },
+ "tables": {
+  "inputs": "9391becb33b2bad8370dfa949e6113e2a2ff61434547a4dd063329363c8024d5+simulated-prospect+follower-prefer-slots+deep-classes",
+  "current": true
+ },
+ "pass": null,
+ "live": {
+  "values": [
+   {
+    "lead": "qsNo[flipped]",
+    "follow": "qsTea[half exit=x-height]",
+    "by": -1,
+    "deciders": [
+     {
+      "file": "glyph_data/runes/qsNo.yaml",
+      "path": "kern[0]",
+      "inherited": false
+     }
+    ]
+   }
+  ],
+  "error": null
+ },
+ "built": {
+  "present": true,
+  "values": [
+   [
+    "qsNo[loop]",
+    "qsTea[full]",
+    -1
+   ]
+  ]
+ },
+ "runes": {
+  "qsNo": {
+   "file": "glyph_data/runes/qsNo.yaml",
+   "sha256": "a554c0f084e1382ba3391df4bdeaa59dc277804c5ac2f9550673b6b8637dec66",
+   "text": "kern:\n- {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}\n",
+   "records": [
+    {
+     "path": "kern[0]",
+     "by": -1,
+     "text": "{stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}",
+     "why": null,
+     "line": "- {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}",
+     "sides": [
+      "qsNo[flipped]",
+      "qsTea[half exit=x-height]"
+     ],
+     "narrow": true
+    }
+   ],
+   "refusal": null
+  },
+  "qsTea": {
+   "file": "glyph_data/runes/qsTea.yaml",
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "text": "",
+   "records": [],
+   "refusal": null
+  }
+ },
+ "journal": {
+  "seq": 1,
+  "pending": 0,
+  "dropped": []
+ },
+ "carried": {
+  "pairs": [
+   {
+    "lead": "qsNo[flipped]",
+    "follow": "qsTea[half exit=x-height]",
+    "by": -1,
+    "file": "glyph_data/runes/qsNo.yaml",
+    "line": "- {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}",
+    "scope": "facing"
+   },
+   {
+    "lead": "qsNo[loop]",
+    "follow": "qsTea[full]",
+    "by": -1,
+    "file": "glyph_data/runes/qsNo.yaml",
+    "line": "- {stance: loop, right: {family: qsTea, stance: full}, by: -1}",
+    "scope": "facing"
+   }
+  ],
+  "reviewed": [],
+  "stale": [],
+  "error": null
+ }
+}

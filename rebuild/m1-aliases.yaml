@@ -58,6 +58,7 @@ qsKey.noentry: {rune: qsKey, stance: sole, adjustments: [locked]}
 qsKey.ss10: {rune: qsKey, stance: sole}
 qsGay: {rune: qsGay, stance: sole}
 qsGay.en-y0.ex-y5: {rune: qsGay, stance: sole, entry: baseline, exit: x-height}
+qsGay.en-y0.ex-y5.ex-ext-1: {rune: qsGay, stance: sole, entry: baseline, exit: x-height, adjustments: [ex-ext-1]}
 qsGay.en-y0.ex-y5.ex-ext-2: {rune: qsGay, stance: sole, entry: baseline, exit: x-height, adjustments: [ex-ext-2]}
 qsGay.en-y0.ex-y5.noentry.ex-ext-2: {rune: qsGay, stance: sole, exit: x-height, adjustments: [locked, ex-ext-2]}
 qsGay.en-y5.ex-noentry: {rune: qsGay, stance: sole, entry: x-height}
@@ -65,6 +66,7 @@ qsGay.en-y5.ex-y0: {rune: qsGay, stance: sole, entry: x-height, exit: baseline}
 qsGay.ex-y0: {rune: qsGay, stance: sole, exit: baseline}
 qsGay.ex-y0.ex-ext-1: {rune: qsGay, stance: sole, exit: baseline, adjustments: [ex-ext-1]}
 qsGay.ex-y5: {rune: qsGay, stance: sole, exit: x-height}
+qsGay.ex-y5.ex-ext-1: {rune: qsGay, stance: sole, exit: x-height, adjustments: [ex-ext-1]}
 qsGay.ex-y5.ex-ext-2: {rune: qsGay, stance: sole, exit: x-height, adjustments: [ex-ext-2]}
 qsGay.noentry: {rune: qsGay, stance: sole, adjustments: [locked]}
 qsGay.ss10: {rune: qsGay, stance: sole}
@@ -280,6 +282,10 @@ qsExcite.en-y0.noexit: {rune: qsExcite, stance: sole, entry: baseline}
 qsExcite.noentry: {rune: qsExcite, stance: sole, adjustments: [locked]}
 qsExcite.nonjoining-left: {rune: qsExcite, stance: sole}
 qsExcite.ss10: {rune: qsExcite, stance: sole}
+qsExam: {rune: qsExam, stance: sole}
+qsExam.noentry: {rune: qsExam, stance: sole, adjustments: [locked]}
+qsExam.nonjoining-left: {rune: qsExam, stance: sole}
+qsExam.ss10: {rune: qsExam, stance: sole}
 qsIt: {rune: qsIt, stance: sole}
 qsIt.en-y0.ex-y5: {rune: qsIt, stance: sole, entry: baseline, exit: x-height}
 qsIt.en-y0.ex-y5.en-ext-1: {rune: qsIt, stance: sole, entry: baseline, exit: x-height, adjustments: [en-ext-1]}
@@ -291,6 +297,8 @@ qsIt.en-y0.ex-y0.after-day: {rune: qsIt, stance: sole, entry: baseline, exit: ba
 qsIt.en-y0.ex-y0.before-day: {rune: qsIt, stance: sole, entry: baseline, exit: baseline}
 qsIt.en-y0.ex-y0.before-low: {rune: qsIt, stance: sole, entry: baseline, exit: baseline}
 qsIt.en-y0.ex-y0.before-utter: {rune: qsIt, stance: sole, entry: baseline, exit: baseline}
+qsIt.en-y0.ex-noentry.before-day-exam: {rune: qsIt, stance: sole, entry: baseline}
+qsIt.en-y0.ex-noentry.before-day-exam.en-ext-1: {rune: qsIt, stance: sole, entry: baseline, adjustments: [en-ext-1]}
 qsIt.ex-y0: {rune: qsIt, stance: sole, exit: baseline}
 qsIt.ex-y0.ex-ext-1: {rune: qsIt, stance: sole, exit: baseline, adjustments: [ex-ext-1]}
 qsIt.ex-y0.before-day.after-no-baseline-join: {rune: qsIt, stance: sole, exit: baseline}
@@ -372,6 +380,12 @@ qsOut.noentry: {rune: qsOut, stance: normal, adjustments: [locked]}
 qsOut.ss10: {rune: qsOut, stance: normal}
 qsOut_qsTea: {rune: qsOut_qsTea, stance: sole}
 qsOut_qsTea.after-see: {rune: qsOut_qsTea, stance: sole, entry: baseline, adjustments: [en-bind-low-bend]}
+qsFoot: {rune: qsFoot, stance: sole}
+qsFoot.en-ext-1: {rune: qsFoot, stance: sole, entry: x-height, adjustments: [en-ext-1]}
+qsFoot.ex-con-1: {rune: qsFoot, stance: sole, exit: x-height}
+qsFoot.noentry: {rune: qsFoot, stance: sole, adjustments: [locked]}
+qsFoot.noentry.ex-con-1: {rune: qsFoot, stance: sole, exit: x-height, adjustments: [locked]}
+qsFoot.ss10: {rune: qsFoot, stance: sole}
 qsOoze: {rune: qsOoze, stance: sole}
 qsOoze.noentry: {rune: qsOoze, stance: sole, adjustments: [locked]}
 qsOoze.ss10: {rune: qsOoze, stance: sole}

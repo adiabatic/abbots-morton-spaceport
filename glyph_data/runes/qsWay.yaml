@@ -137,3 +137,12 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsBay}, by: -2}
+- {right: {family: qsThaw}, by: -2}
+- {right: {family: qsThey}, by: -1}
+- {right: {family: qsFee}, by: -1}
+- {right: {family: qsWay}, by: -1}
+- {right: {family: qsWhy}, by: -2}
+- {right: {family: qsEat}, by: -1}
+- {right: {family: qsOoze}, by: -1}

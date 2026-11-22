@@ -397,6 +397,7 @@ def test_a_record_gated_on_ss03_whose_window_can_lack_tea_makes_ss03_shape_every
     monkeypatch.setattr(deep_sweep.run_m1, "tables_inputs", lambda: "stamp")
     monkeypatch.setattr(deep_sweep.run_m1, "serialized_tables", lambda out_dir, inputs: {})
     monkeypatch.setattr(deep_sweep.run_m1, "mint_cell_glyphs", lambda spec, serialized: {})
+    monkeypatch.setattr(deep_sweep, "build_kern_sides", lambda: None)
     every = 3 + 9 + 27
     named = every - (2 + 4 + 8)
     for right, swept, failed in ((("qsTea",), named, {}), (("qsFee",), every, {"ss03", "ss03+ss05"})):
@@ -665,7 +666,17 @@ def test_the_sweep_reports_the_counts_its_workers_store_on_the_report_interval(t
     started: dict[int, float] = {}
 
     def worker(
-        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+        spec,
+        font_path,
+        config,
+        last,
+        triggers,
+        max_length,
+        glyphs,
+        guard_verdicts,
+        memo_windows,
+        slot,
+        kern_sides=None,
     ):
         started[slot] = time.monotonic()
         store = deep_sweep._counter_writer(slot)
@@ -729,7 +740,17 @@ def test_the_units_merge_per_configuration_and_a_short_count_records_nothing(tmp
     lost: list[str] = []
 
     def worker(
-        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+        spec,
+        font_path,
+        config,
+        last,
+        triggers,
+        max_length,
+        glyphs,
+        guard_verdicts,
+        memo_windows,
+        slot,
+        kern_sides=None,
     ):
         if last is not None:
             time.sleep(0.01 * (len(TOY_ALPHABET) - ranks[last]))
@@ -769,7 +790,17 @@ def test_a_configuration_with_trigger_letters_must_shape_exactly_the_texts_that_
     ignoring: list[str] = []
 
     def worker(
-        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+        spec,
+        font_path,
+        config,
+        last,
+        triggers,
+        max_length,
+        glyphs,
+        guard_verdicts,
+        memo_windows,
+        slot,
+        kern_sides=None,
     ):
         assert triggers == units[slot].triggers and memo_windows == 4_321
         letters = frozenset() if config in ignoring else triggers
@@ -809,7 +840,17 @@ def test_a_unit_that_raises_cancels_the_units_still_queued(tmp_path, monkeypatch
     ran: list[int] = []
 
     def worker(
-        spec, font_path, config, last, triggers, max_length, glyphs, guard_verdicts, memo_windows, slot
+        spec,
+        font_path,
+        config,
+        last,
+        triggers,
+        max_length,
+        glyphs,
+        guard_verdicts,
+        memo_windows,
+        slot,
+        kern_sides=None,
     ):
         ran.append(slot)
         raise ValueError(f"unit {slot} failed")
@@ -977,7 +1018,9 @@ def test_the_targeted_units_run_in_the_pool_and_must_shape_every_planned_text(tm
     handed: list = []
     short: list[str] = []
 
-    def worker(spec, font_path, config, unit_texts, glyphs, guard_verdicts, memo_windows, slot):
+    def worker(
+        spec, font_path, config, unit_texts, glyphs, guard_verdicts, memo_windows, slot, kern_sides=None
+    ):
         handed.append((config, unit_texts))
         shaped = len(unit_texts) - (config in short and slot == 0)
         return conform.ConformanceConfigResult(config=config, sequences=shaped, shaping_runs=shaped), 1

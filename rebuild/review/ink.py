@@ -11,7 +11,7 @@ There are two readings:
 
 `signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.
 
-All review-corpus shaping is kern-neutral (`kern_neutral`). The rebuild has no kerning yet, so the old font's kern feature would only add noise to before-and-after comparisons, and it is disabled on both sides.
+All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), so both fonts shape with `kern` off: a kern edit changes no unit, and neither font's kerning enters a before-and-after comparison.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from rebuild.validation.shaping import Shaper, ShapeResult
 logging.getLogger("fontTools.ttLib.tables._h_e_a_d").setLevel(logging.ERROR)
 
 VERIFICATION_METHOD = (
-    "Shaped with uharfbuzz in both shipped fonts (kerning disabled — the rebuild has no kern feature "
-    "until its own milestone, so the old font's kerning is comparison noise) under every config in the "
+    "Shaped with uharfbuzz in both shipped fonts (kerning disabled in both, so neither font's kerning "
+    "enters the comparison) under every config in the "
     "unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative "
     "x_advance plus each glyph's x_offset/y_offset, sorted, and compared — the placed ink is "
     "identical under every config, so only glyph names differ."
@@ -67,7 +67,7 @@ def features_for(config: str | None) -> dict[str, bool]:
 
 
 def kern_neutral(features: dict[str, bool] | None) -> dict[str, bool]:
-    """Return the config's features plus `kern: False`, used for both fonts. The after font has no kern feature yet; the entry is explicit so the rule still holds once the rebuild has kerning, when kern differences get their own review."""
+    """Return the config's features plus `kern: False`, used for both fonts: the corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), as does the old font's kerning."""
     return {**(features or {}), "kern": False}
 
 

@@ -348,7 +348,12 @@ test('the real samples cover both places the engine names a set: the header conf
 test('every stylistic set the explain panel can mark has exactly one color, shared with the config chips', async () => {
   const css = await readFile(new URL('../static/app.css', import.meta.url), 'utf8');
   const colored = new Set([...css.matchAll(/\[data-ss="(ss\d{2})"\]/gu)].map((match) => match[1]));
-  assert.deepEqual([...colored].sort(), Object.keys(manifest.feature_descriptions).sort());
+  // README's "Stylistic sets" list is the authority the build's FEATURE_DESCRIPTIONS is checked against (test_feature_descriptions_keys_match_the_readme_stylistic_set_list), so a set added there needs a color here even before the fixture manifest glosses it.
+  const readme = await readFile(new URL('../../../README.md', import.meta.url), 'utf8');
+  const readmeSets = [...readme.split('## Stylistic sets')[1].split('\n## ')[0].matchAll(/^- `(ss\d{2})`:/gmu)].map((match) => match[1]);
+  assert.ok(readmeSets.length > 0, 'no `ssNN` bullets found under README’s Stylistic sets heading');
+  assert.deepEqual([...colored].sort(), readmeSets.sort());
+  for (const set of Object.keys(manifest.feature_descriptions)) assert.ok(colored.has(set), `the fixture glosses ${set}, which has no color`);
   assert.equal(
     (css.match(/--ss-color:/gu) ?? []).length,
     colored.size,

@@ -546,6 +546,43 @@ def test_a_font_copy_that_is_not_its_source_fails_the_build(tmp_path):
     _expect_error(_check_output_files(tmp_path, manifest, REPO_ROOT), "as it stands on disk")
 
 
+def test_the_after_font_s_copy_is_compared_kern_blind_and_the_before_font_s_byte_for_byte(
+    tmp_path, monkeypatch
+):
+    """A kern-only rebuild changes M1.otf's bytes and nothing the corpus reads, so the after font's copy is checked through `fingerprint.after_font_current`; the before font has no such allowance."""
+    import hashlib
+
+    asked = []
+
+    def current(copy, digest, source):
+        asked.append((Path(copy).name, digest, Path(source).name))
+        return True
+
+    monkeypatch.setattr(review_build.fingerprint, "after_font_current", current)
+    fonts = {}
+    for side in ("before", "after"):
+        source = tmp_path / "sources" / f"{side}.otf"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(f"the {side} font as rebuilt".encode())
+        copied = tmp_path / "fonts" / f"{side}.otf"
+        copied.parent.mkdir(parents=True, exist_ok=True)
+        copied.write_bytes(f"the {side} font as copied".encode())
+        fonts[side] = {
+            "file": f"fonts/{side}.otf",
+            "source": str(source),
+            "sha256": hashlib.sha256(copied.read_bytes()).hexdigest(),
+        }
+    manifest = {"classes": [], "fonts": fonts}
+    (tmp_path / "index.html").write_text("")
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _sidecars(tmp_path)
+    errors = _check_output_files(tmp_path, manifest, REPO_ROOT)
+    assert [error for error in errors if "as it stands on disk" in error] == [
+        f"fonts.before: the copy is not {fonts['before']['source']} as it stands on disk"
+    ]
+    assert asked == [("after.otf", fonts["after"]["sha256"], "after.otf")]
+
+
 def test_a_build_without_its_baseline_subset_tables_refuses_before_it_starts(tmp_path):
     with pytest.raises(SystemExit) as raised:
         build_m1(

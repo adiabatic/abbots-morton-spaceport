@@ -49,14 +49,28 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(run_m1, "mint_cell_glyphs", lambda spec, tables: {})
     monkeypatch.setattr(run_m1, "mint_raw_glyphs", lambda spec: ({}, {}, {}))
     monkeypatch.setattr(run_m1, "namer_dot_glyphs", lambda: {})
-    monkeypatch.setattr(run_m1, "_run_defect_gates", lambda spec, tables, glyphs: defects.DefectReport())
+    monkeypatch.setattr(
+        run_m1, "_run_defect_gates", lambda spec, tables, glyphs, kerned=None: defects.DefectReport()
+    )
+    monkeypatch.setattr(
+        run_m1.kern,
+        "run_stage",
+        lambda spec, tables, glyphs, out_dir, ss10_copies=None: SimpleNamespace(pairs=()),
+    )
+    monkeypatch.setattr(run_m1.kern, "write_classes", lambda resolution, glyphs, out_dir: None)
+    monkeypatch.setattr(
+        run_m1.kern_inventory,
+        "write_inventory",
+        lambda *_args, **_kwargs: run_m1.kern_inventory.InventoryOutcome(kept=True),
+    )
+    monkeypatch.setattr(run_m1.emit_gpos, "kern_plan", lambda resolution, glyphs: run_m1.emit_gpos.KernPlan())
     monkeypatch.setattr(
         run_m1.emit_gsub,
         "emit_gsub",
         lambda spec, tables, glyphs, ss10_copies: SimpleNamespace(fea_text="", rule_count=0),
     )
     monkeypatch.setattr(run_m1.emit_gsub, "behavior_classes", lambda plan: [])
-    monkeypatch.setattr(run_m1.emit_gpos, "emit_gpos", lambda glyphs, spec: "")
+    monkeypatch.setattr(run_m1.emit_gpos, "emit_gpos", lambda glyphs, spec, kern=None: "")
     monkeypatch.setattr(run_m1.emit_gpos, "cursive_registrations", lambda glyphs, spec: {})
 
     def build_mini_font(glyphs, fea, path):
@@ -70,7 +84,7 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(
         run_m1.readback,
         "verify_font",
-        lambda font, plan, registrations: {
+        lambda font, plan, registrations, kern=None: {
             "pass": readback_pass,
             "divergences": [] if readback_pass else ["a divergence"],
             "divergence_count": 0 if readback_pass else 1,
@@ -210,6 +224,34 @@ class TestTheBranches:
         gates.close()
         assert "emitted:done" in events
 
+    def test_a_build_writes_the_kern_inventory_once_read_back_has_passed_for_the_tables_it_built(
+        self, monkeypatch, tmp_path
+    ):
+        """The build hands the kern inventory its tables' stamp after read-back (`kern_inventory.write_inventory`, which keeps a file already stamped for them), and a build whose read-back fails writes none."""
+        events: list = []
+        written: list = []
+        _stub_chain(monkeypatch, events)
+        monkeypatch.setattr(
+            run_m1.kern_inventory,
+            "write_inventory",
+            lambda spec, tables, glyphs, resolution, copies, out_dir, inputs, font: written.append(
+                (out_dir, inputs, font, list(events))
+            )
+            or run_m1.kern_inventory.InventoryOutcome(kept=True),
+        )
+        _stub_gates(monkeypatch, events)
+        _summary, gates = _run(tmp_path)
+        gates.join()
+        gates.close()
+        assert written == [(tmp_path, STAMP, tmp_path / "M1.otf", written[0][3])]
+        assert "compile" in written[0][3]
+        written.clear()
+        _stub_chain(monkeypatch, events, readback_pass=False)
+        monkeypatch.setattr(run_m1.kern_inventory, "write_inventory", lambda *args: written.append(args))
+        with pytest.raises(run_m1.readback.ReadbackError):
+            _run(tmp_path)
+        assert written == []
+
 
 class TestTheReadbackRecord:
     @pytest.mark.parametrize("passed", [True, False])
@@ -233,7 +275,9 @@ class TestTheReadbackRecord:
             "divergences": [] if passed else ["gsub budget: under the floor"],
             "divergence_count": 0 if passed else 1,
         }
-        monkeypatch.setattr(run_m1.readback, "verify_font", lambda font, plan, registrations: report)
+        monkeypatch.setattr(
+            run_m1.readback, "verify_font", lambda font, plan, registrations, kern=None: report
+        )
         monkeypatch.setattr(run_m1, "head_commit", lambda root=run_m1.REPO_ROOT: "95521363")
         _stub_gates(monkeypatch, events)
         if passed:
@@ -352,7 +396,7 @@ class TestTheFirstRed:
         monkeypatch.setattr(
             run_m1.readback,
             "verify_font",
-            lambda font, plan, registrations: {
+            lambda font, plan, registrations, kern=None: {
                 "pass": False,
                 "divergences": ["a divergence", "… and 199 more"],
                 "divergence_count": 200,
