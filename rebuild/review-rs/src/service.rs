@@ -145,8 +145,9 @@ fn line(mut text: String) -> Vec<u8> {
     text.into_bytes()
 }
 
-fn read_requests(input: impl BufRead, events: &Sender<Event>) {
-    for line in input.lines() {
+/// Read requests from `input` and hand each to the coordinator, until the input ends, a request is refused or the coordinator is gone. After either of the last two the rest of the input is read and dropped: a parent blocked writing a request never reads the replies and the error frame the writer still holds for it, so both sides would wait on each other.
+fn read_requests(mut input: impl BufRead, events: &Sender<Event>) {
+    for line in (&mut input).lines() {
         let incoming = match line {
             Ok(line) => match Request::parse(&line) {
                 Ok(request) => Incoming::Request(request),
@@ -156,6 +157,7 @@ fn read_requests(input: impl BufRead, events: &Sender<Event>) {
         };
         let refused = matches!(incoming, Incoming::Refused(_));
         if events.send(Event::Incoming(incoming)).is_err() || refused {
+            let _ = std::io::copy(&mut input, &mut std::io::sink());
             return;
         }
     }
@@ -385,6 +387,48 @@ mod tests {
             "{\"op\":\"error\",\"message\":\"the units engine cannot start: cannot read the init"
         ));
         assert!(written.ends_with("\n"));
+    }
+
+    /// An input that counts the bytes read from it.
+    struct Counted(Cursor<Vec<u8>>, Arc<Mutex<usize>>);
+
+    impl std::io::Read for Counted {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let read = self.0.read(buffer)?;
+            *self.1.lock().expect("the lock") += read;
+            Ok(read)
+        }
+    }
+
+    #[test]
+    fn the_reader_reads_its_input_to_the_end_once_the_coordinator_is_gone() {
+        let requests = b"{\"op\":\"stop\"}\n".repeat(4096);
+        let read = Arc::new(Mutex::new(0));
+        let (events, coordinator) = channel();
+        drop(coordinator);
+        read_requests(
+            std::io::BufReader::new(Counted(Cursor::new(requests.clone()), read.clone())),
+            &events,
+        );
+        assert_eq!(*read.lock().expect("the lock"), requests.len());
+    }
+
+    #[test]
+    fn the_reader_reads_its_input_to_the_end_after_a_refused_request() {
+        let mut requests = b"not a request\n".to_vec();
+        requests.extend(b"{\"op\":\"stop\"}\n".repeat(4096));
+        let read = Arc::new(Mutex::new(0));
+        let (events, coordinator) = channel();
+        read_requests(
+            std::io::BufReader::new(Counted(Cursor::new(requests.clone()), read.clone())),
+            &events,
+        );
+        assert_eq!(*read.lock().expect("the lock"), requests.len());
+        assert!(matches!(
+            coordinator.try_recv(),
+            Ok(Event::Incoming(Incoming::Refused(_)))
+        ));
+        assert!(coordinator.try_recv().is_err());
     }
 
     #[test]

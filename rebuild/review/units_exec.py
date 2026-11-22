@@ -636,9 +636,26 @@ class UnitsProcess:
             self._directory.cleanup()
             raise
 
+    def _unread_error(self) -> str | None:
+        """Return the message of an `error` frame among the replies not yet read, or None. An engine that fails while this side is still writing a request leaves its error frame there, behind the batch replies it had already answered."""
+        assert self._process.stdout is not None
+        while line := self._process.stdout.readline():
+            try:
+                frame = json.loads(line)
+            except ValueError:
+                return None
+            if frame.get("op") == "error":
+                return frame["message"]
+            if frame.get("op") == "batch":
+                self._process.stdout.read(frame["payload"])
+        return None
+
     def _failed(self, what: str) -> EngineRunError:
         self._process.kill()
         returncode = self._process.wait()
+        message = self._unread_error()
+        if message is not None:
+            return EngineRunError(f"the units engine failed: {message}")
         assert self._process.stderr is not None
         stderr = self._process.stderr.read().decode(errors="replace").strip()
         return EngineRunError(f"the units engine {what} (it exited {returncode}): {stderr}")

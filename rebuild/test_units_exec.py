@@ -6,9 +6,13 @@ The crate is a sibling of the kernel crate, not a member of a Cargo workspace, s
 from __future__ import annotations
 
 import dataclasses
+import io
 import json
 import re
+import select
 import shutil
+import subprocess
+import threading
 import tomllib
 import warnings
 from pathlib import Path
@@ -452,6 +456,60 @@ def test_the_engines_agree_on_the_mini_s_ss10_copies(mini_bundle, tmp_path):
     assert disagreements == {}
     assert report.compared == report.handed_out == table.n
     assert report.verify_sample and report.verify_agreed == report.verify_sample
+
+
+def test_an_engine_that_fails_while_requests_are_still_being_written_reports_why(mini_bundle, tmp_path):
+    """An engine whose work ends in a failure while its parent is still writing requests ends with its error raised, not with both sides waiting on each other. The engine is sent the mini's units as one batch, whose reply is far longer than a pipe holds, then, once that reply is waiting unread, a request it refuses and more requests than a pipe holds: the engine keeps reading its input, so the write finishes, the batch's reply is read, and the next read raises the engine's refusal. A stopped engine that this side finds only when a write fails reports the error frame left among its unread replies."""
+    table, store, identical_classes = units_stage_fixtures._load_table(
+        MINI / "audit.tsv", mini_bundle.ledger, mini_bundle.spec_root, MINI_FONT, tmp_path, recompute_all=True
+    )
+    init = units_stage_fixtures._worker_init(
+        MINI_FONT, MINI, mini_bundle.subset_pack, mini_bundle.spec_root, identical_classes
+    )
+    engine = units_exec.UnitsProcess(init, 1)
+    try:
+        engine.send_batch(0, tuple(table.unit(ordinal, store) for ordinal in range(table.n)))
+        stdin, stdout = engine._process.stdin, engine._process.stdout
+        assert stdin is not None and stdout is not None
+        assert select.select([stdout], [], [], 120)[0], "the engine never answered the batch"
+
+        def write() -> None:
+            try:
+                stdin.write(b"not a request\n" + b'{"op":"stop"}\n' * 400_000)
+                stdin.flush()
+            except BrokenPipeError:
+                pass
+
+        writer = threading.Thread(target=write, daemon=True)
+        writer.start()
+        writer.join(timeout=60)
+        assert not writer.is_alive(), "the engine stopped reading its input, so the write never finished"
+        reply = engine.read_reply()
+        assert reply[0] == "batch" and len(reply[2]) == table.n
+        with pytest.raises(units_exec.EngineRunError, match="the units engine failed: "):
+            engine.read_reply()
+    finally:
+        engine.close()
+
+    class _Stopped:
+        """A process that has exited with a batch reply and an error frame unread."""
+
+        stdout = io.BytesIO(
+            b'{"op":"batch","batch":0,"projections":[],"contract_errors":[],"payload":3}\nabc'
+            b'{"op":"error","message":"batch 1: the after font refutes the drafted pin"}\n'
+        )
+        stderr = io.BytesIO(b"")
+
+        def kill(self) -> None:
+            pass
+
+        def wait(self) -> int:
+            return 1
+
+    stopped = units_exec.UnitsProcess.__new__(units_exec.UnitsProcess)
+    stopped._process = cast(subprocess.Popen, _Stopped())
+    failure = stopped._failed("stopped reading before the batch frame")
+    assert str(failure) == "the units engine failed: batch 1: the after font refutes the drafted pin"
 
 
 def test_the_memory_fit_separates_the_process_from_its_threads():
