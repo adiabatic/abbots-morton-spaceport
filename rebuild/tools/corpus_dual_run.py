@@ -2,16 +2,17 @@
 
 The scenarios are `units_stage_fixtures`' (`open_build_source`): each prepares its prior corpus and its inputs over the source's base prior, the mini bundle's `first` build or the live base prior refreshed at the current tree. `--scenario all` runs every scenario of the source but `refusals`, which runs by name; a live run names one scenario.
 
-`--engines` names the two sides. A Python side is `build.build_m1` in a fresh process (`units_stage_fixtures.run_python_build`, through its `python-build` child) as the cycle's step runs it: under the Rust units engine, its journal redirected into the side's run directory, its own counts file, no cycle run unless the build's pass holds a fold claim another output took, and on macOS the allocator's large cache off. `--engines python,python` runs the first side at the harness's default width (`units_stage_fixtures.default_width`) and the second at two, which `_write_corpus` holds to write the same tree; a case that names its own width (`BuildCase.jobs`) runs at that width on both sides. The sides run one after the other, each case on both sides before the next case, and each side builds over a clone of the case's prior, or over its own output of the case before.
+`--engines` names the two sides, `python,rust` by default. Each side builds in a fresh process (`units_stage_fixtures.run_engine_build`, through its `python-build` child) as the cycle's step runs the build: under the Rust units engine, its journal redirected into the side's run directory, its own counts file, no cycle run unless the build's pass holds a fold claim another output took, and on macOS the allocator's large cache off. A Python side is `build.build_m1` at the harness's default width (`units_stage_fixtures.default_width`); a Rust side is `build._rust_build_m1`, which runs `ams-review build` (`corpus_exec.run_build`), at `--threads`, by default the same width. `--engines python,python` runs the first side at the default width and the second at two, which `_write_corpus` holds to write the same tree; a case that names its own width (`BuildCase.jobs`) runs at that width on both sides. The sides run one after the other, each case on both sides before the next case, and each side builds over a clone of the case's prior, or over its own output of the case before.
 
 Before comparing bytes, each case compares the fields that move when the inputs move between the sides (`manifest.json`'s `repo_head`, `inputs_fingerprint` and `generated_at`, the unit store's and the ink-signature store's `environment`) where both sides wrote them, and both sides' zlib versions; a difference stops the run with exit status 3 naming the field, and the run is repeated rather than debugged. The comparison then takes the set of relative paths under each side's output, every file byte for byte (with the first differing offset and, for a gzip file, whether the inflated bytes agree), the `[phase]` and `[t]` labels in order, the `[warn]` lines, the plain miss notes and the `Pruned` line, each with the side's own output directory written `<out>`, the counts files as sorted lists, both exit statuses, and the scenario's checks (`BuildCase.check`, and `check_chain` over a chain) on every Python side.
 
-The report is JSON under `var/rust-port/corpus-dual-run/` (`--report` names another path): per scenario and case, the files compared and each difference, and each side's width, exit status, wall time, phase seconds, peak footprints from its pool records and zlib version. Any difference, or a scenario check a Python side does not pass, exits 1. `--plant shard` changes one byte of the second side's first shard part after its last build, to show that the comparison reports it.
+The report is JSON under `var/rust-port/corpus-dual-run/` (`--report` names another path): per scenario and case, the files compared and each difference, and each side's width, exit status, wall time, phase seconds, peak footprints from its pool records (a Python side's parent and units engine, a Rust side's build process) and zlib version, a Rust side's as `ams-review version` prints it. Any difference, or a scenario check a Python side does not pass, exits 1. `--plant shard` changes one byte of the second side's first shard part after its last build, to show that the comparison reports it.
 
 A live run is a heavy pass that starts with the live base prior's refresh, itself a whole build: detach it, watch its log (`doc/running-long-steps.md`), and run nothing else beside it.
 
 Run from the repository root:
 
+    uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario first --threads 1
     uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario all --engines python,python
     uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario warm --engines python,python --plant shard
     uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario refusals --engines python,python
@@ -20,6 +21,7 @@ Run from the repository root:
 from __future__ import annotations
 
 import argparse
+import functools
 import gzip
 import hashlib
 import json
@@ -32,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rebuild.pipeline import row_delta
-from rebuild.review import unit_cache
+from rebuild.review import unit_cache, units_exec
 from rebuild.tools.units_stage_fixtures import (
     BUILD_SCENARIOS,
     REPO_ROOT,
@@ -42,13 +44,13 @@ from rebuild.tools.units_stage_fixtures import (
     check_chain,
     default_width,
     open_build_source,
-    run_python_build,
+    run_engine_build,
     scenario_names,
 )
 
 REPORT_FORMAT = "ams-review-corpus-dual-run/1"
 REPORT_DIR = REPO_ROOT / "var" / "rust-port" / "corpus-dual-run"
-ENGINES = ("python",)
+ENGINES = ("python", "rust")
 PLANTABLE = ("shard",)
 SECOND_PYTHON_WIDTH = 2
 INPUTS_MOVED = 3
@@ -74,7 +76,24 @@ class Side:
         return f"side {self.index} ({self.engine})"
 
     def zlib_version(self) -> str:
+        if self.engine == "rust":
+            return rust_zlib_version()
         return zlib.ZLIB_RUNTIME_VERSION
+
+
+@functools.cache
+def rust_zlib_version() -> str:
+    """The zlib version the review binary links, from its `zlib` line in `ams-review version`."""
+    units_exec.ensure_built()
+    process = units_exec.spawn(["version"])
+    output, stderr = process.communicate()
+    if process.returncode != 0:
+        raise SystemExit(f"ams-review version exited {process.returncode}: {stderr.decode(errors="replace")}")
+    for line in output.decode("ascii").splitlines():
+        name, _, value = line.partition("\t")
+        if name == "zlib":
+            return value
+    raise SystemExit("ams-review version printed no zlib line")
 
 
 @dataclass
@@ -116,6 +135,7 @@ class SideRun:
     def describe(self) -> dict:
         pools = self.pools()
         units = pools.get("corpus-units-rs")
+        built = pools.get("corpus-build-rs")
         return {
             "label": self.side.label,
             "engine": self.side.engine,
@@ -126,6 +146,7 @@ class SideRun:
             "peak_footprint_bytes": {
                 "parent": max((pool["controller_peak_bytes"] for pool in pools.values()), default=None),
                 "units_engine": None if units is None else sum(units["worker_peak_bytes"].values()),
+                "build_process": None if built is None else sum(built["worker_peak_bytes"].values()),
             },
             "pools": pools,
             "zlib": self.side.zlib_version(),
@@ -160,8 +181,15 @@ def build_case(side: Side, case: BuildCase) -> SideRun:
     width = case.jobs if case.jobs is not None else side.width
     print(f"corpus_dual_run: {side.label} builds {case.name} at {width}", file=sys.stderr)
     started = time.perf_counter()
-    run = run_python_build(
-        case.inputs, out, logs, case.name, prior=prior, jobs=width, claim_held_by=case.claim_held_by
+    run = run_engine_build(
+        side.engine,
+        case.inputs,
+        out,
+        logs,
+        case.name,
+        prior=prior,
+        jobs=width,
+        claim_held_by=case.claim_held_by,
     )
     wall = time.perf_counter() - started
     side.previous = out
@@ -370,22 +398,24 @@ def plant_shard(out: Path) -> dict:
 # --- the run ------------------------------------------------------------------------------------
 
 
-def _widths(engines: tuple[str, ...]) -> tuple[int, ...]:
-    """Each side's units width: the harness's default for the first side, and two for a second Python side."""
+def _widths(engines: tuple[str, ...], threads: int | None) -> tuple[int, ...]:
+    """Each side's units width: the harness's default for a Python side, and two for a second Python side; `threads`, or else the default, for a Rust side."""
     if engines == ("python", "python"):
         return default_width(), SECOND_PYTHON_WIDTH
-    return tuple(default_width() for _engine in engines)
+    return tuple(
+        threads if engine == "rust" and threads is not None else default_width() for engine in engines
+    )
 
 
 def run_scenario(
-    source: str, name: str, engines: tuple[str, ...], plant: str | None
+    source: str, name: str, engines: tuple[str, ...], plant: str | None, threads: int | None = None
 ) -> tuple[list[CaseResult], dict | None]:
     """Prepare one scenario, build each of its cases on every side and compare them, and run the scenario's checks on every Python side. Stops at the first case whose inputs moved. Returns each case's result and the planted part, if any."""
     scenario = open_build_source(source, name)
     root = scenario.directory / "dual"
     sides = [
         Side(index, engine, width, root / f"{index}-{engine}")
-        for index, (engine, width) in enumerate(zip(engines, _widths(engines)))
+        for index, (engine, width) in enumerate(zip(engines, _widths(engines, threads)))
     ]
     results: list[CaseResult] = []
     planted = None
@@ -474,6 +504,9 @@ def main(argv: list[str] | None = None) -> int:
         default="python,rust",
         help="the two sides' engines, comma-separated (default: python,rust)",
     )
+    parser.add_argument(
+        "--threads", type=int, help="a Rust side's width (default: the harness's default width)"
+    )
     parser.add_argument("--plant", choices=PLANTABLE, help="corrupt one file of the second side's last build")
     parser.add_argument("--report", type=Path, help="where to write the JSON report")
     args = parser.parse_args(argv)
@@ -485,19 +518,25 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(
                 f"engine {engine!r} is not one the harness runs; the engines are {', '.join(ENGINES)}"
             )
+    if args.threads is not None and args.threads < 1:
+        parser.error("--threads is at least one")
     if args.source == "live" and args.scenario == "all":
         parser.error("a live run names one scenario")
     names = scenario_names(args.source, args.scenario)
     for name in names:
         if args.source not in BUILD_SCENARIOS[name]:
             parser.error(f"the {name} scenario runs on {', '.join(BUILD_SCENARIOS[name])}, not {args.source}")
-    stem = "-".join((args.source, args.scenario, *engines)) + (f"-plant-{args.plant}" if args.plant else "")
+    stem = (
+        "-".join((args.source, args.scenario, *engines))
+        + (f"-threads-{args.threads}" if args.threads is not None else "")
+        + (f"-plant-{args.plant}" if args.plant else "")
+    )
     path = args.report or REPORT_DIR / f"{stem}.json"
     results: list[CaseResult] = []
     planted = None
     moved = False
     for name in names:
-        found, planted_here = run_scenario(args.source, name, engines, args.plant)
+        found, planted_here = run_scenario(args.source, name, engines, args.plant, args.threads)
         results += found
         planted = planted or planted_here
         if any(result.moved for result in found):

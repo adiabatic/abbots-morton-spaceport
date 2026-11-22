@@ -4,6 +4,8 @@
 //!
 //! The build's plan phase is here too ([`plan_phase`]), as `build._build_m1` runs it after the load: the unit store made over the load's units and input keys, the prior unit store scanned and every unit it can reuse loaded, the records it cannot reuse kept by id, a store that stops reading partway answered by a restart over an emptied store, and the verification sample drawn from the reused units ([`Planned`]). [`stage_plan`] is the `plan` stage of the stage fixtures.
 //!
+//! [`build`] runs the whole build in `build._build_m1`'s order of phases, each opened and closed by its console lines, and [`build_result`] gives the result line `ams-review build` ends with.
+//!
 //! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches, the duplicate groups and the primary units, to the verification and its stale check. [`route`] decides how the write takes each class before it writes: each class's route and prediction, its manifest record, whether the previous sidecars are copied forward, and the runs. [`shards`] writes each class's fragments into its shard parts, directly into base parts or appended to the overflow parts after the parts the previous corpus holds, each part staged until the write commits. [`prior`] reads each fragment back for the write: a cached one from the previous corpus by its address, a recomputed one from the units phase's arena, each checked to be the unit and stamp its address carries. [`emit`] gives each unit as the write receives it: a fragment read back and patched with this build's scaffold and primary units, or a cached fragment's stored bytes with the identity that stands in for it. [`corpus_check`] checks the units the write writes, per unit at `PATCHED` and class by class against their manifest records as they pass, and as a whole against the manifest once each class's facts are folded in shard order. [`sidecars`] projects each run's sidecar lines as the write passes each unit, or copies a byte-copied unit's lines forward from the previous sidecars, and spills them until the manifest is on disk. [`write`] writes the classes' runs on threads through them, folds their results into the store and one checker in shard order, commits the staged parts and copies the fonts in. [`manifest`] writes the manifest after them and prunes the shards it no longer names. [`index`] writes the units index from the runs' spilled lines once the manifest is on disk: a first or unusable base, a fold, a segment of the records that differ from the prior's, or the head alone. Beside it, on a thread of its own, [`sidecars`] writes the app sidecars from the runs' spilled app-index lines and locator blocks, each staged until all three are written. [`facts`] writes the review facts once the manifest is on disk, from the pre-merge snapshot projected onto the units phase's products. [`cache`] writes the unit store after them: a first, unusable, re-derived, share or fold base, a segment of the records whose lines changed, or the head alone.
 
 pub mod audit;
@@ -1055,6 +1057,327 @@ pub fn stage_plan(input_path: &Path, stage_file: &Path, out: &mut impl Write) ->
     });
     let _ = std::fs::remove_dir_all(&scratch);
     plan_lines(&planned?, &printed, &units, out)
+}
+
+/// The labels of the console lines of the phases after the plan.
+pub const UNITS_LABEL: &str = "review.build units";
+pub const MANIFEST_LABEL: &str = "review.build manifest+check";
+pub const FACTS_LABEL: &str = "review.build review-facts";
+pub const CACHE_LABEL: &str = "review.build cache";
+
+/// The widths the build ran at, which its result line reports: the units pool's, the write's, and the signature shaping's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Built {
+    pub threads: usize,
+    pub write_threads: usize,
+    pub signature_threads: usize,
+}
+
+/// The manifest+check phase's note, as `build._build_m1` closes its line: the write's width and counters, each run's spilled sidecar lines in MB, and what the units index's write did.
+fn write_note(
+    jobs: usize,
+    units: usize,
+    counters: &write::Counters,
+    runs: &[sidecars::SidecarRun],
+    index: &str,
+) -> String {
+    let megabytes = |bytes: i64| bytes as f64 / 1e6;
+    let count = |value: i64| thousands(usize::try_from(value).unwrap_or(0));
+    let by_run: Vec<String> = runs
+        .iter()
+        .map(|run| {
+            format!(
+                "{:.1}",
+                megabytes(run.index.length + run.app.length + run.rows.length)
+            )
+        })
+        .collect();
+    format!(
+        "jobs={jobs} (byte-copied {} of {} fragments, copied forward {} sidecar rows; sidecar lines {} MB by run; appended {:.1} MB ({:.1} MB inflated), kept {} by compare, folded {} classes, wrote {} directly, deflated {} fragments, dead {:.1} MB) (index: {index})",
+        count(counters.byte_copied),
+        thousands(units),
+        count(counters.copied_forward),
+        by_run.join(", "),
+        megabytes(counters.appended),
+        megabytes(counters.appended_inflated),
+        count(counters.kept),
+        count(counters.folded),
+        count(counters.direct),
+        count(counters.deflated),
+        megabytes(counters.dead),
+    )
+}
+
+/// The whole build, as `build._build_m1` runs it from the load to the cache, over the audit's held parts `files` into the input's output directory, its console lines on `console`: the load and the plan; the units phase, which writes the ink-signature store when it changed, recomputes the plan's units on the worker pool with their fragments in the arena's spill files under the input's scratch directory, and runs the passes through the stale check, after which the pool and its resources are dropped; the manifest+check phase, which routes and writes the classes' runs, writes the manifest, prunes the shards it no longer names, copies the static files and writes the units index and the app sidecars, then refuses the build when the re-settlement, the drafting-time check or the corpus check found an error; the review facts; and the unit store. Every whole-file write counts itself in the input's counts file, and the units index and the unit store take the pass's fold claim as the input's cycle names it.
+pub fn build(
+    input: &BuildInput,
+    files: &[File],
+    console: &mut impl Write,
+) -> std::result::Result<Built, BuildError> {
+    let out_dir = Path::new(&input.out_dir);
+    let scratch = Path::new(&input.scratch);
+    let sink = Sink::new(input.cycle.counts.as_ref().map(std::path::PathBuf::from));
+    let claim = rowdelta::FoldClaim::new(
+        input.cycle.run.clone(),
+        std::path::PathBuf::from(&input.cycle.fold_claim),
+    );
+    let write_names = write::WriteNames::of(input)?;
+    let manifest_names = manifest::ManifestNames::of(input)?;
+    let index_names = index::IndexNames::of(input)?;
+    let app_names = sidecars::AppNames::of(input)?;
+    let facts_names = facts::FactsNames::of(input)?;
+    let cache_names = cache::CacheNames::of(input)?;
+    let store_names = StoreNames::of(input)?;
+    let errors_shown = match input.constant("rebuild.review.build.CONTRACT_ERRORS_SHOWN") {
+        Some(PyValue::Int(shown)) => usize::try_from(*shown).map_err(failed)?,
+        _ => {
+            return Err(failed(
+                "the build input's vocabulary holds no int rebuild.review.build.CONTRACT_ERRORS_SHOWN",
+            ));
+        }
+    };
+    std::fs::create_dir_all(out_dir).map_err(failed)?;
+    std::fs::create_dir_all(scratch).map_err(failed)?;
+
+    let loaded = load_phase(input, files, console)?;
+    let signature_threads = loaded.width;
+    let Loaded {
+        workload,
+        premerge,
+        input_keys,
+        signatures,
+        stamps,
+        ..
+    } = loaded;
+    let mut table = workload.table;
+    let mut planned = plan_phase(input, out_dir, &sink, &table, input_keys, console)?;
+
+    console::phase(console, UNITS_LABEL).map_err(failed)?;
+    let started = Instant::now();
+    let (jobs, lane) = drive::units_pool_width(&input.widths);
+    let arena = std::sync::Arc::new(drive::Arena::new(scratch));
+    let mut units = drive::Drive::start(
+        input,
+        jobs,
+        planned.recomputed.len(),
+        planned.verify_units.len(),
+        std::sync::Arc::clone(&arena),
+    )?;
+    let signature_note = passes::signature_note(&signatures);
+    if !signatures.unchanged() {
+        let PyValue::Dict(header) = input::json_map_py(&input.signature_environment.header)? else {
+            unreachable!("a map converts to a dict");
+        };
+        signatures::write_signature_arrays(out_dir, &store_names, &header, &signatures, &stamps)
+            .map_err(failed)?;
+    }
+    drop((signatures, stamps));
+    units.phase1(&mut table, &mut planned.store, &planned.recomputed, console)?;
+    let triage = passes::triage(
+        input,
+        &workload.classes_present,
+        &mut table,
+        &mut planned.store,
+    )?;
+    let passed = passes::passes(
+        &mut table,
+        &mut planned.store,
+        &triage,
+        &units,
+        &planned.verify_units,
+    )?;
+    let contract_errors = std::mem::take(&mut units.contract_errors);
+    drop(units);
+    console::phase_timing(
+        console,
+        UNITS_LABEL,
+        started.elapsed().as_secs_f64(),
+        &passes::units_note(
+            jobs,
+            lane,
+            planned.recomputed.len(),
+            passed.verified.len(),
+            &arena.note(),
+            &signature_note,
+        ),
+    )
+    .map_err(failed)?;
+
+    console::phase(console, MANIFEST_LABEL).map_err(failed)?;
+    let started = Instant::now();
+    let emitter = emit::Emitter::open(input)?;
+    let settings = corpus_check::CheckSettings::of(input).map_err(failed)?;
+    let routed = route::route_classes(
+        out_dir,
+        &table,
+        &planned.store,
+        &triage.classes,
+        &triage.sections,
+        &passed.by_class,
+        planned.prior_shards.as_ref(),
+        planned.cached,
+        route::write_fit(&input.widths),
+        &write_names.route,
+    )?;
+    let written = write::write_corpus(
+        input,
+        out_dir,
+        scratch,
+        &table,
+        &mut planned.store,
+        &routed,
+        &arena,
+        &emitter,
+        &settings,
+        &write_names,
+        &sink,
+    )?;
+    drop(emitter);
+    let shard_ids: Vec<&str> = routed
+        .classes
+        .iter()
+        .map(|entry| entry.id.as_str())
+        .collect();
+    let manifest = manifest::manifest(
+        input,
+        &manifest_names,
+        &manifest::ManifestParts {
+            table: &table,
+            store: &planned.store,
+            order: &triage.order,
+            row_total: workload.row_count,
+            batches: triage.batches,
+            duplicate_groups: passed.duplicate_groups,
+            junctions: passed.junction_counts.items().to_vec(),
+            classes: triage
+                .classes
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect(),
+        },
+        &shard_ids,
+        &written,
+    )?;
+    drop(shard_ids);
+    manifest::write_manifest(out_dir, &manifest, console)?;
+    write::copy_static(&sink, out_dir, &input.static_files, &input.fallback_index)
+        .map_err(failed)?;
+    let index = sidecars::write_sidecars(
+        out_dir,
+        &written.runs,
+        &index_names,
+        &app_names,
+        &claim,
+        &sink,
+    )?;
+    let write::Written {
+        check,
+        runs,
+        jobs: write_threads,
+        counters,
+        ..
+    } = written;
+    let mut errors = Vec::new();
+    if let Some(first) = passed.mismatches.first() {
+        errors.push(format!(
+            "enricher: re-settled cells diverge from the audit in {} units (first: {first})",
+            passed.mismatches.len()
+        ));
+    }
+    errors.extend(contract_errors);
+    errors.extend(check.finish(&manifest).map_err(failed)?);
+    if !errors.is_empty() {
+        errors.truncate(errors_shown);
+        return Err(BuildError::Exit(format!(
+            "contract check failed:\n{}",
+            errors.join("\n")
+        )));
+    }
+    drop(arena);
+    let note = write_note(write_threads, table.n, &counters, &runs, &index.note());
+    drop(runs);
+    console::phase_timing(
+        console,
+        MANIFEST_LABEL,
+        started.elapsed().as_secs_f64(),
+        &note,
+    )
+    .map_err(failed)?;
+
+    console::phase(console, FACTS_LABEL).map_err(failed)?;
+    let started = Instant::now();
+    facts::review_facts(
+        out_dir,
+        &sink,
+        &facts_names,
+        &facts::FactsParts {
+            manifest: &manifest,
+            table: &table,
+            store: &planned.store,
+            snapshot: &premerge,
+            row_count: workload.row_count,
+            group_order: &input.group_order,
+        },
+    )?;
+    drop(premerge);
+    console::phase_timing(console, FACTS_LABEL, started.elapsed().as_secs_f64(), "")
+        .map_err(failed)?;
+
+    console::phase(console, CACHE_LABEL).map_err(failed)?;
+    let started = Instant::now();
+    let stored = cache::cache_phase(
+        input,
+        &cache_names,
+        &cache::CacheParts {
+            corpus: out_dir,
+            plan: &planned.store_plan,
+            order: &triage.order,
+            store: &planned.store,
+            table: &table,
+            predicted: &routed.predicted,
+            manifest: &manifest,
+        },
+        &claim,
+        &sink,
+    )?;
+    console::phase_timing(
+        console,
+        CACHE_LABEL,
+        started.elapsed().as_secs_f64(),
+        &format!("(store: {})", stored.note()),
+    )
+    .map_err(failed)?;
+    Ok(Built {
+        threads: jobs,
+        write_threads,
+        signature_threads,
+    })
+}
+
+/// Run the build the input at `input_path` describes, over the audit parts whose descriptors the process inherits, its console lines on `console` ([`build`]), and return its result line: `done` with the process's peak footprint and the widths it ran at; `exit` with the text of a refusal the Python build raises as `SystemExit`; or `error` with any other failure, a panic among them.
+pub fn build_result(input_path: &Path, console: &mut impl Write) -> serde_json::Value {
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let input = BuildInput::read(input_path)?;
+        let files = input.held_audit()?;
+        build(&input, &files, console)
+    }));
+    match outcome {
+        Ok(Ok(built)) => serde_json::json!({
+            "op": "done",
+            "peak_footprint": crate::ffi::peak_footprint(),
+            "threads": built.threads,
+            "write_threads": built.write_threads,
+            "signature_threads": built.signature_threads,
+        }),
+        Ok(Err(BuildError::Exit(message))) => serde_json::json!({"op": "exit", "message": message}),
+        Ok(Err(BuildError::Failed(message))) => {
+            serde_json::json!({"op": "error", "message": message})
+        }
+        Err(panic) => serde_json::json!({
+            "op": "error",
+            "message": format!("the build panicked: {}", crate::pool::panic_message(&*panic)),
+        }),
+    }
 }
 
 #[cfg(test)]

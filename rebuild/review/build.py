@@ -30,6 +30,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -3643,6 +3644,22 @@ def build_m1(
         parts.close()
 
 
+def _packed_subsets(subset_dir: Path, subset_pack: Path | None) -> tuple[dict[str, str], Path]:
+    """Check that every acceptance config's baseline subset table is there and not empty, which fails the build before any work starts since each goes into the pack, then write the pack where its tables changed (`ensure_pack`), and return the tables' digests and the pack's path. The pack is written before any pool starts, so no worker races the write, and its own processes, one a configuration (`subset_pack.write_pack`), have exited before the load begins, so a pass that rewrites the pack spends that time ahead of the step's first phase line. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both."""
+    missing_subsets = [
+        config
+        for config in ACCEPTANCE_CONFIGS
+        if not (subset_dir / f"baseline-{config}.subset.tsv.gz").is_file()
+        or (subset_dir / f"baseline-{config}.subset.tsv.gz").stat().st_size == 0
+    ]
+    if missing_subsets:
+        raise SystemExit(
+            f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
+        )
+    subset_digests = table_digests(subset_dir, ACCEPTANCE_CONFIGS)
+    return subset_digests, ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
+
+
 def _build_m1(
     parts: audit.AuditParts,
     out_dir: Path,
@@ -3668,20 +3685,7 @@ def _build_m1(
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    missing_subsets = [
-        config
-        for config in ACCEPTANCE_CONFIGS
-        if not (subset_dir / f"baseline-{config}.subset.tsv.gz").is_file()
-        or (subset_dir / f"baseline-{config}.subset.tsv.gz").stat().st_size == 0
-    ]
-    # Every acceptance config's table goes into the pack, so a missing one fails the build before any work starts.
-    if missing_subsets:
-        raise SystemExit(
-            f"missing or empty baseline subset tables under {subset_dir}: {', '.join(missing_subsets)}"
-        )
-    # The pack is written before any pool starts, so no worker races the write, and its own processes, one a configuration (`subset_pack.write_pack`), have exited before the load begins, so a pass that rewrites the pack spends that time ahead of the step's first phase line. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both.
-    subset_digests = table_digests(subset_dir, ACCEPTANCE_CONFIGS)
-    subset_pack = ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
+    subset_digests, subset_pack = _packed_subsets(subset_dir, subset_pack)
     memory_tally.mark("pack")
 
     tally = memory_tally.from_environment()
@@ -4206,6 +4210,85 @@ def _build_m1(
         tally.boundary("cache")
     _phase_timing("review.build cache", phase, f"(store: {wrote.note()})")
     return manifest
+
+
+def _rust_build_m1(
+    parts: audit.AuditParts,
+    out_dir: Path,
+    audit_path: Path,
+    ledger_path: Path,
+    subset_dir: Path,
+    before_font: Path,
+    after_font: Path,
+    junior_font: Path,
+    repo_root: Path,
+    batch_size: int,
+    static_dir: Path,
+    jobs: int,
+    signature_jobs: int,
+    recompute_all_units: bool,
+    spec_root: Path | None,
+    subset_pack: Path | None,
+    gates_idle_jobs: int | None,
+    gates_idle_marker: Path | None,
+    write_jobs: int | None,
+) -> dict:
+    """Build what `_build_m1` builds from its arguments, with the Rust build (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § The switch), and return the manifest it wrote, read back from `out_dir`. What comes before the load is `_build_m1`'s (`_packed_subsets`); then the units init is written (`units_exec.write_init`) from the `init` dict `_RecomputeRunner.__init__` builds, which derives the configuration fold here, so its line prints before the load; the build input's values are computed with `_build_m1`'s calls (`_rust_inputs`) and written with the held audit's descriptors (`corpus_exec.write_input`); and the process runs (`corpus_exec.run_build`), the init, the input and the process's spill files in a temporary directory held until it exits. A refusal raises `SystemExit` as `_build_m1` raises it, and any other failure `corpus_exec.BuildRunError`."""
+    spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    subset_digests, subset_pack = _packed_subsets(subset_dir, subset_pack)
+    with tempfile.TemporaryDirectory(prefix="ams-review-build-") as held:
+        directory = Path(held)
+        site_pages = fingerprint.read_site_corpus(repo_root)
+        init = {
+            "before_font": before_font,
+            "after_font": after_font,
+            "junior_font": junior_font,
+            "subset_dir": subset_dir,
+            "subset_pack": subset_pack,
+            "repo_root": repo_root,
+            "spec_root": spec_root,
+            "identical_classes": frozenset(
+                entry.id for entry in load_ledger(ledger_path) if entry.ink_identical
+            ),
+            "fold": _config_fold(before_font, after_font),
+            "corpus_index": corpus_index_from_pages(site_pages),
+            "dictionary": FRAGMENT_DICTIONARY.read_bytes(),
+        }
+        del site_pages
+        (directory / "init").mkdir()
+        units_init = units_exec.write_init(init, directory / "init")
+        del init
+        scratch = directory / "spill"
+        scratch.mkdir()
+        values = _rust_inputs(
+            parts,
+            out_dir=out_dir,
+            audit_path=audit_path,
+            ledger_path=ledger_path,
+            subset_dir=subset_dir,
+            before_font=before_font,
+            after_font=after_font,
+            junior_font=junior_font,
+            repo_root=repo_root,
+            batch_size=batch_size,
+            static_dir=static_dir,
+            jobs=jobs,
+            signature_jobs=signature_jobs,
+            recompute_all_units=recompute_all_units,
+            spec_root=spec_root,
+            subset_digests=subset_digests,
+            gates_idle_jobs=gates_idle_jobs,
+            gates_idle_marker=gates_idle_marker,
+            write_jobs=write_jobs,
+            units_init=units_init,
+            scratch=scratch,
+        )
+        input_path = corpus_exec.write_input(values, directory / "build.json", parts.descriptors)
+        del values
+        corpus_exec.run_build(input_path, parts.descriptors)
+    return json.loads((out_dir / "manifest.json").read_bytes())
 
 
 def _stamp_values(stamp: fingerprint.EnvironmentStamp) -> dict:

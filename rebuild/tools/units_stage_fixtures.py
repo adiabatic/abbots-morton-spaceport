@@ -2456,7 +2456,7 @@ class BuildInputs:
 
 @dataclass
 class BuildRun:
-    """One Python build as `run_python_build` ran it: its label, the tree it started from, the tree it wrote, its exit status, what it printed, and the cycle directory of a pass whose claim another output holds."""
+    """One build as `run_engine_build` ran it: its label, the tree it started from, the tree it wrote, its exit status, what it printed, and the cycle directory of a pass whose claim another output holds."""
 
     label: str
     prior: Path
@@ -2593,7 +2593,24 @@ def run_python_build(
     jobs: int | None = None,
     claim_held_by: str | None = None,
 ) -> BuildRun:
-    """Run one Python build of `inputs` into `out` in a fresh process (`python_build_child`), as the cycle's step runs it, and return the run. `out` is first made a clone of `prior` when one is given, and otherwise built in place. `logs` holds the request, the log of standard error, the counts file, the journal the build writes its records to, and the cycle directory of a pass whose claim `claim_held_by` holds. `jobs` is the units width, the harness's default when None, and a build at one job shapes its signatures at one job too."""
+    """Run one Python build of `inputs` into `out` in a fresh process (`run_engine_build` with the `python` engine) and return the run."""
+    return run_engine_build(
+        "python", inputs, out, logs, label, prior=prior, jobs=jobs, claim_held_by=claim_held_by
+    )
+
+
+def run_engine_build(
+    engine: str,
+    inputs: BuildInputs,
+    out: Path,
+    logs: Path,
+    label: str,
+    *,
+    prior: Path | None = None,
+    jobs: int | None = None,
+    claim_held_by: str | None = None,
+) -> BuildRun:
+    """Run one build of `inputs` into `out` in a fresh process (`python_build_child`), as the cycle's step runs it, and return the run: the Python build (`build.build_m1`) for the engine `python`, and the Rust build (`build._rust_build_m1`) for `rust`. `out` is first made a clone of `prior` when one is given, and otherwise built in place. `logs` holds the request, the log of standard error, the counts file, the journal the build writes its records to, and the cycle directory of a pass whose claim `claim_held_by` holds. `jobs` is the units width, the harness's default when None, and a build at one job shapes its signatures at one job too."""
     logs.mkdir(parents=True, exist_ok=True)
     if prior is not None:
         _clone_tree(prior, out)
@@ -2612,6 +2629,7 @@ def run_python_build(
         )
     request = {
         "format": BUILD_REQUEST_FORMAT,
+        "engine": engine,
         "out": str(out),
         "inputs": inputs.request(),
         "jobs": width,
@@ -2643,7 +2661,7 @@ def run_python_build(
 
 
 def python_build_child(request_path: Path) -> int:
-    """Run the build one `run_python_build` request describes, in this process: the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them."""
+    """Run the build one `run_engine_build` request describes, in this process, with the engine it names: `build.build_m1`, or for `rust` `build._rust_build_m1` over the audit held as `build_m1` holds it (`audit.AuditParts`) with `build_m1`'s defaults for every argument the request leaves out; the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them."""
     request = json.loads(request_path.read_text(encoding="utf-8"))
     if request.get("format") != BUILD_REQUEST_FORMAT:
         raise SystemExit(f"{request_path} is not a {BUILD_REQUEST_FORMAT} request")
@@ -2651,6 +2669,33 @@ def python_build_child(request_path: Path) -> int:
     if request["cycle_var"] is not None:
         cycle_paths.CYCLE_VAR = Path(request["cycle_var"])
     inputs = BuildInputs.from_request(request["inputs"])
+    if request["engine"] == "rust":
+        parts = audit.AuditParts(inputs.audit)
+        try:
+            build._rust_build_m1(
+                parts,
+                Path(request["out"]),
+                inputs.audit,
+                inputs.ledger,
+                inputs.subset_dir,
+                build.SITE_BEFORE_FONT,
+                inputs.after_font,
+                build.SITE_JUNIOR_FONT,
+                build.REPO_ROOT,
+                build.BATCH_SIZE,
+                build.STATIC_DIR,
+                request["jobs"],
+                request["signature_jobs"],
+                inputs.recompute_all,
+                inputs.spec_root,
+                inputs.subset_pack,
+                None,
+                None,
+                None,
+            )
+        finally:
+            parts.close()
+        return 0
     build.build_m1(
         Path(request["out"]),
         audit_path=inputs.audit,

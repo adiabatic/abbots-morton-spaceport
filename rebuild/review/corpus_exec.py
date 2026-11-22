@@ -1,17 +1,22 @@
 """The corpus build interface: the Python side of the review crate's corpus build under `rebuild/review-rs/`, the Rust engine of the review corpus build's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Boundary). It owns every format that crosses to the build, as `units_exec` owns the units engine's: nothing pickled crosses, only files and compact JSON this module writes.
 
-`engine()` reads the switch, `AMS_CORPUS_BUILD_ENGINE`, at call time, `python` when it is unset; `ENGINES` holds the engines the build runs. `write_input` writes the build input (`INPUT_FORMAT`, the plan's § The build input) from the values `build._rust_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the ported code reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `BuildRunError` is a build that failed other than by a refusal.
+`engine()` reads the switch, `AMS_CORPUS_BUILD_ENGINE`, at call time, `python` when it is unset; `ENGINES` holds the engines the build runs. `write_input` writes the build input (`INPUT_FORMAT`, the plan's § The build input) from the values `build._rust_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the ported code reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `run_build` runs the build, `ams-review build`, over a written input and returns its result, raising a refusal as `SystemExit` and any other failure as `BuildRunError`.
 """
 
 from __future__ import annotations
 
 import importlib
+import json
 import os
+import subprocess
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from rebuild.review.units_exec import compact, encode
+from rebuild.review.units_exec import compact, encode, ensure_built, spawn
+from rebuild.tools.cycle_timings import record_pool
+from rebuild.tools.peak_rss import peak_footprint_self_bytes
 
 INPUT_FORMAT = "ams-review-build/1"
 ENGINE_VARIABLE = "AMS_CORPUS_BUILD_ENGINE"
@@ -183,3 +188,51 @@ def write_input(values: Mapping[str, Any], path: Path, descriptors: Sequence[int
     path = Path(path)
     path.write_text(compact(input_document(values, descriptors)) + "\n", encoding="ascii")
     return path
+
+
+def run_build(input_path: Path, descriptors: Sequence[int]) -> dict[str, Any]:
+    """Run the Rust build, `ams-review build`, over the build input at `input_path`, and return its `done` result once it exits 0 (the plan's § The process and § The result). The crate is built first (`units_exec.ensure_built`). The process inherits the audit's held `descriptors` and this process's standard error, which carries its console lines, and its standard input is a pipe held open until it exits and never written, so a stop that kills this process ends the build too. A `done` result writes the `corpus-build-rs` pool record: the width is the build's threads, its one worker the process at its peak footprint, and this process's own footprint the controller's. An `exit` result raises `SystemExit` with its message, an `error` result raises `BuildRunError` with its message, and any other ending, a signal or no result line, raises `BuildRunError` naming the exit status."""
+    ensure_built()
+    sys.stderr.flush()
+    process = spawn(
+        ["build", f"--input={Path(input_path).absolute()}"],
+        stdin=subprocess.PIPE,
+        stderr=None,
+        pass_fds=descriptors,
+    )
+    try:
+        assert process.stdout is not None
+        output = process.stdout.read()
+        returncode = process.wait()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        for stream in (process.stdin, process.stdout):
+            if stream is not None:
+                try:
+                    stream.close()
+                except BrokenPipeError:
+                    pass
+    lines = output.decode("utf-8", errors="replace").splitlines()
+    try:
+        result = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        result = None
+    if not isinstance(result, dict):
+        raise BuildRunError(f"the Rust build exited {returncode} without a result line")
+    op = result.get("op")
+    if op == "done" and returncode == 0:
+        record_pool(
+            "corpus-build-rs",
+            width=result["threads"],
+            worker_peaks={"build": result["peak_footprint"]},
+            controller_peak_bytes=peak_footprint_self_bytes(),
+            worker_reading="footprint",
+        )
+        return result
+    if op == "exit" and returncode == 1:
+        raise SystemExit(result["message"])
+    if op == "error" and returncode == 1:
+        raise BuildRunError(f"the Rust build failed: {result['message']}")
+    raise BuildRunError(f"the Rust build exited {returncode} after the result line {lines[-1][:200]!r}")
