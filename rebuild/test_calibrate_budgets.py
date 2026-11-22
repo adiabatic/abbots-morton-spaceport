@@ -644,6 +644,29 @@ def test_the_rust_units_engines_records_go_to_their_own_row_and_are_never_checke
     assert "40.00 GB" not in out.split("\ncorpus-worker  ")[1].split("\n\n")[0]
 
 
+def test_the_rust_builds_records_go_to_their_own_row_and_its_steps_leave_the_parents_row(tmp_path, capsys):
+    """A corpus build under the Rust build records its one process under `corpus-build-rs`. Only that row reads it, and the row has no constant, since one reading at one width cannot separate the process figure from the per-thread one. Its corpus-build step's peak is that process's, not the Python parent's, so the corpus-parent row leaves out a step whose `[t] review.build load` line opens with `build=rust` and keeps every other."""
+    assert _unit("corpus-build-rs").constant is None
+    assert [unit.name for unit in cb.UNITS if "corpus-build-rs" in unit.pool_units] == ["corpus-build-rs"]
+    rust_step = _step("corpus-build", 30_000_000_000, run="r1")
+    rust_step["inner"] = [{"label": "review.build load", "elapsed_s": 23.5, "build": "rust"}]
+    python_step = _step("corpus-build", 3_000_000_000, run="r2")
+    python_step["inner"] = [{"label": "review.build load", "elapsed_s": 57.7}]
+    path = _journal(
+        tmp_path,
+        [rust_step, python_step, _pool("corpus-build-rs", [40_000_000_000], reading="footprint")],
+    )
+    _, steps, _ = cb.load_journal(path)
+    pools = cb.load_pool_records(path)
+    parent, _, _, _ = cb.observations(_unit("corpus-parent"), pools, steps, host=HOST, recent=20)
+    assert [(item.peak_bytes, item.source) for item in parent] == [(3_000_000_000, "step:corpus-build")]
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    block = out.split("corpus-build-rs  (no constant")[1].split("\n\n")[0]
+    assert "max 40.00 GB" in block
+    assert "30.00 GB" not in out.split("\ncorpus-parent  ")[1].split("\n\n")[0]
+
+
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
     peak = int(CONSTANTS["font-suite"] * 1.05)
     path = _journal(tmp_path, [_pool("font-suite", [peak])])

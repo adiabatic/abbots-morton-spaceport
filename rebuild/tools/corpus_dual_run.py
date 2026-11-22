@@ -8,6 +8,8 @@ Before comparing bytes, each case compares the fields that move when the inputs 
 
 The report is JSON under `var/rust-port/corpus-dual-run/` (`--report` names another path): per scenario and case, the files compared and each difference, and each side's width, exit status, wall time, phase seconds, peak footprints from its pool records (a Python side's parent and units engine, a Rust side's build process) and zlib version, a Rust side's as `ams-review version` prints it. Any difference, or a scenario check a Python side does not pass, exits 1. `--plant shard` changes one byte of the second side's first shard part after its last build, to show that the comparison reports it.
 
+`--memory` measures the Rust build's memory: with `--engines rust` and a comma-separated `--threads` list it prepares one scenario, runs the Rust build alone over it once per width, each width's builds as a side of their own, and fits a process figure and a per-thread figure to the build process's peak footprints by least squares (`units_dual_run.fit_memory`), which `artifact_cycle.CORPUS_BUILD_RS_PROCESS_BYTES` and `CORPUS_BUILD_RS_THREAD_BYTES` are set from; `max` in the list is the width a hand build under the Rust build takes (`rust_default_width`). Each width's peak is the highest its builds' `corpus-build-rs` pool records read, and the Python process that waited on them, the launcher `CORPUS_BUILD_RS_LAUNCHER_BYTES` books, is read from the same records' controller reading. The report goes under `var/rust-port/corpus-dual-run/` with `-memory` after its stem: each width's peak footprints, wall time and phase seconds, and the fit. A build that does not end done exits 1.
+
 A live run is a heavy pass that starts with the live base prior's refresh, itself a whole build: detach it, watch its log (`doc/running-long-steps.md`), and run nothing else beside it.
 
 Run from the repository root:
@@ -16,6 +18,7 @@ Run from the repository root:
     uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario all --engines python,python
     uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario warm --engines python,python --plant shard
     uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario refusals --engines python,python
+    uv run python -m rebuild.tools.corpus_dual_run --source live --scenario cold --engines rust --threads 1,4,max --memory
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ from pathlib import Path
 
 from rebuild.pipeline import row_delta
 from rebuild.review import unit_cache, units_exec
+from rebuild.tools.peak_rss import format_gb
+from rebuild.tools.units_dual_run import fit_memory
 from rebuild.tools.units_stage_fixtures import (
     BUILD_SCENARIOS,
     REPO_ROOT,
@@ -49,6 +54,7 @@ from rebuild.tools.units_stage_fixtures import (
 )
 
 REPORT_FORMAT = "ams-review-corpus-dual-run/1"
+MEMORY_FORMAT = "ams-review-corpus-memory/1"
 REPORT_DIR = REPO_ROOT / "var" / "rust-port" / "corpus-dual-run"
 ENGINES = ("python", "rust")
 PLANTABLE = ("shard",)
@@ -437,6 +443,109 @@ def plant_shard(out: Path) -> dict:
     return {"kind": "shard", "path": part.relative_to(out).as_posix(), "offset": offset}
 
 
+# --- the memory measurement ---------------------------------------------------------------------
+
+
+def rust_default_width() -> int:
+    """`--threads max`: the width a hand build under the Rust build takes, `artifact_cycle.corpus_job_budget` with `skip_gates` under `build_engine="rust"`."""
+    from rebuild.tools.artifact_cycle import corpus_job_budget
+
+    return corpus_job_budget(skip_gates=True, build_engine="rust")
+
+
+def thread_widths(text: str | None) -> list[int] | None:
+    """Read `--threads`: a comma-separated list of widths, each a positive count or `max` (`rust_default_width`), or None when it is left out."""
+    if text is None:
+        return None
+    widths = []
+    for item in text.split(","):
+        if item == "max":
+            widths.append(rust_default_width())
+        elif item.isdigit() and int(item) >= 1:
+            widths.append(int(item))
+        else:
+            raise SystemExit(f"--threads takes positive counts and max, not {item!r}")
+    return widths
+
+
+def memory_reading(side_runs: Sequence[SideRun]) -> dict:
+    """One width's reading: the highest peak footprint its builds' `corpus-build-rs` pool records give for the build process and for the launcher waiting on it, None where a build wrote no record, whether every build ended done, and each build's wall time and phase seconds."""
+    builds, launchers = [], []
+    for side_run in side_runs:
+        record = side_run.pools().get("corpus-build-rs")
+        if record is not None:
+            builds.append(max(record["worker_peak_bytes"].values()))
+            launchers.append(record["controller_peak_bytes"])
+    done = all(
+        side_run.run.returncode == 0 and _ending_kind(side_run.run) == "done" for side_run in side_runs
+    )
+    return {
+        "threads": side_runs[0].width,
+        "peak_footprint_bytes": max(builds) if done and builds else None,
+        "launcher_peak_footprint_bytes": max(launchers) if done and launchers else None,
+        "ok": done and len(builds) == len(side_runs),
+        "builds": [
+            {
+                "case": side_run.run.label,
+                "returncode": side_run.run.returncode,
+                "ending": side_run.run.ending,
+                "wall_seconds": round(side_run.wall_seconds, 3),
+                "phase_seconds": side_run.phases(),
+                "pools": side_run.pools(),
+            }
+            for side_run in side_runs
+        ],
+    }
+
+
+def run_memory(source: str, name: str, widths: Sequence[int]) -> list[dict]:
+    """Prepare one scenario and run the Rust build alone over it once per width, each width's builds as a side of their own over clones of the scenario's priors, and return each width's reading (`memory_reading`)."""
+    scenario = open_build_source(source, name)
+    root = scenario.directory / "memory"
+    readings = []
+    for width in widths:
+        side = Side(0, "rust", width, root / f"rust-threads{width}")
+        side_runs = [build_case(side, case) for case in scenario.cases]
+        reading = memory_reading(side_runs)
+        readings.append(reading)
+        print(
+            f"corpus_dual_run: {width} threads, peak footprint "
+            + (
+                "unread, a build did not end done"
+                if not reading["ok"]
+                else f"{format_gb(reading['peak_footprint_bytes'])} GB, launcher {format_gb(reading['launcher_peak_footprint_bytes'])} GB"
+            ),
+            file=sys.stderr,
+        )
+    return readings
+
+
+def write_memory_report(path: Path, source: str, name: str, readings: Sequence[dict]) -> dict | None:
+    """Write the memory report: each width's reading, and when every build ended done, the fit of a process and a per-thread figure to the build process's peaks and the launcher's highest peak. Returns the fit, or None when a build did not end done."""
+    fit = None
+    if all(reading["ok"] for reading in readings):
+        process, thread = fit_memory(
+            [(reading["threads"], reading["peak_footprint_bytes"]) for reading in readings]
+        )
+        fit = {
+            "process_bytes": process,
+            "thread_bytes": thread,
+            "launcher_bytes": max(reading["launcher_peak_footprint_bytes"] for reading in readings),
+        }
+    payload = {
+        "format": MEMORY_FORMAT,
+        "source": source,
+        "scenario": name,
+        "engines": ["rust"],
+        "zlib": rust_zlib_version(),
+        "runs": list(readings),
+        "fit": fit,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    return fit
+
+
 # --- the run ------------------------------------------------------------------------------------
 
 
@@ -544,33 +653,74 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--engines",
         default="python,rust",
-        help="the two sides' engines, comma-separated (default: python,rust)",
+        help="the two sides' engines, comma-separated, or rust alone for --memory (default: python,rust)",
     )
     parser.add_argument(
-        "--threads", type=int, help="a Rust side's width (default: the harness's default width)"
+        "--threads",
+        metavar="N[,N...]",
+        help="a Rust side's width, `max` for a hand build's under the Rust build; a list is for --memory (default: the harness's default width)",
+    )
+    parser.add_argument(
+        "--memory",
+        action="store_true",
+        help="run the Rust build alone once per --threads width and fit a process and a per-thread figure to its peak footprints",
     )
     parser.add_argument("--plant", choices=PLANTABLE, help="corrupt one file of the second side's last build")
     parser.add_argument("--report", type=Path, help="where to write the JSON report")
     args = parser.parse_args(argv)
     engines = tuple(args.engines.split(","))
-    if len(engines) != 2:
-        parser.error("--engines names two engines")
     for engine in engines:
         if engine not in ENGINES:
             parser.error(
                 f"engine {engine!r} is not one the harness runs; the engines are {', '.join(ENGINES)}"
             )
-    if args.threads is not None and args.threads < 1:
-        parser.error("--threads is at least one")
+    widths = thread_widths(args.threads)
+    if args.memory:
+        if engines != ("rust",):
+            parser.error("--memory runs the Rust build alone, so --engines names rust")
+        if widths is None or len(set(widths)) < 2:
+            parser.error("--memory fits two figures, so --threads names at least two distinct widths")
+        if args.scenario in ("all", "refusals"):
+            parser.error("--memory names one scenario whose builds end done")
+        if args.plant:
+            parser.error("--memory compares nothing, so it plants nothing")
+    else:
+        if len(engines) != 2:
+            parser.error("--engines names two engines, or rust alone for --memory")
+        if widths is not None and len(widths) != 1:
+            parser.error("a --threads list is for --memory")
     if args.source == "live" and args.scenario == "all":
         parser.error("a live run names one scenario")
     names = scenario_names(args.source, args.scenario)
     for name in names:
         if args.source not in BUILD_SCENARIOS[name]:
             parser.error(f"the {name} scenario runs on {', '.join(BUILD_SCENARIOS[name])}, not {args.source}")
+    if args.memory:
+        assert widths is not None
+        path = args.report or REPORT_DIR / f"{args.source}-{args.scenario}-rust-memory.json"
+        readings = run_memory(args.source, args.scenario, widths)
+        fit = write_memory_report(path, args.source, args.scenario, readings)
+        for reading in readings:
+            peak = reading["peak_footprint_bytes"]
+            print(
+                f"memory: {reading['threads']} threads, peak footprint "
+                + ("unread" if peak is None else f"{format_gb(peak)} GB ({peak:,} bytes)"),
+                file=sys.stderr,
+            )
+        if fit is None:
+            print(f"corpus_dual_run: a build did not end done; report {path}", file=sys.stderr)
+            return 1
+        print(
+            f"memory: fitted {format_gb(fit['process_bytes'])} GB a process and {format_gb(fit['thread_bytes'])} GB a thread "
+            f"({fit['process_bytes']:,} and {fit['thread_bytes']:,} bytes), the launcher at most "
+            f"{format_gb(fit['launcher_bytes'])} GB ({fit['launcher_bytes']:,} bytes); report {path}",
+            file=sys.stderr,
+        )
+        return 0
+    threads = None if widths is None else widths[0]
     stem = (
         "-".join((args.source, args.scenario, *engines))
-        + (f"-threads-{args.threads}" if args.threads is not None else "")
+        + (f"-threads-{threads}" if threads is not None else "")
         + (f"-plant-{args.plant}" if args.plant else "")
     )
     path = args.report or REPORT_DIR / f"{stem}.json"
@@ -578,7 +728,7 @@ def main(argv: list[str] | None = None) -> int:
     planted = None
     moved = False
     for name in names:
-        found, planted_here = run_scenario(args.source, name, engines, args.plant, args.threads)
+        found, planted_here = run_scenario(args.source, name, engines, args.plant, threads)
         results += found
         planted = planted or planted_here
         if any(result.moved for result in found):

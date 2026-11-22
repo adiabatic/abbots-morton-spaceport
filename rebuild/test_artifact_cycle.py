@@ -2785,6 +2785,43 @@ class TestTheCorpusBuildWidth:
             skip_gates=True, ncores=12, total_bytes=total, engine="python"
         )
 
+    def test_the_rust_build_fits_threads_beside_its_process_and_launcher(self, monkeypatch):
+        """Under the Rust build (`AMS_CORPUS_BUILD_ENGINE=rust`) the width is the thread count of its one process: CORPUS_BUILD_RS_THREAD_BYTES divides, and the process's CORPUS_BUILD_RS_PROCESS_BYTES and the Python process waiting on it, CORPUS_BUILD_RS_LAUNCHER_BYTES, come off the machine in place of the parent and the units engine, beside gate:make-test's pool when that gate runs, under the same cap. A width for the Python units engine is a Python build's, which the Rust build refuses to run beside, and without the switch the width is the Python build's."""
+        from rebuild.review import corpus_exec, units_exec
+        from rebuild.tools import memory_budget
+
+        monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+        monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "rust")
+        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
+        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9) == (
+            ac.CORPUS_BUILD_RS_THREAD_BYTES,
+            process,
+            8,
+        )
+        assert ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9) == (
+            ac.CORPUS_BUILD_RS_THREAD_BYTES,
+            process + 4 * ac._font_suite_worker_bytes(),
+            4,
+        )
+        total = process + 3 * ac.CORPUS_BUILD_RS_THREAD_BYTES + memory_budget.RESERVE_FLOOR_BYTES
+        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total) == 3
+        assert ac.corpus_job_derivation(skip_gates=True, ncores=12, total_bytes=total).startswith("3 at ")
+        python_build = ac._corpus_fit_terms(
+            skip_gates=True, skip_make_test=False, ncores=9, engine="rust", build_engine="python"
+        )
+        assert python_build == (
+            ac.CORPUS_UNITS_RS_THREAD_BYTES,
+            ac.CORPUS_PARENT_BYTES + ac.CORPUS_UNITS_RS_PROCESS_BYTES,
+            8,
+        )
+        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9, engine="python") == (
+            ac.CORPUS_WORKER_BYTES,
+            ac.CORPUS_PARENT_BYTES,
+            8,
+        )
+        monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE)
+        assert ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9) == python_build
+
     def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_worker(self):
         """A machine with no memory left after its reserve floors at one in both cases. Width one is the serial build: the parent runs the units phase itself instead of handing it to a worker pool."""
         assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
@@ -2998,6 +3035,36 @@ class TestTheConformSweepWidth:
             narrow_corpus,
         )
         assert ac._conform_build_lane(**narrow, skip_corpus=True, verdict_update_runs=False) == ("", 0)
+
+    def test_the_rust_builds_process_and_threads_are_the_build_lanes_corpus_terms_under_its_switch(
+        self, monkeypatch
+    ):
+        """Under the Rust build the corpus-build step the conformance sweep runs beside holds the build's process and its launcher beside its threads, and the verdict-update step counts the process and the launcher, which write the unit store as the verdict update starts, in place of the Python build's parent."""
+        from rebuild.review import corpus_exec, units_exec
+
+        monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
+        monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "rust")
+        machine: dict[str, Any] = dict(
+            skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB, ncores=40
+        )
+        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
+        corpus = process + ac.CORPUS_BUILD_RS_THREAD_BYTES * ac.corpus_job_budget(**machine)
+        verdict_update = (
+            ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(**machine)
+        )
+        assert ac._conform_build_lane(**machine, skip_corpus=False, verdict_update_runs=False) == (
+            "corpus-build",
+            corpus,
+        )
+        assert verdict_update + process > corpus
+        assert ac._conform_build_lane(**machine, skip_corpus=False, verdict_update_runs=True) == (
+            "verdict-update",
+            verdict_update + process,
+        )
+        assert ac._conform_build_lane(**machine, skip_corpus=True, verdict_update_runs=True) == (
+            "verdict-update",
+            verdict_update,
+        )
 
     def test_every_fleet_machine_runs_the_conform_sweep_as_wide_as_its_cores_allow(self):
         """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores, under either pool policy, the conformance sweep runs as many units as the machine has cores beside the verdict-update step alone, and beside a gated build lane (the corpus build and the verdict-update step) the cores less the build's parent and workers, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
@@ -3213,6 +3280,11 @@ class TestTheConformSweepWidth:
 def test_the_land_holds_less_than_either_build_lane_step_before_it():
     """The land follows the corpus build and the verdict update in the build lane, and the lane's reservation (`_conform_build_lane`) covers the larger of those two, so it covers the land only while the land's constant stays below both parents'."""
     assert ac.LAND_BYTES < min(ac.CORPUS_PARENT_BYTES, ac.STANDING_FILL_PARENT_BYTES)
+
+
+def test_the_land_holds_less_than_the_rust_builds_process_and_launcher():
+    """Under the Rust build the build lane's reservation books the build's process and its launcher where it books the Python build's parent (`_conform_build_lane`), so it covers the land only while the land's constant stays below those two together."""
+    assert ac.LAND_BYTES < ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):

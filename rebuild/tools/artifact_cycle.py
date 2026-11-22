@@ -174,6 +174,11 @@ CORPUS_WORKER_BYTES = 420_000_000
 # Both are set by peak footprint (`peak_rss.peak_footprint_self_bytes`, the reading the engine's `stopped` reply carries) from `units_dual_run --source live --per-config 1 --batches 24 --engines rust --threads 1,4,max --memory` at 53 runes on the 12-core M4 Pro Mac mini (`doc/fleet.md`), which runs the engine alone with the allocator's large cache off, as the cycle's corpus-build step runs it: 237,568 units in 29 handouts of 8,192 read 0.13, 0.28 and 0.62 GB at 1, 4 and 11 threads, which the least-squares fit puts at 0.082 GB a process and 0.049 GB a thread. Each constant is its fitted figure plus a quarter, rounded up to the hundredth of a gigabyte, for the reason CORPUS_WORKER_BYTES errs high: 0.11 GB and 0.07 GB, which book 0.18, 0.39 and 0.88 GB at those widths. The whole corpus, 3,009,011 units in 368 handouts, read 0.58 GB at 11 threads the same way. A hand build runs the engine with the large cache on, and the same whole-corpus run read 1.21 GB there, as a hand build's Python workers read higher than a cycle's (`doc/parallelism.md`); the cap binds the width on both fleet machines either way. The corpus-units-rs row of `make job-costs` reports the build's readings of the whole process at its thread count and checks neither constant.
 CORPUS_UNITS_RS_PROCESS_BYTES = 110_000_000
 CORPUS_UNITS_RS_THREAD_BYTES = 70_000_000
+# The memory of the Rust corpus build (`AMS_CORPUS_BUILD_ENGINE=rust`, `corpus_exec.run_build`), one `ams-review build` process that runs the whole data path, its units phase on its threads in process, while the Python build process that started it waits, so `corpus_job_budget` fits that process's threads under the Rust build: CORPUS_BUILD_RS_PROCESS_BYTES is what the process holds at any width, CORPUS_BUILD_RS_LAUNCHER_BYTES is the Python process waiting on it, and both come off the machine in place of CORPUS_PARENT_BYTES and the units engine's process, while CORPUS_BUILD_RS_THREAD_BYTES is what each thread adds and is the divisor. The process holds the corpus as columns (the unit table, the unit store, the window index and the pre-merge snapshot, `rebuild/CORPUS-PARENT-PORT-PLAN.md` § Data model and phases), so it grows with the corpus as the Python parent does; it holds neither the arena nor the sidecar lines, which go to spill files on disk. A thread runs the units engine's worker code, whose own figure is CORPUS_UNITS_RS_THREAD_BYTES.
+# All three are set by peak footprint (`ffi::peak_footprint` in rebuild/review-rs/, the `done` result's reading, and `peak_rss.peak_footprint_self_bytes` for the launcher, both from the `corpus-build-rs` pool records) from `corpus_dual_run --source live --scenario cold --engines rust --threads 1,4,max --memory` at 55 runes on the 12-core M4 Pro Mac mini (`doc/fleet.md`), which runs the Rust build alone with the allocator's large cache off, as the cycle's corpus-build step runs it, recomputing all 3,550,073 units: the process read 2.25, 2.18 and 2.15 GB at 1, 4 and 11 threads, which the least-squares fit puts at 2.24 GB a process and -0.009 GB a thread, and the launcher read at most 0.107 GB. The peak does not rise with the width, so it falls outside the units phase, where each thread adds its engines, and the fit gives no positive per-thread figure; the divisor is the units engine's own booked thread figure, 0.07 GB, since a thread runs the same worker code. The process and launcher constants are their figures plus a quarter, rounded up to the hundredth of a gigabyte, for the reason CORPUS_WORKER_BYTES errs high: 2.81 GB and 0.14 GB, which with the threads book 3.02, 3.23 and 3.72 GB at those widths. The resident peaks of the same builds climb with the width, 2.52, 3.47 and 4.18 GB, because a resident set counts the clean mapped pages, the subset pack's among them, that a footprint leaves out. The corpus-build-rs row of `make job-costs` reports the build's readings and checks none of the three.
+CORPUS_BUILD_RS_PROCESS_BYTES = 2_810_000_000
+CORPUS_BUILD_RS_THREAD_BYTES = 70_000_000
+CORPUS_BUILD_RS_LAUNCHER_BYTES = 140_000_000
 # The peak memory of the corpus build's parent while its pool runs, subtracted from the machine's memory before dividing by CORPUS_WORKER_BYTES. The parent holds the workload table (`audit.UnitTable` in rebuild/review/audit.py: each unit's class, group, change group, duplicate group and cluster as ids into one string table, its config set, kinds, render groups and per-config class map as ids into pools of a few dozen values, its window parsed once into a `u16` side column, its count of audit rows and its triage position, all as fixed-width `array` columns over the unit's ordinal, well under 100 bytes a unit, and from the load to the primary-unit search the units in window order beside their windows packed into words, 12 bytes a unit, `UnitTable.window_index`); the packed unit store (rebuild/review/unit_store.py) over the same ordinal and string table; the write's folded checker (`build._CorpusCheck`); the review facts' pre-merge snapshot (`facts.PremergeSnapshot`, columns over the pre-merge rows at 14 bytes a row, 19 after `rebase`); from the units phase to the end of the write, the arena of recomputed fragments (`build._FragmentArena`), below; one fragment or one materialized `audit.Unit`; one batch of materialized records while a hand-out is being sent; one batch reply in flight per worker; during a pooled write, per write worker one chunk gathered ahead and held pickled, with its recomputed fragments, plus, while it gathers the next, that chunk and its pickle, and one chunk's results at a time (`build._WritePool`), with each open class's part indices at 2 bytes a unit; and once the manifest is written, one run's compressed lines for one sidecar at a time while it writes the sidecars from them (`build._write_sidecars`), the units index's write streaming those lines beside the prior index's parts, a buffer a part (`unit_index.write_index_lines`, #618's change 32). A write at width one runs in the parent and holds every run's compressed lines there from the write to the sidecars. The hand-out, the replies, the write's chunks and the sidecar lines are the terms the width changes: a run is about the corpus over the width, and at width one the parent holds the whole corpus's lines, about 0.42 GB at 45 runes. The parent never holds a list of unit records at any phase (`UnitTable.unit` materializes one for a reader that needs it, and `units` is for the tests).
 # The unit store holds every per-unit product of phase 1 from the plan boundary to the cache write (the machine flags and ink deltas, the diff and cluster digests, the change group and the ledger class of a re-routed unit, the primary-unit projection with its spans, names and rects, the primary-unit assignments, the fragment's arena or prior address, the shard address the write returns, the content and input keys, the policy file and the config note) as fixed-width `array` columns plus one string table over the vocabulary, not the corpus (the `[tally] … unit_store` line measures the table beside the columns). It materializes one unit at a time for a whole-corpus pass or a store line. A slotted state record, an address object and a dict keyed by id hold the same facts in about six to twenty times the bytes, collection by collection, which is why the store uses columns (rebuild/review/unit_store.py's module docstring cites the slotted record's measurement). The table's `[tally] … workload.units` line compares the same way against 645.6 bytes a unit for a list of records.
 # The ink-signature store is held as columns, never as a dict (`unit_cache.SignatureArrays`): the prior store's keys in one sorted `array("Q")` beside a `bytearray` of their 32-byte digests, a hit bit an entry, and the shaped misses in two more columns. They are held from the load through the plan phase and released when the store is written: inline as the units phase opens on a serial build, and a few seconds into the units phase on a pooled build, when the `_SignatureWrite` thread that `build_m1` starts at that boundary finishes, or at that boundary when every prior entry was hit and nothing missed and the store is left as it is. So the columns overlap the pool only for the length of that write. The key-only read's misses, each one's key, section and window, live from that read to their shaping, before the stream reads its first window, and the stream keeps no window-keyed table of digests: it looks each sibling row's key up in the columns as it reads the window.
@@ -1571,20 +1576,36 @@ def sweep_job_derivation(ncores: int | None = None, total_bytes: int | None = No
 
 
 def _corpus_fit_terms(
-    *, skip_gates: bool, skip_make_test: bool, ncores: int | None, engine: str | None = None
+    *,
+    skip_gates: bool,
+    skip_make_test: bool,
+    ncores: int | None,
+    engine: str | None = None,
+    build_engine: str | None = None,
 ) -> tuple[int, int, int]:
-    """Return the three arguments of the corpus build's width: the per-worker divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `corpus_job_budget` passes them to `how_many_fit` and `corpus_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation. The cap is the cores the build's lane holds, less one for its parent: every usable core under `skip_gates` (a hand build or `--skip-gates`), and the build lane's share (`memory_budget.split_cores`) on any gated pass, whether or not gate:make-test runs, because gate:rebuild-contracts, and gate:conform when it runs, take the gate lane beside the build. A gated build's units pool takes the `skip_gates` terms instead when the gate lane is idle as the pool starts (`corpus_gates_idle_job_budget`). The co-resident bytes are the parent's, plus gate:make-test's pool when that gate runs. `engine` is the units engine the width is for, the one the switch names (`units_exec.engine()`) when it is None, as the build's runner takes it. Under the Rust units engine the width counts threads of one engine process: the divisor is CORPUS_UNITS_RS_THREAD_BYTES, and the process's CORPUS_UNITS_RS_PROCESS_BYTES joins the co-resident bytes. Under the Python engine the divisor is CORPUS_WORKER_BYTES."""
-    from rebuild.review import units_exec
+    """Return the three arguments of the corpus build's width: the per-worker divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `corpus_job_budget` passes them to `how_many_fit` and `corpus_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation. The cap is the cores the build's lane holds, less one for its parent: every usable core under `skip_gates` (a hand build or `--skip-gates`), and the build lane's share (`memory_budget.split_cores`) on any gated pass, whether or not gate:make-test runs, because gate:rebuild-contracts, and gate:conform when it runs, take the gate lane beside the build. A gated build's units pool takes the `skip_gates` terms instead when the gate lane is idle as the pool starts (`corpus_gates_idle_job_budget`). The co-resident bytes are the parent's, plus gate:make-test's pool when that gate runs. `engine` is the units engine the width is for, the one the switch names (`units_exec.engine()`) when it is None, as the build's runner takes it. Under the Rust units engine the width counts threads of one engine process: the divisor is CORPUS_UNITS_RS_THREAD_BYTES, and the process's CORPUS_UNITS_RS_PROCESS_BYTES joins the co-resident bytes. Under the Python engine the divisor is CORPUS_WORKER_BYTES. `build_engine` is the corpus build's engine, the one its switch names (`corpus_exec.engine()`) when it is None, unless `engine` is `python`, which only the Python build runs. Under the Rust build the width counts the threads of the one build process (`corpus_exec.run_build`), whose units phase runs on them in process: the divisor is CORPUS_BUILD_RS_THREAD_BYTES, and the process's CORPUS_BUILD_RS_PROCESS_BYTES and the Python process waiting on it, CORPUS_BUILD_RS_LAUNCHER_BYTES, are the co-resident bytes in place of the parent's and the units engine's, under the same cap."""
+    from rebuild.review import corpus_exec, units_exec
     from rebuild.tools import memory_budget
 
-    if engine is None:
+    if build_engine is None:
+        build_engine = "python" if engine == "python" else corpus_exec.engine()
+    if build_engine not in ("python", "rust"):
+        raise ValueError(f"no corpus build engine is called {build_engine!r}")
+    if engine is None and build_engine == "python":
         engine = units_exec.engine()
 
     cores = ncores or memory_budget.usable_cores()
     lane = cores if skip_gates else memory_budget.split_cores(cores)[0]
-    coresident = CORPUS_PARENT_BYTES
+    gates = 0
     if not (skip_gates or skip_make_test):
-        coresident += _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+        gates = _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
+    if build_engine == "rust":
+        return (
+            CORPUS_BUILD_RS_THREAD_BYTES,
+            gates + CORPUS_BUILD_RS_PROCESS_BYTES + CORPUS_BUILD_RS_LAUNCHER_BYTES,
+            max(1, lane - 1),
+        )
+    coresident = CORPUS_PARENT_BYTES + gates
     if engine == "rust":
         return CORPUS_UNITS_RS_THREAD_BYTES, coresident + CORPUS_UNITS_RS_PROCESS_BYTES, max(1, lane - 1)
     if engine != "python":
@@ -1599,10 +1620,11 @@ def corpus_job_budget(
     ncores: int | None = None,
     total_bytes: int | None = None,
     engine: str | None = None,
+    build_engine: str | None = None,
 ) -> int:
     """Return the review-corpus build's `--jobs` width: memory, less the reserve, less what the build's parent holds, divided by one worker's peak, capped at the cores the build's lane holds less the parent (`_corpus_fit_terms`), and floored at one. The parent and the workers are separate constants because the parent's share is about as large as the pool's. CORPUS_PARENT_BYTES is the parent, which holds the workload table (`audit.UnitTable`) and the packed unit store (rebuild/review/unit_store.py) at any width, so it is subtracted before the division, as gate:make-test's pool is. CORPUS_WORKER_BYTES is the divisor. A worker's peak does not grow with the width, because the parent hands out one batch at a time, or with the alphabet, because the tables sit in the baseline subset pack it maps read-only (rebuild/review/subset_pack.py). The two constants' comments have the measurements. The ink-signature pool that `_shape_misses` starts before the units phase is not counted: each of its workers holds one comparator, about a tenth of a gigabyte, and the pool runs at `signature_job_budget`'s core-count width.
 
-    `engine` is the units engine the width is for, the one the switch names (`units_exec.engine()`) when it is None, so the build's `--jobs` default, the cycle's plan and every width derived from them size the engine the build will run. Under `rust`, the default, it is the thread count of the one Rust engine process (`units_exec.UnitsProcess`), fitted with CORPUS_UNITS_RS_THREAD_BYTES as the divisor and CORPUS_UNITS_RS_PROCESS_BYTES subtracted beside the parent, under the same cap. Under `python` it is the spawn workers' count, with CORPUS_WORKER_BYTES the divisor, as the first paragraph says.
+    `engine` is the units engine the width is for, the one the switch names (`units_exec.engine()`) when it is None, so the build's `--jobs` default, the cycle's plan and every width derived from them size the engine the build will run. Under `rust`, the default, it is the thread count of the one Rust engine process (`units_exec.UnitsProcess`), fitted with CORPUS_UNITS_RS_THREAD_BYTES as the divisor and CORPUS_UNITS_RS_PROCESS_BYTES subtracted beside the parent, under the same cap. Under `python` it is the spawn workers' count, with CORPUS_WORKER_BYTES the divisor, as the first paragraph says. `build_engine` is the corpus build the width is for, the one its switch names (`corpus_exec.engine()`) when it is None: under `rust` it is the thread count of the one Rust build process, fitted with CORPUS_BUILD_RS_THREAD_BYTES as the divisor and CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES subtracted in place of the parent and the units engine (`_corpus_fit_terms`).
 
     A `corpus-build` step peak does not measure this build's footprint. `peak_rss.reap_peak_rss_bytes` takes the largest single process in the child's tree, which here is the parent, so the step peak barely moves with the width (13.25 GB at ten jobs, 13.77 GB at two) and never includes the pool. The 2026-08-27 fully recomputed pass read 17.76 GB at eight workers, while a per-term measurement of the same tree put parent and workers together at roughly twice a 34 GB machine.
 
@@ -1613,7 +1635,11 @@ def corpus_job_budget(
     from rebuild.tools import memory_budget
 
     per_unit, coresident, cap = _corpus_fit_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, engine=engine
+        skip_gates=skip_gates,
+        skip_make_test=skip_make_test,
+        ncores=ncores,
+        engine=engine,
+        build_engine=build_engine,
     )
     return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
@@ -1834,13 +1860,22 @@ def _conform_build_lane(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
-    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The candidates are the corpus build (its parent plus `corpus_job_budget`'s workers), and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool, and on a pass that runs the corpus build, that build's whole parent too, CORPUS_PARENT_BYTES, since the build writes its unit store beside the verdict update's start once its pools have stopped, `_do_corpus_build`). The land that follows them is not a candidate: it holds less than either (LAND_BYTES), which a test checks, and the lane joins the corpus build before it. The one this pass runs that holds more is returned, the corpus build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the memory the conformance sweep sets aside for that step matches the step's width. The conformance sweep can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the corpus build, and the verdict-update step follows the build in the same lane, so a conformance sweep still running then, or one queued behind make-test (`gates_queue`), runs beside the verdict-update step."""
+    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The candidates are the corpus build (its parent plus `corpus_job_budget`'s workers), and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool, and on a pass that runs the corpus build, that build's whole parent too, CORPUS_PARENT_BYTES, since the build writes its unit store beside the verdict update's start once its pools have stopped, `_do_corpus_build`). Under the Rust build (`corpus_exec.engine()`) the build's process and its launcher, CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES, stand in for the parent in both, and its threads at CORPUS_BUILD_RS_THREAD_BYTES for the workers. The land that follows them is not a candidate: it holds less than either (LAND_BYTES), which a test checks, and the lane joins the corpus build before it. The one this pass runs that holds more is returned, the corpus build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the memory the conformance sweep sets aside for that step matches the step's width. The conformance sweep can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the corpus build, and the verdict-update step follows the build in the same lane, so a conformance sweep still running then, or one queued behind make-test (`gates_queue`), runs beside the verdict-update step."""
+    from rebuild.review import corpus_exec
+
+    if corpus_exec.engine() == "rust":
+        corpus_parent, corpus_worker = (
+            CORPUS_BUILD_RS_PROCESS_BYTES + CORPUS_BUILD_RS_LAUNCHER_BYTES,
+            CORPUS_BUILD_RS_THREAD_BYTES,
+        )
+    else:
+        corpus_parent, corpus_worker = CORPUS_PARENT_BYTES, CORPUS_WORKER_BYTES
     steps: list[tuple[str, int]] = []
     if not skip_corpus:
         corpus_jobs = corpus_job_budget(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
-        steps.append(("corpus-build", CORPUS_PARENT_BYTES + CORPUS_WORKER_BYTES * corpus_jobs))
+        steps.append(("corpus-build", corpus_parent + corpus_worker * corpus_jobs))
     if verdict_update_runs:
         fill_jobs = standing_fill_jobs(
             skip_gates=skip_gates,
@@ -1849,7 +1884,7 @@ def _conform_build_lane(
             ncores=ncores,
             total_bytes=total_bytes,
         )
-        store_write = 0 if skip_corpus else CORPUS_PARENT_BYTES
+        store_write = 0 if skip_corpus else corpus_parent
         steps.append(
             (
                 "verdict-update",

@@ -138,6 +138,20 @@ def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
     ]
 
 
+def test_parse_inner_timings_reads_the_rust_corpus_builds_engine_off_its_load_line():
+    """The Rust corpus build's load line opens its note with `build=rust`, kept under `build`, which is how a step record tells the Rust build process's peak from the Python parent's. A value that names no engine is left out."""
+    text = (
+        "[t] review.build load 23.5s rss_gb=1.10 rss_now_gb=0.90\tbuild=rust (signatures: 40 cached, 2 shaped on 11 threads)\n"
+        "[t] review.build units 57.1s rss_gb=2.15 rss_now_gb=1.70\tjobs=11 engine=rust (recomputed=1,000)\n"
+        "[t] review.build load 1.0s\tbuild=perl\n"
+    )
+    assert ct.parse_inner_timings(text) == [
+        {"label": "review.build load", "elapsed_s": 23.5, "rss_gb": 1.1, "rss_now_gb": 0.9, "build": "rust"},
+        {"label": "review.build units", "elapsed_s": 57.1, "rss_gb": 2.15, "rss_now_gb": 1.7, "jobs": 11},
+        {"label": "review.build load", "elapsed_s": 1.0},
+    ]
+
+
 def test_parse_inner_timings_reads_the_table_builds_record():
     """run_m1's `kernel_build_tables` line ends with the table build's record, and each token is kept under its key, typed by its reader: the stamps as text and the counts as integers. A value its reader rejects is left out, and so is a token no reader names, such as an older line's `memos_read`. A run that reused the tables on disk ends the line with `reused=true` alone, kept as a boolean."""
     text = "\n".join(

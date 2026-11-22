@@ -638,11 +638,14 @@ def _widths(engines: tuple[str, ...], python_jobs: int, threads: int) -> tuple[i
 
 
 def default_width(engine: str, sides: int) -> int:
-    """Return a live run's default width for one engine's side: `artifact_cycle.corpus_job_budget` of a hand build under that engine, over the box's memory shared equally among the run's `sides`, since they all run at once beside the harness, which holds the loaded corpus as a build's parent does."""
+    """Return a live run's default width for one engine's side: `artifact_cycle.corpus_job_budget` of a hand Python build, which drives the units engine as this run does, under that engine, over the box's memory shared equally among the run's `sides`, since they all run at once beside the harness, which holds the loaded corpus as a build's parent does."""
     from rebuild.tools import artifact_cycle, memory_budget
 
     return artifact_cycle.corpus_job_budget(
-        skip_gates=True, engine=engine, total_bytes=memory_budget.total_memory_bytes() // sides
+        skip_gates=True,
+        engine=engine,
+        build_engine="python",
+        total_bytes=memory_budget.total_memory_bytes() // sides,
     )
 
 
