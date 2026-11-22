@@ -1742,12 +1742,32 @@ pub fn write_segment(
     number: i64,
     rows: impl IntoIterator<Item = Row>,
 ) -> std::result::Result<Part, WriteError> {
+    write_segment_from(
+        sink,
+        directory,
+        output,
+        generation,
+        number,
+        rows.into_iter().map(Ok),
+    )
+}
+
+/// [`write_segment`] from rows whose making can fail, as a generator Python hands `write_segment` raises: a failure leaves the target as it was and removes the staging file.
+pub fn write_segment_from<E: From<WriteError> + From<io::Error>>(
+    sink: &Sink,
+    directory: &Path,
+    output: &str,
+    generation: i64,
+    number: i64,
+    rows: impl IntoIterator<Item = std::result::Result<Row, E>>,
+) -> std::result::Result<Part, E> {
     let name = segment_name(output, generation, number);
     write_part(sink, directory, &name, None, |stream| {
         stream.write_all(&segment_header(output, generation, number, MERGE_PLACE))?;
         let (mut count, mut total) = (0, 0);
         let mut previous: Option<Place> = None;
         for row in rows {
+            let row = row?;
             if let Some(previous) = &previous
                 && row.place <= *previous
             {
@@ -1755,7 +1775,8 @@ pub fn write_segment(
                     "segment rows arrive out of place order: {} after {}",
                     place_text(Some(&row.place)),
                     place_text(Some(previous))
-                )));
+                ))
+                .into());
             }
             let line = row_line(&row);
             stream.write_all(&line)?;

@@ -298,10 +298,19 @@ pub fn open_store(
     out_dir: &Path,
     names: &ScanNames,
 ) -> std::result::Result<Option<OpenStore>, ScanError> {
+    open_store_checked(out_dir, names, false)
+}
+
+/// `unit_cache.open_store(out_dir, sha256=…)`: [`open_store`], every part its head lists checked against its sha256 too with `sha256`, as a reader that merges every byte checks it.
+pub fn open_store_checked(
+    out_dir: &Path,
+    names: &ScanNames,
+    sha256: bool,
+) -> std::result::Result<Option<OpenStore>, ScanError> {
     let output = names.store_name.clone();
     match read_head(out_dir, &output) {
         Ok(Some(head)) => {
-            let files = match open_parts(out_dir, &head, false) {
+            let files = match open_parts(out_dir, &head, sha256) {
                 Ok(files) => files,
                 Err(ReadError::Head(why)) => return Err(ScanError::Unreadable(why)),
                 Err(other) => return Err(uncaught(other)),

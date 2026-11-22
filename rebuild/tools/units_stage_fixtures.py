@@ -40,6 +40,7 @@ The build's stages (`BUILD_STAGES`):
 - `index-write` is a boundary stage that records the units index the build writes, from `unit_index.write_index_lines` as `build._write_sidecars` calls it once the manifest is on disk (`_index_writing`): the head it committed, the files whose names start with the index's (`_index_write_files`), what the write did and its note. Its generated lines (`_index_write_generated`, `generated:<case>`) write the index over the corpora of `_INDEX_CASES`: first writes, the head alone, segments, folds claimed, held by another output and forced, heads, parts and single files that do not read, a single file adopted, staging and unlisted files, lines out of key order and a manifest that does not parse, each valued what the write did or raised, the files the corpus then holds and the counts lines.
 - `app-sidecars` is a boundary stage that records the app sidecars the build writes, from `app_index.write_app_artifacts_lines` as `build._write_sidecars`' app writer calls it once the manifest is on disk (`_app_sidecars_writing`): the bytes of the app index, the locator's rows and the locator's table, each under its file's name. Its generated lines (`_app_sidecars_generated`, `generated:<case>`) write the three files over the corpora of `_APP_CASES`: no lines, one run and several, empty runs among them, prior files and staging files in place, a manifest without `generated_at`, with text outside ASCII there, with an asset component, that does not parse, that opens with a byte order mark and that is not an object, each valued what the write raised or None and the files the corpus holds then.
 - `facts` is a boundary stage that records the review facts the build writes once the manifest is on disk: the ink flags and change groups `facts.derive_premerge` derives (`_premerge_derived`), and the bytes of the `review-facts.json` `facts.write_facts` leaves (`_facts_written`). Its generated line (`_facts_generated`, `generated:grouped-on-identical`) runs the build again over a clone of the dump's prior corpus with the derived facts replaced by ones that put change groups on ink-identical pre-merge units (`_grouped_on_identical`), valued the text of the refusal the build raises, its input the facts the build was handed.
+- `cache` is a boundary stage that records the unit store the build writes in its cache phase, from `unit_cache.update_store` as `build._build_m1` calls it (`_cache_updating`): the head it committed, the files whose names start with the store's (`_cache_store_files`), what the write did and its note. Its generated lines (`_cache_generated`, `generated:<case>`) write the store over the corpora of `_CACHE_CASES`: first writes, the head alone, segments with moved records and tombstones, the share rule, a re-deriving stamp, stores that did not read or moved under the plan, folds claimed, held by another output and forced, a plan older than the store, a base whose bytes changed, prior lines past the store's end, staging and unlisted files and no manifest, each valued what the write did or raised, the files the corpus then holds and the counts lines.
 
 `dump` runs `build._corpus_worker` in this process over a source and writes, under `--out`, the units file (`units.ndjson`: one `batch` request frame per handout, each frame as `units_exec.encode_batch` writes it), the source's description (`source.json`, which names the source and its handouts), and one `STAGE.ndjson` per selected stage. A stage is a `Stage` in `STAGES`: recorders on the worker's hook points (`HOOKS`), each of which sees a call's arguments before the call and its result after it and returns the fields of the line to record, and an optional generator of inputs the source does not reach. Every recorded value is written in the typed encoding (`units_exec.encode`, `decode`). The wrappers record and return; they never change a value. A line's `key` names it, and the stage's `outputs` are the fields that hold what the Rust side must reproduce.
 
@@ -3921,6 +3922,7 @@ BUILD_HOOKS: dict[str, tuple[str, str]] = {
     "app_index.write_app_artifacts_lines": ("rebuild.review.app_index", "write_app_artifacts_lines"),
     "facts.derive_premerge": ("rebuild.review.facts", "derive_premerge"),
     "facts.write_facts": ("rebuild.review.facts", "write_facts"),
+    "unit_cache.update_store": ("rebuild.review.unit_cache", "update_store"),
 }
 
 
@@ -15367,6 +15369,369 @@ def _facts_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
         yield {"key": FACTS_GENERATED_KEY, "input": _premerge_value(handed[0]), "value": refusal}
 
 
+CACHE_STAGE = "cache"
+# The keys of the `cache` stage's lines: the unit store's head as written, the files whose names start with the store's, what the write did and its note.
+CACHE_HEAD_KEY = "head"
+CACHE_FILES_KEY = "files"
+CACHE_OUTCOME_KEY = "write"
+CACHE_NOTE_KEY = "note"
+
+
+def _cache_write_value(written: unit_cache.StoreWrite) -> tuple[str, str, int, int]:
+    """What one write of the unit store did, as `unit_cache.StoreWrite` holds it: its outcome, a base's reason, and its rows and their bytes."""
+    return (written.outcome, written.reason, written.rows, written.rows_bytes)
+
+
+def _cache_store_files(corpus: Path) -> list[tuple[str, int, str]]:
+    """Each regular file directly under `corpus` whose name starts with the unit store's (`unit_cache.STORE_NAME`), its head, its parts, the single file and any staging file, by name in code-point order, with its size and sha256."""
+    held: list[tuple[str, int, str]] = []
+    for name in sorted(
+        entry.name for entry in corpus.iterdir() if entry.name.startswith(unit_cache.STORE_NAME)
+    ):
+        path = corpus / name
+        if path.is_file():
+            with path.open("rb") as handle:
+                held.append((name, path.stat().st_size, hashlib.file_digest(handle, "sha256").hexdigest()))
+    return held
+
+
+def _cache_updating(args: tuple, _kwargs: dict) -> Finisher | None:
+    """`unit_cache.update_store` as `build._build_m1` calls it in the cache phase, recorded as the `cache` boundary once it returns: the head it committed, the files whose names start with the store's (`_cache_store_files`), what it did (`_cache_write_value`) and its note; a call from anywhere else records nothing."""
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code is not build._build_m1.__code__:
+        frame = frame.f_back
+    if frame is None:
+        return None
+    corpus = Path(args[0])
+
+    def finish(written: object) -> Boundary:
+        assert isinstance(written, unit_cache.StoreWrite)
+        return Boundary(
+            0,
+            {},
+            [
+                {
+                    "key": CACHE_HEAD_KEY,
+                    "value": row_delta.head_path(corpus, unit_cache.STORE_NAME).read_bytes(),
+                },
+                {"key": CACHE_FILES_KEY, "value": _cache_store_files(corpus)},
+                {"key": CACHE_OUTCOME_KEY, "value": _cache_write_value(written)},
+                {"key": CACHE_NOTE_KEY, "value": written.note()},
+            ],
+        )
+
+    return finish
+
+
+# The records the `cache` stage's generated cases write, each a unit name and a text, in triage order: `_CACHE_B` changes one text of `_CACHE_A`, drops one record and adds one; `_CACHE_C` changes one more; `_CACHE_MOVED` moves records against their prior order and changes one; `_CACHE_X` and `_CACHE_Y` each change four texts of `_CACHE_A`, so passes that alternate them write segments whose bytes reach the base's; `_CACHE_SHARE` changes every text, so its segment passes half the base's bytes; and `_CACHE_GHOST` adds a record the cases give a prior line the store does not hold.
+_CacheRecords = tuple[tuple[str, str], ...]
+_CACHE_A: _CacheRecords = tuple((f"r{number}", f"text {number}") for number in range(10))
+_CACHE_B: _CacheRecords = (
+    *((name, f"{text}, changed" if name == "r2" else text) for name, text in _CACHE_A if name != "r5"),
+    ("r10", "text 10"),
+)
+_CACHE_C: _CacheRecords = tuple((name, f"{text}, again" if name == "r0" else text) for name, text in _CACHE_B)
+_CACHE_MOVED: _CacheRecords = (
+    ("r7", "text 7"),
+    *(
+        (name, f"{text}, moved" if name == "r3" else text)
+        for name, text in _CACHE_A
+        if name not in ("r1", "r7")
+    ),
+    ("r1", "text 1"),
+)
+_CACHE_X: _CacheRecords = tuple(
+    (name, "x" if number < 4 else text) for number, (name, text) in enumerate(_CACHE_A)
+)
+_CACHE_Y: _CacheRecords = tuple(
+    (name, "y" if number < 4 else text) for number, (name, text) in enumerate(_CACHE_A)
+)
+_CACHE_SHARE: _CacheRecords = tuple((name, f"{text}, wholly rewritten") for name, text in _CACHE_A)
+_CACHE_GHOST: _CacheRecords = (*_CACHE_A, ("r99", "ghost"))
+# The stamps the cases' stores are written under, the second with its `units_engine` line moved.
+_CACHE_STAMPS = (
+    fingerprint.EnvironmentStamp(
+        ("units_engine\t1111", "spec_structure\t2222"), (("corpus_code", ("rebuild/a.py\t3333",)),)
+    ),
+    fingerprint.EnvironmentStamp(
+        ("units_engine\t4444", "spec_structure\t2222"), (("corpus_code", ("rebuild/a.py\t3333",)),)
+    ),
+)
+# The shard parts every case's header records: unsorted, one named twice and one not on disk.
+_CACHE_PARTS = ("units/b.json", "units/a.json", "units/a.json", "units/missing.json")
+
+
+def _cache_key(name: str) -> str:
+    return hashlib.sha256(name.encode()).hexdigest()
+
+
+def _cache_line(name: str, text: str) -> bytes:
+    """A case record's store line, which starts with its key as a store line does."""
+    return (json.dumps({"key": _cache_key(name), "unit": name, "text": text}) + "\n").encode()
+
+
+@dataclass(frozen=True)
+class _CacheRead:
+    """What a case's plan read of the store: the plan a build makes once it has read the store to its end, and the store's materialized lines."""
+
+    plan: unit_cache.StorePlan
+    lines: list[bytes]
+
+    def prior(self) -> dict[str, int]:
+        """Each record's line in the store's materialized order, by its key."""
+        return {json.loads(line)["key"]: index for index, line in enumerate(self.lines)}
+
+
+def _cache_read(corpus: Path) -> _CacheRead:
+    opened = unit_cache.open_store(corpus)
+    if opened is None:
+        return _CacheRead(unit_cache.StorePlan(), [])
+    try:
+        lines = [line for _place, line in opened.lines()]
+    finally:
+        opened.close()
+    head = opened.head
+    assert head is not None
+    plan = unit_cache.StorePlan(
+        existed=True, readable=True, head=head, lines=len(lines), rows_bytes=head.base.rows_bytes
+    )
+    return _CacheRead(plan, lines)
+
+
+@dataclass(frozen=True)
+class _CachePass:
+    """One write of a case's store: its plan, each ordinal's line in triage order and prior line, whether each is predicted unchanged, and the stamp."""
+
+    plan: unit_cache.StorePlan
+    order: list[int]
+    prior_lines: list[int]
+    unchanged: list[bool]
+    lines: list[bytes]
+    stamp: fingerprint.EnvironmentStamp
+
+    def write(self, corpus: Path) -> unit_cache.StoreWrite:
+        return unit_cache.update_store(
+            corpus,
+            self.stamp,
+            self.plan,
+            self.order,
+            prior_line=self.prior_lines.__getitem__,
+            unchanged=self.unchanged.__getitem__,
+            line_of=self.lines.__getitem__,
+            parts=_CACHE_PARTS,
+        )
+
+
+def _cache_pass(
+    read: _CacheRead,
+    records: _CacheRecords,
+    stamp: fingerprint.EnvironmentStamp,
+    *,
+    every_unchanged: bool = True,
+    ghost_line: int | None = None,
+) -> _CachePass:
+    """A pass over `records` in triage order after `read`, each record's ordinal its place among them by name, so the order is not the ordinals', its prior line the one the read gives its key, `ghost_line` for `r99`, or `unit_cache.NO_PRIOR_LINE`. A record whose line is the one the store holds at its prior line is predicted unchanged at every even place in the order when `every_unchanged` holds, and never otherwise."""
+    names = sorted(name for name, _text in records)
+    ordinal_of = {name: ordinal for ordinal, name in enumerate(names)}
+    texts = dict(records)
+    lines = [_cache_line(name, texts[name]) for name in names]
+    prior = read.prior()
+    prior_lines = [
+        (
+            ghost_line
+            if name == "r99" and ghost_line is not None
+            else prior.get(_cache_key(name), unit_cache.NO_PRIOR_LINE)
+        )
+        for name in names
+    ]
+    order = [ordinal_of[name] for name, _text in records]
+    unchanged = [False] * len(names)
+    if every_unchanged:
+        for place, ordinal in enumerate(order):
+            line = prior_lines[ordinal]
+            unchanged[ordinal] = (
+                place % 2 == 0 and line < len(read.lines) and read.lines[line] == lines[ordinal]
+            )
+    return _CachePass(read.plan, order, prior_lines, unchanged, lines, stamp)
+
+
+def _cache_edits(corpus: Path, edit: str) -> None:
+    """Make one case's edit to a corpus whose store a write left: a head that does not parse, a head whose content moved, the store's parts and head removed, a base of its size with other bytes, staging and unlisted files of the store's and the single file a store from before the segment format leaves, and no manifest."""
+    name = unit_cache.STORE_NAME
+    head_path = row_delta.head_path(corpus, name)
+    if edit == "head-unparsed":
+        head_path.write_bytes(b"{not a head\n")
+    elif edit == "store-gone":
+        for path in corpus.iterdir():
+            if path.name.startswith(name):
+                path.unlink()
+    elif edit == "head-content":
+        document = json.loads(head_path.read_bytes())
+        document["content"] += 1
+        head_path.write_text(json.dumps(document, indent=1) + "\n")
+    elif edit == "base-changed":
+        base = corpus / json.loads(head_path.read_bytes())["base"]["name"]
+        data = base.read_bytes()
+        base.write_bytes(data[:-9] + bytes(byte ^ 0xFF for byte in data[-9:-8]) + data[-8:])
+    elif edit == "staging":
+        for leftover in (
+            f"{name}.9.base",
+            f"{name}.0.7.delta",
+            f"{name}.x.base",
+            f"{name}.1.base.partial",
+            f"{name}.0.1.delta.partial",
+            f"{name}.head.partial",
+            name,
+        ):
+            (corpus / leftover).write_bytes(b"left\n")
+    elif edit == "manifest-gone":
+        (corpus / "manifest.json").unlink()
+    else:
+        raise ValueError(f"no store case edit {edit!r}")
+
+
+# The `generated:` cases of the `cache` stage: a name; the record sets the prior passes wrote in turn, each through `unit_cache.update_store` under the first stamp while the units index holds the pass's fold, so no prior pass folds before it must; how the case's plan is made (`read` after the prior passes, `stale` after all but the last, `unreadable` for a store that did not read, `rederived` as read with a re-deriving stamp moved, `ghost-short` as read claiming two lines more than the store holds and `ghost-past` as read, both giving `r99` the line just past the store's last); the edits made to the corpus after the plan (`_cache_edits`); the records the case writes, in triage order; the place of its stamp in `_CACHE_STAMPS`; whether some of its records are predicted unchanged; and the output whose fold claim this process holds as the case's write runs, or None.
+_CACHE_CASES: tuple[
+    tuple[str, tuple[_CacheRecords, ...], str, tuple[str, ...], _CacheRecords, int, bool, str | None], ...
+] = (
+    ("first", (), "read", (), _CACHE_A, 0, True, None),
+    ("first-empty", (), "read", (), (), 0, True, None),
+    ("head-alone", (_CACHE_A,), "read", (), _CACHE_A, 0, True, None),
+    ("head-compared", (_CACHE_A,), "read", (), _CACHE_A, 0, False, None),
+    ("head-restamped", (_CACHE_A,), "read", (), _CACHE_A, 1, True, None),
+    ("segment", (_CACHE_A,), "read", (), _CACHE_B, 0, True, None),
+    ("segment-moved", (_CACHE_A,), "read", (), _CACHE_MOVED, 0, True, None),
+    ("segment-second", (_CACHE_A, _CACHE_B), "read", (), _CACHE_C, 0, True, None),
+    ("segment-tombstones", (_CACHE_A,), "read", (), _CACHE_A[:7], 0, True, None),
+    ("share", (_CACHE_A,), "read", (), _CACHE_SHARE, 0, True, None),
+    ("share-empty", (_CACHE_A,), "read", (), (), 0, True, None),
+    ("rederived", (_CACHE_A,), "rederived", (), _CACHE_B, 0, True, None),
+    ("unusable", (_CACHE_A,), "unreadable", (), _CACHE_B, 0, True, None),
+    ("unusable-head", (_CACHE_A,), "unreadable", ("head-unparsed",), _CACHE_B, 0, True, None),
+    ("unusable-moved", (_CACHE_A, _CACHE_B), "read", ("head-content",), _CACHE_C, 0, True, None),
+    ("stale", (_CACHE_A, _CACHE_B), "stale", (), _CACHE_C, 0, True, None),
+    ("unusable-gone", (_CACHE_A,), "read", ("store-gone",), _CACHE_B, 0, True, None),
+    ("fold", (_CACHE_A, _CACHE_X, _CACHE_Y, _CACHE_X), "read", (), _CACHE_Y, 0, True, None),
+    ("fold-unchanged", (_CACHE_A, _CACHE_X, _CACHE_Y, _CACHE_X), "read", (), _CACHE_X, 0, True, None),
+    (
+        "fold-held",
+        (_CACHE_A, _CACHE_X, _CACHE_Y, _CACHE_X),
+        "read",
+        (),
+        _CACHE_Y,
+        0,
+        True,
+        unit_index.INDEX_NAME,
+    ),
+    (
+        "fold-own",
+        (_CACHE_A, _CACHE_X, _CACHE_Y, _CACHE_X),
+        "read",
+        (),
+        _CACHE_Y,
+        0,
+        True,
+        unit_cache.STORE_NAME,
+    ),
+    (
+        "forced",
+        (_CACHE_A, *((_CACHE_X, _CACHE_Y) * 10), _CACHE_X),
+        "read",
+        (),
+        _CACHE_Y,
+        0,
+        True,
+        unit_index.INDEX_NAME,
+    ),
+    ("unreadable-part", (_CACHE_A,), "read", ("base-changed",), _CACHE_B, 0, True, None),
+    ("ghost-short", (_CACHE_A,), "ghost-short", (), _CACHE_GHOST, 0, True, None),
+    ("ghost-past", (_CACHE_A,), "ghost-past", (), _CACHE_GHOST, 0, True, None),
+    ("staging", (_CACHE_A,), "read", ("staging",), _CACHE_B, 0, True, None),
+    ("manifest-gone", (_CACHE_A,), "read", ("manifest-gone",), _CACHE_B, 0, True, None),
+)
+
+
+def _cache_case_value(
+    written: unit_cache.StoreWrite | None, raised: Exception | None
+) -> tuple[str, str, int, int, str] | dict[str, str]:
+    if raised is not None:
+        return {"raised": type(raised).__name__, "message": str(raised)}
+    assert written is not None
+    return (*_cache_write_value(written), written.note())
+
+
+def _cache_generated(_source: BuildSource) -> Iterator[Mapping[str, object]]:
+    """The `cache` stage's generated lines: for each case of `_CACHE_CASES`, a corpus holding a manifest, two shard parts and the store its prior passes wrote, each a pass of its own, with the case's plan made and its edits made, and then `unit_cache.update_store` over the case's records under the case's claim, under `generated:<name>`. Each line's input is the files the corpus holds before the write, the plan (whether a store existed, whether it read, its head's document or None, its lines, its base's row bytes and whether a re-deriving stamp moved), the header fields of the stamp (`unit_cache._stamp_header`), the order, each ordinal's prior line, prediction and line, the parts and the output whose claim the process holds; its value what the write did and its note, or the class and text of what it raised, the files the corpus holds then (`_files_held`) and the counts lines it appended."""
+    for name, passes, planned, edits, records, stamp_at, every_unchanged, holder in _CACHE_CASES:
+        with tempfile.TemporaryDirectory(prefix="cache-") as scratch, _counts_named(None):
+            corpus, cycle_dir, counts = (
+                Path(scratch) / "out",
+                Path(scratch) / "cycle",
+                Path(scratch) / "counts",
+            )
+            (corpus / "units").mkdir(parents=True)
+            (corpus / "manifest.json").write_bytes(_manifest_bytes(_INDEX_MANIFESTS[0]))
+            (corpus / "units" / "a.json").write_bytes(b"[]\n")
+            (corpus / "units" / "b.json").write_bytes(b"[\n1]\n")
+            stale = _CacheRead(unit_cache.StorePlan(), [])
+            for prior_records in passes:
+                stale = _cache_read(corpus)
+                with _claim_state(cycle_dir, None, unit_index.INDEX_NAME):
+                    _cache_pass(stale, prior_records, _CACHE_STAMPS[0]).write(corpus)
+            read = stale if planned == "stale" else _cache_read(corpus)
+            ghost: int | None = None
+            if planned == "unreadable":
+                read = _CacheRead(unit_cache.StorePlan(existed=True), read.lines)
+            elif planned == "rederived":
+                read = _CacheRead(dataclasses.replace(read.plan, rederived=True), read.lines)
+            elif planned == "ghost-short":
+                ghost = read.plan.lines
+                read = _CacheRead(dataclasses.replace(read.plan, lines=read.plan.lines + 2), read.lines)
+            elif planned == "ghost-past":
+                ghost = read.plan.lines
+            pass_ = _cache_pass(
+                read, records, _CACHE_STAMPS[stamp_at], every_unchanged=every_unchanged, ghost_line=ghost
+            )
+            plan = pass_.plan
+            for edit in edits:
+                _cache_edits(corpus, edit)
+            files = {
+                path.relative_to(corpus).as_posix(): path.read_bytes()
+                for path in sorted(corpus.rglob("*"))
+                if path.is_file()
+            }
+            counts.write_bytes(b"")
+            written: unit_cache.StoreWrite | None = None
+            raised: Exception | None = None
+            with _counts_named(counts), _claim_state(cycle_dir, None, holder):
+                try:
+                    written = pass_.write(corpus)
+                except (unit_cache.StoreUnreadable, OSError, EOFError, ValueError, IndexError) as error:
+                    raised = error
+            yield {
+                "key": f"generated:{name}",
+                "input": (
+                    files,
+                    (
+                        plan.existed,
+                        plan.readable,
+                        None if plan.head is None else plan.head.document(),
+                        plan.lines,
+                        plan.rows_bytes,
+                        plan.rederived,
+                    ),
+                    unit_cache._stamp_header(pass_.stamp),
+                    pass_.order,
+                    pass_.prior_lines,
+                    pass_.unchanged,
+                    pass_.lines,
+                    list(_CACHE_PARTS),
+                    holder,
+                ),
+                "value": (_cache_case_value(written, raised), _files_held(corpus), counts.read_bytes()),
+            }
+
+
 # The build's stage registry, in the order `compare` runs the upstream stages' compares before a boundary stage's (the plan's § Stage fixtures). The task that ports a stage adds the stage here. `build-input` records no hooked call: `build_dump` records it from the values it writes `BUILD_INPUT_FILE` from.
 BUILD_STAGES: dict[str, Stage[BuildSource]] = {
     BUILD_INPUT_STAGE: Stage(BUILD_INPUT_STAGE, {}, run="build", kind="boundary"),
@@ -15659,6 +16024,13 @@ BUILD_STAGES: dict[str, Stage[BuildSource]] = {
         FACTS_STAGE,
         {"facts.derive_premerge": _premerge_derived, "facts.write_facts": _facts_written},
         _facts_generated,
+        run="build",
+        kind="boundary",
+    ),
+    CACHE_STAGE: Stage(
+        CACHE_STAGE,
+        {"unit_cache.update_store": _cache_updating},
+        _cache_generated,
         run="build",
         kind="boundary",
     ),
