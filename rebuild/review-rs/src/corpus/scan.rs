@@ -593,7 +593,7 @@ struct ParsedBatch<T> {
     failure: Option<ScanError>,
 }
 
-/// [`scan_store`] on threads: the store's lines read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread, so `apply` sees what the serial scan yields, in its order, and the first failure, the scan's or `apply`'s, ends it. At most two batches a parse thread are in flight between the read and `apply`.
+/// [`scan_store`] on threads: the store's lines read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread, so `apply` sees what the serial scan yields, in its order, and the first failure, the scan's or `apply`'s, ends it, a panic in a parse thread among them. At most two batches a parse thread are in flight between the read and `apply`.
 #[allow(clippy::too_many_arguments)]
 pub fn scan_store_threaded<T, E>(
     opened: &OpenStore,
@@ -609,6 +609,7 @@ where
     T: Send,
     E: From<ScanError>,
 {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Mutex, mpsc};
 
@@ -684,32 +685,45 @@ where
                         if stopped.load(Ordering::Relaxed) {
                             return;
                         }
-                        let mut out = ParsedBatch {
-                            sequence: batch.sequence,
-                            scanned: Vec::with_capacity(batch.lines.len()),
-                            failure: batch.failure.map(store_failure),
-                        };
-                        for (offset, line) in batch.lines.into_iter().enumerate() {
-                            let ordinal = named_ordinal(named, column, &line);
-                            let mut cached = None;
-                            if parse && ordinal.is_some() {
-                                match parse_line(&line, trusted) {
-                                    Ok(record) => cached = Some(record),
-                                    Err(failure) => {
-                                        out.failure = Some(record_failure(failure));
-                                        break;
+                        let sequence = batch.sequence;
+                        // A batch lost to a panic would leave `apply` waiting on its sequence forever, so the panic comes back in its place as the scan's failure.
+                        let out = catch_unwind(AssertUnwindSafe(|| {
+                            let mut out = ParsedBatch {
+                                sequence,
+                                scanned: Vec::with_capacity(batch.lines.len()),
+                                failure: batch.failure.map(store_failure),
+                            };
+                            for (offset, line) in batch.lines.into_iter().enumerate() {
+                                let ordinal = named_ordinal(named, column, &line);
+                                let mut cached = None;
+                                if parse && ordinal.is_some() {
+                                    match parse_line(&line, trusted) {
+                                        Ok(record) => cached = Some(record),
+                                        Err(failure) => {
+                                            out.failure = Some(record_failure(failure));
+                                            break;
+                                        }
                                     }
                                 }
+                                let scanned = ScannedLine {
+                                    index: batch.first + offset,
+                                    ordinal,
+                                    cached,
+                                    line,
+                                };
+                                let extra = beside(&scanned);
+                                out.scanned.push((scanned, extra));
                             }
-                            let scanned = ScannedLine {
-                                index: batch.first + offset,
-                                ordinal,
-                                cached,
-                                line,
-                            };
-                            let extra = beside(&scanned);
-                            out.scanned.push((scanned, extra));
-                        }
+                            out
+                        }))
+                        .unwrap_or_else(|panic| ParsedBatch {
+                            sequence,
+                            scanned: Vec::new(),
+                            failure: Some(ScanError::Failed(format!(
+                                "a store scan's parse thread panicked: {}",
+                                crate::pool::panic_message(&*panic)
+                            ))),
+                        });
                         if parsed.send(out).is_err() {
                             return;
                         }
@@ -2827,5 +2841,56 @@ mod tests {
             }
             let _ = std::fs::remove_dir_all(&directory);
         }
+    }
+
+    #[test]
+    fn a_panic_in_a_parse_thread_or_in_apply_ends_the_threaded_scan_past_its_in_flight_batches() {
+        let threads_tried = [1, 2, 5];
+        let count = 3 * threads_tried[2] * SCAN_BATCH_LINES;
+        let (directory, names, column) = single_file_store("panic", count, None, None);
+        for threads in threads_tried {
+            for in_beside in [true, false] {
+                let (sender, receiver) = std::sync::mpsc::channel();
+                let (directory, names, column) = (directory.clone(), names.clone(), column.clone());
+                std::thread::spawn(move || {
+                    let named =
+                        KeyIndex::new(&column, KEY_BYTES, column.len() / KEY_BYTES).expect("keys");
+                    let trusted = HashSet::new();
+                    let opened = open_store(&directory, &names)
+                        .expect("opens")
+                        .expect("a store");
+                    let end = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        scan_store_threaded(
+                            &opened,
+                            &named,
+                            &column,
+                            true,
+                            &trusted,
+                            threads,
+                            |scanned| assert!(!in_beside || scanned.index != 700, "beside"),
+                            |scanned, ()| -> std::result::Result<(), ScanError> {
+                                assert!(in_beside || scanned.index != 700, "apply");
+                                Ok(())
+                            },
+                        )
+                    }));
+                    let _ = sender.send(end.map_err(|panic| crate::pool::panic_message(&*panic)));
+                });
+                let end = receiver
+                    .recv_timeout(std::time::Duration::from_secs(60))
+                    .unwrap_or_else(|_| {
+                        panic!("hung at {threads} with the panic in beside: {in_beside}")
+                    });
+                if in_beside {
+                    let Ok(Err(ScanError::Failed(why))) = end else {
+                        panic!("{end:?} at {threads}");
+                    };
+                    assert_eq!(why, "a store scan's parse thread panicked: beside");
+                } else {
+                    assert_eq!(end, Err("apply".to_owned()), "at {threads}");
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&directory);
     }
 }
