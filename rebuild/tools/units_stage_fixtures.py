@@ -4018,9 +4018,9 @@ def _sink_state(target: Path, held: int | None) -> tuple:
     if stat.S_ISLNK(mode):
         if os.readlink(target) == os.devnull:
             return ("link", "null", kept)
-        return ("link", "file", hashlib.sha256(target.read_bytes()).hexdigest(), kept)
+        return ("link", "file", fingerprint.file_sha256(target), kept)
     if stat.S_ISREG(mode):
-        return ("file", hashlib.sha256(target.read_bytes()).hexdigest(), kept)
+        return ("file", fingerprint.file_sha256(target), kept)
     if stat.S_ISFIFO(mode):
         return ("fifo", kept)
     if stat.S_ISDIR(mode):
@@ -6096,7 +6096,7 @@ def _held_before(path: Path) -> tuple:
 def _held_after(path: Path) -> tuple:
     """What `path` holds after a call, as a line's value names it: `("missing",)`, or `("file", sha256)`."""
     try:
-        return ("file", hashlib.sha256(path.read_bytes()).hexdigest())
+        return ("file", fingerprint.file_sha256(path))
     except FileNotFoundError:
         return ("missing",)
 
@@ -11297,11 +11297,7 @@ def _scan_files(directory: Path, blobs: Path) -> tuple:
 def _scan_entries(directory: Path) -> tuple:
     """A directory's files after a call, as an `adopt` line holds them: each name, sorted, with the sha256 of its bytes."""
     return tuple(
-        sorted(
-            (path.name, hashlib.sha256(path.read_bytes()).hexdigest())
-            for path in directory.iterdir()
-            if path.is_file()
-        )
+        sorted((path.name, fingerprint.file_sha256(path)) for path in directory.iterdir() if path.is_file())
     )
 
 
@@ -14727,7 +14723,7 @@ def _write_generated(source: BuildSource) -> Iterator[Mapping[str, object]]:
                 "value": (copied, counts.read_bytes(), _files_held(directory)),
             }
     font = (source.out / DUMP_INPUTS / build.SITE_BEFORE_FONT.name).absolute()
-    own = hashlib.sha256(font.read_bytes()).hexdigest()
+    own = fingerprint.file_sha256(font)
     for index, (files, owned, times) in enumerate(_FONT_CASES):
         expected = own if owned else "0" * 64
         with tempfile.TemporaryDirectory(prefix="write-font-") as scratch:

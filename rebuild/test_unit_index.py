@@ -1182,7 +1182,7 @@ def test_a_deflated_slot_that_does_not_inflate_to_its_unit_is_refused(appended_c
                     pass
 
 
-# The readers outside the live-fragment iterator allowed to read shard part names through `unit_index.class_shards`, `unit_index.shard_paths`, `unit_index._walk_elements` or `unit_index._walk_part`, each with what it reads them for. None reads a fragment out of a part, which only the iterator does (`unit_index.LiveCorpus`), so none can read a dead slot. The whole of rebuild/review/unit_index.py, the iterator's module, is allowed.
+# The readers outside the live-fragment iterator allowed to read shard part names through `unit_index.class_shards`, `unit_index.shard_paths`, `unit_index._walk_elements` or `unit_index._walk_part`, each with what it reads them for. None reads a fragment out of a built corpus's part, which only the iterator does (`unit_index.LiveCorpus`), so none can read a dead slot; the build scenarios' helpers rewrite or damage the parts of a scratch prior they made. The whole of rebuild/review/unit_index.py, the iterator's module, is allowed.
 SHARD_PART_NAME_READERS = {
     ("rebuild/review/build.py", "_prune_orphan_shards"): "the parts the manifest lists, which it keeps",
     (
@@ -1198,6 +1198,26 @@ SHARD_PART_NAME_READERS = {
     ): "each class's parts on disk, beside its materialized ones",
     ("rebuild/tools/artifact_cycle.py", "corpus_build_skippable"): "each listed part's existence",
     ("rebuild/tools/memory_series.py", "null_routes"): "each class's part count, for its staging names",
+    (
+        "rebuild/tools/units_stage_fixtures.py",
+        "relocate_parts",
+    ): "a scratch prior's parts, which it rewrites so their sizes disagree with the store's",
+    (
+        "rebuild/tools/units_stage_fixtures.py",
+        "tear",
+    ): "a scratch prior's first part of a class, half of which it leaves as a staged leftover",
+    (
+        "rebuild/tools/units_stage_fixtures.py",
+        "corrupt_copied_fragment",
+    ): "a scratch prior's first part, one byte of which it changes",
+    (
+        "rebuild/tools/units_stage_fixtures.py",
+        "_overflow_parts",
+    ): "which of a built scenario's parts are overflow parts",
+    (
+        "rebuild/tools/units_stage_fixtures.py",
+        "_plain_parts",
+    ): "each of a built scenario's parts' first byte, which says whether it is plain",
 }
 
 
