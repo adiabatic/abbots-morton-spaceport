@@ -30,8 +30,10 @@ from rebuild.pipeline.model import (
     RIGHT_CHAIN_CAP,
     Bitmap,
     BoundaryToken,
+    COSMETIC_OVERLAY,
     CellBinding,
     Condition,
+    CosmeticRecord,
     FamilyInfo,
     FeatureInfo,
     KernBlock,
@@ -475,6 +477,24 @@ def _bitmap(raw: dict) -> Bitmap:
     return Bitmap(rows=tuple(raw["bitmap"]), y_offset=raw.get("y_offset", 0))
 
 
+def _cosmetic_steer_message(feature: str) -> str:
+    return f"feature {feature!r} is a cosmetic set (`overlay: cosmetic`), which redraws unjoined shapes after joining has settled and never steers a join, so no `when:` condition or unlock may name it"
+
+
+def _cosmetic_block(rune_name: str, raw: dict, context: _FileContext) -> tuple[CosmeticRecord, ...]:
+    """Build a rune's `cosmetic:` records, each with its `cosmetic[index]` provenance."""
+    return tuple(
+        CosmeticRecord(
+            rune=rune_name,
+            feature=item["feature"],
+            stance=item["stance"],
+            bitmap=_bitmap(item),
+            provenance=context.provenance(f"cosmetic[{index}]"),
+        )
+        for index, item in enumerate(raw.get("cosmetic") or ())
+    )
+
+
 def _entry_row(height: str, raw: dict, provenance: Provenance) -> SurfaceRow:
     return SurfaceRow(
         height=height,
@@ -697,12 +717,14 @@ class _Linter:
         registry_families: dict,
         registry_classes: dict,
         registry_features: set[str],
+        cosmetic_features: frozenset[str] = frozenset(),
     ):
         self.context = context
         self.raw = context.data
         self.families = registry_families
         self.classes = registry_classes
         self.features = registry_features
+        self.cosmetic_features = cosmetic_features
         policy = self.raw.get("policy")
         self.group_names = set(policy.get("groups") or {}) if isinstance(policy, dict) else set()
         self.stance_rows: dict[str, dict[str, set[str]]] = {}
@@ -723,6 +745,7 @@ class _Linter:
         self._lint_registry_consistency()
         self._lint_stances()
         self._lint_policy()
+        self._lint_cosmetic()
 
     def _stances(self) -> dict[str, dict]:
         stances = self.raw.get("stances")
@@ -820,6 +843,45 @@ class _Linter:
                         f"stances.{stance_name}.surface.unlocks[{index}].when.right", _CHAIN_RULE
                     )
 
+    def _lint_cosmetic(self) -> None:
+        """Check each `cosmetic:` record: its feature is a registered cosmetic set, its stance exists, no other record redraws that stance, and its drawing has the stance's row count, width and `y_offset`, so the cosmetic copy takes the unjoined glyph's place, advance and kerning unchanged."""
+        stances = self._stances()
+        seen: dict[str, str] = {}
+        for index, record in enumerate(self.raw.get("cosmetic") or ()):
+            path = f"cosmetic[{index}]"
+            feature = record.get("feature")
+            if feature not in self.features:
+                self.context.error(f"{path}.feature", f"feature {feature!r} is not registered in script.yaml")
+            elif feature not in self.cosmetic_features:
+                self.context.error(
+                    f"{path}.feature",
+                    f"feature {feature!r} is not a cosmetic set: only a set the registry marks `overlay: cosmetic` can redraw an unjoined shape",
+                )
+            stance_name = record.get("stance")
+            stance = stances.get(stance_name)
+            if stance is None:
+                self.context.error(f"{path}.stance", f"cosmetic record names unknown stance {stance_name!r}")
+                continue
+            if stance_name in seen:
+                self.context.error(
+                    f"{path}.stance", f"stance {stance_name!r} is already redrawn by {seen[stance_name]}"
+                )
+            seen.setdefault(stance_name, path)
+            rows = tuple(record.get("bitmap") or ())
+            base = tuple(stance.get("bitmap") or ())
+            width = max((len(row) for row in rows), default=0)
+            base_width = max((len(row) for row in base), default=0)
+            if len(rows) != len(base) or width != base_width:
+                self.context.error(
+                    f"{path}.bitmap",
+                    f"the cosmetic drawing is {width}x{len(rows)} but stance {stance_name!r} is {base_width}x{len(base)}: a cosmetic drawing keeps its stance's size, so the letter takes the same space",
+                )
+            if record.get("y_offset", 0) != stance.get("y_offset", 0):
+                self.context.error(
+                    f"{path}.y_offset",
+                    f"the cosmetic drawing's y_offset {record.get('y_offset', 0)} differs from stance {stance_name!r}'s {stance.get('y_offset', 0)}",
+                )
+
     def _lint_kern_is_last(self) -> None:
         keys = list(self.raw)
         if "kern" in keys and keys[-1] != "kern":
@@ -904,6 +966,8 @@ class _Linter:
         feature = raw.get("feature")
         if feature is not None and feature not in self.features:
             self.context.error(f"{path}.feature", f"feature {feature!r} is not registered in script.yaml")
+        elif feature in self.cosmetic_features:
+            self.context.error(f"{path}.feature", _cosmetic_steer_message(feature))
 
     def _lint_stances(self) -> None:
         for stance_name, stance_raw in (self.raw.get("stances") or {}).items():
@@ -962,6 +1026,8 @@ class _Linter:
                     self.context.error(
                         f"{unlock_path}.feature", f"feature {feature!r} is not registered in script.yaml"
                     )
+                elif feature in self.cosmetic_features:
+                    self.context.error(f"{unlock_path}.feature", _cosmetic_steer_message(feature))
                 self._check_when_refs(unlock.get("when"), f"{unlock_path}.when")
                 pairing = unlock.get("pairing")
                 if pairing:
@@ -1692,6 +1758,7 @@ def _build_rune(
         mono=_bitmap(raw["mono"]) if raw.get("mono") else None,
         stances=stances,
         policy=policy,
+        cosmetic=_cosmetic_block(raw["rune"], raw, context),
         kern=_kern_block(raw["rune"], raw, context),
     )
 
@@ -1776,6 +1843,11 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
     registry_families = registry_raw.get("families") or {}
     registry_classes = registry_raw.get("predicate_classes") or {}
     registry_features = {tag for tag in (registry_raw.get("features") or {}) if tag != "interactions"}
+    cosmetic_features = frozenset(
+        tag
+        for tag, info in (registry_raw.get("features") or {}).items()
+        if tag != "interactions" and isinstance(info, dict) and info.get("overlay") == COSMETIC_OVERLAY
+    )
     for group in (registry_raw.get("features") or {}).get("interactions", ()):
         for tag in group:
             if tag not in registry_features:
@@ -1791,7 +1863,7 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
                 )
 
     for context in contexts:
-        linter = _Linter(context, registry_families, registry_classes, registry_features)
+        linter = _Linter(context, registry_families, registry_classes, registry_features, cosmetic_features)
         if id(context) in shallow_safe:
             linter.run_shallow()
         if schema_clean[id(context)]:

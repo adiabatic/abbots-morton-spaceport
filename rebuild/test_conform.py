@@ -130,27 +130,34 @@ DOT = chr(0x00B7)
 
 
 class TestM1OnlyConfigs:
-    """`M1_ONLY_CONFIGS` names settlement configurations the shipped font has no set for: the kernel builds them and every gate but the oracle covers them, and `ORACLE_CONFIGS` is the acceptance set less them, in order. No baseline table exists for one, so none may be a configuration the extractor shapes, and every configuration the oracle compares must be one."""
+    """`M1_ONLY_CONFIGS` names settlement configurations the shipped font has no set for: the kernel builds them and every gate but the oracle covers them, and `ORACLE_CONFIGS` is the acceptance set less them and less the cosmetic configurations, in order. No baseline table exists for an M1-only configuration, so none may be a configuration the extractor shapes, and every configuration the oracle compares must be one. A cosmetic configuration has a table, which `baseline_subset`'s refilter checks against its settlement configuration's instead of the oracle."""
 
-    def test_the_oracle_roster_is_the_acceptance_set_less_the_m1_only_configurations(self):
+    def test_the_oracle_roster_is_the_acceptance_set_less_the_m1_only_and_cosmetic_configurations(self):
         from rebuild.baseline import model as baseline_model
+        from rebuild.pipeline import baseline_subset
 
         assert set(conform.M1_ONLY_CONFIGS) <= set(conform.SETTLEMENT_CONFIGS)
         assert conform.ORACLE_CONFIGS == tuple(
-            config for config in conform.ACCEPTANCE_CONFIGS if config not in conform.M1_ONLY_CONFIGS
+            config
+            for config in conform.ACCEPTANCE_CONFIGS
+            if config not in conform.M1_ONLY_CONFIGS and config not in conform.COSMETIC_CONFIGS
         )
         assert not set(conform.M1_ONLY_CONFIGS) & set(baseline_model.CONFIGS)
         assert set(conform.ORACLE_CONFIGS) <= set(baseline_model.CONFIGS)
+        assert set(conform.COSMETIC_CONFIGS) <= set(baseline_subset.RENAME_COVERED_CONFIGS)
 
 
 class TestIsolatedOverlay:
-    """`OVERLAY_CONFIGS` is exactly the acceptance configurations whose features activate an `overlay: isolated` taste set, and `SETTLEMENT_CONFIGS` is the rest. For an overlay configuration the oracle and the conformance sweep take everything from the registry and the font's `hmtx`, and never call the crate."""
+    """`OVERLAY_CONFIGS` is exactly the acceptance configurations whose features activate an `overlay: isolated` taste set, `COSMETIC_CONFIGS` exactly the rest that hold an `overlay: cosmetic` set, and `SETTLEMENT_CONFIGS` the others. For an overlay configuration the oracle and the conformance sweep take everything from the registry and the font's `hmtx`, and never call the crate; a cosmetic configuration settles as its settlement configuration does. The live registry knows every acceptance configuration's features."""
 
     def test_the_rosters_partition_the_acceptance_set_by_the_registry(self, spec):
-        from rebuild.pipeline.model import isolated_overlay_active
+        from rebuild.pipeline.model import cosmetic_features, isolated_overlay_active
         from rebuild.pipeline.spec_load import load_default_spec
 
-        assert conform.SETTLEMENT_CONFIGS + conform.OVERLAY_CONFIGS == conform.ACCEPTANCE_CONFIGS
+        assert (
+            conform.SETTLEMENT_CONFIGS + conform.OVERLAY_CONFIGS + conform.COSMETIC_CONFIGS
+            == conform.ACCEPTANCE_CONFIGS
+        )
         assert not set(conform.SETTLEMENT_CONFIGS) & set(conform.OVERLAY_CONFIGS)
         for registry_spec in (spec, load_default_spec()):
             overlays = tuple(
@@ -159,6 +166,16 @@ class TestIsolatedOverlay:
                 if isolated_overlay_active(registry_spec, conform.features_for_config(config))
             )
             assert overlays == conform.OVERLAY_CONFIGS
+        live = load_default_spec()
+        for config in conform.ACCEPTANCE_CONFIGS:
+            assert conform.features_for_config(config) <= set(live.registry.features), config
+        cosmetic = tuple(
+            config
+            for config in conform.ACCEPTANCE_CONFIGS
+            if conform.features_for_config(config) & cosmetic_features(live)
+            and not isolated_overlay_active(live, conform.features_for_config(config))
+        )
+        assert cosmetic == conform.COSMETIC_CONFIGS
         inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
         assert set(conform.settle_memo_files(Path("m1"), spec, inputs)) == set(conform.SETTLEMENT_CONFIGS)
 

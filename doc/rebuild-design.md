@@ -59,6 +59,7 @@ notes: |                     # optional prose that changes no output (join const
 mono: {bitmap: [...], y_offset: -3}
 stances: { ... }             # §3.1–3.2
 policy: { ... }              # §3.3
+cosmetic: [ ... ]            # §7: a cosmetic set's drawing of an unjoined stance
 kern: [ ... ]                # §12
 ```
 
@@ -384,6 +385,7 @@ Everything below uses only shapes that the old font's 30,838-line FEA already sh
 | `refuse` / `prefer` / `resolve` | Not compiled: they shape the decision table, and the FEA contains only final substitutions |
 | Extensions / stubs / trims / bound shapes | Part of the settled cell's identity (`CellId.adjustments`), so each adjusted cell is its own glyph, drawn at mint time, and the settlement lookup substitutes it directly |
 | Kerning | One chained-context lookup (GPOS type 8) under `kern`, after the `curs` lookups: for each kerned case an adjacent rule and a rule with one explicit `uni200C` between the two glyphs, each moving the first glyph's advance through a value lookup (§12). With no kerned facing pair the font has no `kern` feature. `compile_font` passes the builder an empty kerning table, so the old font's kerning never reaches it |
+| Cosmetic sets | One single-substitution lookup per set the registry marks `overlay: cosmetic`, registered under that set alone and defined after the namer dot: each unjoined cell of a stance with a `cosmetic:` record (an ·Owe that joins neither neighbor, plain or after a ZWNJ) to its copy, which has the cell's advance, kerning and cursive registrations and the record's drawing. Read-back checks all of that, and spec_load keeps every cosmetic set out of conditions and unlocks, so the set changes how an unjoined letter looks and never whether anything joins; a cosmetic configuration settles as its settlement configuration does and has no table (`conform.COSMETIC_CONFIGS`) |
 | Namer dot | A final `calt` lookup, `m1_namer_dot_word_start`, which `emit_gsub` writes itself: the dot lowers before a Short letter, and an explicit `ignore sub` keeps it from lowering across a ZWNJ |
 
 **The sound factorization is subtables, never per-family lookups.** The §7 GSUB encoding is one settlement lookup, optionally split into per-family **subtables** for size. Subtables share the lookup's single left-to-right pass, so backtrack still sees settled neighbors; the shaping spec defines this within-lookup behavior, and the old font already relies on it. Per-family **lookups** are unsound: each lookup finishes the whole buffer before the next starts, so a rune whose family's lookup runs first would see a raw left neighbor, and because left adjacency between families is cyclic, no lookup order fixes this. The only sound multi-lookup factorization is the two-strata fallback below.

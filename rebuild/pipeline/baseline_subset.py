@@ -4,7 +4,10 @@ Streams each `rebuild/out/baseline-<config>.tsv.gz` once through `rebuild.valida
 
 `M1_ALPHABET` is the set written out below, the alphabet a letter batch extends. While the alphabet switch (`spec_load.M1_RUNES_ENV`) is set, it is instead the alphabet of the spec `spec_load.load_default_spec` narrows to, computed when this module is imported, so the name other modules import and `filter_table`'s default argument both take the narrowed set, and the stamp key below moves with it.
 
-Each refilter also checks two facts that only a refilter can change. First, every `DEFAULT_COVERED_CONFIGS` sub-table must be row-identical to the `IDENTITY_REFERENCE` sub-table, because the acceptance gate covers ss06, ss07 and ss06+ss07 by running default alone. The check compares the digests the filter pass computes over the kept rows, so no table is read a second time. A mismatch or a missing table raises `SubsetIdentityError` before the stamp is written, so the tables are never stamped fresh and every later run fails the same way. Second, `refresh` writes the distinct old glyph names of each configuration's kept rows to `subset-names.json`. The oracle's alias-completeness check reads that file instead of streaming every subset row, which keeps the check cheap on the `--gates-only` path.
+Each refilter also checks two kinds of fact that only a refilter can change, over the digests the filter pass computes, so no table is read a second time. A mismatch or a missing table raises `SubsetIdentityError` before the stamp is written, so the tables are never stamped fresh and every later run fails the same way.
+
+- Each `RENAME_COVERED_CONFIGS` table, a configuration that holds the old font's cosmetic ss06, must equal its reference's rows with the reference's unjoined-·Owe glyph names renamed to the gapped glyph's (`GAPPED_RENAMES`), since ss06 redraws only an ·Owe that joins neither neighbor. The rebuild never settles these configurations and the oracle never compares them (`conform.COSMETIC_CONFIGS`); this check is their whole old-font coverage.
+- Each `WINDOW_SCOPED_CONFIGS` table must equal its reference's rows on every window whose text holds none of its scope letters. Its sub-table keeps only the rows whose text holds one, so the oracle compares it, and the review corpus lists it on a unit, only on those windows: ss07 changes only windows that hold ·Owe, and listing it on every window it leaves alone would move the id of every unit that holds `default` (#618's decision 41). The rebuild's side of the same fact is checked at plan time (`run_m1_gates.check_window_scopes`). Second, `refresh` writes the distinct old glyph names of each configuration's kept rows to `subset-names.json`. The oracle's alias-completeness check reads that file instead of streaming every subset row, which keeps the check cheap on the `--gates-only` path.
 
 `ensure_fresh` checks a third fact on every call, fresh or stale: that each source table was extracted from the site font on disk. `make all` rewrites that font without changing any key this module stamps, so only a check that runs on every call can catch a rebuilt font. A header whose `font_sha256` matches the font on disk passes. A version bump's `make all` rewrites only the font's `head` and `name` tables, so a header whose digest does not match still passes when the font it was extracted from and the font on disk are identical outside those two tables (`fingerprint.font_content_digest`). The header records only the raw digest, so this module records the extraction font's `head`- and `name`-blind content digest in `rebuild/out/baseline-font-content-digests.json`, keyed by font path and raw digest, on each call where every table passes. When that file is absent, the digests are read from `rebuild/out/baseline-font-projections.json` in its place, and the first passing call writes the content digests file and removes that one. A machine that never checked the tables before the font changed has no such entry and fails with the re-extract remedy.
 
@@ -18,10 +21,9 @@ from __future__ import annotations
 import gzip
 import hashlib
 import io
-import itertools
 import json
 import os
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,8 +42,15 @@ FONT_DIGESTS_FILE = "baseline-font-content-digests.json"
 FONT_DIGESTS_FORMAT = "ams-baseline-font-content-digests/1"
 EARLIER_FONT_DIGESTS_FILE = "baseline-font-projections.json"
 EARLIER_FONT_DIGESTS_FORMAT = "ams-baseline-font-projections/1"
-DEFAULT_COVERED_CONFIGS = ("ss06", "ss07", "ss06+ss07")
-IDENTITY_REFERENCE = "default"
+# The old font's glyph names for an ·Owe that joins neither neighbor, and the gapped glyph its ss06 draws for them instead (`replaces_unjoined_feature` in `glyph_data/quikscript.yaml`).
+GAPPED_RENAMES = {"qsOwe": "qsOwe.gapped", "qsOwe.noentry": "qsOwe.gapped"}
+# Each configuration that holds the old font's cosmetic ss06, with the configuration it equals once `GAPPED_RENAMES` is applied to that configuration's rows.
+RENAME_COVERED_CONFIGS: dict[str, tuple[str, Mapping[str, str]]] = {
+    "ss06": ("default", GAPPED_RENAMES),
+    "ss06+ss07": ("ss07", GAPPED_RENAMES),
+}
+# Each configuration whose sub-table keeps only the rows whose text holds one of its scope letters, with the configuration every other row must equal.
+WINDOW_SCOPED_CONFIGS: dict[str, tuple[str, frozenset[int]]] = {"ss07": ("default", frozenset({0xE67C}))}
 
 
 def _switch_alphabet() -> frozenset[int] | None:
@@ -102,7 +111,7 @@ M1_ALPHABET = _switch_alphabet() or frozenset(
     }
 )
 
-_IDENTITY_REMEDY = "the acceptance gate covers it by running default alone, which holds only while the two filter to the same rows; if it has genuinely diverged, add it to ACCEPTANCE_CONFIGS in rebuild/pipeline/conform.py (what the ·Owe migration needs, the Configurations section of rebuild/baseline/README.md) and drop it from DEFAULT_COVERED_CONFIGS here"
+_IDENTITY_REMEDY = "the identity is what lets the oracle leave the cosmetic configurations out and compare a window-scoped one only inside its scope; check the old font's stylistic set in glyph_data/quikscript.yaml, or give the configuration a full oracle comparison by taking it out of RENAME_COVERED_CONFIGS or WINDOW_SCOPED_CONFIGS here and out of conform.COSMETIC_CONFIGS (the Configurations section of rebuild/baseline/README.md)"
 
 _EXTRACT_REMEDY = "re-extract with `uv run python -m rebuild.baseline.cli extract --all --out rebuild/out` then `uv run python -m rebuild.baseline.cli summarize --out rebuild/out`, or rebuild the font the tables were extracted from (the header's git_sha names the commit it was built at; the site font is `make all` output)"
 
@@ -117,11 +126,13 @@ class BaselineProvenanceError(RuntimeError):
 
 @dataclass(frozen=True)
 class FilteredTable:
-    """What one filter pass records about the table it wrote: the kept-row count, the old glyph names in those rows, and a digest over the kept data lines as written."""
+    """What one filter pass records about the table it wrote: the count of rows it wrote, the old glyph names in those rows, a digest over every data line in the alphabet, and on request a digest over those lines with `renames` applied to their glyph names (`renamed_sha256`) and one over the lines whose text holds none of `outside`'s code points (`outside_sha256`). The digests cover the alphabet's rows whether or not `keep_only` wrote them."""
 
     kept: int
     glyph_names: frozenset[str]
     rows_sha256: str
+    renamed_sha256: str | None = None
+    outside_sha256: str | None = None
 
 
 def _codepoints_in_alphabet(field: str, alphabet: frozenset[int]) -> bool:
@@ -138,12 +149,31 @@ def _open_writer(destination: Path):
     return open(destination, "w", encoding="utf-8", newline="")
 
 
-def filter_table(source: Path, destination: Path, alphabet: frozenset[int] = M1_ALPHABET) -> FilteredTable:
-    """Filter one baseline table, copying its header lines unchanged, and return the kept rows' count, glyph names, and digest, all computed in the same pass that writes them."""
+def _renamed_line(line: str, renames: Mapping[str, str]) -> str:
+    """Return `line` with each glyph name in its glyph column that `renames` names replaced."""
+    codepoints, glyphs, rest = line.split("\t", 2)
+    names = glyphs.split("|")
+    if not any(name in renames for name in names):
+        return line
+    return "\t".join((codepoints, "|".join(renames.get(name, name) for name in names), rest))
+
+
+def filter_table(
+    source: Path,
+    destination: Path,
+    alphabet: frozenset[int] = M1_ALPHABET,
+    *,
+    keep_only: frozenset[int] | None = None,
+    renames: Mapping[str, str] | None = None,
+    outside: frozenset[int] | None = None,
+) -> FilteredTable:
+    """Filter one baseline table to the rows whose code points are all in `alphabet`, copying its header lines unchanged and writing only the rows that hold one of `keep_only`'s code points when it is given, and return what `FilteredTable` records, all computed in the same pass that writes them."""
     destination.parent.mkdir(parents=True, exist_ok=True)
     kept = 0
     names: set[str] = set()
     rows = hashlib.sha256()
+    renamed = hashlib.sha256() if renames else None
+    outside_rows = hashlib.sha256() if outside else None
     with open_table(source) as reader, _open_writer(destination) as writer:
         for line in reader:
             if line.startswith("#"):
@@ -152,12 +182,31 @@ def filter_table(source: Path, destination: Path, alphabet: frozenset[int] = M1_
             if not line.strip():
                 continue
             codepoints = line.split("\t", 1)[0]
-            if _codepoints_in_alphabet(codepoints, alphabet):
+            if not _codepoints_in_alphabet(codepoints, alphabet):
+                continue
+            encoded = line.encode()
+            rows.update(encoded)
+            if renamed is not None and renames:
+                hit = any(old in line for old in renames)
+                renamed.update(_renamed_line(line, renames).encode() if hit else encoded)
+            held = True
+            if keep_only is not None or outside is not None:
+                text = {int(token, 16) for token in codepoints.split(":")}
+                if outside is not None and outside_rows is not None and not text & outside:
+                    outside_rows.update(encoded)
+                if keep_only is not None:
+                    held = bool(text & keep_only)
+            if held:
                 writer.write(line)
-                rows.update(line.encode())
                 names.update(line.split("\t", 2)[1].split("|"))
                 kept += 1
-    return FilteredTable(kept=kept, glyph_names=frozenset(names), rows_sha256=rows.hexdigest())
+    return FilteredTable(
+        kept=kept,
+        glyph_names=frozenset(names),
+        rows_sha256=rows.hexdigest(),
+        renamed_sha256=None if renamed is None else renamed.hexdigest(),
+        outside_sha256=None if outside_rows is None else outside_rows.hexdigest(),
+    )
 
 
 def _dirs(repo_root: Path) -> tuple[Path, Path]:
@@ -187,33 +236,44 @@ def _subset_outputs_on_disk(out_dir: Path) -> set[str]:
     return {path.name for path in out_dir.glob("baseline-*.subset.tsv.gz")}
 
 
-def _data_lines(reader: Iterable[str]) -> Iterator[str]:
-    return (line for line in reader if not line.startswith("#") and line.strip())
+def filter_options(config: str) -> dict:
+    """Return the `filter_table` options `config`'s pass needs for the identity checks (`check_identities`): the renamed digest for a configuration that a `RENAME_COVERED_CONFIGS` entry renames, the outside digest for a `WINDOW_SCOPED_CONFIGS` configuration and its reference, and the scope that a window-scoped configuration's sub-table keeps."""
+    options: dict = {}
+    renames = [rename for reference, rename in RENAME_COVERED_CONFIGS.values() if reference == config]
+    if renames:
+        options["renames"] = renames[0]
+    scoped = WINDOW_SCOPED_CONFIGS.get(config)
+    if scoped is not None:
+        options["keep_only"] = options["outside"] = scoped[1]
+    for reference, letters in WINDOW_SCOPED_CONFIGS.values():
+        if reference == config:
+            options["outside"] = letters
+    return options
 
 
-def _first_differing_row(left: Path, right: Path) -> tuple[str | None, str | None]:
-    """Return the first pair of data lines that differ between two subset tables, so the error can name a row. It runs only after the digests disagree."""
-    with open_table(left) as left_reader, open_table(right) as right_reader:
-        for pair in itertools.zip_longest(_data_lines(left_reader), _data_lines(right_reader)):
-            if pair[0] != pair[1]:
-                return pair
-    return None, None
-
-
-def _check_default_covered(out_dir: Path, filtered: Mapping[str, FilteredTable]) -> None:
-    """Raise `SubsetIdentityError` unless every `DEFAULT_COVERED_CONFIGS` sub-table was written and has the same row digest as the `IDENTITY_REFERENCE` sub-table."""
-    for config in DEFAULT_COVERED_CONFIGS:
-        for name in (config, IDENTITY_REFERENCE):
+def check_identities(filtered: Mapping[str, FilteredTable]) -> None:
+    """Raise `SubsetIdentityError` unless every `RENAME_COVERED_CONFIGS` table equals its reference's rows renamed and every `WINDOW_SCOPED_CONFIGS` table equals its reference's rows outside its scope, each over the alphabet's rows. A table that was not written fails too."""
+    for config, (reference, _rename) in RENAME_COVERED_CONFIGS.items():
+        for name in (config, reference):
             if name not in filtered:
                 raise SubsetIdentityError(
-                    f"subset table {name} was not written, so {config} cannot be checked for row identity with {IDENTITY_REFERENCE} — {_IDENTITY_REMEDY}"
+                    f"subset table {name} was not written, so {config} cannot be checked against {reference} renamed — {_IDENTITY_REMEDY}"
                 )
-        if filtered[config].rows_sha256 == filtered[IDENTITY_REFERENCE].rows_sha256:
-            continue
-        first = _first_differing_row(_subset_path(out_dir, config), _subset_path(out_dir, IDENTITY_REFERENCE))
-        raise SubsetIdentityError(
-            f"subset table {config} is not row-identical to {IDENTITY_REFERENCE}: first differing pair {first} — {_IDENTITY_REMEDY}"
-        )
+        if filtered[config].rows_sha256 != filtered[reference].renamed_sha256:
+            raise SubsetIdentityError(
+                f"subset table {config} differs from {reference} with its unjoined-·Owe glyphs renamed to the gapped glyph ({GAPPED_RENAMES}), so the old font's ss06 changes more than how an unjoined ·Owe looks — {_IDENTITY_REMEDY}"
+            )
+    for config, (reference, letters) in WINDOW_SCOPED_CONFIGS.items():
+        for name in (config, reference):
+            if name not in filtered:
+                raise SubsetIdentityError(
+                    f"subset table {name} was not written, so {config} cannot be checked against {reference} outside its scope — {_IDENTITY_REMEDY}"
+                )
+        if filtered[config].outside_sha256 != filtered[reference].outside_sha256:
+            scope = ", ".join(f"U+{code:04X}" for code in sorted(letters))
+            raise SubsetIdentityError(
+                f"subset table {config} differs from {reference} on a window that holds none of {scope}, so keeping only those windows would hide a change — {_IDENTITY_REMEDY}"
+            )
 
 
 def _write_subset_names(out_dir: Path, filtered: Mapping[str, FilteredTable]) -> Path:
@@ -255,14 +315,14 @@ def refresh(repo_root: Path = REPO_ROOT) -> dict[str, str]:
     for source in sorted(baseline_dir.glob("baseline-*.tsv.gz")):
         config = source.name[len("baseline-") : -len(".tsv.gz")]
         destination = _subset_path(out_dir, config)
-        result = filter_table(source, destination, alphabet)
+        result = filter_table(source, destination, alphabet, **filter_options(config))
         filtered[config] = result
         print(f"{source.name}: kept {result.kept} rows -> {destination}")
         outputs[destination.name] = fingerprint.file_sha256(destination)
     for name in sorted(_subset_outputs_on_disk(out_dir) - outputs.keys()):
         (out_dir / name).unlink()
         print(f"pruned orphaned {name}")
-    _check_default_covered(out_dir, filtered)
+    check_identities(filtered)
     names_path = _write_subset_names(out_dir, filtered)
     payload = {
         "format": STAMP_FORMAT,

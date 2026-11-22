@@ -6,6 +6,8 @@ On the same bytes it checks that the two word-boundary glyphs are inert. No subs
 
 It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_anchorless_copies`). The ss10 input substitution covers every letter cmap glyph, and no `.ss10` copy has its own cmap entry, appears in any formation sequence, marker line, ZWNJ lock class, or settlement input, or carries a cursive anchor. So under ss10 nothing forms, settles, or attaches. That is why the overlay configuration needs no settlement table, why gate:conform's sweep covers it with texts of at most two letters, and why the oracle can compare it against the bare stream at the copies' `hmtx` advances.
 
+It checks each cosmetic set's lookup (`_check_cosmetic`, `_check_cosmetic_registrations`): registered under its set alone, after every lookup another feature registers, substituting exactly the planned unjoined cell glyphs by their same-advance copies, with no cursive anchor on either and each copy covered by the cursive lookups that cover its cell.
+
 It checks the `kern` feature against the kern plan (`_check_kern`): GPOS registers `curs` alone when the plan has no rule and `curs` and `kern` otherwise; the kern lookup's adjacent rules and its one-ZWNJ rules each give exactly the plan's (first glyph, second glyph) to value relation through their value lookups; and no glyph the lookup adjusts has an exit anchor, and no glyph it reads after one has an entry anchor, so the lookup cannot move a join.
 
 The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and reassembling each input glyph's ordered rules into the plan's (`_reassemble`). The packer refines every rule into disjoint pieces over its family's atoms (`pack_gsub._refine`), so a plan rule is matched to a run of consecutive font rules with its outcome that lie inside it, miss each other, together cover it, and hold `uni200C` wherever it does short of the farthest slot on a side, since HarfBuzz skips a ZWNJ that a context slot does not hold. Pieces that overlap, that leave part of the plan rule uncovered, that sit out of order, or that drop such a `uni200C` are divergences. The reassembly never calls the packer's refinement, which would then be checking itself. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the packed settlement lookup arrives as format 2, with a format-3 subtable for any rule the packer keeps whole, beside any format-2 subtable feaLib wrote itself.
@@ -36,6 +38,7 @@ from rebuild.pipeline.emit_gpos import (
     value_lookup_name,
 )
 from rebuild.pipeline.emit_gsub import GsubPlan, SettleRule
+from rebuild.pipeline.model import cosmetic_copy_name
 
 MAX_DIVERGENCES = 50
 BOUNDARY_GLYPHS = ("uni200C", "space")
@@ -456,6 +459,75 @@ def _check_anchorless_copies(gpos: Any, copies: frozenset[str], divergences: lis
     return len(copies - anchored)
 
 
+def _check_cosmetic(
+    font: Any, plan: GsubPlan, lookups: list[Any], indices: Mapping[str, list[int]], divergences: list[str]
+) -> int:
+    """Check each cosmetic set's lookup (`emit_gsub` stage 8) against the plan: it substitutes exactly the planned cell glyphs, each by `model.cosmetic_copy_name` of itself under the set, with the same `hmtx` advance, and it comes after every lookup any other feature registers, so it redraws only settled glyphs and no later lookup reads a copy. That every glyph it reads or writes is anchorless, and each copy covered as its cell is, is checked in the GPOS half (`_check_cosmetic_registrations`). With spec_load's rule that no condition or unlock names a cosmetic set, these make a cosmetic configuration's every text its settlement configuration's with the copies substituted. Returns the number of substitutions checked."""
+    stage = "cosmetic"
+    metrics = font["hmtx"].metrics
+    others = [index for tag, listed in indices.items() if tag not in plan.cosmetic_lines for index in listed]
+    count = 0
+    for feature, pairs in sorted(plan.cosmetic_lines.items()):
+        index = indices[feature][0]
+        if others and index <= max(others):
+            divergences.append(
+                f"{stage}: {feature}'s lookup {index} runs before lookup {max(others)} of another feature, so a later lookup could read its copies"
+            )
+        lookup = _stage_lookup(lookups, index, f"cosmetic {feature}", divergences)
+        if lookup is None:
+            continue
+        count += _check_single_stage(f"cosmetic {feature}", lookup, pairs, divergences)
+        for source, copy in sorted(pairs.items()):
+            if copy != cosmetic_copy_name(source, feature):
+                divergences.append(
+                    f"{stage}: {source} is redrawn as {copy}, not {cosmetic_copy_name(source, feature)}"
+                )
+            if source not in metrics or copy not in metrics:
+                divergences.append(f"{stage}: {source} or {copy} is missing from hmtx")
+            elif metrics[source][0] != metrics[copy][0]:
+                divergences.append(
+                    f"{stage}: {copy} advances {metrics[copy][0]} but {source} advances {metrics[source][0]}, so the set would move the letters after it"
+                )
+    return count
+
+
+def _cursive_coverage(gpos: Any, names: frozenset[str]) -> dict[str, list[tuple[int, bool, bool]]]:
+    """Return, for each of `names`, every cursive-attachment subtable that covers it, as (lookup index, has an entry anchor, has an exit anchor)."""
+    found: dict[str, list[tuple[int, bool, bool]]] = {name: [] for name in names}
+    for index, lookup in enumerate(gpos.LookupList.Lookup or []):
+        for subtable in _unwrapped(lookup):
+            if type(subtable).__name__ != "CursivePos":
+                continue
+            for position, glyph in enumerate(subtable.Coverage.glyphs):
+                if glyph in found:
+                    record = subtable.EntryExitRecord[position]
+                    found[glyph].append(
+                        (index, record.EntryAnchor is not None, record.ExitAnchor is not None)
+                    )
+    return found
+
+
+def _check_cosmetic_registrations(gpos: Any, plan: GsubPlan, divergences: list[str]) -> int:
+    """Check the GPOS half of the cosmetic lookups: no cursive-attachment subtable gives a redrawn cell or its copy an entry or exit anchor, and each copy is covered by exactly the subtables that cover its cell, so a locked cell's coverage-only registrations carry over and the copy attaches to nothing its cell would not. Returns the number of copies checked."""
+    stage = "cosmetic"
+    pairs = {source: copy for lines in plan.cosmetic_lines.values() for source, copy in lines.items()}
+    coverage = _cursive_coverage(gpos, frozenset(pairs) | frozenset(pairs.values()))
+    for source, copy in sorted(pairs.items()):
+        for name in (source, copy):
+            anchored = [index for index, entry, exit_ in coverage[name] if entry or exit_]
+            if anchored:
+                divergences.append(
+                    f"{stage}: GPOS lookups {anchored} give {name} a cursive anchor, so it is not an unjoined glyph"
+                )
+        copy_lookups = [index for index, _entry, _exit in coverage[copy]]
+        source_lookups = [index for index, _entry, _exit in coverage[source]]
+        if copy_lookups != source_lookups:
+            divergences.append(
+                f"{stage}: {copy} is covered by cursive lookups {copy_lookups} but {source} by {source_lookups}"
+            )
+    return len(pairs)
+
+
 def _feature_indices(table: Any) -> dict[str, list[int]]:
     indices: dict[str, list[int]] = {}
     for record in table.FeatureList.FeatureRecord or []:
@@ -466,7 +538,9 @@ def _feature_indices(table: Any) -> dict[str, list[int]]:
 def _check_feature_list(plan: GsubPlan, gsub: Any, divergences: list[str]) -> dict[str, list[int]] | None:
     """Check the GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, and ss10 when the plan has an ss10 input substitution. feaLib writes the feature records sorted by tag, so an unsorted list is also a divergence. Returns each tag's lookup indices, or None when the tags or their lookup counts do not match the plan."""
     tags = [record.FeatureTag for record in gsub.FeatureList.FeatureRecord or []]
-    expected = sorted(["calt", *plan.marker_lines] + (["ss10"] if plan.ss10_input else []))
+    expected = sorted(
+        ["calt", *plan.marker_lines, *plan.cosmetic_lines] + (["ss10"] if plan.ss10_input else [])
+    )
     if sorted(tags) != expected:
         divergences.append(f"feature list: GSUB registers {sorted(tags)}, expected {expected}")
         return None
@@ -498,6 +572,8 @@ def _check_definition_order(
             for feature in sorted(plan.marker_lines):
                 chain.append((f"m1_{feature}_marker", indices[feature][0]))
         chain.append((name, stages[name]))
+    for feature in sorted(plan.cosmetic_lines):
+        chain.append((f"m1_{feature}_cosmetic", indices[feature][0]))
     for (earlier, earlier_index), (later, later_index) in zip(chain, chain[1:]):
         if earlier_index >= later_index:
             divergences.append(
@@ -1076,6 +1152,10 @@ def verify_font(
                             f"marker {feature}", marker, plan.marker_lines[feature], divergences
                         )
                 checked["marker_substitutions"] = marker_substitutions
+                if plan.cosmetic_lines:
+                    checked["cosmetic_substitutions"] = _check_cosmetic(
+                        font, plan, lookups, indices, divergences
+                    )
                 for stage_name, stage_index in stages.items():
                     lookup = _stage_lookup(lookups, stage_index, stage_name, divergences)
                     if lookup is None:
@@ -1129,6 +1209,8 @@ def verify_font(
                 checked["anchorless_copies"] = _check_anchorless_copies(
                     gpos, frozenset(plan.ss10_input.values()), divergences
                 )
+            if plan.cosmetic_lines:
+                checked["cosmetic_registrations"] = _check_cosmetic_registrations(gpos, plan, divergences)
     finally:
         font.close()
 

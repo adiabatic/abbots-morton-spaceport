@@ -258,6 +258,17 @@ class KernBlock:
 
 
 @dataclass(frozen=True)
+class CosmeticRecord:
+    """One record of a rune's `cosmetic:` block: under `feature`, a set the registry marks `overlay: cosmetic`, each settled cell of `stance` that joins neither neighbor is drawn as `bitmap` instead (`cosmetic_copy_name`). The emitted font substitutes those cells after every settlement lookup, so the set changes how an unjoined letter looks and never whether anything joins; `spec_load` keeps every cosmetic set out of `when:` conditions and unlocks, and holds the drawing to its stance's size."""
+
+    rune: str
+    feature: str
+    stance: str
+    bitmap: Bitmap
+    provenance: Provenance | None = None
+
+
+@dataclass(frozen=True)
 class Rune:
     name: str
     codepoint: int | None = None
@@ -267,6 +278,9 @@ class Rune:
     mono: Bitmap | None = None
     stances: Mapping[str, Stance] = field(default_factory=dict)
     policy: Policy = field(default_factory=Policy)
+    cosmetic: tuple[CosmeticRecord, ...] = field(
+        default=(), metadata={KERNEL_FIELD: False}
+    )  # applied after settlement; the spec dump leaves it out, so a cosmetic edit changes nothing the crate reads
     kern: KernBlock = field(
         default_factory=KernBlock, metadata={KERNEL_FIELD: False}
     )  # read by rebuild/pipeline/kern.py alone; the spec dump leaves it out, so a kern edit changes nothing the crate reads
@@ -456,6 +470,62 @@ def isolated_overlay_active(spec: ResolvedSpec, features: Collection[str]) -> bo
         and spec.registry.features[feature].overlay == "isolated"
         for feature in features
     )
+
+
+COSMETIC_OVERLAY = "cosmetic"
+
+
+def cosmetic_features(spec: ResolvedSpec) -> frozenset[str]:
+    """Return the stylistic sets the registry marks `overlay: cosmetic`. Such a set redraws unjoined shapes after settlement (`CosmeticRecord`) and settles nothing of its own, so a configuration that holds one settles as the configuration without it does (`settlement_features`)."""
+    return frozenset(tag for tag, info in spec.registry.features.items() if info.overlay == COSMETIC_OVERLAY)
+
+
+def settlement_features(spec: ResolvedSpec, features: Collection[str]) -> frozenset[str]:
+    """Return `features` less its cosmetic sets: the features a configuration settles under."""
+    return frozenset(features) - cosmetic_features(spec)
+
+
+def cosmetic_copy_name(glyph_name: str, feature: str) -> str:
+    """Returns the name of a cell glyph's cosmetic copy under `feature`: the cell's own name with the feature appended, `qsOwe.sole.ss06` for `qsOwe.sole`."""
+    return f"{glyph_name}.{feature}"
+
+
+def cosmetic_record(spec: ResolvedSpec, cell: CellId, features: Collection[str]) -> CosmeticRecord | None:
+    """Return the cosmetic record that redraws `cell` under `features`, or None. A record applies to a cell of its rune and stance that has no entry and no exit, whatever its adjustments (the ZWNJ-locked copy among them). `spec_load` allows at most one record per stance."""
+    if cell.entry is not None or cell.exit is not None:
+        return None
+    rune = spec.runes.get(cell.rune)
+    if rune is None:
+        return None
+    for record in rune.cosmetic:
+        if record.stance == cell.stance and record.feature in features:
+            return record
+    return None
+
+
+def cosmetic_renames(
+    spec: ResolvedSpec, features: Collection[str], glyph_names: Mapping[CellId, str]
+) -> dict[str, str]:
+    """Map the name of each cell glyph in `glyph_names` that a cosmetic set in `features` redraws (`cosmetic_record`) to its cosmetic copy's name. The emitted font's cosmetic lookups make exactly these substitutions after settlement, so a configuration's expected stream is its settlement configuration's with these names replaced."""
+    renames: dict[str, str] = {}
+    for cell, name in glyph_names.items():
+        record = cosmetic_record(spec, cell, features)
+        if record is not None:
+            renames[name] = cosmetic_copy_name(name, record.feature)
+    return renames
+
+
+def cosmetic_copies(
+    spec: ResolvedSpec, glyph_names: Mapping[CellId, str]
+) -> dict[str, tuple[CellId, CosmeticRecord]]:
+    """Map the name of every cosmetic copy the font holds to the cell it copies and the record that draws it: one copy per cell glyph in `glyph_names` that some cosmetic set redraws (`cosmetic_record` over every cosmetic set)."""
+    every = cosmetic_features(spec)
+    copies: dict[str, tuple[CellId, CosmeticRecord]] = {}
+    for cell, name in glyph_names.items():
+        record = cosmetic_record(spec, cell, every)
+        if record is not None:
+            copies[cosmetic_copy_name(name, record.feature)] = (cell, record)
+    return copies
 
 
 SS10_COPY_SUFFIX = ".ss10"

@@ -4,6 +4,8 @@
 
 The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against. Read-back checks on every build that the ss10 input substitution covers every letter cmap glyph and that no copy appears in any formation sequence, marker line, ZWNJ lock class, or settlement input. So under ss10 every letter renders as its copy at its `hmtx` advance plus its kern, and nothing forms or attaches. The conformance sweep checks this at `OVERLAY_MAX_LENGTH`: single letters show that each letter maps to its copy, and pairs show that no pair forms or joins, and that each moves by exactly its kern.
 
+A cosmetic configuration (ss06, `COSMETIC_CONFIGS`) settles as its settlement configuration does and redraws each unjoined cell of a stance with a `cosmetic:` record after every settlement lookup. The sweep walks it to `COSMETIC_MAX_LENGTH` with no memo, settling under its settlement features (`model.settlement_features`) and expecting those names with the cosmetic copies substituted (`model.cosmetic_renames`). Read-back checks that each cosmetic lookup is registered under its set alone, runs after every other lookup, and substitutes only anchorless cell glyphs by same-advance anchorless copies, and spec_load keeps every cosmetic set out of the conditions and unlocks, so the short sweep covers every text.
+
 **Kerning.** At a break the kern lookup adds the stage's value to the first glyph's advance, across a ZWNJ as at any other break, and a space or the namer dot between two letters leaves them unkerned. HarfBuzz's cursive attachment sets an attached glyph's offset and advance from its entry anchor without changing their difference, so at every slot that does not exit into a join, `x_advance − x_offset` is the glyph's `hmtx` advance plus that kern (`check_break_advances`). A shaped break between two letters whose sides are no facing pair in the stage's assignment is a divergence of its own (`kern-side`): the stage missed a break HarfBuzz reaches, even when each glyph has its sides from other breaks. A text split at a ZWNJ equals its segments shaped alone once the kern across the split is added to the slot before it (`check_split_buffer`). These checks read the assignment the font was compiled from, `kern-classes.json` beside it (`load_kern_sides`); read-back has already checked that the font's kern lookup gives exactly that assignment.
 
 The conformance sweep does not check rule coverage; other stages do. Read-back (rebuild/pipeline/readback.py) checks that the compiled font holds every emitted rule at its planned position. The crate's fold fails the table build on any rule that no replayed row first-matches (`fold::assert_outcome_partition`). The witness stage (`witness.check_rule_certificates`, run by `run_m1` over the certificates the crate writes beside the rules) settles a string that fires each rule. The crate's `replay-strings` subcommand (`rebuild/kernel-rs/src/replay.rs`, `run_m1.run_replay_strings`) checks enumeration completeness: whether each live raw window a string reaches is one the fixpoint enumerated with its slot restrictions satisfied, or one it left at `#NA` or never reached, which the font handles with a wildcard or default rule. It replays `_SettledWindowWalk` and `witness._first_matching_rule` over the persisted rules at `run_m1.REPLAY_MAX_LENGTH` on every build, over every text after a code or structure change and, after a rune edit, over the texts naming an edited rune or a rune whose records read one (`run_m1.replay_families`).
@@ -53,9 +55,11 @@ from rebuild.pipeline.model import (
     GlyphRecord,
     ResolvedSpec,
     Settled,
+    cosmetic_renames,
     feature_config_token,
     isolated_overlay_active,
     raw_rename_map,
+    settlement_features,
 )
 from rebuild.pipeline.shapers import Shaper, isolated_overlay_labels, isolated_overlay_tokens
 from rebuild.tools import console
@@ -67,17 +71,25 @@ ZWNJ_SENTINEL = "<zwnj>"
 SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss08")
 # The isolated-overlay taste configurations (`model.isolated_overlay_active`). Nothing settles under them, so they have no table. The conformance sweep covers them at `OVERLAY_MAX_LENGTH`, relying on read-back's isolation check, and the oracle compares them against the bare stream. `rebuild/test_conform.py` checks that this tuple matches the registry's `overlay: isolated` features.
 OVERLAY_CONFIGS = ("ss10",)
+# The configurations that hold a cosmetic set (`model.cosmetic_features`), each of which settles as its settlement configuration does (`model.settlement_features`): ss06 as `default`. A cosmetic set only redraws unjoined shapes after settlement, so these have no table, no settle memo, no oracle rows and no review units. The conformance sweep shapes each to `COSMETIC_MAX_LENGTH` against its settlement configuration's stream with the cosmetic copies substituted (`model.cosmetic_renames`), and read-back checks the cosmetic lookups themselves (`readback._check_cosmetic`). `rebuild/test_conform.py` checks that this tuple is exactly the acceptance configurations that hold a cosmetic set.
+COSMETIC_CONFIGS = ("ss06",)
 # Every configuration the font is accepted under: what the conformance sweep shapes and the Manual pins replay against. The oracle reads `ORACLE_CONFIGS` instead, which the review corpus restates as `audit.ACCEPTANCE_CONFIGS`.
-ACCEPTANCE_CONFIGS = SETTLEMENT_CONFIGS + OVERLAY_CONFIGS
+ACCEPTANCE_CONFIGS = SETTLEMENT_CONFIGS + OVERLAY_CONFIGS + COSMETIC_CONFIGS
 # The settlement configurations the shipped font has no set for, so they have no baseline table and the oracle never compares them.
 M1_ONLY_CONFIGS = ("ss08",)
-# The configurations the oracle compares against the shipped font's baseline tables and stores rows for.
-ORACLE_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config not in M1_ONLY_CONFIGS)
+# The configurations the oracle compares against the shipped font's baseline tables and stores rows for. A cosmetic configuration is not one: `baseline_subset`'s refilter checks that the old font's table for it equals its settlement configuration's but for the gapped glyph's name (`baseline_subset.RENAME_COVERED_CONFIGS`).
+ORACLE_CONFIGS = tuple(
+    config
+    for config in ACCEPTANCE_CONFIGS
+    if config not in M1_ONLY_CONFIGS and config not in COSMETIC_CONFIGS
+)
 # How many texts of one length the conformance sweep walks at a time. Each length's texts are streamed instead of listed, because at maximum length 5 the length-5 texts number in the millions, while one chunk's walk states cost tens of megabytes at any maximum length.
 TEXT_CHUNK = 65536
 SWEEP_MAX_LENGTH = 4
 # The overlay sweep's length, whatever the conformance sweep's maximum length. Single letters show that each cmap glyph maps to its copy, and pairs show that no pair forms, joins, or moves. Together with read-back's isolation check, that covers every text.
 OVERLAY_MAX_LENGTH = 2
+# The cosmetic sweep's length, whatever the conformance sweep's maximum length. Every state of a redrawn stance appears by length 3 (unjoined, entered, exiting, both, and after a ZWNJ or the namer dot), and kerning reads only neighbors, so a font whose cosmetic lookup substitutes only unjoined cells after settlement (read-back) and a spec whose conditions name no cosmetic set (spec_load) shape every longer text as its settlement configuration does with the same substitutions.
+COSMETIC_MAX_LENGTH = 3
 # How many divergences a configuration's result and the merged report keep in full. Every divergence is counted by kind, but a red sweep at a deep maximum length can diverge on millions of texts, and the summaries print only this many.
 EXEMPLAR_LIMIT = 20
 SETTLE_MEMO_FORMAT = "ams-settle-memo/3"
@@ -4217,6 +4229,8 @@ def _conformance_config(
 
     An overlay configuration is swept to `OVERLAY_MAX_LENGTH` instead, whatever `max_length` is. Its expected names are `isolated_overlay_labels` over the raw tokens, it uses no walk and no memo, and every slot must sit at zero offset with its `hmtx` advance (`check_isolated_positions`). The split-buffer check runs there too.
 
+    A cosmetic configuration (`COSMETIC_CONFIGS`) is swept whole to `COSMETIC_MAX_LENGTH`, whatever `max_length` is, with no memo, `last` or `triggers`. Its walk settles under the configuration's settlement features, which leave out any feature the spec's registry does not know, as a pinned spec that predates a cosmetic set does not, and its expected names take the cosmetic copies (`model.cosmetic_renames`); every check of a settlement configuration runs on it.
+
     Settlement goes through `_SettledWindowWalk`'s memo, which only saves time. `settle_memo` shares that memo with the other walks over the same texts: it is loaded on the first miss, and a run without `last` writes a segment of it at the end if this sweep settled anything the memo lacked, naming every entry no text reached in its dead bitmaps. This sweep walks every text, so it is the only walk that can tell which windows still exist. Without `settle_memo`, the walk takes `horizon=max_length` and does not memoize pinned windows, and `max_windows`, when given, is its ceiling on the windows it holds (`_SettledWindowWalk`), which the deep sweep sets so that a unit's memory has a bound that does not depend on the alphabet. Each length's texts go through the walk `TEXT_CHUNK` at a time, because at larger maximum lengths a length has millions of texts and only the current chunk needs to be in memory. The split-buffer check runs only on texts that contain a splitter, since a text without one is its own single segment.
 
     `progress`, when given, is called with the count of texts shaped so far after each chunk, and after each length for an overlay configuration, so a caller can report a long sweep's progress from another process without the sweep printing anything or paying for a call per text.
@@ -4227,6 +4241,13 @@ def _conformance_config(
     assert not triggers or settle_memo is None, "a sweep that skips texts shares no settle memo"
     assert max_windows is None or settle_memo is None, "a window ceiling is for a walk with no settle memo"
     features = features_for_config(config)
+    settle_features = settlement_features(spec, features) & frozenset(spec.registry.features)
+    cosmetic = cosmetic_renames(spec, features, glyph_names) if settle_features != features else {}
+    if settle_features != features:
+        assert (
+            settle_memo is None and last is None and not triggers
+        ), "a cosmetic configuration is swept whole, with no settle memo"
+        max_length = COSMETIC_MAX_LENGTH
     result = ConformanceConfigResult(config=config)
     divergences = DivergenceTally(result, alphabet)
     modes: set[str] = set()
@@ -4252,7 +4273,7 @@ def _conformance_config(
         guard_verdicts = kernel_exec.guard_sweep(spec)
     walker = _SettledWindowWalk(
         spec,
-        features,
+        settle_features,
         glyph_names,
         guard_verdicts,
         memo=settle_memo,
@@ -4280,7 +4301,7 @@ def _conformance_config(
                 break
             result.sequences += len(chunk)
             for text, (_settled, names) in zip(chunk, walker.walk_many(chunk)):
-                sweep_text(text, names)
+                sweep_text(text, [cosmetic.get(name, name) for name in names] if cosmetic else names)
             if progress is not None:
                 progress(result.sequences)
 

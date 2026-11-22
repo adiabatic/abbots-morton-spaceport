@@ -43,6 +43,7 @@ from rebuild.pipeline.model import (
     KernFollower,
     KernRecord,
     ResolvedSpec,
+    cosmetic_copies,
     feature_config_token,
     parse_adjustment,
 )
@@ -131,20 +132,21 @@ class FacingPair:
 
 @dataclass(frozen=True)
 class KernResolution:
-    """The stage's result: each cell's leading and following side (a cell is on a side only when it meets a break from that side), each overlay copy's source cell by the copy's glyph name, and every facing pair in `kern.tsv` order."""
+    """The stage's result: each cell's leading and following side (a cell is on a side only when it meets a break from that side), each overlay copy's source cell by the copy's glyph name, each cosmetic copy's source cell likewise (`model.cosmetic_copies`), and every facing pair in `kern.tsv` order."""
 
     leading: Mapping[CellId, Side]
     following: Mapping[CellId, Side]
     ss10_sources: Mapping[str, CellId]
     pairs: tuple[FacingPair, ...]
     realized: Mapping[CellId, GlyphRecord] = field(default_factory=dict)
+    cosmetic_sources: Mapping[str, CellId] = field(default_factory=dict)
 
     def glyph_sides(self, glyphs: Mapping[CellId, GlyphRecord]) -> tuple[dict[str, Side], dict[str, Side]]:
-        """Return each glyph name's leading side and following side: the settled cells' glyphs under `glyphs`, and each `.ss10` copy under the sides of the cell it copies."""
+        """Return each glyph name's leading side and following side: the settled cells' glyphs under `glyphs`, and each `.ss10` copy and each cosmetic copy under the sides of the cell it copies, so a copy kerns exactly as its cell does."""
         names = {cell: glyphs[cell].name for cell in glyphs}
         leading = {names[cell]: side for cell, side in self.leading.items() if cell in names}
         following = {names[cell]: side for cell, side in self.following.items() if cell in names}
-        for copy, source in self.ss10_sources.items():
+        for copy, source in (*self.ss10_sources.items(), *self.cosmetic_sources.items()):
             if source in self.leading:
                 leading[copy] = self.leading[source]
             if source in self.following:
@@ -489,6 +491,12 @@ def resolve(
         ss10_sources=ss10_sources,
         pairs=_facing_pairs(spec, ordered, breaks, leading, following, values, config_order),
         realized=realized,
+        cosmetic_sources={
+            copy: cell
+            for copy, (cell, _record) in cosmetic_copies(
+                spec, {cell: record.name for cell, record in glyphs.items()}
+            ).items()
+        },
     )
 
 

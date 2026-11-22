@@ -1384,7 +1384,7 @@ class TestOracleFanIn:
 
 
 class TestConformFanIn:
-    """The conformance sweep's fan-in runs one unit per process (the ss10 overlay whole and each settlement configuration once per final symbol), writes its units' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, prunes and absorbs each settlement configuration's memo in the parent, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), over a three-symbol alphabet, so the real unit worker, `run_conformance`, and both merges run in every mode."""
+    """The conformance sweep's fan-in runs one unit per process (the ss10 overlay and each cosmetic configuration whole, and each settlement configuration once per final symbol), writes its units' peak memory as a `conform-sweep` pool record, writes none for a serial or deeper sweep, prunes and absorbs each settlement configuration's memo in the parent, and writes the same report as the serial conformance sweep at any width. Only the sweep is stubbed (`conform._conformance_config`, which the serial path and every worker call), over a three-symbol alphabet, so the real unit worker, `run_conformance`, and both merges run in every mode."""
 
     ALPHABET = ("a", "b", "c")
     ROWS = 4
@@ -1410,7 +1410,11 @@ class TestConformFanIn:
         """A deterministic sweep that shapes nothing: every text of the configuration's lengths that ends in `last` (every text without it) is a sequence costing the configuration's own count of shaping runs, and every text ending in the configuration's own symbol diverges, so a merge that misordered the units or the configurations would write a different report. The per-edit sweep shapes every text in every configuration, so no unit gets trigger letters, and its walks share a settle memo, so none gets a window ceiling."""
         assert not triggers and max_windows is None
         index = conform.ACCEPTANCE_CONFIGS.index(config)
-        top = conform.OVERLAY_MAX_LENGTH if config in conform.OVERLAY_CONFIGS else max_length
+        top = (
+            conform.OVERLAY_MAX_LENGTH
+            if config in conform.OVERLAY_CONFIGS
+            else conform.COSMETIC_MAX_LENGTH if config in conform.COSMETIC_CONFIGS else max_length
+        )
         result = conform.ConformanceConfigResult(config=config)
         tally = conform.DivergenceTally(result, alphabet)
         for length in range(1, top + 1):

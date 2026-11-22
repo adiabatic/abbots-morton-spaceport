@@ -27,6 +27,7 @@
       "additionalProperties": {"$ref": "#/$defs/stance"}
     },
     "policy": {"$ref": "#/$defs/policy", "description": "Rules that change how this letter joins depending on which letters sit next to it.\n\nThe `surface` block above gives the join geometry that holds no matter the neighbors; `policy` is where the adjustments for specific neighbors go.\n\nIts keys: `order` (blunt default ranking), `refuse` (veto a join), `prefer` (break a tie), `extend`/`contract` (lengthen/shorten the connector), `pad_left` (blank columns before the letter), `resolve` (a hand-arbitrated conflict), `groups` (reusable named letter sets). Most carry a `when:` saying which neighbors they fire for."},
+    "cosmetic": {"type": "array", "items": {"$ref": "#/$defs/cosmeticRecord"}, "description": "How this letter looks under a cosmetic stylistic set, a set the registry marks `overlay: cosmetic`: a drawing that replaces the letter's unjoined glyph after joining has settled.\n\nEach record names the `feature`, the `stance` whose unjoined shape it redraws, and the `bitmap` that replaces it. It applies only where that stance joins neither neighbor, the bare letter and the copy after a ZWNJ alike; a joined shape is never touched, so the set changes how an unjoined letter looks and never whether anything joins. The drawing keeps the unjoined shape's width and `y_offset`, so the letter takes the same space and kerns the same.\n\nNo `when:` condition or unlock may name a cosmetic set.\n\nExample: ·Owe's `{feature: ss06, stance: sole, bitmap: [...]}` draws its ring open at the top under ss06."},
     "kern": {"type": "array", "items": {"$ref": "#/$defs/kernRecord"}, "description": "How far this letter sits from the letter after it when the two don't join.\n\nEach record names a follower with `right:` and moves it by `by:` whole pixels: negative pulls it closer, positive pushes it away, and `0` cancels a broader record. A pair's kerning lives in the leading letter's file and nowhere else, and it never touches a joined pair; a join's length belongs to `extend` and `contract`.\n\nWhen several records match one pair, the narrowest one decides, and values never add up. Two records that both match a pair, ask for different values, and don't nest are an error (E-KERN-INCOMPARABLE), and so is a record that matches no pair the font can produce (E-KERN-UNMATCHED). A ligature stance that keeps its last letter's outgoing stroke also takes that letter's records, below its own.\n\nThis is the last key in the file, one record per line.\n\nExample: `{right: {family: qsBay}, by: -2}` in ·No's file pulls every unjoined ·Bay two pixels closer to every unjoined ·No."}
   },
   "oneOf": [
@@ -459,6 +460,18 @@
       "properties": {
         "entry": {"enum": ["live", "none"]},
         "exit": {"enum": ["live", "none"]}
+      }
+    },
+    "cosmeticRecord": {
+      "description": "One cosmetic drawing: under `feature`, the unjoined shape of `stance` is drawn as `bitmap` instead.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["feature", "stance", "bitmap"],
+      "properties": {
+        "feature": {"$ref": "#/$defs/featureTag", "description": "The stylistic set that switches the drawing on. The registry must mark it `overlay: cosmetic`."},
+        "stance": {"$ref": "#/$defs/motionName", "description": "The stance whose unjoined shape the drawing replaces."},
+        "bitmap": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "The replacement pixel grid, as wide as the stance's own `bitmap`, with the same trailing `#` markers at y=5 and y=0."},
+        "y_offset": {"type": "integer", "description": "As on a stance; it must equal the stance's own."}
       }
     },
     "kernRecord": {

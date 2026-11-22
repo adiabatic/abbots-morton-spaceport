@@ -96,7 +96,7 @@ The baseline has no split-buffer cross-check. For the M1 font, gate:conform's sp
 | `ss03`           | Single set; the Manual pins `·At \| ·Fee ~x~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                              |
 | `ss04`           | Single set; the Manual pins `·He ~b~ ·At ~x~ ·No ~x~ ·Day ~b~ ·It ~b~ ·Utter ~x~ ·Roe`.                                              |
 | `ss05`           | Single set; the Manual pins `·Bay \| ·Et ~b~ ·Tea ~b~ ·Utter ~x~ ·Roe`.                                                              |
-| `ss06`           | Single set; gapped ·Owe. The Manual's ss06 div is CSS-visual only and has no shaped pin, so the baseline is its first shaped record. |
+| `ss06`           | Single set; gapped ·Owe where ·Owe joins neither neighbor. The Manual's ss06 div is CSS-visual only and has no shaped pin.           |
 | `ss07`           | Single set; the Manual pins `·At ~x~ ·No ~x~ ·Owe ~x~ ·Day`.                                                                         |
 | `ss10`           | Single set; the Manual pins it on an inner span of the `·At ~x~ ·No \| ·Tea ~x~ ·It …` run.                                          |
 | `ss02+ss03`      | Multi-set: both sets gate qsTea entry stances, so they may interact.                                                                 |
@@ -104,7 +104,7 @@ The baseline has no split-buffer cross-check. For the M1 font, gate:conform's sp
 | `ss02+ss03+ss05` | Multi-set: all three sets touch qsTea's capability matrix (§5.5).                                                                    |
 | `ss03+ss05`      | The multi-set combination in `conform.SETTLEMENT_CONFIGS`, extracted so the M1 oracle has an old-font baseline for it.               |
 
-ss06 and ss07 reshape only ·Owe, so while ·Owe is outside `baseline_subset.M1_ALPHABET`, the `ss06`, `ss07`, and `ss06+ss07` subset tables are row-identical to `default`'s. The acceptance gate covers them by running `default` alone (`baseline_subset.DEFAULT_COVERED_CONFIGS`), and every refilter checks that identity. The ·Owe migration makes them diverge, and each then goes into `conform.ACCEPTANCE_CONFIGS` and out of `DEFAULT_COVERED_CONFIGS`, as `SubsetIdentityError`'s message says.
+ss06 and ss07 reshape only ·Owe. The old font's ss06 gives the gapped bitmap only to an ·Owe that joins neither neighbor, so the `ss06` and `ss06+ss07` tables equal `default`'s and `ss07`'s once those glyph names become `qsOwe.gapped`; every refilter checks that identity (`baseline_subset.RENAME_COVERED_CONFIGS`), and the oracle never compares either, since the rebuild's ss06 is a cosmetic set (`conform.COSMETIC_CONFIGS`). The `ss07` table equals `default`'s on every window without ·Owe; every refilter checks that too, and the `ss07` sub-table keeps only the windows with ·Owe (`baseline_subset.WINDOW_SCOPED_CONFIGS`).
 
 ## Runtime, determinism, and outputs
 

@@ -684,7 +684,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
-        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nM1_ONLY_CONFIGS = ()\n',
+        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nCOSMETIC_CONFIGS = ()\nM1_ONLY_CONFIGS = ()\n',
         encoding="utf-8",
     )
     rows = cb.build_rows(

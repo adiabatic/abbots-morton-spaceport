@@ -34,6 +34,7 @@ FEATURE_CONFIGURATIONS = (
     ("ss03+ss05", ("ss03", "ss05")),
     ("ss08", ("ss08",)),
     ("ss10", ("ss10",)),
+    ("ss06", ("ss06",)),
 )
 
 
