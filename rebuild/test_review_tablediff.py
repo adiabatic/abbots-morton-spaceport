@@ -259,11 +259,17 @@ def test_the_settled_configurations_match_the_builds():
 
 
 def test_the_review_rosters_match_the_oracles():
-    """The review package restates the oracle's configurations and the M1-only ones as `audit.ACCEPTANCE_CONFIGS` and `audit.M1_ONLY_CONFIGS`. The review corpus lists only what the oracle compares, so an M1-only configuration that leaked into the review roster would badge every unit and look for a baseline table that does not exist."""
+    """The review package restates the oracle's configurations, the M1-only ones and the window-scoped ones as `audit.ACCEPTANCE_CONFIGS`, `audit.M1_ONLY_CONFIGS` and `audit.WINDOW_SCOPED_CONFIGS`. The review corpus lists only what the oracle compares, so an M1-only configuration that leaked into the review roster would badge every unit and look for a baseline table that does not exist."""
     from rebuild.review import audit
 
     assert audit.ACCEPTANCE_CONFIGS == conform.ORACLE_CONFIGS
     assert audit.M1_ONLY_CONFIGS == conform.M1_ONLY_CONFIGS
+    from rebuild.pipeline import baseline_subset
+
+    assert {
+        config: frozenset(int(letter, 16) for letter in letters)
+        for config, letters in audit.WINDOW_SCOPED_CONFIGS
+    } == {config: letters for config, (_reference, letters) in baseline_subset.WINDOW_SCOPED_CONFIGS.items()}
 
 
 def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_dirs):

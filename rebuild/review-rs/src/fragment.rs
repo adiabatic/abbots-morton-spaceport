@@ -23,7 +23,7 @@ use crate::ink::{InkError, InkReader};
 use crate::pack::{PackError, Packer};
 use crate::pyfmt::json::{dumps_sorted, fragment_text};
 use crate::pyfmt::{PyFmtError, PyValue};
-use crate::scaffold::{ScaffoldError, acceptance_configs, unit_scaffold};
+use crate::scaffold::{Roster, ScaffoldError, unit_scaffold};
 use crate::schema::{RuneSchema, SchemaError};
 use crate::settle::{SettleError, Settlement, Settler, features_for_config};
 use crate::shape::{Fonts, ShapeError, Shaper};
@@ -397,12 +397,12 @@ pub fn check_scaffold(fragment: &PyValue, scaffold: &PyValue) -> Result<()> {
 
 /// What every fragment one engine drafts shares: the configurations a unit can hold, which the scaffold's badge and class note read, and the keys a slim fragment leaves out.
 pub struct FragmentBuilder {
-    acceptance: Vec<String>,
+    roster: Roster,
     slim_omitted: Vec<String>,
 }
 
 impl FragmentBuilder {
-    /// The builder over the init's `ACCEPTANCE_CONFIGS` and `SLIM_OMITTED_KEYS`, each of which must be a tuple of `str`.
+    /// The builder over the init's `ACCEPTANCE_CONFIGS`, `WINDOW_SCOPED_CONFIGS` (`Roster::read`) and `SLIM_OMITTED_KEYS`, which must be a tuple of `str`.
     pub fn new(init: &Init) -> Result<Self> {
         let Some(PyValue::Tuple(items)) = init.constant(SLIM_OMITTED_KEYS_NAME) else {
             return error(format!(
@@ -420,7 +420,7 @@ impl FragmentBuilder {
             })
             .collect::<Result<_>>()?;
         Ok(Self {
-            acceptance: acceptance_configs(init)?,
+            roster: Roster::read(init)?,
             slim_omitted,
         })
     }
@@ -440,7 +440,7 @@ impl FragmentBuilder {
         enriched: &Enriched,
         drafts: impl FnOnce(&UnitRecord) -> std::result::Result<Drafts, DraftError>,
     ) -> Result<PyValue> {
-        let mut scaffold = unit_scaffold(unit, flags, ink_deltas, &self.acceptance);
+        let mut scaffold = unit_scaffold(unit, flags, ink_deltas, &self.roster);
         if let Some(class) = final_class {
             assign(entries_mut(&mut scaffold)?, "class", PyValue::str(class));
         }
@@ -596,7 +596,7 @@ impl FragmentBuilder {
         primary_units: &[(Option<String>, bool)],
         check: bool,
     ) -> Result<()> {
-        let scaffold = unit_scaffold(unit, flags, ink_deltas, &self.acceptance);
+        let scaffold = unit_scaffold(unit, flags, ink_deltas, &self.roster);
         if check {
             check_scaffold(fragment, &scaffold)?;
         }
@@ -1005,7 +1005,10 @@ mod tests {
     #[test]
     fn a_patch_rewrites_the_scaffold_in_place_and_keeps_the_unsuppressed_junctions() {
         let builder = FragmentBuilder {
-            acceptance: vec!["default".to_owned(), "ss10".to_owned()],
+            roster: Roster {
+                acceptance: vec!["default".to_owned(), "ss10".to_owned()],
+                scoped: Vec::new(),
+            },
             slim_omitted: Vec::new(),
         };
         let flags = Flags {
@@ -1015,8 +1018,7 @@ mod tests {
         };
         let deltas = vec![("default".to_owned(), "d-1".to_owned())];
         let mut drafted = unit();
-        let PyValue::Dict(mut items) =
-            unit_scaffold(&drafted, &flags, &deltas, &builder.acceptance)
+        let PyValue::Dict(mut items) = unit_scaffold(&drafted, &flags, &deltas, &builder.roster)
         else {
             panic!("a scaffold is a dict");
         };

@@ -35,7 +35,8 @@
       "same-joins-same-width",
       "only-with-ss03",
       "only-with-ss04",
-      "only-with-ss05"
+      "only-with-ss05",
+      "only-with-several-sets"
     ],
     "machine_approved_classes": [
       "split-by-space-or-zwnj",
@@ -51,8 +52,10 @@
       "spacing-at-kerned-pairs",
       "ligature-forms-or-splits",
       "same-joins-same-width",
+      "only-with-ss03",
       "only-with-ss04",
-      "only-with-ss05"
+      "only-with-ss05",
+      "only-with-several-sets"
     ],
     "no_verdict_classes": [
       "split-by-space-or-zwnj",
@@ -73,153 +76,177 @@
       "same-joins-same-width",
       "only-with-ss03",
       "only-with-ss04",
-      "only-with-ss05"
+      "only-with-ss05",
+      "only-with-several-sets"
     ]
   },
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 3553151,
-        "rows": 17176135,
-        "batches": 2074,
-        "duplicate_groups": 17886
+        "units": 3832871,
+        "rows": 18774349,
+        "batches": 2185,
+        "duplicate_groups": 20397
       },
       "machine_approved": {
-        "units": 2846836,
+        "units": 3090115,
         "by_class": {
-          "split-by-space-or-zwnj": 337120,
-          "identical-unjoined-from-left": 1411,
-          "longer-entry-join": 425,
-          "one-extension-per-join": 3502,
-          "identical-unused-join-name": 789150,
-          "identical-variant-name": 1692007,
-          "may-jai-join-longer": 1833,
-          "identical-jai-jay-crown": 966,
-          "identical-zoo-crown": 4978,
-          "identical-roe-short-top": 3159,
-          "spacing-at-kerned-pairs": 6580,
-          "ligature-forms-or-splits": 3796,
-          "same-joins-same-width": 1903,
+          "split-by-space-or-zwnj": 356771,
+          "identical-unjoined-from-left": 1473,
+          "longer-entry-join": 526,
+          "one-extension-per-join": 3717,
+          "identical-unused-join-name": 853959,
+          "identical-variant-name": 1849165,
+          "may-jai-join-longer": 1996,
+          "identical-jai-jay-crown": 1024,
+          "identical-zoo-crown": 5340,
+          "identical-roe-short-top": 3277,
+          "spacing-at-kerned-pairs": 6869,
+          "ligature-forms-or-splits": 4018,
+          "same-joins-same-width": 1968,
+          "only-with-ss03": 2,
           "only-with-ss04": 4,
-          "only-with-ss05": 2
+          "only-with-ss05": 2,
+          "only-with-several-sets": 4
         }
       },
       "class_unit_count": {
-        "split-by-space-or-zwnj": 398491,
-        "identical-unused-join-name": 789150,
-        "identical-variant-name": 1692007
+        "split-by-space-or-zwnj": 420077,
+        "identical-unused-join-name": 853959,
+        "identical-variant-name": 1849165
       },
       "secondary_junctions": {
-        "units_with_markers": 99470,
-        "junctions_with_primary_unit": 14584,
-        "junctions_without_primary_unit": 90560,
-        "junctions_suppressed_invisible": 3024
+        "units_with_markers": 105030,
+        "junctions_with_primary_unit": 14798,
+        "junctions_without_primary_unit": 96091,
+        "junctions_suppressed_invisible": 3127
       }
     },
     "built": {
-      "human_units": 622159,
-      "reference_window_duplicate_siblings": 43,
+      "human_units": 655499,
+      "reference_window_duplicate_siblings": 44,
       "config_note_distribution": [
         [
           null,
-          3323088
+          3578351
         ],
         [
           "only under ss10",
-          2839
+          2918
         ],
         [
           "only when ss03 is off",
-          34941
+          39742
         ],
         [
           "only when ss03 is off and ss04 is off",
-          243
+          250
         ],
         [
           "only when ss03 is off and ss05 is off",
-          1028
+          1057
+        ],
+        [
+          "only when ss03 is off and ss07 is off",
+          6
         ],
         [
           "only when ss03 is on",
-          51801
+          57018
         ],
         [
           "only when ss03 is on and ss05 is off",
-          134
+          136
         ],
         [
           "only when ss03 is on and ss05 is on",
-          134
+          136
         ],
         [
           "only when ss04 is off",
-          36889
+          37865
         ],
         [
           "only when ss04 is off and ss05 is off",
           4
         ],
         [
+          "only when ss04 is off and ss07 is off",
+          33
+        ],
+        [
           "only when ss04 is on",
-          38341
+          39422
         ],
         [
           "only when ss05 is off",
-          30771
+          31525
+        ],
+        [
+          "only when ss05 is off and ss07 is off",
+          17
         ],
         [
           "only when ss05 is on",
-          31864
+          32678
         ],
         [
           "only when ss05 is on and ss03 is off",
-          1074
+          1106
+        ],
+        [
+          "only when ss07 is off",
+          3790
+        ],
+        [
+          "only when ss07 is on",
+          6817
         ]
       ]
     },
     "audit": {
-      "row_count": 17176135,
-      "units": 3566752
+      "row_count": 18774349,
+      "units": 3847090
     },
     "ink": {
-      "machine_total": 2766319,
-      "non_identical": 800433,
+      "machine_total": 3005526,
+      "non_identical": 841564,
       "by_class": {
-        "split-by-space-or-zwnj": 330772,
-        "identical-unjoined-from-left": 1411,
-        "identical-unused-join-name": 738063,
-        "identical-variant-name": 1677776,
-        "identical-zoo-crown": 4966,
-        "identical-roe-short-top": 3153,
-        "spacing-at-kerned-pairs": 10178
+        "split-by-space-or-zwnj": 350262,
+        "identical-unjoined-from-left": 1473,
+        "identical-unused-join-name": 799963,
+        "identical-variant-name": 1834560,
+        "identical-zoo-crown": 5328,
+        "identical-roe-short-top": 3271,
+        "spacing-at-kerned-pairs": 10669
       },
-      "boundary_window_exempt": 92694,
-      "human_units": 707739,
-      "batches": 2360
+      "boundary_window_exempt": 96005,
+      "human_units": 745559,
+      "batches": 2486
     },
     "unmatched_groups": {
       "counts": {
-        "new-join-at-baseline": 41814,
-        "new-join-at-xheight-or-top": 19051,
-        "join-dropped": 16063,
-        "join-lowered": 14026,
-        "join-raised": 208,
-        "ligature-forms-or-splits": 4748,
-        "same-joins-narrower": 278183,
-        "same-joins-wider": 24328,
-        "same-joins-same-width": 43576,
-        "only-with-ss03": 31408,
-        "only-with-ss04": 23112,
-        "only-with-ss05": 26727
+        "new-join-at-baseline": 43467,
+        "new-join-at-xheight-or-top": 20262,
+        "join-dropped": 17835,
+        "join-lowered": 14618,
+        "join-raised": 213,
+        "ligature-forms-or-splits": 4991,
+        "same-joins-narrower": 291982,
+        "same-joins-wider": 25525,
+        "same-joins-same-width": 45684,
+        "only-with-ss03": 33658,
+        "only-with-ss04": 23800,
+        "only-with-ss05": 27331,
+        "only-with-several-sets": 913
       },
-      "total": 523244,
+      "total": 550279,
       "rerouted": {
         "identical-unjoined-from-left": 5,
-        "identical-unused-join-name": 23079,
-        "identical-variant-name": 46334,
-        "identical-see-out-fusion": 1124,
-        "identical-jai-jay-crown": 126,
+        "identical-unused-join-name": 23953,
+        "identical-variant-name": 48848,
+        "identical-see-out-fusion": 1152,
+        "identical-jai-jay-crown": 128,
         "identical-zoo-crown": 0,
         "identical-roe-short-top": 2
       }

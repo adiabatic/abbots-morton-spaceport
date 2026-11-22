@@ -204,8 +204,8 @@
       "required": ["feature"],
       "properties": {
         "feature": {"$ref": "#/$defs/featureTag", "description": "The stylistic set (`ssNN`) that switches this unlock on — the grant applies only while a user has that set enabled."},
-        "entry": {"$ref": "#/$defs/height", "description": "Grants an extra entry height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
-        "exit": {"$ref": "#/$defs/height", "description": "Grants an extra exit height while the feature is on. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "entry": {"$ref": "#/$defs/height", "description": "Grants an extra entry height while the feature is on, or, at a height the stance already declares, admits a left neighbor that row's `from:` would refuse. Either way, `when:` narrows which neighbors it admits. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
+        "exit": {"$ref": "#/$defs/height", "description": "Grants an extra exit height while the feature is on, or, at a height the stance already declares, admits a right neighbor that row's `toward:` would refuse. Either way, `when:` narrows which neighbors it admits, as it does for an entry. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
         "pairing": {"$ref": "#/$defs/pairing", "description": "Grants an extra entry+exit combination while the feature is on — a pair `pairings` would otherwise forbid. Exactly one of `entry`, `exit`, or `pairing` per unlock."},
         "when": {"$ref": "#/$defs/when", "description": "Narrows the grant to a context — the usual `when` rules apply (settled left, raw right). Without it, the unlock holds wherever the feature is on."},
         "why": {"type": "string", "description": "An optional note saying why this grant exists. It records the author's rationale and changes no shaping."}

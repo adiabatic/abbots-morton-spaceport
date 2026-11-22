@@ -22,6 +22,7 @@ pub const VOCABULARY: &[&str] = &[
     "rebuild.review.audit.ACCEPTANCE_CONFIGS",
     "rebuild.review.audit.MACHINE_CHECKS",
     "rebuild.review.audit.SLIM_OMITTED_KEYS",
+    "rebuild.review.audit.WINDOW_SCOPED_CONFIGS",
     "rebuild.review.build.CONTRACT_ERRORS_SHOWN",
     "rebuild.review.enrich.EXPLAIN_UNIT_BATCH_SIZE",
     "rebuild.review.enrich.LETTERS",

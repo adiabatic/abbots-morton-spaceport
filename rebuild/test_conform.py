@@ -760,7 +760,7 @@ class TestPositionComparison:
 
 
 class TestPositionProjection:
-    """`Shaper.positions` must equal the (x_offset, y_offset, x_advance) projection of `Shaper.shape`, over the first 400 rows of each frozen mini-bundle table and the checked-in smoke sequences, under the features of every configuration the oracle compares. The shaper reuses one HarfBuzz buffer for its whole life, so the corpus goes through both projections alternately. A buffer that kept state between calls, or a projection that returned zeros of the right length, fails here."""
+    """`Shaper.positions` must equal the (x_offset, y_offset, x_advance) projection of `Shaper.shape`, over the first 400 rows of each frozen mini-bundle table (a window-scoped configuration's, which keeps only windows with ·Owe, holds none) and the checked-in smoke sequences, under the features of every configuration the oracle compares. The shaper reuses one HarfBuzz buffer for its whole life, so the corpus goes through both projections alternately. A buffer that kept state between calls, or a projection that returned zeros of the right length, fails here."""
 
     @pytest.fixture(scope="class")
     def corpus(self) -> list[tuple[frozenset[str], str]]:
@@ -776,7 +776,7 @@ class TestPositionProjection:
         for config in conform.ORACLE_CONFIGS:
             features = conform.features_for_config(config)
             texts = [row.text for row in iter_rows(MINI / f"baseline-{config}.subset.tsv.gz", 0, 400)]
-            assert texts, config
+            assert texts or config in baseline_subset.WINDOW_SCOPED_CONFIGS, config
             corpus.extend((features, text) for text in texts + smoke)
         return corpus
 

@@ -3412,10 +3412,13 @@ def test_the_replay_plan_line_explains_the_width_it_prints_on_every_route(monkey
     assert "AMS_REPLAY_THREADS" not in derived
     narrow_machine = 8_000_000_000 + 3 * REPLAY_PEAK_BYTES + REPLAY_PEAK_BYTES // 2
     narrow = ac.replay_threads_derivation(skip_make_test=True, ncores=8, total_bytes=narrow_machine)
-    assert narrow.startswith(f"2 waves over {count} settlement configurations; 3 at ")
+    assert narrow.startswith(f"{-(-count // 3)} waves over {count} settlement configurations; 3 at ")
     monkeypatch.setenv("AMS_REPLAY_THREADS", "2")
     stated = ac.replay_threads_derivation(ncores=10, total_bytes=MACHINE_32_GIB)
-    assert stated == f"3 waves over {count} settlement configurations; AMS_REPLAY_THREADS states 2"
+    assert (
+        stated
+        == f"{-(-count // 2)} waves over {count} settlement configurations; AMS_REPLAY_THREADS states 2"
+    )
     assert " at " not in stated
     text = _plan_text(_plan(ncores=10, total_bytes=MACHINE_32_GIB))
     assert f"run_m1 --replay-threads          : 2  (the string replay's own ceiling, {stated})" in text

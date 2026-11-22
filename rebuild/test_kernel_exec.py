@@ -1836,21 +1836,21 @@ class TestTheMemoryDerivedThreadDefault:
             (14_000_000_000, 2),
             (15_500_000_000, 3),
             (17_000_000_000, 4),
-            (64_000_000_000, 6),
+            (64_000_000_000, 7),
         ],
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (0.6 GB) and six parked products at `PARKED_FOLD_BYTES` (0.2 GB) off the machine, a 14 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (1.6 GB), a 15.5 GB machine three and a 17 GB machine four, the widest whose wave fits even where the rendezvous, six products read back at `READ_BACK_FOLD_BYTES` (1.5 GB), does not, since every width holds it. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (0.6 GB) and seven parked products at `PARKED_FOLD_BYTES` (0.2 GB) off the machine, a 14 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (1.6 GB), a 15.5 GB machine three and a 17 GB machine four, the widest whose wave fits even where the rendezvous, seven products read back at `READ_BACK_FOLD_BYTES` (1.5 GB), does not, since every width holds it. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 21.8 GB machine leaves too little for the whole wave's 11.2 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
-        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=21_800_000_000) == 6
+        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 23.4 GB machine leaves too little for the whole wave's 13.0 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_m1 runs alone."""
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=23_400_000_000) == 7
         assert (
             kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=21_800_000_000
+                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=23_400_000_000
             )
-            == 5
+            == 6
         )
 
     def test_the_booking_counts_every_parked_product_and_each_slot_beyond_its_own(self, monkeypatch):

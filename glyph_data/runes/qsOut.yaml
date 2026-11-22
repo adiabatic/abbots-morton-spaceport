@@ -95,6 +95,7 @@ stances:
             - qsAwe
             - qsOx
             - qsOy
+            - qsOwe
             - qsFoot
       cells: []
       unlocks: []

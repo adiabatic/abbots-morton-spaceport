@@ -2993,3 +2993,128 @@ E651 200C E66C           # ZWNJ severs ·Bay's exit into ·Exam
 0020 E66B E66C           # word-initial ·Excite joins ·Exam, as at a text edge
 00B7 E66C                # namer dot before ·Exam
 00B7 E66B E66C           # namer dot, then ·Excite joins ·Exam as at a word start
+
+# ·Owe
+E67C                     # ·Owe in isolation
+E650 E67C                # ·Pea before ·Owe (break)
+E67C E650                # ·Owe before ·Pea (break)
+E651 E67C                # ·Bay before ·Owe (break)
+E67C E651                # ·Owe before ·Bay (break)
+E652 E67C                # ·Tea before ·Owe (break)
+E67C E652                # ·Owe before ·Tea (break)
+E653 E67C                # ·Day before ·Owe (break)
+E67C E653                # ·Owe before ·Day (break)
+E654 E67C                # ·Key before ·Owe (break)
+E67C E654                # ·Owe before ·Key (break)
+E655 E67C                # ·Gay before ·Owe (break)
+E67C E655                # ·Owe before ·Gay (break)
+E656 E67C                # ·Thaw before ·Owe (break)
+E67C E656                # ·Owe before ·Thaw (break)
+E657 E67C                # ·They's x-height exit into ·Owe
+E67C E657                # ·Owe before ·They (break)
+E658 E67C                # ·Fee's x-height exit, extended by 1, into ·Owe
+E67C E658                # ·Owe's x-height exit, extended by 2, into ·Fee
+E659 E67C                # ·Vie before ·Owe (break)
+E67C E659                # ·Owe before ·Vie (break)
+E65A E67C                # ·See before ·Owe (break)
+E67C E65A                # ·Owe before ·See (break)
+E65B E67C                # ·Zoo before ·Owe (break)
+E67C E65B                # ·Owe's x-height exit into ·Zoo
+E65C E67C                # ·She before ·Owe (break)
+E67C E65C                # ·Owe before ·She (break)
+E65D E67C                # ·J’ai before ·Owe (break)
+E67C E65D                # ·Owe's x-height exit into ·J’ai
+E65E E67C                # ·Cheer before ·Owe (break)
+E67C E65E                # ·Owe's x-height exit, extended by 1, into ·Cheer
+E65F E67C                # ·Jay before ·Owe (break)
+E67C E65F                # ·Owe's x-height exit into ·Jay
+E660 E67C                # ·Ye before ·Owe (break)
+E67C E660                # ·Owe's x-height exit into ·Ye
+E661 E67C                # ·Way's x-height exit into ·Owe
+E67C E661                # ·Owe before ·Way (break)
+E662 E67C                # ·He before ·Owe (break)
+E67C E662                # ·Owe before ·He (break)
+E663 E67C                # ·Why before ·Owe (break)
+E67C E663                # ·Owe before ·Why (break)
+E664 E67C                # ·-ing before ·Owe (break)
+E67C E664                # ·Owe before ·-ing (break)
+E665 E67C                # ·May's x-height exit into ·Owe
+E67C E665                # ·Owe before ·May (break)
+E666 E67C                # ·No's x-height exit into ·Owe
+E67C E666                # ·Owe's x-height exit into ·No
+E667 E67C                # ·Low before ·Owe (break)
+E67C E667                # ·Owe before ·Low (break)
+E668 E67C                # ·Roe before ·Owe (break)
+E67C E668                # ·Owe's x-height exit, extended by 1, into ·Roe
+E669 E67C                # ·Loch before ·Owe (break)
+E67C E669                # ·Owe before ·Loch (break)
+E66A E67C                # ·Llan before ·Owe (break)
+E67C E66A                # ·Owe before ·Llan (break)
+E66B E67C                # ·Excite before ·Owe (break)
+E67C E66B                # ·Owe before ·Excite (break)
+E66C E67C                # ·Exam before ·Owe (break)
+E67C E66C                # ·Owe before ·Exam (break)
+E670 E67C                # ·It's x-height exit, extended by 1, into ·Owe
+E67C E670                # ·Owe's x-height exit, extended by 1, into ·It
+E671 E67C                # ·Eat before ·Owe (break)
+E67C E671                # ·Owe before ·Eat (break)
+E672 E67C                # ·Et before ·Owe (break)
+E67C E672                # ·Owe's x-height exit into ·Et
+E673 E67C                # ·Eight before ·Owe (break)
+E67C E673                # ·Owe's x-height exit into ·Eight
+E674 E67C                # ·At's x-height exit into ·Owe
+E67C E674                # ·Owe before ·At (break)
+E675 E67C                # ·I's x-height exit into ·Owe
+E67C E675                # ·Owe before ·I (break)
+E676 E67C                # ·Ah's x-height exit into ·Owe
+E67C E676                # ·Owe before ·Ah (break)
+E677 E67C                # ·Awe before ·Owe (break)
+E67C E677                # ·Owe's x-height exit into ·Awe
+E678 E67C                # ·Ox before ·Owe (break)
+E67C E678                # ·Owe's x-height exit into ·Ox
+E679 E67C                # ·Oy before ·Owe (break)
+E67C E679                # ·Owe before ·Oy (break)
+E67A E67C                # ·Utter's x-height exit into ·Owe
+E67C E67A                # ·Owe before ·Utter (break)
+E67B E67C                # ·Out's x-height exit into ·Owe
+E67C E67B                # ·Owe before ·Out (break)
+E67D E67C                # ·Foot's x-height exit into ·Owe
+E67C E67D                # ·Owe's x-height exit into ·Foot
+E67E E67C                # ·Ooze before ·Owe (break)
+E67C E67E                # ·Owe before ·Ooze (break)
+E67C E67C                # ·Owe's x-height exit into a second ·Owe
+E67C E65D E67A           # ·Owe's x-height exit into ·J’ai+Utter
+E67C E65F E67A           # ·Owe's x-height exit into ·Jay+Utter
+E67C E653 E67A           # ·Owe before ·Day+Utter (break; joins under ss07)
+E67C E653 E671           # ·Owe before ·Day+Eat (break; joins under ss07)
+E653 E67A E67C           # ·Day+Utter's x-height exit into ·Owe
+E65D E67A E67C           # ·J’ai+Utter's x-height exit into ·Owe
+E657 E65B E67C           # ·They+Zoo before ·Owe (break)
+E652 E679 E67C           # ·Tea+Oy before ·Owe (break)
+E67B E652 E67C           # ·Out+Tea before ·Owe (break)
+E67C E652 E679           # ·Owe before ·Tea+Oy (break)
+E67C E657 E65B           # ·Owe before ·They+Zoo (break)
+E674 E666 E67C E653      # ·At ~x~ ·No ~x~ ·Owe | ·Day; under ss07 ·Owe ~x~ ·Day, as The Manual pins
+E67C E652 E67A           # ·Owe | ·Tea; under ss03 ·Owe ~x~ the half ·Tea, which then breaks
+E665 E67C E652           # ·May ~x~ ·Owe | ·Tea; under ss03 ·Owe's exit, extended by one, reaches the half ·Tea
+E651 E655 E67C           # ·Bay ~b~ ·Gay ~x~ ·Owe: the entered ·Gay's exit, extended by two, reaches ·Owe
+E653 E655 E67C           # ·Day ~b~ ·Gay ~x~ ·Owe
+E67A E655 E67C           # ·Utter ~x~ ·Gay | ·Owe: an x-height-entered ·Gay cannot exit at the x-height
+E676 E655 E67C           # ·Ah ~x~ ·Gay | ·Owe
+E65A E667 E67C           # ·See ~b~ ·Low | ·Owe, as The Manual pins
+E655 E667 E67C E651      # ·Gay ~b~ ·Low | ·Owe | ·Bay, as The Manual pins
+E667 E67C E65B           # ·Low | ·Owe ~x~ ·Zoo: ·Low never joins ·Owe
+E657 E67C E67C           # ·They ~x~ ·Owe ~x~ ·Owe: both rings open where they join
+E657 E67C E65B           # ·They ~x~ ·Owe ~x~ ·Zoo: ·Owe joined on both sides
+E670 E67C E670           # ·It ~x~ ·Owe ~x~ ·It, each exit extended by one
+E67C E670 E653           # ·Owe ~x~ ·It ~b~ ·Day
+E67C E67A E652 E653      # ·Owe | ·Utter, and ·Tea keeps ·Day
+E67A E652 E653 E67C      # ·Utter·Tea·Day | ·Owe: ·Tea keeps ·Day
+200C E67C                # ZWNJ before ·Owe (the locked copy; gapped under ss06)
+E67C 200C E67C           # ZWNJ between two ·Owe
+E657 200C E67C           # ZWNJ severs ·They's exit into ·Owe
+E67C 200C E65B           # ZWNJ severs ·Owe's exit into ·Zoo
+200C E67C E65B           # the locked ·Owe's x-height exit into ·Zoo
+200C E655 E67C           # ZWNJ, then an unentered ·Gay before ·Owe (break)
+00B7 E67C                # namer dot before ·Owe
+00B7 E67C E65B           # namer dot, then ·Owe joins ·Zoo as at a word start

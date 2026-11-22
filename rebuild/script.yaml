@@ -9,6 +9,7 @@ features:
   ss04: {kind: capability, description: "·It joins at the baseline on both sides at once, any neighbor"}
   ss05: {kind: capability, description: "·Tea joins at the baseline on both sides at once, any neighbor"}
   ss06: {kind: taste, description: "an ·Owe that joins neither neighbor drawn with its ring open at the top", overlay: cosmetic}
+  ss07: {kind: capability, description: "·Owe joins a following ·Day, ·Day+Utter or ·Day+Eat at the x-height"}
   ss08: {kind: taste, description: "·Key·Utter·May breaks after ·Key and takes the alternate ·Utter, as The Manual writes it"}
   ss10: {kind: taste, description: "isolated forms overlay", overlay: isolated}
   interactions: [[ss03, ss05]]
