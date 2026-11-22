@@ -97,7 +97,7 @@ class JoinGlyph:
     transform_kind: str | None = None
     revert_feature: str | None = None
     gate_feature: str | None = None
-    replaces_family_feature: str | None = None
+    replaces_unjoined_feature: str | None = None
     gated_before: tuple[tuple[str, tuple[str, ...]], ...] = ()
     contracted_entry_suffix: str | None = None
     contracted_exit_suffix: str | None = None
@@ -1301,9 +1301,9 @@ def _family_stance_to_glyph_def(
     if gate_feature is not None:
         glyph_def["gate_feature"] = gate_feature
 
-    replaces_family_feature = stance_def.get("replaces_family_feature")
-    if replaces_family_feature is not None:
-        glyph_def["replaces_family_feature"] = replaces_family_feature
+    replaces_unjoined_feature = stance_def.get("replaces_unjoined_feature")
+    if replaces_unjoined_feature is not None:
+        glyph_def["replaces_unjoined_feature"] = replaces_unjoined_feature
 
     if stance_def.get("strip_entry_before"):
         glyph_def["strip_entry_before"] = True
@@ -1620,7 +1620,7 @@ def _glyph_def_to_join_glyph(
         transform_kind=transform_kind,
         revert_feature=glyph_def.get("revert_feature"),
         gate_feature=glyph_def.get("gate_feature"),
-        replaces_family_feature=glyph_def.get("replaces_family_feature"),
+        replaces_unjoined_feature=glyph_def.get("replaces_unjoined_feature"),
         contracted_entry_suffix=_contracted_entry_suffix_from_modifiers(list(resolved_modifiers)),
         contracted_exit_suffix=_contracted_exit_suffix_from_modifiers(list(resolved_modifiers)),
         contract_entry_after=glyph_def.get("contract_entry_after"),

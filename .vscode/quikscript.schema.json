@@ -500,9 +500,9 @@
           "description": "OpenType feature tag (e.g. ss01) that reverts this stance to its base glyph when enabled.",
           "pattern": "^ss(?!00)\\d{2}$"
         },
-        "replaces_family_feature": {
+        "replaces_unjoined_feature": {
           "type": "string",
-          "description": "OpenType feature tag (e.g. ss06) that replaces all family variants with this stance when enabled.",
+          "description": "OpenType feature tag (e.g. ss06) that replaces every family variant with no cursive anchor, the forms that join neither neighbor, with this stance when enabled. Joined forms are left alone, so the feature never changes whether a letter joins.",
           "pattern": "^ss(?!00)\\d{2}$"
         }
       }

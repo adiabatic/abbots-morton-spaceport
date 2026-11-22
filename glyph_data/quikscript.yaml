@@ -3362,7 +3362,7 @@ glyph_families:
         modifiers: [before-day]
       gapped:
         shape: gapped
-        replaces_family_feature: ss06
+        replaces_unjoined_feature: ss06
         variants: [junior, senior]
         modifiers: [gapped]
   qsFoot:

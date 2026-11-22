@@ -3398,6 +3398,44 @@ def test_owe_day_eat_ligature_connects_under_ss07():
     assert not failures, "\n".join(failures)
 
 
+# ---------------------------------------------------------------------------
+# ss06 is cosmetic: it gives an ·Owe that joins neither neighbor the gapped bitmap and leaves every join as it is, with or without ss07.
+# ---------------------------------------------------------------------------
+
+
+def _unjoined_owe_names() -> frozenset[str]:
+    return frozenset(
+        name
+        for name, meta in _compiled_meta().items()
+        if meta.base_name == "qsOwe"
+        and name != "qsOwe.gapped"
+        and not meta.entry
+        and not meta.entry_curs_only
+        and not meta.exit
+    )
+
+
+def test_ss06_only_regaps_an_unjoined_owe():
+    chars = _char_map()
+    owe = chars["qsOwe"]
+    unjoined = _unjoined_owe_names()
+    assert unjoined >= {"qsOwe", "qsOwe.noentry"}
+    contexts = ("", " ", ZWNJ, "·", *(char for _name, char in _plain_quikscript_letters()))
+    failures: list[str] = []
+    for base_features, label in (((), "default"), (_SS07_FEATURE, "ss07")):
+        with_ss06 = (*base_features, ("ss06", True))
+        for left, right in product(contexts, contexts):
+            text = left + owe + right
+            expected = [
+                "qsOwe.gapped" if name in unjoined else name
+                for name in _shape_with_features(text, base_features)
+            ]
+            shaped = _shape_with_features(text, with_ss06)
+            if shaped != expected:
+                failures.append(f"{label}+ss06 {text!r}: expected {expected}, got {shaped}")
+    _assert_no_failures(failures)
+
+
 _GAY_CONTEXTS = (
     "qsPea",
     "qsBay",
