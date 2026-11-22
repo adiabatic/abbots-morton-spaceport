@@ -213,7 +213,7 @@ def usable_cores(cgroup_root: str | Path = "/") -> int:
 
 
 def split_cores(cores: int) -> tuple[int, int]:
-    """Return how a gated artifact cycle divides `cores` between its two lanes while the build lane runs: the build lane's share, which holds the corpus build's parent and its workers, then the gate lane's share, which holds gate:make-test's pytest pool. The build lane takes the odd core, and each share is at least one, so on one core the two lanes share it. The function reads nothing but its argument, so every caller that sizes a pool from it (`rebuild/tools/artifact_cycle.py`, and `rebuild/tools/calibrate_budgets.py`, which reads that module only through `ast`) gets the same split for the same core count."""
+    """Return how a gated artifact cycle divides `cores` between its two lanes while the build lane runs: the build lane's share, which holds the corpus build's processes, then the gate lane's share, which holds gate:make-test's pytest pool. The build lane takes the odd core, and each share is at least one, so on one core the two lanes share it. The function reads nothing but its argument, so every caller that sizes a pool from it (`rebuild/tools/artifact_cycle.py`, and `rebuild/tools/calibrate_budgets.py`, which reads that module only through `ast`) gets the same split for the same core count."""
     return cores - cores // 2, max(1, cores // 2)
 
 

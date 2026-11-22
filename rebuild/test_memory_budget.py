@@ -278,7 +278,7 @@ class TestTheHandRunDefaults:
         assert widened == max(1, memory_budget.usable_cores() - 1)
 
     def test_the_signature_width_is_the_hand_runs_whole_machine(self, monkeypatch: pytest.MonkeyPatch):
-        """The signature width does not depend on memory: a signature worker is one comparator, so the hand run's default is the cores, the width a cycle passes too. Shrinking the machine until `--jobs` falls to one unit worker leaves the signature width unchanged, which a memory-derived width would not."""
+        """The signature width does not depend on memory: each shaper is one comparator, so the hand run's default is the cores, the width a cycle passes too. Shrinking the machine until `--jobs` falls to one leaves the signature width unchanged, which a memory-derived width would not."""
         import rebuild.tools.artifact_cycle as ac
         from rebuild.review import build
 

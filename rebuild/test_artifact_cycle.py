@@ -3137,7 +3137,7 @@ class TestTheConformSweepWidth:
             )
 
     def test_beside_a_corpus_build_the_conform_sweep_takes_the_cores_the_build_leaves(self):
-        """Beside a corpus build the conformance sweep's cap is the cores less the build's parent and its workers, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
+        """Beside a corpus build the conformance sweep's cap is the cores less the build's processes, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         configs = len(ACCEPTANCE_CONFIGS)
@@ -3379,7 +3379,7 @@ def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_r
 
 @pytest.mark.parametrize("ncores", [18, 12, 10])
 def test_the_lanes_partition_the_cores_under_a_gated_cycle(ncores):
-    """With memory to spare, a gated cycle's corpus build (its parent and its workers) and gate:make-test's pool together take exactly the machine's cores, so neither lane books a core the other holds."""
+    """With memory to spare, a gated cycle's corpus build (its processes) and gate:make-test's pool together take exactly the machine's cores, so neither lane books a core the other holds."""
     corpus = ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=1_000_000_000_000)
     assert 1 + corpus + ac.make_test_pool_width(ncores=ncores) == ncores
 
@@ -4489,7 +4489,7 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
 
 
 def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
-    """The ink-signature width is the one fan-out in the plan that memory does not derive: a signature worker holds one comparator, and no `*_BYTES` constant covers it. It is the whole machine whether gate:make-test runs, skips, or the gates are skipped, since that pool shares the cores while both run, so on a ten-core machine it is ten on every pass, above the corpus build's cap, which applies only to that build's unit workers. On a machine with a quarter of the memory, the reserve and the parent's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at ten. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
+    """The ink-signature width is the one fan-out in the plan that memory does not derive: each of its threads or workers holds one comparator, and no `*_BYTES` constant covers it. It is the whole machine whether gate:make-test runs, skips, or the gates are skipped, since that pool shares the cores while both run, so on a ten-core machine it is ten on every pass, above the corpus build's cap, which applies only to that build's units phase. On a machine with a quarter of the memory, the reserve and the build's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at ten. The argv passes the width after `--jobs`, and the plan shows it on its own row with its derivation."""
     derivation = "10 of 10 cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
     assert ac.signature_job_budget(ncores=10) == 10
     assert ac.signature_job_derivation(ncores=10) == derivation
@@ -4527,7 +4527,7 @@ def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
 
 
 def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
-    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's parent and its `corpus_job_budget` workers. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core under the queue policy and every core less gate:make-test's pool under the overlap policy, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
+    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's processes at `corpus_job_budget`'s width. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core under the queue policy and every core less gate:make-test's pool under the overlap policy, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
     corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
     queue = ac.contracts_pool_width(
         skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
