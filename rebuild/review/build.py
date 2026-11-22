@@ -3616,10 +3616,11 @@ def build_m1(
     gates_idle_marker: Path | None = None,
     write_jobs: int | None = None,
 ) -> dict:
-    """Build the m1-audit review corpus into `out_dir` (`_build_m1`) while holding the audit open: its head read and every part it lists opened here, before anything else, or the single file a tree with no head holds (`audit.AuditParts`), and those descriptors are the ones every read of the audit goes through until the build returns, the load's reads and the manifest's stamp's (`_generated_at`) alike, never a path again, since a `--gates-only` pass can commit a new head during a build. The build holds one descriptor a part, up to `row_delta.AUDIT_SEGMENT_CAP` and `row_delta.FOLD_OVERRUN` segments past it beside the base, and the key-only read's processes inherit them."""
+    """Build the m1-audit review corpus into `out_dir` (`_build_m1`) while holding the audit open: its head read and every part it lists opened here, before anything else, or the single file a tree with no head holds (`audit.AuditParts`), and those descriptors are the ones every read of the audit goes through until the build returns, the load's reads and the manifest's stamp's (`_generated_at`) alike, never a path again, since a `--gates-only` pass can commit a new head during a build. The build holds one descriptor a part, up to `row_delta.AUDIT_SEGMENT_CAP` and `row_delta.FOLD_OVERRUN` segments past it beside the base, and the key-only read's processes inherit them. The switch (`corpus_exec.engine()`, read once the audit is held) picks the build: `python` runs `_build_m1` in this process, and `rust` runs the Rust build at `jobs` threads, one included (`_rust_build_m1`)."""
     parts = audit.AuditParts(audit_path)
     try:
-        return _build_m1(
+        run = _rust_build_m1 if corpus_exec.engine() == "rust" else _build_m1
+        return run(
             parts,
             out_dir,
             audit_path,
@@ -4233,7 +4234,15 @@ def _rust_build_m1(
     gates_idle_marker: Path | None,
     write_jobs: int | None,
 ) -> dict:
-    """Build what `_build_m1` builds from its arguments, with the Rust build (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § The switch), and return the manifest it wrote, read back from `out_dir`. What comes before the load is `_build_m1`'s (`_packed_subsets`); then the units init is written (`units_exec.write_init`) from the `init` dict `_RecomputeRunner.__init__` builds, which derives the configuration fold here, so its line prints before the load; the build input's values are computed with `_build_m1`'s calls (`_rust_inputs`) and written with the held audit's descriptors (`corpus_exec.write_input`); and the process runs (`corpus_exec.run_build`), the init, the input and the process's spill files in a temporary directory held until it exits. A refusal raises `SystemExit` as `_build_m1` raises it, and any other failure `corpus_exec.BuildRunError`."""
+    """Build what `_build_m1` builds from its arguments, with the Rust build (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § The switch), and return the manifest it wrote, read back from `out_dir`. What comes before the load is `_build_m1`'s (`_packed_subsets`); then the units init is written (`units_exec.write_init`) from the `init` dict `_RecomputeRunner.__init__` builds, which derives the configuration fold here, so its line prints before the load; the build input's values are computed with `_build_m1`'s calls (`_rust_inputs`) and written with the held audit's descriptors (`corpus_exec.write_input`); and the process runs (`corpus_exec.run_build`), the init, the input and the process's spill files in a temporary directory held until it exits. A refusal raises `SystemExit` as `_build_m1` raises it, and any other failure `corpus_exec.BuildRunError`. Before anything else it refuses `AMS_CORPUS_UNITS_ENGINE=python`, since the crate computes every unit the Rust build writes and its unit store stamps the Rust units engine, and `AMS_CORPUS_MEMORY_TALLY=1`, whose readings are the Python build's objects."""
+    if units_exec.engine() == "python":
+        raise SystemExit(
+            f"{corpus_exec.ENGINE_VARIABLE}=rust computes every unit with the Rust units engine, so it refuses {units_exec.ENGINE_VARIABLE}=python; unset one of them"
+        )
+    if memory_tally.enabled():
+        raise SystemExit(
+            f"{memory_tally.TALLY_ENV}=1 tallies the Python build's objects, which {corpus_exec.ENGINE_VARIABLE}=rust does not hold; unset one of them"
+        )
     spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

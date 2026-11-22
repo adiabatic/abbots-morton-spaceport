@@ -1,6 +1,6 @@
 """The corpus build interface: the Python side of the review crate's corpus build under `rebuild/review-rs/`, the Rust engine of the review corpus build's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Boundary). It owns every format that crosses to the build, as `units_exec` owns the units engine's: nothing pickled crosses, only files and compact JSON this module writes.
 
-`engine()` reads the switch, `AMS_CORPUS_BUILD_ENGINE`, at call time, `python` when it is unset; `ENGINES` holds the engines the build runs. `write_input` writes the build input (`INPUT_FORMAT`, the plan's § The build input) from the values `build._rust_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the ported code reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `run_build` runs the build, `ams-review build`, over a written input and returns its result, raising a refusal as `SystemExit` and any other failure as `BuildRunError`.
+`engine()` reads the switch, `AMS_CORPUS_BUILD_ENGINE`, at call time, `python` when it is unset; `ENGINES` holds the engines the build runs, and under `rust` `build.build_m1` runs the m1-audit build in the crate (`build._rust_build_m1`). `write_input` writes the build input (`INPUT_FORMAT`, the plan's § The build input) from the values `build._rust_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the ported code reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `run_build` runs the build, `ams-review build`, over a written input and returns its result, raising a refusal as `SystemExit` and any other failure as `BuildRunError`.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from rebuild.tools.peak_rss import peak_footprint_self_bytes
 INPUT_FORMAT = "ams-review-build/1"
 ENGINE_VARIABLE = "AMS_CORPUS_BUILD_ENGINE"
 SWITCH_VALUES = ("python", "rust")
-ENGINES = ("python",)
+ENGINES = ("python", "rust")
 
 # The build input's fields in the order `write_input` writes them (the plan's § The build input).
 INPUT_FIELDS = (

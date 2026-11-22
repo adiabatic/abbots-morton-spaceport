@@ -2570,9 +2570,10 @@ def _pin_time(path: Path, like: Path) -> None:
     os.utime(path, ns=(path.stat().st_atime_ns, like.stat().st_mtime_ns))
 
 
-def _build_environment(counts: Path, run: str | None) -> dict[str, str]:
-    """The environment a scenario's build child runs in, as the cycle's step runs the build: the Rust units engine, no debug tally, the counts file named, no cycle run unless the case's pass holds one, and on macOS the allocator's large cache off."""
+def _build_environment(counts: Path, run: str | None, engine: str = "python") -> dict[str, str]:
+    """The environment a scenario's build child runs in, as the cycle's step runs the build: the corpus build `engine` on the switch (`corpus_exec.ENGINE_VARIABLE`), the Rust units engine, no debug tally, the counts file named, no cycle run unless the case's pass holds one, and on macOS the allocator's large cache off."""
     environment = dict(os.environ)
+    environment[corpus_exec.ENGINE_VARIABLE] = engine
     environment[units_exec.ENGINE_VARIABLE] = "rust"
     environment.pop(memory_tally.TALLY_ENV, None)
     environment.pop(row_delta.CYCLE_RUN_ENV, None)
@@ -2611,7 +2612,7 @@ def run_engine_build(
     jobs: int | None = None,
     claim_held_by: str | None = None,
 ) -> BuildRun:
-    """Run one build of `inputs` into `out` in a fresh process (`python_build_child`), as the cycle's step runs it, and return the run: the Python build (`build.build_m1`) for the engine `python`, and the Rust build (`build._rust_build_m1`) for `rust`. `out` is first made a clone of `prior` when one is given, and otherwise built in place. `logs` holds the request, the log of standard error, the counts file, the journal the build writes its records to, and the cycle directory of a pass whose claim `claim_held_by` holds. `jobs` is the units width, the harness's default when None, and a build at one job shapes its signatures at one job too."""
+    """Run one build of `inputs` into `out` in a fresh process (`python_build_child`), as the cycle's step runs it, and return the run: `build.build_m1` with the switch set to `engine` (`_build_environment`), the Python build for `python` and the Rust build (`build._rust_build_m1`) for `rust`. `out` is first made a clone of `prior` when one is given, and otherwise built in place. `logs` holds the request, the log of standard error, the counts file, the journal the build writes its records to, and the cycle directory of a pass whose claim `claim_held_by` holds. `jobs` is the units width, the harness's default when None, and a build at one job shapes its signatures at one job too."""
     logs.mkdir(parents=True, exist_ok=True)
     if prior is not None:
         _clone_tree(prior, out)
@@ -2648,7 +2649,7 @@ def run_engine_build(
         process = subprocess.run(
             [sys.executable, "-m", "rebuild.tools.units_stage_fixtures", "python-build", str(request_path)],
             cwd=REPO_ROOT,
-            env=_build_environment(counts, run),
+            env=_build_environment(counts, run, engine),
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
@@ -2666,7 +2667,7 @@ def run_engine_build(
 
 
 def python_build_child(request_path: Path) -> int:
-    """Run the build one `run_engine_build` request describes, in this process, with the engine it names: `build.build_m1`, or for `rust` `build._rust_build_m1` over the audit held as `build_m1` holds it (`audit.AuditParts`) with `build_m1`'s defaults for every argument the request leaves out; the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them. How the build ended is written to the request's `ending` file as one JSON object before the child exits: `{"kind": "done"}`; `{"kind": "exit", "message": …}` for a `SystemExit`, the refusal the Rust build's `exit` result raises among them, its message None when its code is not text; or `{"kind": "error", "class": …}` for any other exception."""
+    """Run the build one `run_engine_build` request describes, in this process: `build.build_m1` with its defaults for every argument the request leaves out, under the switch `run_engine_build` set to the engine the request names, which this process refuses to run otherwise; the journal and, for a pass whose claim another output holds, the cycle directory redirected as the request names them. How the build ended is written to the request's `ending` file as one JSON object before the child exits: `{"kind": "done"}`; `{"kind": "exit", "message": …}` for a `SystemExit`, the refusal the Rust build's `exit` result raises among them, its message None when its code is not text; or `{"kind": "error", "class": …}` for any other exception."""
     request = json.loads(request_path.read_text(encoding="utf-8"))
     if request.get("format") != BUILD_REQUEST_FORMAT:
         raise SystemExit(f"{request_path} is not a {BUILD_REQUEST_FORMAT} request")
@@ -2691,33 +2692,10 @@ def _requested_build(request: Mapping) -> None:
     if request["cycle_var"] is not None:
         cycle_paths.CYCLE_VAR = Path(request["cycle_var"])
     inputs = BuildInputs.from_request(request["inputs"])
-    if request["engine"] == "rust":
-        parts = audit.AuditParts(inputs.audit)
-        try:
-            build._rust_build_m1(
-                parts,
-                Path(request["out"]),
-                inputs.audit,
-                inputs.ledger,
-                inputs.subset_dir,
-                build.SITE_BEFORE_FONT,
-                inputs.after_font,
-                build.SITE_JUNIOR_FONT,
-                build.REPO_ROOT,
-                build.BATCH_SIZE,
-                build.STATIC_DIR,
-                request["jobs"],
-                request["signature_jobs"],
-                inputs.recompute_all,
-                inputs.spec_root,
-                inputs.subset_pack,
-                None,
-                None,
-                None,
-            )
-        finally:
-            parts.close()
-        return
+    if corpus_exec.engine() != request["engine"]:
+        raise SystemExit(
+            f"{corpus_exec.ENGINE_VARIABLE} does not name the requested {request['engine']} build"
+        )
     build.build_m1(
         Path(request["out"]),
         audit_path=inputs.audit,

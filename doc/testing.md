@@ -10,6 +10,7 @@ This file maps each kind of change to the gate that checks it, and says what eac
 | Anything under `rebuild/`                                  | `make test-rebuild`                                                                                                        |
 | Settlement or proof-fold semantics in `rebuild/kernel-rs/` | `make kernel-gate`, then `make test-rebuild`                                                                               |
 | The review crate in `rebuild/review-rs/`                   | `make review-rs-check`, then `make test-rebuild`                                                                           |
+| The Rust corpus build: `corpus_exec.py`, `src/corpus/`     | `make review-rs-check`, `uv run python -m rebuild.tools.corpus_dual_run --source mini --scenario all`, `make test-rebuild` |
 | A review-app module in `rebuild/review/static/`            | `node --test rebuild/review/jstests/*.test.js` (the cycle's `gate:js`)                                                     |
 | The contract fixture in `rebuild/review/fixtures/`         | `make test-rebuild`, then `node --test rebuild/review/jstests/*.test.js` (the cycle's `gate:js`)                           |
 | The review server, the verdict store, or the land          | `uv run pytest rebuild/test_landing.py rebuild/test_review_autosave.py -n auto --dist worksteal`, then `make test-rebuild` |
