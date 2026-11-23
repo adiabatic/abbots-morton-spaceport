@@ -49,6 +49,7 @@ stances:
             - qsAh
             - qsUtter
             - qsOut
+            - qsOwe
       exits:
         baseline:
           x: 8

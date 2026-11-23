@@ -61,6 +61,7 @@ stances:
             - qsWay
             - qsMay
             - qsNo
+            - qsLow
             - qsIt
             - qsAt
             - qsI
@@ -87,11 +88,13 @@ stances:
             - qsYe
             - qsNo
             - qsRoe
+            - qsLlan
             - qsIt
             - qsEt
             - qsEight
             - qsAwe
             - qsOx
+            - qsOy
             - qsOwe
             - qsFoot
       cells:

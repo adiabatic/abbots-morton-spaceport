@@ -6,8 +6,8 @@ Scratch for the ·Owe migration, the last letter. Delete it when the review sess
 
 - The drafted ductus in `glyph_data/runes/qsOwe.yaml` waits for the author's review, and its `# DRAFT` marker marks what to review. The old record has no ductus or notes for ·Owe, so the motion, a counterclockwise ring begun and ended at the top, is drafted from the bitmaps.
 - The new review units wait for their review session. `make verdict-ready` reports whether the corpus is ready for it. Every new unmatched row holds ·Owe, and about two thirds repeat the change the same window shows, in the same configuration, with ·Awe or ·Ox in ·Owe's place. The rest:
-  - `·Low | ·Owe` where the old font joins `·Low ~x~ ·Owe` before an unextended x-height exit (the ruling below);
-  - joins the old font loses and the rebuild keeps: `·Owe ~x~ ·Owe` inside longer windows, `·Owe ~x~ ·It ~b~ ·Day` (every other x-height left already joins ·It there), `·{They,Out,Fee} ~x~ ·Owe ~x~ ·Tea.half` under ss03, and `·Ah ~x~ ·Gay | ·Owe`;
+  - joins the old font breaks and the rebuild makes (the ruling below): `·Low ~x~ ·Owe` before ·{Fee,Cheer,Roe,It} and wherever ·Owe joins nothing after it, `·Gay ~x~ ·Owe` after an unentered ·Gay, `·Ah | ·Gay ~x~ ·Owe`, where the old font breaks both, and `·Owe ~x~ ·{Llan,Oy}`;
+  - joins the old font loses and the rebuild keeps: `·Owe ~x~ ·Owe` inside longer windows, `·Owe ~x~ ·It ~b~ ·Day` (every other x-height left already joins ·It there), and `·{They,Out,Fee} ~x~ ·Owe ~x~ ·Tea.half` under ss03;
   - ss07 rows that mirror a `default` row, since the stand-in windows list no ss07 (decision 41 of #618);
   - neighbors' extension and contraction cells in the windows ·Owe's joins newly reach.
 - The table build's kernel terms are not re-measured, now with seven settlement configurations: the issue-492, issue-534 and issue-516 harnesses the skill names are not under `var/keep/` on the 18-core M5 Pro MacBook Pro. `make job-costs` checks this batch's runs against the booked constants.
@@ -21,11 +21,11 @@ The rune is one `sole` stance, the closed ring, with the joined drawings as bind
 
 The old exit extensions transcribe as extend records: by one before ·{Cheer,Roe,It}, by two before ·Fee, and by one before ·Tea under ss03. The old entry extension after half x-height exiters other than ·Pea and the entry contraction after ·He fire in no baseline row of any configuration, so the author dropped both.
 
-The author ruled that ·Low never joins ·Owe. The old font joins `·Low ~x~ ·Owe` only when ·Owe goes on to join an unextended x-height follower, and The Manual pins `·See ~b~ ·Low | ·Owe` and `·Gay ~b~ ·Low | ·Owe | ·Bay`.
+The author ruled that ·Owe joins at the x-height on both sides as a pair-wide matter: no record refuses `·{Low,Gay} ~x~ ·Owe` or `·Owe ~x~ ·{Llan,Oy}` because of the letters around them. The old font joins `·Low ~x~ ·Owe` only when ·Owe goes on to join an unextended x-height follower, joins an unentered ·Gay to ·Owe only after a ZWNJ, and never joins ·Owe to ·Llan or ·Oy. The Manual's pins that break ·Low·Owe or ·Gay·Owe carry a ZWNJ there instead of the font refusing the join (`site/the-manual.html`).
 
 ss07 is ·Owe's exit unlock toward ·Day{,+Utter,+Eat}, as the old font's before-day stances had it. The crate ignored an exit unlock at a height the stance declares, and the author chose to change the crate over moving the record to ·Day's side: an exit unlock now widens a declared row's `toward:` scope as far as its `when:` reaches, and its `when:` narrows an undeclared height's grant too (`Engine::exit_unlocked`). No other rune has an exit unlock.
 
-·Gay joins ·Owe at the x-height only when ·Gay is entered, with its exit extended by two, as it treats ·Et: qsOwe is on ·Gay's x-height `toward:`, its unentered refusal, and its by-two extension. The old font also joins the ZWNJ-locked ·Gay to ·Owe, which the `split-by-space-or-zwnj` class takes. Under ss03 ·Owe reaches only the half ·Tea, through that stance's ss03 unlock.
+·Gay joins ·Owe at the x-height with its exit extended by two, entered or not: qsOwe is on ·Gay's x-height `toward:` and its by-two extension. An x-height-entered ·Gay cannot also exit at the x-height, so `·Utter ~x~ ·Gay | ·Owe`, while after ·Ah ·Gay's prefer for its own exit gives `·Ah | ·Gay ~x~ ·Owe`. Under ss03 ·Owe reaches only the half ·Tea, through that stance's ss03 unlock.
 
 A review unit's config badge is resolved against the configurations its window can hold (`audit.window_configs`, the Rust scaffold's `Roster::window`), so a unit without ·Owe, which never holds ss07, keeps the badge it had; only an ·Owe window's badge can name ss07.
 

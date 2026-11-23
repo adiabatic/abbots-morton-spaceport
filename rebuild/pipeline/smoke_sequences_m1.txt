@@ -3006,7 +3006,7 @@ E653 E67C                # ·Day before ·Owe (break)
 E67C E653                # ·Owe before ·Day (break)
 E654 E67C                # ·Key before ·Owe (break)
 E67C E654                # ·Owe before ·Key (break)
-E655 E67C                # ·Gay before ·Owe (break)
+E655 E67C                # ·Gay's x-height exit, extended by 2, into ·Owe
 E67C E655                # ·Owe before ·Gay (break)
 E656 E67C                # ·Thaw before ·Owe (break)
 E67C E656                # ·Owe before ·Thaw (break)
@@ -3042,14 +3042,14 @@ E665 E67C                # ·May's x-height exit into ·Owe
 E67C E665                # ·Owe before ·May (break)
 E666 E67C                # ·No's x-height exit into ·Owe
 E67C E666                # ·Owe's x-height exit into ·No
-E667 E67C                # ·Low before ·Owe (break)
+E667 E67C                # ·Low's x-height exit into ·Owe
 E67C E667                # ·Owe before ·Low (break)
 E668 E67C                # ·Roe before ·Owe (break)
 E67C E668                # ·Owe's x-height exit, extended by 1, into ·Roe
 E669 E67C                # ·Loch before ·Owe (break)
 E67C E669                # ·Owe before ·Loch (break)
 E66A E67C                # ·Llan before ·Owe (break)
-E67C E66A                # ·Owe before ·Llan (break)
+E67C E66A                # ·Owe's x-height exit into ·Llan
 E66B E67C                # ·Excite before ·Owe (break)
 E67C E66B                # ·Owe before ·Excite (break)
 E66C E67C                # ·Exam before ·Owe (break)
@@ -3073,7 +3073,7 @@ E67C E677                # ·Owe's x-height exit into ·Awe
 E678 E67C                # ·Ox before ·Owe (break)
 E67C E678                # ·Owe's x-height exit into ·Ox
 E679 E67C                # ·Oy before ·Owe (break)
-E67C E679                # ·Owe before ·Oy (break)
+E67C E679                # ·Owe's x-height exit into ·Oy
 E67A E67C                # ·Utter's x-height exit into ·Owe
 E67C E67A                # ·Owe before ·Utter (break)
 E67B E67C                # ·Out's x-height exit into ·Owe
@@ -3097,13 +3097,15 @@ E67C E657 E65B           # ·Owe before ·They+Zoo (break)
 E674 E666 E67C E653      # ·At ~x~ ·No ~x~ ·Owe | ·Day; under ss07 ·Owe ~x~ ·Day, as The Manual pins
 E67C E652 E67A           # ·Owe | ·Tea; under ss03 ·Owe ~x~ the half ·Tea, which then breaks
 E665 E67C E652           # ·May ~x~ ·Owe | ·Tea; under ss03 ·Owe's exit, extended by one, reaches the half ·Tea
-E651 E655 E67C           # ·Bay ~b~ ·Gay ~x~ ·Owe: the entered ·Gay's exit, extended by two, reaches ·Owe
+E651 E655 E67C           # ·Bay ~b~ ·Gay ~x~ ·Owe
 E653 E655 E67C           # ·Day ~b~ ·Gay ~x~ ·Owe
 E67A E655 E67C           # ·Utter ~x~ ·Gay | ·Owe: an x-height-entered ·Gay cannot exit at the x-height
-E676 E655 E67C           # ·Ah ~x~ ·Gay | ·Owe
-E65A E667 E67C           # ·See ~b~ ·Low | ·Owe, as The Manual pins
-E655 E667 E67C E651      # ·Gay ~b~ ·Low | ·Owe | ·Bay, as The Manual pins
-E667 E67C E65B           # ·Low | ·Owe ~x~ ·Zoo: ·Low never joins ·Owe
+E676 E655 E67C           # ·Ah | ·Gay ~x~ ·Owe: after ·Ah, ·Gay prefers its x-height exit
+E65A E667 E67C           # ·See ~b~ ·Low ~x~ ·Owe; The Manual's pin breaks it with a ZWNJ
+E655 E667 E67C E651      # ·Gay ~b~ ·Low ~x~ ·Owe | ·Bay; The Manual's pin breaks ·Low·Owe with a ZWNJ
+E667 E67C E65B           # ·Low ~x~ ·Owe ~x~ ·Zoo
+E65A E667 200C E67C      # ·See ~b~ ·Low | ZWNJ | ·Owe, as The Manual pins
+E67C E66A E655           # ·Owe ~x~ ·Llan ~b~ ·Gay
 E657 E67C E67C           # ·They ~x~ ·Owe ~x~ ·Owe: both rings open where they join
 E657 E67C E65B           # ·They ~x~ ·Owe ~x~ ·Zoo: ·Owe joined on both sides
 E670 E67C E670           # ·It ~x~ ·Owe ~x~ ·It, each exit extended by one
@@ -3115,6 +3117,6 @@ E67C 200C E67C           # ZWNJ between two ·Owe
 E657 200C E67C           # ZWNJ severs ·They's exit into ·Owe
 E67C 200C E65B           # ZWNJ severs ·Owe's exit into ·Zoo
 200C E67C E65B           # the locked ·Owe's x-height exit into ·Zoo
-200C E655 E67C           # ZWNJ, then an unentered ·Gay before ·Owe (break)
+200C E655 E67C           # ZWNJ, then the locked ·Gay's x-height exit into ·Owe
 00B7 E67C                # namer dot before ·Owe
 00B7 E67C E65B           # namer dot, then ·Owe joins ·Zoo as at a word start

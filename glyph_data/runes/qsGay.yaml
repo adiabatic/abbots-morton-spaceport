@@ -135,10 +135,7 @@ policy:
   - exit: x-height
     when:
       self: {entry: none}
-      right:
-        family:
-        - qsEt
-        - qsOwe
+      right: {family: qsEt}
   prefer:
   - cell:
       entry: none
