@@ -2,7 +2,7 @@
 
 This plan moves the review corpus build's unit recompute into Rust: what one units-pool worker does per unit, `_corpus_worker` in `rebuild/review/build.py` and everything it calls. The Rust engine is the Python build's default units engine, with the Python workers one switch away. The corpus build's default is the Rust build of `rebuild/CORPUS-PARENT-PORT-PLAN.md`, which runs this engine's worker code on its threads in process, and the Python build, its parent and its workers, is the reference the dual runs compare it with.
 
-The measurements behind it are in `var/keep/rust-port/profile-corpus-units.md`, and the HarfBuzz spike's notes, results, harness and Rust source are in `var/keep/rust-port/spike-harfbuzz/`; both are kept on the M4 Pro Mac mini and not checked in. The profile's split table says where worker wall time goes, its port-surface table lists the Python this plan mirrors, and its byte-identity section names the targets.
+The profile and the HarfBuzz spike behind it are scratch and are not kept. This plan states what it takes from each: where worker wall time goes, the Python it mirrors, the byte-identity targets, and the spike's findings in § HarfBuzz and outlines.
 
 ## Decided
 
@@ -168,7 +168,7 @@ When the Rust engine computes the units, the unit store's stamp gains one line, 
 
 ## HarfBuzz and outlines
 
-The HarfBuzz spike settles this section. The `harfbuzz-shaper` task starts from its Rust source, `var/keep/rust-port/spike-harfbuzz/hbspike/`.
+The HarfBuzz spike's findings settle this section.
 
 **Binding.** A hand-written FFI: `src/ffi.rs` declares the HarfBuzz functions and structs the engine calls, written against the 12.3.2 headers, and holds the safe types that call them (`Font`, `Feature`, `Buffer`), which `src/shape.rs` builds the shaper on; `ffi.rs` is the only module that allows `unsafe`. `build.rs` compiles HarfBuzz's amalgamated `src/harfbuzz.cc` as one C++11 translation unit with `HAVE_PTHREAD` and no platform backend, through the `cc` crate pinned at `=1.10.0` as a build dependency. The build needs cargo and a C++ compiler (on macOS, the Xcode command-line tools' `clang++`), and no meson, cmake or pkg-config. The published crates do not fit: `harfbuzz-sys` bundles another HarfBuzz version, has no draw-API bindings and turns on CoreText, FreeType and DirectWrite by default; `harfbuzz_rs` bundles another version inside a larger wrapper; `harfrust` is a reimplementation, which decision 2 rules out; and none builds the version uharfbuzz links.
 
@@ -187,7 +187,7 @@ The HarfBuzz spike settles this section. The `harfbuzz-shaper` task starts from 
 
 **Outlines.** The engine takes its outline data from the font facts (§ The init file) and never draws a glyph. HarfBuzz's draw API is not a substitute: it closes each contour with an explicit `lineTo` back to its start, which fontTools leaves implicit, so its operator streams, and the shape keys hashed from them, differ from fontTools' for every inked glyph, although the spike finds its cells equal.
 
-**Speed.** The binding saves little per shape, because HarfBuzz's own work on M1 dominates (the spike's `bench-*.txt`). The engine's gain comes from threads, the shape memo and leaving the interpreter. Per-thread efficiency falls as the threads pass the performance cores, so the engine's width comes from `memory-constant`'s measurement and `corpus_job_budget`, as `doc/parallelism.md` requires.
+**Speed.** The binding saves little per shape, because HarfBuzz's own work on M1 dominates. The engine's gain comes from threads, the shape memo and leaving the interpreter. Per-thread efficiency falls as the threads pass the performance cores, so the engine's width comes from `memory-constant`'s measurement and `corpus_job_budget`, as `doc/parallelism.md` requires.
 
 ## Byte-identity hazards
 
@@ -227,7 +227,7 @@ Each row names the Python site and how the Rust side meets it. `pyfmt::PyValue` 
 
 `rebuild/tools/units_dual_run.py` runs the real Python worker and the Rust engine on the same units and compares them. It is the acceptance gate (decision 6) and the check each late task ends with.
 
-- Sources: `--source mini` and `--source live`. The mini source is the hermetic mini bundle under `rebuild/review/fixtures/mini/`, with its spec materialized from `pin.json` as the `mini_bundle` fixture in `rebuild/conftest.py` does it, plus a copy of each of its units with `configs` set to `('ss10',)`, its `render_groups` and `config_classes` narrowed to that one configuration, which takes the unit's class, and an ordinal after the bundle's; `check_unit` requires the render groups to partition the configs. The mini's spec and pack are materialized at one path, `var/rust-port/mini-source/`, because a fragment's provenance pointers name rune files by their path under the spec root. The bundle's audit holds no `ss10` row, and the copies are what reach the isolated overlay, the `ss10` gate, the `ss10` subset rows and the Junior check on the mini. The live source is `rebuild/out/m1/` and `rebuild/out/review/`, read only, loaded through `build._load_corpus` as the profile's `prep.py` loads them. A live run takes `--per-config K` handouts from each first configuration's stretch of `_configuration_order`, so the `ss10` overlay and each stylistic set are covered, plus `--batches N` evenly spaced handouts, or `--all`.
+- Sources: `--source mini` and `--source live`. The mini source is the hermetic mini bundle under `rebuild/review/fixtures/mini/`, with its spec materialized from `pin.json` as the `mini_bundle` fixture in `rebuild/conftest.py` does it, plus a copy of each of its units with `configs` set to `('ss10',)`, its `render_groups` and `config_classes` narrowed to that one configuration, which takes the unit's class, and an ordinal after the bundle's; `check_unit` requires the render groups to partition the configs. The mini's spec and pack are materialized at one path, `var/rust-port/mini-source/`, because a fragment's provenance pointers name rune files by their path under the spec root. The bundle's audit holds no `ss10` row, and the copies are what reach the isolated overlay, the `ss10` gate, the `ss10` subset rows and the Junior check on the mini. The live source is `rebuild/out/m1/` and `rebuild/out/review/`, read only, loaded through `build._load_corpus`. A live run takes `--per-config K` handouts from each first configuration's stretch of `_configuration_order`, so the `ss10` overlay and each stylistic set are covered, plus `--batches N` evenly spaced handouts, or `--all`.
 - The Python side is real `build._corpus_worker` processes over real pipes, spawned as `_RecomputeRunner` spawns them, at `--python-jobs`. The Rust side is `units_exec.UnitsProcess` at `--threads`. `--engines` names the two sides, `python,rust` by default. Both sides take the same handouts, and each handout's results are compared once both sides have answered it and then dropped, so the harness holds a bounded number of handouts per side whatever the run's size. `--engines python,python` compares two Python runs, the second at another width and taking its handouts in reverse within a window of twice both sides' workers past the first handout not yet compared, so a run no longer than that window is fully reversed.
 - Every `_UnitProjection` field except `packed` is compared by ordinal, type-strict (a tuple is not a list, a bool is not an int); each fragment is inflated from both sides with the build's dictionary and compared byte for byte; each batch's contract errors are compared as lists; and a deterministic sample goes through `verify` with injections built from the Python side's projections.
 - The report is JSON under `var/rust-port/dual-run/`: the units compared and the loaded corpus's unit total, each field's disagreement count with its first examples (ordinal, codepoints, configurations, both values), and each side's wall time and peak footprint. Any disagreement, or a compared count short of the units handed out, exits 1. `--plant FIELD` corrupts one Rust-side value to show the comparator reports it.
@@ -310,7 +310,7 @@ Every `compare` command below runs from the repository root as `uv run python -m
 
 ### `dual-run-harness`: compare two engines unit by unit
 
-- Mirrors: `_RecomputeRunner._drive_phase1`, `_configuration_order`, `_handout_width`, `_FragmentArena.read`, and the profile's `verify_against_store.py`.
+- Mirrors: `_RecomputeRunner._drive_phase1`, `_configuration_order`, `_handout_width` and `_FragmentArena.read`.
 - Adds: `rebuild/tools/units_dual_run.py` as § The dual run describes, with the Python engine on both sides.
 - Done when: `uv run python -m rebuild.tools.units_dual_run --source mini --engines python,python` exits 0, and `uv run python -m rebuild.tools.units_dual_run --source mini --engines python,python --plant ink_deltas` exits 1 naming `ink_deltas` and the planted unit.
 

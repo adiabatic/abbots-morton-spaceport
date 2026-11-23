@@ -2,7 +2,7 @@
 
 This plan moves the rest of the review corpus build's data path into the review crate: everything `build_m1` does in its Python parent around the units phase that `rebuild/CORPUS-UNITS-PORT-PLAN.md` moved to Rust. One Rust process runs the load, the plan, the units phase on the existing worker pool in process, the whole-corpus passes, the write with its manifest and check, the review facts and the cache. Python keeps the command line, the cycle, the land and everything else that is not the data path. The Rust build is the default behind one switch, and the Python build stays as the reference the whole-tree dual runs compare it with.
 
-The measurements behind it are in `var/keep/rust-port/profile-corpus-write.md` (the parent's warm path: where its time goes, its port surface phase by phase, what its peak holds, and which files a warm rebuild reproduces byte for byte) and `var/keep/rust-port/build-bench.md` (a full-recompute build under both units engines, with the parent as the drive's bottleneck), and the byte-identity spike that § Byte identity of written files folds in is `var/keep/rust-port/spike-parent-files.md`; all three are kept on the M4 Pro Mac mini and not checked in.
+The profiles and the byte-identity spike behind it are scratch and are not kept. This plan states what it takes from each: the parent's readings where a section relies on them, and the spike's findings in § Byte identity of written files.
 
 ## Decided
 
@@ -494,7 +494,7 @@ Every command runs from the repository root. Shorthands below: `compare S D…` 
 
 ### `build-scenarios`: prepare the build scenarios
 
-- Mirrors: the profile's `prepare.sh` and `harness.py` (the copy-on-write clone, the pack's clone, the journal redirected); `landing.clone_tree`; `pin.materialize`; `build.build_m1`.
+- Mirrors: `landing.clone_tree`; `pin.materialize`; `build.build_m1`.
 - Adds: in `rebuild/tools/units_stage_fixtures.py`, `open_build_source` with the base priors and scenarios of § Scenarios (the mini spec materialized once a run with its ledger's time pinned; the live base prior, its input clones and its refresh; `edited_audit`, the live scratch audit segment, `incremental_ledger`, the head-less, restamped, rederived, relocated and torn priors, `CHAIN`, the refusal cases), and `prepare --source mini|live --scenario S|all [--check]`, whose `--check` runs each build through its `python-build` child.
 - Done when: `uv run python -m rebuild.tools.units_stage_fixtures prepare --source mini --scenario all --check` exits 0, and `uv run python -m rebuild.tools.units_stage_fixtures prepare --source live --scenario incremental --check` exits 0 with nothing under `rebuild/out/` newer than its start (`find rebuild/out -newer` on a marker it touches first prints nothing).
 
