@@ -62,7 +62,6 @@ stances:
           unjoined: safe
           toward:
           - family:
-            - qsTea
             - qsDay
             - qsDay_qsEat
             - qsDay_qsUtter
@@ -122,15 +121,7 @@ policy:
       right:
         except:
         - {family: qsMay}
-  prefer:
-  - cell: {exit: none}
-    over: {exit: baseline}
-    when:
-      right:
-        family: qsTea
-        then:
-          except:
-          - {family: qsPea}
+  prefer: []
   extend: []
   contract: []
   resolve: []

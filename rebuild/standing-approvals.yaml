@@ -2096,17 +2096,16 @@ rules:
       except_left: []
   - id: tea-ss05-baseline-join-created-pivot-reaches
     verdict: approve
-    note: "Under ss05, ·Gay, ·They and ·J’ai join ·Tea at the baseline where the old font left a break, and the join is drawn from the left letter's side, so ·Tea and whatever follows stand where they were: the unentered ·Gay and every ·J’ai reach it on the pixel of baseline exit their extend records add before ·Tea, and ·They on the baseline exit stroke it takes up. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which only the ss05 unlock allows, opened to every left letter ·Tea's refusals allow in “Let ss05 join ·Tea at the baseline on both sides with any neighbor”. Every window that reached a review session approved the join"
+    note: "Under ss05, ·Gay and ·J’ai join ·Tea at the baseline where the old font left a break, and the join is drawn from the left letter's side, so ·Tea and whatever follows stand where they were: the unentered ·Gay and every ·J’ai reach it on the pixel of baseline exit their extend records add before ·Tea. ·Tea's side is its full stance's baseline-entry-and-baseline-exit pairing, which only the ss05 unlock allows, opened to every left letter ·Tea's refusals allow in “Let ss05 join ·Tea at the baseline on both sides with any neighbor”. Every window that reached a review session approved the join"
     match:
       before:
-        pivot: [qsGay, qsThey, qsJai]
+        pivot: [qsGay, qsJai]
         junction_out: break
         follower: qsTea
       after:
         joined: y0
         pivot_cells:
           - qsGay/sole/None/baseline/ex-ext-1
-          - qsThey/sole/x-height/baseline/
           - qsJai/sole/None/baseline/ex-ext-1
           - qsJai/sole/x-height/baseline/en-con-1+ex-ext-1
           - qsJai/sole/x-height/baseline/en-con-2+ex-ext-1
