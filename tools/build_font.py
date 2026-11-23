@@ -15,7 +15,7 @@ Outputs (Regular and Bold, six static OTFs):
     output_dir/AbbotsMortonSpaceportSansSenior-Regular.otf  (proportional, with cursive/calt)
     output_dir/AbbotsMortonSpaceportSansSenior-Bold.otf
 
-Bold draws each pixel as a rectangle 1.5 pixels wide, extended half a pixel to the right. The pixel grid, advance widths, kerning, and anchors are the same as Regular.
+Each glyph's outline is the union of one rectangle per filled pixel, traced into contours that neither overlap nor share an edge, with outer contours counter-clockwise and holes clockwise (`union_contours`). Bold draws each pixel's rectangle 1.5 pixels wide, extended half a pixel to the right. The pixel grid, advance widths, kerning, and anchors are the same as Regular.
 """
 
 import hashlib
@@ -597,6 +597,75 @@ def bitmap_to_rectangles(
     return rectangles
 
 
+# Unit steps in compressed grid coordinates, in counter-clockwise order, so turning left from step `s` gives step `(s + 1) % 4`.
+_STEPS = ((1, 0), (0, 1), (-1, 0), (0, -1))
+
+
+def union_contours(rectangles: list[tuple[int, int, int, int]]) -> list[list[tuple[int, int]]]:
+    """Return the outline of the union of axis-aligned `(x, y, width, height)` *rectangles* as closed contours of corner points, with no two contours overlapping or sharing an edge.
+
+    The union is traced on the grid of the rectangles' own edge coordinates, so it is exact. Each contour keeps the filled area on its left: outer contours run counter-clockwise and holes clockwise, the PostScript direction a CFF font uses. A contour holds only the points where it turns, starts at its lowest, then leftmost point, and does not repeat that point at its end, and the contours are sorted by their first points. Where two filled areas meet only at a corner, as diagonal pixels in Regular do, the trace turns left, so each area keeps a contour of its own and the two contours share that point.
+    """
+    xs = sorted({edge for x, _y, w, _h in rectangles for edge in (x, x + w)})
+    ys = sorted({edge for _x, y, _w, h in rectangles for edge in (y, y + h)})
+    column_of = {x: i for i, x in enumerate(xs)}
+    row_of = {y: j for j, y in enumerate(ys)}
+    filled: set[tuple[int, int]] = set()
+    for x, y, w, h in rectangles:
+        for i in range(column_of[x], column_of[x + w]):
+            for j in range(row_of[y], row_of[y + h]):
+                filled.add((i, j))
+
+    # The steps leaving each vertex along a boundary edge of the filled cells, each directed so its filled cell is on its left. Only a vertex where two filled cells meet at their corners alone has two.
+    steps_from: dict[tuple[int, int], list[int]] = {}
+    for i, j in filled:
+        if (i, j - 1) not in filled:
+            steps_from.setdefault((i, j), []).append(0)
+        if (i + 1, j) not in filled:
+            steps_from.setdefault((i + 1, j), []).append(1)
+        if (i, j + 1) not in filled:
+            steps_from.setdefault((i + 1, j + 1), []).append(2)
+        if (i - 1, j) not in filled:
+            steps_from.setdefault((i, j + 1), []).append(3)
+
+    def next_edge(vertex: tuple[int, int], step: int) -> tuple[tuple[int, int], int]:
+        # Prefer a left turn, then straight on, then a right turn; the boundary never doubles back.
+        dx, dy = _STEPS[step]
+        end = (vertex[0] + dx, vertex[1] + dy)
+        return end, min(steps_from[end], key=lambda option: (step + 1 - option) % 4)
+
+    unvisited = {(vertex, step) for vertex, steps in steps_from.items() for step in steps}
+    contours: list[list[tuple[int, int]]] = []
+    while unvisited:
+        first = min(unvisited)
+        cycle = [first]
+        edge = next_edge(*first)
+        while edge != first:
+            cycle.append(edge)
+            edge = next_edge(*edge)
+        unvisited.difference_update(cycle)
+        # A vertex is a corner when the edge leaving it turns away from the edge arriving at it.
+        corners = [
+            (vertex, step)
+            for (vertex, step), (_, arriving) in zip(cycle, cycle[-1:] + cycle[:-1])
+            if step != arriving
+        ]
+        start = min(range(len(corners)), key=lambda k: (corners[k][0][1], corners[k][0][0], corners[k][1]))
+        contours.append([(xs[i], ys[j]) for (i, j), _step in corners[start:] + corners[:start]])
+    contours.sort(key=lambda contour: (contour[0][1], contour[0][0], contour))
+    return contours
+
+
+def draw_contours(pen: T2CharStringPen, contours: list[list[tuple[int, int]]], x_offset: int = 0) -> None:
+    """Draw closed polygonal *contours* with *pen*, each shifted right by *x_offset*."""
+    for contour in contours:
+        x, y = contour[0]
+        pen.moveTo((x + x_offset, y))
+        for x, y in contour[1:]:
+            pen.lineTo((x + x_offset, y))
+        pen.closePath()
+
+
 def compose_bitmaps(
     base_bitmap: list[list[int]],
     base_y_offset: int,
@@ -1079,11 +1148,7 @@ def build_font(
     overstrike = pixel_width // 2 if bold else 0
 
     pen = T2CharStringPen(width=mono_width, glyphSet=glyph_set)
-    pen.moveTo((pixel_width, 0))
-    pen.lineTo((pixel_width, 5 * pixel_height))
-    pen.lineTo((5 * pixel_width + overstrike, 5 * pixel_height))
-    pen.lineTo((5 * pixel_width + overstrike, 0))
-    pen.closePath()
+    draw_contours(pen, union_contours([(pixel_width, 0, 4 * pixel_width + overstrike, 5 * pixel_height)]))
     charstrings[".notdef"] = pen.getCharString()
     metrics[".notdef"] = (mono_width, pixel_width)
 
@@ -1201,14 +1266,9 @@ def build_font(
         else:
             lsb = x_offset
 
-        # `overstrike` is 0 for Regular.
+        # The glyph's outline is the union of its pixel rectangles, which overlap in Bold (`overstrike` is 0 for Regular), so no two contours overlap or share an edge.
         pen = T2CharStringPen(width=advance_width, glyphSet=glyph_set)
-        for x, y, w, h in rectangles:
-            pen.moveTo((x + x_offset, y))
-            pen.lineTo((x + x_offset, y + h))
-            pen.lineTo((x + x_offset + w + overstrike, y + h))
-            pen.lineTo((x + x_offset + w + overstrike, y))
-            pen.closePath()
+        draw_contours(pen, union_contours([(x, y, w + overstrike, h) for x, y, w, h in rectangles]), x_offset)
 
         charstrings[glyph_name] = pen.getCharString()
         metrics[glyph_name] = (advance_width, lsb)
