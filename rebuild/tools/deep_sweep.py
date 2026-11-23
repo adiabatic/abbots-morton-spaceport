@@ -405,11 +405,16 @@ def schedule_finish(
     return finishes
 
 
+def unit_kind(unit: SweepUnit) -> str:
+    """Return the kind `SweepProgress` prices `unit` with: `overlay` for an overlay configuration, `cosmetic` for a cosmetic one, and `settlement` for every other unit, the targeted mode's among them."""
+    return "overlay" if unit.overlay else "cosmetic" if unit.cosmetic else "settlement"
+
+
 @dataclass
 class _Walk:
     config: str
     texts: int
-    overlay: bool
+    kind: str
     samples: deque[tuple[float, int]] = field(default_factory=deque)
     first: tuple[float, int] | None = None
     finished: float | None = None
@@ -440,13 +445,13 @@ def _fmt_finish(seconds: float | None, wall: float) -> str:
 class SweepProgress:
     """The parent's record of each unit's walk, indexed by its slot in `run_sweep`'s submission order, and the progress report built from it, which sums each configuration's units. Every time is on the parent's monotonic clock; a worker's start, which the worker records on the wall clock, is converted to it at the reading that finds it (`run_sweep`).
 
-    The estimate is a schedule, not the total rate extrapolated: the pool runs `slots` units at once and the units can outnumber the slots many times over, so a total rate would stand for units that have not started and misjudge when a slot frees. A running unit has its remaining texts left at its own rate, taken over the last `RATE_WINDOW_SHARE` of its texts (`smoothed_rate`), once it has shaped that many. A queued unit takes its whole count at the rate of its kind (settlement or overlay): the texts of the units of that kind over their durations, a finished one's as it ran and a running one's elapsed time plus its remaining texts at its own rate. The kinds are kept apart because the overlay's texts are few and short, while the settlement units walk texts up to the maximum length. `schedule_finish` then places the queued units, in the order the pool takes them, into the slots as they free, a configuration ends when its last unit does, and the run ends when the last slot frees.
+    The estimate is a schedule, not the total rate extrapolated: the pool runs `slots` units at once and the units can outnumber the slots many times over, so a total rate would stand for units that have not started and misjudge when a slot frees. A running unit has its remaining texts left at its own rate, taken over the last `RATE_WINDOW_SHARE` of its texts (`smoothed_rate`), once it has shaped that many. A queued unit takes its whole count at the rate of its kind: the texts of the units of that kind over their durations, a finished one's as it ran and a running one's elapsed time plus its remaining texts at its own rate. A unit's kind is the overlay, a cosmetic configuration, or settlement (`unit_kind`), and the kinds are kept apart because their texts cost different amounts: the overlay's texts are few and short, a cosmetic configuration's stop at `conform.COSMETIC_MAX_LENGTH` and shape faster than a settlement unit's, and the settlement units walk texts up to the maximum length. Pricing a settlement unit at a cosmetic configuration's rate would finish it early. `schedule_finish` then places the queued units, in the order the pool takes them, into the slots as they free, a configuration ends when its last unit does, and the run ends when the last slot frees.
 
     A unit that has shaped less than the window has a rate of its own that still carries its start, the worker's setup and the short texts first, so it takes its kind's rate too. A kind's rate counts only the units that are finished or have a rate over the whole window. Only when there are none, as while the first units of a kind cover their first window, does it count the rates the running ones have made so far. A unit whose kind has no rate at all leaves the finish unestimated.
     """
 
     def __init__(self, units: Sequence[SweepUnit], slots: int, started: float) -> None:
-        self.walks = [_Walk(config=unit.config, texts=unit.texts, overlay=unit.overlay) for unit in units]
+        self.walks = [_Walk(config=unit.config, texts=unit.texts, kind=unit_kind(unit)) for unit in units]
         self.configs: dict[str, list[int]] = {}
         for slot, unit in enumerate(units):
             self.configs.setdefault(unit.config, []).append(slot)
@@ -488,12 +493,12 @@ class SweepProgress:
             return None
         return smoothed_rate(walk.samples, window)
 
-    def kind_rate(self, overlay: bool, now: float) -> float | None:
-        """Return the texts a second of the units of one kind that have started, as the class docstring describes: their texts over their durations, a finished one's as it ran and a running one's elapsed time plus its remaining texts at its own rate. The running ones count only with a rate over the whole window, unless no unit of the kind qualifies; the result is None when none has a rate at all."""
+    def kind_rate(self, kind: str, now: float) -> float | None:
+        """Return the texts a second of the units of `kind` (`unit_kind`) that have started, as the class docstring describes: their texts over their durations, a finished one's as it ran and a running one's elapsed time plus its remaining texts at its own rate. The running ones count only with a rate over the whole window, unless no unit of the kind qualifies; the result is None when none has a rate at all."""
         for whole_window in (True, False):
             texts = seconds = 0.0
             for walk in self.walks:
-                if walk.overlay != overlay or walk.first is None:
+                if walk.kind != kind or walk.first is None:
                     continue
                 if walk.finished is not None:
                     duration = walk.finished - walk.first[0]
@@ -517,10 +522,10 @@ class SweepProgress:
             if walk.finished is not None:
                 continue
             if walk.first is None:
-                rate = self.kind_rate(walk.overlay, now)
+                rate = self.kind_rate(walk.kind, now)
                 queued.append((slot, None if rate is None else walk.texts / rate))
                 continue
-            rate = self._rate(walk, whole_window=True) or self.kind_rate(walk.overlay, now)
+            rate = self._rate(walk, whole_window=True) or self.kind_rate(walk.kind, now)
             running[slot] = None if rate is None else (walk.texts - walk.done) / rate
         known_running = {slot: left for slot, left in running.items() if left is not None}
         known_queued = [(slot, seconds) for slot, seconds in queued if seconds is not None]

@@ -604,6 +604,25 @@ def test_the_estimate_runs_each_unit_at_its_own_rate_and_schedules_the_queue_at_
     assert fresh.estimate(10.0) == ({0: None, 1: None}, None)
 
 
+def test_a_cosmetic_configuration_prices_only_units_of_its_own_kind():
+    """A cosmetic configuration's texts stop at `conform.COSMETIC_MAX_LENGTH` and shape faster than a settlement unit's, so its finished unit does not set the settlement units' rate. Two slots: the cosmetic configuration shaped its 1,000 texts in its first second, `default`'s first unit has shaped 500 in 5 seconds and its second 400 in the 4 seconds since it took the freed slot, neither yet a tenth of its 10,000, and a third waits. The settlement rate is the running units' 100 texts a second, not the cosmetic configuration's 1,000, so the running units have 95 and 96 seconds left and the queued one ends at 195."""
+    units = (
+        deep_sweep.SweepUnit(conform.COSMETIC_CONFIGS[0], None, 1_000),
+        deep_sweep.SweepUnit("default", "a", 10_000),
+        deep_sweep.SweepUnit("default", "b", 10_000),
+        deep_sweep.SweepUnit("default", "c", 10_000),
+    )
+    progress = deep_sweep.SweepProgress(units, 2, 0.0)
+    progress.finish(0, 1.0, 1_000, began=0.0)
+    progress.observe(1, 500, 5.0, began=0.0)
+    progress.observe(2, 400, 5.0, began=1.0)
+    assert progress.kind_rate("cosmetic", 5.0) == pytest.approx(1_000.0)
+    assert progress.kind_rate("settlement", 5.0) == pytest.approx(100.0)
+    finishes, total = progress.estimate(5.0)
+    assert finishes == pytest.approx({1: 95.0, 2: 96.0, 3: 195.0})
+    assert total == pytest.approx(195.0)
+
+
 def test_a_report_is_a_counter_line_with_one_line_per_configuration_after_it():
     """The report's first line is a `[progress]` counter over every unit's texts that `console.parse_line` reads, with the elapsed time, the rate, the finish, the running units' footprint and the swap in use riding on it; one plain line per configuration follows in submission order, summing its units, counting the ones running and finished, and ending when its last unit does. The next report's rates run from this one."""
     progress = _many_unit_sweep()
