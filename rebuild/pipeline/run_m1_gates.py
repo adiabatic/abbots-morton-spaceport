@@ -329,7 +329,10 @@ class SweepUnit:
 def sweep_units(
     alphabet: Sequence[str], max_length: int, triggers: Mapping[str, frozenset[str]] | None = None
 ) -> tuple[SweepUnit, ...]:
-    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each cosmetic configuration whole, to `conform.COSMETIC_MAX_LENGTH`, then each settlement configuration in `conform.SETTLEMENT_CONFIGS` order, one unit per symbol of `alphabet` in its order, each shaping the texts of length 1 to `max_length` that end in its symbol. A settlement configuration that `triggers` maps to letters shapes only the texts that contain one of them: all of a unit's texts when its symbol is one, and otherwise each length's texts less the ones whose other characters avoid them all."""
+    """Return the sweep's units in the order the pool takes them: each overlay configuration whole, to `conform.OVERLAY_MAX_LENGTH`, then each cosmetic configuration whole, to `conform.COSMETIC_MAX_LENGTH`, then the settlement units, one per settlement configuration and symbol of `alphabet`, each shaping the texts of length 1 to `max_length` that end in its symbol. A settlement configuration that `triggers` maps to letters shapes only the texts that contain one of them: all of a unit's texts when its symbol is one, and otherwise each length's texts less the ones whose other characters avoid them all.
+
+    The settlement units go largest first, and units of one size keep `conform.SETTLEMENT_CONFIGS` order and then `alphabet`'s order. The pool hands each unit to the first slot that frees, so a large unit queued last would run on after every other slot had gone idle; queued last, the small units fill the slots as they free instead. Without `triggers` every settlement unit is one size, so the order is configuration, then symbol. The overlay and cosmetic configurations stay first, small as they are, so the deep sweep's progress report has a rate for each kind of unit as soon as the sweep starts (`deep_sweep.SweepProgress`).
+    """
     size = len(alphabet)
     overlay = sum(size**length for length in range(1, conform.OVERLAY_MAX_LENGTH + 1))
     cosmetic = sum(size**length for length in range(1, conform.COSMETIC_MAX_LENGTH + 1))
@@ -347,7 +350,14 @@ def sweep_units(
         tuple(SweepUnit(config, None, overlay) for config in conform.OVERLAY_CONFIGS)
         + tuple(SweepUnit(config, None, cosmetic) for config in conform.COSMETIC_CONFIGS)
         + tuple(
-            settlement_unit(config, symbol) for config in conform.SETTLEMENT_CONFIGS for symbol in alphabet
+            sorted(
+                (
+                    settlement_unit(config, symbol)
+                    for config in conform.SETTLEMENT_CONFIGS
+                    for symbol in alphabet
+                ),
+                key=lambda settlement: -settlement.texts,
+            )
         )
     )
 

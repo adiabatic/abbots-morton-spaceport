@@ -382,6 +382,24 @@ def test_a_unit_with_trigger_letters_counts_the_texts_that_contain_one():
     )
 
 
+def test_settlement_units_go_largest_first_and_units_of_one_size_keep_their_order():
+    """Trigger letters make a configuration's units differ in size, and the pool takes the settlement units largest first, so no large unit starts after the small ones have run. Units of one size keep `conform.SETTLEMENT_CONFIGS` order and then the alphabet's, and the overlay and the cosmetic configurations stay first. `ss03`'s ·a unit and every unit of a configuration without trigger letters shape all 40 texts that end in their symbol, `ss04`'s ·a unit the 36 of them that contain ·b or ·c, and `ss03`'s ·b and ·c units the 25 that contain ·a."""
+    triggers = {"ss03": frozenset("a"), "ss04": frozenset("bc")}
+    units = deep_sweep.sweep_units(TOY_ALPHABET, 4, triggers)
+    whole = 1 + len(conform.COSMETIC_CONFIGS)
+    assert units[0].overlay and all(unit.cosmetic for unit in units[1:whole])
+    settlement = units[whole:]
+    position = {config: index for index, config in enumerate(conform.SETTLEMENT_CONFIGS)}
+    order = [(-unit.texts, position[unit.config], TOY_ALPHABET.index(unit.last or "")) for unit in settlement]
+    assert order == sorted(order)
+    assert {unit.texts for unit in settlement} == {40, 36, 25}
+    assert [(unit.config, unit.last) for unit in settlement[-3:]] == [
+        ("ss04", "a"),
+        ("ss03", "b"),
+        ("ss03", "c"),
+    ]
+
+
 def _gated_spec(right: tuple[str, ...]) -> ResolvedSpec:
     """A spec of the space, ·Tea with an ss03 unlock row, and ·Fee with an ss03 extend record whose right slot names `right`."""
     tea = model.Rune(
