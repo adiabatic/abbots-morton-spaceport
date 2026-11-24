@@ -44,10 +44,10 @@ from rebuild.test_verdict_update import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 0.6 GB, six parked fold products at PARKED_FOLD_BYTES (0.2 GB), DELTA_SLOT_BYTES at 1.6 GB and FOLD_PREPARATION_BYTES at 1.4 GB, the whole wave is booked at 11.2 GB, above the rendezvous's 9.0 GB at READ_BACK_FOLD_BYTES (1.5 GB) a configuration, so 20 GB, which leaves 12.0 GB after `memory_budget`'s reserve, fits the whole wave alone and five deltas beside an eight-core machine's pytest pool, 21 GB, which leaves 13.0 GB, fits five beside a stated nine-worker pool where the twelve-core pool leaves it just the whole wave, and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 1.1 GB, seven parked fold products at PARKED_FOLD_BYTES (0.3 GB), DELTA_SLOT_BYTES at 3.4 GB and FOLD_PREPARATION_BYTES at 2.7 GB, the whole wave is booked at 26.3 GB, above the rendezvous's 20.3 GB at READ_BACK_FOLD_BYTES (2.9 GB) a configuration. 32 GB, which leaves 24.0 GB after `memory_budget`'s reserve, fits six slots alone and five beside an eight-core machine's pytest pool; 33.6 GB, which leaves 25.6 GB, fits six beside the twelve-core pool and five beside a stated nine-worker pool; and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
-MACHINE_21_GB = 21_000_000_000
-MACHINE_20_GB = 20_000_000_000
+MACHINE_33_6_GB = 33_600_000_000
+MACHINE_32_GB = 32_000_000_000
 MACHINE_36_GB = 36_000_000_000
 # The fleet's RAM size (`doc/fleet.md`), for the fleet machines' width assertions. On both fleet machines the corpus build reaches its cap whether or not the pytest pool's bytes are subtracted, so no total separates the gated and solo cases; the arithmetic of the memory set aside for the pool is asserted through `_corpus_fit_terms`, which takes no total.
 MACHINE_48_GIB = 51_539_607_552
@@ -3388,15 +3388,15 @@ def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
     """The make-test child inherits this process's environment, so a width already set in PYTEST_XDIST_AUTO_NUM_WORKERS is the width its pool takes. The cycle reserves memory for that width, so the memory set aside for the pool matches the pool that runs."""
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "9")
     assert ac.make_test_pool_width(ncores=1) == 9
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 5
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_33_6_GB) == 5
     monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", "64")
-    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_21_GB) == 1
+    assert ac.kernel_threads_budget(ncores=12, total_bytes=MACHINE_33_6_GB) == 1
 
 
 def test_kernel_threads_budget_takes_the_pytest_pool_off_the_machine_first():
-    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 20 GB machine alone has room for the whole wave, and subtracting an eight-core machine's pytest pool leaves room for five deltas, so the wave loses the slot of its own that `default`'s fold preparation takes. At this boundary forgetting the memory set aside for the pool changes the answer."""
-    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_20_GB)
-    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_20_GB)
+    """The kernel width subtracts the pytest pool along with default's retained memo and the parked fold products before dividing. A 32 GB machine alone has room for six slots, and subtracting an eight-core machine's pytest pool leaves room for five, so the pool costs the build a slot. At this boundary forgetting the memory set aside for the pool changes the answer."""
+    solo = ac.kernel_threads_budget(skip_make_test=True, ncores=8, total_bytes=MACHINE_32_GB)
+    beside = ac.kernel_threads_budget(ncores=8, total_bytes=MACHINE_32_GB)
     assert (solo, beside) == (6, 5)
 
 
@@ -3422,12 +3422,14 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
             )
 
 
-def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_width_does():
-    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. On an invented machine just large enough for the whole wave with every delta from scratch beside `default`, and nothing else, the width stays as it is with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
+def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_width_does(monkeypatch):
+    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. The terms as they stand book a slot from scratch at a delta's slot, so wherever the whole wave fits every delta fits from scratch too; the test raises `SCRATCH_PEAK_BYTES` by 1 GB so a slot from scratch books more than a delta's. On an invented machine just large enough for the whole wave with every delta from scratch beside `default`, and nothing else, the width stays as it is with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
+    from rebuild.pipeline import kernel_exec
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import table_build_booking_bytes
     from rebuild.tools import memory_budget
 
+    monkeypatch.setattr(kernel_exec, "SCRATCH_PEAK_BYTES", kernel_exec.SCRATCH_PEAK_BYTES + 1_000_000_000)
     count = len(SETTLEMENT_CONFIGS)
     every = table_build_booking_bytes(count, configs=count, scratch_beside_default=count - 1)
     total = next(
@@ -3557,14 +3559,14 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
 
 def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
     """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
-    assert _plan(ncores=8, total_bytes=MACHINE_20_GB).kernel_threads == 5
+    assert _plan(ncores=8, total_bytes=MACHINE_32_GB).kernel_threads == 5
     assert (
         _plan(
-            ncores=8, total_bytes=MACHINE_20_GB, skip_make_test=True, make_test_note="closure unchanged"
+            ncores=8, total_bytes=MACHINE_32_GB, skip_make_test=True, make_test_note="closure unchanged"
         ).kernel_threads
         == 6
     )
-    assert _plan(ncores=8, total_bytes=MACHINE_20_GB, skip_gates=True).kernel_threads == 6
+    assert _plan(ncores=8, total_bytes=MACHINE_32_GB, skip_gates=True).kernel_threads == 6
 
 
 def test_dry_run_renders_concurrency():

@@ -10,7 +10,6 @@ Scratch for the ·Owe migration, the last letter. Delete it when the review sess
   - joins the old font loses and the rebuild keeps: `·Owe ~x~ ·Owe` inside longer windows, `·Owe ~x~ ·It ~b~ ·Day` (every other x-height left already joins ·It there), and `·{They,Out,Fee} ~x~ ·Owe ~x~ ·Tea.half` under ss03;
   - ss07 rows that mirror a `default` row, since the stand-in windows list no ss07 (decision 41 of #618);
   - neighbors' extension and contraction cells in the windows ·Owe's joins newly reach.
-- The table build's kernel terms are not re-measured, now with seven settlement configurations: the issue-492, issue-534 and issue-516 harnesses the skill names are not under `var/keep/` on the 18-core M5 Pro MacBook Pro. `make job-costs` checks this batch's runs against the booked constants.
 - The scaling series and the `REPLAY_PEAK_BYTES` and `deep_replay.DEEP_REPLAY_PEAK_BYTES` readings wait for the optimization work the author plans next; `rebuild/scaling-series.txt` keeps its ·-ing readings.
 
 ## Recorded design overrides
@@ -28,8 +27,6 @@ ss07 is ·Owe's exit unlock toward ·Day{,+Utter,+Eat}, as the old font's before
 ·Gay joins ·Owe at the x-height with its exit extended by two, entered or not: qsOwe is on ·Gay's x-height `toward:` and its by-two extension. An x-height-entered ·Gay cannot also exit at the x-height, so `·Utter ~x~ ·Gay | ·Owe`, while after ·Ah ·Gay's prefer for its own exit gives `·Ah | ·Gay ~x~ ·Owe`. Under ss03 ·Owe reaches only the half ·Tea, through that stance's ss03 unlock.
 
 A review unit's config badge is resolved against the configurations its window can hold (`audit.window_configs`, the Rust scaffold's `Roster::window`), so a unit without ·Owe, which never holds ss07, keeps the badge it had; only an ·Owe window's badge can name ss07.
-
-`kernel_exec.TABLE_BUILD_PEAK_BYTES` takes the derived seven-configuration booking, 14.8 GB, which `rebuild/test_memory_budget.py` requires; the first build read more (Parked).
 
 `rebuild/m1-contact-allow.yaml` allows the side-by-side contacts of ·Owe's ring with ·Owe, ·At, ·Foot, ·Et and ·Day{,+Utter,+Eat}, each composite pixel-identical to the old font's, and the declined-exit terminal of the ring's top, which `geometry.verify_unjoined_safe` cannot accept.
 
