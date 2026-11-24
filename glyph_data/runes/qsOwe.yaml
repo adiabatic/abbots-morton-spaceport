@@ -1,7 +1,7 @@
 rune: qsOwe
 codepoint: 0xE67C
 ductus:
-  sole: |  # DRAFT — pending author sign-off
+  sole: |
     Begun at the top of the ring at the x-height, just left of center, the stroke runs counterclockwise down the left side, around the bottom on the baseline, and back up the right side to close the ring at the top. When a previous letter connects at the x-height, the stroke arrives along the top from the left and turns down the left side, so the ring stays open at the top where it ends. When the next letter connects at the x-height, the stroke leaves the top of the right side rightward, so the ring stays open where it began.
 mono:
   bitmap:
