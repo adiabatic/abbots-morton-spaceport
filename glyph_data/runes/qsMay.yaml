@@ -204,6 +204,7 @@ policy:
         - {family: qsCheer}
         - {family: qsYe}
         - {family: qsLlan}
+        - {family: qsFoot}
   - exit: baseline
     by: 1
     when:

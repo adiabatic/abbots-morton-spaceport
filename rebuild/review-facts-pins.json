@@ -81,50 +81,50 @@
   "volatile": {
     "manifest": {
       "totals": {
-        "units": 3849632,
+        "units": 3849630,
         "rows": 18860234,
-        "batches": 2378,
-        "duplicate_groups": 21949
+        "batches": 2384,
+        "duplicate_groups": 21960
       },
       "machine_approved": {
-        "units": 3043575,
+        "units": 3041695,
         "by_class": {
-          "split-by-space-or-zwnj": 353394,
+          "split-by-space-or-zwnj": 353313,
           "identical-unjoined-from-left": 1473,
           "longer-entry-join": 520,
-          "one-extension-per-join": 3700,
-          "identical-unused-join-name": 846993,
-          "identical-variant-name": 1813052,
+          "one-extension-per-join": 3699,
+          "identical-unused-join-name": 846821,
+          "identical-variant-name": 1811427,
           "may-jai-join-longer": 1988,
           "identical-jai-jay-crown": 1024,
           "identical-zoo-crown": 5321,
           "identical-roe-short-top": 3268,
           "spacing-at-kerned-pairs": 6867,
           "ligature-forms-or-splits": 4010,
-          "same-joins-same-width": 1959,
+          "same-joins-same-width": 1958,
           "only-with-ss04": 4,
           "only-with-ss05": 2
         }
       },
       "class_unit_count": {
         "split-by-space-or-zwnj": 422272,
-        "identical-unused-join-name": 846993,
-        "identical-variant-name": 1813052
+        "identical-unused-join-name": 846821,
+        "identical-variant-name": 1811427
       },
       "secondary_junctions": {
-        "units_with_markers": 111568,
-        "junctions_with_primary_unit": 16455,
-        "junctions_without_primary_unit": 101583,
-        "junctions_suppressed_invisible": 3314
+        "units_with_markers": 111622,
+        "junctions_with_primary_unit": 16507,
+        "junctions_without_primary_unit": 101585,
+        "junctions_suppressed_invisible": 3335
       }
     },
     "built": {
-      "human_units": 713262,
+      "human_units": 715059,
       "reference_window_duplicate_siblings": 44,
       "config_note_distribution": [
         [
           null,
-          3591214
+          3591216
         ],
         [
           "only under ss10",
@@ -160,7 +160,7 @@
         ],
         [
           "only when ss04 is off",
-          37827
+          37825
         ],
         [
           "only when ss04 is off and ss05 is off",
@@ -172,7 +172,7 @@
         ],
         [
           "only when ss04 is on",
-          39379
+          39377
         ],
         [
           "only when ss05 is off",
@@ -205,20 +205,20 @@
       "units": 3863966
     },
     "ink": {
-      "machine_total": 2959388,
-      "non_identical": 904578,
+      "machine_total": 2957638,
+      "non_identical": 906328,
       "by_class": {
-        "split-by-space-or-zwnj": 346881,
+        "split-by-space-or-zwnj": 346804,
         "identical-unjoined-from-left": 1473,
-        "identical-unused-join-name": 793296,
-        "identical-variant-name": 1798505,
+        "identical-unused-join-name": 793148,
+        "identical-variant-name": 1796980,
         "identical-zoo-crown": 5309,
         "identical-roe-short-top": 3262,
         "spacing-at-kerned-pairs": 10662
       },
-      "boundary_window_exempt": 101548,
-      "human_units": 803030,
-      "batches": 2677
+      "boundary_window_exempt": 101625,
+      "human_units": 804703,
+      "batches": 2683
     },
     "unmatched_groups": {
       "counts": {
@@ -228,19 +228,19 @@
         "join-lowered": 14599,
         "join-raised": 213,
         "ligature-forms-or-splits": 4991,
-        "same-joins-narrower": 290687,
-        "same-joins-wider": 52513,
-        "same-joins-same-width": 46197,
+        "same-joins-narrower": 292487,
+        "same-joins-wider": 52490,
+        "same-joins-same-width": 46213,
         "only-with-ss03": 36498,
-        "only-with-ss04": 23884,
-        "only-with-ss05": 27379,
+        "only-with-ss04": 23887,
+        "only-with-ss05": 27380,
         "only-with-several-sets": 6098
       },
-      "total": 605660,
+      "total": 607457,
       "rerouted": {
         "identical-unjoined-from-left": 5,
-        "identical-unused-join-name": 24203,
-        "identical-variant-name": 51746,
+        "identical-unused-join-name": 24201,
+        "identical-variant-name": 51690,
         "identical-see-out-fusion": 1151,
         "identical-jai-jay-crown": 128,
         "identical-zoo-crown": 0,
