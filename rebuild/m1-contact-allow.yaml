@@ -2999,24 +2999,6 @@
 - signature: contact:qsOwe.sole.ex-y5:qsFoot.sole.en-y5.ex-y5:y3
 - signature: contact:qsOwe.sole.ex-y5:qsFoot.sole.en-y5:y3
 
-# ·At's rising stroke joined to ·Owe at the x-height sets ·Owe's left column directly beside ·At's right side at y3. The old font joins this pair at the x-height (baseline row E674:E67C, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·At and ·Owe variant.
-- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsOwe.sole.en-y5:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
-- signature: contact:qsAt.rising.en-y0.ex-y5:qsOwe.sole.en-y5:y3
-- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
-- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
-- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5.ex-y5:y3
-- signature: contact:qsAt.rising.ex-y5.locked:qsOwe.sole.en-y5:y3
-- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
-- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
-- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
-- signature: contact:qsAt.rising.ex-y5:qsOwe.sole.en-y5:y3
-
 # ·Foot joined to ·Owe at the x-height sets ·Owe's left column directly beside ·Foot's right side at y3. The old font joins this pair at the x-height (baseline row E67D:E67C, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Foot and ·Owe variant.
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
