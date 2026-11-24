@@ -1,26 +1,18 @@
-//! The shard writer the write puts each class's fragments into, as `build._ShardWriter` writes them: a class written directly goes into base parts cut by [`PartLayout`] and named by [`base_part_names`], plain or deflated as the class's writes are; a class appended to keeps its parts from the previous corpus and takes every fragment that changed in its overflow parts ([`overflow_part_name`]), the last one cloned ([`clone`]) and cut before its closing bytes. Every part is staged under a `.partial` name, and the renames wait for [`ShardWriter::commit`] or are handed to the caller ([`ShardWriter::take_pending`]); [`discard_runs`] deletes what a failed write staged, as `build._discard_runs` does.
-//!
-//! [`stage_shards`] is the `shards` stage of the stage fixtures.
+//! The shard writer the write puts each class's fragments into: a class written directly goes into base parts cut by [`PartLayout`] and named by [`base_part_names`], plain or deflated as the class's writes are; a class appended to keeps its parts from the previous corpus and takes every fragment that changed in its overflow parts ([`overflow_part_name`]), the last one cloned ([`clone`]) and cut before its closing bytes. Every part is staged under a `.partial` name, and the renames are handed to the caller ([`ShardWriter::take_pending`]); [`discard_runs`] deletes what a failed write staged.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-
-use super::audit::{integer, items, stage_line, text};
 use super::gzip::{deflate_fragment, inflate_fragment};
-use super::input::BuildInput;
 use crate::ffi;
-use crate::fragment::sha256_hex;
+use crate::pyfmt::decimal_value;
 use crate::pyfmt::repr::repr_str;
-use crate::pyfmt::{PyValue, decimal_value};
-use crate::wire::{Result, WireError, error};
 
-/// What a class with no fragment's one part holds (`PartLayout.sizes`, `_ShardWriter.close`).
+/// What a class with no fragment's one part holds (`PartLayout.sizes`).
 const EMPTY_PART: &[u8] = b"[]\n";
 
 /// What the shard writer raises, by the class Python raises it as.
@@ -134,7 +126,7 @@ pub fn base_part_names(class_id: &str, count: usize) -> Vec<String> {
         .collect()
 }
 
-/// `unit_index.overflow_part_name`: overflow part `index`, `units/<class>.x<NNN>.json`, with `index` as its decimal digits.
+/// Overflow part `index`, `units/<class>.x<NNN>.json`, with `index` as its decimal digits.
 pub fn overflow_part_name(class_id: &str, index: &str) -> String {
     format!("units/{class_id}.x{index:0>3}.json")
 }
@@ -222,7 +214,7 @@ pub struct Span {
     pub inflated: i64,
 }
 
-/// `build._ShardWriter`: classes written one fragment at a time into byte-capped shard parts staged under `.partial` names, directly into base parts or appended to the overflow parts after the parts the previous corpus holds. It holds only the open part's handle and the running byte count between calls. `appended` counts the bytes appended to overflow parts, each fragment with its comma, `appended_inflated` the plain bytes those inflate to, and `deflated` the fragments written deflated by any route.
+/// Classes written one fragment at a time into byte-capped shard parts staged under `.partial` names, directly into base parts or appended to the overflow parts after the parts the previous corpus holds. It holds only the open part's handle and the running byte count between calls. `appended` counts the bytes appended to overflow parts, each fragment with its comma, `appended_inflated` the plain bytes those inflate to, and `deflated` the fragments written deflated by any route.
 pub struct ShardWriter {
     out_dir: PathBuf,
     units_dir: PathBuf,
@@ -279,11 +271,6 @@ impl ShardWriter {
     /// Whether the open class is appended to, keeping its parts from the previous corpus.
     pub fn appending(&self) -> bool {
         self.appending
-    }
-
-    /// The renames the closed classes left, staging file then target.
-    pub fn pending(&self) -> &[(PathBuf, PathBuf)] {
-        &self.pending
     }
 
     /// Open a class: appended to over its parts from the previous corpus (`prior_parts`) when `append`, else written directly; its fragments written deflated when `deflate`.
@@ -537,16 +524,7 @@ impl ShardWriter {
         Ok((names, total))
     }
 
-    /// Make every pending rename.
-    pub fn commit(&mut self) -> io::Result<()> {
-        for (staging, target) in &self.pending {
-            fs::rename(staging, target)?;
-        }
-        self.pending.clear();
-        Ok(())
-    }
-
-    /// The renames [`Self::commit`] would make, forgotten here, so the caller makes them and [`Self::abort`] no longer deletes their staging files.
+    /// The pending renames, staging file then target, handed to the caller to make, after which [`Self::abort`] leaves their staging files in place.
     pub fn take_pending(&mut self) -> Vec<(PathBuf, PathBuf)> {
         std::mem::take(&mut self.pending)
     }
@@ -569,7 +547,7 @@ impl ShardWriter {
     }
 }
 
-/// `build._discard_runs`: delete the shard parts the write's runs staged for the classes `class_ids`, every entry of `out_dir/units/` that `Path.glob("<class>.*.json.partial")` finds for one of them, matched as `glob.translate` reads the pattern, the class id's own wildcards included. A directory that does not list finds nothing; a pattern `re` refuses fails as it does.
+/// Delete the shard parts the write's runs staged for the classes `class_ids`, every entry of `out_dir/units/` that `Path.glob("<class>.*.json.partial")` finds for one of them, matched as `glob.translate` reads the pattern, the class id's own wildcards included. A directory that does not list finds nothing; a pattern `re` refuses fails as it does.
 pub fn discard_runs<'a>(
     out_dir: &Path,
     class_ids: impl IntoIterator<Item = &'a str>,
@@ -822,329 +800,6 @@ fn glob_matches(pattern: &[Glob], name: &[u32]) -> bool {
     pattern[at..].iter().all(|glob| *glob == Glob::Star)
 }
 
-/// The `shards` stage's directory, beside its stage file, of the fragments and the parts its lines name by sha256.
-pub const STAGE_BLOBS: &str = "shards.blobs";
-
-fn fail(what: &str, failure: impl fmt::Display) -> WireError {
-    WireError(format!("cannot {what}: {failure}"))
-}
-
-fn tagged(tag: &str, values: impl IntoIterator<Item = PyValue>) -> PyValue {
-    PyValue::Tuple(std::iter::once(PyValue::str(tag)).chain(values).collect())
-}
-
-fn span_value(span: Span) -> PyValue {
-    PyValue::Tuple(vec![
-        PyValue::Int(span.part as i64),
-        PyValue::Int(span.start),
-        PyValue::Int(span.length),
-        PyValue::Int(span.inflated),
-    ])
-}
-
-/// A file under `directory` as the stage names it: its path under `directory`, its size and its sha256.
-fn file_value(directory: &Path, path: &Path) -> Result<PyValue> {
-    let bytes =
-        fs::read(path).map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-    Ok(PyValue::Tuple(vec![
-        PyValue::str(relative(directory, path)?),
-        PyValue::Int(bytes.len() as i64),
-        PyValue::str(sha256_hex(&bytes)),
-    ]))
-}
-
-fn relative(directory: &Path, path: &Path) -> Result<String> {
-    path.strip_prefix(directory)
-        .map_err(|_| {
-            WireError(format!(
-                "{} is not under {}",
-                path.display(),
-                directory.display()
-            ))
-        })?
-        .to_str()
-        .map(str::to_owned)
-        .ok_or_else(|| WireError(format!("{} is not UTF-8", path.display())))
-}
-
-/// Every file under `directory`, by its path there, sorted.
-fn entries(directory: &Path) -> Result<PyValue> {
-    let mut found = Vec::new();
-    let mut walking = vec![directory.to_path_buf()];
-    while let Some(at) = walking.pop() {
-        for entry in
-            fs::read_dir(&at).map_err(|failure| fail(&format!("list {}", at.display()), failure))?
-        {
-            let path = entry
-                .map_err(|failure| fail(&format!("list {}", at.display()), failure))?
-                .path();
-            if path.is_dir() {
-                walking.push(path);
-            } else {
-                found.push((relative(directory, &path)?, path));
-            }
-        }
-    }
-    found.sort();
-    Ok(PyValue::List(
-        found
-            .iter()
-            .map(|(_, path)| file_value(directory, path))
-            .collect::<Result<_>>()?,
-    ))
-}
-
-/// The bytes a blob holds, checked against its name.
-fn blob(blobs: &Path, digest: &str) -> Result<PathBuf> {
-    let path = blobs.join(digest);
-    let bytes =
-        fs::read(&path).map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-    if sha256_hex(&bytes) != digest {
-        return error(format!(
-            "{} does not hold the bytes it is named for",
-            path.display()
-        ));
-    }
-    Ok(path)
-}
-
-fn op_int(value: &PyValue, what: &str) -> Result<i64> {
-    match value {
-        PyValue::Bool(flag) => Ok(i64::from(*flag)),
-        other => integer(other, what),
-    }
-}
-
-fn op_bool(value: &PyValue, what: &str) -> Result<bool> {
-    match value {
-        PyValue::Bool(flag) => Ok(*flag),
-        other => error(format!("{what} is {}, not a bool", other.kind())),
-    }
-}
-
-/// Make one call a line names on the writer over `directory` and return its result, as the stage records it. `since` is how many renames were pending as the open class opened.
-fn call(
-    writer: &mut ShardWriter,
-    directory: &Path,
-    op: &[PyValue],
-    blobs: &Path,
-    since: usize,
-) -> Result<std::result::Result<PyValue, ShardError>> {
-    let what = text(&op[0], "a call's name")?;
-    Ok(match (what, &op[1..]) {
-        ("open", [class_id, prior_parts, append, deflate]) => {
-            let prior_parts = items(prior_parts, "the prior parts")?
-                .iter()
-                .map(|part| text(part, "a prior part").map(str::to_owned))
-                .collect::<Result<Vec<_>>>()?;
-            writer
-                .open(
-                    text(class_id, "the class id")?,
-                    &prior_parts,
-                    op_bool(append, "append")?,
-                    op_bool(deflate, "deflate")?,
-                )
-                .map(|()| PyValue::None)
-        }
-        ("holds", [part]) => Ok(PyValue::Bool(writer.holds(text(part, "a part")?))),
-        ("keep", [part, start, length, inflated]) => writer
-            .keep(
-                text(part, "a part")?,
-                op_int(start, "a start")?,
-                op_int(length, "a length")?,
-                op_int(inflated, "an inflated length")?,
-            )
-            .map(span_value),
-        ("add", [digest, inflated]) => {
-            let body = fs::read(blob(blobs, text(digest, "a fragment's blob")?)?)
-                .map_err(|failure| fail("read a fragment", failure))?;
-            let inflated = u32::try_from(op_int(inflated, "an inflated length")?)
-                .map_err(|_| WireError("an inflated length past 32 bits".to_owned()))?;
-            writer.add_bytes(&body, inflated).map(span_value)
-        }
-        ("close", []) => match writer.close() {
-            Ok((names, total)) => {
-                let pending = writer.pending()[since..]
-                    .iter()
-                    .map(|(staging, target)| {
-                        let PyValue::Tuple(file) = file_value(directory, staging)? else {
-                            unreachable!("a file's value is a tuple");
-                        };
-                        let mut renamed =
-                            vec![file[0].clone(), PyValue::str(relative(directory, target)?)];
-                        renamed.extend(file[1..].iter().cloned());
-                        Ok(PyValue::Tuple(renamed))
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(PyValue::Tuple(vec![
-                    PyValue::List(names.into_iter().map(PyValue::Str).collect()),
-                    PyValue::Int(total),
-                    PyValue::List(pending),
-                ]))
-            }
-            Err(failure) => Err(failure),
-        },
-        ("take-pending", []) => Ok(PyValue::List(
-            writer
-                .take_pending()
-                .iter()
-                .map(|(staging, target)| {
-                    Ok(PyValue::Tuple(vec![
-                        PyValue::str(relative(directory, staging)?),
-                        PyValue::str(relative(directory, target)?),
-                    ]))
-                })
-                .collect::<Result<_>>()?,
-        )),
-        ("commit", []) => writer
-            .commit()
-            .map(|()| PyValue::None)
-            .map_err(ShardError::Os),
-        ("abort", []) => writer
-            .abort()
-            .map(|()| PyValue::None)
-            .map_err(ShardError::Os),
-        ("entries", []) => Ok(entries(directory)?),
-        ("discard", [class_ids]) => {
-            let class_ids = items(class_ids, "the discarded classes")?
-                .iter()
-                .map(|class_id| text(class_id, "a class id"))
-                .collect::<Result<Vec<_>>>()?;
-            discard_runs(directory, class_ids)
-                .map(|()| PyValue::None)
-                .map_err(ShardError::Os)
-        }
-        _ => {
-            return error(format!(
-                "no shard writer call {what} over {} values",
-                op.len() - 1
-            ));
-        }
-    })
-}
-
-/// Replay one line in `directory`: the parts it holds made there as clones of their blobs, then each call it names made on a new writer under the line's cap, or the vocabulary's when it gives none. Returns each call's result, `("raised", class, message)` for a `ValueError` or `KeyError`, and the writer's counters after the last.
-fn replay(
-    key: &str,
-    input: &PyValue,
-    vocabulary: (i64, &[u8]),
-    blobs: &Path,
-    directory: &Path,
-) -> Result<PyValue> {
-    let [cap, held, ops] = items(input, "a line's input")? else {
-        return error(format!(
-            "{key}: the input is not a cap, the held parts and the calls"
-        ));
-    };
-    let cap = match cap {
-        PyValue::None => vocabulary.0,
-        cap => integer(cap, "the cap")?,
-    };
-    fs::create_dir_all(directory).map_err(|failure| fail("make a replay's directory", failure))?;
-    for part in items(held, "the held parts")? {
-        let [name, digest] = items(part, "a held part")? else {
-            return error(format!("{key}: a held part is not a name and a blob"));
-        };
-        let target = directory.join(text(name, "a held part's name")?);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|failure| fail("make a part's directory", failure))?;
-        }
-        let source = blob(blobs, text(digest, "a held part's blob")?)?;
-        if !clone(&source, &target).map_err(|failure| fail("clone a held part", failure))? {
-            copy_file(&source, &target).map_err(|failure| fail("copy a held part", failure))?;
-        }
-    }
-    let mut writer = ShardWriter::new(directory, cap, vocabulary.1.to_vec())
-        .map_err(|failure| fail("make the writer", failure))?;
-    let mut results = Vec::new();
-    let mut since = 0;
-    for op in items(ops, "the calls")? {
-        let op = items(op, "a call")?;
-        if op.is_empty() {
-            return error(format!("{key}: an empty call"));
-        }
-        results.push(match call(&mut writer, directory, op, blobs, since)? {
-            Ok(value) => value,
-            Err(failure @ (ShardError::Value(_) | ShardError::Key(_))) => tagged(
-                "raised",
-                [
-                    PyValue::str(failure.class()),
-                    PyValue::str(failure.to_string()),
-                ],
-            ),
-            Err(failure) => {
-                return error(format!(
-                    "{key}: the writer raised {}: {failure}",
-                    failure.class()
-                ));
-            }
-        });
-        if text(&op[0], "a call's name")? == "open" {
-            since = writer.pending().len();
-        }
-    }
-    Ok(PyValue::Tuple(vec![
-        PyValue::List(results),
-        PyValue::Tuple(vec![
-            PyValue::Int(writer.appended),
-            PyValue::Int(writer.appended_inflated),
-            PyValue::Int(writer.deflated),
-        ]),
-    ]))
-}
-
-/// The `shards` stage: for each line of `stage_file`, replay the writer calls it names into a scratch directory holding clones of the parts the line says the writer found there, the fragments read by sha256 from [`STAGE_BLOBS`] beside the stage file, and write one line with each call's result, every staged part's size and sha256 among them, and the writer's counters, in the typed encoding. A line with no cap of its own writes under the build input's `SHARD_PART_BYTES`, and every line closes its parts with its `PART_CLOSING`.
-pub fn stage_shards(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let constant = |dotted: &str| {
-        input
-            .constant(dotted)
-            .ok_or_else(|| WireError(format!("the build input's vocabulary holds no {dotted}")))
-    };
-    let cap = integer(
-        constant("rebuild.review.unit_index.SHARD_PART_BYTES")?,
-        "SHARD_PART_BYTES",
-    )?;
-    let closing = match constant("rebuild.review.unit_index.PART_CLOSING")? {
-        PyValue::Bytes(closing) => closing.clone(),
-        other => return error(format!("PART_CLOSING is {}, not bytes", other.kind())),
-    };
-    let blobs = stage_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(STAGE_BLOBS);
-    let scratch = std::env::temp_dir().join(format!("ams-review-shards-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&scratch);
-    fs::create_dir_all(&scratch).map_err(|failure| fail("make the stage's scratch", failure))?;
-    let answered = (|| {
-        let file = File::open(stage_file)
-            .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line =
-                line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-            let record: Value = serde_json::from_str(&line)
-                .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-            let Some(key) = record["key"].as_str() else {
-                return error(format!("a stage line has no key: {line:.200}"));
-            };
-            let line_input = PyValue::from_typed(&record["input"])
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-            let value = replay(
-                key,
-                &line_input,
-                (cap, &closing),
-                &blobs,
-                &scratch.join(index.to_string()),
-            )?;
-            stage_line(out, key, &value)?;
-        }
-        Ok(())
-    })();
-    let _ = fs::remove_dir_all(&scratch);
-    answered
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1234,7 +889,9 @@ mod tests {
         let (names, total) = writer.close().expect("close");
         assert_eq!(names, parts);
         assert_eq!(total, 8 + 9);
-        writer.commit().expect("commit");
+        for (staging, target) in writer.take_pending() {
+            fs::rename(staging, target).expect("rename");
+        }
         assert_eq!(
             fs::read(scratch.0.join("units/c.x000.json")).expect("read"),
             b"[bb,cc\n]\n"

@@ -1,25 +1,16 @@
-//! The unit store, `rebuild/review/unit_store.py`'s `UnitStore`: every phase-1 product the whole-corpus passes and the store writer read, held as fixed-width columns over the unit's ordinal, with each variable-length field an offset and a count into a side column, and every string an id into a [`StringTable`].
+//! The unit store: every phase-1 product the whole-corpus passes and the store writer read, held as fixed-width columns over the unit's ordinal, with each variable-length field an offset and a count into a side column, and every string an id into a [`StringTable`].
 //!
-//! A row is loaded once, by [`UnitStore::load_projection`] for a recomputed unit or [`UnitStore::load_cached`] for a unit taken from the prior store, and the whole-corpus passes and the write store their results through the `set_*` methods. Each column has the width of the `array` Python holds it in, and a value that does not fit raises the `OverflowError` the `array` raises; every other refusal is the exception Python raises, with its text, in the order Python reaches it ([`StoreError`]). The unit id is not stored: it is the content key's first eight bytes ([`UnitStore::id_word`]), and [`UnitStore::index`] sorts those words once for [`UnitStore::ordinal_of`]. Beside the rows the store keeps the prior store's line of each unit ([`UnitStore::set_prior_line`]) and the prior records the plan did not load, by unit id ([`UnitStore::add_prior_record`], [`UnitStore::seal_prior_records`]), which [`UnitStore::prior_fragment`] and [`UnitStore::predicted_unchanged`] read.
-//!
-//! [`stage_store_load`] is the `store-load` stage of the stage fixtures.
+//! A row is loaded once, by [`UnitStore::load_projection`] for a recomputed unit or [`UnitStore::load_cached`] for a unit taken from the prior store, and the whole-corpus passes and the write store their results through the `set_*` methods. Each column has the width of a typed Python `array`, and a value that does not fit is refused with the `OverflowError` the `array` raises; every other refusal is a Python exception class with its text ([`StoreError`]). The unit id is not stored: it is the content key's first eight bytes ([`UnitStore::id_word`]), and [`UnitStore::index`] sorts those words once for [`UnitStore::ordinal_of`]. Beside the rows the store keeps the prior store's line of each unit ([`UnitStore::set_prior_line`]) and the prior records the plan did not load, by unit id ([`UnitStore::add_prior_record`], [`UnitStore::seal_prior_records`]), which [`UnitStore::prior_fragment`] and [`UnitStore::predicted_unchanged`] read.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 
-use serde_json::Value;
-
-use super::audit::stage_line;
 use super::columns::{KeyIndex, KeyIndexError, StringTable, sorted_by_word};
 use super::records::{self, CachedUnit, ParsedCachedUnit, PriorRecord};
 use super::rowdelta::{Unread, py_int, type_name};
 use crate::fragment::{base58_64, lookup, py_eq};
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::{repr, repr_str};
-use crate::wire::{Result, WireError, error};
 
 /// The bytes of a content key and of an input key.
 pub const KEY_BYTES: usize = 32;
@@ -27,9 +18,9 @@ pub const KEY_BYTES: usize = 32;
 pub const ID_BYTES: usize = 8;
 /// The primary-unit column's value for a junction without one.
 pub const NO_PRIMARY_UNIT: u32 = u32::MAX;
-/// The prior-line column's value for a unit the prior store does not name (`unit_cache.NO_PRIOR_LINE`).
+/// The prior-line column's value for a unit the prior store does not name.
 pub const NO_PRIOR_LINE: u32 = u32::MAX;
-/// A highlight rect's keys, in `enrich._highlight`'s order.
+/// A highlight rect's keys, in the order a fragment holds them.
 pub const RECT_EDGES: [&str; 3] = ["x_min", "x_max", "advance_total"];
 /// `audit.MACHINE_CHECKS`, in the flag column's bit order.
 pub const MACHINE_CHECKS: [&str; 3] = ["ink_identical", "picture_identical", "junior_equivalent"];
@@ -218,12 +209,12 @@ fn id_of_word(word: u64) -> String {
     )
 }
 
-/// `unit_store.id_word_of`: the word a unit id encodes, or the `KeyError` Python raises for an id of any other shape.
+/// The word a unit id encodes, or the `KeyError` Python raises for an id of any other shape.
 pub fn id_word_of(unit_id: &str) -> Raised<u64> {
     records::id_word(unit_id).map_or_else(|| raise("KeyError", repr_str(unit_id)), Ok)
 }
 
-/// `audit.format_codepoints`: a window as colon-joined uppercase hex, at least four digits a code point.
+/// A window as colon-joined uppercase hex, at least four digits a code point.
 fn format_codepoints(values: &[u32]) -> String {
     values
         .iter()
@@ -312,7 +303,7 @@ fn repr_of(value: &PyValue) -> String {
     repr(value).unwrap_or_else(|_| format!("<{}>", type_name(value)))
 }
 
-/// `unit_store._rect_edges(edge)`: a rect's three edges, the dict holding exactly [`RECT_EDGES`] in that order.
+/// A rect's three edges, the dict holding exactly [`RECT_EDGES`] in that order.
 fn rect_edges(edge: &PyValue) -> Raised<[i64; 3]> {
     let keys = items_of(edge)?;
     let expected: Vec<PyValue> = RECT_EDGES.iter().map(|&name| PyValue::str(name)).collect();
@@ -340,7 +331,7 @@ fn pair_text(pair: (i64, i64), list: bool) -> String {
 
 // --- what a load takes ----------------------------------------------------------------------------------
 
-/// The fields `load_projection` reads from a recomputed unit's primary-unit projection (`unit_store.PrimaryUnitRows`).
+/// The fields `load_projection` reads from a recomputed unit's primary-unit projection.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimaryRows {
     pub codepoint_values: Vec<i64>,
@@ -356,7 +347,7 @@ pub struct PrimaryRows {
     pub junction_pairs: Vec<(i64, i64)>,
 }
 
-/// One recomputed unit's phase-1 projection as `load_projection` reads it (`unit_store.RecomputedProjection`): its junction rects as `(pair, before, after)` values, the pair a list as the units engine's reply carries it.
+/// One recomputed unit's phase-1 projection as `load_projection` reads it: its junction rects as `(pair, before, after)` values, the pair a list as the worker gives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Recomputed {
     pub ordinal: i64,
@@ -377,7 +368,7 @@ pub struct Recomputed {
     pub mismatches: Vec<String>,
 }
 
-/// Where a prior corpus's fragment is (`unit_cache.PriorFragment`): its shard part, its byte start and length on disk, the unit id and content key it is stamped with, whether its bytes are the shard writer's own, and a deflated fragment's inflated length, 0 for a plain one.
+/// Where a prior corpus's fragment is: its shard part, its byte start and length on disk, the unit id and content key it is stamped with, whether its bytes are the shard writer's own, and a deflated fragment's inflated length, 0 for a plain one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PriorFragment {
     pub part: String,
@@ -389,29 +380,8 @@ pub struct PriorFragment {
     pub inflated: i64,
 }
 
-impl PriorFragment {
-    /// The fragment as Python holds it, a `PriorFragment` with its fields in declaration order.
-    pub fn value(&self) -> PyValue {
-        PyValue::Record(
-            "PriorFragment".to_owned(),
-            vec![
-                ("part".to_owned(), PyValue::str(self.part.as_str())),
-                ("start".to_owned(), PyValue::Int(self.start)),
-                ("length".to_owned(), PyValue::Int(self.length)),
-                ("unit_id".to_owned(), PyValue::str(self.unit_id.as_str())),
-                (
-                    "content_key".to_owned(),
-                    PyValue::optional_str(self.content_key.as_deref()),
-                ),
-                ("byte_copied".to_owned(), PyValue::Bool(self.byte_copied)),
-                ("inflated".to_owned(), PyValue::Int(self.inflated)),
-            ],
-        )
-    }
-}
-
 impl ParsedCachedUnit {
-    /// `ParsedCachedUnit.located`: the record's address as a byte-copied [`PriorFragment`] stamped with its id and content key, or None for a record the walk has to locate.
+    /// The record's address as a byte-copied [`PriorFragment`] stamped with its id and content key, or None for a record the walk has to locate.
     pub fn located(&self) -> Option<PriorFragment> {
         self.address
             .as_ref()
@@ -434,15 +404,14 @@ pub enum LoadAddress {
     Fragment(PriorFragment),
 }
 
-/// A primary unit as `set_primary_units` takes it: none, an ordinal, or an id the index resolves.
+/// A primary unit as `set_primary_units` takes it: none, or an ordinal.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     Absent,
     Ordinal(i64),
-    Id(String),
 }
 
-/// One unit's flag byte, unpacked (`unit_store.Flags`).
+/// One unit's flag byte, unpacked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Flags {
     pub ink_identical: bool,
@@ -468,30 +437,9 @@ impl Flags {
             byte_copied: bits & BYTE_COPIED != 0,
         }
     }
-
-    /// The flags as Python holds them, a `Flags` named tuple.
-    pub fn value(&self) -> PyValue {
-        let fields = [
-            ("ink_identical", self.ink_identical),
-            ("picture_identical", self.picture_identical),
-            ("junior_equivalent", self.junior_equivalent),
-            ("cached", self.cached),
-            ("slim", self.slim),
-            ("exemplar", self.exemplar),
-            ("no_verdict", self.no_verdict),
-            ("byte_copied", self.byte_copied),
-        ];
-        PyValue::Record(
-            "Flags".to_owned(),
-            fields
-                .iter()
-                .map(|&(name, flag)| (name.to_owned(), PyValue::Bool(flag)))
-                .collect(),
-        )
-    }
 }
 
-/// A unit as the primary-unit resolution pass compares it (`enrich.PrimaryUnitProjection`).
+/// A unit as the primary-unit resolution pass compares it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrimaryUnitProjection {
     pub unit_id: String,
@@ -508,20 +456,8 @@ pub struct PrimaryUnitProjection {
     pub junction_pairs: Vec<(i64, i64)>,
 }
 
-fn pair_tuple(pair: (i64, i64)) -> PyValue {
-    PyValue::Tuple(vec![PyValue::Int(pair.0), PyValue::Int(pair.1)])
-}
-
 fn pair_list(pair: (i64, i64)) -> PyValue {
     PyValue::List(vec![PyValue::Int(pair.0), PyValue::Int(pair.1)])
-}
-
-fn optional_pair(pair: Option<(i64, i64)>) -> PyValue {
-    pair.map_or(PyValue::None, pair_tuple)
-}
-
-fn pairs_tuple(pairs: &[(i64, i64)]) -> PyValue {
-    PyValue::Tuple(pairs.iter().map(|&pair| pair_tuple(pair)).collect())
 }
 
 fn texts_list(texts: &[String]) -> PyValue {
@@ -533,58 +469,6 @@ fn texts_list(texts: &[String]) -> PyValue {
     )
 }
 
-impl PrimaryUnitProjection {
-    /// The projection as Python holds it, a `PrimaryUnitProjection` with tuples.
-    pub fn value(&self) -> PyValue {
-        PyValue::Record(
-            "PrimaryUnitProjection".to_owned(),
-            vec![
-                ("unit_id".to_owned(), PyValue::str(self.unit_id.as_str())),
-                (
-                    "codepoint_values".to_owned(),
-                    PyValue::Tuple(
-                        self.codepoint_values
-                            .iter()
-                            .map(|&value| PyValue::Int(i64::from(value)))
-                            .collect(),
-                    ),
-                ),
-                (
-                    "ink_identical".to_owned(),
-                    PyValue::Bool(self.ink_identical),
-                ),
-                (
-                    "picture_identical".to_owned(),
-                    PyValue::Bool(self.picture_identical),
-                ),
-                ("pair".to_owned(), optional_pair(self.pair)),
-                ("after_spans".to_owned(), pairs_tuple(&self.after_spans)),
-                (
-                    "after_cells".to_owned(),
-                    PyValue::str_tuple(&self.after_cells),
-                ),
-                (
-                    "after_junctions".to_owned(),
-                    PyValue::str_tuple(&self.after_junctions),
-                ),
-                ("before_spans".to_owned(), pairs_tuple(&self.before_spans)),
-                (
-                    "before_glyphs".to_owned(),
-                    PyValue::str_tuple(&self.before_glyphs),
-                ),
-                (
-                    "before_junctions".to_owned(),
-                    PyValue::str_tuple(&self.before_junctions),
-                ),
-                (
-                    "junction_pairs".to_owned(),
-                    pairs_tuple(&self.junction_pairs),
-                ),
-            ],
-        )
-    }
-}
-
 /// Which side of the primary-unit projection a row loads.
 #[derive(Clone, Copy)]
 enum Side {
@@ -594,7 +478,7 @@ enum Side {
 
 // --- the store ------------------------------------------------------------------------------------------
 
-/// Per-unit state as columns over the ordinal (`unit_store.UnitStore`); see the module's documentation.
+/// Per-unit state as columns over the ordinal; see the module's documentation.
 #[derive(Clone, Debug)]
 pub struct UnitStore {
     n: usize,
@@ -759,7 +643,7 @@ impl UnitStore {
         self.n == 0
     }
 
-    /// `UnitStore.emptied`: a store over the same rows, string table and input keys with nothing loaded, which the plan restarts with when the prior store stops reading partway.
+    /// A store over the same rows, string table and input keys with nothing loaded, which the plan restarts with when the prior store stops reading partway.
     pub fn emptied(self) -> Self {
         Self::new(self.n, self.strings, Some(self.input_keys))
             .expect("a store's own input-key column has its length")
@@ -787,21 +671,6 @@ impl UnitStore {
 
     fn key_range(row: usize) -> std::ops::Range<usize> {
         row * KEY_BYTES..(row + 1) * KEY_BYTES
-    }
-
-    /// `UnitStore.set_input_key`: write the unit's input key into its row before any load.
-    pub fn set_input_key(&mut self, ordinal: usize, input_key: &str) -> Raised<()> {
-        let inputs = from_hex(input_key)?;
-        if inputs.len() != KEY_BYTES {
-            return value_error(format!(
-                "ordinal {ordinal}: an input key is {KEY_BYTES} bytes"
-            ));
-        }
-        if ordinal >= self.n {
-            return raise("IndexError", "bytearray index out of range");
-        }
-        self.input_keys[Self::key_range(ordinal)].copy_from_slice(&inputs);
-        Ok(())
     }
 
     fn load_keys(
@@ -855,7 +724,7 @@ impl UnitStore {
         Ok(())
     }
 
-    /// `UnitStore._load_row`: one side of the primary-unit projection, `n` spans, `n` names and `n - 1` junctions.
+    /// One side of the primary-unit projection, `n` spans, `n` names and `n - 1` junctions.
     fn load_row(
         &mut self,
         row: usize,
@@ -929,7 +798,7 @@ impl UnitStore {
         self.load_row(row, Side::Before, before.0, before.1, before.2)
     }
 
-    /// `UnitStore._load_junctions`: the secondary-junction side column, one count over the junction pairs, the rects and both primary-unit columns. `lists` says whether the junction pairs print as lists in a message, as the units engine's reply holds them, or as tuples, as a parsed record does.
+    /// The secondary-junction side column, one count over the junction pairs, the rects and both primary-unit columns. `lists` says whether the junction pairs print as lists in a message, as a recomputed projection holds them, or as tuples, as a parsed record does.
     fn load_junctions(
         &mut self,
         row: usize,
@@ -1014,7 +883,7 @@ impl UnitStore {
         Ok(())
     }
 
-    /// `UnitStore.load_projection`: load one recomputed unit's projection into its row and return the row. The ordinal is `ordinal`, else the projection's; `length` is the drafted fragment's shard bytes, its [`UnitStore::shard_length`]; `no_verdict` is the ledger's exemption, which with the machine flags sets the slim bit.
+    /// Load one recomputed unit's projection into its row and return the row. The ordinal is `ordinal`, else the projection's; `length` is the drafted fragment's shard bytes, its [`UnitStore::shard_length`]; `no_verdict` is the ledger's exemption, which with the machine flags sets the slim bit.
     pub fn load_projection(
         &mut self,
         projection: &Recomputed,
@@ -1102,7 +971,7 @@ impl UnitStore {
         Ok(row)
     }
 
-    /// `UnitStore.load_cached`: load one cached unit's store record into its row and return the row. `found` is the prior fragment the plan located for the record, by default the record's own address; it must carry the record's id and content key. `codepoints` is the unit's window, which the workload table has and the record does not.
+    /// Load one cached unit's store record into its row and return the row. `found` is the prior fragment the plan located for the record, by default the record's own address; it must carry the record's id and content key. `codepoints` is the unit's window, which the workload table has and the record does not.
     pub fn load_cached(
         &mut self,
         ordinal: i64,
@@ -1204,7 +1073,7 @@ impl UnitStore {
         Ok(row)
     }
 
-    /// `UnitStore.index`: the units' id words sorted, beside each word's ordinal, built on the first call and kept until the next load. An unloaded row is refused, and so is a repeated id, with the `SystemExit` Python raises naming both windows.
+    /// The units' id words sorted, beside each word's ordinal, built on the first call and kept until the next load. An unloaded row is refused, and so is a repeated id, with the `SystemExit` Python raises naming both windows.
     pub fn index(&mut self) -> Raised<(&[u64], &[u32])> {
         if self.id_index.is_none() {
             if let Some(unloaded) = self.loaded.iter().position(|&loaded| loaded == 0) {
@@ -1233,7 +1102,7 @@ impl UnitStore {
         Ok((words, order))
     }
 
-    /// `UnitStore.ordinal_of`: the ordinal of the unit with this id, by a bisect of the index; a `KeyError` for an id no unit has.
+    /// The ordinal of the unit with this id, by a bisect of the index; a `KeyError` for an id no unit has.
     pub fn ordinal_of(&mut self, unit_id: &str) -> Raised<usize> {
         self.index()?;
         let word = id_word_of(unit_id)?;
@@ -1272,7 +1141,7 @@ impl UnitStore {
         &self.input_keys
     }
 
-    /// `UnitStore.input_key_index`: an index from each unit's input key to its ordinal, refusing a key two rows hold.
+    /// An index from each unit's input key to its ordinal, refusing a key two rows hold.
     pub fn input_key_index(&self) -> std::result::Result<KeyIndex, KeyIndexError> {
         KeyIndex::new(&self.input_keys, KEY_BYTES, self.n)
     }
@@ -1412,12 +1281,6 @@ impl UnitStore {
         })
     }
 
-    /// `UnitStore.rebase_source`: move the unit's source to byte `start` of the same part.
-    pub fn rebase_source(&mut self, ordinal: usize, start: i64) -> Raised<()> {
-        self.src_start[ordinal] = unsigned_long_long(start)?;
-        Ok(())
-    }
-
     /// This build's shard address for the unit, as the write recorded it.
     pub fn written_address(&self, ordinal: usize) -> Option<(&str, u64, u32)> {
         let part = self.out_part[ordinal];
@@ -1434,17 +1297,7 @@ impl UnitStore {
         self.out_inflated[ordinal]
     }
 
-    pub fn set_written_address(
-        &mut self,
-        ordinal: usize,
-        (part, start, length): (&str, i64, i64),
-        inflated: i64,
-    ) -> Raised<()> {
-        self.set_written_part(ordinal, part);
-        self.set_written_span(ordinal, start, length, inflated)
-    }
-
-    /// `UnitStore.set_written_span`: the unit's byte start and length on disk in its shard part, with a deflated fragment's inflated length.
+    /// The unit's byte start and length on disk in its shard part, with a deflated fragment's inflated length.
     pub fn set_written_span(
         &mut self,
         ordinal: usize,
@@ -1488,12 +1341,7 @@ impl UnitStore {
             .collect()
     }
 
-    /// The unit's `PrimaryUnitProjection`, equal to the one loaded.
-    pub fn primary_unit_projection(&self, ordinal: usize) -> PrimaryUnitProjection {
-        self.projection_as(ordinal, self.unit_id(ordinal))
-    }
-
-    /// The unit as the primary-unit resolution pass compares it: [`UnitStore::primary_unit_projection`] with an empty id.
+    /// The unit as the primary-unit resolution pass compares it: its primary-unit projection with an empty id.
     pub fn projection(&self, ordinal: usize) -> PrimaryUnitProjection {
         self.projection_as(ordinal, String::new())
     }
@@ -1597,7 +1445,7 @@ impl UnitStore {
         )
     }
 
-    /// `UnitStore.set_primary_units`: the primary-unit resolution pass's result for the unit, one `(primary unit, suppressed)` a junction, in junction order. Each entry is written as it is resolved, so a refusal partway leaves the entries before it written, as Python does.
+    /// The primary-unit resolution pass's result for the unit, one `(primary unit, suppressed)` a junction, in junction order. Each entry is written as it is resolved, so a refusal partway leaves the entries before it written, as Python does.
     pub fn set_primary_units(&mut self, ordinal: usize, assign: &[(Target, bool)]) -> Raised<()> {
         let start = self.junction_start[ordinal] as usize;
         let count = self.junction_count(ordinal);
@@ -1610,7 +1458,6 @@ impl UnitStore {
         for (at, (unit, suppressed)) in assign.iter().enumerate() {
             let target = match unit {
                 Target::Absent => NO_PRIMARY_UNIT,
-                Target::Id(unit_id) => offset(self.ordinal_of(unit_id)?),
                 Target::Ordinal(target) => match usize::try_from(*target) {
                     Ok(target) if target < self.n => offset(target),
                     _ => {
@@ -1684,7 +1531,7 @@ impl UnitStore {
             .collect()
     }
 
-    /// `UnitStore.cached_as_is`: whether the cached fragment's bytes on disk already equal what this build writes for the unit.
+    /// Whether the cached fragment's bytes on disk already equal what this build writes for the unit.
     pub fn cached_as_is(
         &self,
         ordinal: usize,
@@ -1703,7 +1550,7 @@ impl UnitStore {
             && self.cached_primary_units(ordinal) == self.primary_units(ordinal)
     }
 
-    /// The unit's fragment's plain shard bytes as the parent knows them before the write.
+    /// The unit's fragment's plain shard bytes as the build knows them before the write.
     pub fn shard_length(&self, ordinal: usize) -> u32 {
         self.shard_len[ordinal]
     }
@@ -1718,7 +1565,7 @@ impl UnitStore {
         self.prior_line[ordinal]
     }
 
-    /// `UnitStore.add_prior_record`: keep one prior store record the plan did not load, by its unit id. A record without an address is not kept. Each column is appended in Python's order, so a refusal partway leaves the columns before it appended, as Python does.
+    /// Keep one prior store record the plan did not load, by its unit id. A record without an address is not kept. Each column is appended in Python's order, so a refusal partway leaves the columns before it appended, as Python does.
     pub fn add_prior_record(&mut self, record: &PriorRecord) -> Raised<()> {
         let Some((part, start, length)) = &record.address else {
             return Ok(());
@@ -1755,7 +1602,7 @@ impl UnitStore {
         Ok(())
     }
 
-    /// `UnitStore.seal_prior_records`: sort the kept prior records by unit id, stably, for the bisects that read them.
+    /// Sort the kept prior records by unit id, stably, for the bisects that read them.
     pub fn seal_prior_records(&mut self) {
         let words = &self.by_id_words;
         if words.windows(2).all(|pair| pair[0] <= pair[1]) {
@@ -1779,25 +1626,6 @@ impl UnitStore {
 
     pub fn prior_record_count(&self) -> usize {
         self.by_id_words.len()
-    }
-
-    /// Each kept prior record in the store's order: its id word, part, start, length, inflated length, class, duplicate group, flag bits and primary units' CRC-32.
-    pub fn prior_records(
-        &self,
-    ) -> impl Iterator<Item = (u64, &str, u32, u32, u32, &str, Option<&str>, u8, u32)> + '_ {
-        (0..self.by_id_words.len()).map(|at| {
-            (
-                self.by_id_words[at],
-                self.by_id_parts[usize::from(self.by_id_part[at])].as_str(),
-                self.by_id_start[at],
-                self.by_id_len[at],
-                self.by_id_inflated[at],
-                self.strings.get(self.by_id_class[at]),
-                self.optional(self.by_id_group[at]),
-                self.by_id_bits[at],
-                self.by_id_units[at],
-            )
-        })
     }
 
     fn prior_index(&self, ordinal: usize) -> Option<usize> {
@@ -1835,7 +1663,7 @@ impl UnitStore {
         })
     }
 
-    /// `UnitStore.predicted_unchanged`: whether the unit's fragment is predicted to come out as its prior one, from what the parent already holds.
+    /// Whether the unit's fragment is predicted to come out as its prior one, from what the build already holds.
     pub fn predicted_unchanged(
         &self,
         ordinal: usize,
@@ -1864,12 +1692,7 @@ impl UnitStore {
             && self.by_id_units[at] == units
     }
 
-    /// Every unit's ordinal and window.
-    pub fn windows(&self) -> impl Iterator<Item = (usize, Vec<u32>)> + '_ {
-        (0..self.n).map(|ordinal| (ordinal, self.codepoints(ordinal)))
-    }
-
-    /// `UnitStore.cached_unit`: the unit's store record for this build, its class, duplicate group, exemplar and exemption this build's, passed by the caller.
+    /// The unit's store record for this build, its class, duplicate group, exemplar and exemption this build's, passed by the caller.
     pub fn cached_unit(
         &self,
         ordinal: usize,
@@ -1948,845 +1771,6 @@ impl super::table::UnitStoreView for UnitStore {
     fn machine_flags(&self, ordinal: usize) -> (bool, bool, bool) {
         UnitStore::machine_flags(self, ordinal)
     }
-}
-
-// --- the stage ------------------------------------------------------------------------------------------
-
-fn tuple(items: Vec<PyValue>) -> PyValue {
-    PyValue::Tuple(items)
-}
-
-fn int(value: impl Into<i64>) -> PyValue {
-    PyValue::Int(value.into())
-}
-
-fn count(value: usize) -> PyValue {
-    PyValue::Int(i64::try_from(value).expect("a count fits 64 bits"))
-}
-
-fn raised(failure: &StoreError) -> PyValue {
-    tuple(vec![
-        PyValue::str("raised"),
-        PyValue::str(failure.class),
-        PyValue::str(failure.message.as_str()),
-    ])
-}
-
-fn optional_text(value: Option<&str>) -> PyValue {
-    PyValue::optional_str(value)
-}
-
-fn units_tuple(units: &[(Option<String>, bool)]) -> PyValue {
-    tuple(
-        units
-            .iter()
-            .map(|(unit, suppressed)| {
-                tuple(vec![
-                    PyValue::optional_str(unit.as_deref()),
-                    PyValue::Bool(*suppressed),
-                ])
-            })
-            .collect(),
-    )
-}
-
-fn fragment_value(fragment: Option<PriorFragment>) -> PyValue {
-    fragment.map_or(PyValue::None, |fragment| fragment.value())
-}
-
-fn written_value(store: &UnitStore, ordinal: usize) -> PyValue {
-    tuple(vec![
-        PyValue::str("written"),
-        store
-            .written_address(ordinal)
-            .map_or(PyValue::None, |(part, start, length)| {
-                tuple(vec![
-                    PyValue::str(part),
-                    int(i64::try_from(start).expect("a start below 2**63")),
-                    int(length),
-                ])
-            }),
-        int(store.written_inflated(ordinal)),
-    ])
-}
-
-/// The store's kept prior records in its order, as `units_stage_fixtures._sealed_records` holds them: each one's id word as 16 hex digits, its part, start, length, inflated length, class, duplicate group, flag bits and primary units' CRC-32.
-pub(crate) fn sealed_records(store: &UnitStore) -> impl Iterator<Item = PyValue> + '_ {
-    store.prior_records().map(
-        |(word, part, start, length, inflated, class, group, bits, units)| {
-            tuple(vec![
-                PyValue::str(format!("{word:016x}")),
-                PyValue::str(part),
-                int(start),
-                int(length),
-                int(inflated),
-                PyValue::str(class),
-                optional_text(group),
-                int(bits),
-                int(units),
-            ])
-        },
-    )
-}
-
-/// What the stage reads of one row after a call: every accessor that takes only the ordinal, by name, in the order `units_stage_fixtures._store_reading` reads them.
-pub(crate) fn reading(store: &UnitStore, ordinal: usize) -> PyValue {
-    let (ink, picture, junior) = store.machine_flags(ordinal);
-    let fields: Vec<(&str, PyValue)> = vec![
-        ("loaded", PyValue::Bool(store.loaded(ordinal))),
-        ("flags", store.flags(ordinal).value()),
-        ("invisible", PyValue::Bool(store.invisible(ordinal))),
-        (
-            "machine_flags",
-            tuple(vec![
-                PyValue::Bool(ink),
-                PyValue::Bool(picture),
-                PyValue::Bool(junior),
-            ]),
-        ),
-        (
-            "machine_approved",
-            PyValue::Bool(store.machine_approved(ordinal)),
-        ),
-        ("machine_check", optional_text(store.machine_check(ordinal))),
-        (
-            "id_word",
-            PyValue::str(format!("{:016x}", store.id_word(ordinal))),
-        ),
-        ("unit_id", PyValue::str(store.unit_id(ordinal))),
-        ("content_key", PyValue::str(store.content_key_hex(ordinal))),
-        ("input_key", PyValue::str(store.input_key_hex(ordinal))),
-        ("diffs_digest", PyValue::str(store.diffs_digest(ordinal))),
-        ("cluster", PyValue::str(store.cluster(ordinal))),
-        ("change_group", PyValue::str(store.change_group(ordinal))),
-        ("ledger_class", PyValue::str(store.ledger_class(ordinal))),
-        (
-            "pair_codepoints",
-            optional_pair(store.pair_codepoints(ordinal)),
-        ),
-        ("cell_pair", optional_pair(store.cell_pair(ordinal))),
-        ("cached_class", optional_text(store.cached_class(ordinal))),
-        (
-            "cached_duplicate_group",
-            optional_text(store.cached_duplicate_group(ordinal)),
-        ),
-        ("policy_file", optional_text(store.policy_file(ordinal))),
-        ("config_note", optional_text(store.config_note(ordinal))),
-        (
-            "ink_deltas",
-            PyValue::Dict(
-                store
-                    .ink_deltas(ordinal)
-                    .into_iter()
-                    .map(|(config, delta)| (PyValue::str(config), PyValue::str(delta)))
-                    .collect(),
-            ),
-        ),
-        (
-            "codepoints",
-            tuple(store.codepoints(ordinal).into_iter().map(int).collect()),
-        ),
-        ("mismatches", texts_list(store.mismatches(ordinal))),
-        ("source", fragment_value(store.source(ordinal))),
-        ("written", written_value(store, ordinal)),
-        ("junction_count", count(store.junction_count(ordinal))),
-        (
-            "junction_pairs",
-            pairs_tuple(&store.junction_pairs(ordinal)),
-        ),
-        (
-            "primary_unit_projection",
-            store.primary_unit_projection(ordinal).value(),
-        ),
-        ("projection", store.projection(ordinal).value()),
-        (
-            "primary_unit_projection_record",
-            store.primary_unit_projection_record(ordinal),
-        ),
-        ("junction_rects", store.junction_rects(ordinal)),
-        (
-            "primary_unit_ordinals",
-            tuple(
-                store
-                    .primary_unit_ordinals(ordinal)
-                    .into_iter()
-                    .map(|(target, suppressed)| {
-                        tuple(vec![
-                            target.map_or(PyValue::None, int),
-                            PyValue::Bool(suppressed),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
-        ("primary_units", units_tuple(&store.primary_units(ordinal))),
-        ("primary_units_record", store.primary_units_record(ordinal)),
-        (
-            "cached_primary_units",
-            units_record(&store.cached_primary_units(ordinal)),
-        ),
-        ("shard_length", int(store.shard_length(ordinal))),
-        ("prior_line", int(store.prior_line(ordinal))),
-        (
-            "prior_address",
-            store.prior_address(ordinal).map_or(
-                PyValue::None,
-                |(part, start, length, inflated)| {
-                    tuple(vec![
-                        PyValue::str(part),
-                        int(start),
-                        int(length),
-                        int(inflated),
-                    ])
-                },
-            ),
-        ),
-        (
-            "prior_fragment",
-            fragment_value(store.prior_fragment(ordinal)),
-        ),
-    ];
-    PyValue::Dict(
-        fields
-            .into_iter()
-            .map(|(name, value)| (PyValue::str(name), value))
-            .collect(),
-    )
-}
-
-// --- reading a line's values ------------------------------------------------------------------------------
-
-fn record_fields<'a>(value: &'a PyValue, name: &str, key: &str) -> Result<&'a [(String, PyValue)]> {
-    match value {
-        PyValue::Record(held, fields) if held == name => Ok(fields),
-        other => error(format!("{key}: {} is not a {name}", other.kind())),
-    }
-}
-
-fn field<'a>(fields: &'a [(String, PyValue)], name: &str, key: &str) -> Result<&'a PyValue> {
-    fields
-        .iter()
-        .find(|(held, _)| held == name)
-        .map(|(_, value)| value)
-        .ok_or_else(|| WireError(format!("{key}: no {name}")))
-}
-
-fn sequence<'a>(value: &'a PyValue, what: &str) -> Result<&'a [PyValue]> {
-    match value {
-        PyValue::Tuple(items) | PyValue::List(items) => Ok(items),
-        other => error(format!("{what} is {}, not a sequence", other.kind())),
-    }
-}
-
-fn text(value: &PyValue, what: &str) -> Result<String> {
-    match value {
-        PyValue::Str(text) => Ok(text.clone()),
-        other => error(format!("{what} is {}, not a str", other.kind())),
-    }
-}
-
-fn optional_text_of(value: &PyValue, what: &str) -> Result<Option<String>> {
-    match value {
-        PyValue::None => Ok(None),
-        other => text(other, what).map(Some),
-    }
-}
-
-fn flag(value: &PyValue, what: &str) -> Result<bool> {
-    match value {
-        PyValue::Bool(flag) => Ok(*flag),
-        other => error(format!("{what} is {}, not a bool", other.kind())),
-    }
-}
-
-fn integer(value: &PyValue, what: &str) -> Result<i64> {
-    match value {
-        PyValue::Int(number) => Ok(*number),
-        PyValue::Bool(flag) => Ok(i64::from(*flag)),
-        other => error(format!("{what} is {}, not an int", other.kind())),
-    }
-}
-
-fn texts(value: &PyValue, what: &str) -> Result<Vec<String>> {
-    sequence(value, what)?
-        .iter()
-        .map(|item| text(item, what))
-        .collect()
-}
-
-fn pair_of(value: &PyValue, what: &str) -> Result<(i64, i64)> {
-    match sequence(value, what)? {
-        [left, right] => Ok((integer(left, what)?, integer(right, what)?)),
-        _ => error(format!("{what} is not a pair")),
-    }
-}
-
-fn optional_pair_of(value: &PyValue, what: &str) -> Result<Option<(i64, i64)>> {
-    match value {
-        PyValue::None => Ok(None),
-        other => pair_of(other, what).map(Some),
-    }
-}
-
-fn pairs_of(value: &PyValue, what: &str) -> Result<Vec<(i64, i64)>> {
-    sequence(value, what)?
-        .iter()
-        .map(|item| pair_of(item, what))
-        .collect()
-}
-
-fn ints_of(value: &PyValue, what: &str) -> Result<Vec<i64>> {
-    sequence(value, what)?
-        .iter()
-        .map(|item| integer(item, what))
-        .collect()
-}
-
-fn deltas_of(value: &PyValue, what: &str) -> Result<Vec<(String, String)>> {
-    match value {
-        PyValue::Dict(entries) => entries
-            .iter()
-            .map(|(config, delta)| Ok((text(config, what)?, text(delta, what)?)))
-            .collect(),
-        other => sequence(other, what)?
-            .iter()
-            .map(|entry| match sequence(entry, what)? {
-                [config, delta] => Ok((text(config, what)?, text(delta, what)?)),
-                _ => error(format!("{what} holds an entry that is not a pair")),
-            })
-            .collect(),
-    }
-}
-
-fn units_of(value: &PyValue, what: &str) -> Result<Vec<(Option<String>, bool)>> {
-    sequence(value, what)?
-        .iter()
-        .map(|entry| match sequence(entry, what)? {
-            [unit, suppressed] => Ok((optional_text_of(unit, what)?, flag(suppressed, what)?)),
-            _ => error(format!("{what} holds an entry that is not a pair")),
-        })
-        .collect()
-}
-
-/// A `Recomputed` record, as the stage writes a projection (`_projection_value`).
-fn recomputed_of(value: &PyValue, key: &str) -> Result<Recomputed> {
-    let fields = record_fields(value, "Recomputed", key)?;
-    let get = |name: &str| field(fields, name, key);
-    let rows = record_fields(get("primary_unit_projection")?, "PrimaryUnitRows", key)?;
-    let row = |name: &str| field(rows, name, key);
-    let junction_rects = sequence(get("junction_rects")?, "the junction rects")?
-        .iter()
-        .map(|rect| match sequence(rect, "a junction rect")? {
-            [pair, before, after] => Ok((pair.clone(), before.clone(), after.clone())),
-            _ => error(format!("{key}: a junction rect is not a triple")),
-        })
-        .collect::<Result<_>>()?;
-    Ok(Recomputed {
-        ordinal: integer(get("ordinal")?, "the ordinal")?,
-        unit_id: text(get("unit_id")?, "the id")?,
-        input_key: text(get("input_key")?, "the input key")?,
-        content_key: text(get("content_key")?, "the content key")?,
-        ink_identical: flag(get("ink_identical")?, "ink_identical")?,
-        picture_identical: flag(get("picture_identical")?, "picture_identical")?,
-        junior_equivalent: flag(get("junior_equivalent")?, "junior_equivalent")?,
-        ink_deltas: deltas_of(get("ink_deltas")?, "the ink deltas")?,
-        diffs_digest: text(get("diffs_digest")?, "the diffs digest")?,
-        cluster: text(get("cluster")?, "the cluster")?,
-        change_group: text(get("change_group")?, "the change group")?,
-        ledger_class: text(get("ledger_class")?, "the ledger class")?,
-        pair_codepoints: optional_pair_of(get("pair_codepoints")?, "the judged code points")?,
-        rows: PrimaryRows {
-            codepoint_values: ints_of(row("codepoint_values")?, "the code points")?,
-            ink_identical: flag(row("ink_identical")?, "the rows' ink_identical")?,
-            picture_identical: flag(row("picture_identical")?, "the rows' picture_identical")?,
-            pair: optional_pair_of(row("pair")?, "the judged pair")?,
-            after_spans: pairs_of(row("after_spans")?, "the after spans")?,
-            after_cells: texts(row("after_cells")?, "the after cells")?,
-            after_junctions: texts(row("after_junctions")?, "the after junctions")?,
-            before_spans: pairs_of(row("before_spans")?, "the before spans")?,
-            before_glyphs: texts(row("before_glyphs")?, "the before glyphs")?,
-            before_junctions: texts(row("before_junctions")?, "the before junctions")?,
-            junction_pairs: pairs_of(row("junction_pairs")?, "the junction pairs")?,
-        },
-        junction_rects,
-        mismatches: texts(get("mismatches")?, "the mismatches")?,
-    })
-}
-
-/// A `ParsedCachedUnit` record.
-fn parsed_of(value: &PyValue, key: &str) -> Result<ParsedCachedUnit> {
-    let fields = record_fields(value, "ParsedCachedUnit", key)?;
-    let get = |name: &str| field(fields, name, key);
-    let address = match get("address")? {
-        PyValue::None => None,
-        other => match sequence(other, "the address")? {
-            [part, start, length] => Some((
-                text(part, "the address's part")?,
-                integer(start, "the address's start")?,
-                integer(length, "the address's length")?,
-            )),
-            _ => return error(format!("{key}: the address is not a triple")),
-        },
-    };
-    Ok(ParsedCachedUnit {
-        key: text(get("key")?, "the key")?,
-        prior_id: text(get("prior_id")?, "the id")?,
-        prior_class: text(get("prior_class")?, "the class")?,
-        content_key: text(get("content_key")?, "the content key")?,
-        slim: flag(get("slim")?, "slim")?,
-        address,
-        ink_identical: flag(get("ink_identical")?, "ink_identical")?,
-        picture_identical: flag(get("picture_identical")?, "picture_identical")?,
-        junior_equivalent: flag(get("junior_equivalent")?, "junior_equivalent")?,
-        ink_deltas: deltas_of(get("ink_deltas")?, "the ink deltas")?,
-        diffs_digest: text(get("diffs_digest")?, "the diffs digest")?,
-        cluster: text(get("cluster")?, "the cluster")?,
-        change_group: text(get("change_group")?, "the change group")?,
-        ledger_class: text(get("ledger_class")?, "the ledger class")?,
-        pair_codepoints: optional_pair_of(get("pair_codepoints")?, "the judged code points")?,
-        duplicate_group: optional_text_of(get("duplicate_group")?, "the duplicate group")?,
-        exemplar: flag(get("exemplar")?, "exemplar")?,
-        no_verdict: flag(get("no_verdict")?, "no_verdict")?,
-        primary_units: units_of(get("primary_units")?, "the primary units")?,
-        policy_file: optional_text_of(get("policy_file")?, "the policy file")?,
-        junction_rects: get("junction_rects")?.clone(),
-        mismatches: texts(get("mismatches")?, "the mismatches")?,
-        pair: optional_pair_of(get("pair")?, "the judged pair")?,
-        after_spans: pairs_of(get("after_spans")?, "the after spans")?,
-        after_cells: texts(get("after_cells")?, "the after cells")?,
-        after_junctions: texts(get("after_junctions")?, "the after junctions")?,
-        before_spans: pairs_of(get("before_spans")?, "the before spans")?,
-        before_glyphs: texts(get("before_glyphs")?, "the before glyphs")?,
-        before_junctions: texts(get("before_junctions")?, "the before junctions")?,
-        junction_pairs: pairs_of(get("junction_pairs")?, "the junction pairs")?,
-        inflated: integer(get("inflated")?, "the inflated length")?,
-    })
-}
-
-/// A `PriorFragment` record.
-fn fragment_of(value: &PyValue, key: &str) -> Result<PriorFragment> {
-    let fields = record_fields(value, "PriorFragment", key)?;
-    let get = |name: &str| field(fields, name, key);
-    Ok(PriorFragment {
-        part: text(get("part")?, "the part")?,
-        start: integer(get("start")?, "the start")?,
-        length: integer(get("length")?, "the length")?,
-        unit_id: text(get("unit_id")?, "the id")?,
-        content_key: optional_text_of(get("content_key")?, "the content key")?,
-        byte_copied: flag(get("byte_copied")?, "byte_copied")?,
-        inflated: integer(get("inflated")?, "the inflated length")?,
-    })
-}
-
-/// A `PriorRecord` record.
-fn prior_record_of(value: &PyValue, key: &str) -> Result<PriorRecord> {
-    let fields = record_fields(value, "PriorRecord", key)?;
-    let get = |name: &str| field(fields, name, key);
-    let address = match get("address")? {
-        PyValue::None => None,
-        other => match sequence(other, "the address")? {
-            [part, start, length] => Some((
-                text(part, "the address's part")?,
-                integer(start, "the address's start")?,
-                integer(length, "the address's length")?,
-            )),
-            _ => return error(format!("{key}: the address is not a triple")),
-        },
-    };
-    Ok(PriorRecord {
-        unit_id: text(get("unit_id")?, "the id")?,
-        class_id: text(get("class_id")?, "the class")?,
-        duplicate_group: optional_text_of(get("duplicate_group")?, "the duplicate group")?,
-        exemplar: flag(get("exemplar")?, "exemplar")?,
-        no_verdict: flag(get("no_verdict")?, "no_verdict")?,
-        primary_units: u32::try_from(integer(get("primary_units")?, "the primary units")?)
-            .map_err(|_| WireError(format!("{key}: the primary units' CRC is not 32 bits")))?,
-        address,
-        inflated: integer(get("inflated")?, "the inflated length")?,
-    })
-}
-
-fn address_of(value: &PyValue, key: &str) -> Result<Option<LoadAddress>> {
-    Ok(match value {
-        PyValue::None => None,
-        PyValue::Record(..) => Some(LoadAddress::Fragment(fragment_of(value, key)?)),
-        other => match sequence(other, "the address")? {
-            [part, start, length] => Some(LoadAddress::Span(
-                text(part, "the address's part")?,
-                integer(start, "the address's start")?,
-                integer(length, "the address's length")?,
-            )),
-            _ => return error(format!("{key}: the address is not a triple")),
-        },
-    })
-}
-
-fn targets_of(value: &PyValue, key: &str) -> Result<Vec<(Target, bool)>> {
-    sequence(value, "the primary units")?
-        .iter()
-        .map(|entry| match sequence(entry, "a primary unit")? {
-            [unit, suppressed] => Ok((
-                match unit {
-                    PyValue::None => Target::Absent,
-                    PyValue::Str(unit_id) => Target::Id(unit_id.clone()),
-                    other => Target::Ordinal(integer(other, "a primary unit")?),
-                },
-                flag(suppressed, "a primary unit's suppression")?,
-            )),
-            _ => error(format!("{key}: a primary unit is not a pair")),
-        })
-        .collect()
-}
-
-fn row_of(store: &UnitStore, value: &PyValue, key: &str) -> Result<usize> {
-    let ordinal = integer(value, "the ordinal")?;
-    usize::try_from(ordinal)
-        .ok()
-        .filter(|&row| row < store.len())
-        .ok_or_else(|| {
-            WireError(format!(
-                "{key}: ordinal {ordinal} is not a row of the store"
-            ))
-        })
-}
-
-fn outcome(result: Raised<PyValue>) -> PyValue {
-    result.unwrap_or_else(|failure| raised(&failure))
-}
-
-/// One call of a `store-load` trace on `store`, answered as `units_stage_fixtures._store_after` values it, or the exception it raises.
-fn answer(
-    traces: &mut HashMap<String, UnitStore>,
-    name: &str,
-    call: &[PyValue],
-    key: &str,
-) -> Result<PyValue> {
-    let Some((PyValue::Str(op), arguments)) = call.split_first() else {
-        return error(format!("{key}: a call names no op"));
-    };
-    if op == "new" {
-        let [size, keys] = arguments else {
-            return error(format!("{key}: new takes a size and a column"));
-        };
-        let size = usize::try_from(integer(size, "the size")?)
-            .map_err(|_| WireError(format!("{key}: the size is negative")))?;
-        let keys = match keys {
-            PyValue::None => None,
-            PyValue::Bytes(bytes) => Some(bytes.clone()),
-            other => return error(format!("{key}: the input keys are {}", other.kind())),
-        };
-        return Ok(match UnitStore::new(size, StringTable::new(), keys) {
-            Ok(store) => {
-                traces.insert(name.to_owned(), store);
-                tuple(vec![PyValue::str("made"), count(size)])
-            }
-            Err(failure) => raised(&failure),
-        });
-    }
-    let Some(store) = traces.get_mut(name) else {
-        return error(format!("{key}: no store {name} is made"));
-    };
-    Ok(match (op.as_str(), arguments) {
-        ("load-projection", [projection, no_verdict, ordinal, address, length]) => {
-            let projection = recomputed_of(projection, key)?;
-            let ordinal = match ordinal {
-                PyValue::None => None,
-                other => Some(integer(other, "the ordinal")?),
-            };
-            let address = address_of(address, key)?;
-            outcome(
-                store
-                    .load_projection(
-                        &projection,
-                        flag(no_verdict, "no_verdict")?,
-                        ordinal,
-                        address.as_ref(),
-                        integer(length, "the length")?,
-                    )
-                    .map(|row| {
-                        tuple(vec![
-                            PyValue::str("loaded"),
-                            count(row),
-                            reading(store, row),
-                        ])
-                    }),
-            )
-        }
-        ("load-cached", [ordinal, cached, codepoints, found]) => {
-            let cached = parsed_of(cached, key)?;
-            let found = match found {
-                PyValue::None => None,
-                other => Some(fragment_of(other, key)?),
-            };
-            outcome(
-                store
-                    .load_cached(
-                        integer(ordinal, "the ordinal")?,
-                        &cached,
-                        &ints_of(codepoints, "the code points")?,
-                        found.as_ref(),
-                    )
-                    .map(|row| {
-                        tuple(vec![
-                            PyValue::str("loaded"),
-                            count(row),
-                            reading(store, row),
-                        ])
-                    }),
-            )
-        }
-        ("add-prior-record", [record]) => outcome(
-            store
-                .add_prior_record(&prior_record_of(record, key)?)
-                .map(|()| {
-                    tuple(vec![
-                        PyValue::str("added"),
-                        count(store.prior_record_count()),
-                    ])
-                }),
-        ),
-        ("seal", []) => {
-            store.seal_prior_records();
-            tuple(vec![
-                PyValue::str("sealed"),
-                PyValue::List(sealed_records(store).collect()),
-            ])
-        }
-        ("set-prior-line", [ordinal, line]) => {
-            let row = row_of(store, ordinal, key)?;
-            outcome(
-                store
-                    .set_prior_line(row, integer(line, "the line")?)
-                    .map(|()| tuple(vec![PyValue::str("line"), int(store.prior_line(row))])),
-            )
-        }
-        ("input-key-index", []) => match store.input_key_index() {
-            Ok(index) => tuple(vec![PyValue::str("built"), count(index.nbytes())]),
-            Err(KeyIndexError::Repeated(repeated)) => tuple(vec![
-                PyValue::str("raised"),
-                PyValue::str("RepeatedKey"),
-                int(repeated.first),
-                int(repeated.second),
-            ]),
-            Err(other) => return error(format!("{key}: {other}")),
-        },
-        ("set-input-key", [ordinal, input_key]) => {
-            let row = row_of(store, ordinal, key)?;
-            outcome(
-                store
-                    .set_input_key(row, &text(input_key, "the input key")?)
-                    .map(|()| {
-                        tuple(vec![
-                            PyValue::str("input-key"),
-                            PyValue::str(store.input_key_hex(row)),
-                        ])
-                    }),
-            )
-        }
-        ("set-primary-units", [ordinal, assign]) => {
-            let row = row_of(store, ordinal, key)?;
-            let assign = targets_of(assign, key)?;
-            outcome(store.set_primary_units(row, &assign).map(|()| {
-                tuple(vec![
-                    PyValue::str("set"),
-                    tuple(
-                        store
-                            .primary_unit_ordinals(row)
-                            .into_iter()
-                            .map(|(target, suppressed)| {
-                                tuple(vec![
-                                    target.map_or(PyValue::None, int),
-                                    PyValue::Bool(suppressed),
-                                ])
-                            })
-                            .collect(),
-                    ),
-                ])
-            }))
-        }
-        ("set-written-span", [ordinal, start, length, inflated]) => {
-            let row = row_of(store, ordinal, key)?;
-            outcome(
-                store
-                    .set_written_span(
-                        row,
-                        integer(start, "the start")?,
-                        integer(length, "the length")?,
-                        integer(inflated, "the inflated length")?,
-                    )
-                    .map(|()| written_value(store, row)),
-            )
-        }
-        ("set-written-part", [ordinal, part]) => {
-            let row = row_of(store, ordinal, key)?;
-            store.set_written_part(row, &text(part, "the part")?);
-            written_value(store, row)
-        }
-        ("set-written-address", [ordinal, address, inflated]) => {
-            let row = row_of(store, ordinal, key)?;
-            let [part, start, length] = sequence(address, "the address")? else {
-                return error(format!("{key}: the address is not a triple"));
-            };
-            outcome(
-                store
-                    .set_written_address(
-                        row,
-                        (
-                            &text(part, "the part")?,
-                            integer(start, "the start")?,
-                            integer(length, "the length")?,
-                        ),
-                        integer(inflated, "the inflated length")?,
-                    )
-                    .map(|()| written_value(store, row)),
-            )
-        }
-        ("set-policy-file", [ordinal, value]) => {
-            let row = row_of(store, ordinal, key)?;
-            store.set_policy_file(row, optional_text_of(value, "the policy file")?.as_deref());
-            tuple(vec![
-                PyValue::str("policy"),
-                optional_text(store.policy_file(row)),
-            ])
-        }
-        ("set-config-note", [ordinal, value]) => {
-            let row = row_of(store, ordinal, key)?;
-            store.set_config_note(row, optional_text_of(value, "the config note")?.as_deref());
-            tuple(vec![
-                PyValue::str("note"),
-                optional_text(store.config_note(row)),
-            ])
-        }
-        ("rebase-source", [ordinal, start]) => {
-            let row = row_of(store, ordinal, key)?;
-            outcome(
-                store
-                    .rebase_source(row, integer(start, "the start")?)
-                    .map(|()| {
-                        tuple(vec![
-                            PyValue::str("source"),
-                            fragment_value(store.source(row)),
-                        ])
-                    }),
-            )
-        }
-        ("index", []) => outcome(store.index().map(|(words, order)| {
-            tuple(vec![
-                PyValue::str("indexed"),
-                PyValue::List(
-                    words
-                        .iter()
-                        .map(|word| PyValue::str(format!("{word:016x}")))
-                        .collect(),
-                ),
-                PyValue::List(order.iter().map(|&at| int(at)).collect()),
-            ])
-        })),
-        ("ordinal-of", [unit_id]) => outcome(
-            store
-                .ordinal_of(&text(unit_id, "the id")?)
-                .map(|row| tuple(vec![PyValue::str("ordinal"), count(row)])),
-        ),
-        ("read", [ordinal]) => reading(store, row_of(store, ordinal, key)?),
-        ("patched", [ordinal, class_id, group, exemplar, no_verdict]) => {
-            let row = row_of(store, ordinal, key)?;
-            let class_id = text(class_id, "the class")?;
-            let group = optional_text_of(group, "the duplicate group")?;
-            let (exemplar, no_verdict) =
-                (flag(exemplar, "exemplar")?, flag(no_verdict, "no_verdict")?);
-            let line = records::record_line(&store.cached_unit(
-                row,
-                &class_id,
-                group.as_deref(),
-                exemplar,
-                no_verdict,
-            ))
-            .map_err(|failure| WireError(format!("{key}: {}", failure.0)))?;
-            tuple(vec![
-                PyValue::str("patched"),
-                PyValue::Bool(store.cached_as_is(
-                    row,
-                    &class_id,
-                    group.as_deref(),
-                    exemplar,
-                    no_verdict,
-                )),
-                PyValue::Bool(store.predicted_unchanged(
-                    row,
-                    &class_id,
-                    group.as_deref(),
-                    exemplar,
-                    no_verdict,
-                )),
-                PyValue::Bytes(line),
-            ])
-        }
-        ("primary-unit-ids", []) => PyValue::List(
-            store
-                .primary_unit_ids()
-                .into_iter()
-                .map(PyValue::Str)
-                .collect(),
-        ),
-        ("windows", []) => PyValue::List(
-            store
-                .windows()
-                .map(|(row, window)| {
-                    tuple(vec![
-                        count(row),
-                        tuple(window.into_iter().map(int).collect()),
-                    ])
-                })
-                .collect(),
-        ),
-        ("prior-record-count", []) => count(store.prior_record_count()),
-        ("emptied", []) => {
-            let emptied = store.clone().emptied();
-            tuple(vec![
-                PyValue::str("emptied"),
-                count(emptied.len()),
-                PyValue::Bytes(emptied.input_keys().to_vec()),
-                count(
-                    (0..emptied.len())
-                        .filter(|&row| emptied.loaded(row))
-                        .count(),
-                ),
-            ])
-        }
-        _ => {
-            return error(format!(
-                "{key}: no store call {op:?} with {} arguments",
-                arguments.len()
-            ));
-        }
-    })
-}
-
-/// The `store-load` stage: for each line of `stage_file`, in order, make the call its `input` names, `(trace, index, call)`, on the store that trace follows, and answer it in one `{"key", "value"}` line in the typed encoding. A `new` call makes the trace's store; every other call is a `UnitStore` method the build or the stage calls on it, valued as `units_stage_fixtures._store_after` values it, the loads with what [`reading`] reads of the loaded row, and a refused call `("raised", class, message)`.
-pub fn stage_store_load(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let read = |failure: std::io::Error| {
-        WireError(format!("cannot read {}: {failure}", stage_file.display()))
-    };
-    let mut traces: HashMap<String, UnitStore> = HashMap::new();
-    for line in BufReader::new(File::open(stage_file).map_err(read)?).lines() {
-        let line = line.map_err(read)?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let input = PyValue::from_typed(&record["input"])
-            .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-        let PyValue::Tuple(parts) = &input else {
-            return error(format!("{key}: the input is not a tuple"));
-        };
-        let [PyValue::Str(name), _index, PyValue::Tuple(call)] = parts.as_slice() else {
-            return error(format!("{key}: the input is not (trace, index, call)"));
-        };
-        let value = answer(&mut traces, name, call, key)?;
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

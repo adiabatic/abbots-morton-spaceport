@@ -1,29 +1,21 @@
-//! Settlement in process, as the Python worker reaches it through `Enricher.explain_units` (`rebuild/review/enrich.py`): the tokenizer (`settle.tokens_from_codepoints`), ligature formation against the §5.7 guard verdicts (`settle.form_ligatures`, `_ligature_order`, `guard_blocks`, `kernel_exec.guard_sweep`), the isolated overlay (`model.isolated_overlay_active`, `settle.isolated_overlay_traces`), and the position-by-position settlement `kernel_exec.settle_sequences` runs through `settle-cases` (`explain.explain_many`, `_report_of`), here through the kernel crate's own engine with no process between. `Enricher.formed_spans` reads the same formation.
+//! Settlement in process, as `rebuild/pipeline/settle.py` settles a text: the tokenizer (`settle.tokens_from_codepoints`), ligature formation against the §5.7 guard verdicts (`settle.form_ligatures`, `_ligature_order`, `guard_blocks`, `kernel_exec.guard_sweep`), the isolated overlay (`model.isolated_overlay_active`, `settle.isolated_overlay_traces`), and the position-by-position settlement `kernel_exec.settle_sequences` runs through `settle-cases` (`explain.explain_many`, `_report_of`), here through the kernel crate's own engine with no process between. The enricher's formed spans read the same formation.
 //!
 //! [`Settlement`] holds what every thread shares: the spec index, the guard verdicts parsed once from `ams_m1_kernel::guard::sweep`, the ligature order and the code point tables. A [`Settler`] holds one thread's engines, one per configuration, built as the kernel's `engine_for` builds them for `settle-cases`; [`Settler::release`] drops the engines at a batch's end and the next text builds them afresh, which changes no answer because everything an engine keeps between texts is a pure cache, so a thread's footprint stays one batch's whatever the handouts it draws.
 //!
-//! A letter left is the engine's own settled record (`LeftContext::letter`) where Python writes the record into a case line that the kernel's `cases::parse_left` reads back; a boundary left is `LeftContext::boundary`. The `settle` stage shows the round trip lost nothing.
-//!
-//! [`stage_settle`] is the `settle` stage of the stage fixtures.
+//! A letter left is the engine's own settled record (`LeftContext::letter`), which `settle-cases` would read back from a case line through the kernel's `cases::parse_left`; a boundary left is `LeftContext::boundary`.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
 use ams_m1_kernel::engine::{Engine, EngineModes, Slots};
 use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::token::EDGE;
 use ams_m1_kernel::types::{
-    Candidate, CellId, LeftContext, RightToken, Settled, TokenKind, TraceRanking, adjustment_text,
-    boundary_settled, provenance_pointer,
+    CellId, LeftContext, RightToken, Settled, TokenKind, TraceRanking, boundary_settled,
 };
-use serde_json::Value;
 
-use crate::pyfmt::PyValue;
-use crate::wire::{Init, Settlement as Modes};
+use crate::wire::Settlement as Modes;
 
 /// The deciding stage of a letter under the isolated overlay, `settle.ISOLATED_OVERLAY_STAGE`.
 pub const ISOLATED_OVERLAY_STAGE: &str = "isolated-overlay";
@@ -37,7 +29,7 @@ const ISOLATED_OVERLAY: &str = "isolated";
 /// The configuration token of the no-feature configuration (`labels.features_for_config`).
 const DEFAULT_CONFIG: &str = "default";
 
-/// A text that cannot be settled as Python settles it, or a `settle` stage input that cannot be read.
+/// A text that cannot be settled.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SettleError(pub String);
 
@@ -96,187 +88,6 @@ pub struct Report {
     pub codepoints: Vec<u32>,
     pub features: Vec<String>,
     pub traces: Vec<Trace>,
-}
-
-impl Report {
-    /// The report as Python holds it: `codepoints`, `features` and `positions`, one `PositionReport` per trace whose token is the settled cell's rune.
-    pub fn to_py(&self, index: &SpecIndex) -> PyValue {
-        let positions = self
-            .traces
-            .iter()
-            .enumerate()
-            .map(|(position, trace)| {
-                PyValue::Record(
-                    "PositionReport".to_owned(),
-                    vec![
-                        ("index".to_owned(), int(position)),
-                        (
-                            "token".to_owned(),
-                            PyValue::str(index.resolve(trace.settled.cell.rune)),
-                        ),
-                        ("trace".to_owned(), trace_value(index, trace)),
-                    ],
-                )
-            })
-            .collect();
-        PyValue::Record(
-            "ExplainReport".to_owned(),
-            vec![
-                (
-                    "codepoints".to_owned(),
-                    PyValue::Tuple(
-                        self.codepoints
-                            .iter()
-                            .map(|value| PyValue::Int(i64::from(*value)))
-                            .collect(),
-                    ),
-                ),
-                (
-                    "features".to_owned(),
-                    PyValue::Set(self.features.iter().map(PyValue::str).collect()),
-                ),
-                ("positions".to_owned(), PyValue::Tuple(positions)),
-            ],
-        )
-    }
-}
-
-fn int(value: usize) -> PyValue {
-    PyValue::Int(i64::try_from(value).expect("a count fits an i64"))
-}
-
-fn height(index: &SpecIndex, height: Option<Sym>) -> PyValue {
-    height.map_or(PyValue::None, |height| PyValue::str(index.resolve(height)))
-}
-
-/// A cell as `model.CellId`.
-pub fn cell_value(index: &SpecIndex, cell: &CellId) -> PyValue {
-    PyValue::Record(
-        "CellId".to_owned(),
-        vec![
-            ("rune".to_owned(), PyValue::str(index.resolve(cell.rune))),
-            (
-                "stance".to_owned(),
-                PyValue::str(index.resolve(cell.stance)),
-            ),
-            ("entry".to_owned(), height(index, cell.entry)),
-            ("exit".to_owned(), height(index, cell.exit)),
-            (
-                "adjustments".to_owned(),
-                PyValue::Tuple(
-                    cell.adjustments
-                        .iter()
-                        .map(|token| PyValue::str(adjustment_text(index, *token)))
-                        .collect(),
-                ),
-            ),
-        ],
-    )
-}
-
-/// A settled record as `model.Settled`.
-pub fn settled_value(index: &SpecIndex, settled: &Settled) -> PyValue {
-    PyValue::Record(
-        "Settled".to_owned(),
-        vec![
-            ("cell".to_owned(), cell_value(index, &settled.cell)),
-            ("junction".to_owned(), height(index, settled.junction)),
-            ("extension".to_owned(), PyValue::Int(settled.extension)),
-        ],
-    )
-}
-
-fn candidate_value(index: &SpecIndex, candidate: &Candidate) -> PyValue {
-    PyValue::Record(
-        "Candidate".to_owned(),
-        vec![
-            (
-                "stance".to_owned(),
-                PyValue::str(index.resolve(candidate.stance)),
-            ),
-            ("entry".to_owned(), height(index, candidate.entry)),
-            ("junction".to_owned(), height(index, candidate.junction)),
-            ("order_index".to_owned(), int(candidate.order_index)),
-            ("exit_index".to_owned(), int(candidate.exit_index)),
-        ],
-    )
-}
-
-/// A trace as `settle.TransitionTrace`, an elimination's provenance read back from its pointer text as `kernel_exec._provenance_of` reads it.
-pub fn trace_value(index: &SpecIndex, trace: &Trace) -> PyValue {
-    let ranking = &trace.ranking;
-    let ranked = ranking
-        .ranked
-        .iter()
-        .map(|entry| {
-            PyValue::Record(
-                "RankedCandidate".to_owned(),
-                vec![
-                    (
-                        "candidate".to_owned(),
-                        candidate_value(index, &entry.candidate),
-                    ),
-                    ("join_count".to_owned(), PyValue::Int(entry.join_count)),
-                    ("prospect".to_owned(), PyValue::Int(entry.prospect)),
-                ],
-            )
-        })
-        .collect();
-    let eliminations = ranking
-        .eliminations
-        .iter()
-        .map(|elimination| {
-            let provenance = elimination.provenance.as_ref().map_or(PyValue::None, |at| {
-                let pointer = provenance_pointer(index, at);
-                let (file, path) = pointer
-                    .rsplit_once(':')
-                    .expect("a provenance pointer joins its file and path with a colon");
-                PyValue::Record(
-                    "Provenance".to_owned(),
-                    vec![
-                        ("file".to_owned(), PyValue::str(file)),
-                        ("path".to_owned(), PyValue::str(path)),
-                    ],
-                )
-            });
-            PyValue::Record(
-                "Elimination".to_owned(),
-                vec![
-                    ("stage".to_owned(), PyValue::str(elimination.stage.as_str())),
-                    (
-                        "description".to_owned(),
-                        PyValue::str(elimination.description.as_str()),
-                    ),
-                    ("provenance".to_owned(), provenance),
-                ],
-            )
-        })
-        .collect();
-    PyValue::Record(
-        "TransitionTrace".to_owned(),
-        vec![
-            ("settled".to_owned(), settled_value(index, &trace.settled)),
-            (
-                "joint_tiebreak".to_owned(),
-                PyValue::Bool(trace.joint_tiebreak),
-            ),
-            ("prospect".to_owned(), PyValue::Int(trace.prospect)),
-            ("ranked".to_owned(), PyValue::Tuple(ranked)),
-            ("eliminations".to_owned(), PyValue::Tuple(eliminations)),
-            (
-                "decided_stage".to_owned(),
-                PyValue::str(trace.decided_stage),
-            ),
-            (
-                "runner_up".to_owned(),
-                ranking
-                    .runner_up
-                    .as_ref()
-                    .map_or(PyValue::None, |candidate| candidate_value(index, candidate)),
-            ),
-            ("notes".to_owned(), PyValue::str_tuple(&trace.notes)),
-        ],
-    )
 }
 
 /// The key of one guard verdict: the ligature, and the two raw slots after its sequence.
@@ -431,7 +242,7 @@ impl Settlement {
         Ok(formed)
     }
 
-    /// Each formed token's code point span, `Enricher.formed_spans`: a ligature covers its sequence's length and every other token one code point, and the spans must cover the text.
+    /// Each formed token's code point span, as the enricher reads it: a ligature covers its sequence's length and every other token one code point, and the spans must cover the text.
     pub fn formed_spans(&self, codepoints: &[u32]) -> Result<Vec<(usize, usize)>> {
         let formed = self.form(&self.tokens(codepoints)?)?;
         let mut spans = Vec::with_capacity(formed.len());
@@ -681,76 +492,6 @@ fn hex(codepoints: &[u32]) -> String {
         .join(":")
 }
 
-fn line_codepoints(record: &Value, key: &str) -> Result<Vec<u32>> {
-    let value = PyValue::from_typed(&record["codepoints"])
-        .map_err(|failure| SettleError(format!("{key}: the codepoints: {failure}")))?;
-    let PyValue::Tuple(items) = value else {
-        return error(format!("{key}: the codepoints are not a tuple"));
-    };
-    items
-        .iter()
-        .map(|item| match item {
-            PyValue::Int(value) => u32::try_from(*value)
-                .map_err(|_| SettleError(format!("{key}: {value} is not a code point"))),
-            _ => error(format!("{key}: a code point is not an int")),
-        })
-        .collect()
-}
-
-/// The `settle` stage: answer each `settle:` line, a text's `codepoints` and its unit's first `config`, with the report [`Settler::explain`] gives, and each `spans:` line with the text's [`Settlement::formed_spans`], through one settler whose memos carry from line to line as a batch's do.
-pub fn stage_settle(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path).map_err(|failure| SettleError(failure.to_string()))?;
-    let spec = init
-        .read_spec()
-        .map_err(|failure| SettleError(failure.to_string()))?;
-    let settlement = Settlement::new(SpecIndex::new(spec), init.settlement.clone())?;
-    let mut settler = Settler::new(&settlement);
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        SettleError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            SettleError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| SettleError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let codepoints = line_codepoints(&record, key)?;
-        let value = if key.starts_with("settle:") {
-            let Some(config) = record["config"].as_str() else {
-                return error(format!("{key}: the line has no config"));
-            };
-            settler
-                .explain(&codepoints, &features_for_config(config))
-                .map_err(|failure| SettleError(format!("{key}: {failure}")))?
-                .to_py(settlement.index())
-        } else if key.starts_with("spans:") {
-            PyValue::List(
-                settlement
-                    .formed_spans(&codepoints)
-                    .map_err(|failure| SettleError(format!("{key}: {failure}")))?
-                    .into_iter()
-                    .map(|(start, end)| PyValue::Tuple(vec![int(start), int(end)]))
-                    .collect(),
-            )
-        } else {
-            return error(format!(
-                "{key}: the settle stage answers settle: and spans: lines"
-            ));
-        };
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            value.to_typed()
-        )
-        .map_err(|failure| SettleError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -851,12 +592,6 @@ pub(crate) mod tests {
                 ("qsTea", "bare", ISOLATED_OVERLAY_STAGE),
                 ("namer-dot", "boundary", "boundary"),
             ])
-        );
-        assert!(
-            report
-                .to_py(settlement.index())
-                .to_typed()
-                .contains(r#"["features",{"set":["ss10"]}]"#)
         );
     }
 

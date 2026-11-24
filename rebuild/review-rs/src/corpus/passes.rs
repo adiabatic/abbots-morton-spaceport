@@ -1,22 +1,13 @@
-//! The build's whole-corpus passes between the units phase and the write, as `build._build_m1` runs them once phase 1 has loaded every unit. [`triage`] builds the store's id index, promotes each re-routed or unmatched unit to its change group, puts every class the units reach in its section ([`class_section`]) and the classes in manifest order with the change groups' classes after the ledger's ([`synthesize_unmatched_group_classes`]), orders the units for triage ([`sort_for_triage`]) and numbers the human units along that order into batches ([`assign_batches`]). [`passes`] runs the rest: each human unit's duplicate group ([`duplicate_group_id`]) and cluster, the classes' rows in triage order, the primary unit of every secondary junction ([`resolve_primary_unit_assignments`]), the verification of the sampled units against a recomputation and its stale check, and the re-settlement mismatches the write refuses; [`units_note`] is the units phase's line after them.
-//!
-//! [`stage_triage`] is the `triage` stage of the stage fixtures, and [`stage_passes`] the `passes` stage.
+//! The build's whole-corpus passes between the units phase and the write, run once the units phase has loaded every unit. [`triage`] builds the store's id index, promotes each re-routed or unmatched unit to its change group, puts every class the units reach in its section ([`class_section`]) and the classes in manifest order with the change groups' classes after the ledger's ([`synthesize_unmatched_group_classes`]), orders the units for triage ([`sort_for_triage`]) and numbers the human units along that order into batches ([`assign_batches`]). [`passes`] runs the rest: each human unit's duplicate group ([`duplicate_group_id`]) and cluster, the classes' rows in triage order, the primary unit of every secondary junction ([`resolve_primary_unit_assignments`]), the verification of the sampled units against a recomputation and its stale check, and the re-settlement mismatches the write refuses; [`units_note`] is the units phase's line after them.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::io::Write;
-use std::path::Path;
 
-use super::audit::stage_line;
 use super::columns::WindowIndex;
-use super::drive::{Drive, through_units};
+use super::drive::Drive;
 use super::input::{BuildInput, LedgerEntry};
-use super::scan::stage_lines;
 use super::signatures::SignatureArrays;
 use super::store::{PrimaryUnitProjection, Target, UnitStore};
-use super::table::{
-    Buckets, ColumnDigest, UNIT_PREFIX, Unit, UnitTable, counting_permutation_by_id, family_ranks,
-    int, stage_units,
-};
+use super::table::{Buckets, Unit, UnitTable, counting_permutation_by_id, family_ranks};
 use super::{BuildError, failed, thousands};
 use crate::fragment::{base58_64, sha256_hex};
 use crate::pyfmt::PyValue;
@@ -94,7 +85,7 @@ pub fn class_section(
         .ok_or_else(|| failed(format!("SECTIONS holds no section {section}")))
 }
 
-/// The change groups present in the table's unmatched-group column as classes (`audit.synthesize_unmatched_group_classes`), in `group_order`, each `per-unit` with its title, summary and why from `group_prose` and no exemplar; a present group with no prose is Python's `KeyError`.
+/// The change groups present in the table's unmatched-group column as classes, in `group_order`, each `per-unit` with its title, summary and why from `group_prose` and no exemplar; a present group with no prose is Python's `KeyError`.
 pub fn synthesize_unmatched_group_classes(
     table: &UnitTable,
     group_order: &[String],
@@ -126,7 +117,7 @@ pub fn synthesize_unmatched_group_classes(
     Ok(classes)
 }
 
-/// The triage order as a permutation of the table's rows (`audit.sort_for_triage`): `audit.triage_key` order, by each unit's final class through `class_order`, its group's families ranked by `family_of`, its window, and its id word in the store, by the counting sort over the table's window index.
+/// The triage order as a permutation of the table's rows: `audit.triage_key` order, by each unit's final class through `class_order`, its group's families ranked by `family_of`, its window, and its id word in the store, by the counting sort over the table's window index.
 pub fn sort_for_triage(
     table: &mut UnitTable,
     store: &UnitStore,
@@ -154,7 +145,7 @@ pub fn sort_for_triage(
     )
 }
 
-/// Number the human units along `order` (`audit.assign_batches`): a unit no machine check approves, per the store, and whose ledger class does not exempt it, per the table, gets its place among the human units and the batch of `batch_size` that place falls in; every other unit gets neither. Returns the batch count.
+/// Number the human units along `order`: a unit no machine check approves, per the store, and whose ledger class does not exempt it, per the table, gets its place among the human units and the batch of `batch_size` that place falls in; every other unit gets neither. Returns the batch count.
 pub fn assign_batches(
     table: &mut UnitTable,
     store: &UnitStore,
@@ -174,7 +165,7 @@ pub fn assign_batches(
     index.div_ceil(batch_size)
 }
 
-/// The batch a triage-index place falls in, or None for a unit outside the index (`audit.batch_of`).
+/// The batch a triage-index place falls in, or None for a unit outside the index.
 pub fn batch_of(order: Option<u32>, batch_size: u32) -> Option<u32> {
     order.map(|order| order / batch_size)
 }
@@ -188,7 +179,7 @@ pub struct Triage {
     pub batches: u32,
 }
 
-/// The passes from the id index to the batches, as `build._build_m1` runs them once phase 1 has loaded every unit into `store`. The store's id index is built, refusing a repeated id. Each unit re-routed out of an `ink_identical` ledger class loses its exemplar flag, and it and each unmatched unit take their change group as their class and unmatched group; the units no machine check approves are counted by final class. The ledger classes the load reached (`classes_present`, places in the input's ledger) that a unit still holds, then the change groups' classes, are each put in their section and stably sorted by it into manifest order; the units are sorted for triage over that order and numbered into batches of the manifest's batch size.
+/// The passes from the id index to the batches, run once the units phase has loaded every unit into `store`. The store's id index is built, refusing a repeated id. Each unit re-routed out of an `ink_identical` ledger class loses its exemplar flag, and it and each unmatched unit take their change group as their class and unmatched group; the units no machine check approves are counted by final class. The ledger classes the load reached (`classes_present`, places in the input's ledger) that a unit still holds, then the change groups' classes, are each put in their section and stably sorted by it into manifest order; the units are sorted for triage over that order and numbered into batches of the manifest's batch size.
 pub fn triage(
     input: &BuildInput,
     classes_present: &[usize],
@@ -292,7 +283,7 @@ pub fn triage(
     })
 }
 
-/// A duplicate group's id (`unit_cache.duplicate_group_id_for` over `repr(key)`): `e-` and the base58 of the sha256 of the key's repr.
+/// A duplicate group's id over `repr(key)`: `e-` and the base58 of the sha256 of the key's repr.
 pub fn duplicate_group_id(key: &PyValue) -> std::result::Result<String, BuildError> {
     let text = repr(key).map_err(failed)?;
     Ok(format!(
@@ -301,7 +292,7 @@ pub fn duplicate_group_id(key: &PyValue) -> std::result::Result<String, BuildErr
     ))
 }
 
-/// The key a human unit's duplicate group is keyed on, as `build._build_m1` builds it: the unit's configs as the table gives them, a tuple; its judged pair as the code point values at the store's pair positions, or None; its final class; and its ink diffs' digest.
+/// The key a human unit's duplicate group is keyed on: the unit's configs as the table gives them, a tuple; its judged pair as the code point values at the store's pair positions, or None; its final class; and its ink diffs' digest.
 pub fn duplicate_group_key(
     table: &UnitTable,
     store: &UnitStore,
@@ -347,7 +338,7 @@ fn slice(values: &[u32], start: i64, stop: i64) -> &[u32] {
     }
 }
 
-/// `enrich._covering`: the first span holding the position, or the last span's index when none does, -1 for no span.
+/// The first span holding the position, or the last span's index when none does, -1 for no span.
 fn covering(spans: &[(i64, i64)], position: i64) -> i64 {
     spans
         .iter()
@@ -355,7 +346,7 @@ fn covering(spans: &[(i64, i64)], position: i64) -> i64 {
         .map_or(spans.len() as i64 - 1, |index| index as i64)
 }
 
-/// `enrich._junction_outcomes_match`: whether `candidate`, found at code point `offset` inside `item`, has the same before and after outcomes at the junction between item's after cells `left` and `right` (the same covering spans after the offset, glyph and cell names, and junction tokens) and has that junction as its own primary pair.
+/// Whether `candidate`, found at code point `offset` inside `item`, has the same before and after outcomes at the junction between item's after cells `left` and `right` (the same covering spans after the offset, glyph and cell names, and junction tokens) and has that junction as its own primary pair.
 fn junction_outcomes_match(
     item: &PrimaryUnitProjection,
     left: i64,
@@ -413,7 +404,7 @@ fn junction_outcomes_match(
     Ok(candidate.pair == Some((candidate_left, candidate_right)))
 }
 
-/// The corpus as the primary-unit search reads it, by ordinal (`enrich.PrimaryUnitSource`): the unit store, or a list of projections in the crate's tests. `id_word` ranks units as their ids do, `invisible` is whether a unit is ink- or picture-identical, and `set_primary_units` takes each junction's primary unit as an ordinal or none.
+/// The corpus as the primary-unit search reads it, by ordinal: the unit store, or a list of projections in the crate's tests. `id_word` ranks units as their ids do, `invisible` is whether a unit is ink- or picture-identical, and `set_primary_units` takes each junction's primary unit as an ordinal or none.
 pub trait PrimaryUnitSource {
     fn unit_count(&self) -> usize;
     fn junction_count(&self, ordinal: usize) -> usize;
@@ -465,7 +456,7 @@ impl PrimaryUnitSource for UnitStore {
     }
 }
 
-/// `enrich._find_primary_unit`: the ordinal of the junction's primary unit, the shortest other unit whose window is a stretch of `item`'s holding the junction's two cells, with the same outcomes at the junction and that junction as its primary pair; ties break to the lowest id word. `held` keeps the candidates already read for this item.
+/// The ordinal of the junction's primary unit, the shortest other unit whose window is a stretch of `item`'s holding the junction's two cells, with the same outcomes at the junction and that junction as its primary pair; ties break to the lowest id word. `held` keeps the candidates already read for this item.
 fn find_primary_unit(
     item: &PrimaryUnitProjection,
     ordinal: usize,
@@ -533,7 +524,7 @@ impl JunctionCounts {
     }
 }
 
-/// `enrich.resolve_primary_unit_assignments` over `source` with the table's window index: each unit with secondary junctions gets, a junction at a time in junction order, its primary unit, None and suppressed when that unit is ink- or picture-identical, or None and visible when no unit qualifies, written back through `source.set_primary_units`; returns the counts.
+/// The primary units resolved over `source` with the table's window index: each unit with secondary junctions gets, a junction at a time in junction order, its primary unit, None and suppressed when that unit is ink- or picture-identical, or None and visible when no unit qualifies, written back through `source.set_primary_units`; returns the counts.
 pub fn resolve_primary_unit_assignments(
     source: &mut impl PrimaryUnitSource,
     windows: &WindowIndex,
@@ -583,7 +574,7 @@ pub struct Passes {
     pub mismatches: Vec<String>,
 }
 
-/// The passes after [`triage`], through the stale check, as `build._build_m1` runs them. Each human unit, one with a batch, takes the duplicate group its [`duplicate_group_key`] names and the cluster the store holds for it; the classes' rows are taken in the triage order; every secondary junction's primary unit is resolved over the table's window index, which is released after; each sampled unit of `verify_units` is recomputed on `drive`'s pool with its duplicate group, cluster, final class and primary units injected; and a sampled unit whose recomputed content key or ink deltas differ from the store's fails the build with the first ten such ids, sorted.
+/// The passes after [`triage`], through the stale check. Each human unit, one with a batch, takes the duplicate group its [`duplicate_group_key`] names and the cluster the store holds for it; the classes' rows are taken in the triage order; every secondary junction's primary unit is resolved over the table's window index, which is released after; each sampled unit of `verify_units` is recomputed on `drive`'s pool with its duplicate group, cluster, final class and primary units injected; and a sampled unit whose recomputed content key or ink deltas differ from the store's fails the build with the first ten such ids, sorted.
 pub fn passes(
     table: &mut UnitTable,
     store: &mut UnitStore,
@@ -664,7 +655,7 @@ pub fn signature_note(signatures: &SignatureArrays) -> String {
     }
 }
 
-/// The units phase's note, as `build._build_m1` closes its line after the stale check: the pool's width under the Rust units engine, the gate lane's state when the width read it, the units recomputed and the sampled units verified, the arena's note and the ink-signature store's.
+/// The units phase's note, which closes its line after the stale check: the pool's width, the gate lane's state when the width read it, the units recomputed and the sampled units verified, the arena's note and the ink-signature store's.
 pub fn units_note(
     jobs: usize,
     lane: &str,
@@ -683,246 +674,6 @@ pub fn units_note(
         thousands(recomputed),
         thousands(verified)
     )
-}
-
-/// The keys of the `triage` stage's lines beside its units (`units_stage_fixtures.TRIAGE_*`).
-const CLASSES_KEY: &str = "classes";
-const SECTIONS_KEY: &str = "sections";
-const ORDER_COLUMN: &str = "order";
-const BATCHES_KEY: &str = "batches";
-
-fn optional_int(value: Option<u32>) -> PyValue {
-    value.map_or(PyValue::None, int)
-}
-
-/// One unit as the `triage` stage reads it from the table: its final class, its unmatched group, its exemplar flag, and its place in the triage index and its batch, each None for a unit outside the index.
-fn triage_reading(table: &UnitTable, ordinal: usize) -> PyValue {
-    PyValue::Tuple(vec![
-        PyValue::str(table.class_id(ordinal)),
-        PyValue::str(table.unmatched_group(ordinal)),
-        PyValue::Bool(table.exemplar(ordinal)),
-        optional_int(table.order(ordinal)),
-        optional_int(table.batch(ordinal)),
-    ])
-}
-
-/// Write the `triage` stage's lines, as the Python stage's `triage_boundary` lays them out: a `unit:<ordinal>` line for each ordinal in `units`, the unit as [`triage_reading`] reads it, and the column over every unit; the classes in manifest order; each class's section, in the order the classes were met; the triage order's column; and the batch count.
-fn triage_lines(
-    table: &UnitTable,
-    triage: &Triage,
-    units: &HashSet<usize>,
-    out: &mut impl Write,
-) -> Result<()> {
-    let mut digest = ColumnDigest::new();
-    for ordinal in 0..table.n {
-        let value = triage_reading(table, ordinal);
-        if units.contains(&ordinal) {
-            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-        }
-        digest.add(&value);
-    }
-    digest.write(out, "value")?;
-    stage_line(
-        out,
-        CLASSES_KEY,
-        &PyValue::List(triage.classes.iter().map(LedgerEntry::to_py).collect()),
-    )?;
-    stage_line(
-        out,
-        SECTIONS_KEY,
-        &PyValue::List(
-            triage
-                .sections
-                .iter()
-                .map(|(id, section)| PyValue::Tuple(vec![PyValue::str(id), PyValue::str(section)]))
-                .collect(),
-        ),
-    )?;
-    let mut order = ColumnDigest::new();
-    for &ordinal in &triage.order {
-        order.add(&int(ordinal));
-    }
-    order.write(out, ORDER_COLUMN)?;
-    stage_line(out, BATCHES_KEY, &int(triage.batches))
-}
-
-/// The `triage` stage: run the build through phase 1 ([`through_units`]), then the passes from the id index to the batches ([`triage`]), and answer with the lines `triage_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose passes did not finish, is answered with none.
-pub fn stage_triage(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let (units, lines) = stage_units(stage_file)?;
-    if lines == 0 {
-        return Ok(());
-    }
-    through_units(&input, stage_file, "triage", |run| {
-        let triage = triage(
-            &input,
-            &run.classes_present,
-            &mut run.table,
-            &mut run.planned.store,
-        )
-        .map_err(|failure| WireError(format!("the passes failed: {failure}")))?;
-        triage_lines(&run.table, &triage, &units, out)
-    })
-}
-
-/// The keys of the `passes` stage's lines beside its units (`units_stage_fixtures.PASSES_*`).
-const DUPLICATE_GROUPS_KEY: &str = "duplicate_groups";
-const BY_CLASS_COLUMN: &str = "by_class";
-const JUNCTIONS_KEY: &str = "secondary_junctions";
-const VERIFIED_KEY: &str = "verified";
-const MISMATCHES_KEY: &str = "mismatches";
-const NOTE_KEY: &str = "note";
-
-fn optional_text(value: Option<&str>) -> PyValue {
-    PyValue::optional_str(value)
-}
-
-/// One unit as the `passes` stage reads it: its duplicate group and cluster from the table, and its primary units from the store, a `(primary unit, suppressed)` tuple a secondary junction.
-fn passes_reading(table: &UnitTable, store: &UnitStore, ordinal: usize) -> PyValue {
-    PyValue::Tuple(vec![
-        optional_text(table.duplicate_group(ordinal)),
-        optional_text(table.cluster(ordinal)),
-        PyValue::Tuple(
-            store
-                .primary_units(ordinal)
-                .into_iter()
-                .map(|(primary, suppressed)| {
-                    PyValue::Tuple(vec![
-                        optional_text(primary.as_deref()),
-                        PyValue::Bool(suppressed),
-                    ])
-                })
-                .collect(),
-        ),
-    ])
-}
-
-/// Write the `passes` stage's run lines, as the Python stage's `passes_boundary` lays them out: a `unit:<ordinal>` line for each ordinal in `units`, the unit as [`passes_reading`] reads it, and the column over every unit; the duplicate-group count; a column over the classes' rows, a `(class, ordinals)` pair a class; the secondary-junction counts as their items; the verification's keys sorted, each `(id, content key, ink deltas)`; the mismatches; and the units phase's note.
-fn passes_lines(
-    table: &UnitTable,
-    store: &UnitStore,
-    passes: &Passes,
-    note: &str,
-    units: &HashSet<usize>,
-    out: &mut impl Write,
-) -> Result<()> {
-    let mut digest = ColumnDigest::new();
-    for ordinal in 0..table.n {
-        let value = passes_reading(table, store, ordinal);
-        if units.contains(&ordinal) {
-            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-        }
-        digest.add(&value);
-    }
-    digest.write(out, "value")?;
-    stage_line(
-        out,
-        DUPLICATE_GROUPS_KEY,
-        &PyValue::Int(passes.duplicate_groups as i64),
-    )?;
-    let mut by_class = ColumnDigest::new();
-    for (class_id, members) in &passes.by_class {
-        by_class.add(&PyValue::Tuple(vec![
-            PyValue::str(class_id),
-            PyValue::Tuple(members.iter().copied().map(int).collect()),
-        ]));
-    }
-    by_class.write(out, BY_CLASS_COLUMN)?;
-    stage_line(
-        out,
-        JUNCTIONS_KEY,
-        &PyValue::List(
-            passes
-                .junction_counts
-                .items()
-                .iter()
-                .map(|&(name, count)| PyValue::Tuple(vec![PyValue::str(name), PyValue::Int(count)]))
-                .collect(),
-        ),
-    )?;
-    let mut verified: Vec<PyValue> = passes
-        .verified
-        .iter()
-        .map(|key| {
-            PyValue::Tuple(vec![
-                PyValue::str(&key.unit_id),
-                PyValue::str(&key.content_key),
-                PyValue::Tuple(
-                    key.ink_deltas
-                        .iter()
-                        .map(|(config, delta)| {
-                            PyValue::Tuple(vec![PyValue::str(config), PyValue::str(delta)])
-                        })
-                        .collect(),
-                ),
-            ])
-        })
-        .collect();
-    verified.sort_by(|left, right| {
-        let id = |value: &PyValue| match value {
-            PyValue::Tuple(items) => match items.first() {
-                Some(PyValue::Str(id)) => id.clone(),
-                _ => String::new(),
-            },
-            _ => String::new(),
-        };
-        id(left).cmp(&id(right))
-    });
-    stage_line(out, VERIFIED_KEY, &PyValue::List(verified))?;
-    stage_line(
-        out,
-        MISMATCHES_KEY,
-        &PyValue::List(passes.mismatches.iter().map(PyValue::str).collect()),
-    )?;
-    stage_line(out, NOTE_KEY, &PyValue::str(note))
-}
-
-/// The `passes` stage: when the stage file holds lines from the build's run, run the build through phase 1 ([`through_units`]), then [`triage`] and [`passes`], and answer with the lines `passes_lines` writes, the note the units phase's line would close with ([`units_note`]) among them; then answer each generated line, a duplicate-group key, with its id ([`duplicate_group_id`]).
-pub fn stage_passes(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_units(&input, stage_file, "passes", |run| {
-            let failure = |failure: BuildError| WireError(format!("the passes failed: {failure}"));
-            let triage = triage(
-                &input,
-                &run.classes_present,
-                &mut run.table,
-                &mut run.planned.store,
-            )
-            .map_err(failure)?;
-            let passes = passes(
-                &mut run.table,
-                &mut run.planned.store,
-                &triage,
-                &run.drive,
-                &run.planned.verify_units,
-            )
-            .map_err(failure)?;
-            let (jobs, lane) = super::drive::units_pool_width(&input.widths);
-            let note = units_note(
-                jobs,
-                lane,
-                run.planned.recomputed.len(),
-                passes.verified.len(),
-                &run.drive.arena().note(),
-                &signature_note(&run.signatures),
-            );
-            passes_lines(
-                &run.table,
-                &run.planned.store,
-                &passes,
-                &note,
-                &lines.units,
-                out,
-            )
-        })?;
-    }
-    for (key, key_value) in &lines.generated {
-        let id = duplicate_group_id(key_value).map_err(|failure| WireError(failure.to_string()))?;
-        stage_line(out, key, &PyValue::str(id))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -962,7 +713,7 @@ mod tests {
     /// One unit's primary units as the list source records them: its id, and each junction's primary unit id or none and whether it is suppressed.
     type Assigned = (String, Vec<(Option<String>, bool)>);
 
-    /// A list of projections as a primary-unit source, as `enrich._ListSource` is: the id word is the id's bytes read big-endian.
+    /// A list of projections as a primary-unit source: the id word is the id's bytes read big-endian.
     struct ListSource {
         projections: Vec<PrimaryUnitProjection>,
         assignments: Vec<Assigned>,

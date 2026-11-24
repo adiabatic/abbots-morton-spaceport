@@ -125,9 +125,9 @@ def test_parse_inner_timings_reads_a_trailing_rss_token():
 
 
 def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
-    """The corpus build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note, which on the units line opens with the width the units pool ran at. `--inner` reads each phase's peak and current RSS from this form, and the units pool's width."""
+    """The corpus build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note, which on the units line opens with the width the units pool ran at. `--inner` reads each phase's peak and current RSS from this form, and the units pool's width; a token no reader names, such as the load note's `build=rust`, is left out."""
     text = (
-        "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\t(signatures: 40 cached, 2 shaped across 8 workers)\n"
+        "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\tbuild=rust (signatures: 40 cached, 2 shaped on 8 threads)\n"
         "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\tjobs=17 (gate lane idle; recomputed=1,000,000, verified=0 cached)\n"
         "[t] review.build manifest+check 300.5s rss_gb=17.10\n"
     )
@@ -135,20 +135,6 @@ def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
         {"label": "review.build load", "elapsed_s": 12.3, "rss_gb": 1.23, "rss_now_gb": 1.2},
         {"label": "review.build units", "elapsed_s": 900.0, "rss_gb": 15.4, "rss_now_gb": 9.75, "jobs": 17},
         {"label": "review.build manifest+check", "elapsed_s": 300.5, "rss_gb": 17.1},
-    ]
-
-
-def test_parse_inner_timings_reads_the_rust_corpus_builds_engine_off_its_load_line():
-    """The Rust corpus build's load line opens its note with `build=rust`, kept under `build`, which is how a step record tells the Rust build process's peak from the Python parent's. A value that names no engine is left out."""
-    text = (
-        "[t] review.build load 23.5s rss_gb=1.10 rss_now_gb=0.90\tbuild=rust (signatures: 40 cached, 2 shaped on 11 threads)\n"
-        "[t] review.build units 57.1s rss_gb=2.15 rss_now_gb=1.70\tjobs=11 engine=rust (recomputed=1,000)\n"
-        "[t] review.build load 1.0s\tbuild=perl\n"
-    )
-    assert ct.parse_inner_timings(text) == [
-        {"label": "review.build load", "elapsed_s": 23.5, "rss_gb": 1.1, "rss_now_gb": 0.9, "build": "rust"},
-        {"label": "review.build units", "elapsed_s": 57.1, "rss_gb": 2.15, "rss_now_gb": 1.7, "jobs": 11},
-        {"label": "review.build load", "elapsed_s": 1.0},
     ]
 
 

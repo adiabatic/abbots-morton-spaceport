@@ -1,22 +1,15 @@
-//! The explain text a fragment ships, as the Python worker writes it in `Enricher.enrich` (`rebuild/review/enrich.py`): `ExplainReport.render` (`rebuild/pipeline/explain.py`) over the [`Report`] the settler gives, with `settle.cell_label` as the kernel's [`cell_label`] and `model.feature_config_token`, and `enrich._filter_explain`, which keeps the header and the divergent positions' blocks.
-//!
-//! [`stage_explain`] is the `explain` stage of the stage fixtures.
+//! The explain text a fragment ships: `ExplainReport.render` (`rebuild/pipeline/explain.py`) over the [`Report`] the settler gives, with `settle.cell_label` as the kernel's [`cell_label`] and `model.feature_config_token` ([`render`]), and the enricher's filter, which keeps the header and the divergent positions' blocks ([`filter_explain`]).
 
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
 use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::types::{cell_label, is_boundary_settled, provenance_pointer};
-use serde_json::Value;
 
-use crate::pyfmt::{PyValue, is_space};
-use crate::settle::{ISOLATED_OVERLAY_STAGE, Report, Settlement, Settler, features_for_config};
-use crate::wire::Init;
+use crate::pyfmt::is_space;
+use crate::settle::{ISOLATED_OVERLAY_STAGE, Report};
 
-/// A rendered text `_filter_explain` cannot read as Python reads it, or an `explain` stage input that cannot be read.
+/// A rendered text the explain filter cannot read ([`filter_explain`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExplainError(pub String);
 
@@ -34,7 +27,7 @@ fn error<T>(message: impl Into<String>) -> Result<T> {
     Err(ExplainError(message.into()))
 }
 
-/// What `_filter_explain` splits the rendered text on: the blank line and the head of each position's block.
+/// What [`filter_explain`] splits the rendered text on: the blank line and the head of each position's block.
 const BLOCK_SEPARATOR: &str = "\n\nposition ";
 
 /// A configuration's token, `model.feature_config_token`: the features sorted and joined with `+`, or `default` for none.
@@ -188,7 +181,7 @@ pub(crate) fn python_int(token: &str) -> Option<i64> {
     Some(if negative { -value } else { value })
 }
 
-/// The explain text a fragment ships, `enrich._filter_explain`: the rendered text's header and only the blocks of the divergent positions, or every block when there are none. A block's position is read as Python reads it, the first whitespace-separated word before the block's first colon, and a block whose word is no int is refused, as Python's `int` raises.
+/// The explain text a fragment ships: the rendered text's header and only the blocks of the divergent positions, or every block when there are none. A block's position is read as Python reads it, the first whitespace-separated word before the block's first colon, and a block whose word is no int is refused, as Python's `int` raises.
 pub fn filter_explain(rendered: &str, diff_positions: &[i64]) -> Result<String> {
     let blocks: Vec<&str> = rendered.split(BLOCK_SEPARATOR).collect();
     if blocks.len() == 1 {
@@ -211,78 +204,11 @@ pub fn filter_explain(rendered: &str, diff_positions: &[i64]) -> Result<String> 
     Ok(kept.join(BLOCK_SEPARATOR))
 }
 
-fn line_ints(record: &Value, field: &str, key: &str) -> Result<Vec<i64>> {
-    let value = PyValue::from_typed(&record[field])
-        .map_err(|failure| ExplainError(format!("{key}: the {field}: {failure}")))?;
-    let PyValue::Tuple(items) = value else {
-        return error(format!("{key}: the {field} are not a tuple"));
-    };
-    items
-        .iter()
-        .map(|item| match item {
-            PyValue::Int(value) => Ok(*value),
-            _ => error(format!("{key}: an item of the {field} is not an int")),
-        })
-        .collect()
-}
-
-/// The `explain` stage: answer each `explain:` line, a text's `codepoints`, its report's `config` and the `diff_positions` the filter receives, with the text [`render`] gives the report [`Settler::explain`] settles and the text [`filter_explain`] keeps of it, through one settler whose memos carry from line to line as a batch's do.
-pub fn stage_explain(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path).map_err(|failure| ExplainError(failure.to_string()))?;
-    let spec = init
-        .read_spec()
-        .map_err(|failure| ExplainError(failure.to_string()))?;
-    let settlement = Settlement::new(SpecIndex::new(spec), init.settlement.clone())
-        .map_err(|failure| ExplainError(failure.to_string()))?;
-    let mut settler = Settler::new(&settlement);
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        ExplainError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            ExplainError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| ExplainError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if !key.starts_with("explain:") {
-            return error(format!("{key}: the explain stage answers explain: lines"));
-        }
-        let Some(config) = record["config"].as_str() else {
-            return error(format!("{key}: the line has no config"));
-        };
-        let codepoints = line_ints(&record, "codepoints", key)?
-            .into_iter()
-            .map(|value| {
-                u32::try_from(value)
-                    .map_err(|_| ExplainError(format!("{key}: {value} is not a code point")))
-            })
-            .collect::<Result<Vec<u32>>>()?;
-        let diff_positions = line_ints(&record, "diff_positions", key)?;
-        let report = settler
-            .explain(&codepoints, &features_for_config(config))
-            .map_err(|failure| ExplainError(format!("{key}: {failure}")))?;
-        let rendered = render(settlement.index(), &report);
-        let filtered = filter_explain(&rendered, &diff_positions)
-            .map_err(|failure| ExplainError(format!("{key}: {failure}")))?;
-        writeln!(
-            out,
-            "{{\"key\":{},\"rendered\":{},\"filtered\":{}}}",
-            json_string(key),
-            PyValue::str(rendered).to_typed(),
-            PyValue::str(filtered).to_typed()
-        )
-        .map_err(|failure| ExplainError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::settle::tests::settlement;
+    use crate::settle::{Settler, features_for_config};
 
     #[test]
     fn a_configuration_token_sorts_its_features_and_names_none_default() {

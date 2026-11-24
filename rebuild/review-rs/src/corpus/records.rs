@@ -1,27 +1,17 @@
-//! The unit store's records, as `rebuild/review/unit_cache.py` reads and writes a store line: a line parsed as `_parsed_cached_unit` parses one ([`parse_line`], [`parsed_cached_unit`], [`ParsedCachedUnit`]); what the plan keeps of a line it does not load, sliced from the line as `prior_record_or_none` slices it ([`prior_record`], [`PriorRecord`]); the unit a line names, by its input key ([`named_key`], [`named_ordinal`]); a record as `CachedUnit.to_record` builds it and `record_line` writes it ([`CachedUnit`], [`record_line`]); the CRC-32 a prior record keeps its primary units by ([`primary_units_crc`]); and a unit id's word and shape ([`id_word`], [`is_content_id`]).
+//! The unit store's records: a line parsed ([`parse_line`], [`parsed_cached_unit`], [`ParsedCachedUnit`]); what the plan keeps of a line it does not load, sliced from the line ([`prior_record`], [`PriorRecord`]); the unit a line names, by its input key ([`named_key`], [`named_ordinal`]); a record built and written as a store line ([`CachedUnit`], [`record_line`]); the CRC-32 a prior record keeps its primary units by ([`primary_units_crc`]); and a unit id's word ([`id_word`]).
 //!
-//! A parse takes each value as Python takes it, so it raises where Python raises, and it says how the build takes what it raises ([`RecordError`]): a `KeyError`, `TypeError` or `ValueError`, which `unit_cache.StoreUnreadable` wraps and the plan answers by restarting over an emptied store; any other exception, which fails the Python build; or a value Python reads that the record does not hold, a type `to_record` never writes, which fails the Rust build.
-//!
-//! [`stage_store_records`] is the `store-records` stage of the stage fixtures.
+//! A parse takes each value as Python's `json.loads` reads it and Python's operators take it, so it fails where Python raises, and it says how the build takes the failure ([`RecordError`]): a `KeyError`, `TypeError` or `ValueError`, which the plan answers by restarting over an emptied store; any other exception, which fails the build; or a value the record does not hold, a type no record is written with, which fails the build too.
 
 use std::collections::HashSet;
 use std::fmt;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 
-use serde_json::{Value, json};
-
-use super::audit::stage_line;
 use super::columns::KeyIndex;
 use super::rowdelta::{Unread, py_int, py_str, type_name};
-use crate::check;
 use crate::ffi::crc32_of;
 use crate::fragment::{BASE58_ALPHABET, ID_SYMBOLS, lookup, py_eq};
 use crate::pyfmt::{PyFmtError, PyValue, json};
-use crate::wire::{Result, WireError, error};
 
-/// What every store line starts with, `to_record` writing the input key first (`unit_cache._KEY_PREFIX`).
+/// What every store line starts with, `to_record` writing the input key first.
 pub const KEY_PREFIX: &[u8] = b"{\"key\": \"";
 /// The hex digits of an input key.
 const KEY_HEX: usize = 64;
@@ -43,9 +33,9 @@ pub type Address = (String, i64, i64);
 pub enum RecordError {
     /// A `KeyError`, `TypeError` or `ValueError` (`unit_cache._STORE_ERRORS`), which `StoreUnreadable` wraps: the plan drops what it loaded from the store and restarts over an emptied one.
     Unreadable(String),
-    /// Another exception (an `IndexError`, an `AttributeError`), which fails the Python build.
+    /// Another exception (an `IndexError`, an `AttributeError`), which fails the build.
     Failed(String),
-    /// A value Python reads that the record does not hold, which fails the Rust build.
+    /// A value the record does not hold, which fails the build.
     Unheld(String),
 }
 
@@ -341,7 +331,7 @@ impl Held {
 
 // --- a parsed record ------------------------------------------------------------------------------
 
-/// One store record as `unit_cache._parsed_cached_unit` parses it (`ParsedCachedUnit`): the fields the plan reads, its address kept only in a trusted part, the projection the primary-unit resolution pass reads as pairs and names, and `junction_rects`, the record's `junctions` unchanged.
+/// One parsed store record: the fields the plan reads, its address kept only in a trusted part, the projection the primary-unit resolution pass reads as pairs and names, and `junction_rects`, the record's `junctions` unchanged.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedCachedUnit {
     pub key: String,
@@ -377,28 +367,6 @@ pub struct ParsedCachedUnit {
     pub inflated: i64,
 }
 
-fn pair_value(pair: Option<(i64, i64)>) -> PyValue {
-    pair.map_or(PyValue::None, |(left, right)| {
-        PyValue::Tuple(vec![PyValue::Int(left), PyValue::Int(right)])
-    })
-}
-
-fn pairs_value(pairs: &[(i64, i64)]) -> PyValue {
-    PyValue::Tuple(pairs.iter().map(|&pair| pair_value(Some(pair))).collect())
-}
-
-fn address_tuple(address: &Option<Address>) -> PyValue {
-    address
-        .as_ref()
-        .map_or(PyValue::None, |(part, start, length)| {
-            PyValue::Tuple(vec![
-                PyValue::str(part.as_str()),
-                PyValue::Int(*start),
-                PyValue::Int(*length),
-            ])
-        })
-}
-
 fn deltas_value(deltas: &[(String, String)]) -> PyValue {
     PyValue::Dict(
         deltas
@@ -431,61 +399,6 @@ fn texts_value(texts: &[String]) -> PyValue {
     )
 }
 
-impl ParsedCachedUnit {
-    /// The record as Python holds it, a `ParsedCachedUnit` with its fields in declaration order: the address, the pairs, the spans and the names as tuples.
-    pub fn value(&self) -> PyValue {
-        let fields = vec![
-            ("key", PyValue::str(self.key.as_str())),
-            ("prior_id", PyValue::str(self.prior_id.as_str())),
-            ("prior_class", PyValue::str(self.prior_class.as_str())),
-            ("content_key", PyValue::str(self.content_key.as_str())),
-            ("slim", PyValue::Bool(self.slim)),
-            ("address", address_tuple(&self.address)),
-            ("ink_identical", PyValue::Bool(self.ink_identical)),
-            ("picture_identical", PyValue::Bool(self.picture_identical)),
-            ("junior_equivalent", PyValue::Bool(self.junior_equivalent)),
-            ("ink_deltas", deltas_value(&self.ink_deltas)),
-            ("diffs_digest", PyValue::str(self.diffs_digest.as_str())),
-            ("cluster", PyValue::str(self.cluster.as_str())),
-            ("change_group", PyValue::str(self.change_group.as_str())),
-            ("ledger_class", PyValue::str(self.ledger_class.as_str())),
-            ("pair_codepoints", pair_value(self.pair_codepoints)),
-            (
-                "duplicate_group",
-                PyValue::optional_str(self.duplicate_group.as_deref()),
-            ),
-            ("exemplar", PyValue::Bool(self.exemplar)),
-            ("no_verdict", PyValue::Bool(self.no_verdict)),
-            ("primary_units", primary_units_value(&self.primary_units)),
-            (
-                "policy_file",
-                PyValue::optional_str(self.policy_file.as_deref()),
-            ),
-            ("junction_rects", self.junction_rects.clone()),
-            ("mismatches", texts_value(&self.mismatches)),
-            ("pair", pair_value(self.pair)),
-            ("after_spans", pairs_value(&self.after_spans)),
-            ("after_cells", PyValue::str_tuple(&self.after_cells)),
-            ("after_junctions", PyValue::str_tuple(&self.after_junctions)),
-            ("before_spans", pairs_value(&self.before_spans)),
-            ("before_glyphs", PyValue::str_tuple(&self.before_glyphs)),
-            (
-                "before_junctions",
-                PyValue::str_tuple(&self.before_junctions),
-            ),
-            ("junction_pairs", pairs_value(&self.junction_pairs)),
-            ("inflated", PyValue::Int(self.inflated)),
-        ];
-        PyValue::Record(
-            "ParsedCachedUnit".to_owned(),
-            fields
-                .into_iter()
-                .map(|(name, value)| (name.to_owned(), value))
-                .collect(),
-        )
-    }
-}
-
 /// `(span[0], span[1])` as `_parsed_cached_unit` pools it, which hashes both.
 fn span_of(held: &mut Held, span: &PyValue) -> Raised<(i64, i64)> {
     let left = item(span, 0)?;
@@ -498,7 +411,7 @@ fn span_of(held: &mut Held, span: &PyValue) -> Raised<(i64, i64)> {
     ))
 }
 
-/// `_parsed_cached_unit`'s `spans`.
+/// A parsed record's `spans`.
 fn spans(held: &mut Held, values: &PyValue) -> Raised<Vec<(i64, i64)>> {
     iterate(values)?
         .iter()
@@ -506,12 +419,12 @@ fn spans(held: &mut Held, values: &PyValue) -> Raised<Vec<(i64, i64)>> {
         .collect()
 }
 
-/// `_parsed_cached_unit`'s `names`.
+/// A parsed record's `names`.
 fn names(values: &PyValue) -> Raised<Vec<String>> {
     iterate(values)?.iter().map(intern).collect()
 }
 
-/// `unit_cache._parsed_cached_unit(record, trusted, …)`: one parsed store line as a [`ParsedCachedUnit`], its address, three elements or a deflated fragment's four, kept only when its part is in `trusted`. Each value is taken as Python takes it, in Python's order, so the first exception Python raises is the one refused ([`RecordError`]).
+/// One parsed store line as a [`ParsedCachedUnit`], its address, three elements or a deflated fragment's four, kept only when its part is in `trusted`. Each value is taken as Python takes it, in Python's order, so the first exception Python raises is the one refused ([`RecordError`]).
 pub fn parsed_cached_unit(record: &PyValue, trusted: &HashSet<String>) -> Raised<ParsedCachedUnit> {
     if !matches!(record, PyValue::Dict(_)) {
         return Err(failed(
@@ -650,14 +563,14 @@ pub fn parsed_cached_unit(record: &PyValue, trusted: &HashSet<String>) -> Raised
     })
 }
 
-/// `_parsed_cached_unit(json.loads(line), trusted, …)`: a store line read and parsed as the plan's scans parse one.
+/// A store line read and parsed as the plan's scans parse one.
 pub fn parse_line(line: &[u8], trusted: &HashSet<String>) -> Raised<ParsedCachedUnit> {
     parsed_cached_unit(&loads(line)?, trusted)
 }
 
 // --- a prior record -------------------------------------------------------------------------------
 
-/// What the plan keeps of a prior store record it does not load (`unit_cache.PriorRecord`): the unit's id and class, the fields its fragment was patched with, its primary units by CRC-32 ([`primary_units_crc`]), and its fragment's address with its inflated length, 0 for a plain fragment.
+/// What the plan keeps of a prior store record it does not load: the unit's id and class, the fields its fragment was patched with, its primary units by CRC-32 ([`primary_units_crc`]), and its fragment's address with its inflated length, 0 for a plain fragment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PriorRecord {
     pub unit_id: String,
@@ -668,31 +581,6 @@ pub struct PriorRecord {
     pub primary_units: u32,
     pub address: Option<Address>,
     pub inflated: i64,
-}
-
-impl PriorRecord {
-    /// The record as Python holds it, a `PriorRecord` with its fields in declaration order.
-    pub fn value(&self) -> PyValue {
-        PyValue::Record(
-            "PriorRecord".to_owned(),
-            vec![
-                ("unit_id".to_owned(), PyValue::str(self.unit_id.as_str())),
-                ("class_id".to_owned(), PyValue::str(self.class_id.as_str())),
-                (
-                    "duplicate_group".to_owned(),
-                    PyValue::optional_str(self.duplicate_group.as_deref()),
-                ),
-                ("exemplar".to_owned(), PyValue::Bool(self.exemplar)),
-                ("no_verdict".to_owned(), PyValue::Bool(self.no_verdict)),
-                (
-                    "primary_units".to_owned(),
-                    PyValue::Int(i64::from(self.primary_units)),
-                ),
-                ("address".to_owned(), address_tuple(&self.address)),
-                ("inflated".to_owned(), PyValue::Int(self.inflated)),
-            ],
-        )
-    }
 }
 
 /// `unit_index.record_id`: a line's unit id, sliced from where `to_record` writes it, after the input key.
@@ -810,7 +698,7 @@ fn sliced(line: &[u8], held: &mut Held) -> Raised<PriorRecord> {
     })
 }
 
-/// `unit_cache.prior_record_or_none(line)`: the line sliced into a [`PriorRecord`] without parsing the rest, or None for a line in another shape, whose unit then has no prior record. Refused, with why, for a line Python slices into a value the record does not hold.
+/// The line sliced into a [`PriorRecord`] without parsing the rest, or None for a line in another shape, whose unit then has no prior record. Refused, with why, for a line Python slices into a value the record does not hold.
 pub fn prior_record(line: &[u8]) -> std::result::Result<Option<PriorRecord>, String> {
     let mut held = Held::default();
     match sliced(line, &mut held) {
@@ -823,7 +711,7 @@ pub fn prior_record(line: &[u8]) -> std::result::Result<Option<PriorRecord>, Str
     }
 }
 
-/// `unit_cache.primary_units_crc`: zlib's CRC-32 of the field's JSON as `to_record` writes it, or 0 for none.
+/// Zlib's CRC-32 of the field's JSON as `to_record` writes it, or 0 for none.
 pub fn primary_units_crc(primary_units: &PyValue) -> std::result::Result<u32, PyFmtError> {
     if !truthy(primary_units) {
         return Ok(0);
@@ -833,7 +721,7 @@ pub fn primary_units_crc(primary_units: &PyValue) -> std::result::Result<u32, Py
 
 // --- the unit a line names ------------------------------------------------------------------------
 
-/// The input key a store line's `key` field holds, as `unit_cache.named_ordinal` reads it before it asks the index: the bytes of up to the first 64 characters after [`KEY_PREFIX`], or None for a line without the prefix or whose characters there are not lowercase hex in pairs.
+/// The input key a store line's `key` field holds, read before the index is asked: the bytes of up to the first 64 characters after [`KEY_PREFIX`], or None for a line without the prefix or whose characters there are not lowercase hex in pairs.
 pub fn named_key(line: &[u8]) -> Option<Vec<u8>> {
     let text = line.strip_prefix(KEY_PREFIX)?;
     let text = &text[..text.len().min(KEY_HEX)];
@@ -846,14 +734,14 @@ pub fn named_key(line: &[u8]) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// `unit_cache.named_ordinal`: the ordinal of the unit whose input key a store line names, over the index `named` of the input-key column `column`, or None.
+/// The ordinal of the unit whose input key a store line names, over the index `named` of the input-key column `column`, or None.
 pub fn named_ordinal(named: &KeyIndex, column: &[u8], line: &[u8]) -> Option<u32> {
     named.find(column, &named_key(line)?)
 }
 
 // --- a record built for the store -----------------------------------------------------------------
 
-/// One store record as the build writes it (`unit_cache.CachedUnit`).
+/// One store record as the build writes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CachedUnit {
     pub key: String,
@@ -882,7 +770,7 @@ pub struct CachedUnit {
     pub inflated: i64,
 }
 
-/// `unit_index.address_value`: a fragment's address as a record holds it, with the inflated length as a fourth element only for a deflated fragment.
+/// A fragment's address as a record holds it, with the inflated length as a fourth element only for a deflated fragment.
 pub fn address_value(part: &str, start: i64, length: i64, inflated: i64) -> PyValue {
     let mut items = vec![
         PyValue::str(part),
@@ -896,7 +784,7 @@ pub fn address_value(part: &str, start: i64, length: i64, inflated: i64) -> PyVa
 }
 
 impl CachedUnit {
-    /// `CachedUnit.to_record`: the record's dict, in the order its line holds the fields.
+    /// The record's dict, in the order its line holds the fields.
     pub fn to_record(&self) -> PyValue {
         let entries = vec![
             ("key", PyValue::str(self.key.as_str())),
@@ -950,7 +838,7 @@ impl CachedUnit {
     }
 }
 
-/// `unit_cache.record_line`: the record's line in the store, `json.dumps` of [`CachedUnit::to_record`] in the default form and a newline.
+/// The record's line in the store, `json.dumps` of [`CachedUnit::to_record`] in the default form and a newline.
 pub fn record_line(record: &CachedUnit) -> std::result::Result<Vec<u8>, PyFmtError> {
     let mut line = json::dumps(&record.to_record())?.into_bytes();
     line.push(b'\n');
@@ -973,226 +861,6 @@ pub fn id_word(unit_id: &str) -> Option<u64> {
         value = value * 58 + index as u128;
     }
     u64::try_from(value).ok()
-}
-
-/// `unit_cache.is_content_id`: whether `value` is a unit or duplicate-group id.
-pub fn is_content_id(value: &PyValue) -> bool {
-    check::is_content_id(Some(value))
-}
-
-// --- the stage ------------------------------------------------------------------------------------
-
-fn typed(value: &Value, key: &str) -> Result<PyValue> {
-    PyValue::from_typed(value).map_err(|failure| WireError(format!("{key}: {failure}")))
-}
-
-fn texts_of(value: &PyValue, what: &str) -> Result<Vec<String>> {
-    match value {
-        PyValue::List(items) | PyValue::Tuple(items) => items
-            .iter()
-            .map(|item| match item {
-                PyValue::Str(text) => Ok(text.clone()),
-                other => error(format!("{what} holds {}, not a str", other.kind())),
-            })
-            .collect(),
-        other => error(format!("{what} is {}, not a list", other.kind())),
-    }
-}
-
-fn text_of(value: &PyValue, what: &str) -> Result<String> {
-    match value {
-        PyValue::Str(text) => Ok(text.clone()),
-        other => error(format!("{what} is {}, not a str", other.kind())),
-    }
-}
-
-fn optional_text_of(value: &PyValue, what: &str) -> Result<Option<String>> {
-    match value {
-        PyValue::None => Ok(None),
-        other => text_of(other, what).map(Some),
-    }
-}
-
-fn flag_of(value: &PyValue, what: &str) -> Result<bool> {
-    match value {
-        PyValue::Bool(flag) => Ok(*flag),
-        other => error(format!("{what} is {}, not a bool", other.kind())),
-    }
-}
-
-fn int_of(value: &PyValue, what: &str) -> Result<i64> {
-    match value {
-        PyValue::Int(number) => Ok(*number),
-        other => error(format!("{what} is {}, not an int", other.kind())),
-    }
-}
-
-fn two_of(value: &PyValue, what: &str) -> Result<[PyValue; 2]> {
-    match value {
-        PyValue::Tuple(items) | PyValue::List(items) if items.len() == 2 => {
-            Ok([items[0].clone(), items[1].clone()])
-        }
-        other => error(format!("{what} is {}, not a pair", other.kind())),
-    }
-}
-
-/// A `record-line` line's `CachedUnit`, field by field.
-fn cached_unit_of(value: &PyValue) -> Result<CachedUnit> {
-    let PyValue::Record(name, fields) = value else {
-        return error(format!("the input is {}, not a CachedUnit", value.kind()));
-    };
-    if name != "CachedUnit" {
-        return error(format!("the input is a {name}, not a CachedUnit"));
-    }
-    let get = |field: &str| {
-        fields
-            .iter()
-            .find(|(name, _)| name == field)
-            .map(|(_, value)| value)
-            .ok_or_else(|| WireError(format!("the CachedUnit has no {field}")))
-    };
-    let pair = |field: &str| -> Result<Option<(i64, i64)>> {
-        match get(field)? {
-            PyValue::None => Ok(None),
-            other => {
-                let [left, right] = two_of(other, field)?;
-                Ok(Some((int_of(&left, field)?, int_of(&right, field)?)))
-            }
-        }
-    };
-    let address = match get("address")? {
-        PyValue::None => None,
-        PyValue::Tuple(items) if items.len() == 3 => Some((
-            text_of(&items[0], "the address's part")?,
-            int_of(&items[1], "the address's start")?,
-            int_of(&items[2], "the address's length")?,
-        )),
-        other => return error(format!("the address is {}", other.kind())),
-    };
-    let ink_deltas = match get("ink_deltas")? {
-        PyValue::Dict(entries) => entries
-            .iter()
-            .map(|(config, delta)| {
-                Ok((
-                    text_of(config, "a delta's config")?,
-                    text_of(delta, "a delta")?,
-                ))
-            })
-            .collect::<Result<Vec<_>>>()?,
-        other => return error(format!("the ink deltas are {}", other.kind())),
-    };
-    let primary_units = match get("primary_units")? {
-        PyValue::List(items) => items
-            .iter()
-            .map(|entry| {
-                let [unit, suppressed] = two_of(entry, "a primary unit")?;
-                Ok((
-                    optional_text_of(&unit, "a primary unit")?,
-                    flag_of(&suppressed, "a primary unit's suppression")?,
-                ))
-            })
-            .collect::<Result<Vec<_>>>()?,
-        other => return error(format!("the primary units are {}", other.kind())),
-    };
-    Ok(CachedUnit {
-        key: text_of(get("key")?, "the key")?,
-        prior_id: text_of(get("prior_id")?, "the id")?,
-        prior_class: text_of(get("prior_class")?, "the class")?,
-        content_key: text_of(get("content_key")?, "the content key")?,
-        slim: flag_of(get("slim")?, "slim")?,
-        address,
-        ink_identical: flag_of(get("ink_identical")?, "ink_identical")?,
-        picture_identical: flag_of(get("picture_identical")?, "picture_identical")?,
-        junior_equivalent: flag_of(get("junior_equivalent")?, "junior_equivalent")?,
-        ink_deltas,
-        diffs_digest: text_of(get("diffs_digest")?, "the diffs digest")?,
-        cluster: text_of(get("cluster")?, "the cluster")?,
-        change_group: text_of(get("change_group")?, "the change group")?,
-        ledger_class: text_of(get("ledger_class")?, "the ledger class")?,
-        pair_codepoints: pair("pair_codepoints")?,
-        proj: get("proj")?.clone(),
-        junctions: get("junctions")?.clone(),
-        mismatches: texts_of(get("mismatches")?, "the mismatches")?,
-        duplicate_group: optional_text_of(get("duplicate_group")?, "the duplicate group")?,
-        exemplar: flag_of(get("exemplar")?, "exemplar")?,
-        no_verdict: flag_of(get("no_verdict")?, "no_verdict")?,
-        primary_units,
-        policy_file: optional_text_of(get("policy_file")?, "the policy file")?,
-        inflated: int_of(get("inflated")?, "the inflated length")?,
-    })
-}
-
-fn bytes_of(value: &PyValue, key: &str) -> Result<Vec<u8>> {
-    match value {
-        PyValue::Bytes(bytes) => Ok(bytes.clone()),
-        other => error(format!("{key}: the input is {}, not bytes", other.kind())),
-    }
-}
-
-fn outcome(words: &[&str]) -> PyValue {
-    PyValue::Tuple(words.iter().map(|&word| PyValue::str(word)).collect())
-}
-
-/// One `store-records` line's answer, for every form but `id-word`.
-fn answer(form: &str, input: &PyValue, key: &str) -> Result<PyValue> {
-    Ok(match form {
-        "parsed" => {
-            let [record, trusted] = two_of(input, key)?;
-            let PyValue::Set(trusted) = trusted else {
-                return error(format!("{key}: the trusted parts are not a set"));
-            };
-            let trusted = trusted
-                .iter()
-                .map(|part| text_of(part, "a trusted part"))
-                .collect::<Result<HashSet<_>>>()?;
-            match parsed_cached_unit(&record, &trusted) {
-                Ok(parsed) => PyValue::Tuple(vec![PyValue::str("parsed"), parsed.value()]),
-                Err(RecordError::Unheld(_)) => outcome(&["unheld"]),
-                Err(failure) => outcome(&["raised", failure.kind()]),
-            }
-        }
-        "record-line" => PyValue::Bytes(
-            record_line(&cached_unit_of(input)?).map_err(|failure| WireError(failure.0))?,
-        ),
-        "prior-record" => match prior_record(&bytes_of(input, key)?) {
-            Ok(Some(record)) => record.value(),
-            Ok(None) => PyValue::None,
-            Err(_) => outcome(&["unheld"]),
-        },
-        "named" => named_key(&bytes_of(input, key)?).map_or(PyValue::None, PyValue::Bytes),
-        "primary-units-crc" => PyValue::Int(i64::from(
-            primary_units_crc(input).map_err(|failure| WireError(failure.0))?,
-        )),
-        "content-id" => PyValue::Bool(is_content_id(input)),
-        other => return error(format!("{key}: no store-records form {other:?}")),
-    })
-}
-
-/// The `store-records` stage: for each line of `stage_file`, answer its `input` by its `form` in one `{"key", "value"}` line, in the typed encoding: `parsed` parses `(record, trusted)` ([`parsed_cached_unit`]) into `("parsed", record)`, `("unheld",)` or `("raised", kind)` by how the build takes what it raises ([`RecordError::kind`]); `record-line` writes a `CachedUnit`'s line ([`record_line`]); `prior-record` slices a line into a `PriorRecord`, None or `("unheld",)` ([`prior_record`]); `named` gives the input key a line names, or None ([`named_key`]); `id-word` gives an id's word or None ([`id_word`]), a JSON number past `PyValue`'s 64-bit signed ints; `primary-units-crc` gives [`primary_units_crc`]; and `content-id` gives [`is_content_id`].
-pub fn stage_store_records(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let read = |failure: std::io::Error| {
-        WireError(format!("cannot read {}: {failure}", stage_file.display()))
-    };
-    for line in BufReader::new(File::open(stage_file).map_err(read)?).lines() {
-        let line = line.map_err(read)?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let Some(form) = record["form"].as_str() else {
-            return error(format!("{key}: the line has no form"));
-        };
-        let input = typed(&record["input"], key)?;
-        if form == "id-word" {
-            let word = id_word(&text_of(&input, key)?);
-            writeln!(out, "{}", json!({ "key": key, "value": word }))
-                .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))?;
-            continue;
-        }
-        stage_line(out, key, &answer(form, &input, key)?)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

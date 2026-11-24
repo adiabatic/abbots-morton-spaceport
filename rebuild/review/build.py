@@ -1,4 +1,4 @@
-"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The build assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts. It writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file, with the overflow parts a cached build appends changed units to after them, `_ShardWriter`), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
+"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The m1-audit build (`build_m1`) runs in the review crate's build process (`rebuild/review-rs/`, `ams-review build`), which assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts, and writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file, with the overflow parts a cached build appends changed units to after them), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. This module computes what the process reads before it starts, the units init and the build input with every stamp in it, and runs it. The table-diff mode (`build_table_diff`) builds here, in Python. The §7 contract checker (`check_unit`, `check_shards`, `check_output_dir`) and the corpus's materialized form (`MaterializedCorpus`) read a written corpus. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
     uv run python -m rebuild.review.build
@@ -14,46 +14,32 @@ import bisect
 import ctypes
 import datetime
 import errno
-import gc
 import gzip
-import hashlib
 import http.client
 import io
 import json
-import math
-import multiprocessing.connection
 import os
-import pickle
-import random
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
-import threading
-import time
-import traceback
 import urllib.request
 import warnings
-import zlib
-from array import array
-from collections.abc import Callable, Collection, Container, Iterable, Iterator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import dataclass, field, replace
-from functools import lru_cache, partial
-from itertools import batched, chain, combinations
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from functools import lru_cache
+from itertools import combinations
 from pathlib import Path
-from typing import BinaryIO, NoReturn, Protocol, cast
+from typing import BinaryIO
 
 from rebuild.pipeline import fingerprint, output_sink, row_delta, spec_load
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
 from rebuild.review import (
     app_index,
     audit,
-    audit_stream,
     corpus_exec,
-    facts,
     tablediff,
     unit_cache,
     unit_index,
@@ -62,84 +48,40 @@ from rebuild.review import (
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
     BATCH_SIZE,
-    INPUT_KEY_BYTES,
     LEDGER_STATUSES,
     MACHINE_CHECKS,
     SECTIONS,
     SLIM_OMITTED_KEYS,
-    UNMATCHED_CLASS,
-    LedgerClass,
-    RowColumns,
-    Unit,
-    UnitTable,
-    Workload,
-    _config_index,
-    assign_batches,
-    audit_layout,
-    batch_of,
     class_section,
     family_ranks,
     load_ledger,
-    load_workload,
     machine_approved,
-    merge_ink_duplicate_units,
     parse_codepoints,
-    release_rows,
-    signature_rows,
     slim_fragment,
-    sort_for_triage,
-    stream_workload,
-    synthesize_unmatched_group_classes,
     triage_key,
-    window_configs,
 )
-from rebuild.review.columns import RepeatedKey
 from rebuild.review.change_groups import (
     CHANGE_GROUP_ORDER,
-    assign_change_group,
     load_change_group_prose,
-    reroutes,
 )
-from rebuild.review.drafts import Drafter, _import_test_shaping, corpus_index_from_pages
+from rebuild.review.drafts import _import_test_shaping, corpus_index_from_pages
 from rebuild.review.feature_reach import ConfigFold, derive_fold
 from rebuild.review.ink import (
-    IDENTITY_DIFF,
     JUNIOR_VERIFICATION_METHOD,
     PICTURE_VERIFICATION_METHOD,
     VERIFICATION_METHOD,
     InkComparator,
-    JuniorOracle,
-    delta_digest,
-    release_shape_memos,
-    shape_memo_sizes,
-    shaper_for,
-    signature_digest,
 )
 from rebuild.review.enrich import (
     EXPLAIN_UNIT_BATCH_SIZE,
     LETTERS,
-    EnrichedUnit,
-    Enricher,
-    PrimaryUnitProjection,
     load_spec,
     notation,
     notation_tokens,
-    resolve_primary_unit_assignments,
-    primary_unit_projection,
     text_entities,
 )
 from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
-from rebuild.review.unit_store import Address, RecomputedProjection, UnitStore
-from rebuild.tools import console, cycle_paths, memory_tally
-from rebuild.tools.cycle_timings import record_pool
-from rebuild.tools.peak_rss import (
-    current_rss_bytes,
-    maxrss_to_bytes,
-    peak_footprint_self_bytes,
-    peak_rss_self_bytes,
-    rss_now_token,
-    rss_token,
-)
+from rebuild.tools import console, cycle_paths
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
@@ -193,7 +135,7 @@ def _inputs_fingerprint(
     *,
     draft_lines: Sequence[str],
 ) -> dict:
-    """Return the manifest's `inputs_fingerprint`. The Stage A values are copied from run_m1's recorded inputs_fingerprint.json instead of being recomputed, so a corpus built over stale out/m1 artifacts carries the stale hashes and the readiness checker can flag it. The Stage A values are null when that record is missing, unreadable, or incomplete. `draft_lines` is the `fingerprint.draft_input_lines` that `build_m1` took from the pages its drafters' index was built from, before any drafter ran, and `fingerprint.stage_b` takes `draft_inputs` from them instead of reading the pages again, so a page edited during the build leaves the manifest describing the pages the drafts saw."""
+    """Return the manifest's `inputs_fingerprint`. The Stage A values are copied from run_m1's recorded inputs_fingerprint.json instead of being recomputed, so a corpus built over stale out/m1 artifacts carries the stale hashes and the readiness checker can flag it. The Stage A values are null when that record is missing, unreadable, or incomplete. `draft_lines` is the `fingerprint.draft_input_lines` that `build_m1` took from the read of the pages the units init's corpus index came from, before the crate drafted anything, and `fingerprint.stage_b` takes `draft_inputs` from them instead of reading the pages again, so a page edited during the build leaves the manifest describing the pages the drafts saw."""
     stage_a = fingerprint.read_stage_a(m1_dir) or {key: None for key in fingerprint.STAGE_A_COMPONENTS}
     return {
         **stage_a,
@@ -317,282 +259,6 @@ def config_badge(unit_configs, full_configs) -> tuple[list[dict] | None, str | N
     return _config_badge(tuple(unit_configs), tuple(full_configs))
 
 
-def config_gate(unit_configs, full_configs) -> list[dict] | None:
-    return config_badge(unit_configs, full_configs)[0]
-
-
-def config_note(unit_configs, full_configs) -> str | None:
-    return config_badge(unit_configs, full_configs)[1]
-
-
-def _config_class_note(unit) -> str | None:
-    """Return a note for a unit whose class differs by config (UNMATCHED under some configs and a ledger class under others), for example "blessed as ss03-adds-joins-around-tea under ss03, ss03+ss05; novel under default, ss05". Return None when the unit has one class under every config."""
-    config_classes = unit.config_classes
-    if not config_classes:
-        return None
-    novel = [config for config, cls in config_classes.items() if cls == UNMATCHED_CLASS]
-    blessed = [config for config, cls in config_classes.items() if cls != UNMATCHED_CLASS]
-    if not novel or not blessed:
-        return None
-    by_class: dict[str, list[str]] = {}
-    for config in sorted(blessed, key=_config_index):
-        by_class.setdefault(config_classes[config], []).append(config)
-    blessed_phrase = "; ".join(
-        f"blessed as {cls} under {', '.join(configs)}" for cls, configs in by_class.items()
-    )
-    novel_phrase = "novel under " + ", ".join(sorted(novel, key=_config_index))
-    return f"{blessed_phrase}; {novel_phrase}"
-
-
-def _machine_approved_meta(
-    machine_units: Iterable[tuple[str, int, str]], junior_font: Path, repo_root: Path
-) -> dict:
-    """Return the manifest's `machine_approved` record: unit and row totals across the three machine checks (ink-identical, picture-identical and junior-equivalent), unit counts per class (classes with none are omitted), and one sub-record per machine check with its counts and verification method. `machine_units` yields one `(class_id, row_count, check_id)` per machine-approved unit, in triage order. `by_class` keeps classes in first-appearance order, so they follow the manifest's class order: by section (`audit.SECTIONS`), then ledger classes in ledger order, then the change groups in `change_groups.CHANGE_GROUP_ORDER`. The order must not depend on the table's load order; the review-facts pins re-sort it into ledger order (`facts.class_rank`). The Junior check also records the Junior font it used, because the manifest's fonts block does not cover it: the app never renders it."""
-    by_class: dict[str, int] = {}
-    checks = {
-        "ink_identical": {"units": 0, "rows": 0, "method": VERIFICATION_METHOD},
-        "picture_identical": {"units": 0, "rows": 0, "method": PICTURE_VERIFICATION_METHOD},
-        "junior_equivalent": {
-            "units": 0,
-            "rows": 0,
-            "method": JUNIOR_VERIFICATION_METHOD,
-            "junior_font": {"source": _relative(junior_font, repo_root), "sha256": _sha256(junior_font)},
-        },
-    }
-    rows = 0
-    units = 0
-    for class_id, row_count, check_name in machine_units:
-        units += 1
-        by_class[class_id] = by_class.get(class_id, 0) + 1
-        rows += row_count
-        record = checks[check_name]
-        record["units"] += 1
-        record["rows"] += row_count
-    return {
-        "units": units,
-        "rows": rows,
-        "method": VERIFICATION_METHOD,
-        "by_class": by_class,
-        "checks": checks,
-    }
-
-
-def _ledger_classes_meta(ledger: Iterable[LedgerClass]) -> dict[str, dict]:
-    """Return the manifest's `ledger_classes` lookup: every ledger entry's title, summary, status and why by id, in ledger order, including the entries that reach no unit, so a per-unit surface can name and explain any class a unit's config classes or `ledger_class` name."""
-    return {
-        entry.id: {"title": entry.title, "summary": entry.summary, "status": entry.status, "why": entry.why}
-        for entry in ledger
-    }
-
-
-_SCAFFOLD_HEAD = (
-    "id",
-    "ink_identical",
-    "picture_identical",
-    "junior_equivalent",
-    "ink_deltas",
-    "no_verdict",
-    "duplicate_group",
-    "cluster",
-    "class",
-    "ledger_class",
-    "group",
-    "codepoints",
-)
-_SCAFFOLD_TAIL = (
-    "configs",
-    "config_note",
-    "config_gate",
-    "config_classes",
-    "config_class_note",
-    "render_groups",
-    "kinds",
-    "exemplar",
-)
-_STAMPED_SCAFFOLD_KEYS = tuple(
-    key for key in _SCAFFOLD_HEAD + _SCAFFOLD_TAIL if key not in unit_cache.CARRY_PRESENTATION_KEYS
-)
-# The scaffold keys `check_scaffold` compares between the worker's drafting and the write's patch: the stamped keys, whose equality means the content key still holds, plus the keys outside the carry projection that the patch writes back unchanged. The remaining scaffold keys, `duplicate_group` and `cluster`, are assigned by the parent's whole-corpus passes after drafting, and `check_unit`'s write-time subset (`PATCHED`) checks them.
-_CHECKED_SCAFFOLD_KEYS = _STAMPED_SCAFFOLD_KEYS + (
-    "id",
-    "no_verdict",
-    "class",
-    "ledger_class",
-    "config_note",
-    "config_gate",
-    "config_classes",
-    "config_class_note",
-    "exemplar",
-    "picture_identical",
-    "ink_deltas",
-)
-
-
-def unit_scaffold(
-    unit, full_configs=ACCEPTANCE_CONFIGS, *, ink_deltas: Mapping[str, str] | None = None
-) -> dict:
-    """Return every fragment field the build derives from the workload instead of from the enrichment: the unit's identity, its ledger-derived values, and the phase-1 machine flags. `ink_deltas` is passed in because the unit does not carry the deltas: drafting passes the comparator's values and the write passes the unit store's. Without it the unit's own mapping is used, which on every unit the build materializes is the shared empty `audit.NO_DELTAS`. `ledger_class` is the unit's own (`Unit.ledger_class`), which phase 1 sets on a re-routed unit and the write copies from the unit store, and is written null on every other unit. A fragment carries no batch, because a batch is a slice of the manifest's triage index and a fragment's bytes depend only on its own content and the ledger. `unit_to_json` and `patch_fragment` both build the scaffold here, so a fragment cannot keep a stale value of a field a full build would change."""
-    gate, note = config_badge(unit.configs, window_configs(unit.codepoints, tuple(full_configs)))
-    return {
-        "id": unit.unit_id,
-        "ink_identical": unit.ink_identical,
-        "picture_identical": unit.picture_identical,
-        "junior_equivalent": unit.junior_equivalent,
-        "ink_deltas": dict(unit.ink_deltas if ink_deltas is None else ink_deltas),
-        "no_verdict": unit.no_verdict,
-        "duplicate_group": unit.duplicate_group,
-        "cluster": unit.cluster,
-        "class": unit.class_id,
-        "ledger_class": unit.ledger_class or None,
-        "group": unit.group,
-        "codepoints": unit.codepoints,
-        "configs": list(unit.configs),
-        "config_note": note,
-        "config_gate": gate,
-        "config_classes": dict(unit.config_classes) or None,
-        "config_class_note": _config_class_note(unit),
-        "render_groups": [{"configs": list(group)} for group in unit.render_groups],
-        "kinds": list(unit.kinds),
-        "exemplar": unit.exemplar,
-    }
-
-
-def patch_fragment(
-    fragment: dict,
-    unit,
-    junctions: list[dict],
-    junction_assign,
-    full_configs=ACCEPTANCE_CONFIGS,
-    *,
-    check: bool = False,
-    ink_deltas: Mapping[str, str] | None = None,
-) -> dict:
-    """Rewrite a fragment's scaffold and secondary junctions for this build, and return it. The write does this to every recomputed fragment it reads back from the arena and to every cached fragment whose patched fields changed. Every scaffold field is rewritten from the current workload, with `ink_deltas` read from the unit store and the ledger class from the unit (`Unit.ledger_class`, which the write copies from the unit store), and the secondary junctions are rebuilt from the unit's rects in the unit store under this build's primary unit assignments. Assigning keys in place keeps the fragment's key order, so a patched fragment has the same bytes a from-scratch build writes, and a cached fragment whose patched fields did not change can be copied byte for byte instead.
-
-    With `check` set, `check_scaffold` compares the checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`) before they are written. That checks that the fragment's content key still holds after the patch, and that the scaffold `check_unit`'s drafting-time subset read is the scaffold that ships, which is why that subset may run in the process that drafts. The write sets `check` for recomputed fragments only. A cached fragment's stamp was checked by the build that drafted it, and this build checks it again on the verification sample (`_recompute_fragment`, `check_stamp`).
-    """
-    scaffold = unit_scaffold(unit, full_configs, ink_deltas=ink_deltas)
-    if check:
-        check_scaffold(fragment, scaffold)
-    for key, value in scaffold.items():
-        fragment[key] = value
-    entries = [
-        {
-            "pair": {"left": junction["pair"][0], "right": junction["pair"][1]},
-            "before": junction["before"],
-            "after": junction["after"],
-            "primary_unit": primary_unit,
-        }
-        for junction, (primary_unit, suppressed) in zip(junctions, junction_assign)
-        if not suppressed
-    ]
-    fragment["secondary_junctions"] = entries or None
-    return fragment
-
-
-def check_scaffold(fragment: dict, scaffold: dict) -> None:
-    """Exit if `patch_fragment` would change any of a recomputed fragment's checked scaffold keys (`_CHECKED_SCAFFOLD_KEYS`). Equality at the keys inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) means the fragment's `content_key` still holds after the patch: those keys are everything the patch can change under the stamp (the group and machine flags, and the codepoints derived from them). Equality at the checked keys outside the projection, the promoted class and the config badge among them, means the drafting-time `check_unit` read the same scaffold values the write ships. The fragment arrives from the arena stamped and checked on every field the patch leaves alone, so this per-key comparison gives the same answer as rehashing the patched fragment (`check_stamp`), with one comparison per key instead of a sorted-key dump of the whole fragment, on every recomputed unit the write patches. A difference is a build bug: the parent's workload disagrees with what the worker drafted under."""
-    moved = [key for key in _CHECKED_SCAFFOLD_KEYS if fragment[key] != scaffold[key]]
-    if moved:
-        inside = [key for key in moved if key in _STAMPED_SCAFFOLD_KEYS]
-        outside = [key for key in moved if key not in _STAMPED_SCAFFOLD_KEYS]
-        reasons = []
-        if inside:
-            reasons.append(
-                f"{', '.join(inside)} inside the carry projection, so the stamp names other content"
-            )
-        if outside:
-            reasons.append(
-                f"{', '.join(outside)} outside the carry projection, so the drafting-time check answered "
-                "for other bytes than the ones that ship"
-            )
-        raise SystemExit(
-            f"unit {fragment.get('id')}: the fragment was drafted under other values of "
-            f"{', '.join(moved)} than the write patches onto the fragment: " + "; ".join(reasons)
-        )
-
-
-def check_stamp(fragment: dict) -> dict:
-    """Exit unless a fragment's `content_key` is the hash of the fragment as it stands after `patch_fragment`, and return the fragment. The stamp is taken at drafting (`unit_to_json`). It still holds after the patch because the parent's values for the scaffold keys inside the carry projection (`_STAMPED_SCAFFOLD_KEYS`) equal the worker's, and everything else the patch writes is outside the projection. A difference is a bug in the projection's exclusions or in the parent's workload. The write path checks the same thing more cheaply with `check_scaffold`; this full rehash runs on the verification sample (`_recompute_fragment`)."""
-    stamp = fragment.get("content_key")
-    recomputed = unit_cache.carry_content_hash(fragment)
-    if stamp != recomputed:
-        raise SystemExit(
-            f"unit {fragment.get('id')}: the content key stamped at drafting ({stamp}) is not the key of the "
-            f"fragment as written ({recomputed}); a field outside the carry projection moved between the two"
-        )
-    return fragment
-
-
-def unit_to_json(
-    enriched: EnrichedUnit,
-    drafter: Drafter,
-    full_configs=ACCEPTANCE_CONFIGS,
-    *,
-    final_class: str | None = None,
-    ink_deltas: Mapping[str, str] | None = None,
-) -> dict:
-    """Return the shard fragment for one enriched unit as phase 1 drafts it, while its batch's shapes are still in the shape memo. The fragment is first built without drafts, with `final_class` (the change group an UNMATCHED or re-routed unit is promoted to) as its class and `ink_deltas` as the comparator found them. It is then stamped: `content_key` is the hash of its carry projection, and the unit's id is `unit_cache.unit_id_for` of that key, written onto both the unit and the fragment so the primary-unit projection carries the final id. The drafts are added after the stamp.
-
-    The duplicate group, the cluster and the primary units of secondary junctions are placeholders here: `patch_fragment` overwrites them at the write, and all of them are outside the carry projection. The scaffold keys inside the projection (`_STAMPED_SCAFFOLD_KEYS`) already carry the parent's values, which `check_scaffold` checks at the write. Together these keep the stamp taken here valid for the written fragment. Nothing the drafter or the enricher produces may depend on the placeholders.
-
-    A slim unit (`audit.slim_fragment`: machine-approved or verdict-exempt) skips the drafter, whose pin draft replays a shaping per unit, and its fragment omits the `SLIM_OMITTED_KEYS` entirely (absent, not null), since no reviewer sees them. The machine flags and the exemption that decide slimness are both set before this runs: the flags by the comparator and oracle earlier in phase 1, the exemption by the ledger at load.
-    """
-    unit = enriched.unit
-    scaffold = unit_scaffold(unit, full_configs, ink_deltas=ink_deltas)
-    if final_class is not None:
-        scaffold["class"] = final_class
-    fragment = {
-        **{key: scaffold[key] for key in _SCAFFOLD_HEAD},
-        "text_entities": enriched.text_entities,
-        "notation": enriched.notation,
-        "notation_tokens": list(enriched.notation_tokens),
-        **{key: scaffold[key] for key in _SCAFFOLD_TAIL},
-        "before": {"glyphs": list(enriched.before_glyphs), "junctions": list(enriched.before_junctions)},
-        "after": {
-            "cells": list(enriched.after_cells),
-            "junctions": list(enriched.after_junctions),
-            "extensions": list(enriched.after_extensions),
-        },
-        "diff_positions": list(enriched.diff_positions),
-        "pair": {"left": enriched.pair[0], "right": enriched.pair[1]} if enriched.pair else None,
-        "pair_codepoints": list(enriched.pair_codepoints) if enriched.pair_codepoints else None,
-        "highlight": {"before": enriched.highlight_before, "after": enriched.highlight_after},
-        "boundary_marks": list(enriched.boundary_marks),
-        "secondary_junctions": [
-            {
-                "pair": {"left": junction.pair[0], "right": junction.pair[1]},
-                "before": junction.highlight_before,
-                "after": junction.highlight_after,
-                "primary_unit": junction.primary_unit,
-            }
-            for junction in enriched.secondary_junctions
-            if not junction.suppressed
-        ]
-        or None,
-        "summary": enriched.summary,
-        "explain": enriched.explain_text,
-        "provenance": list(enriched.provenance),
-        "drafts": None,
-        "content_key": None,
-    }
-    if unit.slim_fragment:
-        for key in SLIM_OMITTED_KEYS:
-            del fragment[key]
-    fragment["content_key"] = unit_cache.carry_content_hash(fragment)
-    unit.unit_id = fragment["id"] = unit_cache.unit_id_for(fragment["content_key"])
-    if not unit.slim_fragment:
-        pin = drafter.draft_pin(enriched)
-        policy = drafter.draft_policy(enriched)
-        any_of = drafter.draft_any_of(enriched)
-        fragment["drafts"] = {
-            "pin": pin.to_json(),
-            "policy": policy.to_json() if policy else None,
-            "any_of": any_of.to_json(),
-        }
-    return fragment
-
-
 def _copy_font(
     source: Path, out_dir: Path, name: str, family: str, repo_root: Path, expected_sha256: str
 ) -> dict:
@@ -668,7 +334,7 @@ def refresh_assets(out_dir: Path, repo_root: Path = REPO_ROOT) -> list[str]:
 def _write_json(path: Path, payload) -> None:
     """Write `payload` to `path` as indented ASCII JSON through a staging file that is renamed into place, streaming a non-empty list one element at a time.
 
-    The builds call it only for manifest.json, a dict that goes through `json.dumps` whole. Shards are written by `_ShardWriter`, which frames each fragment as the list path here frames an element, and the tests write shards through this function. Each list element is serialized inside a one-element list and the list's framing is stripped, so the C encoder writes the depth-1 indent (it handles `indent` for a one-shot dump on Python 3.14) and the bytes equal `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"`. Serializing a large list whole that way holds two full-size copies of the string at once, because the concatenation cannot resize the serialized string in place. `JSONEncoder.iterencode` would be simpler, but it uses the pure-Python encoder when it is not one-shot, which makes the write several times slower; stripping the framing adds under a third, a couple of seconds across the whole units directory.
+    The table-diff build calls it only for manifest.json, a dict that goes through `json.dumps` whole. Shards are written by `_write_shard`, which frames each fragment as the list path here frames an element, and the tests write shards through this function. Each list element is serialized inside a one-element list and the list's framing is stripped, so the C encoder writes the depth-1 indent (it handles `indent` for a one-shot dump on Python 3.14) and the bytes equal `json.dumps(payload, indent=1, ensure_ascii=True) + "\\n"`. Serializing a large list whole that way holds two full-size copies of the string at once, because the concatenation cannot resize the serialized string in place. `JSONEncoder.iterencode` would be simpler, but it uses the pure-Python encoder when it is not one-shot, which makes the write several times slower; stripping the framing adds under a third, a couple of seconds across the whole units directory.
 
     The staging file is needed because nothing downstream detects a half-written corpus file: a failed encode or a killed build must leave the previous file intact, not a truncated shard or an empty manifest.
     """
@@ -717,329 +383,62 @@ def _clone(source: Path, target: Path) -> bool:
 
 
 def _fragment_bytes(fragment: dict) -> bytes:
-    """Return a fragment's plain bytes as a shard part holds them (`_ShardWriter`): framed as `_write_json` frames a list element, without the comma before it. A part holding the fragment deflated holds these bytes through `unit_index.deflate_fragment`."""
+    """Return a fragment's plain bytes as a shard part holds them (`_write_shard`): framed as `_write_json` frames a list element, without the comma before it. A part holding the fragment deflated holds these bytes through `unit_index.deflate_fragment`."""
     return json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2].encode("ascii")
-
-
-class _ShardWriter:
-    """Write classes into byte-capped shard parts one fragment at a time, in the order the build passes them, by one of two routes. `open` a class, pass each fragment and receive its (part index, byte start, byte length), `close` the class to get the relative paths the manifest lists in part order with their total bytes, and `commit` once every class is written. Between calls it holds only the open file handle and the running byte count, so no shard is assembled in the writing process's memory.
-
-    Written directly (`open` without `append`), as a from-scratch build, a fold or a class the share rule routes writes it, the class's fragments go into base parts in the order passed, which is id order, cut by `unit_index.PartLayout` and named by `unit_index.base_part_names`: the bare `units/<class-id>.json` for a class that fits one part, which keeps the small classes, the checked-in fixtures and the archived corpora as they were, and `units/<class-id>.000.json` onward for a larger one. The cap, `SHARD_PART_BYTES`, is for the browser, whose range reads never cross a part (`unit_index.SHARD_PART_BYTES` says why), and every part stays within it except a part holding a single fragment that alone exceeds it. Each fragment is framed as `_write_json` frames a list element, so a part of plain fragments equals `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"`.
-
-    Each fragment is written plain or deflated (#618's change 35), as `open`'s `deflate` says for the class: plain for a first base, a from-scratch build's or a class with no parts in the previous corpus, and deflated (`unit_index.deflate_fragment`) for a class the build already has parts for, appended to, folded or written directly by the share rule. `add_bytes` takes a fragment's plain bytes and deflates them when the class's writes deflate, or a fragment already deflated, read as it is stored from a deflated slot, which it writes as it was read, never deflated twice, or inflates for a first base. A deflated fragment keeps the framing, `[`, the comma before it and the part's closing bytes, and only its own bytes change, so the cap, the cut and the appends are over bytes on disk. Every span carries the fragment's inflated length, 0 for a plain one, which the unit store's address records (decision 76) and its sidecar rows mark (decision 77).
-
-    Appended to (`open` with `append` and the class's parts from the previous corpus), the class's parts stay as they are. A fragment whose bytes the previous corpus already holds, a cached fragment copied as it is or one whose new bytes equal its prior's, keeps its prior address (`keep`) and nothing is written. Every other fragment is appended (`add`, `add_bytes`) to the class's overflow parts, `units/<class-id>.x<NNN>.json` from `x000`, listed after the base parts, each cut by the same cap; its old slot, if it had one, is left dead, and the live-fragment iterator never reads it (`unit_index.LiveCorpus`). The last overflow part is cloned to its staging name (`_clone`, which writes no data, or a copy where the volume cannot clone), cut before its closing bytes and appended to, so an append writes only its own bytes; one it would take past the cap starts the next overflow part instead. Appends go in the order passed, id order within the class, so a pooled build lays them out as a serial one does.
-
-    The returned spans are byte addresses on disk, each with the fragment's inflated length. The review app's explain panel Range-fetches them, the unit store records them so the next build can read its cached units back, and the live-fragment iterator reads them. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value for a plain fragment and a raw deflate stream of one for a deflated fragment. Changing the `indent`, `ensure_ascii` or `separators` of the dump in `_fragment_bytes` breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
-
-    Every part this writer writes is staged under a `.partial` name and renamed only at `commit`, after the last class closes. The build reads its cached units out of the previous corpus's shards by address while it writes this one, so replacing shards class by class could change a file before a later class reads from it. Deferring the renames keeps the previous corpus intact until this one is fully written, and a failed encode or a killed build leaves the previous units in place; `abort` deletes the staging files. A part kept as it is stays in place under its name. The m1 write runs one writer per run of classes (`_write_run`), possibly in a worker process, so it does not commit: `take_pending` hands the parent the renames, which it makes once every run has written, and a staging name carries its class id, so writers over different classes never share one. `appended` counts the bytes appended to overflow parts, each fragment with its comma, `appended_inflated` the plain bytes those inflate to, and `deflated` the fragments written deflated by any route.
-    """
-
-    _CLOSING = unit_index.PART_CLOSING
-
-    def __init__(self, out_dir: Path) -> None:
-        self._out_dir = Path(out_dir)
-        self._units_dir = self._out_dir / "units"
-        self._units_dir.mkdir(parents=True, exist_ok=True)
-        self._pending: list[tuple[Path, Path]] = []
-        self._staged: list[Path] = []
-        self._class_id: str | None = None
-        self.appending = False
-        self.deflating = False
-        self._parts: list[str] = []
-        self._index: dict[str, int] = {}
-        self._layout = unit_index.PartLayout(SHARD_PART_BYTES)
-        self._handle: BinaryIO | None = None
-        self._open_index = -1
-        self._size = 0
-        self._next_overflow = 0
-        self._last_overflow: str | None = None
-        self.appended = 0
-        self.appended_inflated = 0
-        self.deflated = 0
-
-    def open(
-        self, class_id: str, prior_parts: Sequence[str] = (), *, append: bool = False, deflate: bool = False
-    ) -> None:
-        assert self._class_id is None, "close the open class first"
-        self._class_id = class_id
-        self.appending = append
-        self.deflating = deflate
-        self._parts = list(prior_parts) if append else []
-        self._index = {part: index for index, part in enumerate(self._parts)}
-        self._layout = unit_index.PartLayout(SHARD_PART_BYTES)
-        self._handle = None
-        self._open_index = -1
-        self._size = 0
-        overflow = [
-            (number, part)
-            for part in self._parts
-            if (number := unit_index.overflow_index(class_id, part)) is not None
-        ]
-        self._next_overflow = max((number for number, _part in overflow), default=-1) + 1
-        self._last_overflow = overflow[-1][1] if overflow else None
-
-    def holds(self, part: str) -> bool:
-        """Whether `part` is one of the open class's parts from the previous corpus, where a kept fragment can stay."""
-        return self.appending and part in self._index
-
-    def keep(self, source: unit_cache.PriorFragment) -> tuple[int, int, int, int]:
-        """Return the span of a fragment that stays where the previous corpus holds it, in one of the open class's parts (`holds`), with its inflated length when it is deflated, so it keeps its marker."""
-        return self._index[source.part], source.start, source.length, source.inflated
-
-    def _staging_base(self, index: int) -> Path:
-        return self._units_dir / f"{self._class_id}.{index:03d}.json.partial"
-
-    def _stage(self, path: Path) -> BinaryIO:
-        self._staged.append(path)
-        return path.open("wb")
-
-    def _end_open(self) -> None:
-        if self._handle is not None:
-            self._handle.write(self._CLOSING)
-            self._handle.close()
-            self._handle = None
-
-    def _add_direct(self, body: bytes) -> tuple[int, int, int]:
-        index, start, first = self._layout.place(len(body))
-        if first:
-            self._end_open()
-            self._handle = self._stage(self._staging_base(index))
-            self._handle.write(b"[")
-        else:
-            assert self._handle is not None
-            self._handle.write(b",")
-        self._handle.write(body)
-        return index, start, len(body)
-
-    def _open_overflow(self, length: int) -> None:
-        """Open the overflow part the next appended fragment goes to: the last one, cloned and cut before its closing bytes, while the fragment fits beside what it holds, else a new one."""
-        last = self._last_overflow
-        self._last_overflow = None
-        if last is not None:
-            size = (self._out_dir / last).stat().st_size - len(self._CLOSING)
-            if size + 1 + length + len(self._CLOSING) <= SHARD_PART_BYTES:
-                staging = self._out_dir / f"{last}.partial"
-                staging.unlink(missing_ok=True)
-                self._staged.append(staging)
-                if not _clone(self._out_dir / last, staging):
-                    shutil.copyfile(self._out_dir / last, staging)
-                handle = staging.open("r+b")
-                handle.seek(size)
-                if handle.read() != self._CLOSING:
-                    handle.close()
-                    raise ValueError(f"{last} does not end as a shard part ends")
-                handle.truncate(size)
-                handle.seek(size)
-                self._handle = handle
-                self._open_index = self._index[last]
-                self._size = size
-                return
-        name = unit_index.overflow_part_name(str(self._class_id), self._next_overflow)
-        self._next_overflow += 1
-        self._handle = self._stage(self._out_dir / f"{name}.partial")
-        self._handle.write(b"[")
-        self._open_index = len(self._parts)
-        self._parts.append(name)
-        self._size = 1
-
-    def _append(self, body: bytes) -> tuple[int, int, int]:
-        if self._handle is not None and self._size + 1 + len(body) + len(self._CLOSING) > SHARD_PART_BYTES:
-            self._end_open()
-        if self._handle is None:
-            self._open_overflow(len(body))
-        assert self._handle is not None
-        if self._size > 1:
-            self._handle.write(b",")
-            start = self._size + 1
-        else:
-            start = 1
-        self._handle.write(body)
-        self._size = start + len(body)
-        self.appended += len(body) + 1
-        return self._open_index, start, len(body)
-
-    def add_bytes(self, body: bytes, inflated: int = 0) -> tuple[int, int, int, int]:
-        """Write one fragment into the next base slot, or appended to the overflow parts, and return its span with its inflated length, 0 when it is written plain. `body` is the fragment's plain shard bytes, deflated here when the class's writes deflate, or with `inflated` its deflated bytes as a deflated slot stores them, `inflated` their plain length: written as they were read when the class's writes deflate, and inflated, checked, for a first base, which is plain throughout."""
-        if inflated and not self.deflating:
-            body, inflated = unit_index.inflate_fragment(body, inflated), 0
-        elif not inflated and self.deflating:
-            body, inflated = unit_index.deflate_fragment(body), len(body)
-        if self.appending:
-            index, start, length = self._append(body)
-            self.appended_inflated += (inflated or length) + 1
-        else:
-            index, start, length = self._add_direct(body)
-        if inflated:
-            self.deflated += 1
-        return index, start, length, inflated
-
-    def add(self, fragment: dict) -> tuple[int, int, int, int]:
-        return self.add_bytes(_fragment_bytes(fragment))
-
-    def close(self) -> tuple[list[str], int]:
-        """Close the open class and return its parts as the manifest lists them, base parts then overflow parts, with their total bytes."""
-        class_id = self._class_id
-        assert class_id is not None, "no class is open"
-        self._end_open()
-        if self.appending:
-            names = self._parts
-            total = 0
-            for name in names:
-                staging = self._out_dir / f"{name}.partial"
-                if staging in self._staged:
-                    self._pending.append((staging, self._out_dir / name))
-                    total += staging.stat().st_size
-                else:
-                    total += (self._out_dir / name).stat().st_size
-        else:
-            empty = not self._staged
-            sizes = self._layout.sizes()
-            names = unit_index.base_part_names(class_id, len(sizes))
-            if empty:
-                with self._stage(self._staging_base(0)) as handle:
-                    handle.write(b"[]\n")
-            for index, name in enumerate(names):
-                self._pending.append((self._staging_base(index), self._out_dir / name))
-            total = sum(sizes)
-        self._staged = []
-        self._class_id = None
-        self._parts = []
-        self._index = {}
-        return list(names), total
-
-    def commit(self) -> None:
-        for staging, target in self._pending:
-            staging.replace(target)
-        self._pending = []
-
-    def take_pending(self) -> list[tuple[Path, Path]]:
-        """Return the renames `commit` would make and forget them, so that the caller makes them and `abort` no longer deletes their staging files."""
-        pending, self._pending = self._pending, []
-        return pending
-
-    def abort(self) -> None:
-        if self._handle is not None:
-            self._handle.close()
-            self._handle = None
-        for path in self._staged:
-            path.unlink(missing_ok=True)
-        for staging, _target in self._pending:
-            staging.unlink(missing_ok=True)
-        self._staged = []
-        self._pending = []
-        self._class_id = None
 
 
 def _write_shard(
     out_dir: Path, class_id: str, fragments: list[dict]
 ) -> tuple[list[str], list[tuple[int, int, int]]]:
-    """Write one class's fragments, held as a list, directly as a first base, plain, and rename the parts into place at once. Returns the relative part paths in part order and, aligned with `fragments`, each fragment's (part index, byte start, byte length)."""
-    writer = _ShardWriter(out_dir)
-    try:
-        writer.open(class_id)
-        spans = [writer.add(fragment)[:3] for fragment in fragments]
-        parts, _total = writer.close()
-        writer.commit()
-        return parts, spans
-    finally:
-        writer.abort()
+    """Write one class's fragments, held as a list, as the parts a from-scratch build gives them, and return the relative part paths in part order and, aligned with `fragments`, each fragment's (part index, byte start, byte length). The fragments go into base parts plain, in the order passed, which is id order, cut by `unit_index.PartLayout` at `SHARD_PART_BYTES` and named by `unit_index.base_part_names`: the bare `units/<class-id>.json` for a class that fits one part, and `units/<class-id>.000.json` onward for a larger one. The cap is for the browser, whose range reads never cross a part (`unit_index.SHARD_PART_BYTES` says why), and every part stays within it except a part holding a single fragment that alone exceeds it. Each fragment is framed as `_fragment_bytes` frames it, so a part equals `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"`.
 
+    The returned spans are byte addresses on disk, which the review app's explain panel Range-fetches through the app sidecars. No punctuation falls inside a fragment's own bytes, and `ensure_ascii=True` makes the character count equal the byte offset, so `bytes[start:start + length]` is a standalone JSON value. Changing the `indent`, `ensure_ascii` or `separators` of the dump in `_fragment_bytes` breaks this without any error; `rebuild/test_app_index.py` slices every fragment back out to catch it.
 
-ARENA_PART = "arena"
-
-# The preset dictionary every recomputed fragment is deflated against (`_FragmentPacker`). It is a data file and not a module, so neither the unit store's stamp (`unit_cache.corpus_code_paths`) nor the manifest's (`fingerprint.review_code_paths`) hashes it: it cannot change a shard byte, so regenerating it (rebuild/tools/fragment_dictionary.py) forces no recompute.
-FRAGMENT_DICTIONARY = Path(__file__).resolve().parent / "fragment-dictionary.bin"
-
-
-class _FragmentPacker:
-    """Deflate one process's freshly drafted fragments for the parent's arena (`_FragmentArena`). `pack` takes a fragment's shard bytes (`_fragment_bytes`), the bytes a shard part holds and the write parses back, and compresses them alone at level 1 against the preset dictionary in the zlib framing, whose header carries the dictionary's Adler-32 and whose trailer carries the content's, so inflating with another dictionary, or from corrupted bytes, raises. A stream cut short or run on inflates without raising, so `_FragmentArena.read` also refuses a span whose stream does not end exactly where the span ends. One compressor is primed with the dictionary when the packer is made and copied for each fragment. A copy gives the bytes a compressor made with the dictionary for each fragment gives, at about 2.3 times the speed, because priming hashes the whole dictionary. A units worker makes one from the dictionary its `init` carries, and the serial path one from the arena's."""
-
-    def __init__(self, dictionary: bytes) -> None:
-        self._primed = zlib.compressobj(1, zdict=dictionary)
-
-    def pack(self, fragment: dict) -> tuple[bytes, int]:
-        """Return the fragment's shard bytes deflated, and the length of the shard bytes."""
-        body = _fragment_bytes(fragment)
-        deflater = self._primed.copy()
-        return deflater.compress(body) + deflater.flush(), len(body)
-
-
-class _FragmentArena:
-    """Hold the recomputed units' fragments from phase 1 to the write, each deflated alone (`_FragmentPacker`), end to end in one buffer. A fragment's final bytes and place in the shards depend on whole-corpus passes that run after drafting, so the write cannot take it as it is drafted; held deflated, it costs about a fifth of its shard bytes in the parent and nothing on disk. The parent adds each fragment as it loads the unit's projection (`_load_recomputed`) and records the address `add` returns, the fragment's span under the part name `ARENA_PART`, which names no file, as the unit's source in the unit store. The write reads each one back by that address (`read`), in shard order, which interleaves the units pool's batches. A pooled write's chunk carries an arena of its own that holds only the chunk's recomputed fragments (`gather`), so a write worker receives the fragments it writes and no others.
-
-    `dictionary` is the preset dictionary every packer and every inflate in one build uses. `build_m1` reads `FRAGMENT_DICTIONARY` once, and the runner hands those bytes to the units workers (their `init`) and to this arena, from which the serial path's packer and the write workers (their `shared`) take the same object, so a checkout that changes the file mid-build cannot split a build across two dictionaries. Nothing deflated with it outlives the build: the unit store records each fragment's shard address, and the next build reads a cached fragment from the shards.
-
-    `note` reports the arena's size and the ratio of the fragments' shard bytes to it on the units phase's line, so a dictionary gone stale against the fragment format shows there as a ratio falling toward the one a fragment reaches without a dictionary, about 2.5 to 1. `clear` frees the buffer once the write has read it.
+    Every part is staged under a `.partial` name and renamed into place once the last one is written, so a failed encode leaves the previous parts in place, and the staging files are deleted.
     """
+    out_dir = Path(out_dir)
+    units_dir = out_dir / "units"
+    units_dir.mkdir(parents=True, exist_ok=True)
+    layout = unit_index.PartLayout(SHARD_PART_BYTES)
+    staged: list[Path] = []
+    spans: list[tuple[int, int, int]] = []
+    handle: BinaryIO | None = None
+    try:
+        for fragment in fragments:
+            body = _fragment_bytes(fragment)
+            index, start, first = layout.place(len(body))
+            if first:
+                if handle is not None:
+                    handle.write(unit_index.PART_CLOSING)
+                    handle.close()
+                staged.append(units_dir / f"{class_id}.{index:03d}.json.partial")
+                handle = staged[-1].open("wb")
+                handle.write(b"[")
+            else:
+                assert handle is not None
+                handle.write(b",")
+            handle.write(body)
+            spans.append((index, start, len(body)))
+        if handle is not None:
+            handle.write(unit_index.PART_CLOSING)
+            handle.close()
+            handle = None
+        if not staged:
+            staged.append(units_dir / f"{class_id}.000.json.partial")
+            staged[-1].write_bytes(b"[]\n")
+        names = unit_index.base_part_names(class_id, len(layout.sizes()))
+        for staging, name in zip(staged, names, strict=True):
+            staging.replace(out_dir / name)
+        return names, spans
+    finally:
+        if handle is not None:
+            handle.close()
+        for staging in staged:
+            staging.unlink(missing_ok=True)
 
-    def __init__(self, dictionary: bytes) -> None:
-        self.dictionary = dictionary
-        self.count = 0
-        self._bytes = bytearray()
-        self._raw = 0
 
-    def __len__(self) -> int:
-        return len(self._bytes)
-
-    def add(self, packed: bytes, raw_length: int) -> Address:
-        """Append one deflated fragment, whose shard bytes are `raw_length` long, and return its address."""
-        start = len(self._bytes)
-        self._bytes += packed
-        self._raw += raw_length
-        self.count += 1
-        return ARENA_PART, start, len(packed)
-
-    def read(self, located: unit_cache.PriorFragment) -> dict:
-        """Return the fragment at `located`, an address `add` returned, inflated and parsed. Each read is checked against its address, as a prior fragment's is (`unit_cache.PriorFragmentReader.read`): the span must hold exactly one zlib stream under this arena's dictionary, ending where the span ends, and the fragment must be the unit with the stamp the address carries. Otherwise the read raises ValueError."""
-        inflater = zlib.decompressobj(zdict=self.dictionary)
-        try:
-            body = inflater.decompress(self._bytes[located.start : located.start + located.length])
-        except zlib.error as error:
-            raise self._refusal(located, f"it does not inflate ({error})") from None
-        if not inflater.eof or inflater.unused_data:
-            raise self._refusal(located, "its deflated stream does not end where the span ends")
-        fragment = json.loads(body)
-        if (
-            not isinstance(fragment, dict)
-            or fragment.get("id") != located.unit_id
-            or fragment.get("content_key") != located.content_key
-        ):
-            raise self._refusal(located, "it holds another unit or stamp")
-        return fragment
-
-    def _refusal(self, located: unit_cache.PriorFragment, why: str) -> ValueError:
-        return ValueError(
-            f"the arena's bytes {located.start}+{located.length} do not hold unit {located.unit_id}: {why}"
-        )
-
-    def gather(self, store: UnitStore) -> _FragmentArena:
-        """Return an arena over one write chunk's recomputed fragments. `store` is the chunk's gathered store (`UnitStore.gather`): each recomputed unit's fragment is copied into the new arena in the chunk's order, and its source in `store` is moved to its place there (`UnitStore.rebase_source`). The new arena shares this one's dictionary object, which the write pool sends each worker once (`_SharedPickler`), so a chunk carries only its fragments."""
-        gathered = _FragmentArena(self.dictionary)
-        for position in range(len(store)):
-            if store.flags(position).cached:
-                continue
-            source = store.source(position)
-            assert source is not None, position
-            store.rebase_source(position, len(gathered._bytes))
-            gathered._bytes += self._bytes[source.start : source.start + source.length]
-            gathered.count += 1
-        return gathered
-
-    def note(self) -> str:
-        """Return the arena's size and the ratio of its fragments' shard bytes to it, for the units phase's line."""
-        if not self._bytes:
-            return "arena empty"
-        return f"arena {len(self._bytes) / 1e9:.2f} GB, deflated {self._raw / len(self._bytes):.2f} to 1"
-
-    def sizes(self) -> tuple[int, int]:
-        """Return the debug tally's reading: the fragments held and the buffer's allocation."""
-        return self.count, sys.getsizeof(self._bytes)
-
-    def clear(self) -> None:
-        self._bytes = bytearray()
-        self.count = 0
-        self._raw = 0
+# The preset dictionary the review crate deflates every recomputed fragment against, whose bytes reach it beside the units init (`units_exec.write_init`). It is a data file and not a module, so neither the unit store's stamp (`unit_cache.corpus_code_paths`) nor the manifest's (`fingerprint.review_code_paths`) hashes it: it cannot change a shard byte, so regenerating it (rebuild/tools/fragment_dictionary.py) forces no recompute.
+FRAGMENT_DICTIONARY = Path(__file__).resolve().parent / "fragment-dictionary.bin"
 
 
 def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
@@ -1056,1189 +455,17 @@ def _prune_orphan_shards(out_dir: Path, manifest: dict) -> list[str]:
     return sorted(removed)
 
 
-def _cluster_id_from_repr(configs, class_id, diffs_repr: bytes) -> str:
-    """Return `_cluster_id` computed from the ink diffs' repr as bytes. The hash is fed in three pieces (the tuple's head, the diffs, the closing parenthesis), so the full key string is never built and the diffs' bytes can be freed once hashed. The hashed bytes equal `repr((tuple(configs), class_id, diffs))`, which `rebuild/test_unit_cache.py::test_cluster_id_from_repr_matches_the_tuple_recipe` checks."""
-    key = hashlib.sha1(f"({tuple(configs)!r}, {class_id!r}, ".encode())
-    key.update(diffs_repr)
-    key.update(b")")
-    return "c-" + key.hexdigest()[:8]
-
-
-def _cluster_id(configs, class_id, diffs) -> str:
-    """Return the cluster id the in-app review queue groups blank units by: the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster."""
-    return _cluster_id_from_repr(configs, class_id, repr(diffs).encode())
-
-
-@dataclass(frozen=True, slots=True)
-class _UnitProjection:
-    """The picklable phase-1 result a corpus worker returns per unit: what the parent's serial whole-corpus passes read and what the unit cache persists. It never includes the EnrichedUnit, which is freed when its batch ends; the fragment is drafted and deflated in the same step (`_FragmentPacker`), and `packed` carries it, with `raw_length` the length of its shard bytes, to the parent's arena (`_FragmentArena`). `ordinal` is the unit's row in the parent's unit store (`audit.Unit.ordinal`), so the parent loads the projection in without a lookup. `input_key` is the unit's cache key over its inputs, which the store records so the next build can reuse the unit by it. `unit_id` and `content_key` are the drafting's stamp. The ink diffs are sent only as two digests of their repr: `diffs_digest` is the duplicate-group key's diff component, and `cluster` is the blank-queue cluster id. The cluster is computed here because everything it depends on is known once the change group is assigned: the configs, the diffs, and the final class (the change group for an UNMATCHED or re-routed unit, else the ledger class). It is computed for machine-approved units too, because the store carries it forward and a cached unit can become a human unit through a ledger edit alone (its `no_verdict` flipping). `change_group` is that group, or empty for a unit that keeps its ledger class, and `ledger_class` is the `ink_identical` class a re-routed unit was taken from, or empty. Sending digests keeps the parent from holding each unit's diffs repr, which is as long as the diffs, through the units phase."""
-
-    unit_id: str
-    input_key: str
-    content_key: str
-    ink_identical: bool
-    picture_identical: bool
-    junior_equivalent: bool
-    ink_deltas: tuple[tuple[str, str], ...]
-    diffs_digest: str
-    cluster: str
-    change_group: str
-    ledger_class: str
-    pair_codepoints: tuple[int, int] | None
-    primary_unit_projection: PrimaryUnitProjection
-    junction_rects: tuple[tuple[tuple[int, int], dict, dict], ...]
-    mismatches: tuple[str, ...]
-    ordinal: int = -1
-    packed: bytes = b""
-    raw_length: int = 0
-
-
-class _PackedProjection(RecomputedProjection, Protocol):
-    """A recomputed projection with its deflated fragment and that fragment's shard length, as `_load_recomputed` reads it: a Python worker's `_UnitProjection` or the Rust engine's `units_exec.RustProjection`."""
-
-    @property
-    def packed(self) -> bytes: ...
-    @property
-    def raw_length(self) -> int: ...
-
-
 def _config_fold(before_font: Path, after_font: Path) -> ConfigFold:
-    """Derive, over the two fonts, which of the configurations a unit can hold (`audit.ACCEPTANCE_CONFIGS`) take `default`'s shapes for a window that holds none of their trigger letters (`feature_reach.derive_fold`), and print the line that names them and every configuration shaped in every window, with the check it failed. The runner derives it once, in the parent, and hands it to every worker."""
+    """Derive, over the two fonts, which of the configurations a unit can hold (`audit.ACCEPTANCE_CONFIGS`) take `default`'s shapes for a window that holds none of their trigger letters (`feature_reach.derive_fold`), and print the line that names them and every configuration shaped in every window, with the check it failed. The build derives it once and hands it to the crate in the units init (`units_exec.write_init`)."""
     fold = derive_fold((before_font, after_font), ACCEPTANCE_CONFIGS)
     console.say(f"review.build units: {fold.note()}", file=sys.stderr)
     return fold
 
 
-def _ink_readings(comparator, fold: ConfigFold, text: str, configs: tuple[str, ...]) -> tuple[tuple, bool]:
-    """Return a unit's ink diffs, one per configuration of `configs` in its order, and its `ink_identical` flag. Each configuration is compared under its effective one (`ConfigFold.effective`), `default` for a configuration whose features cannot fire on `text` inside a unit that also holds `default`, since both fonts shape `text` under it as under `default`. So `config_diff` runs once for each distinct effective configuration and its diff goes to every configuration that maps to it, and `ink_identical` reads the distinct effective configurations, which give the answer every configuration gives."""
-    effective = fold.effective(configs, text)
-    compared = tuple(dict.fromkeys(effective))
-    diffs = {config: comparator.config_diff(text, config) for config in compared}
-    return tuple(diffs[config] for config in effective), comparator.ink_identical(text, compared)
-
-
-def _phase1_unit(
-    unit,
-    comparator,
-    oracle,
-    enricher,
-    drafter: Drafter,
-    report,
-    identical_classes: Collection[str],
-    fold: ConfigFold,
-    packer: _FragmentPacker | None = None,
-) -> tuple[_UnitProjection, dict, list[str]]:
-    """Do one unit's per-unit work: the ink flags and deltas, read under each configuration's effective one (`_ink_readings` with `fold`), the enrichment, the change group (`change_groups.assign_change_group`) of an UNMATCHED unit or of a unit `change_groups.reroutes` moves out of an `ink_identical` class (`identical_classes`), the drafted fragment (`unit_to_json`), and the drafting-time contract check over it (`check_unit` at `DRAFTED`). A re-routed unit records its ledger class (`Unit.ledger_class`) and drops the exemplar flag its ledger entry gave it, since the change group lists it for what it shows. Returns the projection the parent's whole-corpus passes read, the fragment, and the check's errors, which the caller passes to the write so the build fails there in the same list as the write-time check. With a `packer`, the fragment is deflated as it is drafted and put on the projection; the verification sample passes none and patches the fragment it holds. The deltas go onto the fragment and the projection, never onto the unit, whose `ink_deltas` stays the shared empty mapping in every process. The check runs in whichever process drafts, so the pooled and serial paths check the same way. Drafting here, before the parent's whole-corpus passes, keeps the batch's shapes in the memo for the drafter's replay."""
-    text = "".join(chr(value) for value in unit.codepoint_values)
-    diffs, unit.ink_identical = _ink_readings(comparator, fold, text, unit.configs)
-    unit.picture_identical = not unit.ink_identical and all(diff == IDENTITY_DIFF for diff in diffs)
-    unit.junior_equivalent = not (unit.ink_identical or unit.picture_identical) and oracle.approves(
-        unit.configs, text
-    )
-    ink_deltas = {
-        config: delta_digest(diff) for config, diff in zip(unit.configs, diffs) if diff != IDENTITY_DIFF
-    }
-    rerouted = reroutes(unit.class_id, unit.no_verdict, unit.machine_approved, identical_classes)
-    unit.ledger_class = unit.class_id if rerouted else ""
-    if rerouted:
-        unit.exemplar = False
-    mismatch_mark = len(enricher.mismatches)
-    enriched = enricher.enrich(unit, report)
-    change_group = (
-        assign_change_group(enriched, ink_deltas, identical_classes)
-        if rerouted or unit.class_id == UNMATCHED_CLASS
-        else ""
-    )
-    diffs_repr = repr(diffs).encode()
-    fragment = unit_to_json(enriched, drafter, final_class=change_group or None, ink_deltas=ink_deltas)
-    packed, raw_length = packer.pack(fragment) if packer is not None else (b"", 0)
-    projection = _UnitProjection(
-        unit_id=unit.unit_id,
-        input_key=unit.input_key,
-        content_key=fragment["content_key"],
-        ink_identical=unit.ink_identical,
-        picture_identical=unit.picture_identical,
-        junior_equivalent=unit.junior_equivalent,
-        ink_deltas=tuple(ink_deltas.items()),
-        diffs_digest=hashlib.sha1(diffs_repr).hexdigest(),
-        cluster=_cluster_id_from_repr(unit.configs, change_group or unit.class_id, diffs_repr),
-        change_group=change_group,
-        ledger_class=unit.ledger_class,
-        pair_codepoints=enriched.pair_codepoints,
-        primary_unit_projection=primary_unit_projection(enriched),
-        junction_rects=tuple(
-            (junction.pair, junction.highlight_before, junction.highlight_after)
-            for junction in enriched.secondary_junctions
-        ),
-        mismatches=tuple(enricher.mismatches[mismatch_mark:]),
-        ordinal=unit.ordinal,
-        packed=packed,
-        raw_length=raw_length,
-    )
-    return projection, fragment, check_unit(fragment, at=(DRAFTED,))
-
-
-def _junction_records(junction_rects) -> list[dict]:
-    """Return a projection's secondary-junction rects in the shape `patch_fragment` reads, which is also the shape the store persists, so recomputed and cached units are patched through one code path."""
-    return [{"pair": list(pair), "before": before, "after": after} for pair, before, after in junction_rects]
-
-
-def _recompute_fragment(
-    unit,
-    injection,
-    comparator,
-    oracle,
-    enricher,
-    drafter: Drafter,
-    report,
-    identical_classes: Collection[str],
-    fold: ConfigFold,
-) -> tuple[str, tuple[tuple[str, str], ...]]:
-    """Recompute one sampled cached unit from nothing and patch it as the write patches a recomputed fragment. The parent's global fields (duplicate group, cluster, promoted class, primary units) are injected onto the unit copy first, because the copy was taken before the whole-corpus passes ran. `report` is the unit's result from its chunk's single `Enricher.explain_units` pass (`_released_batches`), settled from the unit's own codepoints and configuration and not read from the cache. Passing it in avoids settling each sampled unit on its own, which would cost one `settle-cases` process per position. `identical_classes` are the ledger's `ink_identical` ids, so phase 1 re-routes the unit as the build's own phase 1 does, and `fold` is the build's own `ConfigFold`. Returns the recomputed content key and ink deltas, which the caller compares with what the cache supplied; the id follows from the key."""
-    projection, fragment, _errors = _phase1_unit(
-        unit, comparator, oracle, enricher, drafter, report, identical_classes, fold
-    )
-    unit.duplicate_group, unit.cluster, unit.class_id, junction_assign = injection
-    check_stamp(
-        patch_fragment(
-            fragment,
-            unit,
-            _junction_records(projection.junction_rects),
-            junction_assign,
-            ink_deltas=dict(projection.ink_deltas),
-        )
-    )
-    return fragment["content_key"], projection.ink_deltas
-
-
-def _phase1_batches(enricher: Enricher, units):
-    """Yield phase 1's unit batches and release the shared shape memo (`ink.release_shape_memos`) after each one. The batches are the enricher's settlement batches (`Enricher.explain_unit_batches`). The comparator, the oracle, the enricher and the drafter's semantics replay share each (text, config) shaping within a batch, so a process holds one batch's shapes at a time instead of everything it has shaped. The pool worker and the in-process runner both iterate this, so the bound holds on both paths."""
-    for unit_batch, reports in enricher.explain_unit_batches(units):
-        yield unit_batch, reports
-        release_shape_memos()
-
-
-def _released_batches(items):
-    """Yield the verification sample's items in chunks of `EXPLAIN_UNIT_BATCH_SIZE` and release the shape memo after each one. Each chunk is also the settlement batch its units are explained in: one `Enricher.explain_units` pass, matched back to the units by position. Using the enricher's batch width keeps one memo bound for the whole build. This is separate from `_phase1_batches` because the pooled sample's items are `(unit, injection)` pairs. `CORPUS_WORKER_BYTES` assumes the release at this boundary."""
-    for chunk in batched(items, EXPLAIN_UNIT_BATCH_SIZE):
-        yield chunk
-        release_shape_memos()
-
-
+# The build's constants the review crate reads through the build input's vocabulary (`corpus_exec.VOCABULARY`): the most cached units the verification sample recomputes and compares, the key-only read's window ranges of the audit, each walked on a thread of its own, and the most recomputed units the units phase hands a thread at a time, the enricher's settlement batch width, so a thread holds one batch of units and of projections with their deflated fragments.
 VERIFICATION_SAMPLE = 200
-
-
-def _verification_sample(cached: Sequence[int], seed: str, size: int = VERIFICATION_SAMPLE) -> list[int]:
-    """Return the id words (`UnitStore.id_word`) of the cached units this build recomputes from nothing and compares with what the cache supplied. `cached` is the cached units' id words in ascending order, which is the ids' own order. The draw is seeded with the store's environment stamp, a digest of the inputs, so a failure reproduces on a rerun of the same build. Sampling checks a couple of hundred windows on every build, at a cost in the tenths of a second, where a full from-scratch comparison would run only once a cycle."""
-    if not cached:
-        return []
-    return random.Random(seed).sample(cached, min(size, len(cached)))
-
-
-# Below this many misses, pool startup (spawn plus two font loads per worker) costs more than it saves against a serial pass through the parent's shared shapers.
-_SIGNATURE_POOL_THRESHOLD = 20_000
-
-_signature_worker_state: dict = {}
-
-
-def _signature_pool_init(before_font: Path, after_font: Path) -> None:
-    _signature_worker_state["comparator"] = InkComparator(before_font, after_font)
-    _signature_worker_state["label"] = multiprocessing.current_process().name
-
-
-def _signature_chunk_digests(pairs: Sequence[tuple[str, str]]) -> tuple[list[str], str, int]:
-    """Shape one chunk of the misses through this worker's comparator, in order, and return the digests with the worker's label and its peak RSS so far. The peak is returned with the result because a `multiprocessing.Pool` has no other channel for it (`run_m1_gates.run_oracle` does the same for its shards). The parent keeps the maximum per label, so the record `_record_signature_pool` writes covers each worker's whole life."""
-    comparator = _signature_worker_state["comparator"]
-    digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
-    return digests, _signature_worker_state["label"], peak_rss_self_bytes()
-
-
-def _record_signature_pool(width: int, peaks: dict[str, int]) -> None:
-    """Write one kind:"pool" record for a finished signature pool under its own unit name, so `make job-costs` reports what a signature worker held beside the corpus worker's figure. It is an observation only: no constant divides memory by it, because the width is bound by cores (`artifact_cycle.signature_job_budget`) and a worker's resident set, one comparator over two fonts, does not grow with the number of signatures. It never raises, for the same reason as `_record_corpus_pool`, and a serial pass writes nothing."""
-    if not peaks:
-        return
-    record_pool("signature", width=width, worker_peaks=peaks, controller_peak_bytes=peak_rss_self_bytes())
-
-
-def signature_text(window: str) -> str:
-    """Return the text a window's ink signature is taken over: the window's codepoints as characters. `unit_cache.SIGNATURE_STORE_FORMAT` names this derivation and rebuild/test_review_audit.py checks the two together, so a change here that changes a text needs a format bump."""
-    return "".join(chr(value) for value in parse_codepoints(window))
-
-
-def _shape_misses(
-    pairs: Sequence[tuple[str, str]], before_font: Path, after_font: Path, signature_jobs: int
-) -> tuple[list[str], int]:
-    """Shape the misses' signatures, one `(text, config)` pair a miss, and return their digests in miss order with the width they were shaped at. They are shaped across a spawn pool when `signature_jobs` is above 1 and there are at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially through the parent's shared shapers, whose memo is then released so the parent keeps no shape from this pass into the units phase. The pool width is `signature_jobs`, separate from the units runner's `jobs`: a signature worker holds one comparator over the two fonts, its memory does not grow with the misses, and it is CPU-bound, so cores set its width (`artifact_cycle.signature_job_budget`). The pool maps about eight chunks per worker instead of single pairs so each reply can carry its worker's peak, and `pool.map` keeps the chunks in miss order, which makes the pooled result byte-identical to the serial one."""
-    if not pairs:
-        return [], 1
-    if signature_jobs > 1 and len(pairs) >= _SIGNATURE_POOL_THRESHOLD:
-        ctx = multiprocessing.get_context("spawn")
-        width = min(signature_jobs, len(pairs))
-        chunk_width = max(1, len(pairs) // (width * 8))
-        with ctx.Pool(width, initializer=_signature_pool_init, initargs=(before_font, after_font)) as pool:
-            chunks = pool.map(_signature_chunk_digests, batched(pairs, chunk_width), chunksize=1)
-        peaks: dict[str, int] = {}
-        for _chunk, label, peak in chunks:
-            peaks[label] = max(peaks.get(label, 0), peak)
-        _record_signature_pool(width, peaks)
-        return list(chain.from_iterable(chunk for chunk, _label, _peak in chunks)), width
-    comparator = InkComparator(before_font, after_font, shaper_for)
-    digests = [signature_digest(comparator.signature(text, config)) for text, config in pairs]
-    release_shape_memos()
-    return digests, 1
-
-
-def _resolve_signature_digests(
-    table: UnitTable,
-    rows: RowColumns,
-    keyer: unit_cache.UnitKeyer,
-    signatures: unit_cache.SignatureArrays,
-    before_font: Path,
-    after_font: Path,
-    signature_jobs: int,
-) -> tuple[dict[tuple[str, str], bytes], int, int]:
-    """The in-memory source's signature resolution: key every row of `signature_rows(table, rows)` (`UnitKeyer.signature_keys`), find each key's digest in the prior store's columns, marking it hit, and shape the rest (`_shape_misses`) into the columns' misses. Return the digests keyed by (codepoints, config), which only this source's merge reads, the number of rows shaped, and the width they were shaped at (1 for a serial pass or when nothing was shaped). The stream keys and looks up each window's rows as it reads them instead, and builds no such table."""
-    found: dict[tuple[str, str], bytes] = {}
-    miss_keys = array("Q")
-    misses = array("I")
-    windows: list[str] = []
-    for view, key in keyer.signature_keys(signature_rows(table, rows)):
-        word = int(key, 16)
-        position = signatures.prior_index(word)
-        if position < 0:
-            misses.append(view.row)
-            windows.append(view.codepoints)
-            miss_keys.append(word)
-        else:
-            signatures.mark_hit(position)
-            found[(view.codepoints, view.config)] = bytes(
-                signatures.digests[position * 32 : position * 32 + 32]
-            )
-    config_at = rows.config_at
-    pairs: list[tuple[str, str]] = []
-    last_window = None
-    text = ""
-    for window, index in zip(windows, misses):
-        if window != last_window:
-            text = signature_text(window)
-            last_window = window
-        pairs.append((text, config_at(index)))
-    digests, width = _shape_misses(pairs, before_font, after_font, signature_jobs)
-    del pairs
-    signatures.set_misses(miss_keys, digests)
-    for window, index, digest in zip(windows, misses, digests):
-        found[(window, config_at(index))] = bytes.fromhex(digest)
-    return found, len(misses), width
-
-
-# The key-only read's processes: each walks one window range of the audit in lockstep (`audit_stream.main`), a range of about a sixth of the largest section's bytes. Each holds its job, the prior store's keys and one window, and all six have exited before the stream reads its first window, so they sit inside the corpus parent's step and no memory constant books them.
 KEY_ONLY_PROCESSES = 6
-
-
-@dataclass
-class _KeyOnly:
-    """What the key-only read found: whether it ran (False when the store's stamps held), its seconds and processes, the misses' keys, sections and windows in window order, the reason to read the audit through the in-memory source instead (`broken`), and the highest resident peak a process reported, which the load phase's note prints (`_key_only_note`). A build that falls back on a break drops it before that source loads."""
-
-    ran: bool
-    seconds: float = 0.0
-    processes: int = 0
-    keys: array = field(default_factory=lambda: array("Q"))
-    sections: array = field(default_factory=lambda: array("B"))
-    windows: list[str] = field(default_factory=list)
-    broken: str = ""
-    peak: int = 0
-
-
-def _read_replies(stream: BinaryIO, replies: list[dict]) -> None:
-    with stream:
-        for line in stream:
-            replies.append(json.loads(line))
-
-
-def _key_only_read(
-    descriptors: Sequence[int],
-    sections: Sequence[audit_stream.Section],
-    family_of: Mapping[int, str],
-    family_keys: Mapping[str, str],
-    signatures: unit_cache.SignatureArrays,
-) -> _KeyOnly:
-    """Run the key-only read: split the audit's windows into `KEY_ONLY_PROCESSES` ranges (`audit_stream.window_ranges`) and run one process of `audit_stream` a range, each a subprocess of that standard-library module, not a spawn worker, so it imports nothing of the build's. Each is handed every held descriptor of the audit's parts (`pass_fds`), its window range across all of them, the sections with what a cursor needs to inflate a section held as a gzip member (`audit_stream.Section.inflated`), the family keys and the prior store's keys, and replies with the prior entries it hit and the misses it found, a frame at a time, each flushed at the first window end after its rows' estimated size reaches `audit_stream.FRAME_BYTES`, so a frame holds at most that plus one window's rows, read by a thread a process. The hits are marked in `signatures` and the misses returned in window order. A range that broke the sections' layout returns the reason, and the build then reads the audit through its in-memory source; a member that does not inflate to what its index records is a `failed` reply, which this raises as `audit_stream.MemberError` naming the section's configuration; any other failure of a process raises."""
-    started = time.perf_counter()
-    ranges = audit_stream.window_ranges(descriptors, sections, KEY_ONLY_PROCESSES)
-    found = _KeyOnly(True, processes=len(ranges))
-    processes: list[subprocess.Popen] = []
-    readers: list[threading.Thread] = []
-    replies: list[list[dict]] = []
-    prior = memoryview(signatures.keys).cast("B")
-    try:
-        for low, high in ranges:
-            process = subprocess.Popen(
-                [sys.executable, "-m", audit_stream.__name__],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                pass_fds=tuple(descriptors),
-                cwd=REPO_ROOT,
-            )
-            processes.append(process)
-            got: list[dict] = []
-            replies.append(got)
-            assert process.stdout is not None
-            reader = threading.Thread(target=_read_replies, args=(process.stdout, got), daemon=True)
-            reader.start()
-            readers.append(reader)
-        for process, (low, high) in zip(processes, ranges):
-            assert process.stdin is not None
-            job = {
-                "descriptors": list(descriptors),
-                "sections": [list(section) for section in sections],
-                "low": low,
-                "high": high,
-                "family_of": {str(value): name for value, name in family_of.items()},
-                "family_keys": dict(family_keys),
-                "prior": len(signatures.keys),
-            }
-            with process.stdin:
-                process.stdin.write(json.dumps(job).encode() + b"\n")
-                for at in range(0, len(prior), audit_stream.READ_BYTES):
-                    process.stdin.write(prior[at : at + audit_stream.READ_BYTES])
-        for reader in readers:
-            reader.join()
-        for process, got in zip(processes, replies):
-            if process.wait() != 0:
-                for reply in got:
-                    if "failed" in reply:
-                        raise audit_stream.MemberError(reply["failed"])
-                raise SystemExit(f"a key-only read process exited {process.returncode}")
-    except BaseException:
-        for process in processes:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
-        raise
-    finally:
-        prior.release()
-    for got in replies:
-        for reply in got:
-            if "hits" in reply:
-                for position in reply["hits"]:
-                    signatures.mark_hit(position)
-            elif "misses" in reply:
-                for key, section, window in reply["misses"]:
-                    found.keys.append(key)
-                    found.sections.append(section)
-                    found.windows.append(window)
-            elif "break" in reply and not found.broken:
-                found.broken = reply["break"]
-            elif "done" in reply:
-                found.peak = max(found.peak, maxrss_to_bytes(reply["done"]["maxrss"]))
-    found.seconds = time.perf_counter() - started
-    return found
-
-
-def _find_misses(
-    descriptors: Sequence[int],
-    sections: Sequence[audit_stream.Section],
-    signatures: unit_cache.SignatureArrays,
-    family_of: Mapping[int, str],
-    family_keys: Mapping[str, str],
-    stamps: Mapping[str, object],
-) -> _KeyOnly | None:
-    """Find every miss before the stream's full read: skip the key-only read when the store's stamps hold (`SignatureArrays.stamps_hold`), since no key can then miss, and otherwise run it (`_key_only_read`). None tells the stream to skip the ink-duplicate merge and the signatures with it, which the memory series' load lines substitute in (`memory_series_child.substitute_for_load`)."""
-    identity = stamps[unit_cache.AUDIT_IDENTITY_KEY]
-    digest = stamps[unit_cache.FAMILY_KEYS_KEY]
-    if signatures.stamps_hold(identity, digest):  # pyright: ignore[reportArgumentType]
-        return _KeyOnly(False)
-    return _key_only_read(descriptors, sections, family_of, family_keys, signatures)
-
-
-def _shape_found_misses(
-    key_only: _KeyOnly,
-    sections: Sequence[audit_stream.Section],
-    signatures: unit_cache.SignatureArrays,
-    before_font: Path,
-    after_font: Path,
-    signature_jobs: int,
-) -> tuple[int, int]:
-    """Shape the key-only read's misses (`_shape_misses`) into the store's columns, in miss order, which is window order, and drop the read's list of them; return how many were shaped and at what width."""
-    pairs: list[tuple[str, str]] = []
-    last_window = None
-    text = ""
-    for window, section in zip(key_only.windows, key_only.sections):
-        if window != last_window:
-            text = signature_text(window)
-            last_window = window
-        pairs.append((text, sections[section].config))
-    digests, width = _shape_misses(pairs, before_font, after_font, signature_jobs)
-    del pairs
-    signatures.set_misses(key_only.keys, digests)
-    shaped = len(key_only.keys)
-    key_only.keys = array("Q")
-    key_only.sections = array("B")
-    key_only.windows = []
-    return shaped, width
-
-
-class _LateShaper:
-    """The stream's digest lookup (`audit.stream_workload`'s `ink_digest`): a key's digest from the store's columns, or, for a key neither the prior store nor the key-only read's misses hold, which only a wrong skip of that read gives, the digest shaped now in the parent through the shared shapers, as the serial path shapes one, and kept as a late miss (`SignatureArrays.add_late`), so the store is written. The shape memo is released after each late shape, since the stream never asks for one (window, configuration) twice, so a wrong skip that misses every sibling row holds one signature's shapes at a time, not the memo of every row."""
-
-    def __init__(self, signatures: unit_cache.SignatureArrays, before_font: Path, after_font: Path) -> None:
-        self._signatures = signatures
-        self._fonts = (before_font, after_font)
-        self._comparator: InkComparator | None = None
-        self.shaped = 0
-
-    def __call__(self, key: int, window: str, config: str) -> bytes:
-        digest = self._signatures.digest_of(key)
-        if digest is not None:
-            return digest
-        if self._comparator is None:
-            self._comparator = InkComparator(*self._fonts, shaper_for)
-        digest = bytes.fromhex(signature_digest(self._comparator.signature(signature_text(window), config)))
-        release_shape_memos()
-        self._signatures.add_late(key, digest)
-        self.shaped += 1
-        return digest
-
-    def release(self) -> None:
-        self._comparator = None
-
-
-class _SignatureWrite:
-    """Write the ink-signature store on a background thread during a pooled build's units phase, joined in the cache phase. The columns are final once the load returns, and the store's stamp (`unit_cache.signature_environment`) reads neither the manifest nor the check, so the write depends on nothing later phases produce. `_write` drops the columns as soon as `unit_cache.write_signature_arrays` returns, and `build_m1` deletes its own reference right after starting the thread, so they are freed with the write instead of staying through the units-to-cache stretch of the step that `CORPUS_PARENT_BYTES` covers. A failed write also drops them, but the stored exception's traceback keeps the write's frames, and the columns with them, until `join` re-raises it; that only happens on a failing build.
-
-    The overlap costs nothing because zlib releases the GIL and a pooled build's parent spends the units phase waiting on its workers' replies (`multiprocessing.connection.wait` for the Python workers, a read of the engine's output for the Rust engine), waking only to load a batch reply and hand out the next batch. Starting the thread earlier, when the columns become final, would make the line formatting (which holds the GIL) compete with the end of the load and the plan phase. A serial build has no idle parent, so it writes inline at the same point. A build whose store would come out the same (`SignatureArrays.unchanged`) starts no thread and writes nothing. The thread is a daemon and is joined only on the success path, so an exception abandons the write instead of waiting for it; a failed write raises at the join. The runner and the signature pool start processes with spawn, not fork, so a live thread at process creation is safe; moving any of this to a fork context would have to account for the thread.
-    """
-
-    def __init__(
-        self,
-        out_dir: Path,
-        environment: fingerprint.EnvironmentStamp | str,
-        signatures: unit_cache.SignatureArrays,
-        stamps: Mapping[str, object] | None = None,
-    ) -> None:
-        self._out_dir = out_dir
-        self._environment = environment
-        self._signatures: unit_cache.SignatureArrays | None = signatures
-        self._stamps = stamps
-        self._error: BaseException | None = None
-        self._thread = threading.Thread(target=self._write, name="ink-signature-store", daemon=True)
-        self._thread.start()
-
-    def _write(self) -> None:
-        try:
-            assert self._signatures is not None
-            unit_cache.write_signature_arrays(
-                self._out_dir, self._environment, self._signatures, self._stamps
-            )
-        except BaseException as error:
-            self._error = error
-        finally:
-            self._signatures = None
-
-    def join(self) -> None:
-        self._thread.join()
-        if self._error is not None:
-            raise self._error
-
-
-def _corpus_worker(conn, init: dict) -> None:
-    """Run one persistent corpus worker, answering the parent's messages on `conn` until `stop`. Workers are started with spawn only, because uharfbuzz and fontTools C objects are not fork-safe and `drafts._import_test_shaping` sets a module-global singleton.
-
-    A `phase1` message carries one batch of units from the parent's queue and the worker's name, which names its tally boundaries. For each unit the worker reads the ink (`_ink_readings`, under the `ConfigFold` the parent derived and `init` carries) and runs enrichment, drafting and the drafting-time contract check, releasing the shape memo after each settlement batch (`_phase1_batches`). It deflates each fragment as it is drafted (`_FragmentPacker`, made once from the preset dictionary `init` carries), so no EnrichedUnit outlives its batch. It replies `batch` with the batch's projections, each carrying its deflated fragment and the unit's ordinal, and the check's errors (`check_unit` at `DRAFTED`, capped at `CONTRACT_ERRORS_SHOWN`), and keeps nothing after the reply, so it holds one batch's units and projections at a time. `phase1-done` replies `ok`, which tells the parent the worker has drafted its last batch. `verify` recomputes phase 1 and the patch for cached units, which this worker never enriched, and replies with each one's content key and freshly computed ink deltas. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`).
-
-    Each `batch` reply is sent as its batch finishes, so the parent can print progress while the pool is still working. `verify` sends no progress, since it covers only a couple of hundred units.
-    """
-    try:
-        comparator = InkComparator(init["before_font"], init["after_font"], shaper_for)
-        oracle = JuniorOracle(init["junior_font"], init["before_font"], init["after_font"], shaper_for)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            spec = load_spec(init["spec_root"])
-        enricher = Enricher(
-            spec,
-            init["subset_dir"],
-            init["after_font"],
-            repo_root=init["repo_root"],
-            before_font=init["before_font"],
-            shaper_factory=shaper_for,
-            subset_pack=init["subset_pack"],
-        )
-        drafter = Drafter(
-            init["after_font"],
-            corpus_index=init["corpus_index"],
-            repo_root=init["repo_root"],
-            shaper_factory=shaper_for,
-        )
-        tally = memory_tally.from_environment()
-        if tally:
-            tally.hold_reading("worker.subset_pack", enricher.subset_pack_sizes)
-            tally.hold_reading("ink.shape_memo", shape_memo_sizes)
-        packer = _FragmentPacker(init["dictionary"])
-        batches = 0
-        while True:
-            message = conn.recv()
-            if message[0] == "stop":
-                conn.send(("peak", peak_footprint_self_bytes()))
-                return
-            if message[0] == "phase1":
-                batches += 1
-                results: list[_UnitProjection] = []
-                contract_errors: list[str] = []
-                for unit_batch, reports in _phase1_batches(enricher, message[1]):
-                    for unit, report in zip(unit_batch, reports):
-                        projection, _fragment, errors = _phase1_unit(
-                            unit,
-                            comparator,
-                            oracle,
-                            enricher,
-                            drafter,
-                            report,
-                            init["identical_classes"],
-                            init["fold"],
-                            packer,
-                        )
-                        results.append(projection)
-                        _keep_contract_errors(contract_errors, errors)
-                if tally:
-                    tally.hold("worker.projections", results)
-                    tally.boundary(f"{message[2]}/phase1-{batches}")
-                conn.send(("batch", results, contract_errors))
-                if tally:
-                    tally.release("worker.projections")
-                del message, results, contract_errors
-            elif message[0] == "phase1-done":
-                conn.send(("ok",))
-            elif message[0] == "verify":
-                keys: dict[str, tuple] = {}
-                for chunk in _released_batches(message[1]):
-                    reports = enricher.explain_units([unit for unit, _injection in chunk])
-                    for (unit, injection), report in zip(chunk, reports, strict=True):
-                        keys[unit.unit_id] = _recompute_fragment(
-                            unit,
-                            injection,
-                            comparator,
-                            oracle,
-                            enricher,
-                            drafter,
-                            report,
-                            init["identical_classes"],
-                            init["fold"],
-                        )
-                conn.send(("ok", keys))
-    except Exception:
-        try:
-            conn.send(("error", traceback.format_exc()))
-        except Exception:
-            pass
-    finally:
-        conn.close()
-
-
-def _keep_contract_errors(kept: list[str], found: Sequence[str]) -> None:
-    """Append a fragment's drafting-time errors to `kept`, up to the `CONTRACT_ERRORS_SHOWN` the write prints. A build in which every fragment fails is stopped by its first page of errors, so neither a worker's reply nor the parent's list grows with the corpus."""
-    room = CONTRACT_ERRORS_SHOWN - len(kept)
-    if room > 0:
-        kept.extend(found[:room])
-
-
-def _record_corpus_pool(width: int, peaks: dict[str, int], unit: str = "corpus") -> None:
-    """Write one kind:"pool" record for a finished corpus pool under its own unit name, so `make job-costs` can compare CORPUS_WORKER_BYTES with the workers that ran: `corpus` for the Python workers and `corpus-units-rs` for the Rust engine, whose one process reads as one worker at its thread count. Every reading is a peak footprint (`peak_rss.peak_footprint_self_bytes`): each worker's as it answered the stop, and the parent's own as the controller's. It never raises, because failing to write the journal is not a reason to fail a corpus build. A build without a pool writes nothing; the parent's resident peak is the `corpus-build` step peak the cycle already records."""
-    if not peaks:
-        return
-    record_pool(
-        unit,
-        width=width,
-        worker_peaks=peaks,
-        controller_peak_bytes=peak_footprint_self_bytes(),
-        worker_reading="footprint",
-    )
-
-
-PHASE1_UNITS = "units enriched"
-
-# The most recomputed units the parent sends a pool worker per `phase1` message. It equals the enricher's settlement batch width, so the hand-out uses the same boundary as the shape-memo release (`_phase1_batches`): a worker holds one batch of units and of projections with their deflated fragments, and a wider hand-out would raise that without changing the memo's bound. It is read through the module global at call time so a test can lower it.
 PHASE1_HANDOUT_UNITS = EXPLAIN_UNIT_BATCH_SIZE
-
-
-def _configuration_order(recomputed: Sequence[int], table: UnitTable) -> array:
-    """Return the ordinals a pool is handed, stably sorted by the configuration each unit settles under: `UnitTable.config_rank`, which is `audit._config_index` of the unit's first config, the one `Enricher.subset_row` reads the unit's baseline row under. Consecutive batches then share a configuration. A worker's lookups stay within one configuration's key range of the mapped subset pack, which keeps its resident share of the mapping to those pages, and most batches settle under one configuration, so `settle_sequences` makes one kernel call per position instead of one per configuration per position. Within a configuration the load order is kept, and a configuration outside `ACCEPTANCE_CONFIGS` sorts last. Only the pooled paths use this order. The serial path drafts in load order, which is the reference the byte-identity tests compare a pooled build against."""
-    return array("I", sorted(recomputed, key=table.config_rank))
-
-
-def _load_recomputed(
-    store: UnitStore, table: UnitTable, arena: _FragmentArena, projection: _PackedProjection
-) -> None:
-    """Load one recomputed unit's projection into the store at its ordinal, with the unit's ledger exemption read from the table, and move its deflated fragment into `arena`, whose address becomes the unit's source. The projection is the only way the id, the machine flags and the fragment pass from the worker to the parent, and the store and the arena hold them from here on."""
-    address = arena.add(projection.packed, projection.raw_length)
-    store.load_projection(
-        projection,
-        no_verdict=table.no_verdict(projection.ordinal),
-        address=address,
-        length=projection.raw_length,
-    )
-
-
-def _handout_width(recomputed: int, nworkers: int) -> int:
-    """Return how many units one `phase1` message carries: `PHASE1_HANDOUT_UNITS`, or fewer when the recomputed units would not otherwise reach every worker twice. The ceiling bounds what a worker holds. The smaller width keeps a small build parallel: a dev-loop build of a few thousand recomputed units at eight jobs gives each worker a few hundred at a time instead of one worker drawing all of them while the other seven wait. Two draws per worker let the queue even out batches of unequal cost. On the full corpus the ceiling applies."""
-    return max(1, min(PHASE1_HANDOUT_UNITS, math.ceil(recomputed / (2 * nworkers))))
-
-
-def _units_pool_width(
-    jobs: int, gates_idle_jobs: int | None, gates_idle_marker: Path | None
-) -> tuple[int, str]:
-    """Return the units pool's width and, under a gated cycle, the gate lane's state that chose it. The cycle passes `gates_idle_jobs` and `gates_idle_marker` beside `jobs` (`artifact_cycle.corpus_gates_idle_job_budget`) and writes the marker once the gate lane has nothing left to run beside the units pool (`artifact_cycle._GateLaneWatch` says when), so the build reads it here, as the pool starts, after its load and plan phases: the wider width when the marker exists, and `jobs`, the build lane's share, otherwise. A hand build passes neither and takes `jobs`. The build reads it again as the write starts, to size the write's pool in the memory a units pool started then would hold (`artifact_cycle.corpus_write_job_budget`)."""
-    if gates_idle_jobs is None or gates_idle_marker is None:
-        return jobs, ""
-    if gates_idle_marker.exists():
-        return max(1, gates_idle_jobs), "gate lane idle"
-    return jobs, "gate lane busy"
-
-
-def _phase_timing(label: str, started: float, note: str = "") -> None:
-    """Print the `[t]` line that closes one `review.build` phase, with this process's peak RSS so far (`peak_rss.rss_token`, as on run_m1's phase lines) and, where it can be read, its current resident set (`peak_rss.rss_now_token`), before any note. `make cycle-timings ARGS='--inner'` shows both per phase. The peak only rises, so the first phase whose peak shows the step's figure is the phase that reached it. The current reading shows what the phase leaves resident once its temporary allocations are freed, which the peak cannot separate from the load phase's."""
-    tail = rss_token(peak_rss_self_bytes())
-    now = current_rss_bytes()
-    if now is not None:
-        tail += f" {rss_now_token(now)}"
-    if note:
-        tail += f"\t{note}"
-    console.timing(label, time.perf_counter() - started, tail, file=sys.stderr)
-
-
-class _RecomputeRunner:
-    """Run phase 1 over the units the cache could not supply: in-process when `jobs` is 1, across persistent spawn workers otherwise, with the same per-unit work either way, so serial and parallel builds share every whole-corpus pass and are byte-identical. The parent keeps the triage order and every order-sensitive whole-corpus pass (the index and its batches, change-group promotion, duplicate grouping, primary-unit resolution) and takes each recomputed unit's id from the projection its drafting stamped. The runner enriches, drafts and runs the drafting-time contract check (`_phase1_unit`), reading the ink under the `ConfigFold` it derives once, in the parent, as the pool starts or as the serial path first needs it (`_config_fold`), which every worker receives with its `init`. It deflates each fragment as it is drafted (`_FragmentPacker`) so no EnrichedUnit outlives its batch on either path, loads each projection into the parent's unit store and its fragment into the parent's arena (`arena`, a `_FragmentArena` over `dictionary`) as it arrives (`phase1`), and keeps the check's errors in `contract_errors` for the write. The write reads each recomputed fragment back from the arena at the address the store holds, as it reads a cached fragment from the previous corpus.
-
-    Pooled, every worker draws batches from one queue (`_handout_width` units at a time, one batch in flight per worker) instead of owning a fixed share, so which worker drafts which unit depends on timing and changes no output byte: `OutlineIntern` keys by shape, not by first-seen order, the parent loads each projection into its ordinal's row, and every order-dependent whole-corpus pass runs in the parent over the whole store. The queue is in configuration order (`_configuration_order`), so a worker's consecutive batches share a configuration. Its baseline rows come from the subset pack the parent writes before the pool starts (`subset_pack`, mapped read-only by every worker and shared through the page cache), its lookups mostly stay in one configuration's key range, and most batches settle under one configuration. The verification sample is split into contiguous slices of the same order for the same reason. A worker holds its interpreter and shapers, one batch's units and projections with their deflated fragments, the rows materialized for that batch, and the pages of the mapping it has touched; `CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py estimates that peak. `stop_workers` ends the pool once the verification sample is in, so its memory is free before the write's pool starts (`_write_corpus`), and `close` stops it if that has not happened and frees the arena however the build ends. The engine is `engine`, the one `units_exec.engine()` names when it is None, and the runner refuses one outside `units_exec.ENGINES`. Under the Rust engine the pool is one `units_exec.UnitsProcess` at the pool's width in threads instead of the spawn workers (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Where Python consumes the replies), driven with the same handouts in the same order (`_drive_engine`), and it takes a workload of one unit too, so every unit a build that stamps the engine computes is the engine's; the serial path stays in Python.
-    """
-
-    def __init__(
-        self,
-        recomputed: Sequence[int],
-        jobs: int,
-        subset_dir: Path,
-        before_font: Path,
-        after_font: Path,
-        junior_font: Path,
-        repo_root: Path,
-        verify: list | None = None,
-        spec_root: Path | None = None,
-        *,
-        table: UnitTable,
-        subset_pack: Path,
-        identical_classes: frozenset[str],
-        corpus_index: dict,
-        dictionary: bytes,
-        engine: str | None = None,
-    ) -> None:
-        engine = units_exec.engine() if engine is None else engine
-        if engine not in units_exec.ENGINES:
-            raise ValueError(
-                f"the {engine} units engine is not one the build runs; it runs {', '.join(units_exec.ENGINES)}"
-            )
-        self._recomputed = recomputed
-        self._table = table
-        self._identical_classes = identical_classes
-        self._verify = list(verify or ())
-        self._before_font = before_font
-        self._after_font = after_font
-        self._junior_font = junior_font
-        self._subset_dir = subset_dir
-        self._subset_pack = Path(subset_pack)
-        self._repo_root = repo_root
-        self._corpus_index = corpus_index
-        self._spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
-        self.arena = _FragmentArena(dictionary)
-        self.contract_errors: list[str] = []
-        self._local: tuple | None = None
-        self._fold: ConfigFold | None = None
-        self._procs: list = []
-        self._conns: list = []
-        self._engine: units_exec.UnitsProcess | None = None
-        # What the units line adds after the width: the Rust engine's name when it ran the pool, and nothing for the Python engine, whose line keeps its form.
-        self.engine_note = ""
-        # The verification sample is worker work too, and it is all of the work when the cache supplied every unit. Sizing the pool on the recomputed units alone would make a no-change rebuild recompute its sample in the parent, which already holds the corpus's table and store and would also build an enricher, its shapers and their memos. On a fully cached build the two measure alike: 200 units serially and across eight workers each took 4.9 s for the units phase, and the load phase set the build's peak either way.
-        workload_size = max(len(recomputed), len(self._verify))
-        if jobs > 1 and workload_size > (0 if engine == "rust" else 1):
-            nworkers = min(jobs, workload_size)
-            self._handout = _handout_width(len(recomputed), nworkers)
-            init = {
-                "before_font": before_font,
-                "after_font": after_font,
-                "junior_font": junior_font,
-                "subset_dir": subset_dir,
-                "subset_pack": self._subset_pack,
-                "repo_root": repo_root,
-                "spec_root": self._spec_root,
-                "identical_classes": identical_classes,
-                "fold": self._config_fold(),
-                "corpus_index": corpus_index,
-                "dictionary": dictionary,
-            }
-            if engine == "rust":
-                self._engine = units_exec.UnitsProcess(init, nworkers)
-                self.engine_note = " engine=rust"
-                memory_tally.mark("units pool started")
-                return
-            ctx = multiprocessing.get_context("spawn")
-            for index in range(nworkers):
-                parent_conn, child_conn = ctx.Pipe()
-                proc = ctx.Process(target=_corpus_worker, args=(child_conn, init))
-                proc.start()
-                child_conn.close()
-                self._procs.append(proc)
-                self._conns.append(parent_conn)
-            memory_tally.mark("units pool started")
-
-    def phase1(self, store: UnitStore) -> None:
-        """Enrich and draft every recomputed unit, loading each projection into `store` at its ordinal as it arrives (`_load_recomputed`). The parent holds no projection past the reply that carried it and no unit record past the hand-out that materialized it: the recomputed units are ordinals, and a `Unit` is built from the table and the store (`UnitTable.unit`) for each batch sent to a worker, or one at a time on the serial path. Pooled, each worker deflates its batches' fragments and replies per batch with projections carrying them, which are loaded here as they arrive (`_drive_phase1`), with at most one reply per worker in flight. Serial, the same loop runs here with one packer over the arena's dictionary, at the enricher's batch width with the memo released after each batch. Either way the EnrichedUnit is freed by the time its batch closes."""
-        if self._engine is not None:
-            self._drive_engine(self._engine, store)
-        elif self._conns:
-            self._drive_phase1(store)
-        elif self._recomputed:
-            comparator, oracle, enricher, drafter = self._in_process()
-            fold = self._config_fold()
-            packer = _FragmentPacker(self.arena.dictionary)
-            table = self._table
-            done = 0
-            materialized = (table.unit(ordinal, store) for ordinal in self._recomputed)
-            for unit_batch, reports in _phase1_batches(enricher, materialized):
-                for unit, report in zip(unit_batch, reports):
-                    projection, _fragment, errors = _phase1_unit(
-                        unit,
-                        comparator,
-                        oracle,
-                        enricher,
-                        drafter,
-                        report,
-                        self._identical_classes,
-                        fold,
-                        packer,
-                    )
-                    _load_recomputed(store, table, self.arena, projection)
-                    _keep_contract_errors(self.contract_errors, errors)
-                done += len(unit_batch)
-                self._count(done)
-
-    @property
-    def pooled(self) -> bool:
-        """Whether this runner drives a worker pool or the Rust engine, in which case the parent spends the units phase waiting on replies instead of shaping."""
-        return bool(self._conns) or self._engine is not None
-
-    def _count(self, done: int) -> None:
-        console.progress(done, len(self._recomputed), PHASE1_UNITS, file=sys.stderr)
-
-    def hold_collections(self, tally: memory_tally.MemoryTally) -> None:
-        """Register with the debug tally the two collections this runner holds in the parent: the arena of deflated fragments, which reads empty once `close` frees it, and the serial path's subset-pack mapping, once its enricher exists. Pooled, the workers map the pack and tally it at their own batch boundaries, and the parent's reading stays at zero. The arena addresses are unit-store columns, which the store reports itself."""
-        tally.hold_reading("runner.arena", self.arena.sizes)
-        tally.hold_reading(
-            "runner.subset_pack", lambda: self._local[2].subset_pack_sizes() if self._local else (0, 0)
-        )
-
-    def _drive_phase1(self, store: UnitStore) -> None:
-        """Hand the recomputed units to the pool one batch at a time and load each reply as it arrives, instead of collecting from one worker at a time, so progress reaches the terminal while the phase runs. Each worker starts with one batch and has at most one in flight, so a worker holds one batch of units and the parent holds at most one reply per worker. `wait` returns the connections that have data. A `batch` reply's projections are loaded into `store` and its errors into `contract_errors`, the reply is dropped, and that worker gets the next batch, materialized from the table and the store as it is sent, or the end marker once the queue is empty. The phase ends when every worker has answered the end marker with `ok`. The printed count is the sum of the batches loaded. An `error` reply raises here, and `close()` drains the replies queued behind it."""
-        table = self._table
-        handouts = batched(_configuration_order(self._recomputed, table), self._handout)
-        names = {conn: f"w{index}" for index, conn in enumerate(self._conns)}
-
-        def hand(conn) -> None:
-            batch = next(handouts, None)
-            if batch is None:
-                conn.send(("phase1-done",))
-            else:
-                conn.send(("phase1", tuple(table.unit(ordinal, store) for ordinal in batch), names[conn]))
-
-        for conn in self._conns:
-            hand(conn)
-        waiting = list(self._conns)
-        done = 0
-        while waiting:
-            for conn in cast(list, multiprocessing.connection.wait(waiting)):
-                reply = conn.recv()
-                if reply[0] == "batch":
-                    for projection in reply[1]:
-                        _load_recomputed(store, table, self.arena, projection)
-                    _keep_contract_errors(self.contract_errors, reply[2])
-                    done += len(reply[1])
-                    del reply
-                    self._count(done)
-                    hand(conn)
-                elif reply[0] == "error":
-                    raise RuntimeError("corpus worker failed in phase 1:\n" + reply[1])
-                else:
-                    waiting.remove(conn)
-
-    def _drive_engine(self, engine: units_exec.UnitsProcess, store: UnitStore) -> None:
-        """`_drive_phase1` for the Rust engine: the same handouts in the same order, at most one per engine thread in flight, each reply's projections loaded into `store` and its errors into `contract_errors` as it arrives, and the next handout sent in its place. An `error` frame, or the engine's output ending, raises `units_exec.EngineRunError` here."""
-        table = self._table
-        handouts = enumerate(batched(_configuration_order(self._recomputed, table), self._handout))
-        in_flight = 0
-
-        def hand() -> None:
-            nonlocal in_flight
-            handout = next(handouts, None)
-            if handout is not None:
-                index, batch = handout
-                engine.send_batch(index, tuple(table.unit(ordinal, store) for ordinal in batch))
-                in_flight += 1
-
-        # Each reply's parsed records outlive the young collections, so the cyclic collector would spend the drive rescanning them.
-        collecting = gc.isenabled()
-        gc.disable()
-        try:
-            for _thread in range(engine.threads):
-                hand()
-            done = 0
-            while in_flight:
-                reply = engine.read_reply()
-                if reply[0] != "batch":
-                    raise units_exec.EngineRunError(f"the units engine answered a batch with {reply[0]}")
-                in_flight -= 1
-                _op, _batch, projections, errors = reply
-                del reply
-                for projection in projections:
-                    _load_recomputed(store, table, self.arena, projection)
-                _keep_contract_errors(self.contract_errors, errors)
-                done += len(projections)
-                del projections
-                self._count(done)
-                hand()
-        finally:
-            if collecting:
-                gc.enable()
-
-    def _config_fold(self) -> ConfigFold:
-        """Return the build's `ConfigFold`, derived on first use (`_config_fold` at module level, which prints its line), so a build whose pool and serial path have nothing to recompute or verify neither reads the fonts' layout tables nor prints the line."""
-        if self._fold is None:
-            self._fold = _config_fold(self._before_font, self._after_font)
-        return self._fold
-
-    def _in_process(self) -> tuple:
-        """Return the comparator, oracle, enricher and drafter for in-process work, built on first use. They are built lazily because, when the cache supplied every unit, the verification sample can be the only work, and they are not needed before it runs."""
-        if self._local is None:
-            comparator = InkComparator(self._before_font, self._after_font, shaper_for)
-            oracle = JuniorOracle(self._junior_font, self._before_font, self._after_font, shaper_for)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                spec = load_spec(self._spec_root)
-            enricher = Enricher(
-                spec,
-                self._subset_dir,
-                self._after_font,
-                repo_root=self._repo_root,
-                before_font=self._before_font,
-                shaper_factory=shaper_for,
-                subset_pack=self._subset_pack,
-            )
-            drafter = Drafter(
-                self._after_font,
-                corpus_index=self._corpus_index,
-                repo_root=self._repo_root,
-                shaper_factory=shaper_for,
-            )
-            self._local = (comparator, oracle, enricher, drafter)
-        return self._local
-
-    def verify(self, injections: dict[str, tuple]) -> dict[str, tuple[str, tuple[tuple[str, str], ...]]]:
-        """Recompute phase 1 and the patch for the sampled cached units, and return each unit's content key with the ink deltas the recomputation found. Nothing is read from the cache: each chunk is settled in one fresh explain pass over the units' own codepoints, followed by fresh ink readings (`_ink_readings`, under the build's `ConfigFold`), enrichment and drafts per unit. The result is what this build would have written had the unit missed the cache. The caller compares the key with the stamp on the cached fragment and the deltas with the store record they were taken from, since `ink_deltas` is outside the key's projection."""
-        keys: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {}
-        if not self._verify:
-            return keys
-        if self._engine is not None:
-            by_ordinal = {unit.ordinal: unit for unit in self._verify}
-            ordered = _configuration_order(list(by_ordinal), self._table)
-            keys.update(
-                self._engine.verify(
-                    [(by_ordinal[ordinal], injections[by_ordinal[ordinal].unit_id]) for ordinal in ordered]
-                )
-            )
-        elif self._conns:
-            by_ordinal = {unit.ordinal: unit for unit in self._verify}
-            ordered = _configuration_order(list(by_ordinal), self._table)
-            shares = batched(
-                [by_ordinal[ordinal] for ordinal in ordered], math.ceil(len(self._verify) / len(self._conns))
-            )
-            for conn in self._conns:
-                share = next(shares, ())
-                conn.send(("verify", [(unit, injections[unit.unit_id]) for unit in share]))
-            for conn in self._conns:
-                reply = conn.recv()
-                if reply[0] == "error":
-                    raise RuntimeError("corpus worker failed while verifying a cached unit:\n" + reply[1])
-                keys.update(reply[1])
-        else:
-            comparator, oracle, enricher, drafter = self._in_process()
-            fold = self._config_fold()
-            for chunk in _released_batches(self._verify):
-                reports = enricher.explain_units(chunk)
-                for unit, report in zip(chunk, reports, strict=True):
-                    keys[unit.unit_id] = _recompute_fragment(
-                        unit,
-                        injections[unit.unit_id],
-                        comparator,
-                        oracle,
-                        enricher,
-                        drafter,
-                        report,
-                        self._identical_classes,
-                        fold,
-                    )
-        return keys
-
-    def stop_workers(self) -> None:
-        """Stop every worker, collect each one's peak, join the processes, and write the pool record. A second call does nothing. It also runs from `close`, in a `finally`, so the failing path matters most. A phase that raises inside its recv loop leaves the later connections holding that phase's replies (a `batch` with its payload, and the `ok` after it). The stop reply is tagged `peak`, and this loop drains whatever is queued ahead of it: reading a phase's payload as a peak would raise out of the `finally`, hide the worker's traceback, and skip the join below with spawn workers still running. The Rust engine is stopped with its `stop` frame and its peak filed as the `corpus-units-rs` pool's one worker; `close` kills an engine this has not stopped, since only a failing build leaves one running."""
-        if self._engine is not None:
-            engine, self._engine = self._engine, None
-            try:
-                peak = engine.stop()
-            finally:
-                engine.close()
-            _record_corpus_pool(engine.threads, {"engine": peak}, unit="corpus-units-rs")
-            memory_tally.mark("units pool stopped")
-        peaks: dict[str, int] = {}
-        for index, conn in enumerate(self._conns):
-            try:
-                conn.send(("stop",))
-                while conn.poll(5):
-                    reply = conn.recv()
-                    if reply[0] == "peak":
-                        peaks[f"w{index}"] = int(reply[1])
-                        break
-            except OSError, EOFError:
-                pass
-            try:
-                conn.close()
-            except OSError:
-                pass
-        for proc in self._procs:
-            proc.join(timeout=5)
-            if proc.is_alive():
-                proc.terminate()
-        _record_corpus_pool(len(self._procs), peaks)
-        if self._procs:
-            memory_tally.mark("units pool stopped")
-        self._procs = []
-        self._conns = []
-
-    def close(self) -> None:
-        """Stop the pool if `stop_workers` has not, kill the Rust engine if it has not stopped it, and free the arena. The write has returned or raised by the time this runs, so nothing reads the arena after it."""
-        if self._engine is not None:
-            self._engine.close()
-            self._engine = None
-        self.stop_workers()
-        self.arena.clear()
-
-
-@dataclass(frozen=True, slots=True)
-class _Emission:
-    """One unit as the write receives it. Either `fragment` is set, a fragment to serialize (recomputed, from the arena, or cached but patched again because a field the whole-corpus passes or the ledger write changed), or `body` is set, the bytes of a cached fragment the previous corpus holds exactly as this build would write them, as they are stored, deflated when `source` records an inflated length, with `source`, the address they are at, and `identity`, the slim identity the cross-unit checks and the sidecars read. `content_key` and `policy_file` come from the fragment or the store record alike; the store keeps them past the write."""
-
-    unit_id: str
-    content_key: str
-    policy_file: str | None
-    fragment: dict | None = None
-    body: bytes | None = None
-    source: unit_cache.PriorFragment | None = None
-    identity: dict | None = None
-
-
-def _emission(
-    ordinal: int,
-    source: unit_cache.PriorFragment,
-    table: UnitTable,
-    store: UnitStore,
-    arena: _FragmentArena,
-    prior: unit_cache.PriorFragmentReader,
-) -> _Emission:
-    """Return the unit at `ordinal` as the write receives it, read by the address the store holds for it (`source`, `UnitStore.source`, which carries the unit's id). A recomputed fragment is read from the arena (`arena`), patched with this build's scaffold, ink deltas, ledger class and primary units through `patch_fragment` (on a unit record materialized for the patch), and checked by `check_scaffold`. A cached fragment is read from the previous corpus (`prior`). When `UnitStore.cached_as_is` says every field the patch would write already matches, it is returned as bytes without parsing, as stored, a deflated fragment's deflated once its inflated bytes passed the read's check, which lets the shard writer keep it at its address on a class it appends to, or copy it as it was into a class it writes directly, and its identity is read from the columns (`_cached_identity`). Otherwise it is parsed, inflated first when it is deflated, patched and serialized again. A fragment that no longer reads back as the unit and stamp at its address stops the build."""
-    recomputed_unit = not store.flags(ordinal).cached
-    junction_assign = store.primary_units(ordinal)
-    try:
-        if recomputed_unit:
-            fragment = arena.read(source)
-        elif store.cached_as_is(
-            ordinal,
-            class_id=table.class_id(ordinal),
-            duplicate_group=table.duplicate_group(ordinal),
-            exemplar=table.exemplar(ordinal),
-            no_verdict=table.no_verdict(ordinal),
-        ):
-            return _Emission(
-                source.unit_id,
-                store.content_key_hex(ordinal),
-                store.policy_file(ordinal),
-                body=prior.read_bytes(source),
-                source=source,
-                identity=_cached_identity(table, store, ordinal, source.unit_id, junction_assign),
-            )
-        else:
-            fragment = prior.read(source)
-    except ValueError as error:
-        raise SystemExit(f"the fragment for {source.unit_id} cannot be read back: {error}") from None
-    unit = table.unit(ordinal, store)
-    unit.ledger_class = store.ledger_class(ordinal)
-    fragment = patch_fragment(
-        fragment,
-        unit,
-        store.junction_rects(ordinal),
-        junction_assign,
-        check=recomputed_unit,
-        ink_deltas=store.ink_deltas(ordinal),
-    )
-    return _Emission(unit.unit_id, fragment["content_key"], _policy_file(fragment), fragment=fragment)
-
-
-@dataclass(frozen=True)
-class _SidecarRun:
-    """One run's sidecar lines, closed, without the lines themselves: how many app-index rows (`human`) and locator rows (`machine`) they hold, how many units' lines were copied forward from the previous sidecars, the table entries of the run's locator blocks, whose `byte_start` counts from the run's first block, and the bytes of the run's compressed lines (`held`), which the write phase's line reports run by run. The lines stay with the process that wrote the run until the parent pulls them (`_RunWritten.lines`)."""
-
-    human: int
-    machine: int
-    copied_forward: int
-    blocks: list[dict]
-    held: int
-
-
-class _SidecarLines:
-    """Hold one run's sidecar lines in memory, compressed, while its shards are written. Each sidecar's header carries the manifest's identity, and the manifest can only be written once every class's part list is known, so the lines wait for it. The index's lines and the app index's go into a gzip stream each, at level 1, which `_write_sidecars` inflates once the manifest is on disk and writes through `unit_index.write_index_lines` and `app_index.write_app_artifacts_lines`, the writers `write_index` and `write_app_artifacts` use. The locator's lines are cut into blocks as they come (`app_index.LocatorBlocks`), each compressed into the gzip member the rows file holds, and `_write_sidecars` copies those byte for byte: a run is whole classes and a block never spans two, so the run's blocks are the ones a cutter over every line would make. So the app sidecars match a build that held every fragment, byte for byte, and the index takes the route and leaves the head, parts and materialized bytes that build's would. `close` ends the run and returns its counts and block entries with its compressed lines, by the name of the file each becomes, and `release` closes the cursors of a run that failed.
-
-    Each row carries the address of the span the shard writer returned, and the trailing `"deflated": true` exactly when that span is a deflated fragment's (#618's decision 77), whatever the previous row held. A byte-copied unit is projected without parsing it. Its line in the previous corpus's index, and its row in the previous app index if it is a human unit, are read in step through `unit_index.LineCursor` (both are in shard order, and a cached unit keeps its place in it): the index's through `LineCursor.over_index`, its base and segments merged by key, a buffer a part, with no places, and the app index's file. They are copied forward with this build's queue position and shard address substituted, the marker with the address (`unit_index.copy_forward_index_line`, `app_index.copy_forward_app_line`); every other field is the fragment's own and unchanged. Its locator row needs only its id, class and address. The write opens the cursors only when the previous sidecars are stamped for the manifest beside them (`copy_forward`), and each run opens its own, which read past the lines of the classes before the run's first; a unit a cursor cannot reach is parsed instead, which gives the same bytes at a higher cost.
-    """
-
-    def __init__(self, out_dir: Path, *, copy_forward: bool = False) -> None:
-        out_dir = Path(out_dir)
-        self._buffers = {
-            name: io.BytesIO()
-            for name in (unit_index.INDEX_NAME, app_index.APP_INDEX_NAME, app_index.LOCATOR_ROWS_NAME)
-        }
-        self._index = gzip.GzipFile(
-            fileobj=self._buffers[unit_index.INDEX_NAME], mode="wb", mtime=0, compresslevel=1
-        )
-        self._app = gzip.GzipFile(
-            fileobj=self._buffers[app_index.APP_INDEX_NAME], mode="wb", mtime=0, compresslevel=1
-        )
-        self._locator = app_index.LocatorBlocks(self._buffers[app_index.LOCATOR_ROWS_NAME])
-        self._index_cursor: unit_index.LineCursor | None = None
-        self._app_cursor: unit_index.LineCursor | None = None
-        if copy_forward:
-            self._index_cursor = unit_index.LineCursor.over_index(out_dir)
-            self._app_cursor = unit_index.LineCursor(
-                app_index.artifact_path(out_dir, app_index.APP_INDEX_NAME)
-            )
-        self.human = 0
-        self.machine = 0
-        self.copied_forward = 0
-
-    def unit(
-        self, fragment: dict, span: tuple[int, int, int, int], order: int | None, batch: int | None
-    ) -> None:
-        part, start, length, inflated = span
-        self._index.write(unit_index.index_line(fragment, order=order, batch=batch))
-        if order is None or batch is None:
-            self._locator.add(app_index.locator_line(fragment, part, start, length, deflated=bool(inflated)))
-            self.machine += 1
-        else:
-            self._app.write(
-                app_index.app_line(
-                    fragment, part, start, length, order=order, batch=batch, deflated=bool(inflated)
-                )
-            )
-            self.human += 1
-
-    def cached(
-        self, emission: _Emission, span: tuple[int, int, int, int], order: int | None, batch: int | None
-    ) -> None:
-        assert emission.body is not None and emission.identity is not None and emission.source is not None
-        unit_id = emission.unit_id
-        line = self._index_cursor.take(unit_id) if self._index_cursor is not None else None
-        row = None
-        if line is not None and order is not None and batch is not None and self._app_cursor is not None:
-            row = self._app_cursor.take(unit_id)
-        if line is None or (order is not None and row is None):
-            stored = emission.source.inflated
-            plain = unit_index.inflate_fragment(emission.body, stored) if stored else emission.body
-            self.unit(json.loads(plain), span, order, batch)
-            return
-        self._index.write(unit_index.copy_forward_index_line(line, unit_id=unit_id, order=order, batch=batch))
-        part, start, length, inflated = span
-        if order is None or batch is None:
-            self._locator.add(
-                app_index.locator_line(emission.identity, part, start, length, deflated=bool(inflated))
-            )
-            self.machine += 1
-        else:
-            assert row is not None
-            self._app.write(
-                app_index.copy_forward_app_line(
-                    row,
-                    unit_id=unit_id,
-                    order=order,
-                    batch=batch,
-                    part=part,
-                    start=start,
-                    length=length,
-                    deflated=bool(inflated),
-                )
-            )
-            self.human += 1
-        self.copied_forward += 1
-
-    def release(self) -> None:
-        for cursor in (self._index_cursor, self._app_cursor):
-            if cursor is not None:
-                cursor.close()
-
-    def close(self) -> tuple[_SidecarRun, dict[str, bytes]]:
-        self.release()
-        self._index.close()
-        self._app.close()
-        blocks = self._locator.close()
-        lines = {name: buffer.getvalue() for name, buffer in self._buffers.items()}
-        self._buffers.clear()
-        held = sum(map(len, lines.values()))
-        return _SidecarRun(self.human, self.machine, self.copied_forward, blocks, held), lines
-
-
-def _inflated(compressed: bytes) -> Iterator[bytes]:
-    with gzip.GzipFile(fileobj=io.BytesIO(compressed), mode="rb") as stream:
-        yield from stream
-
-
-def _write_sidecars(
-    out_dir: Path, runs: Sequence[_SidecarRun], pull: Callable[[int, str], bytes]
-) -> unit_index.IndexWrite:
-    """Write the three stamped sidecars from the runs' compressed lines, run after run, and return what the index's write did. The index is written on this thread and the two app sidecars on a thread of their own (named `corpus-app-sidecars_0`), side by side, since both spend most of their time inflating and deflating, which releases the interpreter lock (#602). `pull` returns one run's lines for one sidecar, by the run's index and the name of the file they become, and gives them up; the two writers take turns at it, one call at a time, since the runs' lines come from the write workers over one connection each. So this process holds one run's lines for the index and one run's for an app sidecar at a time: each writer drops a run's lines before it pulls its next. The runs are in shard order, so the lines are too. The app index's lines are inflated and compressed again by its writer, as from lines held raw, and the locator's blocks are copied as they are, so those files are byte for byte what one pass over the whole corpus would give. The index's lines are inflated and walked beside the previous index's parts, a buffer a part, by `unit_index.write_index_lines`, which writes the records that differ as a segment, or the head alone, or a new base by the route it decides before it writes (#618's change 32), so its head, parts and materialized bytes are what one pass over the whole corpus would give. A writer that raises raises here once the other has finished, the index's first, and either leaves its files as they were (`unit_index.write_index_lines`, `app_index.write_app_artifacts_lines`) while the other's may be written. Run once the manifest is on disk, since each header carries its identity."""
-    turn = threading.Lock()
-
-    def pulled(index: int, name: str) -> bytes:
-        with turn:
-            return pull(index, name)
-
-    def lines(name: str) -> Iterator[bytes]:
-        for index in range(len(runs)):
-            yield from _inflated(pulled(index, name))
-
-    def locator() -> Iterator[tuple[bytes, Sequence[dict]]]:
-        for index, run in enumerate(runs):
-            yield pulled(index, app_index.LOCATOR_ROWS_NAME), run.blocks
-
-    def app() -> None:
-        app_index.write_app_artifacts_lines(
-            out_dir,
-            lines(app_index.APP_INDEX_NAME),
-            locator(),
-            human=sum(run.human for run in runs),
-            machine=sum(run.machine for run in runs),
-        )
-
-    with ThreadPoolExecutor(1, thread_name_prefix="corpus-app-sidecars") as side:
-        app_written = side.submit(app)
-        try:
-            index = unit_index.write_index_lines(out_dir, lines(unit_index.INDEX_NAME))
-        finally:
-            wait((app_written,))
-        app_written.result()
-    return index
 
 
 @dataclass(frozen=True)
@@ -2463,1142 +690,6 @@ def materialize_corpus(out_dir: Path, target: Path) -> None:
             unit_cache.write_materialized_store(target, header, lines)
 
 
-@dataclass(frozen=True)
-class _WrittenCorpus:
-    """What `_write_corpus` returns besides the manifest: the width its write ran at, how many units were written without parsing, how many sidecar rows were copied forward from the previous sidecars, each run's compressed sidecar lines in bytes, in shard order (`_SidecarRun.held`), and what the units index's write did (`unit_index.IndexWrite`). Then what the shard write did: the bytes it appended to overflow parts and the plain bytes those inflate to, the fragments that kept their prior address because their new bytes equal their prior's (`kept`, beside the cached fragments copied as they are among `byte_copied`), the classes it folded and those it wrote directly, by the share rule or as a first base, the fragments it wrote deflated by any route (#618's change 35), and the dead bytes the appended classes' parts hold once written. The per-unit values the build reads after the fragments are gone are written into the unit store's columns during the write instead: each unit's `config_note`, which the review facts histogram, and its shard address and policy-draft file, which the unit-cache store records so the next build's plan can reuse the fragment without walking the shard and check it without parsing it."""
-
-    manifest: dict
-    jobs: int
-    byte_copied: int
-    copied_forward: int
-    sidecar_bytes: list[int]
-    index: unit_index.IndexWrite
-    appended: int = 0
-    kept: int = 0
-    folded: int = 0
-    direct: int = 0
-    dead: int = 0
-    appended_inflated: int = 0
-    deflated: int = 0
-
-
-class _StoreNotes(Mapping[int, str | None]):
-    """Each unit's `config_note` by ordinal, as `facts.build_facts` reads it, read from the unit store's column instead of a separate dict. The facts reduction has each unit's ordinal at every lookup, so the column is indexed directly without any id lookup."""
-
-    __slots__ = ("_store",)
-
-    def __init__(self, store: UnitStore) -> None:
-        self._store = store
-
-    def __getitem__(self, ordinal: int) -> str | None:
-        return self._store.config_note(ordinal)
-
-    def __iter__(self) -> Iterator[int]:
-        return iter(range(len(self._store)))
-
-    def __len__(self) -> int:
-        return len(self._store)
-
-
-def _prior_parts(out_dir: Path) -> dict[str, list[str]]:
-    """Return the previous corpus's shard parts per class, base parts then overflow parts, read from the manifest beside them, for the shard writer to append each class to; empty when there is no readable manifest. It reads part names, never fragments."""
-    try:
-        manifest = json.loads((Path(out_dir) / "manifest.json").read_text(encoding="utf-8"))
-        return {meta["id"]: unit_index.class_shards(meta) for meta in manifest["classes"]}
-    except OSError, ValueError, KeyError, TypeError, AttributeError:
-        return {}
-
-
-APPEND = "append"
-DIRECT = "direct"
-FOLD = "fold"
-FIRST = "first"
-
-
-@dataclass(frozen=True, slots=True)
-class _ClassToWrite:
-    """One class as the write receives it: the fields of its ledger entry or change group the manifest records, with the section `audit.class_section` put it in, its units' ordinals in shard order (by id, `UnitStore.id_word`, which sorts like the id strings), the previous corpus's parts for it, and its route (`_route`): `APPEND` to those parts, or written directly, by the share rule (`DIRECT`), as a fold (`FOLD`) or as a first base (`FIRST`), for a class with no parts in the previous corpus or one of whose parts is gone. A first base is written plain, and every other route writes deflated (#618's change 35)."""
-
-    id: str
-    title: str
-    summary: str
-    note: str
-    section: str
-    status: str
-    ink_identical: bool
-    no_verdict: bool
-    why: str
-    ordinals: array
-    prior_parts: tuple[str, ...]
-    route: str = DIRECT
-
-
-@dataclass(frozen=True)
-class _WriteSettings:
-    """What every run of the write shares: the corpus directory, whether the previous sidecars may be copied forward, the checker's batch size and repo root, and the ids some unit names as its primary unit (`UnitStore.primary_unit_ids`), whose identities the checkers keep (`_CorpusCheck`'s `identity_for`)."""
-
-    out_dir: Path
-    copy_forward: bool
-    batch_size: int
-    repo_root: Path
-    primary_units: frozenset[str]
-
-
-@dataclass(frozen=True, slots=True)
-class _ClassHeader:
-    """What the write receives as a class opens: its id, its manifest record, which the parent computes from its full columns (`_class_meta`) and the class's checks read (`_CorpusCheck.class_start`, `class_end`), the previous corpus's parts for it, whether the shard writer appends to them or writes the class directly, and whether its writes deflate, which every route but a first base's does (`_ClassToWrite.route`). The record's `shards` stays empty here; the parent fills it from the class's last chunk."""
-
-    id: str
-    meta: dict
-    prior_parts: tuple[str, ...]
-    append: bool = False
-    deflate: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class _Chunk:
-    """A stretch of one class's units in the class's order, as the write receives it: a table and a store to read them from at `ordinals`, the arena that holds their recomputed fragments at the addresses the store gives, the class's header on its first chunk, and whether it is the class's last. The serial write takes each class as one chunk over the full table, store and arena at the class's ordinals. A write worker takes chunks of `WRITE_CHUNK_UNITS` units, each over a table and a store gathered for its units alone (`UnitTable.gather`, `UnitStore.gather`) and read at positions 0 onward, and an arena of their recomputed fragments alone (`_FragmentArena.gather`)."""
-
-    header: _ClassHeader | None
-    table: UnitTable
-    store: UnitStore
-    arena: _FragmentArena
-    ordinals: Sequence[int]
-    last: bool
-
-
-@dataclass(frozen=True)
-class _ChunkWritten:
-    """What writing one chunk leaves for the parent, which places it by its class and the offset of its first unit in the class's order. Per unit, in that order: its shard address as a part index into the class's parts with a byte start and length on disk, its config note and policy-draft file as ids into `names`, the chunk's distinct values with None at id 0, and its fragment's inflated length, 0 when it is plain (`inflated`). Then the facts the chunk's units gave the class's checker (`_CorpusCheck.take_facts`), how many units were written without parsing, how many kept their prior address by compare, how many bytes were appended and the plain bytes they inflate to, how many fragments were written deflated, and on the class's last chunk the class's parts (`_ShardWriter.close`), which the part indices name, with their total bytes."""
-
-    class_id: str
-    offset: int
-    parts: array
-    starts: array
-    lengths: array
-    names: list[str | None]
-    notes: array
-    policy_files: array
-    facts: _CorpusCheck
-    byte_copied: int
-    shards: list[str] | None
-    kept: int = 0
-    appended: int = 0
-    shard_bytes: int = 0
-    inflated: array = field(default_factory=lambda: array("I"))
-    appended_inflated: int = 0
-    deflated: int = 0
-
-
-@dataclass(frozen=True)
-class _RunWritten:
-    """What writing one run of classes leaves once its chunks are written: the run's index in shard order, the renames of its staged shard parts (`_ShardWriter.take_pending`), its sidecar counts and locator block entries, and its compressed sidecar lines by the name of the file each becomes (`_SidecarLines`). A write worker keeps the lines and replies with the rest, and the parent pulls the lines once the manifest is written (`_WritePool.lines`); a run written in the parent keeps them here."""
-
-    index: int
-    pending: list[tuple[Path, Path]]
-    sidecars: _SidecarRun
-    lines: dict[str, bytes]
-
-
-@dataclass(frozen=True)
-class PriorShards:
-    """What the plan read of the previous corpus's shard parts, for deciding each class's fold as the pass opens: each part's size as the unit store records it and the live bytes its records name in it, each live fragment with the comma or bracket before it. It exists only when the store describes the parts beside it, every recorded size the size on disk and its manifest stamp the manifest's."""
-
-    sizes: dict[str, int]
-    live: dict[str, int]
-
-    def dead_and_live(self, parts: Sequence[str]) -> tuple[int, int]:
-        """Return the class's dead and live bytes over `parts`: a part is `[`, its slots each with the comma or bracket before it, and `unit_index.PART_CLOSING`, so what no live fragment takes is dead."""
-        live = sum(self.live.get(part, 0) for part in parts)
-        held = sum(self.sizes.get(part, 0) - len(unit_index.PART_CLOSING) for part in parts)
-        return held - live, live
-
-
-def _route(
-    entry_id: str,
-    ordinals: Sequence[int],
-    prior_parts: Sequence[str],
-    table: UnitTable,
-    store: UnitStore,
-    prior_shards: PriorShards | None,
-    predicted: bytearray,
-) -> str:
-    """Decide how the write writes one class, before any of its bytes are written (#618's decisions 72 and 73). A class with no parts in the previous corpus, or one of whose parts is gone from disk, is written directly as a first base (`FIRST`), plain. A class whose dead bytes reach its live bytes on disk as the pass opens is folded: written directly, its live fragments laid out as a from-scratch build lays them out (`FOLD`, decision 53). Otherwise each unit is predicted unchanged or changed from what the parent holds (`UnitStore.predicted_unchanged`, which marks `predicted`), weighed at its plain shard bytes, a deflated prior's inflated length (`UnitStore.shard_length`, decision 76), with its comma, and the share rule writes the class directly (`DIRECT`) when its changed bytes pass half its live bytes, so at half its content changed whatever form its parts hold it in, and appends to it (`APPEND`) otherwise. Every route but a first base writes deflated (change 35). The write still compares each fragment's bytes, so a fragment predicted unchanged that differs is appended, and no class switches route midway."""
-    live = changed = 0
-    for ordinal in ordinals:
-        weight = store.shard_length(ordinal) + 1
-        live += weight
-        if store.predicted_unchanged(
-            ordinal,
-            class_id=entry_id,
-            duplicate_group=table.duplicate_group(ordinal),
-            exemplar=table.exemplar(ordinal),
-            no_verdict=table.no_verdict(ordinal),
-        ):
-            predicted[ordinal] = 1
-        else:
-            changed += weight
-    if not prior_parts:
-        return FIRST
-    if prior_shards is not None:
-        dead, held = prior_shards.dead_and_live(prior_parts)
-        if dead > 0 and dead >= held:
-            return FOLD
-    return DIRECT if 2 * changed > live else APPEND
-
-
-def _class_meta(entry: _ClassToWrite, table: UnitTable, store: UnitStore) -> dict:
-    """Return a class's manifest record, its `shards` left empty for the write to fill, from the full table's and store's columns over every unit of the class. The parent computes it, since a write worker holds one chunk of the class at a time."""
-    ordinals = entry.ordinals
-    checks = {check_id: 0 for check_id in MACHINE_CHECKS}
-    for ordinal in ordinals:
-        check_id = store.machine_check(ordinal)
-        if check_id is not None:
-            checks[check_id] += 1
-    return {
-        "id": entry.id,
-        "title": entry.title,
-        "summary": entry.summary,
-        "note": entry.note or None,
-        "section": entry.section,
-        "status": entry.status,
-        "ink_identical": entry.ink_identical,
-        "no_verdict": entry.no_verdict,
-        "why": entry.why,
-        "unit_count": len(ordinals),
-        "row_count": sum(map(table.row_count, ordinals)),
-        "machine_approved_count": sum(checks.values()),
-        # The app draws a class's machine fold, its count and its badge, before opening the class, and under the slim app index those units are not loaded. So the per-check counts the badge is chosen from are recorded here.
-        "machine_checks": checks,
-        "shards": [],
-        "batches": sorted({batch for batch in map(table.batch, ordinals) if batch is not None}),
-    }
-
-
-# The units in one chunk of the write (`_write_chunks`). A write worker holds one chunk's columns and recomputed fragments at a time: at 45 runes about 0.2 MB of columns and up to about 1 MB of deflated fragments when every unit of a human class was recomputed, so a chunk's message stays near 1 MB, and about 2 MB at 57, where fragments roughly double. The width is set by that message, not by the worker's share: a message of 5 to 10 MB, as 8,192 units make, leaves its receive buffers among the large blocks macOS's allocator keeps dirty after they are freed, and a worker that receives ninety of them read up to 0.59 GB where its live data is a third of that, while chunks of 1,024 and 2,048 units, messages up to 2.5 MB, read flat (M, a replay of one write worker over the live corpus). The parent's turn between chunks is still a small share of the time a chunk takes to write. It is read through the module global at call time so a test can lower it.
-WRITE_CHUNK_UNITS = 1024
-
-
-def _write_chunks(
-    run: Sequence[_ClassToWrite],
-    table: UnitTable,
-    store: UnitStore,
-    metas: dict[str, dict],
-    arena: _FragmentArena,
-    width: int | None = None,
-) -> Iterator[_Chunk]:
-    """Yield a run's classes as the write receives them, computing each class's manifest record as its first chunk is made (`_class_meta`) and keeping it in `metas` for the manifest. Without a `width`, each class is one chunk over the full table, store and arena at the class's ordinals, which is the serial write. With one, each class is cut into chunks of `width` units in its order, a class with no units into one empty chunk, each over a table, a store and an arena gathered for its units alone, which a write worker reads by position."""
-    for entry in run:
-        meta = metas[entry.id] = _class_meta(entry, table, store)
-        header = _ClassHeader(entry.id, meta, entry.prior_parts, entry.route == APPEND, entry.route != FIRST)
-        ordinals = entry.ordinals
-        if width is None:
-            yield _Chunk(header, table, store, arena, ordinals, True)
-            continue
-        for offset in range(0, max(len(ordinals), 1), width):
-            members = ordinals[offset : offset + width]
-            gathered = store.gather(members)
-            yield _Chunk(
-                header if offset == 0 else None,
-                table.gather(members),
-                gathered,
-                arena.gather(gathered),
-                range(len(members)),
-                offset + width >= len(ordinals),
-            )
-
-
-def _write_chunk(
-    chunk: _Chunk,
-    class_id: str,
-    offset: int,
-    check: _CorpusCheck,
-    writer: _ShardWriter,
-    sidecars: _SidecarLines,
-    prior: unit_cache.PriorFragmentReader,
-) -> _ChunkWritten:
-    """Write one chunk of the open class: each unit's fragment, read from the chunk's arena or from the previous corpus (`prior`), into the class's shard parts through `writer`, its sidecar lines onto `sidecars`, and each fragment through `check` at `PATCHED`. Each fragment is written, checked, projected and released before the next is read, so the process holds one fragment and its prior at a time beside the chunk's per-unit results, and deflates or inflates it there. On a class the writer appends to, a cached fragment copied as it is keeps its address, and so does any other fragment whose bytes equal its prior's (`UnitStore.prior_fragment`, compared through `PriorFragmentReader.same_bytes` over inflated bytes, where equal bytes carry the unit's own id and stamp), each keeping its form and marker; every other fragment is appended, deflated. On a class written directly, a cached fragment copied as it is goes in as it was stored, deflated or plain, which the writer turns into the class's form (`_ShardWriter.add_bytes`). A fragment's content key must equal the one the store already holds for its unit, since the fragment was drafted or cached under it. The class's last chunk closes the class, which names its parts and runs its class-level checks. Nothing is written into the table, the store or the arena, so a worker can write from a chunk of each."""
-    table, store, ordinals = chunk.table, chunk.store, chunk.ordinals
-    parts = array("H")
-    starts = array("Q")
-    lengths = array("I")
-    names: list[str | None] = [None]
-    ids: dict[str | None, int] = {None: 0}
-    notes = array("I")
-    policy_files = array("I")
-
-    def name_id(value: str | None) -> int:
-        found = ids.get(value)
-        if found is None:
-            found = ids[value] = len(names)
-            names.append(value)
-        return found
-
-    inflated = array("I")
-    byte_copied = kept = 0
-    appended = writer.appended
-    appended_inflated = writer.appended_inflated
-    deflated = writer.deflated
-    for ordinal in ordinals:
-        source = store.source(ordinal)
-        assert source is not None, ordinal
-        emission = _emission(ordinal, source, table, store, chunk.arena, prior)
-        assert emission.unit_id == source.unit_id, (emission.unit_id, ordinal)
-        if emission.fragment is not None:
-            fragment = emission.fragment
-            body = _fragment_bytes(fragment)
-            former = store.prior_fragment(ordinal) if writer.appending else None
-            if former is not None and writer.holds(former.part) and prior.same_bytes(former, body):
-                assert former is not None
-                span = writer.keep(former)
-                kept += 1
-            else:
-                span = writer.add_bytes(body)
-            del body
-            check.unit(fragment, cached=store.flags(ordinal).cached)
-            sidecars.unit(fragment, span, table.order(ordinal), table.batch(ordinal))
-            note = fragment["config_note"]
-        else:
-            assert emission.body is not None and emission.source is not None
-            assert emission.identity is not None
-            if writer.holds(emission.source.part):
-                span = writer.keep(emission.source)
-            else:
-                span = writer.add_bytes(emission.body, emission.source.inflated)
-            check.unit(emission.identity, cached=True)
-            sidecars.cached(emission, span, table.order(ordinal), table.batch(ordinal))
-            note = config_note(table.configs(ordinal), window_configs(table.codepoints_text(ordinal)))
-            byte_copied += 1
-        assert emission.content_key == store.content_key_hex(ordinal), emission.unit_id
-        parts.append(span[0])
-        starts.append(span[1])
-        lengths.append(span[2])
-        inflated.append(span[3])
-        notes.append(name_id(note))
-        policy_files.append(name_id(emission.policy_file))
-    shards = None
-    shard_bytes = 0
-    appended = writer.appended - appended
-    appended_inflated = writer.appended_inflated - appended_inflated
-    deflated = writer.deflated - deflated
-    if chunk.last:
-        shards, shard_bytes = writer.close()
-        check.class_end()
-    return _ChunkWritten(
-        class_id,
-        offset,
-        parts,
-        starts,
-        lengths,
-        names,
-        notes,
-        policy_files,
-        check.take_facts(),
-        byte_copied,
-        shards,
-        kept,
-        appended,
-        shard_bytes,
-        inflated=inflated,
-        appended_inflated=appended_inflated,
-        deflated=deflated,
-    )
-
-
-def _write_run(
-    index: int,
-    chunks: Iterable[_Chunk],
-    settings: _WriteSettings,
-    keep: Callable[[_ChunkWritten], None],
-) -> _RunWritten:
-    """Write one run of classes (`_write_runs`), in shard order, from its chunks, with a shard writer, its sidecar lines (`_SidecarLines`), a checker and a reader over the previous corpus of its own; each chunk brings the arena its recomputed fragments are read from. A chunk with a header opens its class. Each chunk's results go to `keep` as soon as the chunk is written, and the chunk is dropped before the next is drawn, so the run holds one chunk and one chunk's results at a time beside its compressed sidecar lines. The shard parts stay staged and the sidecar lines compressed in memory, for the parent, which commits the parts once every run has written and writes the sidecars from the lines once the manifest is written. A run that raises deletes what it staged."""
-    writer = _ShardWriter(settings.out_dir)
-    sidecars = _SidecarLines(settings.out_dir, copy_forward=settings.copy_forward)
-    prior = unit_cache.PriorFragmentReader(settings.out_dir)
-    check = _CorpusCheck(
-        mode="m1-audit",
-        descriptions=FEATURE_DESCRIPTIONS,
-        batch_size=settings.batch_size,
-        repo_root=settings.repo_root,
-        cached_ids=(),
-        at=(PATCHED,),
-        identity_for=settings.primary_units,
-    )
-    class_id = ""
-    offset = 0
-    try:
-        for chunk in chunks:
-            if chunk.header is not None:
-                class_id, offset = chunk.header.id, 0
-                writer.open(
-                    class_id,
-                    chunk.header.prior_parts,
-                    append=chunk.header.append,
-                    deflate=chunk.header.deflate,
-                )
-                check.class_start(chunk.header.meta)
-            keep(_write_chunk(chunk, class_id, offset, check, writer, sidecars, prior))
-            offset += len(chunk.ordinals)
-            del chunk
-        run, lines = sidecars.close()
-        return _RunWritten(index, writer.take_pending(), run, lines)
-    except BaseException:
-        writer.abort()
-        sidecars.release()
-        raise
-    finally:
-        prior.close()
-
-
-def _write_runs(classes: Sequence[_ClassToWrite], width: int) -> list[list[_ClassToWrite]]:
-    """Cut the classes, which arrive in shard order, into the runs the write hands out: contiguous stretches of shard order, each closed before the class that would take it past an even share of the units (the unit total over `width`, rounded up). A class larger than that share is a run of its own. A run is contiguous so that its sidecar lines follow one another in the final files, its locator blocks, which close at every class change, are the ones one pass over the corpus would cut, and one cursor per previous sidecar reads forward through the whole run, paying once to skip the lines before it rather than once per class. At a width of one the whole corpus is one run, which is the serial write."""
-    sizes = [len(entry.ordinals) for entry in classes]
-    share = -(-sum(sizes) // max(1, width))
-    runs: list[list[_ClassToWrite]] = []
-    current: list[_ClassToWrite] = []
-    held = 0
-    for entry, size in zip(classes, sizes):
-        if current and held + size > share:
-            runs.append(current)
-            current = []
-            held = 0
-        current.append(entry)
-        held += size
-    if current or not runs:
-        runs.append(current)
-    return runs
-
-
-def _write_width(classes: Sequence[_ClassToWrite], fit: int) -> int:
-    """Return how many processes the write runs on: the most that fit the memory (`fit`, `artifact_cycle.corpus_write_job_budget`), but no more than it takes for the largest class to bound the phase. A class is written by one process from start to end, because its part boundaries fall where its bytes reach `SHARD_PART_BYTES`, so the phase takes at least as long as its largest class. With the unit total over the largest class's units, rounded up, as the width, the even share `_write_runs` cuts at is no larger than that class, and a wider pool would only start more workers without shortening the phase."""
-    sizes = [len(entry.ordinals) for entry in classes]
-    largest = max(sizes, default=0)
-    bound = -(-sum(sizes) // largest) if largest else 1
-    return max(1, min(fit, bound))
-
-
-class _SharedPickler(pickle.Pickler):
-    """Pickle a message to a write worker with the objects in `shared` left out, each replaced by its index there. Those are the string table and the workload table's pools, which every chunk's table and store refer to, and the preset dictionary every chunk's arena refers to (`_FragmentArena.gather`): a worker receives them once, as it starts, and `_SharedUnpickler` puts its own copies back, so a chunk carries only its rows and its fragments."""
-
-    def __init__(self, handle: BinaryIO, shared: Sequence[object]) -> None:
-        super().__init__(handle, protocol=pickle.HIGHEST_PROTOCOL)
-        self._shared = {id(value): index for index, value in enumerate(shared)}
-
-    def persistent_id(self, obj: object) -> int | None:
-        return self._shared.get(id(obj))
-
-
-class _SharedUnpickler(pickle.Unpickler):
-    def __init__(self, stream: BinaryIO, shared: Sequence[object]) -> None:
-        super().__init__(stream)
-        self._shared = shared
-
-    def persistent_load(self, pid: int) -> object:
-        return self._shared[pid]
-
-
-def _pickled(message: tuple, shared: Sequence[object]) -> bytes:
-    buffer = io.BytesIO()
-    _SharedPickler(buffer, shared).dump(message)
-    return buffer.getvalue()
-
-
-def _send(conn, message: tuple, shared: Sequence[object]) -> None:
-    conn.send_bytes(_pickled(message, shared))
-
-
-def _receive(conn, shared: Sequence[object]) -> tuple:
-    return _SharedUnpickler(io.BytesIO(conn.recv_bytes()), shared).load()
-
-
-def _send_quietly(conn, message: tuple) -> None:
-    try:
-        conn.send(message)
-    except Exception:
-        pass
-
-
-def _write_failed(reply: tuple) -> NoReturn:
-    if reply[0] == "exit":
-        raise SystemExit(reply[1])
-    raise RuntimeError("corpus write worker failed:\n" + reply[1])
-
-
-def _write_worker(conn, settings: _WriteSettings, shared: tuple) -> None:
-    """Run one persistent write worker, answering the parent's messages on `conn` until `stop`. `shared` holds the string table, the workload table's pools and the preset dictionary, which the parent sends once, as the worker starts; every message after that comes through `_SharedPickler` and refers to them. A `run` message carries a run's index and its first chunk, and the worker writes the run (`_write_run`) a chunk at a time, holding only the chunk it is writing, since neither it nor the run keeps a chunk once written: it replies `written` with each chunk's results, the parent answers with the run's next chunk or, after its last, with `end`, and the worker then replies `run` with the run's renames, sidecar counts and locator block entries. It keeps the run's compressed sidecar lines (`_RunWritten.lines`) beside those of every run it wrote before, until the parent asks for them once the manifest is written: a `lines` message names a run and a sidecar, and the worker replies `lines` and then sends those lines as raw bytes, so they are never pickled, and drops its copy. `stop` replies with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`). A `SystemExit` raised by the write, such as a fragment that does not read back, replies `exit` with its message, and any other exception replies `error` with its traceback; either ends the worker. Workers are started with spawn only, as the units pool's are (`_corpus_worker`)."""
-
-    def chunks(held: list[_Chunk]) -> Iterator[_Chunk]:
-        yield held.pop()
-        while True:
-            message = _receive(conn, shared)
-            if message[0] == "end":
-                return
-            chunk = message[1]
-            del message
-            yield chunk
-            del chunk
-
-    lines: dict[int, dict[str, bytes]] = {}
-    try:
-        while True:
-            message = _receive(conn, shared)
-            if message[0] == "stop":
-                conn.send(("peak", peak_footprint_self_bytes()))
-                return
-            if message[0] == "lines":
-                compressed = lines[message[1]].pop(message[2])
-                conn.send(("lines",))
-                conn.send_bytes(compressed)
-                del compressed
-                continue
-            index, held = message[1], [message[2]]
-            del message
-            run = _write_run(index, chunks(held), settings, lambda written: conn.send(("written", written)))
-            lines[index] = run.lines
-            conn.send(("run", replace(run, lines={})))
-            del run
-    except SystemExit as stop:
-        _send_quietly(conn, ("exit", str(stop.code)))
-    except Exception:
-        _send_quietly(conn, ("error", traceback.format_exc()))
-    finally:
-        conn.close()
-
-
-class _WritePool:
-    """The write's worker processes. Each receives the string table, the workload table's pools and the preset dictionary once, as it starts, and then the units it writes one chunk at a time, with their recomputed fragments, gathered by the parent (`_write_chunks`), so no worker holds the corpus's columns. `write` hands out the runs largest first, one per worker at a time, each worker taking the next as it finishes one. Within a run the parent keeps each worker's next chunk gathered ahead and held only as its pickled message, so no chunk outlives its gather: a worker that replies with a chunk's results receives the next at once, and the parent gathers and pickles the one after while the worker writes. Each chunk's results and each run's go to the caller as they arrive, in whatever order the workers finish them. A worker keeps the compressed sidecar lines of every run it wrote, and `lines` pulls one run's lines for one sidecar from the worker that wrote the run, so the pool stays up while the parent writes the manifest and then the sidecars (`_write_sidecars`). Each worker answers over one connection, so only one `lines` call may run at a time, which `_write_sidecars`'s two writers take turns at. `close` stops the workers and writes the pool record of their peak footprints and the parent's, or, after a failure, terminates them."""
-
-    def __init__(self, width: int, settings: _WriteSettings, shared: tuple) -> None:
-        ctx = multiprocessing.get_context("spawn")
-        self._shared = shared
-        self._procs: list = []
-        self._conns: list = []
-        self._owners: dict = {}
-        for _ in range(width):
-            parent_conn, child_conn = ctx.Pipe()
-            proc = ctx.Process(target=_write_worker, args=(child_conn, settings, shared))
-            proc.start()
-            child_conn.close()
-            self._procs.append(proc)
-            self._conns.append(parent_conn)
-        memory_tally.mark("write pool started")
-
-    def write(
-        self,
-        runs: Sequence[Sequence[_ClassToWrite]],
-        chunks: Callable[[Sequence[_ClassToWrite]], Iterator[_Chunk]],
-        keep: Callable[[_ChunkWritten], None],
-        keep_run: Callable[[_RunWritten], None],
-    ) -> None:
-        queue = iter(
-            sorted(range(len(runs)), key=lambda index: -sum(len(entry.ordinals) for entry in runs[index]))
-        )
-        feeds: dict[object, tuple[Iterator[_Chunk], bytes | None]] = {}
-
-        def ahead(feed: Iterator[_Chunk]) -> bytes | None:
-            chunk = next(feed, None)
-            return None if chunk is None else _pickled(("chunk", chunk), self._shared)
-
-        def hand(conn) -> bool:
-            index = next(queue, None)
-            if index is None:
-                return False
-            feed = chunks(runs[index])
-            self._owners[index] = conn
-            conn.send_bytes(_pickled(("run", index, next(feed)), self._shared))
-            feeds[conn] = (feed, ahead(feed))
-            return True
-
-        waiting = [conn for conn in self._conns if hand(conn)]
-        while waiting:
-            for conn in cast(list, multiprocessing.connection.wait(waiting)):
-                reply = conn.recv()
-                if reply[0] == "written":
-                    feed, message = feeds[conn]
-                    ended = message is None
-                    conn.send_bytes(_pickled(("end",), self._shared) if message is None else message)
-                    feeds[conn] = (feed, None)
-                    del message
-                    keep(reply[1])
-                    del reply
-                    if not ended:
-                        feeds[conn] = (feed, ahead(feed))
-                elif reply[0] == "run":
-                    keep_run(reply[1])
-                    del feeds[conn]
-                    if not hand(conn):
-                        waiting.remove(conn)
-                else:
-                    _write_failed(reply)
-
-    def lines(self, index: int, name: str) -> bytes:
-        """Return run `index`'s compressed lines for the sidecar `name` from the worker that wrote the run, which gives them up as it sends them."""
-        conn = self._owners[index]
-        _send(conn, ("lines", index, name), ())
-        reply = conn.recv()
-        if reply[0] != "lines":
-            _write_failed(reply)
-        return conn.recv_bytes()
-
-    def close(self, *, failed: bool) -> None:
-        peaks: dict[str, int] = {}
-        if failed:
-            for proc in self._procs:
-                proc.terminate()
-        else:
-            for index, conn in enumerate(self._conns):
-                try:
-                    _send(conn, ("stop",), ())
-                    if conn.poll(30):
-                        reply = conn.recv()
-                        if reply[0] == "peak":
-                            peaks[f"w{index}"] = int(reply[1])
-                except OSError, EOFError:
-                    pass
-        for conn in self._conns:
-            try:
-                conn.close()
-            except OSError:
-                pass
-        for proc in self._procs:
-            proc.join(timeout=5)
-            if proc.is_alive():
-                proc.terminate()
-                proc.join()
-        if peaks:
-            record_pool(
-                "corpus-write",
-                width=len(self._procs),
-                worker_peaks=peaks,
-                controller_peak_bytes=peak_footprint_self_bytes(),
-                worker_reading="footprint",
-            )
-        memory_tally.mark("write pool stopped")
-
-
-def _discard_runs(out_dir: Path, runs: Sequence[Sequence[_ClassToWrite]]) -> None:
-    """Delete the shard parts the write's runs staged, after the write failed and every worker has exited. A run that raised cleaned up after itself, but a worker the failure terminated mid-run did not. A run that finished has had its renames made or not, and a renamed part is no longer at its staging name."""
-    units_dir = Path(out_dir) / "units"
-    for run in runs:
-        for entry in run:
-            for staging in units_dir.glob(f"{entry.id}.*.json.partial"):
-                staging.unlink(missing_ok=True)
-
-
-def _write_corpus(
-    out_dir: Path,
-    table: UnitTable,
-    order: Sequence[int],
-    row_total: int,
-    classes: list,
-    by_class: Mapping[str, Sequence[int]],
-    store: UnitStore,
-    cached_count: int,
-    secondary_junction_counts: dict,
-    duplicate_group_count: int,
-    total_batches: int,
-    batch_size: int,
-    audit_path: Path,
-    audit_mtime: float,
-    ledger_path: Path,
-    subset_dir: Path,
-    before_font: Path,
-    after_font: Path,
-    junior_font: Path,
-    repo_root: Path,
-    static_dir: Path,
-    mismatches: list,
-    unit_errors: Sequence[str],
-    font_digests: Mapping[str, str],
-    *,
-    draft_lines: Sequence[str],
-    sections: Mapping[str, str],
-    ledger: Sequence[LedgerClass],
-    arena: _FragmentArena,
-    write_jobs: int,
-    tally: memory_tally.MemoryTally | None = None,
-    spec_root: Path | None = None,
-    prior_shards: PriorShards | None = None,
-    predicted: bytearray | None = None,
-) -> _WrittenCorpus:
-    """Write the per-unit fragments into shards, copy the fonts, and write the manifest and the sidecars. The manifest's triage index, `human_unit_ids`, is the human units taken in `order`, the permutation `audit.sort_for_triage` returned; a batch is a slice of it. Every per-unit value read here is a column of `table` or `store`, indexed by ordinal. `classes` arrive in manifest order and `sections` holds the section `build_m1` computed for each; `ledger` is every ledger entry, reached or not, for the manifest's `ledger_classes` lookup.
-
-    Fragments are written in shard order: classes in `unit_index.class_shard_key` order, which is also the sidecars' order, and each class's units by id (`store.id_word`, which sorts like the id strings). So a class's fragments and its locator rows ascend together, and a recomputed unit is placed by its content, not by its queue position. Each class's route is decided before the write starts, in this process, from what it already holds (`_route`): appended to its parts from the previous corpus, so a fragment that comes out as it was stays where it is and only a changed one is written, or written directly by the share rule, as a fold (`prior_shards`) or as a first base, which alone writes plain, every other route writing deflated (#618's change 35). `predicted` receives each unit's prediction, which the cache write reads. The classes are cut into runs, contiguous stretches of that order (`_write_runs`), and each run is written by `_write_run` with its own shard writer, sidecar lines and reader over the previous corpus, so runs can be written at once. A recomputed fragment is read from `arena`, the runner's arena of deflated fragments. The width is `write_jobs`, the most workers that fit, narrowed by `_write_width` and to the number of runs. Above one, a pool of that many worker processes writes the runs (`_WritePool`), each worker from chunks of `WRITE_CHUNK_UNITS` units that the parent gathers from the table, the store and the arena for it (`_write_chunks`); at one, this process writes the one run, which is the whole corpus, from the full table, store and arena. Either way the parent computes each class's manifest record from its columns, receives each chunk's per-unit addresses, config notes and policy files and its checker's facts, and as each chunk arrives writes the per-unit values into the store, holding each unit's part index until its class closes and names its parts, and folds the facts in (`_CorpusCheck.absorb`). Once every run is in, it renames the staged parts and writes the manifest, and then writes the sidecars from the runs' compressed lines in shard order (`_write_sidecars`), the units index and the app sidecars side by side, each writer pulling one run's lines for one sidecar at a time: from the worker that wrote the run, which keeps them until then, so the pool stays up until the sidecars are written, or at one, from the run this process wrote. So every output file is byte for byte what a single serial pass over the corpus writes. Nothing is committed until every run has written, and a failed run deletes what any run staged (`_discard_runs`), so the previous corpus stays intact.
-
-    `check_shards`' predicates run over the fragments as they pass, through the same `_CorpusCheck` the whole-corpus form uses, at `PATCHED` only plus every cross-unit predicate (`check_unit` describes the two subsets): each class's per-unit and class-level predicates in the process that writes it, and the cross-unit predicates once over the folded checker. A failing build's errors follow the order the chunks arrive in, so in a pooled write their order, and which of two clusters a duplicate group is reported against, can differ from a serial write's. `unit_errors` holds what the drafting-time check found, and those errors fail the build here in the same `contract check failed` list as the write's own. `cached_count` is the number of units the cache supplied, and decides whether the previous sidecars may be copied forward.
-
-    The manifest predicates (`check_manifest`) and the output-file predicates (`_check_output_files`) do not run here: every field they read is written by this function from its own inputs, and the fonts are checked against the digests taken at load in `_copy_font`. `check_output_dir` runs them over a real build in the contracts lane (`rebuild/test_app_index.py` over the mini bundle, `rebuild/test_review_build.py` over a table diff), and `refresh_assets` runs the file predicates over the corpus it restamps.
-    """
-    out_dir = Path(out_dir)
-    ordered = sorted(classes, key=lambda entry: unit_index.class_shard_key(entry.id))
-    prior_parts = _prior_parts(out_dir)
-    if predicted is None:
-        predicted = bytearray(table.n)
-    to_write = []
-    for entry in ordered:
-        ordinals = array("I", sorted(by_class.get(entry.id, ()), key=store.id_word))
-        parts = tuple(prior_parts.get(entry.id, ()))
-        if not all((out_dir / part).is_file() for part in parts):
-            parts = ()
-        to_write.append(
-            _ClassToWrite(
-                entry.id,
-                entry.title,
-                entry.summary,
-                entry.note,
-                sections[entry.id],
-                entry.status,
-                entry.ink_identical,
-                entry.no_verdict,
-                entry.why,
-                ordinals,
-                parts,
-                _route(entry.id, ordinals, parts, table, store, prior_shards, predicted),
-            )
-        )
-    copy_forward = (
-        bool(cached_count)
-        and unit_index.index_is_current(out_dir)
-        and app_index.artifact_is_current(out_dir, app_index.APP_INDEX_NAME, app_index.APP_INDEX_FORMAT)
-    )
-    settings = _WriteSettings(out_dir, copy_forward, batch_size, repo_root, store.primary_unit_ids())
-    width = _write_width(to_write, write_jobs)
-    runs = _write_runs(to_write, width)
-    jobs = min(width, len(runs))
-    check = _CorpusCheck(
-        mode="m1-audit",
-        descriptions=FEATURE_DESCRIPTIONS,
-        batch_size=batch_size,
-        repo_root=repo_root,
-        cached_ids=(),
-        at=(PATCHED,),
-    )
-    if tally:
-        tally.hold("checker.identity", check._identity)
-    written: dict[int, _RunWritten] = {}
-    by_id = {entry.id: entry for entry in to_write}
-    metas: dict[str, dict] = {}
-    held: dict[str, array] = {}
-    held_live: dict[str, int] = {}
-    byte_copied = kept = appended = appended_inflated = deflated = dead = 0
-
-    def keep(result: _ChunkWritten) -> None:
-        nonlocal byte_copied, kept, appended, appended_inflated, deflated, dead
-        entry = by_id[result.class_id]
-        names = result.names
-        for ordinal, start, length, inflated, note, policy in zip(
-            entry.ordinals[result.offset : result.offset + len(result.starts)],
-            result.starts,
-            result.lengths,
-            result.inflated,
-            result.notes,
-            result.policy_files,
-            strict=True,
-        ):
-            store.set_written_span(ordinal, start, length, inflated)
-            store.set_config_note(ordinal, names[note])
-            store.set_policy_file(ordinal, names[policy])
-        held.setdefault(result.class_id, array("H")).extend(result.parts)
-        held_live[result.class_id] = (
-            held_live.get(result.class_id, 0) + sum(result.lengths) + len(result.lengths)
-        )
-        check.absorb(result.facts)
-        byte_copied += result.byte_copied
-        kept += result.kept
-        appended += result.appended
-        appended_inflated += result.appended_inflated
-        deflated += result.deflated
-        if result.shards is not None:
-            metas[result.class_id]["shards"] = result.shards
-            class_live = held_live.pop(result.class_id)
-            if entry.route == APPEND:
-                dead += result.shard_bytes - len(unit_index.PART_CLOSING) * len(result.shards) - class_live
-            for ordinal, part in zip(entry.ordinals, held.pop(result.class_id), strict=True):
-                store.set_written_part(ordinal, result.shards[part])
-
-    def keep_run(run: _RunWritten) -> None:
-        written[run.index] = run
-
-    def held_lines(index: int, name: str) -> bytes:
-        return written[index].lines.pop(name)
-
-    pool: _WritePool | None = None
-    failed = True
-    committed = False
-    try:
-        if jobs > 1:
-            pool = _WritePool(
-                jobs, settings, (table.strings, table.tuples, table.groups, table.mappings, arena.dictionary)
-            )
-            pool.write(
-                runs,
-                partial(
-                    _write_chunks, table=table, store=store, metas=metas, arena=arena, width=WRITE_CHUNK_UNITS
-                ),
-                keep,
-                keep_run,
-            )
-        else:
-            for index, run in enumerate(runs):
-                keep_run(_write_run(index, _write_chunks(run, table, store, metas, arena), settings, keep))
-        for index in range(len(runs)):
-            for staging, target in written[index].pending:
-                staging.replace(target)
-        committed = True
-
-        fonts = {
-            "before": _copy_font(
-                before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
-            ),
-            "after": _copy_font(
-                after_font, out_dir, "after.otf", "AMS Review After", repo_root, font_digests["after"]
-            ),
-        }
-        machine_units = (
-            (table.class_id(ordinal), table.row_count(ordinal), check_id)
-            for ordinal in order
-            if (check_id := store.machine_check(ordinal)) is not None
-        )
-        manifest = {
-            "format": MANIFEST_FORMAT,
-            "mode": "m1-audit",
-            "generated_at": _generated_at(ledger_path, before_font, after_font, mtimes=(audit_mtime,)),
-            "repo_head": _repo_head(repo_root),
-            "inputs_fingerprint": _inputs_fingerprint(
-                repo_root, subset_dir, before_font, junior_font, spec_root, draft_lines=draft_lines
-            ),
-            "source": {
-                "audit": _relative(audit_path, repo_root),
-                "ledger": _relative(ledger_path, repo_root),
-            },
-            "fonts": fonts,
-            "alphabet": _alphabet_meta(),
-            "configs": list(ACCEPTANCE_CONFIGS),
-            "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
-            "batch_size": batch_size,
-            "human_unit_ids": [
-                store.unit_id(ordinal) for ordinal in order if table.batch(ordinal) is not None
-            ],
-            "totals": {
-                "units": table.n,
-                "rows": row_total,
-                "batches": total_batches,
-                "duplicate_groups": duplicate_group_count,
-            },
-            "machine_approved": _machine_approved_meta(machine_units, junior_font, repo_root),
-            "secondary_junctions": secondary_junction_counts,
-            "classes": [metas[entry.id] for entry in classes],
-            "ledger_classes": _ledger_classes_meta(ledger),
-            "build_command": BUILD_COMMAND,
-            "serve_command": SERVE_COMMAND,
-        }
-        _write_json(out_dir / "manifest.json", manifest)
-        memory_tally.mark("manifest written")
-        pruned = _prune_orphan_shards(out_dir, manifest)
-        if pruned:
-            print(f"Pruned {len(pruned)} orphan shard(s): {', '.join(pruned)}", file=sys.stderr)
-        copy_static(out_dir, static_dir)
-        index_write = _write_sidecars(
-            out_dir,
-            [written[index].sidecars for index in range(len(runs))],
-            pool.lines if pool is not None else held_lines,
-        )
-        memory_tally.mark("sidecars written")
-        failed = False
-    finally:
-        if pool is not None:
-            pool.close(failed=failed)
-        if not committed:
-            _discard_runs(out_dir, runs)
-    # A unit whose re-settled cells disagree with the audit it was built from would describe a font nobody compiled, so any mismatch fails the build.
-    errors: list[str] = []
-    if mismatches:
-        errors.append(
-            f"enricher: re-settled cells diverge from the audit in {len(mismatches)} units "
-            f"(first: {mismatches[0]})"
-        )
-    errors.extend(unit_errors)
-    errors.extend(check.finish(manifest))
-    if errors:
-        raise SystemExit("contract check failed:\n" + "\n".join(errors[:CONTRACT_ERRORS_SHOWN]))
-    return _WrittenCorpus(
-        manifest,
-        jobs,
-        byte_copied,
-        sum(written[index].sidecars.copied_forward for index in range(len(runs))),
-        [written[index].sidecars.held for index in range(len(runs))],
-        index_write,
-        appended,
-        kept,
-        sum(entry.route == FOLD for entry in to_write),
-        sum(entry.route in (DIRECT, FIRST) for entry in to_write),
-        dead,
-        appended_inflated,
-        deflated,
-    )
-
-
-def row_column_sizes(rows: RowColumns | None) -> memory_tally.Measure:
-    """Return the row columns' exact reading for the debug tally (`memory_tally.column_sizes`): the live rows as the count, and the five arrays plus the tuple pool at its packed size (orphaned runs included) as the bytes. The string table the columns share with the workload table is printed beside them and counted under `workload.units`. After `release_rows` drops the columns the reading is empty, so the line still appears at every boundary after the load. The pool is sealed by the time a tally reads it, so beyond its packed size it holds only its id list, one pointer per tuple, and the tuples, which the workload table's units use as their `baseline` and `new` until `UnitTable.release_names`."""
-    if rows is None:
-        return memory_tally.Measure(0, 0, memory_tally.PackedCost(0, 0, 0))
-    return memory_tally.column_sizes(
-        rows.live, rows.columns(), rows.table, memory_tally.pool_bytes(rows.names), holds_table=False
-    )
-
-
-def unit_table_sizes(table: UnitTable) -> memory_tally.Measure:
-    """Return the workload table's exact reading for the debug tally, under `workload.units`: the rows as the count, and as the bytes the table's arrays plus every pool a side column indexes at its packed size. The pools are the config and kind tuples, the render groups, the class maps, and the name tuples until `release_names` drops them, so the reading drops between the plan and units boundaries. The walked figure includes the string table and the packed figure prints it beside the rows. It is the build's only string table, which the row columns, the unit store and the pre-merge snapshot also index, so this is the one line that counts it. The line reads `ratio=1.00` on the corpus, since the table is columns; the only memory it adds past the plan is the pools and the string table, which includes the store's digests and cluster ids."""
-    pools = sum(memory_tally.pool_bytes(pool) for pool in table.pools())
-    return memory_tally.column_sizes(table.n, table.columns(), table.strings, pools)
-
-
-def premerge_sizes(snapshot: facts.PremergeSnapshot) -> memory_tally.Measure:
-    """Return the pre-merge snapshot's exact reading for the debug tally, under `facts.premerge`: one row per pre-merge unit, with the snapshot's own columns (its window offsets only; the values are the table's) as the bytes. The string table it indexes is the workload table's, printed beside the rows and counted under `workload.units`."""
-    return memory_tally.column_sizes(snapshot.n, snapshot.columns(), snapshot.strings, holds_table=False)
-
-
-def _slim_for(no_verdict: bool, cached: unit_cache.ParsedCachedUnit) -> bool:
-    """Whether this build would write the unit's fragment slim, decided before phase 1 from the store record. The record's machine flags depend only on inputs the input key and the environment stamp cover, so they hold for this build. The exemption comes from this build's ledger (the table's `no_verdict`), which no key covers, so it can change while the key stays the same. The plan compares the result with the record's `slim` flag and reuses the fragment only when they agree."""
-    return cached.ink_identical or cached.picture_identical or cached.junior_equivalent or no_verdict
-
-
-def _policy_file(fragment: Mapping) -> str | None:
-    """The rune file a fragment's policy draft names, or None. It is the only drafts field the cross-unit check reads, and the store keeps it so a byte-copied fragment need not be parsed to supply it."""
-    policy = (fragment.get("drafts") or {}).get("policy") or {}
-    file = policy.get("file")
-    return file if isinstance(file, str) else None
-
-
-def _cached_identity(table: UnitTable, store: UnitStore, ordinal: int, unit_id: str, junction_assign) -> dict:
-    """The dict that stands in for a byte-copied fragment when `_CorpusCheck.unit` and the locator row read it. It carries every field the cross-unit predicates and the locator read, taken from the workload table and the unit store, so a cached unit is checked against its neighbors on every build without parsing its fragment or materializing a unit record."""
-    pair = store.cell_pair(ordinal)
-    policy_file = store.policy_file(ordinal)
-    ink_identical, picture_identical, junior_equivalent = store.machine_flags(ordinal)
-    configs = table.configs(ordinal)
-    return {
-        "id": unit_id,
-        "ink_identical": ink_identical,
-        "picture_identical": picture_identical,
-        "junior_equivalent": junior_equivalent,
-        "no_verdict": table.no_verdict(ordinal),
-        "duplicate_group": table.duplicate_group(ordinal),
-        "cluster": table.cluster(ordinal),
-        "class": table.class_id(ordinal),
-        "group": table.group(ordinal),
-        "codepoints": table.codepoints_text(ordinal),
-        "configs": list(configs),
-        "config_gate": config_gate(configs, window_configs(table.codepoints_text(ordinal))),
-        "pair": {"left": pair[0], "right": pair[1]} if pair else None,
-        "secondary_junctions": [
-            {"primary_unit": primary_unit} for primary_unit, suppressed in junction_assign if not suppressed
-        ]
-        or None,
-        "drafts": {"policy": {"file": policy_file}} if policy_file else None,
-    }
-
-
-@dataclass
-class _Loaded:
-    """What the build's load gives the plan, whichever window source read the audit: the workload, its table merged and in load order; the pre-merge snapshot, rebased onto the merge; each unit's input key in load order; the ink-signature store's columns, hits marked and misses shaped, its stamp and the two stamps beside it; the merge's stats; the source and, for the in-memory source, why; what the key-only read did; and the misses shaped and their width."""
-
-    workload: Workload
-    premerge: facts.PremergeSnapshot
-    input_keys: bytearray
-    signatures: unit_cache.SignatureArrays
-    environment: fingerprint.EnvironmentStamp
-    stamps: dict
-    merge_stats: dict
-    source: str
-    key_only: str
-    shaped: int
-    width: int
-    parts: int = 1
-    segment_rows: int = 0
-    compressed: int = 0
-
-    def note(self) -> str:
-        """The load phase's note: its signature counts (the rows the store answered and those shaped, and how), whether the key-only read ran, in how many seconds across how many processes and the largest process's resident peak, or was skipped, the source the load took, the audit's parts, how many of them are held as gzip members and its segments' rows, and the prior store's hits and unhit entries and the misses."""
-        signatures = self.signatures
-        how = "" if not self.shaped else " serially" if self.width == 1 else f" across {self.width} workers"
-        return (
-            f"(signatures: {signatures.hits():,} cached, {self.shaped:,} shaped{how}) (key-only read {self.key_only}; "
-            f"{self.source}; audit {self.parts} parts, {self.compressed} compressed, {self.segment_rows:,} segment rows; "
-            f"prior store {signatures.hits():,} hit, {signatures.unhit():,} unhit, "
-            f"{signatures.misses():,} missed)"
-        )
-
-
-def _addressless_sizes(wanted: unit_cache.WantedFragments, lines: array, ordinals: array) -> tuple[int, int]:
-    """The plan's addressless records as the tally reads them: their count, and the bytes of the wanted columns beside each record's place and ordinal."""
-    return len(wanted), wanted.nbytes() + len(lines) * lines.itemsize + len(ordinals) * ordinals.itemsize
-
-
-def _key_only_note(key_only: _KeyOnly | None) -> str:
-    if key_only is None:
-        return "not run, the merge skipped"
-    if not key_only.ran:
-        return "skipped, the store's stamps held"
-    return (
-        f"ran {key_only.seconds:.2f} s across {key_only.processes} processes, "
-        f"the largest {key_only.peak / 1e9:.3f} GB resident"
-    )
-
-
-def _load_corpus(
-    parts: audit.AuditParts,
-    audit_path: Path,
-    ledger_path: Path,
-    ledger: list[LedgerClass],
-    family_of: Mapping[int, str],
-    family_keys: Mapping[str, str],
-    keyer: unit_cache.UnitKeyer,
-    out_dir: Path,
-    before_font: Path,
-    after_font: Path,
-    repo_root: Path,
-    helpers_digest: str,
-    signature_jobs: int,
-    recompute_all: bool,
-    identical_classes: frozenset[str],
-) -> _Loaded:
-    """Load the audit for the build through `parts`, the descriptors of the audit's parts that `build_m1` opened once and holds until the build returns (`audit.AuditParts`), every read of the audit going through them (`audit.audit_layout`, the key-only read, the stream, the in-memory source), never through a path again, since a `--gates-only` pass can commit a new head meanwhile, and a part held as gzip members read through the member index the head gave them (`audit.AuditParts.members`), its sections inflated as they are read; a member that does not inflate to what its index records raises `audit_stream.MemberError`, from the key-only read or the stream, which fails the build rather than send it to the in-memory source. The ink-signature store is read into columns first (`unit_cache.SignatureArrays.load`), under a stamp that names the review crate (`units_exec.crate_digest`). An audit in sorted sections is read as a stream (`audit.stream_workload`) once its misses are found (`_find_misses`) and shaped (`_shape_found_misses`), its windows merged as it reads them through the columns (`_LateShaper`). Any other audit, or one whose key-only read or stream meets a break, is read through the in-memory source, which keys its sibling rows in the parent and shapes their misses as the stream's are shaped (`_resolve_signature_digests`, through `_shape_misses`: the spawn pool at `signature_jobs` above 1 and at least `_SIGNATURE_POOL_THRESHOLD` misses, otherwise serially in the parent), captures the pre-merge snapshot, merges, compacts and keys every unit, with the columns' hits and misses cleared first. Both give the same table, snapshot, merge and input keys."""
-    environment = unit_cache.signature_environment(
-        repo_root, before_font, helpers_digest, units_exec.crate_digest()
-    )
-    prior = None if recompute_all else unit_cache.SignatureArrays.load(out_dir, environment)
-    if not recompute_all and prior is None:
-        note = unit_cache.signature_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
-        report = console.say if note == unit_cache.NO_STORE_NOTE else console.warn
-        report(f"ink-signature store: {note}", file=sys.stderr)
-    signatures = prior if prior is not None else unit_cache.SignatureArrays()
-    exempt_classes = {entry.id for entry in ledger if entry.no_verdict}
-    key_only_note = "not run, the audit is not in sorted sections"
-    descriptors = parts.descriptors
-    stamps = {
-        unit_cache.AUDIT_IDENTITY_KEY: unit_cache.audit_identity(descriptors[0], parts.head),
-        unit_cache.FAMILY_KEYS_KEY: unit_cache.family_keys_digest(family_keys),
-    }
-    layout = audit_layout(descriptors, audit_path, parts.members)
-    why = layout.why
-    if layout.sections is not None:
-        key_only = _find_misses(descriptors, layout.sections, signatures, family_of, family_keys, stamps)
-        key_only_note = _key_only_note(key_only)
-        memory_tally.mark(
-            "key-only read",
-            misses=0 if key_only is None else len(key_only.keys),
-            processes=0 if key_only is None else key_only.processes,
-        )
-        if key_only is not None and key_only.broken:
-            why = key_only.broken
-            key_only = None
-        else:
-            shaped, width = (
-                (0, 1)
-                if key_only is None
-                else _shape_found_misses(
-                    key_only, layout.sections, signatures, before_font, after_font, signature_jobs
-                )
-            )
-            memory_tally.mark("signatures resolved")
-            late = None if key_only is None else _LateShaper(signatures, before_font, after_font)
-            try:
-                streamed = stream_workload(
-                    descriptors,
-                    audit_path,
-                    ledger_path,
-                    layout.sections,
-                    ledger,
-                    family_of,
-                    family_keys,
-                    late,
-                    mark=memory_tally.mark,
-                )
-            except audit_stream.OrderBreak as broken:
-                why = str(broken)
-            else:
-                workload = streamed.workload
-                memory_tally.mark(
-                    "load_workload done", units=len(streamed.compaction.survivor), rows=workload.row_count
-                )
-                premerge = facts.PremergeSnapshot.from_columns(
-                    workload.table, streamed.premerge, identical_classes
-                )
-                premerge.rebase(streamed.compaction)
-                memory_tally.mark("compacted", units=workload.table.n)
-                late_shaped = 0 if late is None else late.shaped
-                return _Loaded(
-                    workload,
-                    premerge,
-                    streamed.input_keys,
-                    signatures,
-                    environment,
-                    stamps,
-                    streamed.merge_stats,
-                    "read as a stream",
-                    key_only_note,
-                    shaped + late_shaped,
-                    width if shaped else 1,
-                    len(descriptors),
-                    parts.segment_rows,
-                    parts.compressed,
-                )
-            finally:
-                if late is not None:
-                    late.release()
-    signatures.reset()
-    workload = load_workload(
-        audit_path,
-        ledger_path,
-        dict(family_of),
-        mark=memory_tally.mark,
-        descriptors=descriptors,
-        members=parts.members,
-    )
-    table = workload.table
-    rows = workload.rows
-    assert rows is not None
-    memory_tally.mark("load_workload done", units=table.n, rows=workload.row_count)
-    found, shaped, width = _resolve_signature_digests(
-        table, rows, keyer, signatures, before_font, after_font, signature_jobs
-    )
-    memory_tally.mark("signatures resolved")
-    premerge = facts.capture_premerge(table, identical_classes)
-    memory_tally.mark("premerge captured")
-    merge_stats = merge_ink_duplicate_units(
-        table, rows, lambda codepoints, config: found[(codepoints, config)], exempt_classes
-    )
-    del found
-    memory_tally.mark("merged")
-    # The merge marked the absorbed rows. Compacting drops them and renumbers the survivors, so from here a table row index is the unit's ordinal, which the unit store uses too. The pre-merge snapshot records the compaction so it can find each pre-merge row's survivor.
-    premerge.rebase(table.compact())
-    memory_tally.mark("compacted", units=table.n)
-    input_keys = bytearray(INPUT_KEY_BYTES * table.n)
-    for ordinal in range(table.n):
-        input_keys[ordinal * INPUT_KEY_BYTES : (ordinal + 1) * INPUT_KEY_BYTES] = bytes.fromhex(
-            keyer.key(table, rows, ordinal)
-        )
-    release_rows(workload)
-    del rows
-    memory_tally.mark("rows released")
-    return _Loaded(
-        workload,
-        premerge,
-        input_keys,
-        signatures,
-        environment,
-        stamps,
-        merge_stats or {},
-        f"read in memory, since {why}",
-        key_only_note,
-        shaped,
-        width,
-        len(descriptors),
-        parts.segment_rows,
-        parts.compressed,
-    )
-
-
 def build_m1(
     out_dir: Path = DEFAULT_OUT,
     audit_path: Path = M1_AUDIT,
@@ -3619,37 +710,75 @@ def build_m1(
     gates_idle_marker: Path | None = None,
     write_jobs: int | None = None,
 ) -> dict:
-    """Build the m1-audit review corpus into `out_dir` (`_build_m1`) while holding the audit open: its head read and every part it lists opened here, before anything else, or the single file a tree with no head holds (`audit.AuditParts`), and those descriptors are the ones every read of the audit goes through until the build returns, the load's reads and the manifest's stamp's (`_generated_at`) alike, never a path again, since a `--gates-only` pass can commit a new head during a build. The build holds one descriptor a part, up to `row_delta.AUDIT_SEGMENT_CAP` and `row_delta.FOLD_OVERRUN` segments past it beside the base, and the key-only read's processes inherit them. The engine (`corpus_exec.engine()`, resolved once the audit is held) picks the build: `rust`, the default, runs the Rust build at `jobs` threads, one included (`_rust_build_m1`), and `python` runs `_build_m1` in this process."""
+    """Build the m1-audit review corpus into `out_dir` with the review crate's build process (`ams-review build`, `corpus_exec.run_build`) at `jobs` threads, and return the manifest it wrote, read back from `out_dir`. The audit is held open first: its head read and every part it lists opened here, before anything else, or the single file a tree with no head holds (`audit.AuditParts`), and those descriptors are the ones every read of the audit goes through until the build returns, the process's reads and the manifest's stamp's (`_generated_at`) alike, never a path again, since a `--gates-only` pass can commit a new head during a build. The build holds one descriptor a part, up to `row_delta.AUDIT_SEGMENT_CAP` and `row_delta.FOLD_OVERRUN` segments past it beside the base, and the process inherits them.
+
+    What comes before the process is Python's: the subset tables' check and the pack (`_packed_subsets`); the units init (`units_exec.write_init`), which derives the configuration fold here, so its line prints before the load; and the build input's values (`_build_inputs`), written with the held audit's descriptors (`corpus_exec.write_input`). The init, the input and the process's spill files are in a temporary directory held until the process exits. A refusal raises `SystemExit` and any other failure `corpus_exec.BuildRunError`.
+    """
     parts = audit.AuditParts(audit_path)
     try:
-        run = _rust_build_m1 if corpus_exec.engine() == "rust" else _build_m1
-        return run(
-            parts,
-            out_dir,
-            audit_path,
-            ledger_path,
-            subset_dir,
-            before_font,
-            after_font,
-            junior_font,
-            repo_root,
-            batch_size,
-            static_dir,
-            jobs,
-            signature_jobs,
-            recompute_all_units,
-            spec_root,
-            subset_pack,
-            gates_idle_jobs,
-            gates_idle_marker,
-            write_jobs,
-        )
+        spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        subset_digests, subset_pack = _packed_subsets(subset_dir, subset_pack)
+        with tempfile.TemporaryDirectory(prefix="ams-review-build-") as held:
+            directory = Path(held)
+            site_pages = fingerprint.read_site_corpus(repo_root)
+            draft_lines = fingerprint.draft_input_lines(repo_root, site_pages)
+            init = {
+                "before_font": before_font,
+                "after_font": after_font,
+                "junior_font": junior_font,
+                "subset_dir": subset_dir,
+                "subset_pack": subset_pack,
+                "repo_root": repo_root,
+                "spec_root": spec_root,
+                "identical_classes": frozenset(
+                    entry.id for entry in load_ledger(ledger_path) if entry.ink_identical
+                ),
+                "fold": _config_fold(before_font, after_font),
+                "corpus_index": corpus_index_from_pages(site_pages),
+                "dictionary": FRAGMENT_DICTIONARY.read_bytes(),
+            }
+            del site_pages
+            (directory / "init").mkdir()
+            units_init = units_exec.write_init(init, directory / "init")
+            del init
+            scratch = directory / "spill"
+            scratch.mkdir()
+            values = _build_inputs(
+                parts,
+                out_dir=out_dir,
+                audit_path=audit_path,
+                ledger_path=ledger_path,
+                subset_dir=subset_dir,
+                before_font=before_font,
+                after_font=after_font,
+                junior_font=junior_font,
+                repo_root=repo_root,
+                batch_size=batch_size,
+                static_dir=static_dir,
+                jobs=jobs,
+                signature_jobs=signature_jobs,
+                recompute_all_units=recompute_all_units,
+                spec_root=spec_root,
+                subset_digests=subset_digests,
+                gates_idle_jobs=gates_idle_jobs,
+                gates_idle_marker=gates_idle_marker,
+                write_jobs=write_jobs,
+                draft_lines=draft_lines,
+                units_init=units_init,
+                scratch=scratch,
+            )
+            input_path = corpus_exec.write_input(values, directory / "build.json", parts.descriptors)
+            del values
+            corpus_exec.run_build(input_path, parts.descriptors)
+        return json.loads((out_dir / "manifest.json").read_bytes())
     finally:
         parts.close()
 
 
 def _packed_subsets(subset_dir: Path, subset_pack: Path | None) -> tuple[dict[str, str], Path]:
-    """Check that every acceptance config's baseline subset table is there and not empty, which fails the build before any work starts since each goes into the pack, then write the pack where its tables changed (`ensure_pack`), and return the tables' digests and the pack's path. The pack is written before any pool starts, so no worker races the write, and its own processes, one a configuration (`subset_pack.write_pack`), have exited before the load begins, so a pass that rewrites the pack spends that time ahead of the step's first phase line. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both."""
+    """Check that every acceptance config's baseline subset table is there and not empty, which fails the build before any work starts since each goes into the pack, then write the pack where its tables changed (`ensure_pack`), and return the tables' digests and the pack's path. The pack is written before the build process that maps it starts, and its own processes, one a configuration (`subset_pack.write_pack`), have exited by then, so a pass that rewrites the pack spends that time ahead of the step's first phase line. Its table digests are also the environment stamp's `subsets` line, so each table is hashed once for both."""
     missing_subsets = [
         config
         for config in ACCEPTANCE_CONFIGS
@@ -3664,645 +793,6 @@ def _packed_subsets(subset_dir: Path, subset_pack: Path | None) -> tuple[dict[st
     return subset_digests, ensure_pack(subset_dir, ACCEPTANCE_CONFIGS, subset_digests, subset_pack)
 
 
-def _build_m1(
-    parts: audit.AuditParts,
-    out_dir: Path,
-    audit_path: Path,
-    ledger_path: Path,
-    subset_dir: Path,
-    before_font: Path,
-    after_font: Path,
-    junior_font: Path,
-    repo_root: Path,
-    batch_size: int,
-    static_dir: Path,
-    jobs: int,
-    signature_jobs: int,
-    recompute_all_units: bool,
-    spec_root: Path | None,
-    subset_pack: Path | None,
-    gates_idle_jobs: int | None,
-    gates_idle_marker: Path | None,
-    write_jobs: int | None,
-) -> dict:
-    # The enricher re-settles every window from the spec, so a frozen bundle of audit rows, subsets and a font stays consistent only while the runes match it. `spec_root` lets such a bundle use its own frozen spec (the objects rebuild/review/fixtures/mini/pin.json names, which the `mini_bundle` fixture in rebuild/conftest.py materializes out of git), so rune edits do not affect it. What is read from the spec follows `spec_root`: the enrichment, the unit cache's family keys, the environment stamp's spec lines, and the rune and ledger prose in the `explain_prose` fingerprint component, because the explain text quotes the spec's refuse and ledger rationales. What describes this checkout stays on `repo_root`: the change groups' prose in `explain_prose`, the other fingerprint components, the git head, the manifest's relative paths, and the rest of the environment stamp.
-    spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    subset_digests, subset_pack = _packed_subsets(subset_dir, subset_pack)
-    memory_tally.mark("pack")
-
-    tally = memory_tally.from_environment()
-    console.phase("review.build load", file=sys.stderr)
-    phase = time.perf_counter()
-    # The spec and the family keys read nothing of the audit, so they load first: the stream keys each unit and each sibling row from its raw lines as it reads them.
-    ledger = load_ledger(ledger_path)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        spec = load_spec(spec_root)
-    memory_tally.mark("spec loaded")
-    font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
-    family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
-    keyer = unit_cache.UnitKeyer(family_keys, dict(LETTERS))
-    memory_tally.mark("family keys")
-    identical_classes = frozenset(entry.id for entry in ledger if entry.ink_identical)
-    loaded = _load_corpus(
-        parts,
-        audit_path,
-        ledger_path,
-        ledger,
-        dict(LETTERS),
-        family_keys,
-        keyer,
-        out_dir,
-        before_font,
-        after_font,
-        repo_root,
-        helpers_digest,
-        signature_jobs,
-        recompute_all_units,
-        identical_classes,
-    )
-    workload = loaded.workload
-    table = workload.table
-    premerge_capture = loaded.premerge
-    signature_store = loaded.signatures
-    if tally:
-        tally.hold_reading("workload.units", lambda: unit_table_sizes(table))
-        tally.hold_reading("workload.rows", lambda: row_column_sizes(workload.rows))
-        tally.hold_reading(
-            "signatures", lambda: (len(signature_store) + signature_store.misses(), signature_store.nbytes())
-        )
-        tally.hold_reading("facts.premerge", lambda: premerge_sizes(premerge_capture))
-    if not table.n:
-        raise SystemExit(
-            f"{audit_path} records no divergent rows, so there is nothing to build a review corpus over"
-        )
-    present = table.classes_present()
-    workload.classes_present = [entry for entry in workload.ledger if entry.id in present]
-    if tally:
-        tally.hold_reading("ink.shape_memo", shape_memo_sizes)
-        tally.boundary("load")
-    _phase_timing("review.build load", phase, loaded.note())
-
-    # The incremental plan (the `rebuild/review/unit_cache.py` module docstring is the authority): key every unit by its inputs, reuse what the previous corpus already computed, and pass only the rest to the runner. The whole-corpus passes below always run over every unit, so every order- or ledger-derived field comes from this build. The table is compacted, so the set of units is final here. The unit store (`unit_store.UnitStore`) holds every per-unit product of phase 1 from here to the cache write. It is allocated over the table's count and shares the table's string table, and it takes the load's column of input keys, one a unit computed from the unit's audit lines, before any record is loaded. The store's records are parsed and loaded one at a time in store order (`unit_cache.scan_store`), matched to units through an open-addressed index over that column (`UnitStore.input_key_index`, `columns.KeyIndex`), whose build refuses two units with one key, naming their windows. Load order changes no output byte: ids are read through the string table, every side column is read by `(start, count)`, and the mismatches are keyed by ordinal (the `unit_store` module docstring). A store that fails partway is restarted with the same input keys and nothing loaded. The ids the discarded store added to the shared string table stay there, which is harmless because every read goes by id.
-    console.phase("review.build plan", file=sys.stderr)
-    phase = time.perf_counter()
-    site_pages = fingerprint.read_site_corpus(repo_root)
-    draft_lines = fingerprint.draft_input_lines(repo_root, site_pages)
-    corpus_index = corpus_index_from_pages(site_pages)
-    del site_pages
-    # A build at one job computes its units in this process with the Python code whatever the switch says, so only a wider build runs the switch's engine and stamps it.
-    units_engine = units_exec.engine() if jobs > 1 else "python"
-    environment = unit_cache.environment_stamp(
-        repo_root,
-        spec,
-        subset_dir,
-        before_font,
-        junior_font,
-        helpers_digest,
-        subset_digests=subset_digests,
-        identical_classes=identical_classes,
-        draft_lines=draft_lines,
-        units_engine=units_exec.engine_stamp() if units_engine == "rust" else None,
-    )
-    store = UnitStore(table.n, strings=table.strings, input_keys=loaded.input_keys)
-    signature_environment, signature_stamps = loaded.environment, loaded.stamps
-    del loaded
-    memory_tally.mark("unit store allocated")
-    memory_tally.mark("input keys written")
-    cached_count = 0
-    store_plan = unit_cache.StorePlan()
-    prior_shards: PriorShards | None = None
-    # The records the scan finds without an address, as columns: each one's place in the store, its unit's ordinal, and its class and id word, which the walk over the previous corpus places (`unit_cache.locate_prior_fragments`) before a second scan parses them alone (`unit_cache.scan_marked`).
-    addressless_lines = array("I")
-    addressless_ordinals = array("I")
-    wanted = unit_cache.WantedFragments()
-    try:
-        named = store.input_key_index()
-    except RepeatedKey as repeated:
-        raise SystemExit(
-            f"units {table.codepoints_text(repeated.first)} and {table.codepoints_text(repeated.second)} spell one "
-            f"input key {store.input_key_hex(repeated.first)}: every row belongs to one triple and every key line "
-            "carries its window and names, so a repeat is a sha256 collision"
-        ) from None
-    memory_tally.mark("named built")
-    # The plan reads every record of the prior store, whatever its stamp, in the store's materialized order. Each record whose input key a unit of this build names gives that unit its line in that order (`UnitStore.set_prior_line`), which places this pass's store records against the prior ones (`unit_cache.update_store`). When the stamp and the manifest match, a named record is a candidate for reuse. A record's address is the span the shard writer returned when the previous corpus was written, so the record is loaded as soon as it is parsed. A record without an address (from an older store, or in a part whose size changed, as `unit_cache.stream_store` describes) is kept as its place, its unit's ordinal, its class and its id word, the parsed record dropped; one walk over the previous corpus's live fragments after the scan places them all (`unit_cache.locate_prior_fragments`), and a second scan of the store parses those records alone and loads each whose located fragment carries its stamp and has its shape, at the address the walk found. On a corpus this code wrote there are none. A candidate is reused only when two conditions hold. First, the fragment at its address must carry the stamp the store recorded for it. The walk reads the stamp as it goes, a store address carries the record's own stamp, and `unit_cache.PriorFragmentReader` checks the id and stamp again when the write reads the bytes, which for a store-addressed fragment is the only time they are read. Skipping `check_unit` on a cached fragment is safe only because of this equality. Second, the fragment must have the shape (slim or full) this build would write, because the ledger exemption that decides the shape is not covered by the key (`_slim_for`). So a unit that becomes a human unit after a ledger edit is re-enriched in full, and one that stops being one is re-drafted slim. The plan keeps only the fragment's address, loaded into the unit store beside the record's projection. A cached unit's id comes from its stored content key, so it is known before phase 1; a recomputed unit's id is stamped when it is drafted and returns with the projection. Every record not loaded is kept by its unit id with its fragment's address and its patched fields, while the store's manifest stamp and every part size it records hold (#618's change 28), so the write can compare the fragment of a unit it recomputes with its prior one, wherever its input key moved, and the live bytes each part holds are summed for the fold. If the store fails partway, the rows already loaded cannot be trusted, so the plan discards them, with every prior line and record, and falls back to a full build over the same input keys. A store written before the segment format, a single file with no head, is put under one as generation 0's base once it reads to its end (`unit_cache.adopt_single_file`), before the write can append to any part.
-    try:
-        opened = unit_cache.open_store(out_dir)
-    except unit_cache.StoreUnreadable:
-        opened = None
-        store_plan = unit_cache.StorePlan(existed=True)
-        console.warn(f"unit cache: {unit_cache.UNREADABLE_NOTE}", file=sys.stderr)
-    else:
-        if opened is None and not recompute_all_units:
-            console.say(f"unit cache: {unit_cache.NO_STORE_NOTE}", file=sys.stderr)
-    if opened is not None and opened.stamps.get("format") != unit_cache.STORE_FORMAT:
-        opened.close()
-        opened = None
-        store_plan = unit_cache.StorePlan(existed=True)
-        console.warn(f"unit cache: {unit_cache.store_miss_note(out_dir, environment)}", file=sys.stderr)
-    if opened is not None:
-        stamps = opened.stamps
-        manifest_holds = stamps.get("manifest_sha256") == unit_cache._manifest_stamp(out_dir)
-        trusted = unit_cache._trusted_parts(out_dir, stamps) if manifest_holds else set()
-        recorded_sizes = dict(stamps.get("parts") or {})
-        addresses_hold = manifest_holds and trusted == set(recorded_sizes)
-        loadable = (
-            not recompute_all_units and manifest_holds and stamps.get("environment") == environment.value
-        )
-        if not loadable and not recompute_all_units:
-            note = unit_cache.store_miss_note(out_dir, environment) or unit_cache.UNREADABLE_NOTE
-            console.warn(f"unit cache: {note}", file=sys.stderr)
-        live_bytes: dict[str, int] = {}
-        lines = rows_bytes = 0
-        try:
-            for scanned in unit_cache.scan_store(opened, named, parse=loadable, trusted=trusted):
-                lines += 1
-                rows_bytes += len(scanned.line)
-                ordinal = scanned.ordinal
-                if ordinal is not None:
-                    store.set_prior_line(ordinal, scanned.index)
-                cached = scanned.cached
-                if cached is not None and ordinal is not None:
-                    found = cached.located()
-                    if found is None:
-                        word = unit_cache.id_word(cached.prior_id)
-                        if word is not None:
-                            addressless_lines.append(scanned.index)
-                            addressless_ordinals.append(ordinal)
-                            wanted.add(cached.prior_class, word)
-                        continue
-                    if found.content_key == cached.content_key and cached.slim == _slim_for(
-                        table.no_verdict(ordinal), cached
-                    ):
-                        store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
-                        cached_count += 1
-                        if addresses_hold:
-                            live_bytes[found.part] = live_bytes.get(found.part, 0) + found.length + 1
-                        continue
-                if addresses_hold:
-                    record = unit_cache.prior_record_or_none(scanned.line)
-                    if record is not None and record.address is not None:
-                        part, _start, length = record.address
-                        live_bytes[part] = live_bytes.get(part, 0) + length + 1
-                        store.add_prior_record(record)
-            if len(wanted):
-                located = unit_cache.locate_prior_fragments(out_dir, wanted)
-                if tally:
-                    tally.hold_reading(
-                        "unit_cache.addressless",
-                        lambda: _addressless_sizes(wanted, addressless_lines, addressless_ordinals),
-                    )
-                    tally.hold_reading(
-                        "unit_cache.addressless_located", lambda: (len(located), located.nbytes())
-                    )
-                    tally.boundary("locate")
-                    tally.release("unit_cache.addressless_located")
-                again = unit_cache.open_store(out_dir)
-                if again is None:
-                    raise unit_cache.StoreUnreadable("the store went missing between the plan's two scans")
-                marked = iter(zip(addressless_lines, addressless_ordinals))
-                for index, cached in unit_cache.scan_marked(again, addressless_lines, trusted):
-                    line, ordinal = next(marked)
-                    if index != line:
-                        raise unit_cache.StoreUnreadable(f"the second scan read line {index} for line {line}")
-                    found = located.find(cached.prior_class, cached.prior_id)
-                    if (
-                        found is not None
-                        and found.content_key == cached.content_key
-                        and cached.slim == _slim_for(table.no_verdict(ordinal), cached)
-                    ):
-                        store.load_cached(ordinal, cached, codepoints=table.codepoints(ordinal), found=found)
-                        cached_count += 1
-                del located, marked
-        except unit_cache.StoreUnreadable:
-            store = store.emptied()
-            cached_count = 0
-            store_plan = unit_cache.StorePlan(existed=True)
-            console.warn(f"unit cache: {unit_cache.UNREADABLE_NOTE}", file=sys.stderr)
-        else:
-            store.seal_prior_records()
-            head = opened.head
-            if head is None:
-                head = unit_cache.adopt_single_file(out_dir, stamps, lines, rows_bytes)
-            store_plan = unit_cache.StorePlan(
-                existed=True,
-                readable=True,
-                head=head,
-                lines=lines,
-                rows_bytes=head.base.rows_bytes,
-                rederived=unit_cache.rederiving_moved(stamps, environment),
-            )
-            if addresses_hold:
-                prior_shards = PriorShards(recorded_sizes, live_bytes)
-        del live_bytes
-    named.release()
-    del named
-    memory_tally.mark("named freed")
-    recomputed = array("I", (ordinal for ordinal in range(table.n) if not store.loaded(ordinal)))
-    # The sample is drawn from the cached units' id words in ascending order, which is the ids' own order. The sampled units are materialized once, as copies the recomputation may write to: its phase 1 writes the ink flags, and the verification patch writes the injected duplicate group and class. The whole-corpus passes read the table and the store, not these copies.
-    sampled = set(
-        _verification_sample(
-            sorted(store.id_word(ordinal) for ordinal in range(table.n) if store.loaded(ordinal)),
-            environment.value,
-        )
-    )
-    sampled_ordinals = array(
-        "I",
-        (
-            ordinal
-            for ordinal in range(table.n)
-            if store.loaded(ordinal) and store.id_word(ordinal) in sampled
-        ),
-    )
-    del sampled
-    verify_units = [table.unit(ordinal, store) for ordinal in sampled_ordinals]
-    if tally:
-        tally.hold_reading(
-            "unit_cache.addressless",
-            lambda: _addressless_sizes(wanted, addressless_lines, addressless_ordinals),
-        )
-        tally.hold_reading("unit_store", store.sizes)
-        tally.boundary("plan")
-        tally.release("unit_cache.addressless")
-    # The addressless records' columns have been loaded into the unit store or rejected, so they are freed here.
-    del wanted, addressless_lines, addressless_ordinals
-    _phase_timing(
-        "review.build plan",
-        phase,
-        f"(reused {cached_count:,} of {table.n:,} units from the cache; "
-        f"kept {store.prior_record_count():,} prior records by id)",
-    )
-    memory_tally.mark("plan")
-
-    console.phase("review.build units", file=sys.stderr)
-    phase = time.perf_counter()
-    units_jobs, gate_lane = _units_pool_width(jobs, gates_idle_jobs, gates_idle_marker)
-    runner = _RecomputeRunner(
-        recomputed,
-        units_jobs,
-        subset_dir,
-        before_font,
-        after_font,
-        junior_font,
-        repo_root,
-        verify_units,
-        spec_root=spec_root,
-        table=table,
-        subset_pack=subset_pack,
-        identical_classes=identical_classes,
-        corpus_index=corpus_index,
-        dictionary=FRAGMENT_DICTIONARY.read_bytes(),
-        engine=units_engine,
-    )
-    try:
-        signature_write: _SignatureWrite | None = None
-        signature_written = not signature_store.unchanged()
-        if not signature_written:
-            pass
-        elif runner.pooled:
-            signature_write = _SignatureWrite(
-                out_dir, signature_environment, signature_store, signature_stamps
-            )
-        else:
-            unit_cache.write_signature_arrays(
-                out_dir, signature_environment, signature_store, signature_stamps
-            )
-        signature_note = (
-            f"ink-signature store written, {signature_store.hits() + signature_store.misses():,} entries"
-            if signature_written
-            else "ink-signature store left as it is, every prior entry hit and none missed"
-        )
-        del signature_store
-        if tally:
-            tally.release("signatures")
-        runner.phase1(store)
-        memory_tally.mark("units drafted")
-        # The enricher read each unit's name tuples from the record it was handed, and the verification sample holds its own records, so the parent reads no name tuple after this point.
-        table.release_names()
-        memory_tally.mark("names released")
-
-        # Every unit's id and machine flags are now in the store: a cached unit's from the plan, a recomputed unit's from its projection. Building the id index fails the build on a repeated id. With 64-bit ids a repeat is very unlikely, but it would give two windows one id, so it is an error and not a merge.
-        store.index()
-        memory_tally.mark("id index built")
-
-        # Promote the change group of each UNMATCHED unit, and of each unit phase 1 re-routed out of an `ink_identical` class, to its class, so the per-class shard loop writes it under that group; a re-routed unit also loses the exemplar flag its ledger entry gave it, as its drafting did. The cluster id is already keyed on this final class: the runner computed it where it assigned the group, and a cached unit uses the stored value, whose inputs the unit cache's module docstring lists as covered. The same pass counts each final class's human units, the units no machine check approves, for the sections.
-        human_units: dict[str, int] = {}
-        for ordinal in range(table.n):
-            ledger_class = store.ledger_class(ordinal)
-            if ledger_class:
-                assert ledger_class == table.class_id(ordinal), ordinal
-                table.set_exemplar(ordinal, False)
-            if ledger_class or table.class_id(ordinal) == UNMATCHED_CLASS:
-                group_id = store.change_group(ordinal)
-                table.set_unmatched_group(ordinal, group_id)
-                table.set_class(ordinal, group_id)
-            if not store.machine_approved(ordinal):
-                class_id = table.class_id(ordinal)
-                human_units[class_id] = human_units.get(class_id, 0) + 1
-
-        # The classes in manifest order: by section (`audit.class_section`, decided once here from each class's status, exemption and human units), then ledger order, then `CHANGE_GROUP_ORDER`, so the triage index, its batches and the app's class walk follow the sidebar. A ledger class whose every unit was re-routed holds no unit now, so it is dropped like one no row reached; the manifest's `ledger_classes` lookup still carries it. The triage index: `order` is a permutation of all the table's rows in `audit.triage_key` order: class (in that manifest order), group, window, id. `assign_batches` numbers the human units along it and slices them into batches. Every term of the key is content, so this index is the only place the queue order is recorded, and no fragment carries a position in it.
-        present = table.classes_present()
-        workload.classes_present = [entry for entry in workload.classes_present if entry.id in present]
-        classes = workload.classes_present + synthesize_unmatched_group_classes(
-            table, CHANGE_GROUP_ORDER, load_change_group_prose()
-        )
-        sections = {
-            entry.id: class_section(entry.status, entry.no_verdict, human_units.get(entry.id, 0))
-            for entry in classes
-        }
-        classes.sort(key=lambda entry: SECTIONS.index(sections[entry.id]))
-        order = sort_for_triage(
-            table, store, {entry.id: index for index, entry in enumerate(classes)}, dict(LETTERS)
-        )
-        total_batches = assign_batches(table, store, order, batch_size)
-        memory_tally.mark("triage sorted")
-
-        # Duplicate groups: human units whose config set, judged pair, class and ink diffs (`diffs_digest`) all agree show the same change in different surroundings, so one verdict covers all of them. They are keyed after change-group promotion so the class is final. The id is a digest of the key (`unit_cache.duplicate_group_id_for`), so a group keeps its id on every corpus it appears on. The table's string table stores each id once, however many units carry it.
-        duplicate_groups: set[str] = set()
-        for ordinal in range(table.n):
-            if table.batch(ordinal) is None:
-                continue
-            pair = None
-            pair_codepoints = store.pair_codepoints(ordinal)
-            if pair_codepoints:
-                values = table.codepoints(ordinal)
-                pair = (values[pair_codepoints[0]], values[pair_codepoints[1]])
-            key = (table.configs(ordinal), pair, table.class_id(ordinal), store.diffs_digest(ordinal))
-            duplicate_group = unit_cache.duplicate_group_id_for(repr(key))
-            duplicate_groups.add(duplicate_group)
-            table.set_duplicate_group(ordinal, duplicate_group)
-            table.set_cluster(ordinal, store.cluster(ordinal))
-        memory_tally.mark("duplicate groups")
-
-        by_class = table.rows_by_class(order)
-        # The primary-unit resolution pass reads the corpus through the store and writes each unit's primary units back into it. The returned dict is filled only on the list path, so it is empty here.
-        _assignments, secondary_junction_counts = resolve_primary_unit_assignments(
-            store, table.window_index()
-        )
-        table.release_window_index()
-        memory_tally.mark("by_codepoints freed")
-
-        # The sampled records were materialized before the whole-corpus passes ran, so the fields the whole-corpus passes assign (duplicate group, cluster, class, primary units) are passed to the recomputation explicitly.
-        injections = {
-            store.unit_id(ordinal): (
-                table.duplicate_group(ordinal),
-                table.cluster(ordinal),
-                table.class_id(ordinal),
-                store.primary_units(ordinal),
-            )
-            for ordinal in sampled_ordinals
-        }
-        verified = runner.verify(injections)
-        # A cached fragment must be what a recomputation of the same window would write. The content key covers most of that: it hashes the fragment's adjudicable fields (the ink flag, both fonts' glyphs and cells, the junctions, the notation, and on a full fragment the highlight geometry), so one comparison per sampled unit against the stamp the cached fragment carried checks all of them, and the id with them. The recomputation writes the slim or full shape from the unit's own flags and exemption, as the write does, so a cached fragment of the wrong shape would also fail here. Some fields are outside the key. `ink_deltas` is a carry-presentation key (`unit_cache.CARRY_PRESENTATION_KEYS`), so the recomputation returns it beside the key and it is compared with the store record the unit was taken from. The class and the config badge are scaffold fields: the write patches a cached fragment whose recorded class differs from this build's (`UnitStore.cached_as_is`), and the badge follows from the configs and the per-config classes, which the unit's input key covers. The drafts, the explain text, the summary and the secondary junctions are checked where they are produced, not sampled: the drafter raises on a pin or policy record it cannot validate, the explain text and the summary come from the same enrichment as the cells and junctions the key covers, and `patch_fragment` re-emits the secondary junctions from the stored rects under this build's primary unit assignments.
-        stale: list[str] = []
-        for unit_id, (key, deltas) in verified.items():
-            ordinal = store.ordinal_of(unit_id)
-            if key != store.content_key_hex(ordinal) or dict(deltas) != store.ink_deltas(ordinal):
-                stale.append(unit_id)
-        if stale:
-            stale.sort()
-            raise SystemExit(
-                f"the unit cache supplied {len(stale)} of {len(verified)} sampled units whose content key or "
-                f"ink deltas do not match a recomputation: {', '.join(stale[:10])}"
-            )
-        memory_tally.mark("verified")
-        mismatches = [line for ordinal in range(table.n) for line in store.mismatches(ordinal)]
-        duplicate_group_count = len(duplicate_groups)
-        del duplicate_groups
-        if tally:
-            tally.hold("verified", verified)
-            runner.hold_collections(tally)
-            tally.boundary("units")
-        _phase_timing(
-            "review.build units",
-            phase,
-            f"jobs={units_jobs}{runner.engine_note} ({gate_lane + '; ' if gate_lane else ''}recomputed={len(recomputed):,}, verified={len(verified):,} cached; {runner.arena.note()}; {signature_note})",
-        )
-
-        # The write (phase 2) reads each unit's fragment by the address the store holds for it (`_emission`): a recomputed one from the runner's arena, a cached one from the previous corpus, copied as bytes when nothing the patch writes has changed. It writes the shards, the sidecars and the manifest, checking each fragment as it passes (`_write_corpus`). The units pool is stopped first, so the write's own pool starts in the memory a units pool started now would hold, read off the gate lane's state again as the units pool's width was (`artifact_cycle.corpus_write_job_budget`). This runs inside the runner's `try` because the arena belongs to the runner, which frees it once the write is done.
-        runner.stop_workers()
-        console.phase("review.build manifest+check", file=sys.stderr)
-        phase = time.perf_counter()
-        if write_jobs is None:
-            from rebuild.tools.artifact_cycle import corpus_write_job_budget
-
-            write_jobs = corpus_write_job_budget(
-                _units_pool_width(jobs, gates_idle_jobs, gates_idle_marker)[0]
-            )
-        predicted = bytearray(table.n)
-        written = _write_corpus(
-            out_dir,
-            table,
-            order,
-            workload.row_count,
-            classes,
-            by_class,
-            store,
-            cached_count,
-            secondary_junction_counts,
-            duplicate_group_count,
-            total_batches,
-            batch_size,
-            audit_path,
-            parts.content_time,
-            ledger_path,
-            subset_dir,
-            before_font,
-            after_font,
-            junior_font,
-            repo_root,
-            static_dir,
-            mismatches,
-            runner.contract_errors,
-            font_digests,
-            draft_lines=draft_lines,
-            sections=sections,
-            ledger=workload.ledger,
-            arena=runner.arena,
-            write_jobs=write_jobs,
-            tally=tally,
-            spec_root=spec_root,
-            prior_shards=prior_shards,
-            predicted=predicted,
-        )
-        if tally:
-            tally.boundary("manifest+check")
-    finally:
-        runner.close()
-    manifest = written.manifest
-    _phase_timing(
-        "review.build manifest+check",
-        phase,
-        f"jobs={written.jobs} (byte-copied {written.byte_copied:,} of {table.n:,} fragments, "
-        f"copied forward {written.copied_forward:,} sidecar rows; sidecar lines "
-        f"{', '.join(f'{size / 1e6:.1f}' for size in written.sidecar_bytes)} MB by run; "
-        f"appended {written.appended / 1e6:.1f} MB ({written.appended_inflated / 1e6:.1f} MB inflated), "
-        f"kept {written.kept:,} by compare, folded {written.folded:,} classes, wrote {written.direct:,} directly, "
-        f"deflated {written.deflated:,} fragments, dead {written.dead / 1e6:.1f} MB) "
-        f"(index: {written.index.note()})",
-    )
-
-    console.phase("review.build review-facts", file=sys.stderr)
-    phase = time.perf_counter()
-    premerge_facts = facts.derive_premerge(premerge_capture, table, store)
-    # A window that takes a change group is never ink-identical: an UNMATCHED one is a new join under review, and a re-routed one takes its group because its picture changes. That holds for the real corpus, not for every input, so it is asserted here and not in `derive_premerge`, which tests call with synthetic inputs that give ink-identical units a change group.
-    grouped_on_identical = [
-        index for index, _group in premerge_facts.unmatched_groups if premerge_facts.ink_flags[index] == "1"
-    ]
-    if grouped_on_identical:
-        raise SystemExit(
-            f"{len(grouped_on_identical)} ink-identical pre-merge units carry a change group "
-            f"(first at capture index {grouped_on_identical[0]})"
-        )
-    facts.write_facts(
-        out_dir,
-        facts.build_facts(
-            manifest,
-            table,
-            _StoreNotes(store),
-            premerge_capture,
-            premerge_facts,
-            workload.row_count,
-        ),
-    )
-    memory_tally.mark("review facts written")
-    if tally:
-        tally.boundary("review-facts")
-    _phase_timing("review.build review-facts", phase)
-
-    # The store is written as a segment over the previous one (`unit_cache.update_store`): this pass's records in triage order, each record whose line is the prior store's left where it is. A cached unit predicted unchanged before the write (`_route`) and copied to its own address is its prior line without building the record. Every other unit's record (recomputed, re-patched or moved) is built from the unit store's columns and the table's class, duplicate group and ledger flags (`UnitStore.cached_unit`, no record materialized) and compared with its prior line. A stamp move that says every record is re-derived, the share rule and the fold write a new base instead.
-    console.phase("review.build cache", file=sys.stderr)
-    phase = time.perf_counter()
-
-    def unchanged(ordinal: int) -> bool:
-        if not predicted[ordinal] or not store.flags(ordinal).cached:
-            return False
-        source = store.source(ordinal)
-        return source is not None and store.written_address(ordinal) == (
-            source.part,
-            source.start,
-            source.length,
-        )
-
-    def line_of(ordinal: int) -> bytes:
-        return unit_cache.record_line(
-            store.cached_unit(
-                ordinal,
-                class_id=table.class_id(ordinal),
-                duplicate_group=table.duplicate_group(ordinal),
-                exemplar=table.exemplar(ordinal),
-                no_verdict=table.no_verdict(ordinal),
-            )
-        )
-
-    wrote = unit_cache.update_store(
-        out_dir,
-        environment,
-        store_plan,
-        order,
-        prior_line=store.prior_line,
-        unchanged=unchanged,
-        line_of=line_of,
-        parts=[part for meta in manifest["classes"] for part in unit_index.class_shards(meta)],
-    )
-    memory_tally.mark("unit store written")
-    if signature_write is not None:
-        signature_write.join()
-    if tally:
-        tally.boundary("cache")
-    _phase_timing("review.build cache", phase, f"(store: {wrote.note()})")
-    return manifest
-
-
-def _rust_build_m1(
-    parts: audit.AuditParts,
-    out_dir: Path,
-    audit_path: Path,
-    ledger_path: Path,
-    subset_dir: Path,
-    before_font: Path,
-    after_font: Path,
-    junior_font: Path,
-    repo_root: Path,
-    batch_size: int,
-    static_dir: Path,
-    jobs: int,
-    signature_jobs: int,
-    recompute_all_units: bool,
-    spec_root: Path | None,
-    subset_pack: Path | None,
-    gates_idle_jobs: int | None,
-    gates_idle_marker: Path | None,
-    write_jobs: int | None,
-) -> dict:
-    """Build what `_build_m1` builds from its arguments, with the Rust build (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § The switch), and return the manifest it wrote, read back from `out_dir`. What comes before the load is `_build_m1`'s (`_packed_subsets`); then the units init is written (`units_exec.write_init`) from the `init` dict `_RecomputeRunner.__init__` builds, which derives the configuration fold here, so its line prints before the load; the build input's values are computed with `_build_m1`'s calls (`_rust_inputs`) and written with the held audit's descriptors (`corpus_exec.write_input`); and the process runs (`corpus_exec.run_build`), the init, the input and the process's spill files in a temporary directory held until it exits. A refusal raises `SystemExit` as `_build_m1` raises it, and any other failure `corpus_exec.BuildRunError`. Before anything else it refuses `AMS_CORPUS_UNITS_ENGINE=python`, since the crate computes every unit the Rust build writes and its unit store stamps the Rust units engine, and `AMS_CORPUS_MEMORY_TALLY=1`, whose readings are the Python build's objects; only an explicit `AMS_CORPUS_BUILD_ENGINE=rust` reaches them, since with the switch unset either request runs the Python build (`corpus_exec.engine`)."""
-    if units_exec.engine() == "python":
-        raise SystemExit(
-            f"{corpus_exec.ENGINE_VARIABLE}=rust computes every unit with the Rust units engine, so it refuses {units_exec.ENGINE_VARIABLE}=python; unset one of them"
-        )
-    if memory_tally.enabled():
-        raise SystemExit(
-            f"{memory_tally.TALLY_ENV}=1 tallies the Python build's objects, which {corpus_exec.ENGINE_VARIABLE}=rust does not hold; unset one of them"
-        )
-    spec_root = Path(spec_root) if spec_root is not None else Path(repo_root)
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    subset_digests, subset_pack = _packed_subsets(subset_dir, subset_pack)
-    with tempfile.TemporaryDirectory(prefix="ams-review-build-") as held:
-        directory = Path(held)
-        site_pages = fingerprint.read_site_corpus(repo_root)
-        init = {
-            "before_font": before_font,
-            "after_font": after_font,
-            "junior_font": junior_font,
-            "subset_dir": subset_dir,
-            "subset_pack": subset_pack,
-            "repo_root": repo_root,
-            "spec_root": spec_root,
-            "identical_classes": frozenset(
-                entry.id for entry in load_ledger(ledger_path) if entry.ink_identical
-            ),
-            "fold": _config_fold(before_font, after_font),
-            "corpus_index": corpus_index_from_pages(site_pages),
-            "dictionary": FRAGMENT_DICTIONARY.read_bytes(),
-        }
-        del site_pages
-        (directory / "init").mkdir()
-        units_init = units_exec.write_init(init, directory / "init")
-        del init
-        scratch = directory / "spill"
-        scratch.mkdir()
-        values = _rust_inputs(
-            parts,
-            out_dir=out_dir,
-            audit_path=audit_path,
-            ledger_path=ledger_path,
-            subset_dir=subset_dir,
-            before_font=before_font,
-            after_font=after_font,
-            junior_font=junior_font,
-            repo_root=repo_root,
-            batch_size=batch_size,
-            static_dir=static_dir,
-            jobs=jobs,
-            signature_jobs=signature_jobs,
-            recompute_all_units=recompute_all_units,
-            spec_root=spec_root,
-            subset_digests=subset_digests,
-            gates_idle_jobs=gates_idle_jobs,
-            gates_idle_marker=gates_idle_marker,
-            write_jobs=write_jobs,
-            units_init=units_init,
-            scratch=scratch,
-        )
-        input_path = corpus_exec.write_input(values, directory / "build.json", parts.descriptors)
-        del values
-        corpus_exec.run_build(input_path, parts.descriptors)
-    return json.loads((out_dir / "manifest.json").read_bytes())
-
-
 def _stamp_values(stamp: fingerprint.EnvironmentStamp) -> dict:
     """A whole-store stamp as the build input carries it: its value, its lines, the lines behind each detailed label, and the header fields its store writes (`unit_cache._stamp_header`)."""
     return {
@@ -4313,7 +803,7 @@ def _stamp_values(stamp: fingerprint.EnvironmentStamp) -> dict:
     }
 
 
-def _rust_inputs(
+def _build_inputs(
     parts: audit.AuditParts,
     *,
     out_dir: Path,
@@ -4334,10 +824,11 @@ def _rust_inputs(
     gates_idle_jobs: int | None,
     gates_idle_marker: Path | None,
     write_jobs: int | None,
+    draft_lines: Sequence[str],
     units_init: Path,
     scratch: Path,
 ) -> dict[str, object]:
-    """Return the values of the Rust build's input (`corpus_exec.INPUT_FIELDS`, the plan's § The build input) for a build of `_build_m1`'s arguments over the held audit `parts`, each computed with the call `_build_m1` makes for it, so the Rust build stamps, names and writes what the Python build would: the ledger, the spec, the family keys and both stores' stamps, the unit store's with its `units_engine` line, as the load and the plan compute them; the manifest's values as `_write_corpus` computes them, `generated_at` over the held audit's content time and each font record with its `upem`; the fonts' digests as the load takes them; the static files `copy_static` copies; the widths; and what the build reads from the environment, the cycle's run, its fold claim's file and the output-counts file. `units_init` is the units init the caller wrote (`units_exec.write_init`) and `scratch` the directory the process's spill files go in. Paths are absolute strings, but the audit's and the ledger's, which messages name as given."""
+    """Return the values of the build input (`corpus_exec.INPUT_FIELDS`) for a build of `build_m1`'s arguments over the held audit `parts`: the ledger, the family keys and both stores' stamps, the unit store's with its `units_engine` line and the signature store's with its `crate_code` line, both the review crate's digest; the manifest's values, `generated_at` over the held audit's content time and each font record with its `upem`; the fonts' digests, which the process checks each copy against; the static files `copy_static` copies; the widths; and what the build reads from the environment, the cycle's run, its fold claim's file and the output-counts file. `draft_lines` is the site pages' and draft harness's lines (`fingerprint.draft_input_lines`) the caller took from the read its units init's corpus index came from, `units_init` the units init it wrote (`units_exec.write_init`) and `scratch` the directory the process's spill files go in. Paths are absolute strings, but the audit's and the ledger's, which messages name as given."""
     out_dir, repo_root, spec_root = Path(out_dir), Path(repo_root), Path(spec_root)
     ledger = load_ledger(ledger_path)
     with warnings.catch_warnings():
@@ -4345,9 +836,7 @@ def _rust_inputs(
         spec = load_spec(spec_root)
     family_keys, helpers_digest = unit_cache.family_content_keys(spec_root, spec, after_font)
     identical_classes = frozenset(entry.id for entry in ledger if entry.ink_identical)
-    site_pages = fingerprint.read_site_corpus(repo_root)
-    draft_lines = fingerprint.draft_input_lines(repo_root, site_pages)
-    del site_pages
+    crate = units_exec.crate_digest()
     environment = unit_cache.environment_stamp(
         repo_root,
         spec,
@@ -4358,7 +847,7 @@ def _rust_inputs(
         subset_digests=subset_digests,
         identical_classes=identical_classes,
         draft_lines=draft_lines,
-        units_engine=units_exec.engine_stamp(),
+        units_engine=crate,
     )
     del spec
     sources = {"before": Path(before_font), "after": Path(after_font)}
@@ -4394,9 +883,7 @@ def _rust_inputs(
         "change_groups": {"order": CHANGE_GROUP_ORDER, "prose": load_change_group_prose()},
         "environment": _stamp_values(environment),
         "signature_environment": _stamp_values(
-            unit_cache.signature_environment(
-                repo_root, before_font, helpers_digest, units_exec.crate_digest()
-            )
+            unit_cache.signature_environment(repo_root, before_font, helpers_digest, crate)
         ),
         "manifest": {
             "generated_at": _generated_at(ledger_path, before_font, after_font, mtimes=(parts.content_time,)),
@@ -4930,18 +1417,12 @@ def _is_delta_digest(token) -> bool:
     )
 
 
-DRAFTED = "drafted"
-PATCHED = "patched"
-CHECKED_AT = (DRAFTED, PATCHED)
-# How many lines of a failing contract check the build prints. It also caps how many drafting-time errors each worker, and the parent, carries to the write.
+# How many lines of a failing contract check the build prints, which the review crate reads through the build input's vocabulary (`corpus_exec.VOCABULARY`) and the units init's (`units_exec.VOCABULARY`); it also caps how many drafting-time errors the units phase carries to the write.
 CONTRACT_ERRORS_SHOWN = 20
 
 
-def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHECKED_AT) -> list[str]:
-    """The per-unit half of the §7 contract check. `at` selects which of its two subsets run. `DRAFTED` covers every field settled when `unit_to_json` builds the fragment: the identity and its stamp, the machine flags and `ink_deltas`, the class, the ledger class and the group, the table-diff row key, the window, the junctions, the highlight, the notation, the summary and explain, the config badge, and the drafts. `PATCHED` covers the fields `patch_fragment` assigns after the parent's whole-corpus passes: `duplicate_group`, `cluster`, and the secondary junctions with their primary units.
-
-    The m1 build runs `DRAFTED` in the process that drafts the fragment (`_phase1_unit`) and `PATCHED` in the process that writes the fragment's class (`_write_chunk`). This is sound because `check_scaffold` checks at the write that every scaffold field outside `PATCHED` (`_CHECKED_SCAFFOLD_KEYS`) still has the value the drafting-time check read, and because only the scaffold and the secondary junctions are written after drafting. Either subset may read a checked field, but only `PATCHED` may read an unchecked one. A new fragment field must be assigned to one subset here. `rebuild/test_corpus_checks.py` checks that every scaffold key is either checked by `check_scaffold` or one of the keys `PATCHED` checks, and that `DRAFTED` and `PATCHED` together equal the full check. `check_shards` and `check_output_dir` run both subsets, so a corpus read back from disk gets every predicate.
-    """
+def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
+    """The per-unit half of the §7 contract check, over one fragment read back from a corpus: the identity and its stamp, the machine flags and `ink_deltas`, the class, the ledger class and the group, the table-diff row key, the window, the junctions, the highlight, the notation, the summary and explain, the config badge, the drafts, `duplicate_group`, `cluster`, and the secondary junctions with their primary units. The review crate runs the same predicates over every fragment it writes; `check_shards` and `check_output_dir` run these over a corpus held in memory or read back from disk."""
     errors: list[str] = []
     identifier = unit.get("id", "<missing>")
 
@@ -4967,396 +1448,386 @@ def check_unit(unit: dict, mode: str = "m1-audit", *, at: tuple[str, ...] = CHEC
     human = not approving and unit.get("no_verdict") is not True
     pair = unit.get("pair")
 
-    if DRAFTED in at:
-        need(
-            unit_cache.is_content_id(unit.get("id")) and str(unit.get("id")).startswith("u-"),
-            f"id must be u- and {unit_cache.ID_SYMBOLS} base58 symbols",
-        )
-        need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
-        need(isinstance(unit.get("picture_identical"), bool), "picture_identical must be a bool")
-        need(isinstance(unit.get("junior_equivalent", False), bool), "junior_equivalent must be a bool")
-        if mode == "m1-audit":
-            deltas = unit.get("ink_deltas")
-            need(isinstance(deltas, dict), "ink_deltas must be a mapping")
-            if isinstance(deltas, dict):
-                need(
-                    all(isinstance(config, str) and config for config in deltas)
-                    and all(_is_delta_digest(value) for value in deltas.values()),
-                    "ink_deltas must map configs to d- delta digests",
-                )
-                if isinstance(unit.get("configs"), list):
-                    need(set(deltas) <= set(unit["configs"]), "ink_deltas keys must be a subset of configs")
-                if unit.get("ink_identical") is True or unit.get("picture_identical") is True:
-                    need(not deltas, "ink- and picture-identical units must carry empty ink_deltas")
-                elif unit.get("ink_identical") is False and unit.get("picture_identical") is False:
-                    need(bool(deltas), "units with a visible ink change must carry a nonempty ink_deltas")
-        stamp = unit.get("content_key")
-        need(
-            isinstance(stamp, str) and len(stamp) == 64 and all(ch in "0123456789abcdef" for ch in stamp),
-            "content_key must be a sha256 hex stamp",
-        )
-        # The id is the first 64 bits of the content key in base58, so a fragment whose id and stamp disagree names one window and describes another.
-        if isinstance(stamp, str) and len(stamp) == 64:
-            need(unit.get("id") == unit_cache.unit_id_for(stamp), "id must be the content key's own")
-        need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
-        # Whether a unit takes a verdict comes from its flags (`audit.slim_fragment`), and its place in the queue comes from the manifest's triage index, so a fragment carries no batch.
-        need("batch" not in unit, "a fragment carries no batch; the manifest's human_unit_ids is the index")
-        need(len(approving) <= 1, "at most one machine check may approve a unit")
-        for key in ("class", "group", "notation", "summary"):
-            need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
-        if mode == "table-diff":
+    need(
+        unit_cache.is_content_id(unit.get("id")) and str(unit.get("id")).startswith("u-"),
+        f"id must be u- and {unit_cache.ID_SYMBOLS} base58 symbols",
+    )
+    need(isinstance(unit.get("ink_identical"), bool), "ink_identical must be a bool")
+    need(isinstance(unit.get("picture_identical"), bool), "picture_identical must be a bool")
+    need(isinstance(unit.get("junior_equivalent", False), bool), "junior_equivalent must be a bool")
+    if mode == "m1-audit":
+        deltas = unit.get("ink_deltas")
+        need(isinstance(deltas, dict), "ink_deltas must be a mapping")
+        if isinstance(deltas, dict):
             need(
-                isinstance(unit.get("row_key"), str) and unit.get("row_key") != "",
-                "row_key must be a nonempty string in table-diff mode",
+                all(isinstance(config, str) and config for config in deltas)
+                and all(_is_delta_digest(value) for value in deltas.values()),
+                "ink_deltas must map configs to d- delta digests",
             )
-        ledger_class = unit.get("ledger_class")
+            if isinstance(unit.get("configs"), list):
+                need(set(deltas) <= set(unit["configs"]), "ink_deltas keys must be a subset of configs")
+            if unit.get("ink_identical") is True or unit.get("picture_identical") is True:
+                need(not deltas, "ink- and picture-identical units must carry empty ink_deltas")
+            elif unit.get("ink_identical") is False and unit.get("picture_identical") is False:
+                need(bool(deltas), "units with a visible ink change must carry a nonempty ink_deltas")
+    stamp = unit.get("content_key")
+    need(
+        isinstance(stamp, str) and len(stamp) == 64 and all(ch in "0123456789abcdef" for ch in stamp),
+        "content_key must be a sha256 hex stamp",
+    )
+    # The id is the first 64 bits of the content key in base58, so a fragment whose id and stamp disagree names one window and describes another.
+    if isinstance(stamp, str) and len(stamp) == 64:
+        need(unit.get("id") == unit_cache.unit_id_for(stamp), "id must be the content key's own")
+    need(isinstance(unit.get("no_verdict"), bool), "no_verdict must be a bool")
+    # Whether a unit takes a verdict comes from its flags (`audit.slim_fragment`), and its place in the queue comes from the manifest's triage index, so a fragment carries no batch.
+    need("batch" not in unit, "a fragment carries no batch; the manifest's human_unit_ids is the index")
+    need(len(approving) <= 1, "at most one machine check may approve a unit")
+    for key in ("class", "group", "notation", "summary"):
+        need(isinstance(unit.get(key), str) and unit.get(key) != "", f"{key} must be a nonempty string")
+    if mode == "table-diff":
         need(
-            ledger_class is None
-            or (
-                isinstance(ledger_class, str) and ledger_class and ledger_class != unit.get("class") and human
-            ),
-            "ledger_class must be absent, null, or on a human unit the id of a class other than its own",
+            isinstance(unit.get("row_key"), str) and unit.get("row_key") != "",
+            "row_key must be a nonempty string in table-diff mode",
         )
-        # The slim shape is checked in both directions. A slim fragment must omit every key in `SLIM_OMITTED_KEYS`, and a full fragment must carry them with values, because a human unit without them gives the reviewer nothing to act on. Key presence is the test, as in the app's `isSlimFragment`: a null under one of these keys in a full fragment is an error, not a slim marker.
-        slim = mode == "m1-audit" and slim_fragment(unit)
-        if slim:
-            for key in SLIM_OMITTED_KEYS:
-                need(key not in unit, f"machine-approved and no-verdict units omit {key}")
+    ledger_class = unit.get("ledger_class")
+    need(
+        ledger_class is None
+        or (isinstance(ledger_class, str) and ledger_class and ledger_class != unit.get("class") and human),
+        "ledger_class must be absent, null, or on a human unit the id of a class other than its own",
+    )
+    # The slim shape is checked in both directions. A slim fragment must omit every key in `SLIM_OMITTED_KEYS`, and a full fragment must carry them with values, because a human unit without them gives the reviewer nothing to act on. Key presence is the test, as in the app's `isSlimFragment`: a null under one of these keys in a full fragment is an error, not a slim marker.
+    slim = mode == "m1-audit" and slim_fragment(unit)
+    if slim:
+        for key in SLIM_OMITTED_KEYS:
+            need(key not in unit, f"machine-approved and no-verdict units omit {key}")
+    else:
+        need(
+            isinstance(unit.get("explain"), str) and unit.get("explain") != "",
+            "explain must be a nonempty string",
+        )
+    summary = unit.get("summary")
+    if mode == "m1-audit" and isinstance(summary, str):
+        need(summary.startswith("New: "), "summary must open with the New: clause")
+        need("\n" not in summary, "summary must be one line")
+    need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")
+    need("config_note" in unit, "config_note must be present")
+    note = unit.get("config_note")
+    need(
+        note is None or (isinstance(note, str) and note),
+        "config_note must be null or a nonempty string",
+    )
+    need("config_gate" in unit, "config_gate must be present")
+    clauses = unit.get("config_gate")
+    need(
+        clauses is None or (isinstance(clauses, list) and clauses),
+        "config_gate must be null or a nonempty clause list",
+    )
+    for clause in clauses if isinstance(clauses, list) else ():
+        need(
+            isinstance(clause, dict)
+            and isinstance(clause.get("feature"), str)
+            and clause.get("state") in ("on", "off")
+            and isinstance(clause.get("text"), str)
+            and clause.get("text"),
+            "config_gate clauses must carry a feature, an on/off state, and nonempty text",
+        )
+    if isinstance(clauses, list) and clauses:
+        need(
+            note == " ".join(clause.get("text", "") for clause in clauses),
+            "config_note must be the config_gate clause texts joined",
+        )
+    groups = unit.get("render_groups")
+    need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
+    # A unit has one render group because its configs cannot render differently: its rows either share (codepoints, baseline, new), or the build's ink-duplicate merge merged them because their ink is identical in every config. Data that broke this would need stacked rendering, so it is a build error.
+    if mode == "m1-audit" and isinstance(groups, list):
+        need(len(groups) == 1, "m1-audit units must carry exactly one render group")
+    grouped_configs: list[str] = []
+    for group in groups if isinstance(groups, list) else ():
+        need(
+            isinstance(group, dict) and isinstance(group.get("configs"), list) and group.get("configs"),
+            "render_groups entries must carry a nonempty configs list",
+        )
+        if isinstance(group, dict) and isinstance(group.get("configs"), list):
+            grouped_configs.extend(group["configs"])
+    if isinstance(unit.get("configs"), list) and grouped_configs:
+        need(
+            len(grouped_configs) == len(set(grouped_configs))
+            and sorted(grouped_configs) == sorted(unit["configs"]),
+            "render_groups must partition configs exactly",
+        )
+    need(isinstance(unit.get("kinds"), list) and unit.get("kinds"), "kinds must be a nonempty list")
+    need(isinstance(unit.get("exemplar"), bool), "exemplar must be a bool")
+    need(isinstance(unit.get("provenance"), list), "provenance must be a list")
+    need(isinstance(unit.get("boundary_marks"), list), "boundary_marks must be a list")
+    for mark in unit.get("boundary_marks") or ():
+        need(
+            isinstance(mark, dict) and {"index", "kind", "x"} <= set(mark),
+            "boundary marks must carry index/kind/x",
+        )
+
+    codepoints = unit.get("codepoints")
+    renderable = codepoints is not None
+    if mode == "m1-audit":
+        need(renderable, "codepoints must be present in m1-audit mode")
+    if renderable:
+        need(
+            isinstance(codepoints, str)
+            and all(all(ch in "0123456789ABCDEF" for ch in part) for part in codepoints.split(":")),
+            "codepoints must be colon-joined uppercase hex",
+        )
+        entities = unit.get("text_entities")
+        need(
+            isinstance(entities, str) and entities.startswith("&#x") and entities.endswith(";"),
+            "text_entities must be numeric character references",
+        )
+
+    before = unit.get("before")
+    after = unit.get("after")
+    need(
+        isinstance(before, dict) and isinstance(before.get("glyphs"), list),
+        "before.glyphs must be a list",
+    )
+    need(
+        isinstance(before, dict) and isinstance(before.get("junctions"), list),
+        "before.junctions must be a list",
+    )
+    need(isinstance(after, dict) and isinstance(after.get("cells"), list), "after.cells must be a list")
+    need(
+        isinstance(after, dict) and isinstance(after.get("junctions"), list),
+        "after.junctions must be a list",
+    )
+    need(
+        isinstance(after, dict) and isinstance(after.get("extensions"), list),
+        "after.extensions must be a list",
+    )
+    if isinstance(before, dict) and isinstance(before.get("junctions"), list):
+        need(
+            all(is_junction_token(junction) for junction in before["junctions"]),
+            "before.junctions must be break/lig/yN tokens",
+        )
+    if isinstance(after, dict) and isinstance(after.get("junctions"), list):
+        need(
+            all(is_junction_token(junction) for junction in after["junctions"]),
+            "after.junctions must be break/lig/yN tokens",
+        )
+    if mode == "m1-audit" and isinstance(before, dict) and isinstance(after, dict):
+        need(
+            len(before.get("junctions", ())) == max(len(before.get("glyphs", ())) - 1, 0),
+            "before.junctions must have one entry per inter-glyph gap",
+        )
+        need(
+            len(after.get("junctions", ())) == max(len(after.get("cells", ())) - 1, 0),
+            "after.junctions must have one entry per inter-cell gap",
+        )
+        need(
+            len(after.get("extensions", ())) == len(after.get("junctions", ())),
+            "after.extensions must parallel after.junctions",
+        )
+
+    need(isinstance(unit.get("diff_positions"), list), "diff_positions must be a list")
+    if pair is not None:
+        need(
+            isinstance(pair, dict)
+            and isinstance(pair.get("left"), int)
+            and isinstance(pair.get("right"), int)
+            and pair["left"] < pair["right"],
+            "pair must be {left, right} with left < right",
+        )
+
+    tokens = unit.get("notation_tokens")
+    if mode == "m1-audit":
+        need(
+            isinstance(tokens, list) and tokens and all(isinstance(t, str) and t for t in tokens),
+            "notation_tokens must be a nonempty list of nonempty strings in m1-audit mode",
+        )
+    if isinstance(codepoints, str) and isinstance(tokens, list):
+        need(
+            len(tokens) == len(codepoints.split(":")),
+            "notation_tokens must align one-to-one with codepoint positions",
+        )
+    need("pair_codepoints" in unit, "pair_codepoints must be present")
+    span = unit.get("pair_codepoints")
+    if span is not None:
+        need(
+            isinstance(span, list)
+            and len(span) == 2
+            and all(isinstance(value, int) for value in span)
+            and 0 <= span[0] <= span[1],
+            "pair_codepoints must be [start, end] with 0 <= start <= end",
+        )
+        if isinstance(span, list) and len(span) == 2 and isinstance(tokens, list):
+            need(
+                isinstance(span[1], int) and span[1] < len(tokens),
+                "pair_codepoints must stay within the codepoint positions",
+            )
+    if mode == "m1-audit" and pair is not None:
+        need(isinstance(span, list), "pair_codepoints must be non-null when pair is present")
+
+    highlight = unit.get("highlight")
+    if mode == "m1-audit" and not slim:
+        need(highlight is not None, "highlight must be present in m1-audit mode")
+    if highlight is not None:
+        for side in ("before", "after"):
+            need_rect(highlight.get(side) if isinstance(highlight, dict) else None, f"highlight.{side}")
+
+    drafts = unit.get("drafts")
+    if not slim:
+        need(
+            isinstance(drafts, dict) and {"pin", "policy", "any_of"} <= set(drafts or ()),
+            "drafts must carry pin/policy/any_of",
+        )
+    if isinstance(drafts, dict):
+        pin = drafts.get("pin")
+        if mode == "m1-audit":
+            need(pin is not None, "drafts.pin must be present in m1-audit mode")
+        if pin is not None:
+            for key in ("expect", "attribute", "syntax", "semantics_after_font", "suggested_home"):
+                need(
+                    isinstance(pin.get(key), str) and pin.get(key),
+                    f"drafts.pin.{key} must be a nonempty string",
+                )
+            need(
+                pin.get("attribute") in ("data-expect", "data-expect-noncanonically"),
+                "drafts.pin.attribute must be a data-expect attribute name",
+            )
+            need(
+                pin.get("stylistic_set") is None or isinstance(pin.get("stylistic_set"), str),
+                "drafts.pin.stylistic_set must be null or a string",
+            )
+            # A pin that fails when pasted into the corpus is worse than no pin, so both results the drafter records for it must be "pass" on every shipped unit: the repo's own parser, and a replay of the assertion against the after font.
+            if mode == "m1-audit":
+                need(pin.get("syntax") == "pass", f"drafts.pin.syntax is {pin.get('syntax')!r}")
+                need(
+                    pin.get("semantics_after_font") == "pass",
+                    f"drafts.pin.semantics_after_font is {pin.get('semantics_after_font')!r}",
+                )
+        policy = drafts.get("policy")
+        if policy is not None:
+            for key in ("file", "keypath", "suggested_record", "decided_stage", "why_stub"):
+                need(
+                    isinstance(policy.get(key), str) and policy.get(key),
+                    f"drafts.policy.{key} must be a nonempty string",
+                )
+            need(
+                isinstance(policy.get("names_provenance"), list),
+                "drafts.policy.names_provenance must be a list",
+            )
+            need(isinstance(policy.get("schema_valid"), bool), "drafts.policy.schema_valid must be a bool")
+            if mode == "m1-audit":
+                need(
+                    policy.get("schema_valid") is True,
+                    "drafts.policy.suggested_record must validate against the rune schema",
+                )
+                need(
+                    policy.get("keypath") in ("policy.refuse[+]", "policy.prefer[+]", "policy.contract[+]"),
+                    f"drafts.policy.keypath is {policy.get('keypath')!r}",
+                )
+                # The draft may name only records the unit's own trace named; any other record would send the reviewer to edit something unrelated to the unit.
+                if isinstance(policy.get("names_provenance"), list) and isinstance(
+                    unit.get("provenance"), list
+                ):
+                    need(
+                        set(policy["names_provenance"]) <= set(unit["provenance"]),
+                        "drafts.policy.names_provenance must come from the unit's own provenance",
+                    )
+        any_of = drafts.get("any_of")
+        if mode == "m1-audit":
+            need(any_of is not None, "drafts.any_of must be present in m1-audit mode")
+        if any_of is not None:
+            need(
+                isinstance(any_of.get("text"), str) and any_of.get("text"),
+                "drafts.any_of.text must be a nonempty string",
+            )
+            need(isinstance(any_of.get("features"), dict), "drafts.any_of.features must be a mapping")
+            candidates = any_of.get("candidates")
+            need(
+                isinstance(candidates, list) and candidates,
+                "drafts.any_of.candidates must be a nonempty list",
+            )
+            if isinstance(candidates, list):
+                need(
+                    len(set(candidates)) == len(candidates),
+                    "drafts.any_of.candidates must not repeat a behavior",
+                )
+                # The after-behavior candidate is the pin's `expect`, which the `drafts.pin.syntax` check above covers. The before-behavior candidate comes from the baseline side of the enrichment. The crate's any-of drafter already parses it and fails the unit when it does not parse; this parse repeats the check so that a corpus read from disk is covered too.
+                if mode == "m1-audit":
+                    expect = pin.get("expect") if isinstance(pin, dict) else None
+                    parse_expect = _import_test_shaping().parse_expect
+                    for candidate in candidates:
+                        if candidate == expect or not isinstance(candidate, str):
+                            continue
+                        try:
+                            parse_expect(candidate)
+                        except ValueError as error:
+                            need(False, f"drafts.any_of candidate {candidate!r} does not parse: {error}")
+
+    need("duplicate_group" in unit, "duplicate_group must be present")
+    duplicate_group = unit.get("duplicate_group")
+    need(
+        duplicate_group is None or (isinstance(duplicate_group, str) and duplicate_group.startswith("e-")),
+        "duplicate_group must be null or an e- group id",
+    )
+    if mode == "m1-audit":
+        if human:
+            need(isinstance(duplicate_group, str), "human units must carry a duplicate group id")
         else:
             need(
-                isinstance(unit.get("explain"), str) and unit.get("explain") != "",
-                "explain must be a nonempty string",
+                duplicate_group is None,
+                "machine-approved and no-verdict units must carry duplicate_group null",
             )
-        summary = unit.get("summary")
-        if mode == "m1-audit" and isinstance(summary, str):
-            need(summary.startswith("New: "), "summary must open with the New: clause")
-            need("\n" not in summary, "summary must be one line")
-        need(isinstance(unit.get("configs"), list) and unit.get("configs"), "configs must be a nonempty list")
-        need("config_note" in unit, "config_note must be present")
-        note = unit.get("config_note")
-        need(
-            note is None or (isinstance(note, str) and note),
-            "config_note must be null or a nonempty string",
-        )
-        need("config_gate" in unit, "config_gate must be present")
-        clauses = unit.get("config_gate")
-        need(
-            clauses is None or (isinstance(clauses, list) and clauses),
-            "config_gate must be null or a nonempty clause list",
-        )
-        for clause in clauses if isinstance(clauses, list) else ():
-            need(
-                isinstance(clause, dict)
-                and isinstance(clause.get("feature"), str)
-                and clause.get("state") in ("on", "off")
-                and isinstance(clause.get("text"), str)
-                and clause.get("text"),
-                "config_gate clauses must carry a feature, an on/off state, and nonempty text",
-            )
-        if isinstance(clauses, list) and clauses:
-            need(
-                note == " ".join(clause.get("text", "") for clause in clauses),
-                "config_note must be the config_gate clause texts joined",
-            )
-        groups = unit.get("render_groups")
-        need(isinstance(groups, list) and groups, "render_groups must be a nonempty list")
-        # A unit has one render group because its configs cannot render differently: its rows either share (codepoints, baseline, new), or `audit.merge_ink_duplicate_units` merged them because their ink is identical in every config. Data that broke this would need stacked rendering, so it is a build error.
-        if mode == "m1-audit" and isinstance(groups, list):
-            need(len(groups) == 1, "m1-audit units must carry exactly one render group")
-        grouped_configs: list[str] = []
-        for group in groups if isinstance(groups, list) else ():
-            need(
-                isinstance(group, dict) and isinstance(group.get("configs"), list) and group.get("configs"),
-                "render_groups entries must carry a nonempty configs list",
-            )
-            if isinstance(group, dict) and isinstance(group.get("configs"), list):
-                grouped_configs.extend(group["configs"])
-        if isinstance(unit.get("configs"), list) and grouped_configs:
-            need(
-                len(grouped_configs) == len(set(grouped_configs))
-                and sorted(grouped_configs) == sorted(unit["configs"]),
-                "render_groups must partition configs exactly",
-            )
-        need(isinstance(unit.get("kinds"), list) and unit.get("kinds"), "kinds must be a nonempty list")
-        need(isinstance(unit.get("exemplar"), bool), "exemplar must be a bool")
-        need(isinstance(unit.get("provenance"), list), "provenance must be a list")
-        need(isinstance(unit.get("boundary_marks"), list), "boundary_marks must be a list")
-        for mark in unit.get("boundary_marks") or ():
-            need(
-                isinstance(mark, dict) and {"index", "kind", "x"} <= set(mark),
-                "boundary marks must carry index/kind/x",
-            )
+    need("cluster" in unit, "cluster must be present")
+    cluster = unit.get("cluster")
+    need(
+        cluster is None or (isinstance(cluster, str) and cluster.startswith("c-")),
+        "cluster must be null or a c-XXXXXXXX signature id",
+    )
+    if mode == "m1-audit":
+        if human:
+            need(isinstance(cluster, str), "human units must carry a cluster signature id")
+        else:
+            need(cluster is None, "machine-approved and no-verdict units must carry cluster null")
 
-        codepoints = unit.get("codepoints")
-        renderable = codepoints is not None
-        if mode == "m1-audit":
-            need(renderable, "codepoints must be present in m1-audit mode")
-        if renderable:
-            need(
-                isinstance(codepoints, str)
-                and all(all(ch in "0123456789ABCDEF" for ch in part) for part in codepoints.split(":")),
-                "codepoints must be colon-joined uppercase hex",
-            )
-            entities = unit.get("text_entities")
-            need(
-                isinstance(entities, str) and entities.startswith("&#x") and entities.endswith(";"),
-                "text_entities must be numeric character references",
-            )
-
-        before = unit.get("before")
-        after = unit.get("after")
+    junctions = unit.get("secondary_junctions")
+    if junctions is not None:
         need(
-            isinstance(before, dict) and isinstance(before.get("glyphs"), list),
-            "before.glyphs must be a list",
+            isinstance(junctions, list) and junctions,
+            "secondary_junctions must be null or a nonempty list",
         )
         need(
-            isinstance(before, dict) and isinstance(before.get("junctions"), list),
-            "before.junctions must be a list",
+            unit.get("ink_identical") is not True and unit.get("picture_identical") is not True,
+            "ink-identical and picture-identical units must not carry secondary_junctions",
         )
-        need(isinstance(after, dict) and isinstance(after.get("cells"), list), "after.cells must be a list")
-        need(
-            isinstance(after, dict) and isinstance(after.get("junctions"), list),
-            "after.junctions must be a list",
-        )
-        need(
-            isinstance(after, dict) and isinstance(after.get("extensions"), list),
-            "after.extensions must be a list",
-        )
-        if isinstance(before, dict) and isinstance(before.get("junctions"), list):
+        for index, junction in enumerate(junctions if isinstance(junctions, list) else ()):
+            label = f"secondary_junctions[{index}]"
+            if not isinstance(junction, dict) or {"pair", "before", "after", "primary_unit"} - set(junction):
+                errors.append(f"unit {identifier}: {label} must carry pair/before/after/primary_unit")
+                continue
+            junction_pair = junction.get("pair")
             need(
-                all(is_junction_token(junction) for junction in before["junctions"]),
-                "before.junctions must be break/lig/yN tokens",
+                isinstance(junction_pair, dict)
+                and isinstance(junction_pair.get("left"), int)
+                and isinstance(junction_pair.get("right"), int)
+                and junction_pair["left"] < junction_pair["right"],
+                f"{label}.pair must be {{left, right}} with left < right",
             )
-        if isinstance(after, dict) and isinstance(after.get("junctions"), list):
-            need(
-                all(is_junction_token(junction) for junction in after["junctions"]),
-                "after.junctions must be break/lig/yN tokens",
-            )
-        if mode == "m1-audit" and isinstance(before, dict) and isinstance(after, dict):
-            need(
-                len(before.get("junctions", ())) == max(len(before.get("glyphs", ())) - 1, 0),
-                "before.junctions must have one entry per inter-glyph gap",
-            )
-            need(
-                len(after.get("junctions", ())) == max(len(after.get("cells", ())) - 1, 0),
-                "after.junctions must have one entry per inter-cell gap",
-            )
-            need(
-                len(after.get("extensions", ())) == len(after.get("junctions", ())),
-                "after.extensions must parallel after.junctions",
-            )
-
-        need(isinstance(unit.get("diff_positions"), list), "diff_positions must be a list")
-        if pair is not None:
-            need(
-                isinstance(pair, dict)
-                and isinstance(pair.get("left"), int)
-                and isinstance(pair.get("right"), int)
-                and pair["left"] < pair["right"],
-                "pair must be {left, right} with left < right",
-            )
-
-        tokens = unit.get("notation_tokens")
-        if mode == "m1-audit":
-            need(
-                isinstance(tokens, list) and tokens and all(isinstance(t, str) and t for t in tokens),
-                "notation_tokens must be a nonempty list of nonempty strings in m1-audit mode",
-            )
-        if isinstance(codepoints, str) and isinstance(tokens, list):
-            need(
-                len(tokens) == len(codepoints.split(":")),
-                "notation_tokens must align one-to-one with codepoint positions",
-            )
-        need("pair_codepoints" in unit, "pair_codepoints must be present")
-        span = unit.get("pair_codepoints")
-        if span is not None:
-            need(
-                isinstance(span, list)
-                and len(span) == 2
-                and all(isinstance(value, int) for value in span)
-                and 0 <= span[0] <= span[1],
-                "pair_codepoints must be [start, end] with 0 <= start <= end",
-            )
-            if isinstance(span, list) and len(span) == 2 and isinstance(tokens, list):
+            if isinstance(pair, dict) and isinstance(junction_pair, dict):
                 need(
-                    isinstance(span[1], int) and span[1] < len(tokens),
-                    "pair_codepoints must stay within the codepoint positions",
+                    (junction_pair.get("left"), junction_pair.get("right"))
+                    != (pair.get("left"), pair.get("right")),
+                    f"{label} must not duplicate the primary pair",
                 )
-        if mode == "m1-audit" and pair is not None:
-            need(isinstance(span, list), "pair_codepoints must be non-null when pair is present")
-
-        highlight = unit.get("highlight")
-        if mode == "m1-audit" and not slim:
-            need(highlight is not None, "highlight must be present in m1-audit mode")
-        if highlight is not None:
-            for side in ("before", "after"):
-                need_rect(highlight.get(side) if isinstance(highlight, dict) else None, f"highlight.{side}")
-
-        drafts = unit.get("drafts")
-        if not slim:
+            need_rect(junction.get("before"), f"{label}.before")
+            need_rect(junction.get("after"), f"{label}.after")
+            primary_unit = junction.get("primary_unit")
             need(
-                isinstance(drafts, dict) and {"pin", "policy", "any_of"} <= set(drafts or ()),
-                "drafts must carry pin/policy/any_of",
+                primary_unit is None or (isinstance(primary_unit, str) and primary_unit.startswith("u-")),
+                f"{label}.primary_unit must be null or a unit id",
             )
-        if isinstance(drafts, dict):
-            pin = drafts.get("pin")
-            if mode == "m1-audit":
-                need(pin is not None, "drafts.pin must be present in m1-audit mode")
-            if pin is not None:
-                for key in ("expect", "attribute", "syntax", "semantics_after_font", "suggested_home"):
-                    need(
-                        isinstance(pin.get(key), str) and pin.get(key),
-                        f"drafts.pin.{key} must be a nonempty string",
-                    )
-                need(
-                    pin.get("attribute") in ("data-expect", "data-expect-noncanonically"),
-                    "drafts.pin.attribute must be a data-expect attribute name",
-                )
-                need(
-                    pin.get("stylistic_set") is None or isinstance(pin.get("stylistic_set"), str),
-                    "drafts.pin.stylistic_set must be null or a string",
-                )
-                # A pin that fails when pasted into the corpus is worse than no pin, so both results the drafter records for it must be "pass" on every shipped unit: the repo's own parser, and a replay of the assertion against the after font.
-                if mode == "m1-audit":
-                    need(pin.get("syntax") == "pass", f"drafts.pin.syntax is {pin.get('syntax')!r}")
-                    need(
-                        pin.get("semantics_after_font") == "pass",
-                        f"drafts.pin.semantics_after_font is {pin.get('semantics_after_font')!r}",
-                    )
-            policy = drafts.get("policy")
-            if policy is not None:
-                for key in ("file", "keypath", "suggested_record", "decided_stage", "why_stub"):
-                    need(
-                        isinstance(policy.get(key), str) and policy.get(key),
-                        f"drafts.policy.{key} must be a nonempty string",
-                    )
-                need(
-                    isinstance(policy.get("names_provenance"), list),
-                    "drafts.policy.names_provenance must be a list",
-                )
-                need(
-                    isinstance(policy.get("schema_valid"), bool), "drafts.policy.schema_valid must be a bool"
-                )
-                if mode == "m1-audit":
-                    need(
-                        policy.get("schema_valid") is True,
-                        "drafts.policy.suggested_record must validate against the rune schema",
-                    )
-                    need(
-                        policy.get("keypath")
-                        in ("policy.refuse[+]", "policy.prefer[+]", "policy.contract[+]"),
-                        f"drafts.policy.keypath is {policy.get('keypath')!r}",
-                    )
-                    # The draft may name only records the unit's own trace named; any other record would send the reviewer to edit something unrelated to the unit.
-                    if isinstance(policy.get("names_provenance"), list) and isinstance(
-                        unit.get("provenance"), list
-                    ):
-                        need(
-                            set(policy["names_provenance"]) <= set(unit["provenance"]),
-                            "drafts.policy.names_provenance must come from the unit's own provenance",
-                        )
-            any_of = drafts.get("any_of")
-            if mode == "m1-audit":
-                need(any_of is not None, "drafts.any_of must be present in m1-audit mode")
-            if any_of is not None:
-                need(
-                    isinstance(any_of.get("text"), str) and any_of.get("text"),
-                    "drafts.any_of.text must be a nonempty string",
-                )
-                need(isinstance(any_of.get("features"), dict), "drafts.any_of.features must be a mapping")
-                candidates = any_of.get("candidates")
-                need(
-                    isinstance(candidates, list) and candidates,
-                    "drafts.any_of.candidates must be a nonempty list",
-                )
-                if isinstance(candidates, list):
-                    need(
-                        len(set(candidates)) == len(candidates),
-                        "drafts.any_of.candidates must not repeat a behavior",
-                    )
-                    # The after-behavior candidate is the pin's `expect`, which the `drafts.pin.syntax` check above covers. The before-behavior candidate comes from the baseline side of the enrichment. `Drafter.draft_any_of` already parses it and raises `DraftError` when it fails; this parse repeats the check so that a corpus read from disk is covered too.
-                    if mode == "m1-audit":
-                        expect = pin.get("expect") if isinstance(pin, dict) else None
-                        parse_expect = _import_test_shaping().parse_expect
-                        for candidate in candidates:
-                            if candidate == expect or not isinstance(candidate, str):
-                                continue
-                            try:
-                                parse_expect(candidate)
-                            except ValueError as error:
-                                need(False, f"drafts.any_of candidate {candidate!r} does not parse: {error}")
-
-    if PATCHED in at:
-        need("duplicate_group" in unit, "duplicate_group must be present")
-        duplicate_group = unit.get("duplicate_group")
-        need(
-            duplicate_group is None
-            or (isinstance(duplicate_group, str) and duplicate_group.startswith("e-")),
-            "duplicate_group must be null or an e- group id",
-        )
-        if mode == "m1-audit":
-            if human:
-                need(isinstance(duplicate_group, str), "human units must carry a duplicate group id")
-            else:
-                need(
-                    duplicate_group is None,
-                    "machine-approved and no-verdict units must carry duplicate_group null",
-                )
-        need("cluster" in unit, "cluster must be present")
-        cluster = unit.get("cluster")
-        need(
-            cluster is None or (isinstance(cluster, str) and cluster.startswith("c-")),
-            "cluster must be null or a c-XXXXXXXX signature id",
-        )
-        if mode == "m1-audit":
-            if human:
-                need(isinstance(cluster, str), "human units must carry a cluster signature id")
-            else:
-                need(cluster is None, "machine-approved and no-verdict units must carry cluster null")
-
-        junctions = unit.get("secondary_junctions")
-        if junctions is not None:
-            need(
-                isinstance(junctions, list) and junctions,
-                "secondary_junctions must be null or a nonempty list",
-            )
-            need(
-                unit.get("ink_identical") is not True and unit.get("picture_identical") is not True,
-                "ink-identical and picture-identical units must not carry secondary_junctions",
-            )
-            for index, junction in enumerate(junctions if isinstance(junctions, list) else ()):
-                label = f"secondary_junctions[{index}]"
-                if not isinstance(junction, dict) or {"pair", "before", "after", "primary_unit"} - set(
-                    junction
-                ):
-                    errors.append(f"unit {identifier}: {label} must carry pair/before/after/primary_unit")
-                    continue
-                junction_pair = junction.get("pair")
-                need(
-                    isinstance(junction_pair, dict)
-                    and isinstance(junction_pair.get("left"), int)
-                    and isinstance(junction_pair.get("right"), int)
-                    and junction_pair["left"] < junction_pair["right"],
-                    f"{label}.pair must be {{left, right}} with left < right",
-                )
-                if isinstance(pair, dict) and isinstance(junction_pair, dict):
-                    need(
-                        (junction_pair.get("left"), junction_pair.get("right"))
-                        != (pair.get("left"), pair.get("right")),
-                        f"{label} must not duplicate the primary pair",
-                    )
-                need_rect(junction.get("before"), f"{label}.before")
-                need_rect(junction.get("after"), f"{label}.after")
-                primary_unit = junction.get("primary_unit")
-                need(
-                    primary_unit is None or (isinstance(primary_unit, str) and primary_unit.startswith("u-")),
-                    f"{label}.primary_unit must be null or a unit id",
-                )
     return errors
 
 
 class _CorpusCheck:
-    """The per-unit and cross-unit parts of the §7 contract check as an accumulator fed one fragment at a time: `class_start` with the manifest's class record, `unit` for each fragment in shard order, `class_end` after the class's last fragment, and `finish` with the manifest for the predicates that read its totals. The m1 build uses it to check fragments it releases as it writes them, so per unit it keeps only what the cross-unit predicates read (its id, the grouping keys of a human unit, and, for a unit in a secondary-junction relation, its codepoints, whether there is a primary pair, and whether anything visible changed), never the fragment. Those three identity fields are read only for a unit that names a primary unit and for the primary unit it names, so a checker given `identity_for`, the ids some unit names as its primary unit, keeps them for those units alone; without it, it keeps them for every unit. The primary-unit predicates skip a pair whose identity was not kept, so `identity_for` must hold every primary unit a fed fragment names; the m1 write takes it from the same unsuppressed store assignments its fragments' junctions come from (`UnitStore.primary_unit_ids`). The m1 write feeds each run's classes to a checker in the process that writes the run, which hands over what it has accumulated a chunk at a time (`take_facts`), and `absorb` folds each chunk's facts into one checker as they arrive, before `finish`. `check_shards` feeds one checker from a mapping held in memory. `unit` runs `check_unit` on every fragment the unit cache did not supply, at the subsets `at` names: both by default, and `PATCHED` alone in the m1 write, where `DRAFTED` already ran when each fragment was drafted. Per-unit errors are recorded as each fragment is fed in, and cross-unit errors at `finish`."""
+    """The per-unit and cross-unit parts of the §7 contract check as an accumulator fed one fragment at a time: `class_start` with the manifest's class record, `unit` for each fragment in shard order, `class_end` after the class's last fragment, and `finish` with the manifest for the predicates that read its totals. Per unit it keeps only what the cross-unit predicates read (its id, the grouping keys of a human unit, and its codepoints, whether there is a primary pair, and whether anything visible changed, which the primary-unit predicates read), never the fragment. `unit` runs `check_unit` on every fragment. Per-unit errors are recorded as each fragment is fed in, and cross-unit errors at `finish`."""
 
     def __init__(
         self,
@@ -5365,17 +1836,11 @@ class _CorpusCheck:
         descriptions: Mapping,
         batch_size: object,
         repo_root: Path | None,
-        cached_ids: Collection[str],
-        at: tuple[str, ...] = CHECKED_AT,
-        identity_for: Container[str | None] | None = None,
     ) -> None:
         self._mode = mode
-        self._at = at
-        self._identity_for = identity_for
         self._descriptions = descriptions
         self._batch_size = batch_size
         self._repo_root = repo_root
-        self._cached_ids = cached_ids
         self.errors: list[str] = []
         self._seen_units = 0
         self._seen_rows = 0
@@ -5396,35 +1861,6 @@ class _CorpusCheck:
         self._machine_count = 0
         self._check_counts: dict[str, int] = {}
 
-    _FACTS = (
-        "errors",
-        "_seen_units",
-        "_seen_rows",
-        "_seen_ids",
-        "_seen_machine_by_class",
-        "_primary_units",
-        "_junction_units",
-        "_junctions_with_primary_unit",
-        "_junctions_without_primary_unit",
-        "_duplicate_group_keys",
-        "_cluster_keys",
-        "_duplicate_group_cluster",
-        "_human_units",
-        "_identity",
-        "_policy_files",
-    )
-
-    def take_facts(self) -> _CorpusCheck:
-        """Return what this checker has accumulated since it was made or last asked, as a checker of its own to `absorb`, and go on from nothing. The open class's record and its counters stay, so `class_end` still compares the whole class with its record. The m1 write's worker hands its facts to the parent a chunk at a time this way, so it holds one chunk's ids, keys and identities, and a repeated id or a two-cluster duplicate group whose units fall in different chunks of one class is reported by `absorb` instead of `unit`."""
-        facts = _CorpusCheck(
-            mode=self._mode, descriptions={}, batch_size=None, repo_root=None, cached_ids=(), at=self._at
-        )
-        for name in self._FACTS:
-            kept = getattr(self, name)
-            setattr(self, name, getattr(facts, name))
-            setattr(facts, name, kept)
-        return facts
-
     def class_start(self, meta: Mapping) -> None:
         self._meta = meta
         self._class_units = 0
@@ -5433,17 +1869,14 @@ class _CorpusCheck:
         if meta.get("no_verdict") and meta.get("batches"):
             self.errors.append(f"class {meta.get('id')}: a no-verdict class must carry no batches")
 
-    def unit(self, unit: dict, *, cached: bool | None = None) -> None:
-        """Check one fragment, in shard order. `cached` says whether the unit cache supplied it, in which case `check_unit` is skipped. The m1 write passes it from the store's flag column; when it is None, membership in `cached_ids` decides."""
+    def unit(self, unit: dict) -> None:
+        """Check one fragment, in shard order."""
         errors = self.errors
         meta = self._meta
         mode = self._mode
         self._class_units += 1
         unit_id = unit.get("id")
-        if cached is None:
-            cached = unit_id in self._cached_ids
-        if not cached:
-            errors.extend(check_unit(unit, mode, at=self._at))
+        errors.extend(check_unit(unit, mode))
         policy = (unit.get("drafts") or {}).get("policy") or {}
         if isinstance(policy.get("file"), str):
             self._policy_files.add(policy["file"])
@@ -5486,7 +1919,6 @@ class _CorpusCheck:
             for check_id in MACHINE_CHECKS:
                 if unit.get(check_id) is True:
                     self._check_counts[check_id] += 1
-        names_a_primary_unit = False
         if unit.get("secondary_junctions"):
             self._junction_units += 1
             for junction in unit["secondary_junctions"]:
@@ -5497,13 +1929,11 @@ class _CorpusCheck:
                 else:
                     self._junctions_with_primary_unit += 1
                     self._primary_units.append((unit.get("id"), junction["primary_unit"]))
-                    names_a_primary_unit = True
-        if self._identity_for is None or names_a_primary_unit or unit_id in self._identity_for:
-            self._identity[unit_id] = (
-                unit.get("codepoints"),
-                unit.get("pair") is not None,
-                unit.get("ink_identical") is True or unit.get("picture_identical") is True,
-            )
+        self._identity[unit_id] = (
+            unit.get("codepoints"),
+            unit.get("pair") is not None,
+            unit.get("ink_identical") is True or unit.get("picture_identical") is True,
+        )
 
     def class_end(self) -> None:
         meta = self._meta
@@ -5528,31 +1958,6 @@ class _CorpusCheck:
             self._seen_machine_by_class[meta["id"]] = self._machine_count
         self._seen_units += self._class_units
         self._seen_rows += meta.get("row_count", 0)
-
-    def absorb(self, other: _CorpusCheck) -> None:
-        """Fold in a checker fed other units, as the m1 write folds in each chunk's facts (`take_facts`) as they arrive. The chunk's per-unit and class-end errors keep their order. The two predicates `unit` checks against units fed before it in stream order, a repeated id and a duplicate group whose cluster differs from the one an earlier unit gave it, are checked here against everything absorbed before, so on a failing build such an error follows the chunk's own instead of sitting at the unit's place among them, and of a duplicate group's two clusters the one absorbed first is kept. The rest is unions and sums, so `finish` runs the cross-unit predicates over the union as over one checker fed every unit."""
-        errors = self.errors
-        errors.extend(other.errors)
-        for unit_id in sorted(self._seen_ids & other._seen_ids, key=str):
-            errors.append(f"duplicate unit id {unit_id}")
-        self._seen_ids |= other._seen_ids
-        for duplicate_group, cluster in other._duplicate_group_cluster.items():
-            if self._duplicate_group_cluster.setdefault(duplicate_group, cluster) != cluster:
-                errors.append(f"duplicate group {duplicate_group} spans two clusters")
-        self._seen_units += other._seen_units
-        self._seen_rows += other._seen_rows
-        self._seen_machine_by_class.update(other._seen_machine_by_class)
-        self._primary_units.extend(other._primary_units)
-        self._junction_units += other._junction_units
-        self._junctions_with_primary_unit += other._junctions_with_primary_unit
-        self._junctions_without_primary_unit += other._junctions_without_primary_unit
-        for duplicate_group, keys in other._duplicate_group_keys.items():
-            self._duplicate_group_keys.setdefault(duplicate_group, set()).update(keys)
-        for cluster, keys in other._cluster_keys.items():
-            self._cluster_keys.setdefault(cluster, set()).update(keys)
-        self._human_units.update(other._human_units)
-        self._identity.update(other._identity)
-        self._policy_files |= other._policy_files
 
     def finish(self, manifest: Mapping) -> list[str]:
         errors = self.errors
@@ -5677,23 +2082,18 @@ def check_shards(
     manifest: dict,
     shards_by_class: dict[str, list[dict]],
     repo_root: Path | None = None,
-    *,
-    cached_ids: Collection[str] = (),
 ) -> list[str]:
-    """Run the per-unit and cross-unit §7 checks over shard payloads held in memory, keyed by class id. The table-diff build passes the dicts it serialized and `check_output_dir` passes the shards it re-parsed from disk; the m1 build runs the same predicates through `_CorpusCheck` one fragment at a time as it writes. A class missing from the mapping is skipped here and reported by the caller. When `repo_root` is given, each distinct policy-draft file is checked to exist; every other predicate reads only the payload.
+    """Run the per-unit and cross-unit §7 checks over shard payloads held in memory, keyed by class id. The table-diff build passes the dicts it serialized and `check_output_dir` passes the shards it re-parsed from disk; the review crate runs the same predicates over the m1-audit corpus it writes. A class missing from the mapping is skipped here and reported by the caller. When `repo_root` is given, each distinct policy-draft file is checked to exist; every other predicate reads only the payload.
 
     The cross-unit predicates check what no single fragment can: each duplicate group and each cluster holds one class and one config set, every duplicate group lies inside one cluster, the manifest's `human_unit_ids` lists the human units in `audit.triage_key` order, every class's `batches` are the slices its units occupy in it, and each secondary junction's primary unit is a unit whose window this unit's window contains and which has a primary pair and a visible change.
 
     Apart from the policy-draft files, the cross-unit predicates read only fields that slim and full fragments both carry (the machine flags, the window, the pair, the class, group, configs, duplicate group and cluster), so the manifest's counts are checked over both kinds. `check_unit` checks that a slim fragment (`audit.slim_fragment`) omits `SLIM_OMITTED_KEYS` and a full one carries them.
-
-    `check_unit` is skipped for the units in `cached_ids`. A cached fragment passed `check_unit` in the build that drafted it, and the build reuses it only when the stamp on the shard equals its store record's. The fields a later build re-patches onto a cached fragment (the scaffold and secondary junctions) are not re-checked per unit; the cross-unit predicates still run over every unit. A caller re-reading a finished corpus passes no `cached_ids` and so checks everything.
     """
     check = _CorpusCheck(
         mode=manifest.get("mode", "m1-audit"),
         descriptions=manifest.get("feature_descriptions") or {},
         batch_size=manifest.get("batch_size"),
         repo_root=repo_root,
-        cached_ids=cached_ids,
     )
     for meta in manifest.get("classes", ()):
         shard = shards_by_class.get(meta.get("id", ""))
@@ -5880,23 +2280,23 @@ def main(argv: list[str] | None = None) -> None:
         "--jobs",
         type=int,
         default=corpus_jobs,
-        help=f"per-unit worker budget for the corpus build: the Rust build's threads, or the Python build's units workers; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one: every usable core less the parent, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores less the parent instead, `memory_budget.split_cores`, with `--gates-idle-jobs` for when the gate lane is idle) — on this machine, for the build `corpus_exec.engine()` resolves (the Rust build, unless `AMS_CORPUS_BUILD_ENGINE=python`, `AMS_CORPUS_UNITS_ENGINE=python` or `AMS_CORPUS_MEMORY_TALLY=1` asks for the Python one), {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one Rust build thread's own peak and the co-resident one the Rust build's process with the Python process waiting on it, or under the Python build one Rust units-engine thread's or one Python worker's peak beside the parent that holds the whole corpus, with the Rust units engine's process. Under the Python build `--jobs 1` is serial, in Python under either units engine; under the Rust build it is one thread. It is the width a machine gets when the pooled shape does not fit, and a deliberate `--jobs N` is also how a wider run gets measured, since a build records its peaks for `make job-costs`.",
+        help=f"the corpus build's threads, which the review crate's build process runs its units phase on; the default is `corpus_job_budget(skip_gates=True)`, the width a `--skip-gates` artifact cycle passes rather than a checked-in one, with no memory set aside for a gate pool because a hand run has no co-resident `make test` pool to leave cores or bytes to (a gated cycle passes the build lane's share of the cores instead, `memory_budget.split_cores`, with `--gates-idle-jobs` for when the gate lane is idle) — on this machine, {corpus_job_derivation(skip_gates=True)}, where the per-unit figure is one build thread's own peak and the co-resident one the build's process with the Python process waiting on it. It is the width a machine gets when the wider shape does not fit, and a deliberate `--jobs N` is also how a wider run gets measured, since a build records its peak for `make job-costs`.",
     )
     parser.add_argument(
         "--gates-idle-jobs",
         type=int,
-        help="the units pool's width in place of `--jobs` when the file `--gates-idle-marker` names exists as the pool starts, after the load and plan phases. A gated artifact cycle passes both (`artifact_cycle.corpus_gates_idle_job_budget`, every usable core less the parent) and writes that file once the gate lane has nothing left to run beside the units pool (`artifact_cycle._GateLaneWatch`); a hand run passes neither.",
+        help="the units phase's width in place of `--jobs` when the file `--gates-idle-marker` names exists as the phase starts, after the load and plan phases. A gated artifact cycle passes both (`artifact_cycle.corpus_gates_idle_job_budget`) and writes that file once the gate lane has nothing left to run beside the units phase (`artifact_cycle._GateLaneWatch`); a hand run passes neither.",
     )
     parser.add_argument(
         "--gates-idle-marker",
         type=Path,
-        help="the file whose presence as the units pool starts selects `--gates-idle-jobs`",
+        help="the file whose presence as the units phase starts selects `--gates-idle-jobs`",
     )
     parser.add_argument(
         "--signature-jobs",
         type=int,
         default=signature_jobs,
-        help=f"the width the ink-signature phase shapes its store misses at, independent of `--jobs`: each shaper is one comparator over the two fonts, flat in the number of signature misses and pure CPU, so cores bind it where memory binds the units phase, and `--jobs 1` on a small machine still shapes signatures across the cores. The default is `signature_job_budget()`, the same width the artifact cycle passes — on this machine {signature_job_derivation()}. The Rust build shapes its misses on this many threads of its process at any count of misses and records no peaks; the Python build shapes misses under its pool's threshold serially at any width, and its pooled pass records its per-worker peaks for `make job-costs`.",
+        help=f"the threads the ink-signature phase shapes its store misses on, independent of `--jobs`: each shaper holds the two fonts, flat in the number of signature misses and pure CPU, so cores bind it where memory binds the units phase, and `--jobs 1` on a small machine still shapes signatures across the cores. The default is `signature_job_budget()`, the same width the artifact cycle passes — on this machine {signature_job_derivation()}. The build shapes its misses on this many threads at any count of misses and records no peaks.",
     )
     parser.add_argument(
         "--recompute-all-units",

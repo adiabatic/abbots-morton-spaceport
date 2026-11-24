@@ -1,45 +1,38 @@
-//! The three verdict-export drafts, as `drafts.Drafter` (`rebuild/review/drafts.py`) drafts them: the approve pin (`draft_pin`, checked by its replay, `validate_semantics`), the reject policy record (`draft_policy` with `_policy_position`, `_new_join_side`, `_gained_extension_side`, `_junction_identical`, `_baseline_cell_pin`, `_window_for_side`, `_window_when`, `_baseline_exit` and `_before_junction_at_gap`), and the fine-either-way any-of record (`draft_any_of`), with `stylistic_set_value`, `features_dict` and the three `to_json` methods ([`Drafter`], [`Drafts::to_py`]).
+//! The three verdict-export drafts ([`Drafter`]): the approve pin, checked by its replay against the after font, the reject policy record, and the fine-either-way any-of record, each with its stylistic-set value and feature dict, and each as a fragment holds it ([`Drafts::to_py`]).
 //!
 //! A draft that fails its check is a [`DraftError`], where Python raises `DraftError`: a pin that does not parse or that the after font refutes, a policy record the rune schema rejects, and a before-behavior candidate that does not parse. So is every failure Python meets as another exception (a missing letter or boundary, an index past a tuple's end), since a worker that meets either fails the unit.
-//!
-//! [`stage_draft`] is the `draft` stage of the stage fixtures.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
 use ams_m1_kernel::index::SpecIndex;
 use ams_m1_kernel::model::Sym;
 use ams_m1_kernel::types::{CellId, adjustment_text, is_boundary_settled};
-use serde_json::Value;
 
-use crate::change_groups::reroutes;
-use crate::enrich::{EnrichError, Enriched, Enricher, Flags, init_letters};
+use crate::enrich::{EnrichError, Enriched, init_letters};
 use crate::expect::{ExpectError, Replayer, expect_string};
 use crate::explain::python_int;
 use crate::fontfacts::FontFacts;
-use crate::ink::{InkError, InkReader};
+use crate::ink::InkError;
 use crate::pyfmt::repr::repr_str;
 use crate::pyfmt::yaml::flow_dump;
 use crate::pyfmt::{PyFmtError, PyValue};
 use crate::schema::{Checker, RuneSchema, SchemaError};
-use crate::settle::{SettleError, Settlement, Settler, features_for_config};
-use crate::shape::{Features, Fonts, ShapeError, Shaper};
-use crate::subset_pack::{SubsetPack, SubsetPackError};
+use crate::settle::SettleError;
+use crate::shape::{Features, ShapeError, Shaper};
+use crate::subset_pack::SubsetPackError;
 use crate::wire::{Alias, CorpusEntry, Init, UnitRecord, WireError};
 
-/// `drafts.SUGGESTED_HOME`: the page a drafted pin suggests it be added to.
+/// The page a drafted pin suggests it be added to.
 pub const SUGGESTED_HOME: &str = "site/the-manual.html";
 
-/// `drafts._BOUNDARY_QS_TEXT`: each boundary code point's word in an any-of record's text.
+/// Each boundary code point's word in an any-of record's text.
 const BOUNDARY_QS_TEXT: [(u32, &str); 3] = [(0x0020, "space"), (0x200C, "ZWNJ"), (0x00B7, "·")];
 
-/// The junction token `_before_junction_at_gap` compares with, a break.
+/// The junction token a before junction at a gap compares with, a break.
 const BREAK: &str = "break";
 
-/// `_baseline_exit`'s reading of a before junction token as the exit height a prefer record pins.
+/// The reading of a before junction token as the exit height a prefer record pins.
 const BASELINE_EXITS: [(&str, &str); 4] = [
     ("y0", "baseline"),
     ("y5", "x-height"),
@@ -47,7 +40,7 @@ const BASELINE_EXITS: [(&str, &str); 4] = [
     ("y8", "top"),
 ];
 
-/// A draft that fails its check, or a `draft` stage input the engine cannot read.
+/// A draft that fails its check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DraftError(pub String);
 
@@ -92,7 +85,7 @@ fn error<T>(message: impl Into<String>) -> Result<T> {
     Err(DraftError(message.into()))
 }
 
-/// `drafts.stylistic_set_value`: None when the configurations include the default, else the first configuration's set numbers, space-separated.
+/// None when the configurations include the default, else the first configuration's set numbers, space-separated.
 pub fn stylistic_set_value(configs: &[String]) -> Option<String> {
     if configs.iter().any(|config| config == "default") {
         return None;
@@ -107,7 +100,7 @@ pub fn stylistic_set_value(configs: &[String]) -> Option<String> {
     )
 }
 
-/// `drafts.features_dict`: no features when the configurations include the default, else each tag of the first configuration turned on.
+/// No features when the configurations include the default, else each tag of the first configuration turned on.
 pub fn features_dict(configs: &[String]) -> Features {
     let mut features = Features::new();
     if configs.iter().any(|config| config == "default") {
@@ -129,7 +122,7 @@ pub struct PinDraft {
 }
 
 impl PinDraft {
-    /// `PinDraft.to_json`.
+    /// The pin draft as a fragment holds it.
     pub fn to_py(&self) -> PyValue {
         entries(vec![
             ("expect", PyValue::str(&self.expect)),
@@ -161,7 +154,7 @@ pub struct PolicyDraft {
 }
 
 impl PolicyDraft {
-    /// `PolicyDraft.to_json`.
+    /// The policy draft as a fragment holds it.
     pub fn to_py(&self) -> PyValue {
         entries(vec![
             ("file", PyValue::str(&self.file)),
@@ -187,7 +180,7 @@ pub struct AnyOfDraft {
 }
 
 impl AnyOfDraft {
-    /// `AnyOfDraft.to_json`.
+    /// The any-of draft as a fragment holds it.
     pub fn to_py(&self) -> PyValue {
         entries(vec![
             ("text", PyValue::str(&self.text)),
@@ -209,7 +202,7 @@ pub struct Drafts {
 }
 
 impl Drafts {
-    /// The `drafts` value `build.unit_to_json` puts on a full fragment.
+    /// The `drafts` value a full fragment carries.
     pub fn to_py(&self) -> PyValue {
         entries(vec![
             ("pin", self.pin.to_py()),
@@ -285,7 +278,7 @@ impl<'a> Drafter<'a> {
         })
     }
 
-    /// The three drafts `build.unit_to_json` adds to a full fragment, in its order: the pin, the policy record and the any-of record.
+    /// The three drafts a full fragment carries, in its order: the pin, the policy record and the any-of record.
     pub fn draft(
         &self,
         shaper: &mut Shaper,
@@ -313,7 +306,7 @@ impl<'a> Drafter<'a> {
 
     // --- the approve pin -----------------------------------------------------
 
-    /// `Drafter.draft_pin`: the after behavior's whole-word expect string, which must parse and which the after font must bear out, with the attribute and the duplicate the site corpus index gives the text under the unit's first configuration.
+    /// The after behavior's whole-word expect string, which must parse and which the after font must bear out, with the attribute and the duplicate the site corpus index gives the text under the unit's first configuration.
     pub fn draft_pin(
         &self,
         shaper: &mut Shaper,
@@ -368,7 +361,7 @@ impl<'a> Drafter<'a> {
 
     // --- the reject policy edit ----------------------------------------------
 
-    /// `Drafter.draft_policy` with no reviewer note: the one-line record that reverses the change at the first divergent position that is not a boundary, checked against its rune-schema definition, or None when no position qualifies or a name-grain divergence has no one-line reversing edit.
+    /// The policy draft with no reviewer note: the one-line record that reverses the change at the first divergent position that is not a boundary, checked against its rune-schema definition, or None when no position qualifies or a name-grain divergence has no one-line reversing edit.
     pub fn draft_policy(
         &self,
         unit: &UnitRecord,
@@ -468,7 +461,7 @@ impl<'a> Drafter<'a> {
         }))
     }
 
-    /// `_policy_position`: the first divergent position within the trace that is not a boundary, else the first position that is not one.
+    /// The first divergent position within the trace that is not a boundary, else the first position that is not one.
     fn policy_position(&self, enriched: &Enriched) -> Option<usize> {
         let count = enriched.positions.len();
         enriched
@@ -480,7 +473,7 @@ impl<'a> Drafter<'a> {
             .or_else(|| (0..count).find(|&position| !self.is_boundary(enriched, position)))
     }
 
-    /// `_new_join_side`: `exit` when the divergent cell joins across its exit gap where the baseline broke, else `entry` when it does so across its entry gap, else None.
+    /// `exit` when the divergent cell joins across its exit gap where the baseline broke, else `entry` when it does so across its entry gap, else None.
     fn new_join_side(&self, enriched: &Enriched, position: usize) -> Result<Option<&'static str>> {
         let geometry = &enriched.geometry;
         let cell = &enriched.positions[position].0.cell;
@@ -503,7 +496,7 @@ impl<'a> Drafter<'a> {
         Ok(None)
     }
 
-    /// `_baseline_cell_pin`: the prefer record that pins the baseline glyph's alias cell where it differs from the new cell in an anchor (`cell` and `over`, scoped across the first differing side, exit first) or else in its stance, or None when the alias is no cell or differs in neither.
+    /// The prefer record that pins the baseline glyph's alias cell where it differs from the new cell in an anchor (`cell` and `over`, scoped across the first differing side, exit first) or else in its stance, or None when the alias is no cell or differs in neither.
     fn baseline_cell_pin(
         &self,
         enriched: &Enriched,
@@ -559,7 +552,7 @@ impl<'a> Drafter<'a> {
         Ok(None)
     }
 
-    /// `_gained_extension_side`: the side keyword, height and pixels of the first `en-ext-` or `ex-ext-` adjustment of the divergent cell that the baseline glyph's name does not carry, on a side the cell joins, or None.
+    /// The side keyword, height and pixels of the first `en-ext-` or `ex-ext-` adjustment of the divergent cell that the baseline glyph's name does not carry, on a side the cell joins, or None.
     fn gained_extension_side(
         &self,
         enriched: &Enriched,
@@ -598,7 +591,7 @@ impl<'a> Drafter<'a> {
         Ok(None)
     }
 
-    /// `_window_for_side`: an exit-side record scoped to its right neighbor's family and an entry-side record to its left neighbor's, falling back to `_window_when` when that neighbor is a boundary or absent.
+    /// An exit-side record scoped to its right neighbor's family and an entry-side record to its left neighbor's, falling back to the window's own scope when that neighbor is a boundary or absent.
     fn window_for_side(&self, enriched: &Enriched, position: usize, side: &str) -> PyValue {
         let positions = &enriched.positions;
         if side == "exit"
@@ -613,7 +606,7 @@ impl<'a> Drafter<'a> {
         self.window_when(enriched, position)
     }
 
-    /// `_window_when`: the right neighbor's family, else the left neighbor's, else the isolated word.
+    /// The right neighbor's family, else the left neighbor's, else the isolated word.
     fn window_when(&self, enriched: &Enriched, position: usize) -> PyValue {
         let positions = &enriched.positions;
         if position + 1 < positions.len() && !self.is_boundary(enriched, position + 1) {
@@ -625,7 +618,7 @@ impl<'a> Drafter<'a> {
         entries(vec![("word", PyValue::str("isolated"))])
     }
 
-    /// `_baseline_exit`: the exit height the baseline's junction at the code point gap after the divergent cell names, or `none` when the gap ends the text or the baseline broke there.
+    /// The exit height the baseline's junction at the code point gap after the divergent cell names, or `none` when the gap ends the text or the baseline broke there.
     fn baseline_exit(
         &self,
         unit: &UnitRecord,
@@ -647,7 +640,7 @@ impl<'a> Drafter<'a> {
 
     // --- the fine-either-way any-of record -------------------------------------
 
-    /// `Drafter.draft_any_of`: the after behavior's expect string and, when it differs, the before behavior's, which must parse; the text as letter families and boundary words; and the unit's features.
+    /// The after behavior's expect string and, when it differs, the before behavior's, which must parse; the text as letter families and boundary words; and the unit's features.
     pub fn draft_any_of(&self, unit: &UnitRecord, enriched: &Enriched) -> Result<AnyOfDraft> {
         let geometry = &enriched.geometry;
         let values = &unit.codepoint_values;
@@ -744,14 +737,14 @@ fn junction_at(enriched: &Enriched, position: usize) -> Result<&str> {
         .ok_or_else(|| DraftError(format!("the after junctions hold no position {position}")))
 }
 
-/// `_junction_identical`: as many before glyphs as after cells, and the same junctions.
+/// As many before glyphs as after cells, and the same junctions.
 fn junction_identical(enriched: &Enriched) -> bool {
     let geometry = &enriched.geometry;
     geometry.before_glyphs.len() == geometry.after_cells.len()
         && geometry.before_junctions == geometry.after_junctions
 }
 
-/// `_before_junction_at_gap`: the before junction after the glyph whose successor starts just after the code point gap, or None.
+/// The before junction after the glyph whose successor starts just after the code point gap, or None.
 fn before_junction_at_gap(enriched: &Enriched, gap: i64) -> Result<Option<&str>> {
     let geometry = &enriched.geometry;
     for index in 0..geometry.before_spans.len().saturating_sub(1) {
@@ -781,103 +774,6 @@ fn before_glyph_at(enriched: &Enriched, position: usize) -> Result<&str> {
         .get(before_index)
         .map(String::as_str)
         .ok_or_else(|| DraftError(format!("the before glyphs hold no glyph {before_index}")))
-}
-
-fn line_flags(record: &Value, key: &str) -> Result<Flags> {
-    let PyValue::Dict(entries) = PyValue::from_typed(&record["flags"])
-        .map_err(|failure| DraftError(format!("{key}: the flags: {failure}")))?
-    else {
-        return error(format!("{key}: the flags are not a dict"));
-    };
-    let flag = |name: &str| match entries.iter().find(|(held, _)| *held == PyValue::str(name)) {
-        Some((_, PyValue::Bool(value))) => Ok(*value),
-        _ => error(format!("{key}: the flags hold no bool {name}")),
-    };
-    Ok(Flags {
-        ink_identical: flag("ink_identical")?,
-        picture_identical: flag("picture_identical")?,
-        junior_equivalent: flag("junior_equivalent")?,
-    })
-}
-
-/// The `draft` stage: for each `draft:` line of `stage_file`, the unit its `record` carries as phase 1 received it goes through phase 1 up to its drafts: its ink is read and its flags checked first against the line's `flags`, which the worker's phase 1 set, so a failure there names the ink stage; the unit is re-routed (`reroutes`), which sets its ledger class and clears its exemplar flag, enriched under its first configuration, and drafted, and the line's answer is the `drafts` value [`Drafts::to_py`] gives, written as one `{"key", "value"}` line in the typed encoding. The shaper's and the settler's memos carry from line to line as a batch's do.
-pub fn stage_draft(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path)?;
-    let facts = FontFacts::read(&init.font_facts)?;
-    let fonts = Fonts::open(&init, &facts)?;
-    let reader = InkReader::new(&init, &facts)?;
-    let settlement = Settlement::new(SpecIndex::new(init.read_spec()?), init.settlement.clone())?;
-    let mut settler = Settler::new(&settlement);
-    let pack = SubsetPack::open(&init.subset_pack)?;
-    let enricher = Enricher::new(&init, &settlement, &pack, &facts)?;
-    let schema = RuneSchema::read(Path::new(&init.rune_schema))?;
-    let drafter = Drafter::new(&init, settlement.index(), &facts, &schema)?;
-    let mut shaper = Shaper::new(&fonts, &facts);
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        DraftError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            DraftError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| DraftError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if !key.starts_with("draft:") {
-            return error(format!("{key}: the draft stage answers draft: lines"));
-        }
-        let Some(text) = record["record"].as_str() else {
-            return error(format!("{key}: the line has no unit record"));
-        };
-        let unit: Value = serde_json::from_str(text)
-            .map_err(|failure| DraftError(format!("{key}: the unit record: {failure}")))?;
-        let mut unit = UnitRecord::from_json(&unit)?;
-        let flags = line_flags(&record, key)?;
-        let ink = reader.read_unit(&mut shaper, &unit)?;
-        let read = Flags {
-            ink_identical: ink.ink_identical,
-            picture_identical: ink.picture_identical,
-            junior_equivalent: ink.junior_equivalent,
-        };
-        if read != flags {
-            return error(format!(
-                "{key}: the ink stage reads {read:?}, and the worker's phase 1 set {flags:?}"
-            ));
-        }
-        let machine_approved =
-            flags.ink_identical || flags.picture_identical || flags.junior_equivalent;
-        if reroutes(
-            &unit.class,
-            unit.no_verdict,
-            machine_approved,
-            &init.identical_classes,
-        ) {
-            unit.ledger_class = unit.class.clone();
-            unit.exemplar = false;
-        } else {
-            unit.ledger_class = String::new();
-        }
-        let config = unit.configs.first().map_or("", String::as_str);
-        let report = settler
-            .explain(&unit.codepoint_values, &features_for_config(config))
-            .map_err(|failure| DraftError(format!("{key}: the settle stage: {failure}")))?;
-        let enriched = enricher
-            .enrich(&mut shaper, &unit, &flags, &report)
-            .map_err(|failure| DraftError(format!("{key}: the enrich stage: {failure}")))?;
-        let drafts = drafter
-            .draft(&mut shaper, &unit, &enriched)
-            .map_err(|failure| DraftError(format!("{key}: {failure}")))?;
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            drafts.to_py().to_typed()
-        )
-        .map_err(|failure| DraftError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! Compiles HarfBuzz into the crate (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § HarfBuzz and outlines): the amalgamated `src/harfbuzz.cc` of the release uharfbuzz links, as one C++11 translation unit with `HAVE_PTHREAD` and no platform backend.
+//! Compiles HarfBuzz into the crate (`doc/rebuild-design.md` §14.2): the amalgamated `src/harfbuzz.cc` of the release uharfbuzz links, as one C++11 translation unit with `HAVE_PTHREAD` and no platform backend.
 //!
 //! When `target/vendor/` lacks the unpacked source, the release tarball is fetched from HarfBuzz's GitHub releases with `curl`, refused unless its sha256 is [`TARBALL_SHA256`], and its `src/` unpacked there with `tar`, without HarfBuzz's own Python scripts, since pyright checks every `.py` file under `rebuild/`, ignored or not. A `uv.lock` bump of uharfbuzz moves [`VERSION`] and the digest together.
 

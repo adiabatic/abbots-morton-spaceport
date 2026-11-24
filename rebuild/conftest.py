@@ -1,6 +1,6 @@
 """Shared fixtures for the rebuild suite, and the guard that keeps every test in it off live build artifacts.
 
-Every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The build checks its own artifacts (`check_unit` and `check_shards` in `rebuild/review/build.py` for the corpus, `run_m1.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `rebuild/out/`. The root conftest resolves `-n auto` to every usable core and honors `PYTEST_XDIST_AUTO_NUM_WORKERS` for every collection mode.
+Every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The builds check their own artifacts (the review crate's contract check for the corpus, `run_m1.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `rebuild/out/`. The root conftest resolves `-n auto` to every usable core and honors `PYTEST_XDIST_AUTO_NUM_WORKERS` for every collection mode.
 
 A `sys.addaudithook` guard enforces that boundary. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
 
@@ -459,7 +459,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in rebuild/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass. The cycle directory (`cycle_paths.CYCLE_VAR`) is redirected because `main` takes the pass lock there and creates a scratch directory under it, and a real pass holds that lock while the rebuild suite runs as its child, so a test driving `main` against the live one would wait on its own parent.
 
-    The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. A corpus build records its pool record there (the Rust build at any width, the Python build when pooled), so a test that runs `build_m1` would record a mini bundle's peaks as measurements of the real build, which `make job-costs` reports beside the `*_BYTES` constants. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The suite's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
+    The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. A corpus build records its pool record there at any width, so a test that runs `build_m1` would record a mini bundle's peaks as measurements of the real build, which `make job-costs` reports beside the `*_BYTES` constants. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The suite's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
 
     `cycle_timings.CYCLE_RUN_ENV` (AMS_CYCLE_RUN) is removed from the environment, because run_m1's CLI and the make-test gate wrapper skip recording their check line when it is set. It can come from outside, because the rebuild suite runs as a cycle child and inherits a real pass's run id, or from inside, because `artifact_cycle.main` sets it on this process and it would stay set for whatever test the xdist worker runs next. `setenv` comes before `delenv` so that `delenv` cannot raise on an absent variable and so that teardown restores the variable's original state, removing any value the test set. A test that wants to be a cycle's child sets the variable itself.
 
@@ -578,7 +578,7 @@ class MiniBundle:
 
 @pytest.fixture(scope="session")
 def mini_bundle(build_once) -> MiniBundle:
-    """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`), and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `load_workload` or `load_ledger`, and `subset_pack` to `build_m1` and `Enricher`, and the settlement the enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
+    """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`), and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `build_m1` or `load_ledger`, and `subset_pack` to `build_m1`, and the settlement the build's enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
 
     The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs. The pack is written by `subset_pack.write_pack_in_memory`, which reads the tables in this process and writes the bytes `write_pack` writes, for the same reason: `write_pack` reads them in pack processes, which would leave every such test's inputs untraced.
     """
@@ -603,64 +603,21 @@ def mini_bundle(build_once) -> MiniBundle:
     )
 
 
-def _mini_corpus_build(mini_bundle: MiniBundle, engine: str | None) -> Callable[[Path], None]:
-    """Return the build of the frozen mini bundle's corpus into a directory's `corpus`, at one job, under the corpus build `engine` names (`AMS_CORPUS_BUILD_ENGINE` set for the length of the build), or under the one the run resolves when it is None."""
-    build = announced_import("rebuild.review.build")
-    corpus_exec = announced_import("rebuild.review.corpus_exec")
-
-    def build_corpus(directory: Path) -> None:
-        with pytest.MonkeyPatch.context() as patch:
-            if engine is not None:
-                patch.setenv(corpus_exec.ENGINE_VARIABLE, engine)
-            build.build_m1(
-                directory / "corpus",
-                audit_path=MINI / "audit.tsv",
-                ledger_path=mini_bundle.ledger,
-                subset_dir=MINI,
-                after_font=MINI / "M1.otf",
-                spec_root=mini_bundle.spec_root,
-                subset_pack=mini_bundle.subset_pack,
-                jobs=1,
-            )
-
-    return build_corpus
-
-
 @pytest.fixture(scope="session")
 def mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
-    """Build the frozen mini bundle's corpus once a run (`build_once`), for every test that needs the bundle's unmodified corpus, under the corpus build engine the run resolves (`corpus_exec.engine()`). `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one job, and its pool record, if it writes one, goes to the journal `build_once` points beside it."""
-    return build_once("mini-corpus", _mini_corpus_build(mini_bundle, None)) / "corpus"
+    """Build the frozen mini bundle's corpus once a run (`build_once`), for every test that needs the bundle's unmodified corpus. `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one thread, and its pool record goes to the journal `build_once` points beside it."""
+    build = announced_import("rebuild.review.build")
 
+    def build_corpus(directory: Path) -> None:
+        build.build_m1(
+            directory / "corpus",
+            audit_path=MINI / "audit.tsv",
+            ledger_path=mini_bundle.ledger,
+            subset_dir=MINI,
+            after_font=MINI / "M1.otf",
+            spec_root=mini_bundle.spec_root,
+            subset_pack=mini_bundle.subset_pack,
+            jobs=1,
+        )
 
-@pytest.fixture(scope="session")
-def python_mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
-    """`mini_corpus` as the Python build writes it (`AMS_CORPUS_BUILD_ENGINE=python`), built once a run, for a test that selects the Python build (`python_build`) and builds over the mini corpus or compares a tree with it. The Python build at one job stamps no units engine in its unit store, where the Rust build stamps the crate, so the two trees differ in that stamp and a Python build over the Rust build's corpus recomputes every unit."""
-    return build_once("mini-corpus-python", _mini_corpus_build(mini_bundle, "python")) / "corpus"
-
-
-@pytest.fixture
-def python_build(monkeypatch) -> None:
-    """Select the Python corpus build (`AMS_CORPUS_BUILD_ENGINE=python`) for the test, which pins something only the Python build does: its phase notes, its pools, its memory tally, or a Python internal the test patches."""
-    corpus_exec = announced_import("rebuild.review.corpus_exec")
-    monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "python")
-
-
-@pytest.fixture(scope="session")
-def example_units(mini_bundle: MiniBundle):
-    """Return the frozen example-window units for the enrich and drafts tests, keyed by (codepoints, first config). `regenerate.EXAMPLE_WINDOWS` is the authority on the set. Regenerating the bundle fails when a member selects no audit row; the assertion below is a second check, for a window the bundle holds rows for but this loader cannot reach.
-
-    The units come from the mini audit, whose rows settled under the pinned spec `mini_bundle` materializes, so the enricher re-derives the settlement they were written under. This fixture must never read the live audit.
-    """
-    audit = announced_import("rebuild.review.audit")
-    enrich = announced_import("rebuild.review.enrich")
-    regenerate = announced_import("rebuild.review.fixtures.mini.regenerate")
-
-    workload = audit.load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(enrich.LETTERS))
-    units = {
-        (unit.codepoints, unit.configs[0]): unit
-        for unit in workload.units()
-        if unit.codepoints in regenerate.EXAMPLE_WINDOWS
-    }
-    reached = {codepoints for codepoints, _config in units}
-    assert reached == set(regenerate.EXAMPLE_WINDOWS), sorted(regenerate.EXAMPLE_WINDOWS - reached)
-    return units
+    return build_once("mini-corpus", build_corpus) / "corpus"

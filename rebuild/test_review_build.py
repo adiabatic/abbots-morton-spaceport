@@ -1,23 +1,14 @@
-"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the same checker `build_m1` runs over its own output), the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer and the arena of recomputed fragments, the pool records and the memory tally, the shape-memo release, `_write_json`, the triage export, the table-diff build, and the refusal to build into the served corpus while the review server listens.
+"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the checker the tests and the table-diff build run over a written corpus, whose predicates the review crate runs over every unit `build_m1` writes), the manifest's class list and copy over a mini build, the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer, `_write_json`, the triage export, the table-diff build, the corpus identity's stamps, and the refusal to build into the served corpus while the review server listens.
 
-No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check; the class order and each class's copy and section are tested over a mini build. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. The ink-duplicate merge rests on the checks in `facts.derive_premerge` and on `InkComparator.signature` ignoring glyph names, which `rebuild/test_review_ink.py` tests on the marker font; rebuild/review-facts-pins.json records that the merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
+No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check; the class order and each class's copy and section are tested over a mini build. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. rebuild/review-facts-pins.json records that the ink-duplicate merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
 """
 
 import copy
-import gc
-import gzip
 import hashlib
 import json
-import multiprocessing
 import os
-import re
 import shutil
 import subprocess
-import sys
-import threading
-import weakref
-import zlib
-from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -25,29 +16,21 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, row_delta
-from rebuild.review import accepted, app_index, facts, tablediff, unit_cache, units_exec
+from rebuild.review import accepted, app_index, facts, tablediff, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
     ACCEPTANCE_CONFIGS,
-    NO_DELTAS,
     SECTIONS,
     SLIM_OMITTED_KEYS,
-    UNMATCHED_CLASS,
-    UnitTable,
-    _config_index,
     load_ledger,
-    load_workload,
     machine_approved,
     slim_fragment,
-    window_configs,
 )
 from rebuild.review.build import (
     FEATURE_DESCRIPTIONS,
     STATIC_DIR,
-    _fragment_bytes,
     _prune_orphan_shards,
-    _ShardWriter,
     _write_json,
     _write_shard,
     build_table_diff,
@@ -56,32 +39,16 @@ from rebuild.review.build import (
     check_shards,
     check_unit,
     config_badge,
-    config_gate,
-    config_note,
 )
 from rebuild.review.change_groups import (
     CHANGE_GROUP_ORDER,
-    assign_change_group,
     load_change_group_prose,
-    reroutes,
 )
-from rebuild.review.drafts import build_corpus_index, features_dict, stylistic_set_value
-from rebuild.review.enrich import LETTERS, EnrichedUnit
 from rebuild.review.export import _triage_projection, build_triage, load_units, load_verdicts
-from rebuild.review.ink import shape_memo_sizes
-from rebuild.review.columns import StringTable, TuplePool
-from rebuild.review.unit_store import UnitStore
-from rebuild.test_review_change_groups import _StubEnriched, _StubUnit
-from rebuild.test_unit_cache import _rewrite_store
-from rebuild.tools import console, memory_tally
-from rebuild.tools.cycle_timings import parse_inner_timings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 MINI = FIXTURES / "mini"
-LEDGER_PATH = REPO_ROOT / "rebuild" / "m1-divergences.yaml"
-# The contract fixture's units whose kinds differ from the ones `conform._compare_row` gives their glyphs, cells, and junctions. Both are frozen: their ids are their content keys.
-KINDS_DEPARTURES = frozenset({"u-BLyK6Z13RtN", "u-DBug8cSj15L"})
 
 
 def _load_fixture_units():
@@ -137,7 +104,7 @@ def test_fixture_units_exercise_the_contract_branches():
 
 
 def test_fixture_duplicate_groups_and_clusters_follow_the_build_keys():
-    """`build_m1` keys a duplicate group on the config set, the judged pair's two code points, the class, and the ink diffs, and a cluster on the same key without the pair (`build._cluster_id`). `check_shards` checks only that each group and each cluster holds one class and one config set and that each group lies inside one cluster, so this checks the whole key of every hand-written group and cluster, with the units' per-config `ink_deltas` standing in for the diffs: one key per group or cluster, and no key shared by two. `check_manifest` only type-checks the manifest's `totals.duplicate_groups`, so this also checks it counts the groups."""
+    """`build_m1` keys a duplicate group on the config set, the judged pair's two code points, the class, and the ink diffs, and a cluster on the same key without the pair. `check_shards` checks only that each group and each cluster holds one class and one config set and that each group lies inside one cluster, so this checks the whole key of every hand-written group and cluster, with the units' per-config `ink_deltas` standing in for the diffs: one key per group or cluster, and no key shared by two. `check_manifest` only type-checks the manifest's `totals.duplicate_groups`, so this also checks it counts the groups."""
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
     group_keys: dict[str, set[tuple]] = {}
     cluster_keys: dict[str, set[tuple]] = {}
@@ -157,108 +124,6 @@ def test_fixture_duplicate_groups_and_clusters_follow_the_build_keys():
         assert all(len(keys) == 1 for keys in keys_by_id.values()), keys_by_id
         assert len({key for keys in keys_by_id.values() for key in keys}) == len(keys_by_id), keys_by_id
     assert manifest["totals"]["duplicate_groups"] == len(group_keys)
-
-
-def test_fixture_sources_derive_the_checked_in_shards():
-    """Checks that `load_workload` over fixture-audit.tsv and fixture-ledger.yaml reproduces every unit the fixture shards ship, every class the manifest lists, its `ledger_classes` lookup, and every count it declares. `check_shards` compares the manifest's per-class and total row counts only with each other, so this is the only check of them against the rows.
-
-    A unit's class is its rows' ledger class, except on a unit `build_m1` lists under a change group: an UNMATCHED unit, and a re-routed unit (`change_groups.reroutes`), whose rows match an `ink_identical` ledger class that it names as its `ledger_class` and in `config_classes`. A unit names a `ledger_class` exactly when that rule re-routes it, a re-routed unit is no exemplar, and either kind sits in the change group `change_groups.assign_change_group` gives its configs, config classes, junctions, cells, and widths. A unit's `config_classes`, which every unit in a change group carries, must be the ones its rows give. A listed class the ledger does not declare is that change group, with its copy from rebuild/review/change-groups.yaml, and an `ink_identical` class every unit of which is re-routed is named only in `ledger_classes`. The classes are listed as `build_m1` lists them: by section, then ledger order, then `CHANGE_GROUP_ORDER`.
-
-    The fields the build derives from a unit's configs must be the ones `build.unit_scaffold` and `drafts.Drafter` give them: the config badge, and the pin's stylistic set and the any-of record's features. Every unit outside `KINDS_DEPARTURES` must carry the kinds `conform._compare_row` gives its glyphs, cells, and junctions: `ligation` exactly when the glyph and cell counts differ, and otherwise `junction` exactly when the junctions differ.
-
-    Two comparisons are looser than equality. The workload's unit order is not the shards' order, so each derived unit is matched to its shard unit by codepoints. Configs are compared as a multiset because the fixture's configs that include `ss02` are outside `ACCEPTANCE_CONFIGS`: the workload sorts them after the ranked configs, while the shards keep the hand-written order.
-    """
-    manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
-    workload = load_workload(FIXTURES / "fixture-audit.tsv", FIXTURES / "fixture-ledger.yaml", dict(LETTERS))
-    fixture_units = _load_fixture_units()
-    shipped = {unit["codepoints"]: unit for unit in fixture_units}
-    assert len(shipped) == len(fixture_units)
-    units = workload.units()
-    assert {unit.codepoints for unit in units} == set(shipped)
-    ledger = {entry.id: entry for entry in workload.ledger}
-    identical = {entry.id for entry in workload.ledger if entry.ink_identical}
-
-    counts: dict[str, tuple[int, int]] = {}
-    for derived in units:
-        unit = shipped[derived.codepoints]
-        rerouted = reroutes(derived.class_id, unit["no_verdict"], machine_approved(unit), identical)
-        assert bool(unit.get("ledger_class")) == rerouted, derived.codepoints
-        if rerouted:
-            assert unit["ledger_class"] == derived.class_id
-            assert not unit["exemplar"]
-        grouped = rerouted or derived.class_id == UNMATCHED_CLASS
-        if grouped or "config_classes" in unit:
-            assert unit["config_classes"] == dict(derived.config_classes)
-        if not grouped:
-            assert unit["class"] == derived.class_id
-        else:
-            shown = _StubEnriched(
-                unit=_StubUnit(config_classes=unit["config_classes"], configs=tuple(unit["configs"])),
-                before_junctions=tuple(unit["before"]["junctions"]),
-                after_junctions=tuple(unit["after"]["junctions"]),
-                after_cells=tuple(unit["after"]["cells"]),
-                highlight_before=unit["highlight"]["before"],
-                highlight_after=unit["highlight"]["after"],
-            )
-            assert (
-                assign_change_group(shown, unit["ink_deltas"], identical) == unit["class"]
-            ), derived.codepoints
-        assert derived.group == unit["group"]
-        assert derived.kinds == tuple(unit["kinds"])
-        assert sorted(derived.configs) == sorted(unit["configs"])
-        assert derived.exemplar == unit["exemplar"]
-        assert derived.baseline == tuple(unit["before"]["glyphs"])
-        assert derived.new == tuple(unit["after"]["cells"])
-        configs = tuple(unit["configs"])
-        assert (unit["config_gate"], unit["config_note"]) == config_badge(configs, tuple(manifest["configs"]))
-        if unit.get("drafts"):
-            assert unit["drafts"]["pin"]["stylistic_set"] == stylistic_set_value(configs)
-            assert unit["drafts"]["any_of"]["features"] == features_dict(configs)
-        if unit["id"] not in KINDS_DEPARTURES:
-            ligation = len(unit["before"]["glyphs"]) != len(unit["after"]["cells"])
-            assert ("ligation" in unit["kinds"]) == ligation, unit["id"]
-            if not ligation:
-                junctions = [junction for junction in unit["before"]["junctions"] if junction != "lig"]
-                assert ("junction" in unit["kinds"]) == (junctions != unit["after"]["junctions"]), unit["id"]
-        unit_count, row_count = counts.get(unit["class"], (0, 0))
-        counts[unit["class"]] = (unit_count + 1, row_count + derived.row_count)
-
-    assert list(manifest["ledger_classes"].items()) == list(
-        review_build._ledger_classes_meta(workload.ledger).items()
-    )
-    prose = load_change_group_prose()
-    for meta in manifest["classes"]:
-        entry = ledger.get(meta["id"])
-        if entry is None:
-            assert meta["id"] in CHANGE_GROUP_ORDER
-            group = prose[meta["id"]]
-            assert (meta["status"], meta["ink_identical"], meta["no_verdict"]) == ("per-unit", False, False)
-            assert (meta["title"], meta["summary"], meta["note"], meta["why"]) == (
-                group.title,
-                group.summary,
-                None,
-                group.why,
-            )
-        else:
-            assert entry.status == meta["status"]
-            assert (entry.title, entry.summary, entry.note or None) == (
-                meta["title"],
-                meta["summary"],
-                meta.get("note"),
-            )
-            assert entry.why == meta["why"]
-            assert entry.ink_identical == meta["ink_identical"]
-            assert entry.no_verdict == meta["no_verdict"]
-        assert counts[meta["id"]] == (meta["unit_count"], meta["row_count"])
-
-    sections = {meta["id"]: meta["section"] for meta in manifest["classes"]}
-    assert set(sections) == set(counts)
-    expected = [entry.id for entry in workload.ledger if entry.id in counts]
-    expected += [group for group in CHANGE_GROUP_ORDER if group in counts]
-    expected.sort(key=lambda class_id: SECTIONS.index(sections[class_id]))
-    assert [meta["id"] for meta in manifest["classes"]] == expected
-    assert workload.table.n == len(units) == manifest["totals"]["units"]
-    assert workload.row_count == manifest["totals"]["rows"]
 
 
 def _fixture_unit(*, ink_identical: bool) -> dict:
@@ -407,7 +272,7 @@ def test_the_manifest_lists_each_class_by_section_with_its_copy(mini_corpus, min
 def test_a_human_unit_of_an_identical_class_is_listed_under_the_change_its_picture_shows(
     mini_corpus, mini_bundle
 ):
-    """Phase 1 moves a unit of an `ink_identical` ledger class that no machine check approves to the change group its picture shows: its fragment's class is the group, its `ledger_class` names the identical class, and it carries no exemplar flag. Every unit left in an identical class is machine-approved or exempt, so a "Looks identical" class lists only windows that draw as the old font does. The mini bundle holds such units in `identical-variant-name`. The rule's three branches (a human unit moves, a machine-approved one stays, an exempt class is skipped) are pinned on stubs in rebuild/test_review_change_groups.py."""
+    """Phase 1 moves a unit of an `ink_identical` ledger class that no machine check approves to the change group its picture shows: its fragment's class is the group, its `ledger_class` names the identical class, and it carries no exemplar flag. Every unit left in an identical class is machine-approved or exempt, so a "Looks identical" class lists only windows that draw as the old font does. The mini bundle holds such units in `identical-variant-name`."""
     manifest = json.loads((mini_corpus / "manifest.json").read_text(encoding="utf-8"))
     identical = {entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical}
     rerouted = 0
@@ -504,25 +369,35 @@ def test_check_shards_flags_human_unit_ids_that_do_not_match_batches():
     assert any("human_unit_ids" in error for error in check_shards(manifest, shards))
 
 
+# The configurations a window without ·Owe can hold: every acceptance configuration but ss07, which the oracle compares only on the windows that hold ·Owe (`audit.WINDOW_SCOPED_CONFIGS`).
+WITHOUT_OWE = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss07")
+
+
+def _note(unit_configs, full_configs):
+    return config_badge(unit_configs, full_configs)[1]
+
+
+def _gate(unit_configs, full_configs):
+    return config_badge(unit_configs, full_configs)[0]
+
+
 def test_a_window_without_owe_badges_as_if_ss07_were_not_on_the_roster():
-    """ss07 changes only windows that hold ·Owe, and the oracle compares it nowhere else (`audit.WINDOW_SCOPED_CONFIGS`), so a unit of any other window never holds it. Its badge is resolved against the configurations its window can hold (`audit.window_configs`), so it reads as it did before ss07 joined the roster, and only an ·Owe window's badge can name ss07."""
+    """ss07 changes only windows that hold ·Owe, and the oracle compares it nowhere else (`audit.WINDOW_SCOPED_CONFIGS`), so a unit of any other window never holds it. The build resolves a unit's badge against the configurations its window can hold, so over a roster without ss07 a badge reads as it did before ss07 joined the roster, and only an ·Owe window's badge can name ss07."""
     configs = ("default", "ss04", "ss05", "ss10")
-    assert window_configs("E650:E651") == tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss07")
-    assert window_configs("E650:E67C") == ACCEPTANCE_CONFIGS
-    assert config_note(configs, window_configs("E650:E651")) == "only when ss03 is off"
-    assert config_note(configs, window_configs("E650:E67C")) == "only when ss03 is off and ss07 is off"
-    assert config_note(("default", "ss03", "ss04", "ss05", "ss03+ss05"), window_configs("E650")) is None
+    assert _note(configs, WITHOUT_OWE) == "only when ss03 is off"
+    assert _note(configs, ACCEPTANCE_CONFIGS) == "only when ss03 is off and ss07 is off"
+    assert _note(("default", "ss03", "ss04", "ss05", "ss03+ss05"), WITHOUT_OWE) is None
 
 
 def test_config_note_covers_the_general_gated_excluded_overlay_and_fallback_cases():
-    full = window_configs("E650")
+    full = WITHOUT_OWE
     non_ss10 = tuple(config for config in full if config != "ss10")
-    assert config_note(non_ss10, full) is None
-    assert config_note(full, full) is None
-    assert config_note(("ss03", "ss03+ss05"), full) == "only when ss03 is on"
-    assert config_note(("default", "ss04", "ss05"), full) == "only when ss03 is off"
-    assert config_note(("ss10",), full) == "only under ss10"
-    assert config_note(("ss04", "ss10"), full) == "only under: ss04, ss10"
+    assert _note(non_ss10, full) is None
+    assert _note(full, full) is None
+    assert _note(("ss03", "ss03+ss05"), full) == "only when ss03 is on"
+    assert _note(("default", "ss04", "ss05"), full) == "only when ss03 is off"
+    assert _note(("ss10",), full) == "only under ss10"
+    assert _note(("ss04", "ss10"), full) == "only under: ss04, ss10"
 
 
 def test_config_badge_caches_list_and_tuple_equivalents_together():
@@ -534,35 +409,35 @@ def test_config_badge_caches_list_and_tuple_equivalents_together():
 
 def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
     """A config set narrower than "every config with ss03 on" can still be described by a feature conjunction: a unit can differ under ss03 alone because turning ss05 on as well produces a different unit. Such a set resolves to the conjunction that selects it, so the badge names the features in their own colors instead of listing configs."""
-    full = window_configs("E650")
-    assert config_note(("ss03",), full) == "only when ss03 is on and ss05 is off"
-    assert config_note(("ss05",), full) == "only when ss05 is on and ss03 is off"
-    assert config_note(("ss03+ss05",), full) == "only when ss03 is on and ss05 is on"
-    assert config_note(("default", "ss04"), full) == "only when ss03 is off and ss05 is off"
-    assert config_note(("default", "ss05"), full) == "only when ss03 is off and ss04 is off"
-    assert config_note(("default",), full) == "only when ss03 is off and ss04 is off and ss05 is off"
+    full = WITHOUT_OWE
+    assert _note(("ss03",), full) == "only when ss03 is on and ss05 is off"
+    assert _note(("ss05",), full) == "only when ss05 is on and ss03 is off"
+    assert _note(("ss03+ss05",), full) == "only when ss03 is on and ss05 is on"
+    assert _note(("default", "ss04"), full) == "only when ss03 is off and ss05 is off"
+    assert _note(("default", "ss05"), full) == "only when ss03 is off and ss04 is off"
+    assert _note(("default",), full) == "only when ss03 is off and ss04 is off and ss05 is off"
 
 
 def test_config_gate_leaves_the_literal_fallback_to_sets_no_conjunction_pins():
     """The literal fallback remains for a disjunction such as ss04 or ss10, which no conjunction selects, because every all-off conjunction also admits default. The other fallback case, a set that needs more constraints than `GATE_CONSTRAINT_CAP`, cannot occur while there are only three joining features, since the cap covers all of them."""
-    full = window_configs("E650")
-    assert config_gate(("ss04", "ss10"), full) is None
-    assert config_note(("ss04", "ss10"), full) == "only under: ss04, ss10"
-    assert config_gate(("ss03", "ss03+ss05", "ss10"), full) is None
-    assert config_note(("default", "ss03"), full) == "only when ss04 is off and ss05 is off"
+    full = WITHOUT_OWE
+    assert _gate(("ss04", "ss10"), full) is None
+    assert _note(("ss04", "ss10"), full) == "only under: ss04, ss10"
+    assert _gate(("ss03", "ss03+ss05", "ss10"), full) is None
+    assert _note(("default", "ss03"), full) == "only when ss04 is off and ss05 is off"
 
 
 def test_config_gate_clauses_carry_their_own_prose_and_the_note_is_their_join():
-    """The clause `text` fields are the only copy of the badge's wording: the app renders each as one chip, and `config_note` is their join. On-constraints come first, which puts the lit chip at the head of the badge."""
+    """The clause `text` fields are the only copy of the badge's wording: the app renders each as one chip, and the note is their join. On-constraints come first, which puts the lit chip at the head of the badge."""
     full = ACCEPTANCE_CONFIGS
-    gate = config_gate(("ss03",), full)
+    gate = _gate(("ss03",), full)
     assert gate is not None
     assert gate == [
         {"feature": "ss03", "state": "on", "text": "only when ss03 is on"},
         {"feature": "ss05", "state": "off", "text": "and ss05 is off"},
     ]
-    assert config_note(("ss03",), full) == " ".join(clause["text"] for clause in gate)
-    assert config_gate(("ss10",), full) == [{"feature": "ss10", "state": "on", "text": "only under ss10"}]
+    assert _note(("ss03",), full) == " ".join(clause["text"] for clause in gate)
+    assert _gate(("ss10",), full) == [{"feature": "ss10", "state": "on", "text": "only under ss10"}]
 
 
 def test_feature_descriptions_keys_match_the_readme_stylistic_set_list():
@@ -898,255 +773,6 @@ def test_write_shard_leaves_no_staging_file_behind_when_serializing_fails(tmp_pa
     assert list((tmp_path / "units").iterdir()) == []
 
 
-def test_the_shard_writer_keeps_the_previous_corpus_whole_until_commit(tmp_path):
-    """The m1 build reads cached units out of the previous corpus's shards by address while it writes the new ones, so a part replaces the old file only at `commit`, after every class has closed. Until then the old file stays on disk under its name, and `abort` deletes the staged parts without touching it. Appended to, a class keeps its parts: a kept fragment's span is its prior address, an appended one goes to the first overflow part, staged until `commit`, and a later append clones that part to its staging name, cuts its closing bytes and appends, so the part on disk is the previous corpus's until `commit`. A class whose writes deflate (#618's change 35) appends each fragment deflated alone (`unit_index.deflate_fragment`) within the same framing, so it continues an overflow part that holds plain fragments, and its span carries the fragment's inflated length, which a kept fragment's span carries from its prior address too."""
-    _write_shard(tmp_path, "a", [{"id": "u-0000"}])
-    units = tmp_path / "units"
-    before = (units / "a.json").read_bytes()
-    writer = _ShardWriter(tmp_path)
-    writer.open("a")
-    writer.add({"id": "u-0001"})
-    assert writer.close() == (["units/a.json"], len(before))
-    assert (units / "a.json").read_bytes() == before
-    assert (units / "a.000.json.partial").exists()
-    writer.abort()
-    assert sorted(entry.name for entry in units.iterdir()) == ["a.json"]
-    assert (units / "a.json").read_bytes() == before
-    writer = _ShardWriter(tmp_path)
-    writer.open("a")
-    writer.add({"id": "u-0001"})
-    writer.close()
-    writer.open("b")
-    writer.close()
-    assert (units / "a.json").read_bytes() == before
-    writer.commit()
-    assert json.loads((units / "a.json").read_text(encoding="utf-8")) == [{"id": "u-0001"}]
-    assert (units / "b.json").read_bytes() == b"[]\n"
-    assert sorted(entry.name for entry in units.iterdir()) == ["a.json", "b.json"]
-    appended = {"id": "u-0002"}
-    for round in range(2):
-        held = (units / "a.json").read_bytes()
-        overflow = (units / "a.x000.json").read_bytes() if round else None
-        writer = _ShardWriter(tmp_path)
-        writer.open("a", ["units/a.json", *(["units/a.x000.json"] if round else [])], append=True)
-        assert writer.keep(unit_cache.PriorFragment("units/a.json", 1, len(held) - 4, "u-0001", None)) == (
-            0,
-            1,
-            len(held) - 4,
-            0,
-        )
-        span = writer.add(appended)
-        names, total = writer.close()
-        assert names == ["units/a.json", "units/a.x000.json"]
-        assert span == (1, len(overflow) - 2 if overflow else 1, len(_fragment_bytes(appended)), 0)
-        assert (units / "a.json").read_bytes() == held
-        assert (units / "a.x000.json").exists() == bool(round)
-        if round:
-            assert (units / "a.x000.json").read_bytes() == overflow
-        writer.commit()
-        part = (units / "a.x000.json").read_bytes()
-        assert total == len(held) + len(part)
-        assert json.loads(part) == [appended] * (round + 1)
-        assert part[span[1] : span[1] + span[2]] == _fragment_bytes(appended)
-    writer = _ShardWriter(tmp_path)
-    writer.open("a", ["units/a.json", "units/a.x000.json"], append=True)
-    writer.add(appended)
-    writer.close()
-    writer.abort()
-    assert json.loads((units / "a.x000.json").read_bytes()) == [appended] * 2
-    assert not list(units.glob("*.partial"))
-    plain = (units / "a.x000.json").read_bytes()
-    body = _fragment_bytes(appended)
-    stored = unit_index.deflate_fragment(body)
-    writer = _ShardWriter(tmp_path)
-    writer.open("a", ["units/a.json", "units/a.x000.json"], append=True, deflate=True)
-    kept = unit_cache.PriorFragment("units/a.x000.json", 1, len(body), "u-0002", None, inflated=len(body))
-    assert writer.keep(kept) == (1, 1, len(body), len(body))
-    span = writer.add(appended)
-    assert span == (1, len(plain) - 2, len(stored), len(body))
-    assert (writer.appended, writer.appended_inflated, writer.deflated) == (len(stored) + 1, len(body) + 1, 1)
-    writer.close()
-    writer.commit()
-    part = (units / "a.x000.json").read_bytes()
-    assert part == plain[: -len(unit_index.PART_CLOSING)] + b"," + stored + unit_index.PART_CLOSING
-    assert unit_index.inflate_fragment(part[span[1] : span[1] + span[2]], span[3]) == body
-
-
-def test_the_arena_reads_every_fragment_back_by_address():
-    """A recomputed fragment is held deflated in the parent's arena between phase 1 and the write. The packer deflates the fragment's shard bytes alone against the preset dictionary, and the copy of its primed compressor gives the bytes a compressor made with the dictionary for that one fragment gives. Each address the arena returns names `ARENA_PART` and a span that inflates to the shard bytes, so the write parses the bytes a shard part would hold, and the arena reads fragments back by address in any order, since shard order interleaves the workers' batches. A read is checked against its address: under a stamp the fragment does not carry, over a span cut short or run on into the next fragment, or under another dictionary, it raises."""
-    dictionary = review_build.FRAGMENT_DICTIONARY.read_bytes()
-    packer = review_build._FragmentPacker(dictionary)
-    arena = review_build._FragmentArena(dictionary)
-    fragments = [{"id": f"u-{index:04d}", "content_key": None, "text": "x" * index} for index in range(5)]
-    packed: dict[str, bytes] = {}
-    addresses: dict[str, unit_cache.PriorFragment] = {}
-    for fragment in fragments:
-        shard_bytes = review_build._fragment_bytes(fragment)
-        packed[fragment["id"]], raw_length = packer.pack(fragment)
-        fresh = zlib.compressobj(1, zdict=dictionary)
-        assert packed[fragment["id"]] == fresh.compress(shard_bytes) + fresh.flush()
-        assert raw_length == len(shard_bytes)
-        assert zlib.decompressobj(zdict=dictionary).decompress(packed[fragment["id"]]) == shard_bytes
-        address = arena.add(packed[fragment["id"]], raw_length)
-        addresses[fragment["id"]] = unit_cache.PriorFragment(*address, fragment["id"], None)
-    assert {address.part for address in addresses.values()} == {review_build.ARENA_PART}
-    assert len(arena) == sum(map(len, packed.values()))
-    for fragment in reversed(fragments):
-        assert arena.read(addresses[fragment["id"]]) == fragment
-    first = addresses["u-0001"]
-    for refused in (
-        replace(first, content_key="stamped"),
-        replace(first, length=first.length - 1),
-        replace(first, length=first.length + 1),
-    ):
-        with pytest.raises(ValueError):
-            arena.read(refused)
-    other = review_build._FragmentArena(dictionary[::-1])
-    with pytest.raises(ValueError):
-        other.read(unit_cache.PriorFragment(*other.add(packed["u-0001"], 0), "u-0001", None))
-
-
-def _live_enriched_units() -> int:
-    gc.collect()
-    return sum(1 for candidate in gc.get_objects() if isinstance(candidate, EnrichedUnit))
-
-
-def test_the_serial_runner_packs_every_fragment_and_keeps_no_enrichment(mini_bundle, monkeypatch):
-    """No EnrichedUnit outlives the batch that produced it. After phase 1 the unit store holds an arena address for each recomputed unit, the runner holds nothing enriched, each address reads back from the runner's arena as that unit's drafted fragment, and closing the runner frees the arena. A write chunk's arena (`_FragmentArena.gather`) holds its own units' fragments and no others, at the addresses its gathered store is moved to. Fragments come in two shapes: a unit the build machine-approves or the ledger exempts is packed slim, without the explain, the drafts, or the highlight, and is never drafted; every human unit is whole and drafted. Phase 1 leaves every unit it is given holding the shared empty `NO_DELTAS`, and the per-config deltas it finds go to the store, which holds some for the mini workload."""
-    drafted: set[str] = set()
-    draft_pin = review_build.Drafter.draft_pin
-
-    def counting_draft_pin(self, enriched, *args, **kwargs):
-        drafted.add(enriched.unit.unit_id)
-        return draft_pin(self, enriched, *args, **kwargs)
-
-    handed: list[tuple[int, bool]] = []
-    phase1_unit = review_build._phase1_unit
-
-    def watching_phase1_unit(unit, *args, **kwargs):
-        result = phase1_unit(unit, *args, **kwargs)
-        handed.append((unit.ordinal, unit.ink_deltas is NO_DELTAS))
-        return result
-
-    monkeypatch.setattr(review_build.Drafter, "draft_pin", counting_draft_pin)
-    monkeypatch.setattr(review_build, "_phase1_unit", watching_phase1_unit)
-    workload = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS))
-    table = workload.table
-    store = UnitStore(table.n, strings=table.strings)
-    for ordinal in range(table.n):
-        store.set_input_key(ordinal, hashlib.sha256(f"k{ordinal}".encode()).hexdigest())
-    runner = review_build._RecomputeRunner(
-        range(table.n),
-        1,
-        MINI,
-        review_build.SITE_BEFORE_FONT,
-        MINI / "M1.otf",
-        review_build.SITE_JUNIOR_FONT,
-        REPO_ROOT,
-        spec_root=mini_bundle.spec_root,
-        table=table,
-        subset_pack=mini_bundle.subset_pack,
-        identical_classes=frozenset(entry.id for entry in workload.ledger if entry.ink_identical),
-        corpus_index=build_corpus_index(REPO_ROOT),
-        dictionary=review_build.FRAGMENT_DICTIONARY.read_bytes(),
-    )
-    try:
-        assert runner.phase1(store) is None
-        assert _live_enriched_units() == 0
-        assert all(store.loaded(ordinal) for ordinal in range(table.n))
-        assert sorted(ordinal for ordinal, _ in handed) == list(range(table.n))
-        assert all(shared for _, shared in handed)
-        assert not NO_DELTAS
-        assert any(store.ink_deltas(ordinal) for ordinal in range(table.n))
-        assert runner.arena.count == table.n
-        shapes = {True: 0, False: 0}
-        for unit in table.units(store):
-            assert store.unit_id(unit.ordinal) == unit.unit_id
-            assert (
-                store.input_key_hex(unit.ordinal)
-                == unit.input_key
-                == hashlib.sha256(f"k{unit.ordinal}".encode()).hexdigest()
-            )
-            source = store.source(unit.ordinal)
-            assert source is not None and source.part == review_build.ARENA_PART
-            fragment = runner.arena.read(source)
-            assert fragment["id"] == unit.unit_id == unit_cache.unit_id_for(fragment["content_key"])
-            assert fragment["content_key"] == unit_cache.carry_content_hash(fragment)
-            assert "batch" not in fragment and fragment["duplicate_group"] is None
-            slim = unit.slim_fragment
-            assert slim == (unit.machine_approved or unit.no_verdict)
-            assert [key in fragment for key in SLIM_OMITTED_KEYS] == [not slim] * len(
-                SLIM_OMITTED_KEYS
-            ), unit.unit_id
-            assert (unit.unit_id in drafted) == (not slim), unit.unit_id
-            shapes[slim] += 1
-        assert shapes[True] and shapes[False], "the mini workload must hold both fragment shapes"
-        members = range(1, table.n, 3)
-        sources = [store.source(ordinal) for ordinal in members]
-        chunk = store.gather(members)
-        gathered = runner.arena.gather(chunk)
-        assert gathered.dictionary is runner.arena.dictionary
-        assert len(gathered) == sum(source.length for source in sources if source is not None)
-        for position, source in enumerate(sources):
-            moved = chunk.source(position)
-            assert source is not None and moved is not None
-            assert (moved.part, moved.length) == (source.part, source.length)
-            assert gathered.read(moved) == runner.arena.read(source)
-    finally:
-        runner.close()
-    assert len(runner.arena) == 0
-
-
-def test_the_stamped_scaffold_keys_are_the_projections_share_of_the_scaffold(mini_bundle):
-    """`check_scaffold` checks a recomputed fragment's stamp by comparing the scaffold keys inside the carry projection instead of re-hashing the fragment. That is as strong as the hash only if it compares every scaffold key in the projection. This test checks that every key `unit_scaffold` writes is in `_SCAFFOLD_HEAD` or `_SCAFFOLD_TAIL`, that `_STAMPED_SCAFFOLD_KEYS` is that set minus `CARRY_PRESENTATION_KEYS`, and that changing a scaffold key changes `carry_content_hash` if and only if the key is stamped. A scaffold key added to either tuple fails here until the projection includes it."""
-    unit = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table.unit(0)
-    scaffold_keys = review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL
-    scaffold = review_build.unit_scaffold(unit)
-    assert tuple(scaffold) == scaffold_keys
-    assert review_build._STAMPED_SCAFFOLD_KEYS == (
-        "ink_identical",
-        "junior_equivalent",
-        "group",
-        "codepoints",
-        "configs",
-        "render_groups",
-        "kinds",
-    )
-    assert set(review_build._STAMPED_SCAFFOLD_KEYS) == set(scaffold_keys) - unit_cache.CARRY_PRESENTATION_KEYS
-    stamp = unit_cache.carry_content_hash(scaffold)
-    for key in scaffold_keys:
-        moved = unit_cache.carry_content_hash({**scaffold, key: "moved"}) != stamp
-        assert moved == (key in review_build._STAMPED_SCAFFOLD_KEYS), key
-
-
-@pytest.mark.parametrize("key", review_build._SCAFFOLD_HEAD + review_build._SCAFFOLD_TAIL)
-def test_check_scaffold_raises_exactly_when_the_parent_moves_a_checked_field(key):
-    """Over plain dicts: a fragment and a scaffold that agree pass. One that differs at a checked key (`_CHECKED_SCAFFOLD_KEYS`) raises a `SystemExit` naming the unit and the key and saying whether the key is inside the carry projection (the stamp describes other content) or outside it (the drafting-time check passed other bytes). One that differs only at `duplicate_group` or `cluster` passes, since the patch assigns those after drafting and the write-time check covers them."""
-    fragment = {
-        "id": "u-3mJ7kPq2Xw9",
-        **{name: f"value of {name}" for name in review_build._STAMPED_SCAFFOLD_KEYS},
-    }
-    fragment.update(
-        {name: f"value of {name}" for name in review_build._SCAFFOLD_HEAD if name not in fragment}
-    )
-    fragment.update(
-        {name: f"value of {name}" for name in review_build._SCAFFOLD_TAIL if name not in fragment}
-    )
-    review_build.check_scaffold(fragment, dict(fragment))
-    scaffold = {**fragment, key: "moved"}
-    if key not in review_build._CHECKED_SCAFFOLD_KEYS:
-        assert key in ("duplicate_group", "cluster")
-        review_build.check_scaffold(fragment, scaffold)
-        return
-    with pytest.raises(SystemExit) as caught:
-        review_build.check_scaffold(fragment, scaffold)
-    assert f"unit {fragment['id']}:" in str(caught.value)
-    assert f"other values of {key} than" in str(caught.value)
-    inside = key in review_build._STAMPED_SCAFFOLD_KEYS
-    assert ("the stamp names other content" in str(caught.value)) == inside
-    assert ("the drafting-time check answered for other bytes" in str(caught.value)) == (not inside)
-
-
 def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
     """Every part the manifest lists is kept, and both forms of an unlisted name are removed: the bare file a class left when it grew into parts, and a numbered part a shrinking class no longer fills."""
     units = tmp_path / "units"
@@ -1171,792 +797,6 @@ def test_prune_orphan_shards_removes_only_unreferenced_json(tmp_path):
 
 def test_prune_orphan_shards_no_units_dir_is_noop(tmp_path):
     assert _prune_orphan_shards(tmp_path, {"classes": []}) == []
-
-
-def test_a_pooled_corpus_build_files_its_per_worker_peaks(tmp_path, monkeypatch):
-    """The corpus build's fan-out width is its memory budget divided by `CORPUS_WORKER_BYTES`, and only a worker that ran can measure the peak that constant estimates: a step peak takes the maximum over the process tree rather than the sum, so it measures the parent and not the pool. A pooled build therefore writes the same kind:"pool" record an xdist controller writes, under its own unit name, and `make job-costs` reports it beside the constant. The controller's reading is the parent's own peak footprint (`peak_rss.peak_footprint_self_bytes`). `record_pool` reads `JOURNAL` at call time, which lets this test redirect it."""
-    journal = tmp_path / "cycle-timings.ndjson"
-    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: 3_100_000_000)
-    review_build._record_corpus_pool(2, {"w0": 1_000_000, "w1": 2_000_000})
-    lines = journal.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1
-    record = json.loads(lines[0])
-    assert (record["kind"], record["unit"], record["width"]) == ("pool", "corpus", 2)
-    assert list(record["worker_peak_rss_bytes"]) == ["w0", "w1"]
-    assert record["worker_peak_rss_bytes"]["w1"] == 2_000_000
-    assert record["controller_peak_rss_bytes"] == 3_100_000_000
-    assert record["worker_reading"] == "footprint"
-
-
-def test_a_write_pool_files_its_workers_and_its_parents_peak_footprints(tmp_path, monkeypatch):
-    """A write worker answers the stop with its peak footprint (`peak_rss.peak_footprint_self_bytes`), and the write pool's `corpus-write` record carries each worker's beside the parent's own as the controller's, the readings the corpus-write-worker row of `make job-costs` reads. The worker runs in a thread over a pipe, because the pool is spawn-only and a monkeypatch does not reach a spawned worker."""
-    journal = tmp_path / "cycle-timings.ndjson"
-    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    readings = iter([740_000_000, 2_300_000_000])
-    monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: next(readings))
-    parent, child = multiprocessing.Pipe()
-    worker = threading.Thread(target=review_build._write_worker, args=(child, None, ()), daemon=True)
-    worker.start()
-    pool = object.__new__(review_build._WritePool)
-    pool._conns = [parent]
-    pool._procs = [worker]
-    pool.close(failed=False)
-    assert not worker.is_alive()
-    record = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
-    assert (record["unit"], record["width"]) == ("corpus-write", 1)
-    assert record["worker_peak_rss_bytes"] == {"w0": 740_000_000}
-    assert record["controller_peak_rss_bytes"] == 2_300_000_000
-    assert record["worker_reading"] == "footprint"
-
-
-def test_a_serial_corpus_build_files_no_pool_record(tmp_path, monkeypatch):
-    """A build with no pool has no worker to measure, so nothing is written; a record of a zero-worker pool would be one `make job-costs` had to skip."""
-    journal = tmp_path / "cycle-timings.ndjson"
-    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    review_build._record_corpus_pool(0, {})
-    assert not journal.exists()
-
-
-def test_a_pooled_signature_pass_files_its_per_worker_peaks(tmp_path, monkeypatch):
-    """No constant budgets the signature pool's workers, because cores limit that width, but the pool writes the same kind:"pool" record as the corpus pool under its own unit name, so `make job-costs` can report what a comparator-only worker holds beside the corpus worker's figure. Peaks are keyed by the labels the workers reported."""
-    journal = tmp_path / "cycle-timings.ndjson"
-    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    review_build._record_signature_pool(2, {"SpawnPoolWorker-1": 60_000_000, "SpawnPoolWorker-2": 70_000_000})
-    lines = journal.read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1
-    record = json.loads(lines[0])
-    assert (record["kind"], record["unit"], record["width"]) == ("pool", "signature", 2)
-    assert list(record["worker_peak_rss_bytes"]) == ["SpawnPoolWorker-1", "SpawnPoolWorker-2"]
-    assert record["worker_peak_rss_bytes"]["SpawnPoolWorker-2"] == 70_000_000
-
-
-def test_a_serial_signature_pass_files_no_pool_record(tmp_path, monkeypatch):
-    """A pass with fewer misses than the pool threshold, or with a width of one, shapes in the parent with no workers to measure, so nothing is written."""
-    journal = tmp_path / "cycle-timings.ndjson"
-    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-    review_build._record_signature_pool(0, {})
-    assert not journal.exists()
-
-
-def test_a_pooled_build_counts_its_units_and_closes_every_phase_it_opens(
-    tmp_path, mini_bundle, capfd, monkeypatch, python_build
-):
-    """Checks what someone watching a multi-minute build learns from it, on the one workload small enough to test: which phase it is in, and how many units its pool has finished. It selects the Python units engine, whose workers' tally and units line it pins. Every `[phase]` line the terminal opens is closed by the `[t] review.build <phase>` line the timings journal reads, and the units line ends with the size of the arena the recomputed fragments are held in and the ratio of their shard bytes to it, which shows a stale dictionary, and with whether the ink-signature store was written. The load line names the signatures cached and shaped, what the key-only read did, the source and the prior store's hits (`_SIGNATURE_NOTE`). The counter is a running sum over the workers' batch replies, one line per batch as it arrives, and the mini workload spreads into several batches across the two workers (`_handout_width`). The count must reach the manifest's unit total, so a batch left unread or a worker the parent stopped reading from fails here.
-
-    Every timing line also carries the parent's peak RSS as the `rss_gb=` token `parse_inner_timings` reads, before the phase's note, so `make cycle-timings ARGS='--inner'` can show which phase reached the step's peak memory. With `AMS_CORPUS_MEMORY_TALLY=1` in the environment the workers inherit, each worker tallies its own collections on stdout at every batch boundary: the projections it is about to return, each with its deflated fragment and bounded by the hand-out width; the mapped subset pack; and the shape memo, with no enrichment among them. A spawned child's output bypasses the parent's `sys.stdout`, so this test captures at the file-descriptor level. At the parent's boundaries the returned projections are loaded into the unit store, which holds a row per unit from the plan boundary on and reports in place of the per-unit collections it replaces, the ink-signature store's columns are held through the plan and gone once the units phase has started the store's write, and no collection of enrichments exists.
-    """
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "python")
-    out = tmp_path / "corpus"
-    manifest = review_build.build_m1(
-        out,
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-        jobs=2,
-    )
-    captured = capfd.readouterr()
-    events = [console.parse_line(line) for line in captured.err.splitlines()]
-    phases = [
-        "review.build load",
-        "review.build plan",
-        "review.build units",
-        "review.build manifest+check",
-        "review.build review-facts",
-        "review.build cache",
-    ]
-    assert [event.name for event in events if isinstance(event, console.Phase)] == phases
-    timings = {event.label: event for event in events if isinstance(event, console.Timing)}
-    assert list(timings) == phases
-    total = manifest["totals"]["units"]
-    tokens, note = timings["review.build units"].tail.split("\t")
-    peak, *current = tokens.split(" ")
-    assert peak.startswith("rss_gb=") and float(peak.removeprefix("rss_gb=")) > 0
-    assert all(
-        item.startswith("rss_now_gb=") and float(item.removeprefix("rss_now_gb=")) > 0 for item in current
-    )
-    arena = re.fullmatch(
-        rf"jobs=2 \(recomputed={total:,}, verified=0 cached; arena \d+\.\d\d GB, deflated (\d+\.\d\d) to 1; "
-        r"ink-signature store (?:written, \d[\d,]* entries|left as it is, every prior entry hit and none missed)\)",
-        note,
-    )
-    assert arena and float(arena.group(1)) > 1, note
-    _tokens, note = timings["review.build load"].tail.split("\t")
-    assert re.fullmatch(_SIGNATURE_NOTE, note), note
-    inner = {entry["label"]: entry for entry in parse_inner_timings(captured.err)}
-    assert list(inner) == phases
-    assert inner["review.build units"]["jobs"] == 2
-    assert all(inner[phase]["rss_gb"] > 0 for phase in phases)
-    assert all(inner[phase].get("rss_now_gb", 1.0) > 0 for phase in phases)
-    counters = [event for event in events if isinstance(event, console.Progress)]
-    assert counters and all(event.total == total for event in counters)
-    width = review_build._handout_width(total, 2)
-    batches = -(-total // width)
-    assert batches > 2
-    assert len(counters) == batches
-    assert all(event.unit == review_build.PHASE1_UNITS for event in counters)
-    done = [event.done for event in counters if event.done is not None]
-    assert len(done) == batches and done == sorted(done) and done[-1] == total and 0 < done[0] <= width
-    tallies = _tally_lines(captured.out)
-    boundaries = sorted(name for name in tallies if "/" in name)
-    assert len(boundaries) == batches
-    assert {name.split("/")[0] for name in boundaries} == {"w0", "w1"}
-    assert all(re.fullmatch(r"w[01]/phase1-\d+", name) for name in boundaries)
-    for name in boundaries:
-        after_batch = tallies[name]
-        assert 0 < after_batch["worker.projections"] <= width
-        assert after_batch["worker.subset_pack"] > 0 and "ink.shape_memo" in after_batch
-    assert sum(tallies[name]["worker.projections"] for name in boundaries) == total
-    assert not _enrichment_collections(tallies)
-    parent_only = _tally_lines(captured.out, parent=True)
-    assert list(parent_only) == ["load", "plan", "units", "manifest+check", "review-facts", "cache"]
-    assert parent_only["load"]["signatures"] == parent_only["plan"]["signatures"] > 0
-    for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
-        assert ("signatures" in parent_only[boundary]) == (boundary == "plan")
-        assert parent_only[boundary]["unit_store"] == total
-    assert parent_only["units"]["runner.subset_pack"] == 0
-    assert not _subsumed_collections(parent_only)
-
-
-def test_the_units_pool_takes_the_gates_idle_width_only_while_the_marker_exists(tmp_path):
-    """The cycle passes a gated build its lane share as `jobs` and a wider width for when the gate lane is idle, with the marker file the driver writes at that moment. The build reads the marker when the units pool starts and names the gate lane's state for its `[t]` line; a hand build passes neither and keeps `jobs`."""
-    marker = tmp_path / "gates-idle"
-    assert review_build._units_pool_width(8, None, None) == (8, "")
-    assert review_build._units_pool_width(8, 17, marker) == (8, "gate lane busy")
-    marker.touch()
-    assert review_build._units_pool_width(8, 17, marker) == (17, "gate lane idle")
-
-
-def test_the_write_reads_the_gate_lanes_state_again_as_it_starts(
-    tmp_path, mini_bundle, monkeypatch, capfd, python_build
-):
-    """The write's pool fits in the memory a units pool started as the write starts would hold (`artifact_cycle.corpus_write_job_budget`), so the build reads the gates-idle marker again then. A marker the driver writes after the units pool started at the build lane's share sizes the write from the gate-idle width, a units phase after the units pool read it."""
-    from rebuild.tools import artifact_cycle
-
-    marker = tmp_path / "gates-idle"
-    asked: list[int] = []
-
-    def budget(units_jobs: int) -> int:
-        asked.append(units_jobs)
-        return 1
-
-    stop_workers = review_build._RecomputeRunner.stop_workers
-
-    def stop_then_idle(self) -> None:
-        stop_workers(self)
-        marker.touch()
-
-    monkeypatch.setattr(artifact_cycle, "corpus_write_job_budget", budget)
-    monkeypatch.setattr(review_build._RecomputeRunner, "stop_workers", stop_then_idle)
-    review_build.build_m1(
-        tmp_path / "corpus",
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-        jobs=1,
-        gates_idle_jobs=5,
-        gates_idle_marker=marker,
-    )
-    assert "jobs=1 (gate lane busy;" in capfd.readouterr().err
-    assert asked == [5]
-
-
-def test_the_pool_is_handed_the_recomputed_units_in_configuration_order(mini_bundle):
-    """The workers' queue is the recomputed units sorted by the configuration each unit settles under, so consecutive batches read one configuration's key range of the mapped subset pack. Over the mini workload, whose units lead with four of the six acceptance configurations (`default` and `ss10` for many units, `ss03` and `ss04` for one each), `_configuration_order` returns every unit once, with `audit._config_index` never decreasing, and keeps the incoming order within each configuration (a stable sort). The within-configuration check therefore has depth only for `default` and `ss10`. The order belongs to the parent's hand-out, not to any worker."""
-    table = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).table
-    ordered = review_build._configuration_order(range(table.n), table)
-    assert len(ordered) == table.n > 1
-    assert sorted(ordered) == list(range(table.n))
-    indices = [_config_index(table.configs(ordinal)[0]) for ordinal in ordered]
-    assert indices == [table.config_rank(ordinal) for ordinal in ordered] == sorted(indices)
-    assert len(indices) > len(set(indices)) > 1
-    for config in ACCEPTANCE_CONFIGS:
-        within = [ordinal for ordinal in ordered if table.configs(ordinal)[0] == config]
-        assert within == [ordinal for ordinal in range(table.n) if table.configs(ordinal)[0] == config]
-
-
-@pytest.mark.parametrize("shape", ["sorted", "an order break partway"])
-def test_the_key_only_misses_die_where_they_are_shaped(
-    shape, tmp_path, mini_bundle, monkeypatch, python_build
-):
-    """The key-only read's misses, each one's key, section and window (`_KeyOnly`), are read only by the shaping that turns them into the store's columns (`_shape_found_misses`), so they must be alive when the misses are shaped and collected before the stream reads its first window. The stream keeps no window-keyed table of digests: it looks each sibling row's key up in the columns as it reads the window. A key-only read that meets a break partway, here two rows of one section swapped, never has its misses shaped, and they are collected before the in-memory source loads, so they never sit beside that source's row columns and the misses it keys and shapes itself. The build runs cold with the tally on, so every sibling row misses and the test also fails if the tally's readings keep a reference to the misses."""
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    read = review_build._key_only_read
-    shape_misses = review_build._shape_misses
-    stream = review_build.stream_workload
-    load = review_build.load_workload
-    watched: list[weakref.ref] = []
-    alive: dict[str, bool] = {}
-
-    class Tracked(list):
-        pass
-
-    def tracking_read(*args, **kwargs):
-        found = read(*args, **kwargs)
-        found.windows = Tracked(found.windows)
-        watched.extend((weakref.ref(found.keys), weakref.ref(found.windows)))
-        return found
-
-    def watching_shape(*args, **kwargs):
-        alive["shaped"] = all(ref() is not None for ref in watched)
-        return shape_misses(*args, **kwargs)
-
-    def watching_stream(*args, **kwargs):
-        gc.collect()
-        alive["stream"] = any(ref() is not None for ref in watched)
-        return stream(*args, **kwargs)
-
-    def watching_load(*args, **kwargs):
-        gc.collect()
-        alive["in memory"] = any(ref() is not None for ref in watched)
-        return load(*args, **kwargs)
-
-    monkeypatch.setattr(review_build, "_key_only_read", tracking_read)
-    monkeypatch.setattr(review_build, "_shape_misses", watching_shape)
-    monkeypatch.setattr(review_build, "stream_workload", watching_stream)
-    monkeypatch.setattr(review_build, "load_workload", watching_load)
-    audit_path = MINI / "audit.tsv"
-    if shape != "sorted":
-        header, *rows = audit_path.read_text(encoding="utf-8").splitlines()
-        rows[100], rows[101] = rows[101], rows[100]
-        audit_path = tmp_path / "audit.tsv"
-        audit_path.write_text("\n".join([header, *rows]) + "\n", encoding="utf-8")
-    review_build.build_m1(
-        tmp_path / "corpus",
-        audit_path=audit_path,
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-        recompute_all_units=True,
-    )
-    assert watched and alive == (
-        {"shaped": True, "stream": False} if shape == "sorted" else {"in memory": False, "shaped": False}
-    )
-
-
-@pytest.mark.parametrize("jobs", [1, 2])
-def test_the_signature_store_columns_die_where_the_store_is_written(
-    tmp_path, mini_bundle, monkeypatch, jobs, python_build
-):
-    """The ink-signature store's columns (`unit_cache.SignatureArrays`), its prior keys and digests, hit bits and shaped misses, are held through the plan phase and released by the store write that opens the units phase. A serial build writes inline and has released them before `_RecomputeRunner.phase1` drafts a unit; a pooled build's `_SignatureWrite` thread has released them by the time its `join` returns. The test watches a weakref to the misses' key column, not a `_SignatureWrite` attribute, so it fails if `build_m1` keeps its own reference on either path or if the tally holds them; the tally is on for that reason, as in the test above."""
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    shape = review_build._shape_found_misses
-    index = UnitStore.input_key_index
-    phase1 = review_build._RecomputeRunner.phase1
-    join = review_build._SignatureWrite.join
-    watched: list[weakref.ref] = []
-    alive: dict[str, bool] = {}
-
-    def tracking_shape(key_only, sections, signatures, *args, **kwargs):
-        found = shape(key_only, sections, signatures, *args, **kwargs)
-        watched.append(weakref.ref(signatures.miss_keys))
-        return found
-
-    def watching_index(self):
-        gc.collect()
-        alive["plan"] = watched[0]() is not None
-        return index(self)
-
-    def watching_phase1(self, *args):
-        gc.collect()
-        alive["units"] = watched[0]() is not None
-        return phase1(self, *args)
-
-    def watching_join(self):
-        join(self)
-        gc.collect()
-        alive["cache"] = watched[0]() is not None
-
-    monkeypatch.setattr(review_build, "_shape_found_misses", tracking_shape)
-    monkeypatch.setattr(UnitStore, "input_key_index", watching_index)
-    if jobs == 1:
-        monkeypatch.setattr(review_build._RecomputeRunner, "phase1", watching_phase1)
-    monkeypatch.setattr(review_build._SignatureWrite, "join", watching_join)
-    review_build.build_m1(
-        tmp_path / "corpus",
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-        jobs=jobs,
-        recompute_all_units=True,
-    )
-    assert alive == ({"plan": True, "units": False} if jobs == 1 else {"plan": True, "cache": False})
-
-
-_SIGNATURE_NOTE = (
-    r"\(signatures: \d[\d,]* cached, \d[\d,]* shaped(?: serially| across \d+ workers)?\) "
-    r"\(key-only read (?:ran \d+\.\d\d s across \d+ processes, the largest \d+\.\d{3} GB resident|skipped, the store's stamps held); read as a stream; "
-    r"audit \d+ parts, \d+ compressed, \d[\d,]* segment rows; prior store \d[\d,]* hit, \d[\d,]* unhit, \d[\d,]* missed\)"
-)
-_TALLY_COLLECTION = re.compile(
-    r"^\[tally\] (\S+) (\S+) count=(\d+) est_bytes=(\d+) est_gb=\d+\.\d\d"
-    r"( packed_bytes=(\d+) packed_per=\d+\.\d walked_per=\d+\.\d ratio=(?:\d+\.\d\d|-) strings=\d+ string_bytes=\d+)?$"
-)
-_TALLY_LARGEST = re.compile(r"^\[tally\] (\S+) largest=(\S+)$")
-
-
-def _enrichment_collections(tallies: dict[str, dict[str, int]]) -> list[str]:
-    """Return every collection in `tallies` whose name marks it as holding enrichments. There should be none, because no process keeps an EnrichedUnit past the batch that drafted its fragment."""
-    return sorted(
-        f"{boundary}/{collection}"
-        for boundary, collections in tallies.items()
-        for collection in collections
-        if "retained" in collection or "emitted" in collection or "enriched" in collection
-    )
-
-
-# The per-unit collection names the packed unit store replaces. The store is the only place those records are kept, so none of these may print at any boundary.
-_SUBSUMED_COLLECTIONS = frozenset(
-    {
-        "states",
-        "runner.spooled",
-        "worker.spooled",
-        "unit_cache.cached",
-        "unit_cache.located",
-        "unit_cache.named",
-        "written.config_notes",
-        "written.content_keys",
-        "written.addresses",
-        "written.policy_files",
-    }
-)
-
-
-def _subsumed_collections(tallies: dict[str, dict[str, int]]) -> list[str]:
-    """Return every collection in `tallies` that the unit store replaces; a tally must print none of them."""
-    return sorted(
-        f"{boundary}/{collection}"
-        for boundary, collections in tallies.items()
-        for collection in collections
-        if collection in _SUBSUMED_COLLECTIONS
-    )
-
-
-def _store_lines_are_exact(
-    text: str, collection: str = "unit_store", *, holds_table: bool = False
-) -> dict[str, bool]:
-    """Return, per boundary, whether the named collection's tally line is exact: its walked figure (`est_bytes`) equals its `packed_bytes`, plus `string_bytes` on the one line that holds the shared string table (`holds_table`, the workload table's). This applies to the collections that report their own columns: the workload table (`workload.units`), the unit store, the audit's row columns (`workload.rows`), and the pre-merge snapshot (`facts.premerge`). All four index one string table, which `memory_tally` prints beside each line rather than inside `packed_bytes`. The test compares these figures rather than the printed ratio, which on the table-holding line is `1.00` or `1.01` on the corpus but up to `1.09` on the mini bundle."""
-    exact: dict[str, bool] = {}
-    for line in text.splitlines():
-        match = re.match(
-            rf"^\[tally\] (\S+) {re.escape(collection)} .* est_bytes=(\d+) .* packed_bytes=(\d+) .* string_bytes=(\d+)$",
-            line,
-        )
-        if match:
-            boundary, est_bytes, packed_bytes, string_bytes = match.groups()
-            exact[boundary] = int(est_bytes) == int(packed_bytes) + (int(string_bytes) if holds_table else 0)
-    return exact
-
-
-def _tally_lines(text: str, parent: bool = False) -> dict[str, dict[str, int]]:
-    """Parse every `[tally]` boundary in `text` into {boundary: {collection: count}}, in first-seen order, checking that each boundary's `largest=` line names the first collection its count lines list and that those lines are sorted largest first, which covers the whole format rebuild/tools/memory_tally.py documents. With `parent`, keep only the parent's boundaries, whose names have no worker prefix."""
-    boundaries: dict[str, dict[str, int]] = {}
-    sizes: dict[str, list[int]] = {}
-    for line in text.splitlines():
-        collection = _TALLY_COLLECTION.match(line)
-        if collection:
-            boundaries.setdefault(collection.group(1), {})[collection.group(2)] = int(collection.group(3))
-            sizes.setdefault(collection.group(1), []).append(int(collection.group(4)))
-            continue
-        largest = _TALLY_LARGEST.match(line)
-        if largest:
-            collections = boundaries.setdefault(largest.group(1), {})
-            expected = next(iter(collections)) if collections else "-"
-            assert largest.group(2) == expected, line
-            assert sizes.get(largest.group(1), []) == sorted(sizes.get(largest.group(1), []), reverse=True)
-        else:
-            assert not line.startswith("[tally]"), line
-    if parent:
-        return {name: collections for name, collections in boundaries.items() if "/" not in name}
-    return boundaries
-
-
-def _packed_collections(text: str) -> dict[str, dict[str, int]]:
-    """Map every boundary in `text` to {collection: packed_bytes} over the collections whose line carries the packed tokens, which are the exact column readings (`memory_tally.column_sizes`), so a test can tell which collections report columns, which print the walked line, and what their columns hold. A column reading prints the tokens at every count, zero included."""
-    packed: dict[str, dict[str, int]] = {}
-    for line in text.splitlines():
-        collection = _TALLY_COLLECTION.match(line)
-        if collection:
-            boundary = packed.setdefault(collection.group(1), {})
-            if collection.group(5):
-                boundary[collection.group(2)] = int(collection.group(6))
-    return packed
-
-
-def test_a_serial_build_tallies_its_collections_at_every_phase_boundary_and_writes_the_same_bytes(
-    tmp_path, mini_bundle, capsys, monkeypatch, python_build
-):
-    """The tally only reports and changes no output. With `AMS_CORPUS_MEMORY_TALLY=1` a serial build prints one boundary per phase on stdout, listing the collections the parent holds and their counts. The workload table has a row per unit at every boundary, its line is exact in the same way as the store's (packed columns and pools plus the string table), and it shrinks at the units boundary when the name tuples leave it. The stream reads the mini audit one window at a time, so the audit's row columns are empty at every boundary, and the ink-signature store's columns stay from the load through the plan, until the store write that opens the units phase. The pre-merge snapshot has a row per pre-merge unit. The packed unit store has a row per unit from the plan boundary on, is exact, and prints in place of every per-unit collection it replaces. The checker's identity collection has an entry for every unit in a secondary-junction relation, a unit that names a primary unit or the primary unit it names, and for no other unit. The runner's arena holds a deflated fragment for every unit, all recomputed here, through the write, and none once the runner frees it. The cache boundary has no collection of store records, because the store is written record by record, and no boundary has a collection of enrichments. The shards and manifest are byte-identical to those the same build writes with the variable unset."""
-
-    def build(out: Path) -> dict:
-        return review_build.build_m1(
-            out,
-            audit_path=MINI / "audit.tsv",
-            ledger_path=mini_bundle.ledger,
-            subset_dir=MINI,
-            after_font=MINI / "M1.otf",
-            spec_root=mini_bundle.spec_root,
-            subset_pack=mini_bundle.subset_pack,
-            recompute_all_units=True,
-        )
-
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
-    silent = tmp_path / "silent"
-    build(silent)
-    assert "[tally]" not in capsys.readouterr().out
-
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    tallied = tmp_path / "tallied"
-    manifest = build(tallied)
-    captured = capsys.readouterr()
-    tallies = _tally_lines(captured.out)
-    assert list(tallies) == ["load", "plan", "units", "manifest+check", "review-facts", "cache"]
-    total = manifest["totals"]["units"]
-    for boundary in tallies:
-        assert tallies[boundary]["workload.units"] == total
-        assert tallies[boundary]["facts.premerge"] >= total
-    assert tallies["load"]["workload.rows"] == tallies["plan"]["workload.rows"] == 0
-    assert "ink.shape_memo" in tallies["load"] and "signatures" in tallies["load"]
-    assert tallies["load"]["signatures"] == tallies["plan"]["signatures"] > 0
-    for boundary in ("units", "manifest+check", "review-facts", "cache"):
-        assert "signatures" not in tallies[boundary]
-    assert re.search(_SIGNATURE_NOTE, captured.err)
-    assert tallies["plan"]["unit_cache.addressless"] == 0
-    for boundary in ("plan", "units", "manifest+check", "review-facts", "cache"):
-        assert tallies[boundary]["unit_store"] == total
-    assert tallies["units"]["runner.subset_pack"] > 0
-    assert tallies["units"]["runner.arena"] == tallies["manifest+check"]["runner.arena"] == total
-    assert tallies["review-facts"]["runner.arena"] == tallies["cache"]["runner.arena"] == 0
-    junctions = [
-        (fragment["id"], junction["primary_unit"])
-        for fragment in unit_index.iter_shard_fragments(tallied)
-        for junction in fragment.get("secondary_junctions") or ()
-        if junction.get("primary_unit") is not None
-    ]
-    related = {unit_id for pair in junctions for unit_id in pair}
-    assert tallies["manifest+check"]["checker.identity"] == len(related) < total
-    assert "unit_cache.records" not in tallies["cache"]
-    for name in tallies:
-        assert "/" not in name
-    assert not _enrichment_collections(tallies)
-    assert not _subsumed_collections(tallies)
-    assert "[tally]" not in captured.err
-    packed = _packed_collections(captured.out)
-    assert packed["load"].keys() >= {"workload.units", "workload.rows"}
-    assert packed["plan"].keys() >= {"unit_store"}
-    assert packed["units"].keys() >= {"workload.units", "unit_store"}
-    assert packed["cache"].keys() >= {"unit_store"}
-    assert min(packed["units"][collection] for collection in ("workload.units", "unit_store")) > 0
-    assert _store_lines_are_exact(captured.out) == {
-        boundary: True for boundary in ("plan", "units", "manifest+check", "review-facts", "cache")
-    }
-    assert _store_lines_are_exact(captured.out, "workload.rows")["load"]
-    assert packed["load"]["workload.rows"] == 0
-    boundaries = ("load", "plan", "units", "manifest+check", "review-facts", "cache")
-    assert _store_lines_are_exact(captured.out, "workload.units", holds_table=True) == {
-        boundary: True for boundary in boundaries
-    }
-    assert _store_lines_are_exact(captured.out, "facts.premerge") == {
-        boundary: True for boundary in boundaries
-    }
-    assert (
-        packed["load"]["workload.units"]
-        == packed["plan"]["workload.units"]
-        > packed["units"]["workload.units"]
-    )
-    assert packed["units"]["workload.units"] == packed["cache"]["workload.units"] > 0
-    for boundary, collections in packed.items():
-        assert not collections.keys() & {
-            "verified",
-            "signatures",
-            "ink.shape_memo",
-            "runner.subset_pack",
-        }, boundary
-
-    for relative in sorted(path.relative_to(tallied) for path in tallied.rglob("*.json")):
-        assert (silent / relative).read_bytes() == (tallied / relative).read_bytes(), relative
-
-
-def _cached_build(out: Path, mini_bundle) -> dict:
-    return review_build.build_m1(
-        out,
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-    )
-
-
-def _strip_addresses(corpus: Path) -> None:
-    """Rewrite the store as if written before addresses were recorded: drop every record's `address` and keep its stamps."""
-    _rewrite_store(corpus, lambda record: {key: value for key, value in record.items() if key != "address"})
-
-
-def test_a_cached_rebuild_holds_no_collection_of_the_records_the_cache_handed_it(
-    tmp_path, python_mini_corpus, mini_bundle, capsys, monkeypatch, python_build
-):
-    """A rebuild over a copy of the mini corpus reuses every unit from the store, and the plan boundary holds none of the cached records, because each is loaded into the unit store as the scan yields it. `unit_cache.named` never prints, and `unit_cache.addressless` (the records the walk places) is empty, since every record in a store this code wrote has an address. The unit store, filled row by row, reports exactly over the whole workload."""
-    corpus = tmp_path / "corpus"
-    shutil.copytree(python_mini_corpus, corpus)
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    manifest = _cached_build(corpus, mini_bundle)
-    captured = capsys.readouterr()
-    total = manifest["totals"]["units"]
-    assert re.search(rf"reused {total:,} of {total:,} units from the cache", captured.err)
-    tallies = _tally_lines(captured.out)
-    assert tallies["plan"]["unit_cache.addressless"] == 0
-    assert tallies["plan"]["unit_store"] == total
-    assert not _subsumed_collections(tallies)
-    packed = _packed_collections(captured.out)
-    assert packed["plan"]["unit_store"] > 0
-    assert _store_lines_are_exact(captured.out)["plan"]
-
-
-def test_a_cached_rebuild_estimates_the_records_the_walk_has_to_place(
-    tmp_path, python_mini_corpus, mini_bundle, capsys, monkeypatch, python_build
-):
-    """The records a cached plan keeps for the walk, as columns of their places, ordinals, classes and id words, are measured whenever there are any, by their columns' own sizes. In a store written before addresses were recorded, every record waits for the walk, so the `locate` boundary, read as the walk returns, counts one record per unit under `unit_cache.addressless` and the walk's result for each under `unit_cache.addressless_located`, which is freed before the plan boundary, and the plan boundary counts the records' columns alone, released once it is read. Every unit is still reused, each from the second scan of the store."""
-    corpus = tmp_path / "corpus"
-    shutil.copytree(python_mini_corpus, corpus)
-    _strip_addresses(corpus)
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    manifest = _cached_build(corpus, mini_bundle)
-    captured = capsys.readouterr()
-    total = manifest["totals"]["units"]
-    assert re.search(rf"reused {total:,} of {total:,} units from the cache", captured.err)
-    tallies = _tally_lines(captured.out)
-    assert list(tallies)[:3] == ["load", "locate", "plan"]
-    assert tallies["locate"]["unit_cache.addressless"] == total
-    assert tallies["locate"]["unit_cache.addressless_located"] == total
-    assert tallies["plan"]["unit_cache.addressless"] == total
-    assert "unit_cache.addressless_located" not in tallies["plan"]
-    assert "unit_cache.addressless" not in tallies["units"]
-    sizes = {
-        (match.group(1), match.group(2)): int(match.group(4))
-        for match in map(_TALLY_COLLECTION.match, captured.out.splitlines())
-        if match
-    }
-    assert sizes[("plan", "unit_cache.addressless")] == 20 * total
-    assert sizes[("locate", "unit_cache.addressless_located")] == 64 * total
-    assert tallies["plan"]["unit_store"] == total
-    assert not _subsumed_collections(tallies)
-
-
-def test_close_finds_the_peak_behind_an_unconsumed_phase_reply(tmp_path, monkeypatch):
-    """`close()` runs in a `finally`, so it must work when the build is already failing. A phase that raises inside its receive loop leaves every connection after the failing one holding that phase's replies: a `batch` with its payload, and the `ok` after it. The shutdown reply therefore carries its own `peak` tag, and `close()` reads past whatever is queued before it. Reading a phase's payload as a peak would raise out of the `finally`, hide the worker traceback, and skip the join loop in `close()`, leaving spawned workers running."""
-    journal = tmp_path / "cycle-timings.ndjson"
-    monkeypatch.setattr("rebuild.tools.cycle_timings.JOURNAL", journal)
-
-    class _StubProc:
-        def __init__(self) -> None:
-            self.joined = False
-
-        def join(self, timeout=None) -> None:
-            self.joined = True
-
-        def is_alive(self) -> bool:
-            return False
-
-    runner = review_build._RecomputeRunner(
-        [],
-        1,
-        tmp_path,
-        tmp_path / "before.otf",
-        tmp_path / "after.otf",
-        tmp_path / "junior.otf",
-        tmp_path,
-        table=UnitTable(0, StringTable(), TuplePool()),
-        subset_pack=tmp_path / "subsets.pack",
-        identical_classes=frozenset(),
-        corpus_index={},
-        dictionary=b"",
-    )
-    parent, child = multiprocessing.Pipe()
-    child.send(("batch", ["projection-a", "projection-b"], {}))
-    child.send(("ok",))
-    child.send(("peak", 1_500_000))
-    proc = _StubProc()
-    runner._conns = [parent]
-    runner._procs = [proc]
-    try:
-        runner.close()
-    finally:
-        child.close()
-    assert proc.joined
-    record = json.loads(journal.read_text(encoding="utf-8").splitlines()[0])
-    assert record["worker_peak_rss_bytes"] == {"w0": 1_500_000}
-
-
-def _spy_on_releases(monkeypatch) -> list[int]:
-    """Wrap `release_shape_memos` to record the memo's entry count just before each call and then release, so a test can see that the batch boundary is reached with a loaded memo and leaves it empty."""
-    seen: list[int] = []
-    release = review_build.release_shape_memos
-
-    def spy() -> None:
-        seen.append(shape_memo_sizes().entries)
-        release()
-
-    monkeypatch.setattr(review_build, "release_shape_memos", spy)
-    return seen
-
-
-def test_an_in_process_build_releases_the_shape_memo_behind_each_batch(
-    mini_bundle, tmp_path, monkeypatch, python_build
-):
-    """The serial build's shape memo is bounded by a unit batch, not by the build. The shared shapers reach each boundary loaded, since the signature pass and phase 1 both shape through them, and every boundary empties them, so a finished build holds no shapes. The mini bundle fits in one batch, so this checks that the bound exists, not its size; `EXPLAIN_UNIT_BATCH_SIZE` sets the size."""
-    seen = _spy_on_releases(monkeypatch)
-    review_build.build_m1(
-        tmp_path / "corpus",
-        audit_path=MINI / "audit.tsv",
-        ledger_path=mini_bundle.ledger,
-        subset_dir=MINI,
-        after_font=MINI / "M1.otf",
-        spec_root=mini_bundle.spec_root,
-        subset_pack=mini_bundle.subset_pack,
-        jobs=1,
-    )
-    assert seen and max(seen) > 0
-    assert shape_memo_sizes().entries == 0
-
-
-def _drive_worker_in_thread(mini_bundle, chunks: list[list]) -> list[tuple]:
-    """Run `_corpus_worker` in a thread over a pipe, send `chunks` one `phase1` message at a time as the parent sends batches, then the end marker and the stop, and return every reply in order: one `batch` per chunk, the `ok`, and the `peak`. Running in a thread lets a test see the worker's process state: a spy on the build module's `release_shape_memos` is the one the worker's `_phase1_batches` calls, and the objects alive after the stop are the worker's."""
-    init = {
-        "before_font": review_build.SITE_BEFORE_FONT,
-        "after_font": MINI / "M1.otf",
-        "junior_font": review_build.SITE_JUNIOR_FONT,
-        "subset_dir": MINI,
-        "subset_pack": mini_bundle.subset_pack,
-        "repo_root": REPO_ROOT,
-        "spec_root": mini_bundle.spec_root,
-        "identical_classes": frozenset(
-            entry.id for entry in load_ledger(mini_bundle.ledger) if entry.ink_identical
-        ),
-        "fold": review_build._config_fold(review_build.SITE_BEFORE_FONT, MINI / "M1.otf"),
-        "corpus_index": build_corpus_index(REPO_ROOT),
-        "dictionary": review_build.FRAGMENT_DICTIONARY.read_bytes(),
-    }
-    parent, child = multiprocessing.Pipe()
-    worker = threading.Thread(target=review_build._corpus_worker, args=(child, init), daemon=True)
-    worker.start()
-    replies: list[tuple] = []
-    try:
-        for chunk in chunks:
-            parent.send(("phase1", chunk, "w0"))
-            replies.append(parent.recv())
-            assert replies[-1][0] != "error", replies[-1][1]
-        parent.send(("phase1-done",))
-        replies.append(parent.recv())
-        parent.send(("stop",))
-        replies.append(parent.recv())
-    finally:
-        parent.close()
-        worker.join(timeout=60)
-    assert not worker.is_alive()
-    return replies
-
-
-def _refuting_every_pin(monkeypatch) -> None:
-    """Corrupt what drafting produces: every human fragment leaves `unit_to_json` with a pin the after font refuted, which the `DRAFTED` subset of `check_unit` rejects and which nothing the write patches touches. The drafts are outside the carry projection, so the fragment's stamp still matches the fragment as written."""
-    unit_to_json = review_build.unit_to_json
-
-    def refuted(*args, **kwargs):
-        fragment = unit_to_json(*args, **kwargs)
-        if fragment.get("drafts"):
-            fragment["drafts"]["pin"]["syntax"] = "fail: refuted for the test"
-        return fragment
-
-    monkeypatch.setattr(review_build, "unit_to_json", refuted)
-
-
-def test_a_pool_worker_answers_with_the_errors_of_the_fragments_it_drafted(mini_bundle, monkeypatch):
-    """The worker runs the drafting-time contract check over every fragment it drafts and returns the errors on the `batch` reply, beside the projections and their deflated fragments, so a drafting-side violation reaches the parent as data in the `contract check failed` list, not as a traceback. Over the bundle as shipped the errors are empty. With every human fragment's pin refuted they name `drafts.pin.syntax` once per human unit in the batch, up to `CONTRACT_ERRORS_SHOWN`. The worker runs in a thread because the pool is spawn-only and a monkeypatch does not reach a spawned worker. Projections are matched to units by `input_key`, which the cache plan assigns and `load_workload` leaves empty, so the test gives each unit one first."""
-    chunks = _two_chunks(mini_bundle)
-    for index, unit in enumerate(unit for chunk in chunks for unit in chunk):
-        unit.input_key = f"k{index}"
-    clean = _drive_worker_in_thread(mini_bundle, chunks)
-    assert [reply[0] for reply in clean] == ["batch", "batch", "ok", "peak"]
-    assert all(reply[2] == [] for reply in clean[:2])
-    no_verdict = {unit.input_key: unit.no_verdict for chunk in chunks for unit in chunk}
-    humans = [
-        sum(
-            1
-            for projection in reply[1]
-            if not (
-                projection.ink_identical
-                or projection.picture_identical
-                or projection.junior_equivalent
-                or no_verdict[projection.input_key]
-            )
-        )
-        for reply in clean[:2]
-    ]
-    assert sum(humans) > 0
-    _refuting_every_pin(monkeypatch)
-    refuted = _drive_worker_in_thread(mini_bundle, chunks)
-    for human, reply in zip(humans, refuted[:2], strict=True):
-        assert len(reply[2]) == min(human, review_build.CONTRACT_ERRORS_SHOWN)
-        assert all("drafts.pin.syntax is 'fail: refuted for the test'" in line for line in reply[2])
-        assert all(projection.packed for projection in reply[1])
-
-
-def _two_chunks(mini_bundle) -> list[list]:
-    units = load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units()
-    split = len(units) // 3
-    assert 0 < split < len(units) - split
-    return [units[:split], units[split:]]
-
-
-def test_a_pool_worker_releases_the_shape_memo_behind_each_batch(mini_bundle, monkeypatch):
-    """The pooled build's worker releases the memo at the same boundary as the serial build, once per batch. Each batch loads the memo before its boundary. Each `batch` reply carries only that batch's projections (the second reply's length is the second chunk's, not the running total), and every projection carries a content id and its fragment, deflated against the dictionary the worker's `init` carries, with the length of its shard bytes. The `ok` that answers the end marker has no payload, the stop is answered with the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), and after the stop the memo is empty and no EnrichedUnit is alive, because every fragment was deflated onto its projection as it was drafted."""
-    seen = _spy_on_releases(monkeypatch)
-    monkeypatch.setattr("rebuild.tools.peak_rss.peak_footprint_bytes", lambda: 330_000_000)
-    chunks = _two_chunks(mini_bundle)
-    replies = _drive_worker_in_thread(mini_bundle, chunks)
-    assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
-    assert replies[3] == ("peak", 330_000_000)
-    dictionary = review_build.FRAGMENT_DICTIONARY.read_bytes()
-    for chunk, reply in zip(chunks, replies[:2], strict=True):
-        assert len(reply[1]) == len(chunk)
-        # The units crossed the pipe as copies, so the ids the worker assigned are on its projections, not on the units held here.
-        assert all(unit_cache.is_content_id(projection.unit_id) for projection in reply[1])
-        for projection in reply[1]:
-            shard_bytes = zlib.decompressobj(zdict=dictionary).decompress(projection.packed)
-            assert len(shard_bytes) == projection.raw_length
-            assert json.loads(shard_bytes)["id"] == projection.unit_id
-    assert replies[2] == ("ok",)
-    assert _live_enriched_units() == 0
-    assert len(seen) == len(chunks) and all(entries > 0 for entries in seen)
-    assert shape_memo_sizes().entries == 0
-
-
-def test_a_pool_worker_holds_one_batch_of_projections_and_fragments(mini_bundle, monkeypatch, capfd):
-    """Checks, on the fixture, the memory-tally reading behind `CORPUS_WORKER_BYTES`: with `AMS_CORPUS_MEMORY_TALLY=1` the worker tallies a `w0/phase1-<n>` boundary per batch, and at each one `worker.projections` counts only the batch it was given, because projections are released after the reply. The mapped subset pack and the shape memo appear beside it, and no enrichment appears."""
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    chunks = _two_chunks(mini_bundle)
-    replies = _drive_worker_in_thread(mini_bundle, chunks)
-    assert [reply[0] for reply in replies] == ["batch", "batch", "ok", "peak"]
-    tallies = _tally_lines(capfd.readouterr().out)
-    assert list(tallies) == ["w0/phase1-1", "w0/phase1-2"]
-    for chunk, name in zip(chunks, tallies, strict=True):
-        assert tallies[name]["worker.projections"] == len(chunk)
-        assert tallies[name]["worker.subset_pack"] > 0 and "ink.shape_memo" in tallies[name]
-    assert not _enrichment_collections(tallies)
-    assert not _subsumed_collections(tallies)
 
 
 @pytest.mark.parametrize(

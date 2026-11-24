@@ -1,22 +1,14 @@
-//! The review facts, as `facts.py` reduces the build to them once the manifest is on disk: the pre-merge units' ink flags and change groups projected from their survivors ([`derive_premerge`]), the refusal of an ink-identical pre-merge unit that carries a change group, which `build._build_m1` raises ([`grouped_on_identical`]), the sidecar's payload ([`build_facts`]) and `review-facts.json` written as compact ASCII JSON, kept when it already holds those bytes ([`write_facts`]). [`review_facts`] runs them in the build's order.
-//!
-//! [`stage_facts`] is the `facts` stage of the stage fixtures.
+//! The review facts the build is reduced to once the manifest is on disk: the pre-merge units' ink flags and change groups projected from their survivors ([`derive_premerge`]), the refusal of an ink-identical pre-merge unit that carries a change group, which fails the build ([`grouped_on_identical`]), the sidecar's payload ([`build_facts`]) and `review-facts.json` written as compact ASCII JSON, kept when it already holds those bytes ([`write_facts`]). [`review_facts`] runs them in the build's order.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs;
-use std::io::{self, Write};
 use std::path::Path;
 
-use super::audit::stage_line;
 use super::input::BuildInput;
-use super::manifest::{ManifestNames, held_manifest, write_manifest};
 use super::premerge::PremergeSnapshot;
 use super::records::truthy;
-use super::scan::stage_lines;
 use super::sink::Sink;
 use super::store::UnitStore;
 use super::table::UnitTable;
-use super::write::through_write;
 use super::{BuildError, failed};
 use crate::change_groups::{reroutes, set_gate_group, unexplained_configs};
 use crate::pyfmt::{PyValue, json, repr};
@@ -82,65 +74,18 @@ impl FactsNames {
     }
 }
 
-/// What [`derive_premerge`] gives (`facts.PremergeFacts`): one `0` or `1` ink flag a pre-merge unit in capture order, and the change group of every unit that takes one with its index in that order.
+/// What [`derive_premerge`] gives: one `0` or `1` ink flag a pre-merge unit in capture order, and the change group of every unit that takes one with its index in that order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PremergeFacts {
     pub ink_flags: String,
     pub unmatched_groups: Vec<(usize, String)>,
 }
 
-impl PremergeFacts {
-    /// The facts as the `facts` stage records them: the flags and a list of `(index, group)` pairs.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Tuple(vec![
-            PyValue::str(&self.ink_flags),
-            PyValue::List(
-                self.unmatched_groups
-                    .iter()
-                    .map(|(index, group)| {
-                        PyValue::Tuple(vec![PyValue::Int(*index as i64), PyValue::str(group)])
-                    })
-                    .collect(),
-            ),
-        ])
-    }
-
-    /// The facts the `facts` stage's generated lines carry, as [`PremergeFacts::to_py`] gives them.
-    fn from_py(value: &PyValue) -> std::result::Result<Self, String> {
-        let PyValue::Tuple(items) = value else {
-            return Err("the facts are not a tuple".to_owned());
-        };
-        let [
-            PyValue::Str(ink_flags),
-            PyValue::List(groups) | PyValue::Tuple(groups),
-        ] = items.as_slice()
-        else {
-            return Err("the facts are not the flags and the groups".to_owned());
-        };
-        let unmatched_groups = groups
-            .iter()
-            .map(|group| match group {
-                PyValue::Tuple(pair) | PyValue::List(pair) => match pair.as_slice() {
-                    [PyValue::Int(index), PyValue::Str(group)] => usize::try_from(*index)
-                        .map(|index| (index, group.clone()))
-                        .map_err(|_| format!("a negative index {index}")),
-                    _ => Err("a group is not an index and a str".to_owned()),
-                },
-                _ => Err("a group is not a pair".to_owned()),
-            })
-            .collect::<std::result::Result<_, _>>()?;
-        Ok(Self {
-            ink_flags: ink_flags.clone(),
-            unmatched_groups,
-        })
-    }
-}
-
 fn value_error(message: impl std::fmt::Display) -> BuildError {
     failed(format!("ValueError: {message}"))
 }
 
-/// A window in the audit's format (`audit.format_codepoints`).
+/// A window in the audit's format.
 fn format_codepoints(values: &[u16]) -> String {
     values
         .iter()
@@ -149,7 +94,7 @@ fn format_codepoints(values: &[u16]) -> String {
         .join(":")
 }
 
-/// `facts._settled_class`: UNMATCHED when any of the classes is, otherwise the one class every configuration matched, refusing a unit that matches several.
+/// UNMATCHED when any of the classes is, otherwise the one class every configuration matched, refusing a unit that matches several.
 fn settled_class<'c>(
     config_classes: &'c [(String, String)],
     unmatched: &str,
@@ -177,7 +122,7 @@ fn settled_class<'c>(
     }
 }
 
-/// `facts.derive_premerge`: each pre-merge unit's ink flag read from its survivor in `store`, and the change group of each unit that takes one, an UNMATCHED unit or one the build re-routes out of an `ink_identical` class, with its set gate's group over its own configurations or else its survivor's group from `table`. A unit the review facts re-route and the build does not list under a change group, or the reverse, a unit whose group resolves to none and a unit with the default configuration that the merge removed are refused with Python's text.
+/// Each pre-merge unit's ink flag read from its survivor in `store`, and the change group of each unit that takes one, an UNMATCHED unit or one the build re-routes out of an `ink_identical` class, with its set gate's group over its own configurations or else its survivor's group from `table`. A unit the review facts re-route and the build does not list under a change group, or the reverse, a unit whose group resolves to none and a unit with the default configuration that the merge removed are refused with Python's text.
 pub fn derive_premerge(
     snapshot: &PremergeSnapshot,
     table: &UnitTable,
@@ -285,7 +230,7 @@ pub fn derive_premerge(
     })
 }
 
-/// The refusal `build._build_m1` raises once the pre-merge facts are derived: a window that takes a change group is never ink-identical, so a change group on a unit flagged ink-identical stops the build, naming how many and the first's capture index.
+/// The refusal the build raises once the pre-merge facts are derived: a window that takes a change group is never ink-identical, so a change group on a unit flagged ink-identical stops the build, naming how many and the first's capture index.
 pub fn grouped_on_identical(facts: &PremergeFacts) -> std::result::Result<(), BuildError> {
     let flags = facts.ink_flags.as_bytes();
     let mut grouped = Vec::new();
@@ -397,7 +342,7 @@ impl ClassRank {
     }
 }
 
-/// `facts.manifest_group`: the manifest's totals, its machine-approved units with their classes in rank order, the unit counts of `CLASS_UNIT_COUNT_KEYS`' classes and the secondary-junction counts.
+/// The manifest's totals, its machine-approved units with their classes in rank order, the unit counts of `CLASS_UNIT_COUNT_KEYS`' classes and the secondary-junction counts.
 fn manifest_group(
     manifest: &PyValue,
     rank: &ClassRank,
@@ -499,7 +444,7 @@ fn invariant_group(
     ]))
 }
 
-/// `facts.change_group_counts`: the units a change group, in `group_order` and then by name for a group outside it.
+/// The units a change group, in `group_order` and then by name for a group outside it.
 fn change_group_counts<'g>(
     assignments: impl IntoIterator<Item = &'g str>,
     group_order: &[String],
@@ -527,7 +472,7 @@ fn change_group_counts<'g>(
     counts
 }
 
-/// `facts.rerouted_counts`: how many pre-merge units each class of `identical` re-routed, every class keyed in that order, refusing a class outside it.
+/// How many pre-merge units each class of `identical` re-routed, every class keyed in that order, refusing a class outside it.
 fn rerouted_counts<'c>(
     identical: &[&str],
     rerouted: impl IntoIterator<Item = &'c str>,
@@ -560,7 +505,7 @@ fn counted(counts: &[(String, i64)]) -> PyValue {
     )
 }
 
-/// `facts.ink_group_from_flags`: the machine-approved pre-merge units a class, keyed in the order of each class's first flagged unit, the unflagged no-verdict units, and the other unflagged units as human units cut into batches of `batch_size`.
+/// The machine-approved pre-merge units a class, keyed in the order of each class's first flagged unit, the unflagged no-verdict units, and the other unflagged units as human units cut into batches of `batch_size`.
 fn ink_group<'c>(
     class_rows: impl Iterator<Item = (&'c str, bool)>,
     flags: &str,
@@ -606,7 +551,7 @@ fn ink_group<'c>(
     ]))
 }
 
-/// `facts.built_group_from_memory`: the human units, the distinct windows of the reference window's duplicate group, None when the reference window is no human unit, and the config-note histogram as `[note, count]` pairs, None first and then by note.
+/// The human units, the distinct windows of the reference window's duplicate group, None when the reference window is no human unit, and the config-note histogram as `[note, count]` pairs, None first and then by note.
 fn built_group(
     table: &UnitTable,
     store: &UnitStore,
@@ -664,7 +609,7 @@ pub struct FactsParts<'p> {
     pub group_order: &'p [String],
 }
 
-/// `facts.build_facts`: the sidecar's payload, its format, the corpus's identity from the manifest and the pins, the invariant block and the volatile groups, the ink and change-group groups reduced from `premerge`, a change group on a unit whose class is not UNMATCHED counted as re-routed out of that class.
+/// The sidecar's payload, its format, the corpus's identity from the manifest and the pins, the invariant block and the volatile groups, the ink and change-group groups reduced from `premerge`, a change group on a unit whose class is not UNMATCHED counted as re-routed out of that class.
 pub fn build_facts(
     parts: &FactsParts<'_>,
     names: &FactsNames,
@@ -752,7 +697,7 @@ pub fn build_facts(
     ]))
 }
 
-/// `facts.write_facts`: the payload as compact ASCII JSON and a newline, written in place beside the manifest, a file that already holds those bytes left as it is.
+/// The payload as compact ASCII JSON and a newline, written in place beside the manifest, a file that already holds those bytes left as it is.
 pub fn write_facts(
     out_dir: &Path,
     sink: &Sink,
@@ -766,7 +711,7 @@ pub fn write_facts(
     Ok(())
 }
 
-/// The review-facts phase as `build._build_m1` runs it once the manifest is on disk: derive the pre-merge facts ([`derive_premerge`]), refuse a change group on an ink-identical unit ([`grouped_on_identical`]), then build and write the sidecar ([`build_facts`], [`write_facts`]); return the derived facts.
+/// The review-facts phase, once the manifest is on disk: derive the pre-merge facts ([`derive_premerge`]), refuse a change group on an ink-identical unit ([`grouped_on_identical`]), then build and write the sidecar ([`build_facts`], [`write_facts`]); return the derived facts.
 pub fn review_facts(
     out_dir: &Path,
     sink: &Sink,
@@ -780,75 +725,10 @@ pub fn review_facts(
     Ok(premerge)
 }
 
-// --- the stage ----------------------------------------------------------------------------------
-
-/// The keys of the `facts` stage's lines (`units_stage_fixtures.FACTS_*_KEY`) and the prefix of its generated ones.
-const PREMERGE_KEY: &str = "premerge";
-const FILE_KEY: &str = "review-facts";
-const GENERATED: &str = "generated:";
-
-/// Put a fresh copy in place of `path` when it is there, so a write in place reaches no other link to the file it held.
-fn unlinked(path: &Path) -> Result<()> {
-    let fail = |why: io::Error| WireError(format!("cannot copy {}: {why}", path.display()));
-    match fs::read(path) {
-        Ok(data) => {
-            fs::remove_file(path).map_err(fail)?;
-            fs::write(path, data).map_err(fail)
-        }
-        Err(why) if why.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(why) => Err(fail(why)),
-    }
-}
-
-/// The `facts` stage: when the stage file holds lines from the build's run, run the build through the write's commit ([`through_write`]), write the manifest over what it holds ([`write_manifest`]) and the review facts after it ([`review_facts`]), and answer with the derived pre-merge facts and the bytes of `review-facts.json` as written; then answer each generated line, a set of pre-merge facts, with the refusal [`grouped_on_identical`] makes of it or None.
-pub fn stage_facts(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let manifest_names = ManifestNames::of(&input)?;
-    let names = FactsNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_write(&input, stage_file, "facts", |held| {
-            let failure = |failure: BuildError| WireError(format!("the facts failed: {failure}"));
-            let manifest = held_manifest(&input, &manifest_names, &held).map_err(failure)?;
-            let corpus = &held.run.corpus;
-            write_manifest(corpus, &manifest, &mut io::sink()).map_err(failure)?;
-            let path = corpus.join(&names.filename);
-            unlinked(&path)?;
-            let parts = FactsParts {
-                manifest: &manifest,
-                table: &held.run.table,
-                store: &held.run.planned.store,
-                snapshot: &held.run.premerge,
-                row_count: held.run.row_count,
-                group_order: &input.group_order,
-            };
-            let premerge =
-                review_facts(corpus, &Sink::new(None), &names, &parts).map_err(failure)?;
-            stage_line(out, PREMERGE_KEY, &premerge.to_py())?;
-            let written = fs::read(&path)
-                .map_err(|why| WireError(format!("cannot read {}: {why}", path.display())))?;
-            stage_line(out, FILE_KEY, &PyValue::Bytes(written))
-        })?;
-    }
-    for (key, key_input) in &lines.generated {
-        if !key.starts_with(GENERATED) {
-            return error(format!("{key}: not a line the facts stage answers"));
-        }
-        let facts =
-            PremergeFacts::from_py(key_input).map_err(|why| WireError(format!("{key}: {why}")))?;
-        let value = match grouped_on_identical(&facts) {
-            Ok(()) => PyValue::None,
-            Err(BuildError::Exit(message)) => PyValue::Str(message),
-            Err(failure) => return error(format!("{key}: {failure}")),
-        };
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn facts(flags: &str, groups: &[(usize, &str)]) -> PremergeFacts {
         PremergeFacts {

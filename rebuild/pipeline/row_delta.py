@@ -8,13 +8,13 @@ For an output named `<name>`, its file name (`unit-cache.ndjson.gz`), the direct
 
 An output merges its parts one of five ways, which its head names (`Head.merge`) and every segment header repeats, so a reader refuses a segment written for another (`HeadError`).
 
-By place, the unit store's, since its base need not be in key order (it is in triage order). A writer names every row it supersedes by its place: a row whose content changed is an upsert at its own place, a row removed is a tombstone at its place, and a row that moves is a tombstone at its old place and an upsert at its new one (`write_segment`). Every row has a place (`Place`): base row `i` is `(i, "")`, and a segment row names the base row it follows and a fraction after it, `(i, f)` with `f` above `""`, or `(-1, f)` before the first. `places_between` cuts as many places as a run of rows needs between two others, and a segment's rows are sorted by place. A place indexes its generation's base, so a segment is a positional encoding: its header names its generation and number, and a reader refuses a segment whose generation is not the head's or whose number is not its place in the head's list (`HeadError`), so a reader that pairs an old head with a refolded base fails loudly instead of misplacing rows.
+By place, the unit store's, since its base need not be in key order (it is in triage order). A writer names every row it supersedes by its place: a row whose content changed is an upsert at its own place, a row removed is a tombstone at its place, and a row that moves is a tombstone at its old place and an upsert at its new one, as the review crate writes the store's segments. Every row has a place (`Place`): base row `i` is `(i, "")`, and a segment row names the base row it follows and a fraction after it, `(i, f)` with `f` above `""`, or `(-1, f)` before the first. A writer cuts as many places as a run of rows needs between two others, and a segment's rows are sorted by place. A place indexes its generation's base, so a segment is a positional encoding: its header names its generation and number, and a reader refuses a segment whose generation is not the head's or whose number is not its place in the head's list (`HeadError`), so a reader that pairs an old head with a refolded base fails loudly instead of misplacing rows.
 
 Readers (`merge_placed`) merge the base and the segments as streams by place, and never hold a merged view: each part is read once, front to back, so a reader holds a buffer a part. At each place the row of the latest part that has one there is live, unless it is a tombstone.
 
 By key (`MERGE_KEY`), the windows rows' and the units index's, whose base is in key order with one row a key, as the crate writes the windows rows and the corpus build the index. A segment's rows are in key order too: `+\t<row>` upserts a row at its key and `-\t<key>` removes the row at a key, where a key is a row's leading fields, as the output defines them. The crate's `build-tables` merges a configuration's rows against its previous parts and writes only the rows that differ, and its `replay-emitted` walks the merged rows (`rebuild/kernel-rs/src/row_merge.rs`); here `merge_keyed` merges them for a materialized form. The units index's key is its own, a record's class as the corpus's shard order sorts it and its id (`unit_index.index_key`), and its rows are its records' lines, an upsert's without the place a base's record holds, which every reader takes from the manifest (`unit_index.Places`), and a tombstone's its id and class; `merge_keyed` merges them for every reader of it. At each key the row of the latest part that has one there is live, unless it is a tombstone, and a part whose keys do not strictly ascend is refused: by the crate's merge at every row, and by `merge_keyed` at every row of a segment and at a base's rows up to its last change. A reader opens every part the head lists when it reads the head (`open_parts`), so a later writer's deletes cannot reach it, since an open descriptor survives the unlink. `open_parts` checks each part's size against the head, as a reader that seeks needs, and with `sha256=True` its digest too, as the writer that merges a part and `perf_fingerprint` do, since they read every byte anyway.
 
-By plain key (`MERGE_PLAIN_KEY`), the divergence audit's, whose base is the audit's whole file, its header line and every row in the audit's own order (`oracle.audit_key`), and whose segments hold its header, then `+\t<row>` upserts and `-\t<key>` tombstones in key order (`plain_keyed_segment_rows`). The base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members (`MemberPart`): the header line alone in the first, then one a section, a section being one configuration's run of lines, so a reader finds a part's sections from its member index in the head (`Part.members`, `review.audit_stream`) where it finds a plain part's by `pread` bisection, and inflates only the members it reads. Inflated in order, a part's members are the plain part's bytes. A plain segment the segment format's first audit writer left reads beside the members until the fold rewrites it. Every reader that reads a whole part reads it through `part_stream`, which inflates a part held as members and checks each member against its index. A reader of gzipped keyed segments refuses an audit segment, and the audit's reader refuses a gzipped keyed one. `merge_plain_keyed` gives the materialized rows as runs of whole lines: it reads the base a chunk at a time, passes a run below the next change through as it was read, and bisects only where a change falls, so a merge takes a few keys a chunk and a change.
+By plain key (`MERGE_PLAIN_KEY`), the divergence audit's, whose base is the audit's whole file, its header line and every row in the audit's own order (`oracle.audit_key`), and whose segments hold its header, then `+\t<row>` upserts and `-\t<key>` tombstones in key order (`plain_keyed_segment_rows`). The base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members (`MemberPart`): the header line alone in the first, then one a section, a section being one configuration's run of lines, so a reader finds a part's sections from its member index in the head (`Part.members`, read by the review crate's audit reader) where it finds a plain part's by `pread` bisection, and inflates only the members it reads. Inflated in order, a part's members are the plain part's bytes. A plain segment the segment format's first audit writer left reads beside the members until the fold rewrites it. Every reader that reads a whole part reads it through `part_stream`, which inflates a part held as members and checks each member against its index. A reader of gzipped keyed segments refuses an audit segment, and the audit's reader refuses a gzipped keyed one. `merge_plain_keyed` gives the materialized rows as runs of whole lines: it reads the base a chunk at a time, passes a run below the next change through as it was read, and bisects only where a change falls, so a merge takes a few keys a chunk and a change.
 
 By ordinal (`MERGE_ORDINAL`), each oracle store configuration's, whose base is the configuration's whole store file, as `oracle_cache.RowWriter` writes one member for a whole configuration and `oracle_cache.join_store_segments` joins a cut one's members, and whose segments are gzipped lines of whole records, each `+\t<ordinal>\t<record>`, since a record's key is its row's ordinal in the subset table. A configuration's parts carry no head of their own: the stores' set head lists every configuration's, with the header fields, row count and cut of each, and one ages column beside them, a positional encoding that names the generation it indexes (`oracle_cache.SetHead`, `oracle_cache.read_set_head`).
 
@@ -22,7 +22,7 @@ By probe (`MERGE_PROBE`), the settle memos', whose parts are binary files a read
 
 The materialized form of an output is its head, base and segments merged and re-serialized into the base's layout under the head's stamps: what a writer of the whole file would have written at this content. A fold writes it as the next generation's base, and the acceptance bar's fingerprint reads it (#618's decision 48).
 
-Two rules decide when a writer writes a new base instead of a segment. The share rule (`writes_base`): a segment that would pass half its base's row bytes, or a pass whose stamps say every row is re-derived, as an output names them (the unit store names a structure-stamp move and a letter batch), writes a new base directly. The fold (`fold_due`): when a head's segments' row bytes reach the base's or their count reaches the output's cap (`SEGMENT_CAP`), the next writer writes the materialized form as the next generation's base. Either way no segment follows the new base in that pass. The windows rows, the settle memos and the units index take the fold alone and neither half of the share rule (#618's decisions 74 and 75, and change 32 for the index): a table build re-derives every row cold, a full replay refills every settle memo row, and a corpus build projects every record of the index, so each writes a segment of the rows that differ on every pass, a letter batch, a structure-stamp move and a crate edit included, whatever its size, and each output's route is decided from its head before its writer writes anything, never from a count of what the writer writes. The audit and the oracle stores take the same reading as #618's change 31 applies it: the audit writes a segment of the rows that differ on every pass, with no stamp clause, and folds at `AUDIT_SEGMENT_CAP`; the stores write a segment of the records that differ wherever their ordinals still name the same rows, and a new base where the `format` or `subset` stamp line moved, as a letter batch moves every ordinal (#618's decision 57), and fold at `SEGMENT_CAP`. A settle memo's segment is one an absorb, so a pass that runs both the oracle's absorb and gate:conform's writes two.
+Two rules decide when a writer writes a new base instead of a segment. The share rule: a segment that would pass half its base's row bytes, or a pass whose stamps say every row is re-derived, as an output names them (the unit store names a structure-stamp move and a letter batch), writes a new base directly. The fold (`fold_due`): when a head's segments' row bytes reach the base's or their count reaches the output's cap (`SEGMENT_CAP`), the next writer writes the materialized form as the next generation's base. Either way no segment follows the new base in that pass. The windows rows, the settle memos and the units index take the fold alone and neither half of the share rule (#618's decisions 74 and 75, and change 32 for the index): a table build re-derives every row cold, a full replay refills every settle memo row, and a corpus build projects every record of the index, so each writes a segment of the rows that differ on every pass, a letter batch, a structure-stamp move and a crate edit included, whatever its size, and each output's route is decided from its head before its writer writes anything, never from a count of what the writer writes. The audit and the oracle stores take the same reading as #618's change 31 applies it: the audit writes a segment of the rows that differ on every pass, with no stamp clause, and folds at `AUDIT_SEGMENT_CAP`; the stores write a segment of the records that differ wherever their ordinals still name the same rows, and a new base where the `format` or `subset` stamp line moved, as a letter batch moves every ordinal (#618's decision 57), and fold at `SEGMENT_CAP`. A settle memo's segment is one an absorb, so a pass that runs both the oracle's absorb and gate:conform's writes two.
 
 At most one output folds a pass (`claim_fold`), so the largest fold a pass writes is one base. The pass is the artifact cycle's run (`CYCLE_RUN_ENV`, which every process of a pass inherits), whose claim is one small file in the cycle's directory (`cycle_paths.CYCLE_VAR`, `cycle_paths.FOLD_CLAIM_NAME`) holding the run and the output that holds it, or, outside a cycle, the process, which holds its claim in memory, one for each cycle directory it names, so a test's own directory starts with none. An output whose fold is due and that does not hold the claim writes a segment and waits for a later pass, up to `FOLD_OVERRUN` segments past its cap (`fold_forced`), where it folds whether or not another output folded that pass.
 
@@ -64,7 +64,7 @@ MERGE_ORDINAL = "ordinal"
 _MERGES = (MERGE_PLACE, MERGE_KEY, MERGE_PROBE, MERGE_PLAIN_KEY, MERGE_ORDINAL)
 # The segment cap for every output in this format but the audit (`AUDIT_SEGMENT_CAP`, #618's decision 53): the unit store, the units index, the windows rows, the settle memos, counted one an absorb, and each oracle store configuration's segments under the stores' set head. A reader holds one stream or one mapping a segment, and at 16 the folds add 0.160 to 0.399 GB to a rune edit at 45 runes, where caps of 8 would add 0.270 to 0.433.
 SEGMENT_CAP = 16
-# The divergence audit's segment cap (#618's decision 53): its segments are a pass's changed rows of a 1.68 GB base at 45 runes, so a reader holds a small read a section of each segment beside the base's (`audit_stream.SEGMENT_READ_BYTES`), and the corpus build holds one descriptor a part, up to 38 at this cap and the overrun.
+# The divergence audit's segment cap (#618's decision 53): its segments are a pass's changed rows of a 1.68 GB base at 45 runes, so a reader holds a small read a section of each segment beside the base's, and the corpus build holds one descriptor a part, up to 38 at this cap and the overrun.
 AUDIT_SEGMENT_CAP = 32
 # How many segments past its cap an output whose fold is due waits for the pass's one fold before it folds anyway (#618's decision 53): six outputs reaching the cap on one pass fold on six successive passes, the last at its cap plus five.
 FOLD_OVERRUN = 5
@@ -74,7 +74,6 @@ CONTENT_TIME_STAMP = "content_mtime_ns"
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
 UPSERT = b"+"
 TOMBSTONE = b"-"
-_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
 _CHUNK = 1 << 20
 # The read buffer each of a plan's hashing threads reuses (`part_hashes_to`): the audit's and the stores' plans hash every part at once, up to 38 for the audit and 22 a configuration for the stores at their caps and overrun, so at this size they hold 11 MB at most, and sha256 from the page cache runs within 5% of its speed through fresh 1 MiB reads.
 HASH_READ_BYTES = 1 << 16
@@ -568,17 +567,6 @@ class Row:
     payload: bytes
 
 
-def row_line(row: Row) -> bytes:
-    """Return a segment row as its line: the operation, the place's base row and fraction, and the payload, tab-separated. The payload is the base's row unchanged, which holds no raw tab in either format this module serves."""
-    anchor, fraction = row.place
-    return row.op + b"\t" + str(anchor).encode() + b"\t" + fraction.encode() + b"\t" + row.payload
-
-
-def row_length(op: bytes, place: Place, payload_length: int) -> int:
-    """Return the length of a segment row's line (`row_line`) from its payload's length, without building the line."""
-    return len(op) + 3 + len(str(place[0])) + len(place[1]) + payload_length
-
-
 def _parse_row(line: bytes) -> Row:
     op, anchor, fraction, payload = line.split(b"\t", 3)
     if op not in (UPSERT, TOMBSTONE):
@@ -615,27 +603,6 @@ def check_segment_header(line: bytes, output: str, generation: int, number: int,
         raise HeadError(
             f"{output} merges by {merge}, and segment {number}'s header says it merges by {header.get('merge', MERGE_PLACE)}"
         )
-
-
-def write_segment(directory: Path, output: str, generation: int, number: int, rows: Iterable[Row]) -> Part:
-    """Write segment `number` of `generation` from `rows`, which must arrive in place order, one row a place, and return its `Part`. Its header names the generation and number, which a reader checks against the head."""
-    name = segment_name(output, generation, number)
-
-    def fill(stream: Sink) -> tuple[int, int]:
-        stream.write(segment_header(output, generation, number))
-        count = total = 0
-        previous: Place | None = None
-        for row in rows:
-            if previous is not None and row.place <= previous:
-                raise ValueError(f"segment rows arrive out of place order: {row.place} after {previous}")
-            previous = row.place
-            line = row_line(row)
-            stream.write(line)
-            count += 1
-            total += len(line)
-        return count, total
-
-    return write_part(directory, name, fill)
 
 
 def bloom_blocks(keys: int) -> int:
@@ -1128,36 +1095,6 @@ def merge_keyed(
         change = next(changes, None)
 
 
-def _digits(value: int, width: int) -> str:
-    out = []
-    for _ in range(width):
-        value, remainder = divmod(value, 36)
-        out.append(_DIGITS[remainder])
-    return "".join(reversed(out))
-
-
-def places_between(low: Place | None, high: Place | None, count: int) -> list[Place]:
-    """Return `count` places strictly between `low` and `high`, ascending; `low` None means before the first base row and `high` None after the last. A fraction is base-36 digits read as a fraction, with no trailing zero, so fractions sort as strings in the order of their values and any two leave room between them. The fractions are spaced evenly over the gap, so a run of rows takes fractions a few digits longer than its bounds', whatever its length."""
-    if count <= 0:
-        return []
-    anchor, below = low if low is not None else (-1, "")
-    above = high[1] if high is not None and high[0] == anchor else None
-    if high is not None and high <= (anchor, below):
-        raise ValueError(f"no place lies between {low} and {high}")
-    width = max(len(below), len(above or "")) + len(_digits(count + 1, 8).lstrip("0")) + 1
-    floor = int(below.ljust(width, "0"), 36) if below else 0
-    ceiling = int(above.ljust(width, "0"), 36) if above is not None else 36**width
-    step = (ceiling - floor) // (count + 1)
-    if step < 1:
-        raise ValueError(f"no room for {count} places between {low} and {high}")
-    return [(anchor, _digits(floor + step * index, width).rstrip("0")) for index in range(1, count + 1)]
-
-
-def writes_base(segment_rows_bytes: int, base_rows_bytes: int, *, every_row_rederived: bool) -> bool:
-    """The share rule: whether a writer writes a new base instead of its segment."""
-    return every_row_rederived or 2 * segment_rows_bytes > base_rows_bytes
-
-
 def fold_due(head: Head, cap: int | None = None) -> bool:
     """The fold: whether the writer that finds `head` writes the materialized form as the next generation's base, once it holds the pass's fold (`claim_fold`). `cap` is the output's segment cap, `SEGMENT_CAP` unless the output names another."""
     return bool(head.segments) and (
@@ -1175,7 +1112,7 @@ _process_claims: dict[Path, str] = {}
 
 
 def claim_fold(output: str) -> bool:
-    """Claim the pass's one fold for `output` and return whether `output` holds it: True when no other output claimed it this pass, or `output` did, and False when another did. Under a cycle the claim is the file `cycle_paths.FOLD_CLAIM_NAME` in `cycle_paths.CYCLE_VAR`, holding the run (`CYCLE_RUN_ENV`) and the output, written through `output_sink.replace_output`; a claim another run left counts as none. Outside a cycle the process holds it, one claim for each cycle directory, which the rebuild suite points into each test's own directory (`rebuild/conftest.py`). Each writer claims once it knows its fold is due and before it writes, the windows rows before the crate starts (`run_m1.build_tables`), the units index at its write's plan (`unit_index._plan_write`) and the unit store at its write (`unit_cache.update_store`)."""
+    """Claim the pass's one fold for `output` and return whether `output` holds it: True when no other output claimed it this pass, or `output` did, and False when another did. Under a cycle the claim is the file `cycle_paths.FOLD_CLAIM_NAME` in `cycle_paths.CYCLE_VAR`, holding the run (`CYCLE_RUN_ENV`) and the output, written through `output_sink.replace_output`; a claim another run left counts as none. Outside a cycle the process holds it, one claim for each cycle directory, which the rebuild suite points into each test's own directory (`rebuild/conftest.py`). Each writer claims once it knows its fold is due and before it writes, the windows rows before the crate starts (`run_m1.build_tables`), the units index at its write's plan (`unit_index._plan_write`) and the unit store at its write in the review crate's build, which reads the claim's file from its build input."""
     directory = cycle_paths.CYCLE_VAR
     run = os.environ.get(CYCLE_RUN_ENV)
     if not run:

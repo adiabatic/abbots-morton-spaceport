@@ -1,31 +1,27 @@
-//! The manifest, as `build._write_corpus` writes it once the write has committed and the fonts are copied: the dict in `_write_corpus`'s literal order ([`manifest`]), its `machine_approved` record ([`machine_approved_meta`]) and its `ledger_classes` lookup ([`ledger_classes_meta`]), written as `_write_json` writes it ([`write_json`]); then the shards the manifest no longer names deleted ([`prune_orphan_shards`]) and the line that names them ([`pruned_line`]). Its identity is the scan's ([`super::scan::manifest_identity`]).
-//!
-//! [`stage_manifest`] is the `manifest` stage of the stage fixtures.
+//! The manifest, written once the write has committed and the fonts are copied: its dict in a fixed key order ([`manifest`]), its `machine_approved` record ([`machine_approved_meta`]) and its `ledger_classes` lookup ([`ledger_classes_meta`]), written as indented ASCII JSON through a staging file ([`write_json`]); then the shards the manifest does not name deleted ([`prune_orphan_shards`]) and the line that names them ([`pruned_line`]). Its identity is the scan's ([`super::scan::manifest_identity`]).
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::Path;
 
-use super::audit::stage_line;
 use super::console;
 use super::input::{BuildInput, json_map_py};
-use super::scan::{class_shards, manifest_identity, stage_lines};
+use super::scan::class_shards;
 use super::store::UnitStore;
 use super::table::UnitTable;
-use super::write::{Scratch, WriteHeld, Written, case_input, files_held, hold, through_write};
+use super::write::Written;
 use super::{BuildError, failed};
 use crate::pyfmt::{PyValue, json};
-use crate::wire::{Result, WireError, error};
+use crate::wire::{Result, WireError};
 
-/// The manifest's mode, the literal `_write_corpus` writes.
+/// The manifest's mode.
 const MODE: &str = "m1-audit";
 
-/// The names the manifest reads from the build input's vocabulary: its format (`build.MANIFEST_FORMAT`) and the components its identity leaves out (`unit_index.ASSET_COMPONENTS`).
+/// The names the manifest reads from the build input's vocabulary: its format (`build.MANIFEST_FORMAT`).
 #[derive(Clone, Debug)]
 pub struct ManifestNames {
     pub format: PyValue,
-    pub asset_components: Vec<String>,
 }
 
 impl ManifestNames {
@@ -36,20 +32,8 @@ impl ManifestNames {
                 .constant(name)
                 .ok_or_else(|| WireError(format!("the build input's vocabulary holds no {name}")))
         };
-        let assets = "rebuild.review.unit_index.ASSET_COMPONENTS";
-        let asset_components = match constant(assets)? {
-            PyValue::Tuple(items) | PyValue::List(items) => items
-                .iter()
-                .map(|item| match item {
-                    PyValue::Str(name) => Ok(name.clone()),
-                    _ => error(format!("{assets} holds a value that is not a str")),
-                })
-                .collect::<Result<_>>()?,
-            _ => return error(format!("{assets} is not a sequence")),
-        };
         Ok(Self {
             format: constant("rebuild.review.build.MANIFEST_FORMAT")?.clone(),
-            asset_components,
         })
     }
 }
@@ -95,7 +79,7 @@ fn method<'m>(
         .ok_or_else(|| failed(format!("KeyError: '{name}'")))
 }
 
-/// `build._machine_approved_meta`: the unit and row totals across the machine checks, the units by class in the order `machine_units` first names each class, and one record a machine check with its counts and verification method, the Junior check's with the Junior font's source and digest. `machine_units` gives each machine-approved unit's class, row count and check, in triage order; `methods` holds each check's verification method by its name.
+/// The unit and row totals across the machine checks, the units by class in the order `machine_units` first names each class, and one record a machine check with its counts and verification method, the Junior check's with the Junior font's source and digest. `machine_units` gives each machine-approved unit's class, row count and check, in triage order; `methods` holds each check's verification method by its name.
 pub fn machine_approved_meta<'u>(
     machine_units: impl IntoIterator<Item = (&'u str, i64, &'u str)>,
     methods: &[(String, String)],
@@ -163,7 +147,7 @@ pub fn machine_approved_meta<'u>(
     ]))
 }
 
-/// `build._ledger_classes_meta`: every ledger entry's title, summary, status and why by its id, in ledger order.
+/// Every ledger entry's title, summary, status and why by its id, in ledger order.
 pub fn ledger_classes_meta(input: &BuildInput) -> PyValue {
     assigned(input.ledger.iter().map(|entry| {
         (
@@ -190,7 +174,7 @@ pub struct ManifestParts<'p> {
     pub classes: Vec<&'p str>,
 }
 
-/// The manifest `build._write_corpus` writes, in its literal's order: the values the build input carries, the fonts' records the write copied, the human units' ids along the triage order, the totals, the `machine_approved` record over the machine-approved units in triage order ([`machine_approved_meta`]), the secondary-junction counts, each class's record the write filled (`written`'s, by id in shard order) taken in manifest order, and the `ledger_classes` lookup ([`ledger_classes_meta`]).
+/// The manifest, in its fixed key order: the values the build input carries, the fonts' records the write copied, the human units' ids along the triage order, the totals, the `machine_approved` record over the machine-approved units in triage order ([`machine_approved_meta`]), the secondary-junction counts, each class's record the write filled (`written`'s, by id in shard order) taken in manifest order, and the `ledger_classes` lookup ([`ledger_classes_meta`]).
 pub fn manifest(
     input: &BuildInput,
     names: &ManifestNames,
@@ -315,7 +299,7 @@ pub fn manifest(
     ]))
 }
 
-/// `build._write_json` for a dict: `value` as `json.dumps(value, indent=1, ensure_ascii=True)` and a newline, written to `path` through its `.partial` staging file, which is renamed into place, the parent directory made first. A staging file left by a failure is removed.
+/// A dict `value` as `json.dumps(value, indent=1, ensure_ascii=True)` and a newline, written to `path` through its `.partial` staging file, which is renamed into place, the parent directory made first. A staging file left by a failure is removed.
 pub fn write_json(path: &Path, value: &PyValue) -> std::result::Result<(), BuildError> {
     let mut body = json::dumps_indent(value).map_err(failed)?;
     body.push('\n');
@@ -369,7 +353,7 @@ pub fn prune_orphan_shards(
     Ok(removed)
 }
 
-/// The line `_write_corpus` prints once it has pruned shards.
+/// The line the build prints once it has pruned shards.
 pub fn pruned_line(pruned: &[String]) -> String {
     format!(
         "Pruned {} orphan shard(s): {}",
@@ -390,100 +374,6 @@ pub fn write_manifest(
         console::say(console, &pruned_line(&pruned)).map_err(failed)?;
     }
     Ok(pruned)
-}
-
-// --- the stage ----------------------------------------------------------------------------------
-
-/// The keys of the `manifest` stage's lines (`units_stage_fixtures.MANIFEST_*`).
-const BYTES_KEY: &str = "manifest";
-const IDENTITY_KEY: &str = "identity";
-const PRUNED_KEY: &str = "pruned";
-const UNITS_FILES_KEY: &str = "units-files";
-const PRUNE_GENERATED: &str = "generated:prune:";
-
-/// The manifest over what the build holds once the write has committed ([`manifest`]).
-pub(crate) fn held_manifest(
-    input: &BuildInput,
-    names: &ManifestNames,
-    held: &WriteHeld<'_, '_>,
-) -> std::result::Result<PyValue, BuildError> {
-    let shard_ids: Vec<&str> = held
-        .routed
-        .classes
-        .iter()
-        .map(|entry| entry.id.as_str())
-        .collect();
-    let parts = ManifestParts {
-        table: &held.run.table,
-        store: &held.run.planned.store,
-        order: &held.triage.order,
-        row_total: held.run.row_count,
-        batches: held.triage.batches,
-        duplicate_groups: held.passes.duplicate_groups,
-        junctions: held.passes.junction_counts.items().to_vec(),
-        classes: held
-            .triage
-            .classes
-            .iter()
-            .map(|entry| entry.id.as_str())
-            .collect(),
-    };
-    manifest(input, names, &parts, &shard_ids, held.written)
-}
-
-/// Answer one generated line of the `manifest` stage: [`prune_orphan_shards`] over a corpus holding the case's files, with a manifest of the case's classes, valued the names it pruned and the files the corpus holds then.
-fn answer_generated(stage_file: &Path, key: &str, line_input: &PyValue) -> Result<PyValue> {
-    if !key.starts_with(PRUNE_GENERATED) {
-        return error(format!("{key}: not a line the manifest stage answers"));
-    }
-    let scratch = Scratch::new(stage_file, "manifest-case")?;
-    let corpus = scratch.0.join("out");
-    fs::create_dir_all(&corpus).map_err(|why| WireError(format!("{key}: {why}")))?;
-    let (held, rest) = case_input(key, line_input)?;
-    hold(&corpus, held, key)?;
-    let [classes] = rest else {
-        return error(format!("{key}: the input does not end with the classes"));
-    };
-    let manifest = PyValue::Dict(vec![(text("classes"), classes.clone())]);
-    let pruned = prune_orphan_shards(&corpus, &manifest)
-        .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-    Ok(PyValue::Tuple(vec![
-        PyValue::List(pruned.into_iter().map(PyValue::Str).collect()),
-        files_held(&corpus)?,
-    ]))
-}
-
-/// The `manifest` stage: when the stage file holds lines from the build's run, run the build through the write's commit ([`through_write`]), write the manifest over what it holds ([`write_manifest`]) and answer with its bytes as written, its identity, the shards pruned and the files under `units/` then; then answer each generated line.
-pub fn stage_manifest(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = ManifestNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_write(&input, stage_file, "manifest", |held| {
-            let failure =
-                |failure: BuildError| WireError(format!("the manifest failed: {failure}"));
-            let manifest = held_manifest(&input, &names, &held).map_err(failure)?;
-            let corpus = &held.run.corpus;
-            let pruned = write_manifest(corpus, &manifest, &mut io::sink()).map_err(failure)?;
-            let written = fs::read(corpus.join("manifest.json"))
-                .map_err(|why| WireError(format!("cannot read the manifest: {why}")))?;
-            let identity = manifest_identity(&manifest, &names.asset_components)
-                .map_err(|why| WireError(format!("the manifest's identity: {why:?}")))?;
-            stage_line(out, BYTES_KEY, &PyValue::Bytes(written))?;
-            stage_line(out, IDENTITY_KEY, &PyValue::Str(identity))?;
-            stage_line(
-                out,
-                PRUNED_KEY,
-                &PyValue::List(pruned.into_iter().map(PyValue::Str).collect()),
-            )?;
-            stage_line(out, UNITS_FILES_KEY, &files_held(&corpus.join("units"))?)
-        })?;
-    }
-    for (key, key_input) in &lines.generated {
-        let value = answer_generated(stage_file, key, key_input)?;
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

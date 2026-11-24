@@ -1,26 +1,19 @@
-//! Expect strings as the drafter writes, parses and replays them: `drafts.expect_string` and `_token_for_span` ([`expect_string`]); `test_shaping.parse_expect` with `_letter_to_qs` ([`ExpectParser`]), `_expand_maybe_ligatures` ([`expand_maybe_ligatures`]), `_token_char_spans`, `_is_modifier_char` and `_token_input_char_count` ([`token_char_spans`]); `pins._check_interpretation` and `_expected_base` ([`check_interpretation`]); and the replay against the after font, `Drafter.validate_semantics` ([`Replayer`]).
+//! Expect strings as the drafter writes, parses and replays them: written for a unit's spans ([`expect_string`]); `test_shaping.parse_expect` with `_letter_to_qs` ([`ExpectParser`]), `_expand_maybe_ligatures` ([`expand_maybe_ligatures`]), `_token_char_spans`, `_is_modifier_char` and `_token_input_char_count` ([`token_char_spans`]); `pins._check_interpretation` and `_expected_base` ([`check_interpretation`]); and the replay against the after font ([`Replayer`]).
 //!
 //! The parser reads the strings `parse_expect`'s regular expressions read, matched by hand in `re`'s order: `\s` and `strip` are `str.isspace` ([`is_space`]), `.` is any character but a newline, and the letter classes are ASCII. Positions are code point indices, as Python's are.
-//!
-//! [`stage_expect`] is the `expect` stage of the stage fixtures.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
-
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 
 use crate::classify::{BREAK, LIGATURE, Row, RowError, row_for};
-use crate::enrich::{init_letters, letter_display};
+use crate::enrich::letter_display;
 use crate::fontfacts::FontFacts;
 use crate::pyfmt::repr::{repr, repr_str};
 use crate::pyfmt::{PyValue, is_space};
-use crate::shape::{Features, Fonts, ShapeError, Shaper};
+use crate::shape::{Features, ShapeError, Shaper};
 use crate::wire::{Init, WireError};
 
-/// `drafts.CONNECTORS`: each junction token's connector in a drafted expect string.
+/// Each junction token's connector in a drafted expect string.
 const CONNECTORS: [(&str, &str); 5] = [
     ("break", " | "),
     ("y0", " ~b~ "),
@@ -29,7 +22,7 @@ const CONNECTORS: [(&str, &str); 5] = [
     ("y8", " ~t~ "),
 ];
 
-/// `drafts._BOUNDARY_EXPECT`: each boundary code point's token in a drafted expect string.
+/// Each boundary code point's token in a drafted expect string.
 const BOUNDARY_EXPECT: [(u32, &str); 3] = [(0x0020, "◊space"), (0x200C, "◊ZWNJ"), (0x00B7, "\\·")];
 
 /// `parse_expect`'s `HEIGHT_MAP`: each height connector's letter and the junction height it asserts.
@@ -173,18 +166,6 @@ pub enum ConnectionKind {
     Maybe,
 }
 
-impl ConnectionKind {
-    fn name(self) -> &'static str {
-        match self {
-            ConnectionKind::Join => "join",
-            ConnectionKind::Height => "height",
-            ConnectionKind::Break => "break",
-            ConnectionKind::BreakNoIsolation => "break_no_isolation",
-            ConnectionKind::Maybe => "maybe",
-        }
-    }
-}
-
 /// One `Connection`: its kind and, for a height connection, the height.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Connection {
@@ -196,29 +177,10 @@ impl Connection {
     fn of(kind: ConnectionKind) -> Self {
         Self { kind, y: None }
     }
-
-    /// The connection as Python holds it, `{"kind": ..., "y": ...}`.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Dict(vec![
-            (PyValue::str("kind"), PyValue::str(self.kind.name())),
-            (
-                PyValue::str("y"),
-                self.y.map_or(PyValue::None, PyValue::Int),
-            ),
-        ])
-    }
 }
 
 /// A parsed expect string, its tokens and the connections between them.
 pub type Parsed = (Vec<ExpectToken>, Vec<Connection>);
-
-/// A parse as Python holds it, a tuple of the two lists.
-pub fn parsed_to_py((tokens, connections): &Parsed) -> PyValue {
-    PyValue::Tuple(vec![
-        PyValue::List(tokens.iter().map(ExpectToken::to_py).collect()),
-        PyValue::List(connections.iter().map(Connection::to_py).collect()),
-    ])
-}
 
 fn leading_space(chars: &[char]) -> usize {
     chars.iter().take_while(|&&letter| is_space(letter)).count()
@@ -705,7 +667,7 @@ pub fn check_interpretation(
     Ok(None)
 }
 
-/// `_token_for_span`: a span's token, its letters joined with `+` for a ligature, a letter's display, or a boundary's token.
+/// A span's token, its letters joined with `+` for a ligature, a letter's display, or a boundary's token.
 fn token_for_span(
     letters: &HashMap<u32, String>,
     values: &[u32],
@@ -741,7 +703,7 @@ fn token_for_span(
         })
 }
 
-/// `drafts.expect_string`: one token per span, each junction's connector between them.
+/// One token per span, each junction's connector between them.
 pub fn expect_string(
     letters: &HashMap<u32, String>,
     values: &[u32],
@@ -761,7 +723,7 @@ pub fn expect_string(
     Ok(text)
 }
 
-/// The drafter's replay of an expect string against the after font, `Drafter.validate_semantics`, over the init's escape names and the after font's facts.
+/// The drafter's replay of an expect string against the after font, over the init's escape names and the after font's facts.
 pub struct Replayer<'a> {
     parser: ExpectParser,
     facts: &'a FontFacts,
@@ -832,169 +794,6 @@ impl<'a> Replayer<'a> {
     }
 }
 
-// --- the expect stage ---------------------------------------------------------------------------
-
-fn raised_value(error: ExpectError) -> Result<PyValue> {
-    match error.raised {
-        Some(kind) => Ok(PyValue::Dict(vec![
-            (PyValue::str("raised"), PyValue::str(kind)),
-            (PyValue::str("message"), PyValue::str(error.message)),
-        ])),
-        None => Err(error),
-    }
-}
-
-fn line_field(record: &Value, field: &str, key: &str) -> Result<PyValue> {
-    PyValue::from_typed(&record[field])
-        .map_err(|failure| ExpectError::engine(format!("{key}: {field}: {failure}")))
-}
-
-fn line_str(record: &Value, field: &str, key: &str) -> Result<String> {
-    match line_field(record, field, key)? {
-        PyValue::Str(text) => Ok(text),
-        other => Err(ExpectError::engine(format!(
-            "{key}: the {field} is {}, not a str",
-            other.kind()
-        ))),
-    }
-}
-
-fn int_of(value: &PyValue, key: &str) -> Result<i64> {
-    match value {
-        PyValue::Int(number) => Ok(*number),
-        other => Err(ExpectError::engine(format!(
-            "{key}: {} where an int belongs",
-            other.kind()
-        ))),
-    }
-}
-
-fn items<'v>(value: &'v PyValue, key: &str) -> Result<&'v [PyValue]> {
-    match value {
-        PyValue::Tuple(items) | PyValue::List(items) => Ok(items),
-        other => Err(ExpectError::engine(format!(
-            "{key}: {} where a sequence belongs",
-            other.kind()
-        ))),
-    }
-}
-
-fn index_of(value: &PyValue, key: &str) -> Result<usize> {
-    usize::try_from(int_of(value, key)?)
-        .map_err(|_| ExpectError::engine(format!("{key}: a negative index")))
-}
-
-fn string_line(letters: &HashMap<u32, String>, record: &Value, key: &str) -> Result<PyValue> {
-    let values = items(&line_field(record, "codepoints", key)?, key)?
-        .iter()
-        .map(|value| {
-            u32::try_from(int_of(value, key)?)
-                .map_err(|_| ExpectError::engine(format!("{key}: a code point out of range")))
-        })
-        .collect::<Result<Vec<u32>>>()?;
-    let spans = items(&line_field(record, "spans", key)?, key)?
-        .iter()
-        .map(|span| match items(span, key)? {
-            [start, end] => Ok((index_of(start, key)?, index_of(end, key)?)),
-            _ => Err(ExpectError::engine(format!("{key}: a span is not a pair"))),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let junctions = items(&line_field(record, "junctions", key)?, key)?
-        .iter()
-        .map(|junction| match junction {
-            PyValue::Str(junction) => Ok(junction.clone()),
-            other => Err(ExpectError::engine(format!(
-                "{key}: a junction is {}, not a str",
-                other.kind()
-            ))),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(PyValue::str(expect_string(
-        letters, &values, &spans, &junctions,
-    )?))
-}
-
-fn pin_line(
-    replayer: &Replayer,
-    shaper: &mut Shaper,
-    record: &Value,
-    key: &str,
-) -> Result<PyValue> {
-    let text = line_str(record, "text", key)?;
-    let expect = line_str(record, "expect", key)?;
-    let features = Features::from_py(&line_field(record, "features", key)?)
-        .map_err(|failure| ExpectError::engine(format!("{key}: {failure}")))?;
-    let (parse, interpretations, row) = match replayer.parser().parse(&expect) {
-        Err(message) => (PyValue::str(message), PyValue::None, PyValue::None),
-        Ok(parsed) => {
-            let interpretations = PyValue::List(
-                expand_maybe_ligatures(&parsed.0, &parsed.1)
-                    .iter()
-                    .map(parsed_to_py)
-                    .collect(),
-            );
-            let row = match replayer.row(shaper, &text, &features) {
-                Ok(row) => row.to_py(),
-                Err(error) => raised_value(error)?,
-            };
-            (parsed_to_py(&parsed), interpretations, row)
-        }
-    };
-    let verdict = match replayer.validate_semantics(shaper, &text, &expect, &features) {
-        Ok(verdict) => PyValue::str(verdict),
-        Err(error) => raised_value(error)?,
-    };
-    Ok(PyValue::Dict(vec![
-        (PyValue::str("parse"), parse),
-        (PyValue::str("interpretations"), interpretations),
-        (PyValue::str("row"), row),
-        (PyValue::str("verdict"), verdict),
-    ]))
-}
-
-/// The `expect` stage: for each `string:` line of `stage_file`, the expect string [`expect_string`] writes for its `codepoints`, `spans` and `junctions`; for each `pin:` line, the parse of its `expect` or the parse's error, its interpretations, the after font's row for its `text` under its `features` and the replay's verdict, or what Python raises in their place; each as one `{"key", "value"}` line in the typed encoding, through one [`Shaper`].
-pub fn stage_expect(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path)?;
-    let facts = FontFacts::read(&init.font_facts)?;
-    let fonts = Fonts::open(&init, &facts)?;
-    let letters = init_letters(&init).map_err(|error| ExpectError::engine(error.0))?;
-    let replayer = Replayer::new(&init, &facts);
-    let mut shaper = Shaper::new(&fonts, &facts);
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        ExpectError::engine(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            ExpectError::engine(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line).map_err(|failure| {
-            ExpectError::engine(format!("a stage line is not JSON: {failure}"))
-        })?;
-        let Some(key) = record["key"].as_str() else {
-            return Err(ExpectError::engine(format!(
-                "a stage line has no key: {line:.200}"
-            )));
-        };
-        let value = if key.starts_with("string:") {
-            string_line(&letters, &record, key)?
-        } else if key.starts_with("pin:") {
-            pin_line(&replayer, &mut shaper, &record, key)?
-        } else {
-            return Err(ExpectError::engine(format!(
-                "{key}: the expect stage answers string: and pin: lines"
-            )));
-        };
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            value.to_typed()
-        )
-        .map_err(|failure| ExpectError::engine(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1046,17 +845,17 @@ mod tests {
             .expect("parses");
         let kinds: Vec<_> = connections
             .iter()
-            .map(|connection| (connection.kind.name(), connection.y))
+            .map(|connection| (connection.kind, connection.y))
             .collect();
         assert_eq!(
             kinds,
             [
-                ("height", Some(5)),
-                ("break_no_isolation", None),
-                ("maybe", None),
-                ("break", None),
-                ("join", None),
-                ("height", Some(6)),
+                (ConnectionKind::Height, Some(5)),
+                (ConnectionKind::BreakNoIsolation, None),
+                (ConnectionKind::Maybe, None),
+                (ConnectionKind::Break, None),
+                (ConnectionKind::Join, None),
+                (ConnectionKind::Height, Some(6)),
             ]
         );
     }

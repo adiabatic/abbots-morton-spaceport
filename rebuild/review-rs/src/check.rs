@@ -1,16 +1,9 @@
-//! The per-unit §7 contract check, `build.check_unit` in its `m1-audit` mode, in its two subsets: at `DRAFTED`, the form the worker runs ([`ContractCheck::check_drafted`]), with `build._is_delta_digest`, `unit_cache.is_content_id`, `subset_pack.is_junction_token`, `audit.machine_approved` and `audit.slim_fragment`; and at `PATCHED`, the form the corpus build's write runs over each fragment it patches ([`PatchedCheck::check`]).
+//! The per-unit §7 contract check in its `m1-audit` mode, in its two subsets: at `DRAFTED`, the form the worker runs ([`ContractCheck::check_drafted`]), with the delta digest's and the content id's shapes, `subset_pack.is_junction_token`, `audit.machine_approved` and `audit.slim_fragment`; and at `PATCHED`, the form the corpus build's write runs over each fragment it patches ([`PatchedCheck::check`]).
 //!
 //! The check reads a fragment as the [`PyValue`] it is, whatever its shape, so where it reads Python's truthiness, `len`, iteration, hashing, `==`, sorting, `int(..., 16)` or `.get` on a value that is not a dict, it answers as Python does: the same error list, or a raise where Python raises ([`CheckError::raised`]).
-//!
-//! [`stage_check`] is the `check` stage of the stage fixtures, and [`stage_check_patched`] the build's `check-patched` stage.
 
 use std::cmp::Ordering;
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
-
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 
 use crate::corpus::input::BuildInput;
 use crate::expect::ExpectParser;
@@ -1125,61 +1118,6 @@ impl PatchedCheck {
         }
         Ok(n.errors)
     }
-}
-
-/// Answer each line of `stage_file` with `check` over its `fragment`: one `{"key", "value"}` line, the value the error list, or `{"raised": name}` where Python raises, in the typed encoding. A failure Python never meets stops the stage.
-fn check_lines(
-    stage_file: &Path,
-    out: &mut impl Write,
-    check: impl Fn(&PyValue) -> Result<Vec<String>>,
-) -> Result<()> {
-    let file = std::fs::File::open(stage_file)
-        .or_else(|failure| engine(format!("cannot read {}: {failure}", stage_file.display())))?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.or_else(|failure| {
-            engine(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let line: Value = serde_json::from_str(&line)
-            .or_else(|failure| engine(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = line["key"].as_str() else {
-            return engine("a stage line has no key");
-        };
-        let fragment = PyValue::from_typed(&line["fragment"])
-            .or_else(|failure| engine(format!("{key}: {failure}")))?;
-        let value = match check(&fragment) {
-            Ok(errors) => PyValue::List(errors.into_iter().map(PyValue::Str).collect()),
-            Err(CheckError {
-                raised: Some(kind), ..
-            }) => PyValue::Dict(vec![(PyValue::str("raised"), PyValue::str(kind))]),
-            Err(failure) => return engine(format!("{key}: {failure}")),
-        };
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            value.to_typed()
-        )
-        .or_else(|failure| engine(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
-/// The `check` stage: each line's `fragment` checked at `DRAFTED` over the init's vocabulary and glyph names ([`ContractCheck::check_drafted`]).
-pub fn stage_check(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path).or_else(|failure| engine(failure.0))?;
-    let check = ContractCheck::new(&init)?;
-    check_lines(stage_file, out, |fragment| check.check_drafted(fragment))
-}
-
-/// The build's `check-patched` stage: each line's `fragment` checked at `PATCHED` over the build input's machine checks ([`PatchedCheck::check`]).
-pub fn stage_check_patched(
-    input_path: &Path,
-    stage_file: &Path,
-    out: &mut impl Write,
-) -> Result<()> {
-    let input = BuildInput::read(input_path).or_else(|failure| engine(failure.0))?;
-    let check = PatchedCheck::of(&input)?;
-    check_lines(stage_file, out, |fragment| check.check(fragment))
 }
 
 #[cfg(test)]

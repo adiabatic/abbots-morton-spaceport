@@ -1,34 +1,28 @@
-//! The unit store, as `unit_cache.update_store` writes it once the review facts are on disk: this pass's records in triage order under a header stamped with the store's format, the environment, the manifest's identity and every shard part's size ([`store_header`]). With a prior store that read to its end in this format it writes only what changed, as the prior generation's next segment: the records that keep their places are the longest run whose prior lines ascend in triage order ([`kept`]), a kept record whose line changed is an upsert at its own place, every other record an upsert at a place cut between the kept records around it, and every prior line no kept record holds a tombstone ([`changed_rows`], [`SegmentRows`]). It writes a new base instead when no store read before (`first`, `unusable`), when a re-deriving stamp moved (`rederived`), when the segment would pass half the base's row bytes (`share`) or when the prior's fold is due and the pass's one fold is held or forced (`fold`), and the head alone when no record changed. What a write did and its note are [`StoreWrite`]'s. [`cache_phase`] runs it as `build._build_m1`'s cache phase does, over the unit store's records ([`unchanged`], [`line_of`]).
-//!
-//! [`stage_cache`] is the `cache` stage of the stage fixtures.
+//! The unit store, written once the review facts are on disk: this pass's records in triage order under a header stamped with the store's format, the environment, the manifest's identity and every shard part's size ([`store_header`]). With a prior store that read to its end in this format it writes only what changed, as the prior generation's next segment: the records that keep their places are the longest run whose prior lines ascend in triage order ([`kept`]), a kept record whose line changed is an upsert at its own place, every other record an upsert at a place cut between the kept records around it, and every prior line no kept record holds a tombstone ([`changed_rows`], [`SegmentRows`]). It writes a new base instead when no store read before (`first`, `unusable`), when a re-deriving stamp moved (`rederived`), when the segment would pass half the base's row bytes (`share`) or when the prior's fold is due and the pass's one fold is held or forced (`fold`), and the head alone when no record changed. What a write did and its note are [`StoreWrite`]'s. [`cache_phase`] runs it as the build's last phase, over the unit store's records ([`unchanged`], [`line_of`]).
 
 use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::Path;
 
-use super::audit::stage_line;
-use super::index::{IndexNames, spilled_lines, write_index_lines};
 use super::input::{BuildInput, json_map_py};
-use super::manifest::{ManifestNames, held_manifest, write_manifest};
 use super::rowdelta::{
     FoldClaim, Folding, Head, MERGE_PLACE, Place, ReadError, Row, TOMBSTONE, UPSERT, WriteError,
-    base_name, commit, fold_due, fold_forced, head_path, places_between, read_head,
-    remove_unlisted, row_length, write_part, write_segment_from, writes_base,
+    base_name, commit, fold_due, fold_forced, places_between, read_head, remove_unlisted,
+    row_length, write_part, write_segment_from, writes_base,
 };
 use super::scan::{
-    OpenStore, ScanError, ScanNames, class_shards, manifest_stamp, open_store_checked, stage_lines,
+    OpenStore, ScanError, ScanNames, class_shards, manifest_stamp, open_store_checked,
 };
 use super::sink::{STAGING_SUFFIX, Sink};
 use super::store::{NO_PRIOR_LINE, UnitStore};
 use super::table::UnitTable;
 use super::thousands;
-use super::write::{Scratch, case_input, counts_of, file_sha256, files_held, hold, through_write};
 use super::{BuildError, StorePlan};
 use crate::corpus::records::{KEY_PREFIX, record_line};
 use crate::pyfmt::{PyValue, json};
-use crate::wire::{Result, WireError, error};
+use crate::wire::Result;
 
-/// What the store's write raises, by the Python class it mirrors, with its text; `Unheld` for a value Python reads that the writer does not hold, which fails the Rust build.
+/// What the store's write raises, by the Python exception class its text names; `Unheld` for a value the writer does not hold.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CacheError {
     pub class: String,
@@ -125,7 +119,7 @@ impl CacheNames {
     }
 }
 
-/// What one write of the store did (`unit_cache.StoreWrite`).
+/// What one write of the store did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     Head,
@@ -133,7 +127,7 @@ pub enum Outcome {
     Base,
 }
 
-/// What one write of the store did (`unit_cache.StoreWrite`): wrote the head alone, a segment, or a new base with its reason (`first`, `unusable`, `rederived`, `fold` or `share`), and the segment's or the base's rows and their bytes.
+/// What one write of the store did: wrote the head alone, a segment, or a new base with its reason (`first`, `unusable`, `rederived`, `fold` or `share`), and the segment's or the base's rows and their bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StoreWrite {
     pub outcome: Outcome,
@@ -143,16 +137,7 @@ pub struct StoreWrite {
 }
 
 impl StoreWrite {
-    /// The outcome's name, as `StoreWrite.outcome` holds it.
-    pub fn outcome_name(&self) -> &'static str {
-        match self.outcome {
-            Outcome::Head => "head",
-            Outcome::Segment => "segment",
-            Outcome::Base => "base",
-        }
-    }
-
-    /// `StoreWrite.note`: what the build's `cache` line says of the write.
+    /// What the build's `cache` line says of the write.
     pub fn note(&self) -> String {
         let count = |rows: i64| thousands(usize::try_from(rows).unwrap_or_default());
         match self.outcome {
@@ -165,19 +150,9 @@ impl StoreWrite {
             Outcome::Base => format!("a new base ({}), {} records", self.reason, count(self.rows)),
         }
     }
-
-    /// The write as the `cache` stage records it: its outcome, a base's reason, and its rows and their bytes.
-    pub fn value(&self) -> PyValue {
-        PyValue::Tuple(vec![
-            PyValue::str(self.outcome_name()),
-            PyValue::str(self.reason),
-            PyValue::Int(self.rows),
-            PyValue::Int(self.rows_bytes),
-        ])
-    }
 }
 
-/// `unit_cache._kept`: for each ordinal, whether its record keeps its place, the longest run of this pass's records, in `order`, whose prior lines ascend (a longest increasing subsequence by patience sorting, `bisect_left` over the tails), so the fewest records move. A pass whose prior lines all ascend keeps every record that has one, which is checked first in one walk.
+/// For each ordinal, whether its record keeps its place, the longest run of this pass's records, in `order`, whose prior lines ascend (a longest increasing subsequence by patience sorting, `bisect_left` over the tails), so the fewest records move. A pass whose prior lines all ascend keeps every record that has one, which is checked first in one walk.
 pub fn kept(order: &[u32], prior_line: &dyn Fn(usize) -> u32) -> Vec<bool> {
     let size = order.iter().max().map_or(0, |&most| most as usize + 1);
     let mut kept = vec![false; size];
@@ -220,7 +195,7 @@ pub fn kept(order: &[u32], prior_line: &dyn Fn(usize) -> u32) -> Vec<bool> {
     kept
 }
 
-/// A segment's rows as the write holds them until the share rule decides (`unit_cache._SegmentRows`), as columns rather than a value a row: each row's operation, its place's base row and fraction (the fractions' bytes end to end), and for an upsert the ordinal whose line it writes, for a tombstone its payload's place in one buffer of them.
+/// A segment's rows as the write holds them until the share rule decides, as columns rather than a value a row: each row's operation, its place's base row and fraction (the fractions' bytes end to end), and for an upsert the ordinal whose line it writes, for a tombstone its payload's place in one buffer of them.
 #[derive(Default)]
 pub struct SegmentRows {
     ops: Vec<u8>,
@@ -339,7 +314,7 @@ pub struct Records<'a> {
     pub line_of: &'a dyn Fn(usize) -> Raised<Vec<u8>>,
 }
 
-/// `unit_cache._changed_rows`: walk this pass's records in `order` beside the prior store's lines in theirs and return the segment's rows in place order. It stops with [`Stop::OverHalf`] once the rows' lines pass half the base's row bytes.
+/// Walk this pass's records in `order` beside the prior store's lines in theirs and return the segment's rows in place order. It stops with [`Stop::OverHalf`] once the rows' lines pass half the base's row bytes.
 fn changed_rows(
     opened: &OpenStore,
     plan: &StorePlan,
@@ -536,7 +511,7 @@ fn write_base(
     Ok(written)
 }
 
-/// `unit_cache.update_store`: write this pass's store under `corpus` after the manifest, its records `line_of(ordinal)` for the ordinals in `order`, this pass's triage order, under a header of `stamp`'s fields and `parts`' sizes ([`store_header`]). The parts no head lists are deleted first. With no store that read before it writes a `first` or `unusable` base, counted as rewritten whole; with a re-deriving stamp moved a `rederived` base; otherwise, over the prior store opened with every part checked against its sha256 and its head the plan's, it walks the records beside the prior's lines ([`changed_rows`]), and writes a `share` base when the segment would pass half the base's row bytes, a `fold` base when the prior's fold is due and `claim` holds the pass's fold for the store or the fold is forced, the head alone when no record changed, and the segment otherwise. A store that no longer opens as the plan read it is an `unusable` base. `sink` counts the writes.
+/// Write this pass's store under `corpus` after the manifest, its records `line_of(ordinal)` for the ordinals in `order`, this pass's triage order, under a header of `stamp`'s fields and `parts`' sizes ([`store_header`]). The parts no head lists are deleted first. With no store that read before it writes a `first` or `unusable` base, counted as rewritten whole; with a re-deriving stamp moved a `rederived` base; otherwise, over the prior store opened with every part checked against its sha256 and its head the plan's, it walks the records beside the prior's lines ([`changed_rows`]), and writes a `share` base when the segment would pass half the base's row bytes, a `fold` base when the prior's fold is due and `claim` holds the pass's fold for the store or the fold is forced, the head alone when no record changed, and the segment otherwise. A store that no longer opens as the plan read it is an `unusable` base. `sink` counts the writes.
 #[allow(clippy::too_many_arguments)]
 pub fn update_store(
     corpus: &Path,
@@ -712,7 +687,7 @@ pub struct CacheParts<'a> {
     pub manifest: &'a PyValue,
 }
 
-/// The cache phase, as `build._build_m1` writes the store once the review facts are on disk: [`update_store`] over the units in triage order, under the environment's stamp, each record's prior line the plan filled, [`unchanged`] and [`line_of`] over the unit store, and the manifest's shard parts.
+/// The cache phase, which writes the store once the review facts are on disk: [`update_store`] over the units in triage order, under the environment's stamp, each record's prior line the plan filled, [`unchanged`] and [`line_of`] over the unit store, and the manifest's shard parts.
 pub fn cache_phase(
     input: &BuildInput,
     names: &CacheNames,
@@ -743,261 +718,6 @@ pub fn cache_phase(
         claim,
         sink,
     )?)
-}
-
-// --- the stage ----------------------------------------------------------------------------------
-
-/// The keys of the `cache` stage's lines (`units_stage_fixtures.CACHE_*`).
-const HEAD_KEY: &str = "head";
-const FILES_KEY: &str = "files";
-const OUTCOME_KEY: &str = "write";
-const NOTE_KEY: &str = "note";
-const GENERATED: &str = "generated:";
-
-/// Each regular file directly under `corpus` whose name starts with the store's, by name in code-point order, with its size and sha256.
-fn store_files(corpus: &Path, name: &str) -> Result<PyValue> {
-    let fail =
-        |failure: io::Error| WireError(format!("cannot list {}: {failure}", corpus.display()));
-    let mut found: Vec<String> = Vec::new();
-    for entry in fs::read_dir(corpus).map_err(fail)? {
-        let entry_name = entry
-            .map_err(fail)?
-            .file_name()
-            .to_string_lossy()
-            .into_owned();
-        if entry_name.starts_with(name) {
-            found.push(entry_name);
-        }
-    }
-    found.sort();
-    let mut held = Vec::new();
-    for entry_name in found {
-        let path = corpus.join(&entry_name);
-        if path.is_file() {
-            held.push(PyValue::Tuple(vec![
-                PyValue::Str(entry_name),
-                PyValue::Int(fs::metadata(&path).map_err(fail)?.len() as i64),
-                PyValue::Str(file_sha256(&path).map_err(fail)?),
-            ]));
-        }
-    }
-    Ok(PyValue::List(held))
-}
-
-fn ints(value: &PyValue, key: &str, what: &str) -> Result<Vec<i64>> {
-    match value {
-        PyValue::List(items) | PyValue::Tuple(items) => items
-            .iter()
-            .map(|item| match item {
-                PyValue::Int(value) => Ok(*value),
-                other => error(format!("{key}: {what} holds {}, not an int", other.kind())),
-            })
-            .collect(),
-        other => error(format!("{key}: {what} is {}, not a list", other.kind())),
-    }
-}
-
-fn flags(value: &PyValue, key: &str, what: &str) -> Result<Vec<bool>> {
-    match value {
-        PyValue::List(items) | PyValue::Tuple(items) => items
-            .iter()
-            .map(|item| match item {
-                PyValue::Bool(value) => Ok(*value),
-                other => error(format!("{key}: {what} holds {}, not a bool", other.kind())),
-            })
-            .collect(),
-        other => error(format!("{key}: {what} is {}, not a list", other.kind())),
-    }
-}
-
-fn texts(value: &PyValue, key: &str, what: &str) -> Result<Vec<String>> {
-    match value {
-        PyValue::List(items) | PyValue::Tuple(items) => items
-            .iter()
-            .map(|item| match item {
-                PyValue::Str(text) => Ok(text.clone()),
-                other => error(format!("{key}: {what} holds {}, not a str", other.kind())),
-            })
-            .collect(),
-        other => error(format!("{key}: {what} is {}, not a list", other.kind())),
-    }
-}
-
-/// A generated case's plan: whether a store existed, whether it read, its head's document or None, its lines, its base's row bytes and whether a re-deriving stamp moved.
-fn case_plan(value: &PyValue, key: &str, names: &CacheNames) -> Result<StorePlan> {
-    let PyValue::Tuple(items) = value else {
-        return error(format!("{key}: the plan is not a tuple"));
-    };
-    let [
-        PyValue::Bool(existed),
-        PyValue::Bool(readable),
-        head,
-        PyValue::Int(lines),
-        PyValue::Int(rows_bytes),
-        PyValue::Bool(rederived),
-    ] = items.as_slice()
-    else {
-        return error(format!("{key}: the plan does not read"));
-    };
-    let head = match head {
-        PyValue::None => None,
-        document => Some(
-            Head::from_document(document, names.name())
-                .map_err(|why| WireError(format!("{key}: the plan's head: {why}")))?,
-        ),
-    };
-    Ok(StorePlan {
-        existed: *existed,
-        readable: *readable,
-        head,
-        lines: usize::try_from(*lines)
-            .map_err(|_| WireError(format!("{key}: the plan's lines")))?,
-        rows_bytes: *rows_bytes,
-        rederived: *rederived,
-    })
-}
-
-/// Answer one generated line of the `cache` stage: [`update_store`] over a corpus holding the case's files, with the case's plan, stamp, order, prior lines, predictions, lines and parts, under a fold claim this process holds for the case's output or none, valued what the write did and its note, or the class and text of what it raised, the files the corpus holds then and the counts lines it appended.
-fn answer_generated(
-    names: &CacheNames,
-    stage_file: &Path,
-    key: &str,
-    line_input: &PyValue,
-) -> Result<PyValue> {
-    if !key.starts_with(GENERATED) {
-        return error(format!("{key}: not a line the cache stage answers"));
-    }
-    let scratch = Scratch::new(stage_file, "cache-case")?;
-    let corpus = scratch.0.join("out");
-    fs::create_dir_all(&corpus).map_err(|why| WireError(format!("{key}: {why}")))?;
-    let (held, rest) = case_input(key, line_input)?;
-    hold(&corpus, held, key)?;
-    let [
-        plan,
-        PyValue::Dict(stamp),
-        order,
-        prior_lines,
-        unchanged_flags,
-        PyValue::List(lines),
-        parts,
-        holder,
-    ] = rest
-    else {
-        return error(format!(
-            "{key}: the input does not hold the plan, the stamp, the order, the prior lines, the predictions, the lines, the parts and the holder"
-        ));
-    };
-    let plan = case_plan(plan, key, names)?;
-    let order = ints(order, key, "the order")?
-        .into_iter()
-        .map(|ordinal| u32::try_from(ordinal).map_err(|_| WireError(format!("{key}: an ordinal"))))
-        .collect::<Result<Vec<_>>>()?;
-    let prior_lines = ints(prior_lines, key, "the prior lines")?
-        .into_iter()
-        .map(|line| u32::try_from(line).map_err(|_| WireError(format!("{key}: a prior line"))))
-        .collect::<Result<Vec<_>>>()?;
-    let unchanged_flags = flags(unchanged_flags, key, "the predictions")?;
-    let lines = lines
-        .iter()
-        .map(|line| match line {
-            PyValue::Bytes(line) => Ok(line.clone()),
-            other => error(format!("{key}: a line is {}, not bytes", other.kind())),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let parts = texts(parts, key, "the parts")?;
-    let counts = scratch.0.join("counts");
-    fs::write(&counts, b"").map_err(|why| WireError(format!("{key}: {why}")))?;
-    let sink = Sink::new(Some(counts.clone()));
-    let claim = FoldClaim::new(None, scratch.0.join("cycle").join("fold-claim.json"));
-    match holder {
-        PyValue::None => {}
-        PyValue::Str(holder) => {
-            claim
-                .claim(&sink, holder)
-                .map_err(|why| WireError(format!("{key}: {why}")))?;
-        }
-        other => return error(format!("{key}: the holder is {}", other.kind())),
-    }
-    let records = Records {
-        prior_line: &|ordinal| prior_lines[ordinal],
-        unchanged: &|ordinal| unchanged_flags[ordinal],
-        line_of: &|ordinal| Ok(lines[ordinal].clone()),
-    };
-    let outcome = match update_store(
-        &corpus, stamp, &plan, &order, &records, &parts, names, &claim, &sink,
-    ) {
-        Ok(written) => {
-            let PyValue::Tuple(mut items) = written.value() else {
-                unreachable!("a write's value is a tuple");
-            };
-            items.push(PyValue::Str(written.note()));
-            PyValue::Tuple(items)
-        }
-        Err(failure) if failure.class == "Unheld" => {
-            return error(format!("{key}: {}", failure.message));
-        }
-        Err(failure) => PyValue::Dict(vec![
-            (PyValue::str("raised"), PyValue::Str(failure.class)),
-            (PyValue::str("message"), PyValue::Str(failure.message)),
-        ]),
-    };
-    Ok(PyValue::Tuple(vec![
-        outcome,
-        files_held(&corpus)?,
-        counts_of(&counts, key)?,
-    ]))
-}
-
-/// The `cache` stage: when the stage file holds lines from the build's run, run the build through the write's commit ([`through_write`]), write the manifest over what it holds ([`write_manifest`]) and the units index from the runs' spilled lines ([`write_index_lines`]) under the pass's fold claim the build input names, which the index claims before the store, then the store ([`cache_phase`]) under the same claim, and answer with the head it committed, the files whose names start with the store's, what it did and its note; then answer each generated line ([`answer_generated`]).
-pub fn stage_cache(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = CacheNames::of(&input)?;
-    let index_names = IndexNames::of(&input)?;
-    let manifest_names = ManifestNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_write(&input, stage_file, "cache", |held| {
-            let failure =
-                |failure: BuildError| WireError(format!("the store write failed: {failure}"));
-            let manifest = held_manifest(&input, &manifest_names, &held).map_err(failure)?;
-            let corpus = &held.run.corpus;
-            write_manifest(corpus, &manifest, &mut io::sink()).map_err(failure)?;
-            let claim = FoldClaim::new(
-                input.cycle.run.clone(),
-                PathBuf::from(&input.cycle.fold_claim),
-            );
-            let sink = Sink::new(None);
-            write_index_lines(
-                corpus,
-                &mut spilled_lines(&held.written.runs),
-                &index_names,
-                &claim,
-                &sink,
-            )
-            .map_err(|why| WireError(format!("the index write failed: {why}")))?;
-            let parts = CacheParts {
-                corpus,
-                plan: &held.run.planned.store_plan,
-                order: &held.triage.order,
-                store: &held.run.planned.store,
-                table: &held.run.table,
-                predicted: &held.routed.predicted,
-                manifest: &manifest,
-            };
-            let written = cache_phase(&input, &names, &parts, &claim, &sink).map_err(failure)?;
-            let head = fs::read(head_path(corpus, names.name()))
-                .map_err(|why| WireError(format!("cannot read the store's head: {why}")))?;
-            stage_line(out, HEAD_KEY, &PyValue::Bytes(head))?;
-            stage_line(out, FILES_KEY, &store_files(corpus, names.name())?)?;
-            stage_line(out, OUTCOME_KEY, &written.value())?;
-            stage_line(out, NOTE_KEY, &PyValue::Str(written.note()))
-        })?;
-    }
-    for (key, key_input) in &lines.generated {
-        let value = answer_generated(&names, stage_file, key, key_input)?;
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

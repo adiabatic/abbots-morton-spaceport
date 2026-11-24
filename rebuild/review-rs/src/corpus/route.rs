@@ -1,27 +1,23 @@
-//! How the write takes each class, decided before any byte is written, as `build._write_corpus` decides it once the whole-corpus passes have run: the previous corpus's parts for each class read from the manifest beside them ([`prior_parts`]), the classes in shard order with their units by id ([`ClassToWrite`]), each class's route ([`route`]) with each unit's prediction, each class's manifest record ([`class_meta`]), whether the previous sidecars are copied forward ([`copy_forward`]), and the runs the write hands out ([`write_width`], [`write_runs`]). [`route_classes`] runs them in the build's order.
-//!
-//! [`stage_route`] is the `route` stage of the stage fixtures.
+//! How the write takes each class, decided before any byte is written, once the whole-corpus passes have run: the previous corpus's parts for each class read from the manifest beside them ([`prior_parts`]), the classes in shard order with their units by id ([`ClassToWrite`]), each class's route ([`route`]) with each unit's prediction, each class's manifest record ([`class_meta`]), whether the previous sidecars are copied forward ([`copy_forward`]), and the runs the write hands out ([`write_width`], [`write_runs`]). [`route_classes`] runs them in the build's order.
 
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-use super::audit::stage_line;
-use super::drive::{through_units, units_pool_width};
+use super::drive::units_pool_width;
 use super::gzip::{GzipError, GzipReader};
 use super::input::{BuildInput, LedgerEntry, Widths};
-use super::passes::{Passes, Triage, passes, triage};
 use super::rowdelta::py_str;
-use super::scan::{ScanError, ScanNames, index_is_current, manifest_and_identity, stage_lines};
-use super::signatures::{dump_prior, get, int_equal, is_str};
+use super::scan::{ScanError, ScanNames, index_is_current, manifest_and_identity};
+use super::signatures::{get, int_equal, is_str};
 use super::store::UnitStore;
-use super::table::{ColumnDigest, UNIT_PREFIX, UnitTable, int};
+use super::table::{UnitTable, int};
 use super::{BuildError, PriorShards, failed};
 use crate::fragment::py_eq;
 use crate::pyfmt::{PyValue, json};
 use crate::wire::{Result, WireError, error};
 
-/// How the write writes one class (`build.APPEND`, `DIRECT`, `FOLD`, `FIRST`).
+/// How the write writes one class (`DIRECT`, `FOLD`, `FIRST`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Route {
     /// Appended to its parts from the previous corpus.
@@ -32,18 +28,6 @@ pub enum Route {
     Fold,
     /// Written directly as a first base, plain: the class has no parts in the previous corpus, or one of them is gone.
     First,
-}
-
-impl Route {
-    /// The route's name, as `build` spells it.
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Append => "append",
-            Self::Direct => "direct",
-            Self::Fold => "fold",
-            Self::First => "first",
-        }
-    }
 }
 
 /// The vocabulary the routing reads: the bytes that close a shard part (`unit_index.PART_CLOSING`), the machine checks in their order (`audit.MACHINE_CHECKS`), the app index's and the locator's names and formats and the locator rows' name (`app_index`), and the names the units index and the manifest's identity are read by.
@@ -107,7 +91,7 @@ fn scan_failure(failure: ScanError) -> BuildError {
 /// The previous corpus's parts by class, in the manifest's order, each class's key as the manifest gives it.
 pub type PriorParts = Vec<(PyValue, Vec<String>)>;
 
-/// `build._prior_parts` over the manifest's bytes, None for a corpus with no manifest that reads: each class entry's id with its parts (`unit_index.class_shards`), a repeated id keeping its first place with its last parts. A manifest that is not UTF-8, does not parse, or whose classes Python cannot read as `_prior_parts` reads them (an `OSError`, `ValueError`, `KeyError`, `TypeError` or `AttributeError`) gives none; one holding what the JSON reader does not hold fails.
+/// Each class entry's id with its parts (`unit_index.class_shards`), a repeated id keeping its first place with its last parts. A manifest that is not UTF-8, does not parse, or whose classes do not read (where Python raises an `OSError`, `ValueError`, `KeyError`, `TypeError` or `AttributeError`) gives none; one holding what the JSON reader does not hold fails.
 pub fn prior_parts_of(raw: Option<&[u8]>) -> std::result::Result<PriorParts, BuildError> {
     let Some(text) = raw.and_then(|raw| std::str::from_utf8(raw).ok()) else {
         return Ok(Vec::new());
@@ -157,12 +141,12 @@ pub fn prior_parts_of(raw: Option<&[u8]>) -> std::result::Result<PriorParts, Bui
     Ok(parts)
 }
 
-/// `build._prior_parts`: the previous corpus's parts by class, read from the manifest under `out_dir` ([`prior_parts_of`]); none when it does not read.
+/// The previous corpus's parts by class, read from the manifest under `out_dir` ([`prior_parts_of`]); none when it does not read.
 pub fn prior_parts(out_dir: &Path) -> std::result::Result<PriorParts, BuildError> {
     prior_parts_of(std::fs::read(out_dir.join("manifest.json")).ok().as_deref())
 }
 
-/// One class as the write receives it (`build._ClassToWrite`): the fields of its ledger entry or change group the manifest records, the section it was put in, its units' ordinals in shard order (by id word, which sorts like the ids), the previous corpus's parts for it and its route.
+/// One class as the write receives it: the fields of its ledger entry or change group the manifest records, the section it was put in, its units' ordinals in shard order (by id word, which sorts like the ids), the previous corpus's parts for it and its route.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassToWrite {
     pub id: String,
@@ -180,7 +164,7 @@ pub struct ClassToWrite {
 }
 
 impl PriorShards {
-    /// `PriorShards.dead_and_live`: the class's dead and live bytes over `parts`, a part being `[`, its slots each with the comma or bracket before it, and `closing`, so what no live fragment takes is dead.
+    /// The class's dead and live bytes over `parts`, a part being `[`, its slots each with the comma or bracket before it, and `closing`, so what no live fragment takes is dead.
     pub fn dead_and_live(&self, parts: &[String], closing: i64) -> (i64, i64) {
         let live: i64 = parts
             .iter()
@@ -194,7 +178,7 @@ impl PriorShards {
     }
 }
 
-/// `build._route`: how the write writes one class, before any of its bytes are written. Each unit is predicted unchanged or changed from what the store holds ([`UnitStore::predicted_unchanged`], which sets its place in `predicted`), weighed at its plain shard bytes with its comma. A class with no prior parts is a first base; one whose dead bytes on disk reach its live bytes is a fold; otherwise the share rule writes it directly when its changed bytes pass half its live bytes, and appends to it otherwise.
+/// How the write writes one class, before any of its bytes are written. Each unit is predicted unchanged or changed from what the store holds ([`UnitStore::predicted_unchanged`], which sets its place in `predicted`), weighed at its plain shard bytes with its comma. A class with no prior parts is a first base; one whose dead bytes on disk reach its live bytes is a fold; otherwise the share rule writes it directly when its changed bytes pass half its live bytes, and appends to it otherwise.
 #[allow(clippy::too_many_arguments)]
 pub fn route(
     entry_id: &str,
@@ -240,7 +224,7 @@ pub fn route(
     }
 }
 
-/// `build._class_meta`: a class's manifest record, its `shards` left empty for the write to fill, from the table's and the store's columns over every unit of the class: its ledger fields, a `note` of None for an empty one, its unit and row counts, how many units a machine check approves and how many each check approves, in `machine_checks` order, and the batches its units fall in, sorted.
+/// A class's manifest record, its `shards` left empty for the write to fill, from the table's and the store's columns over every unit of the class: its ledger fields, a `note` of None for an empty one, its unit and row counts, how many units a machine check approves and how many each check approves, in `machine_checks` order, and the batches its units fall in, sorted.
 pub fn class_meta(
     entry: &ClassToWrite,
     table: &UnitTable,
@@ -304,7 +288,7 @@ pub fn class_meta(
     ]))
 }
 
-/// `build._write_runs` over the classes' unit counts, in shard order: contiguous stretches of them, each closed before the class that would take it past an even share of the units (the unit total over `width`, at least one, rounded up), a class larger than that share a run of its own; at least one run, empty when there are no classes. Each run holds its classes' places.
+/// Contiguous stretches of them, each closed before the class that would take it past an even share of the units (the unit total over `width`, at least one, rounded up), a class larger than that share a run of its own; at least one run, empty when there are no classes. Each run holds its classes' places.
 pub fn write_runs(sizes: &[usize], width: i64) -> Vec<Vec<usize>> {
     let total: u64 = sizes.iter().map(|&size| size as u64).sum();
     let share = total.div_ceil(width.max(1) as u64);
@@ -325,7 +309,7 @@ pub fn write_runs(sizes: &[usize], width: i64) -> Vec<Vec<usize>> {
     runs
 }
 
-/// `build._write_width`: how many threads the write runs on, the most that fit (`fit`) but no more than the unit total over the largest class's units, rounded up, and at least one.
+/// How many threads the write runs on, the most that fit (`fit`) but no more than the unit total over the largest class's units, rounded up, and at least one.
 pub fn write_width(sizes: &[usize], fit: i64) -> usize {
     let largest = sizes.iter().copied().max().unwrap_or(0) as u64;
     let bound = if largest == 0 {
@@ -445,7 +429,7 @@ pub struct Routed {
     pub runs: Vec<Vec<usize>>,
 }
 
-/// The write's decisions before it writes, as `build._write_corpus` makes them: the classes of `classes`, in manifest order, sorted into shard order (by `<id>.json`), each with its section, its units in the passes' rows sorted by id word, the previous corpus's parts for it, none when one of them is not a file under `out_dir`, and its route ([`route`]); whether the sidecars are copied forward ([`copy_forward`]) when the cache supplied `cached` units; and the runs, cut at the width `fit` narrows to ([`write_width`], [`write_runs`]).
+/// The write's decisions before it writes: the classes of `classes`, in manifest order, sorted into shard order (by `<id>.json`), each with its section, its units in the passes' rows sorted by id word, the previous corpus's parts for it, none when one of them is not a file under `out_dir`, and its route ([`route`]); whether the sidecars are copied forward ([`copy_forward`]) when the cache supplied `cached` units; and the runs, cut at the width `fit` narrows to ([`write_width`], [`write_runs`]).
 #[allow(clippy::too_many_arguments)]
 pub fn route_classes(
     out_dir: &Path,
@@ -521,210 +505,6 @@ pub fn route_classes(
         width,
         runs,
     })
-}
-
-/// The keys of the `route` stage's lines beside its units (`units_stage_fixtures.ROUTE_*`).
-const CLASS_PREFIX: &str = "class:";
-const ORDINALS_COLUMN: &str = "class-ordinals";
-const RUNS_KEY: &str = "runs";
-const COPY_FORWARD_KEY: &str = "copy-forward";
-const RUNS_GENERATED: &str = "generated:runs:";
-const PRIOR_PARTS_GENERATED: &str = "generated:prior-parts:";
-const CURRENT_GENERATED: &str = "generated:current";
-
-fn runs_value(runs: &[Vec<usize>]) -> PyValue {
-    PyValue::List(
-        runs.iter()
-            .map(|run| {
-                PyValue::List(
-                    run.iter()
-                        .map(|&place| PyValue::Int(place as i64))
-                        .collect(),
-                )
-            })
-            .collect(),
-    )
-}
-
-/// Write the `route` stage's run lines, as the Python stage's `route_boundary` lays them out: a `unit:<ordinal>` line for each ordinal in `units`, whether the unit's fragment is predicted unchanged, and the column over every unit; a `class:<place>` line a class in shard order, its id, route, prior parts and manifest record; the column over each class's id and ordinals; the width and the runs; and whether the sidecars are copied forward.
-fn route_lines(
-    table: &UnitTable,
-    store: &UnitStore,
-    routed: &Routed,
-    names: &RouteNames,
-    units: &std::collections::HashSet<usize>,
-    out: &mut impl Write,
-) -> Result<()> {
-    let mut digest = ColumnDigest::new();
-    for (ordinal, &predicted) in routed.predicted.iter().enumerate() {
-        let value = PyValue::Bool(predicted);
-        if units.contains(&ordinal) {
-            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-        }
-        digest.add(&value);
-    }
-    digest.write(out, "value")?;
-    for (place, entry) in routed.classes.iter().enumerate() {
-        let meta = class_meta(entry, table, store, &names.machine_checks)
-            .map_err(|failure| WireError(format!("the class record failed: {failure}")))?;
-        stage_line(
-            out,
-            &format!("{CLASS_PREFIX}{place}"),
-            &PyValue::Tuple(vec![
-                PyValue::str(&entry.id),
-                PyValue::str(entry.route.name()),
-                PyValue::str_tuple(&entry.prior_parts),
-                meta,
-            ]),
-        )?;
-    }
-    let mut ordinals = ColumnDigest::new();
-    for entry in &routed.classes {
-        ordinals.add(&PyValue::Tuple(vec![
-            PyValue::str(&entry.id),
-            PyValue::Tuple(entry.ordinals.iter().copied().map(int).collect()),
-        ]));
-    }
-    ordinals.write(out, ORDINALS_COLUMN)?;
-    stage_line(
-        out,
-        RUNS_KEY,
-        &PyValue::Tuple(vec![
-            PyValue::Int(routed.width as i64),
-            runs_value(&routed.runs),
-        ]),
-    )?;
-    stage_line(out, COPY_FORWARD_KEY, &PyValue::Bool(routed.copy_forward))
-}
-
-/// A generated `runs` line's input, `(sizes, fit)`, read.
-fn runs_input(input: &PyValue) -> Option<(Vec<usize>, i64)> {
-    let PyValue::Tuple(items) = input else {
-        return None;
-    };
-    let [PyValue::Tuple(sizes), PyValue::Int(fit)] = items.as_slice() else {
-        return None;
-    };
-    let sizes = sizes
-        .iter()
-        .map(|size| match size {
-            PyValue::Int(size) => usize::try_from(*size).ok(),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()?;
-    Some((sizes, *fit))
-}
-
-/// Answer one generated line of the `route` stage from its key and input: the width and the runs over class sizes, the prior parts of a manifest's bytes, or whether the dump's prior corpus holds a current units index, app index and locator.
-fn answer_generated(
-    key: &str,
-    input: &PyValue,
-    stage_file: &Path,
-    names: &RouteNames,
-) -> Result<PyValue> {
-    let fail = |failure: BuildError| WireError(format!("{key}: {failure}"));
-    if key.starts_with(RUNS_GENERATED) {
-        let Some((sizes, fit)) = runs_input(input) else {
-            return error(format!("{key}: the input is not (sizes, fit)"));
-        };
-        return Ok(PyValue::Tuple(vec![
-            PyValue::Int(write_width(&sizes, fit) as i64),
-            runs_value(&write_runs(&sizes, fit)),
-        ]));
-    }
-    if key.starts_with(PRIOR_PARTS_GENERATED) {
-        let raw = match input {
-            PyValue::Bytes(raw) => Some(raw.as_slice()),
-            PyValue::None => None,
-            other => return error(format!("{key}: the input is {}, not bytes", other.kind())),
-        };
-        let parts = prior_parts_of(raw).map_err(fail)?;
-        return Ok(PyValue::List(
-            parts
-                .into_iter()
-                .map(|(id, parts)| {
-                    PyValue::Tuple(vec![
-                        id,
-                        PyValue::List(parts.into_iter().map(PyValue::Str).collect()),
-                    ])
-                })
-                .collect(),
-        ));
-    }
-    if key == CURRENT_GENERATED {
-        let prior = dump_prior(stage_file)?;
-        let index =
-            index_is_current(&prior, &names.scan).map_err(|failure| fail(scan_failure(failure)))?;
-        let app = artifact_is_current(
-            &prior,
-            &names.app_index_name,
-            &names.app_index_format,
-            names,
-        )
-        .map_err(fail)?;
-        let locator =
-            artifact_is_current(&prior, &names.locator_name, &names.locator_format, names)
-                .map_err(fail)?;
-        return Ok(PyValue::Tuple(vec![
-            PyValue::Bool(index),
-            PyValue::Bool(app),
-            PyValue::Bool(locator),
-        ]));
-    }
-    error(format!("{key}: not a line the route stage answers"))
-}
-
-/// The `route` stage: when the stage file holds lines from the build's run, run the build through phase 1 ([`through_units`]), then [`triage`] and [`passes`], then [`route_classes`] over the corpus directory the build ran in, at the write width the input gives ([`write_fit`]), and answer with the lines `route_lines` writes; then answer each generated line ([`answer_generated`]).
-pub fn stage_route(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = RouteNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_units(&input, stage_file, "route", |run| {
-            let failure = |failure: BuildError| WireError(format!("the routing failed: {failure}"));
-            let triage: Triage = triage(
-                &input,
-                &run.classes_present,
-                &mut run.table,
-                &mut run.planned.store,
-            )
-            .map_err(failure)?;
-            let passes: Passes = passes(
-                &mut run.table,
-                &mut run.planned.store,
-                &triage,
-                &run.drive,
-                &run.planned.verify_units,
-            )
-            .map_err(failure)?;
-            let routed = route_classes(
-                &run.corpus,
-                &run.table,
-                &run.planned.store,
-                &triage.classes,
-                &triage.sections,
-                &passes.by_class,
-                run.planned.prior_shards.as_ref(),
-                run.planned.cached,
-                write_fit(&input.widths),
-                &names,
-            )
-            .map_err(failure)?;
-            route_lines(
-                &run.table,
-                &run.planned.store,
-                &routed,
-                &names,
-                &lines.units,
-                out,
-            )
-        })?;
-    }
-    for (key, key_input) in &lines.generated {
-        let value = answer_generated(key, key_input, stage_file, &names)?;
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

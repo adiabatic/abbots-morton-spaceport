@@ -1,29 +1,27 @@
-"""Pack the baseline subset tables into one binary file that every process maps read-only.
+"""Pack the baseline subset tables into one binary file that the review crate's build process maps read-only.
 
-`write_pack` reads each acceptance configuration's `baseline-<config>.subset.tsv.gz` through `rowmodel.open_table`, keeps the codepoint key and the three fields `SubsetRow` has, checks every junction token with `is_junction_token`, and writes one file. The file starts with a JSON header: the format tag, `PACKER_DIGEST` (this module's prose-insensitive code digest, so a change to the junction vocabulary or the projection rewrites every existing pack), the writer's byte order, the tables' sha256 digests (the caller passes the ones `unit_cache.environment_stamp` computes for its `subsets` line), one string table of every glyph name and junction token, and each configuration's row count and section offsets. Each configuration's section follows: a sorted array of 8-byte keys and a fixed-width record array of glyph ids, cluster starts, and junction ids.
+`write_pack` reads each acceptance configuration's `baseline-<config>.subset.tsv.gz` through `rowmodel.open_table`, keeps the codepoint key and the three fields the crate's enricher reads (the old font's glyph names, the cluster starts and the junctions), checks every junction token with `is_junction_token`, and writes one file. The file starts with a JSON header: the format tag, `PACKER_DIGEST` (this module's prose-insensitive code digest, so a change to the junction vocabulary or the projection rewrites every existing pack), the writer's byte order, the tables' sha256 digests (the caller passes the ones `unit_cache.environment_stamp` computes for its `subsets` line), one string table of every glyph name and junction token, and each configuration's row count and section offsets. Each configuration's section follows: a sorted array of 8-byte keys and a fixed-width record array of glyph ids, cluster starts, and junction ids.
 
 A key is the window's codepoints packed right-aligned into one unsigned 64-bit integer, four 16-bit slots zero-padded on the left. The extractor writes rows in `(length, codepoints)` order, which is also the integer order, so a table normally arrives sorted; one that does not is sorted here, on the in-memory path below.
 
-The packer runs in the corpus build's Python process before the workload loads and before any pool starts, the parent of the Python build, budgeted under `CORPUS_PARENT_BYTES` in rebuild/tools/artifact_cycle.py, or the launcher of the Rust build, the default, budgeted under `CORPUS_BUILD_RS_LAUNCHER_BYTES` there. It reads the tables in two passes in one spawn process a configuration whatever the build's widths, each process serving both passes over its own configuration's table (`_PackProcesses`, `_pack_process`); they inherit the parent's environment and with it the build's allocator setting. Pass 1 (`_survey`) streams one table through `_projected_rows` and returns its row count, whether its keys strictly increase, its glyph names and junction tokens, its largest glyph, cluster and junction counts, and the exception its read raised, as a value, since the tables finish in any order. The parent collects every survey before it decides: it raises the earliest configuration's error in `configs` order, the one a serial read in that order meets first, and writes no file before it does. Otherwise it lays out the header from the surveys exactly as one pass over every row would (`_layout`), marks `SURVEYED_MARK` with the rows and strings (`memory_tally.mark`), writes the header and its padding at offset 0 of the temporary file, and sizes the file to its final length with `ftruncate`, which leaves every alignment gap a hole that reads as zeros, so no byte is written twice. Pass 2 (`_write_section`) opens the temporary file by path without truncating it, so a late opener leaves its neighbors' sections alone, streams its table again, encodes each row with the header's string ids and record layout (`_encode_section`), and writes its keys and its records at their offsets with `pwrite`, a bounded chunk at a time. No message between the parent and a pack process carries rows: the arguments are paths and the header's parameters, and the results are counts, a few hundred strings and errors. So the parent holds the surveys' sets and the header, and each pack process one table's field memos and a chunk. The file is renamed into place once every pass-2 process has answered, and removed if any failed, so a reader never maps a partly written pack. However the pack ends, the parent asks each process for its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it stops it, and writes them, one a configuration, with its own peak footprint as the controller's, to a `subset-pack` pool record in the timings journal (`cycle_timings.record_pool`).
+The packer runs in the corpus build's Python process before the build process starts, budgeted with that process under `CORPUS_BUILD_RS_LAUNCHER_BYTES` in rebuild/tools/artifact_cycle.py. It reads the tables in two passes in one spawn process a configuration whatever the build's widths, each process serving both passes over its own configuration's table (`_PackProcesses`, `_pack_process`); they inherit the parent's environment and with it the build's allocator setting. Pass 1 (`_survey`) streams one table through `_projected_rows` and returns its row count, whether its keys strictly increase, its glyph names and junction tokens, its largest glyph, cluster and junction counts, and the exception its read raised, as a value, since the tables finish in any order. The parent collects every survey before it decides: it raises the earliest configuration's error in `configs` order, the one a serial read in that order meets first, and writes no file before it does. Otherwise it lays out the header from the surveys exactly as one pass over every row would (`_layout`), writes the header and its padding at offset 0 of the temporary file, and sizes the file to its final length with `ftruncate`, which leaves every alignment gap a hole that reads as zeros, so no byte is written twice. Pass 2 (`_write_section`) opens the temporary file by path without truncating it, so a late opener leaves its neighbors' sections alone, streams its table again, encodes each row with the header's string ids and record layout (`_encode_section`), and writes its keys and its records at their offsets with `pwrite`, a bounded chunk at a time. No message between the parent and a pack process carries rows: the arguments are paths and the header's parameters, and the results are counts, a few hundred strings and errors. So the parent holds the surveys' sets and the header, and each pack process one table's field memos and a chunk. The file is renamed into place once every pass-2 process has answered, and removed if any failed, so a reader never maps a partly written pack. However the pack ends, the parent asks each process for its peak footprint (`peak_rss.peak_footprint_self_bytes`) as it stops it, and writes them, one a configuration, with its own peak footprint as the controller's, to a `subset-pack` pool record in the timings journal (`cycle_timings.record_pool`).
 
 A table whose keys do not strictly increase sends the whole pack down the in-memory path (`write_pack_in_memory`), in the parent alone, which writes no pool record of its own (the processes whose pass 1 sent it there record theirs as they stop): it holds every table's keys as one `array` of unsigned 64-bit integers and its rows as one `array` of indices into a pool of distinct `(glyphs, clusters, junctions)` triples, which repeat heavily across configurations, plus one encoded record per distinct triple and one configuration's encoded section at a time while it is written. It sorts an out-of-order table and refuses a window with two rows, and writes the bytes the two passes write.
 
-`SubsetPack.open` maps the file with `mmap.ACCESS_READ` and fails when the header's format, packer digest, byte order, or table digests differ from this process's code and from the digests the caller computed from the tables on disk. It interns the string table once through `sys.intern`. `row` bisects the key array through a cast `memoryview` and builds one frozen `SubsetRow` from the record at that index. Every worker of the Python build shares the mapping through the page cache, and a process's resident share is the pages its lookups touch, so a corpus worker's memory does not grow with the tables or the alphabet (`CORPUS_WORKER_BYTES` in rebuild/tools/artifact_cycle.py budgets the rest); the Rust build's threads read the same file through one mapping of their process (rebuild/review-rs/src/subset_pack.rs). `ensure_pack` is the entry point a reader needs: it returns a current pack beside the tables, writing one if needed.
+The review crate maps the file read-only (rebuild/review-rs/src/subset_pack.rs) and refuses it when the header's format, packer digest, byte order, or table digests differ from the ones the units init names (`units_exec.init_values`), which are this module's and the digests the build computed from the tables on disk. The build's threads share the one mapping, and the process's resident share is the pages its lookups touch, so its memory does not grow with the tables or the alphabet. `ensure_pack` is the entry point the build needs: it returns a current pack beside the tables, writing one if needed.
 
-The junction vocabulary check runs over every row at pack time. These rows are the only source of a unit's `before.junctions`, and a check over only the rows a worker looks up would not cover the table. Pass 1 checks every row of every table, and the parent raises the earliest configuration's first bad row before any file is written, so a table with a compound junction token never becomes a pack.
+The junction vocabulary check runs over every row at pack time. These rows are the only source of a unit's `before.junctions`, and a check over only the rows the build looks up would not cover the table. Pass 1 checks every row of every table, and the parent raises the earliest configuration's first bad row before any file is written, so a table with a compound junction token never becomes a pack.
 """
 
 from __future__ import annotations
 
 import functools
 import json
-import mmap
 import multiprocessing
 import os
 import struct
 import sys
 from array import array
-from bisect import bisect_left
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
@@ -32,7 +30,6 @@ from pathlib import Path
 from types import TracebackType
 
 from rebuild.pipeline.fingerprint import code_file_digest, file_sha256
-from rebuild.tools import memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import peak_footprint_self_bytes
 from rebuild.validation.rowmodel import open_table
@@ -47,8 +44,6 @@ _ALIGN = 8
 _LENGTH = struct.Struct("<Q")
 _JUNCTION_TOKENS = ("break", "lig", "absent")
 _CHUNK_ROWS = 8192
-# The mark (`memory_tally.mark`) the parent makes between the passes, with the pack's rows and strings, which the memory series' pack child reads.
-SURVEYED_MARK = "pack surveyed"
 
 
 def is_junction_token(token) -> bool:
@@ -56,15 +51,6 @@ def is_junction_token(token) -> bool:
     return isinstance(token, str) and (
         token in _JUNCTION_TOKENS or (token.startswith("y") and token[1:].isdigit())
     )
-
-
-@dataclass(frozen=True, slots=True)
-class SubsetRow:
-    """The fields the enricher reads from one baseline subset row: the old font's glyph names, which the kern-neutral re-shape is checked against; the cluster starts, which give the before spans; and the junctions, which give the before junctions and the junction-grain half of the divergence. `rowmodel.Row` also has `positions`, which this path does not use because the subset was extracted with the old font's kerning on and the before pens come from a kern-neutral re-shape, and `codepoints`, which is the key the pack is searched by. A row is built per lookup from the mapped pack and lives only as long as the enrichment that asked for it, so no process holds a table of these."""
-
-    glyphs: tuple[str, ...]
-    clusters: tuple[int, ...]
-    junctions: tuple[str, ...]
 
 
 def table_path(subset_dir: Path, config: str) -> Path:
@@ -471,9 +457,6 @@ def _write_sections(
     """Lay the pack out from the surveys, stage the header in a temporary file sized to the pack's length, have each process run pass 2 over its own table, and rename the file into place once every process has answered, or remove it and raise the earliest configuration's error if any failed."""
     layout = _layout(configs, surveys, digests)
     header = layout.header
-    memory_tally.mark(
-        SURVEYED_MARK, rows=sum(survey.rows for survey in surveys), strings=len(header["strings"])
-    )
     sections = [header["sections"][config] for config in configs]
     temp = destination.with_name(f"{destination.name}.tmp-{os.getpid()}")
     descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o666)
@@ -626,98 +609,3 @@ def ensure_pack(
         ):
             return destination
     return write_pack(subset_dir, configs, digests, destination)
-
-
-@dataclass(slots=True)
-class _Section:
-    keys: memoryview
-    records: memoryview
-    rows: int
-
-
-class SubsetPack:
-    """One mapped pack. `row` is the enricher's lookup, `rows` iterates one configuration in key order, `sizes` reports the pack's size to the memory tally, and `close` releases the views and the mapping."""
-
-    def __init__(self, path: Path, mapping: mmap.mmap, header: dict, base: int) -> None:
-        self.path = Path(path)
-        self._mapping = mapping
-        self._view = memoryview(mapping)
-        self.strings = tuple(sys.intern(text) for text in header["strings"])
-        self._record = _record_struct(
-            header["glyph_slots"], header["cluster_slots"], header["junction_slots"]
-        )
-        self._glyph_slots = header["glyph_slots"]
-        self._cluster_slots = header["cluster_slots"]
-        self._sections: dict[str, _Section] = {}
-        for config, section in header["sections"].items():
-            rows = section["rows"]
-            keys_at = base + section["keys"]
-            records_at = base + section["records"]
-            self._sections[config] = _Section(
-                keys=self._view[keys_at : keys_at + rows * _KEY_BYTES].cast("Q"),
-                records=self._view[records_at : records_at + rows * self._record.size],
-                rows=rows,
-            )
-
-    @classmethod
-    def open(cls, path: Path, digests: Mapping[str, str]) -> SubsetPack:
-        """Map `path` read-only. Raises ValueError when the file is not a pack, or when the header's packer digest or byte order differs from this process's, or its table digests differ from `digests`, which the caller computed from the tables on disk."""
-        path = Path(path)
-        header, base = _read_header(path)
-        disagreement = _header_disagreement(header, digests)
-        if disagreement is not None:
-            raise ValueError(
-                f"{path}: the subset pack was {disagreement}; rewrite it over the tables it is read beside"
-            )
-        with open(path, "rb") as handle:
-            mapping = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
-        return cls(path, mapping, header, base)
-
-    @property
-    def configs(self) -> tuple[str, ...]:
-        return tuple(self._sections)
-
-    def _materialize(self, section: _Section, index: int) -> SubsetRow:
-        fields = self._record.unpack_from(section.records, index * self._record.size)
-        glyph_count, cluster_count, junction_count = fields[0], fields[1], fields[2]
-        glyphs_at = 3
-        clusters_at = glyphs_at + self._glyph_slots
-        junctions_at = clusters_at + self._cluster_slots
-        strings = self.strings
-        return SubsetRow(
-            glyphs=tuple(strings[index] for index in fields[glyphs_at : glyphs_at + glyph_count]),
-            clusters=tuple(fields[clusters_at : clusters_at + cluster_count]),
-            junctions=tuple(strings[index] for index in fields[junctions_at : junctions_at + junction_count]),
-        )
-
-    def row(self, config: str, codepoints: str) -> SubsetRow | None:
-        """Return the row for `codepoints` under `config`, or None when the pack has no such configuration or window. A window that has no key returns None, since the packer fails on a table that contains one."""
-        section = self._sections.get(config)
-        if section is None:
-            return None
-        try:
-            key = pack_key(codepoints)
-        except ValueError:
-            return None
-        index = bisect_left(section.keys, key)
-        if index >= section.rows or section.keys[index] != key:
-            return None
-        return self._materialize(section, index)
-
-    def rows(self, config: str) -> Iterator[tuple[str, SubsetRow]]:
-        """Yield every row of one configuration in key order as `(codepoints, row)`."""
-        section = self._sections[config]
-        for index in range(section.rows):
-            yield key_codepoints(section.keys[index]), self._materialize(section, index)
-
-    def sizes(self) -> tuple[int, int]:
-        """Return the pack's row count across all configurations and the mapping's size in bytes, which the memory tally prints. The tally reports the mapping's size because a process's resident share of a mapping is the pages it has touched, which the process cannot read for itself."""
-        return sum(section.rows for section in self._sections.values()), len(self._mapping)
-
-    def close(self) -> None:
-        for section in self._sections.values():
-            section.keys.release()
-            section.records.release()
-        self._sections.clear()
-        self._view.release()
-        self._mapping.close()

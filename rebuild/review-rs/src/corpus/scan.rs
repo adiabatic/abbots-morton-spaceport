@@ -1,19 +1,14 @@
-//! The plan's reads of the prior corpus, as `rebuild/review/unit_cache.py` makes them: the unit store opened ([`open_store`], `unit_cache.open_store`), its materialized lines read in order as `unit_index.store_lines` merges its base and segments ([`OpenStore::lines`]), each matched to a unit of this build by its input key and, where the plan may reuse it, parsed ([`scan_store`]), the plan's scan reading the lines on one thread and parsing them on several, handed back in the store's order ([`scan_store_threaded`]), and the lines the walk placed parsed again alone ([`scan_marked`]); the parts a record's address is trusted in ([`trusted_parts`]) and the manifest identity the store is stamped with ([`manifest_stamp`], [`manifest_identity`]); the records the scan found without an address ([`WantedFragments`]) placed by a walk over the prior corpus's live fragments ([`locate_prior_fragments`], [`LocatedFragments`]), read through the live-fragment iterator as `unit_index.LiveCorpus` reads them, from the store's addresses, the index's ids or the parts themselves; the single file a store written before the segment format leaves put under a head ([`adopt_single_file`]); and why a store does not load ([`store_miss_note`]) and whether its stamps say every record is re-derived ([`rederiving_moved`]).
+//! The plan's reads of the prior corpus: the unit store opened ([`open_store`]), its materialized lines read in order as `unit_index.store_lines` merges its base and segments ([`OpenStore::lines`]), each matched to a unit of this build by its input key and, where the plan may reuse it, parsed, the lines read on one thread and parsed on several and handed back in the store's order ([`scan_store_threaded`]), and the lines the walk placed parsed again alone ([`scan_marked`]); the parts a record's address is trusted in ([`trusted_parts`]) and the manifest identity the store is stamped with ([`manifest_stamp`], [`manifest_identity`]); the records the scan found without an address ([`WantedFragments`]) placed by a walk over the prior corpus's live fragments ([`locate_prior_fragments`], [`LocatedFragments`]), read through the live-fragment iterator from the store's addresses, the index's ids or the parts themselves; the single file a store written before the segment format leaves put under a head ([`adopt_single_file`]); and why a store does not load ([`store_miss_note`]) and whether its stamps say every record is re-derived ([`rederiving_moved`]).
 //!
-//! What a read raises is taken as the plan takes it ([`ScanError`]): what `unit_cache.StoreUnreadable` stands for, which the plan answers by restarting over an emptied store; another exception, which fails the Python build; or a value Python reads that the reader does not hold, which fails the Rust build. The walk keeps what it placed before an `OSError` or a `ValueError` stops it, as `locate_prior_fragments` does, and fails on anything else.
-//!
-//! [`stage_scan`] is the `scan` stage of the stage fixtures.
+//! What a read raises is taken as the plan takes it ([`ScanError`]): a store that does not read, which the plan answers by restarting over an emptied store; another exception, or a value the reader does not hold, either of which fails the build. The walk keeps what it placed before an `OSError` or a `ValueError` stops it, and fails on anything else.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader};
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-
-use super::audit::{integer, items, stage_line, text};
 use super::columns::{KeyIndex, sorted_by_word};
 use super::gzip::{GzipError, GzipReader, inflate_fragment};
 use super::input::{BuildInput, Stamp};
@@ -29,12 +24,10 @@ use super::rowdelta::{
 };
 use super::shards::overflow_index;
 use super::signatures::{
-    StoreError, dump_prior, get, int_equal, is_str, labels_of, miss_note, read_header,
-    recorded_labels,
+    StoreError, get, int_equal, is_str, labels_of, miss_note, read_header, recorded_labels,
 };
 use super::sink::Sink;
-use super::store::{KEY_BYTES, PriorFragment};
-use super::table::{ColumnDigest, UNIT_PREFIX, count_value};
+use super::store::PriorFragment;
 use crate::fragment::{lookup, py_eq, sha256_hex};
 use crate::pyfmt::{PyValue, json};
 use crate::wire::{Result, WireError, error};
@@ -49,8 +42,6 @@ const ID_WIDTH: usize = 13;
 const ID_OPEN: &[u8] = b"{\"id\": \"";
 const CLASS_SEAM: &[u8] = b", \"class\": ";
 const CLUSTER_SEAM: &[u8] = b", \"cluster\": ";
-/// The `scan` stage's directory, beside its stage file, of the files its generated lines name by sha256.
-pub const STAGE_BLOBS: &str = "scan.blobs";
 
 /// The names the scan reads from the build input's vocabulary: the unit store's and the units index's files and formats, the store's notes, the stamp labels that say every record is re-derived, and the manifest's fingerprint components its identity leaves out.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,9 +107,9 @@ impl ScanNames {
 pub enum ScanError {
     /// `unit_cache.StoreUnreadable`, with why: the plan drops what it loaded and restarts over an emptied store.
     Unreadable(String),
-    /// Another exception, by its class and text, which no caller in the plan catches and which fails the Python build.
+    /// Another exception, by its class and text, which no caller in the plan catches, so it fails the build.
     Failed(String),
-    /// A value Python reads that the reader does not hold, which fails the Rust build.
+    /// A value the reader does not hold, which fails the build.
     Unheld(String),
 }
 
@@ -425,7 +416,7 @@ pub fn manifest_stamp(out_dir: &Path, names: &ScanNames) -> std::result::Result<
         .map_or_else(|| "missing".to_owned(), |(_, identity)| identity))
 }
 
-/// `unit_cache._trusted_parts`: the parts the store's stamps record whose size on disk is the recorded one. Recorded parts that are a list or a `str` trust none, and fail, as `recorded[part]` raises outside any `except`, once a part they name is on disk; a name that is not a `str` fails, as do recorded parts of another type.
+/// The parts the store's stamps record whose size on disk is the recorded one. Recorded parts that are a list or a `str` trust none, and fail, as `recorded[part]` raises outside any `except`, once a part they name is on disk; a name that is not a `str` fails, as do recorded parts of another type.
 pub fn trusted_parts(
     out_dir: &Path,
     stamps: &[(PyValue, PyValue)],
@@ -482,97 +473,13 @@ pub fn trusted_parts(
     Ok(HashSet::new())
 }
 
-/// One line of the prior store as the plan scans it (`unit_cache.ScannedLine`): its place in the materialized order, the ordinal whose input key it names, the record parsed when the scan parses named lines, and the raw line.
+/// One line of the prior store as the plan scans it: its place in the materialized order, the ordinal whose input key it names, the record parsed when the scan parses named lines, and the raw line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScannedLine {
     pub index: usize,
     pub ordinal: Option<u32>,
     pub cached: Option<ParsedCachedUnit>,
     pub line: Vec<u8>,
-}
-
-impl ScannedLine {
-    /// The line as the `scan` stage records it: its index, its ordinal, its record and the sha256 of its bytes.
-    pub fn value(&self) -> PyValue {
-        PyValue::Tuple(vec![
-            count_value(self.index),
-            self.ordinal
-                .map_or(PyValue::None, |ordinal| PyValue::Int(i64::from(ordinal))),
-            self.cached
-                .as_ref()
-                .map_or(PyValue::None, ParsedCachedUnit::value),
-            PyValue::str(sha256_hex(&self.line)),
-        ])
-    }
-}
-
-/// `unit_cache.scan_store`: every line of an open store in its materialized order, each matched to this build's units by input key over `named`, the index of the input-key column `column`, and, with `parse`, a named line parsed with its address kept only in a `trusted` part. The first failure ends it.
-pub struct Scan<'a> {
-    lines: Lines<'a, (Place, Vec<u8>)>,
-    named: &'a KeyIndex,
-    column: &'a [u8],
-    parse: bool,
-    trusted: &'a HashSet<String>,
-    index: usize,
-    done: bool,
-}
-
-pub fn scan_store<'a>(
-    opened: &'a OpenStore,
-    named: &'a KeyIndex,
-    column: &'a [u8],
-    parse: bool,
-    trusted: &'a HashSet<String>,
-) -> Scan<'a> {
-    Scan {
-        lines: opened.lines(),
-        named,
-        column,
-        parse,
-        trusted,
-        index: 0,
-        done: false,
-    }
-}
-
-impl Iterator for Scan<'_> {
-    type Item = std::result::Result<ScannedLine, ScanError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-        let line = match self.lines.next() {
-            None => {
-                self.done = true;
-                return None;
-            }
-            Some(Err(failure)) => {
-                self.done = true;
-                return Some(Err(store_failure(failure)));
-            }
-            Some(Ok((_, line))) => line,
-        };
-        let ordinal = named_ordinal(self.named, self.column, &line);
-        let mut cached = None;
-        if self.parse && ordinal.is_some() {
-            match parse_line(&line, self.trusted) {
-                Ok(parsed) => cached = Some(parsed),
-                Err(failure) => {
-                    self.done = true;
-                    return Some(Err(record_failure(failure)));
-                }
-            }
-        }
-        let index = self.index;
-        self.index += 1;
-        Some(Ok(ScannedLine {
-            index,
-            ordinal,
-            cached,
-            line,
-        }))
-    }
 }
 
 /// How many lines the threaded scan hands a parse thread at once.
@@ -593,7 +500,7 @@ struct ParsedBatch<T> {
     failure: Option<ScanError>,
 }
 
-/// [`scan_store`] on threads: the store's lines read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread, so `apply` sees what the serial scan yields, in its order, and the first failure, the scan's or `apply`'s, ends it, a panic in a parse thread among them. At most two batches a parse thread are in flight between the read and `apply`.
+/// The scan of an open store on threads: every line of it in its materialized order, each matched to this build's units by input key over `named`, the index of the input-key column `column`, and, with `parse`, a named line parsed with its address kept only in a `trusted` part. The store's lines are read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread; the first failure, the scan's or `apply`'s, ends it, a panic in a parse thread among them. At most two batches a parse thread are in flight between the read and `apply`.
 #[allow(clippy::too_many_arguments)]
 pub fn scan_store_threaded<T, E>(
     opened: &OpenStore,
@@ -757,7 +664,7 @@ where
     })
 }
 
-/// `unit_cache.scan_marked`: the lines of an open store at the materialized places `marked` names, ascending, each with its place and parsed as [`scan_store`] parses it. A line is read before the first place is looked for, as the loop's first iteration reads one before it can stop.
+/// The lines of an open store at the materialized places `marked` names, ascending, each with its place and parsed as the scan parses it ([`scan_store_threaded`]). A line is read before the first place is looked for, as the loop's first iteration reads one before it can stop.
 pub struct Marked<'a> {
     lines: Lines<'a, (Place, Vec<u8>)>,
     marked: std::slice::Iter<'a, u32>,
@@ -822,7 +729,7 @@ impl Iterator for Marked<'_> {
     }
 }
 
-/// The prior records the scan could not place by address, as columns in scan order (`unit_cache.WantedFragments`): each one's class, an index into `classes`, and its id word.
+/// The prior records the scan could not place by address, as columns in scan order: each one's class, an index into `classes`, and its id word.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WantedFragments {
     pub classes: Vec<String>,
@@ -858,7 +765,7 @@ impl WantedFragments {
     }
 }
 
-/// Where the walk found the wanted records' fragments (`unit_cache.LocatedFragments`), as columns over the wanted records sorted by id word: the word and the class index, and for each found fragment its part (an index into `parts`, plus one; 0 when not found), start, length on disk, inflated length and 32-byte content key.
+/// Where the walk found the wanted records' fragments, as columns over the wanted records sorted by id word: the word and the class index, and for each found fragment its part (an index into `parts`, plus one; 0 when not found), start, length on disk, inflated length and 32-byte content key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocatedFragments {
     pub classes: Vec<String>,
@@ -900,7 +807,7 @@ impl LocatedFragments {
             .collect()
     }
 
-    /// `LocatedFragments.find`: the fragment the walk found for the record of this class and id, stamped with its content key, or None.
+    /// The fragment the walk found for the record of this class and id, stamped with its content key, or None.
     pub fn find(&self, prior_class: &str, unit_id: &str) -> Option<PriorFragment> {
         let word = id_word(unit_id)?;
         self.positions(word, prior_class)
@@ -966,36 +873,6 @@ impl LocatedFragments {
         }
         Ok(())
     }
-
-    /// The columns as the `scan` stage records them, beside the wanted records they were made from.
-    pub fn value(&self, wanted: &WantedFragments) -> PyValue {
-        let ints = |values: &mut dyn Iterator<Item = i64>| {
-            PyValue::Tuple(values.map(PyValue::Int).collect())
-        };
-        PyValue::Tuple(vec![
-            PyValue::str_tuple(&wanted.classes),
-            ints(&mut wanted.class_of.iter().map(|&value| i64::from(value))),
-            words_value(&wanted.words),
-            words_value(&self.words),
-            ints(&mut self.class_of.iter().map(|&value| i64::from(value))),
-            ints(&mut self.part.iter().map(|&value| i64::from(value))),
-            ints(&mut self.start.iter().map(|&value| value as i64)),
-            ints(&mut self.length.iter().map(|&value| i64::from(value))),
-            ints(&mut self.inflated.iter().map(|&value| i64::from(value))),
-            PyValue::str(hex(&self.content_keys)),
-            PyValue::str_tuple(&self.parts),
-        ])
-    }
-}
-
-/// Id words as the stage records them, each as `%016x`, since a word past 63 bits is no `i64`.
-fn words_value(words: &[u64]) -> PyValue {
-    PyValue::Tuple(
-        words
-            .iter()
-            .map(|word| PyValue::str(format!("{word:016x}")))
-            .collect(),
-    )
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -1821,7 +1698,7 @@ fn walk_part(
     Ok(())
 }
 
-/// `unit_cache.locate_prior_fragments`: where the prior shards hold the wanted records' fragments, with the content key each carries, read through the live-fragment iterator over the classes the records name. A corpus the iterator refuses, or an `OSError` or a `ValueError` partway, keeps what was placed before it; any other exception fails.
+/// Where the prior shards hold the wanted records' fragments, with the content key each carries, read through the live-fragment iterator over the classes the records name. A corpus the iterator refuses, or an `OSError` or a `ValueError` partway, keeps what was placed before it; any other exception fails.
 pub fn locate_prior_fragments(
     out_dir: &Path,
     wanted: &WantedFragments,
@@ -1845,7 +1722,7 @@ pub fn locate_prior_fragments(
     }
 }
 
-/// `unit_cache.adopt_single_file`: put the single file a store written before the segment format leaves under a head, as generation 0's base, by a hard link, with `stamps` as the head's stamps and a base of `lines` records of `rows_bytes` bytes, committed at once.
+/// Put the single file a store written before the segment format leaves under a head, as generation 0's base, by a hard link, with `stamps` as the head's stamps and a base of `lines` records of `rows_bytes` bytes, committed at once.
 pub fn adopt_single_file(
     out_dir: &Path,
     names: &ScanNames,
@@ -1899,7 +1776,7 @@ fn store_stamps(
     }
 }
 
-/// `unit_cache.store_miss_note`: why the store under `out_dir` does not load under `environment`, as the plan warns it: no store, a header that does not read, a stamp that moved, or a store stamped for another manifest; None when its stamps match.
+/// Why the store under `out_dir` does not load under `environment`, as the plan warns it: no store, a header that does not read, a stamp that moved, or a store stamped for another manifest; None when its stamps match.
 pub fn store_miss_note(
     out_dir: &Path,
     names: &ScanNames,
@@ -1919,7 +1796,7 @@ pub fn store_miss_note(
     ))
 }
 
-/// `unit_cache.rederiving_moved`: whether one of `labels` moved between a store's stamps and `environment`; a store whose stamps carry no lines counts as moved.
+/// Whether one of `labels` moved between a store's stamps and `environment`; a store whose stamps carry no lines counts as moved.
 pub fn rederiving_moved(
     stamps: &[(PyValue, PyValue)],
     environment: &Stamp,
@@ -1934,652 +1811,11 @@ pub fn rederiving_moved(
         .any(|label| recorded.get(label) != current.get(label))
 }
 
-// --- the stage ------------------------------------------------------------------------------------
-
-fn tagged(tag: &str, values: impl IntoIterator<Item = PyValue>) -> PyValue {
-    PyValue::Tuple(std::iter::once(PyValue::str(tag)).chain(values).collect())
-}
-
-/// A failure as a stage value: `("raised", kind)`.
-fn raised(failure: &ScanError) -> PyValue {
-    tagged("raised", [PyValue::str(failure.kind())])
-}
-
-/// What a recorded or generated value Python reads gives where the Rust reader does not hold it: the stage fails, as the build would.
-fn held<T>(
-    outcome: std::result::Result<T, ScanError>,
-) -> Result<std::result::Result<T, ScanError>> {
-    match outcome {
-        Err(ScanError::Unheld(why)) => error(format!("a value the reader does not hold: {why}")),
-        other => Ok(other),
-    }
-}
-
-fn sorted_texts(texts: &HashSet<String>) -> PyValue {
-    let mut texts: Vec<&String> = texts.iter().collect();
-    texts.sort();
-    PyValue::Tuple(texts.into_iter().map(PyValue::str).collect())
-}
-
-fn opened_value(opened: &OpenStore) -> PyValue {
-    tagged(
-        "opened",
-        [
-            PyValue::Dict(opened.stamps.clone()),
-            opened.head.as_ref().map_or(PyValue::None, Head::document),
-        ],
-    )
-}
-
-fn entries_of(value: &PyValue, what: &str) -> Result<Vec<(PyValue, PyValue)>> {
-    match value {
-        PyValue::Dict(entries) => Ok(entries.clone()),
-        other => error(format!("{what} is {}, not a dict", other.kind())),
-    }
-}
-
-fn stamp_of(value: &PyValue, what: &str) -> Result<Stamp> {
-    let [stamp, lines, detail] = items(value, what)? else {
-        return error(format!("{what} is not a stamp's value, lines and detail"));
-    };
-    let texts = |value: &PyValue| -> Result<Vec<String>> {
-        items(value, what)?
-            .iter()
-            .map(|line| text(line, what).map(str::to_owned))
-            .collect()
-    };
-    Ok(Stamp {
-        value: text(stamp, what)?.to_owned(),
-        lines: texts(lines)?,
-        detail: items(detail, what)?
-            .iter()
-            .map(|pair| {
-                let [label, lines] = items(pair, what)? else {
-                    return error(format!("{what} holds a detail that is not a pair"));
-                };
-                Ok((text(label, what)?.to_owned(), texts(lines)?))
-            })
-            .collect::<Result<_>>()?,
-        header: serde_json::Map::new(),
-    })
-}
-
-/// The stage's blobs and the scratch directory its generated lines' corpora are set up in.
-struct Workspace {
-    blobs: PathBuf,
-    scratch: PathBuf,
-    cases: usize,
-}
-
-impl Workspace {
-    /// A fresh directory holding `files`, each `(name, ("file", sha256))` or `(name, ("dir",))`.
-    fn corpus(&mut self, files: &PyValue, what: &str) -> Result<PathBuf> {
-        self.cases += 1;
-        let directory = self.scratch.join(self.cases.to_string());
-        let made = |failure: io::Error| WireError(format!("cannot set up {what}: {failure}"));
-        std::fs::create_dir_all(&directory).map_err(made)?;
-        for entry in items(files, what)? {
-            let [name, held] = items(entry, what)? else {
-                return error(format!("{what} holds an entry that is not a pair"));
-            };
-            let path = directory.join(text(name, what)?);
-            match items(held, what)? {
-                [kind] if text(kind, what)? == "dir" => {
-                    std::fs::create_dir_all(&path).map_err(made)?;
-                }
-                [kind, digest] if text(kind, what)? == "file" => {
-                    let digest = text(digest, what)?;
-                    let source = self.blobs.join(digest);
-                    let bytes = std::fs::read(&source).map_err(made)?;
-                    if sha256_hex(&bytes) != digest {
-                        return error(format!(
-                            "{} does not hold the bytes it is named for",
-                            source.display()
-                        ));
-                    }
-                    if let Some(parent) = path.parent() {
-                        std::fs::create_dir_all(parent).map_err(made)?;
-                    }
-                    std::fs::write(&path, bytes).map_err(made)?;
-                }
-                _ => return error(format!("{what} holds an entry of no known kind")),
-            }
-        }
-        Ok(directory)
-    }
-}
-
-/// What a scan gives as a generated line's value: the lines' count, the sha256 of their values, their bytes, and how it ended.
-fn scanned_value(
-    scan: impl Iterator<Item = std::result::Result<ScannedLine, ScanError>>,
-) -> Result<PyValue> {
-    let mut digest = ColumnDigest::new();
-    let mut count = 0usize;
-    let mut bytes = 0usize;
-    let mut ending = tagged("done", []);
-    for scanned in scan {
-        match held(scanned)? {
-            Ok(scanned) => {
-                digest.add(&scanned.value());
-                count += 1;
-                bytes += scanned.line.len();
-            }
-            Err(failure) => {
-                ending = raised(&failure);
-                break;
-            }
-        }
-    }
-    Ok(tagged(
-        "scanned",
-        [
-            count_value(count),
-            PyValue::str(digest.hex()),
-            count_value(bytes),
-            ending,
-        ],
-    ))
-}
-
-fn marked_value(
-    marked: impl Iterator<Item = std::result::Result<(usize, ParsedCachedUnit), ScanError>>,
-) -> Result<PyValue> {
-    let mut digest = ColumnDigest::new();
-    let mut count = 0usize;
-    let mut ending = tagged("done", []);
-    for item in marked {
-        match held(item)? {
-            Ok((index, cached)) => {
-                digest.add(&PyValue::Tuple(vec![count_value(index), cached.value()]));
-                count += 1;
-            }
-            Err(failure) => {
-                ending = raised(&failure);
-                break;
-            }
-        }
-    }
-    Ok(tagged(
-        "marked",
-        [count_value(count), PyValue::str(digest.hex()), ending],
-    ))
-}
-
-fn lines_value(opened: &OpenStore) -> Result<PyValue> {
-    let mut digest = ColumnDigest::new();
-    let mut count = 0usize;
-    for line in opened.lines() {
-        match held(line.map_err(store_failure))? {
-            Ok(((anchor, fraction), line)) => {
-                digest.add(&PyValue::Tuple(vec![
-                    PyValue::Tuple(vec![PyValue::Int(anchor), PyValue::str(fraction)]),
-                    PyValue::Bytes(line),
-                ]));
-                count += 1;
-            }
-            Err(failure) => return Ok(raised(&failure)),
-        }
-    }
-    Ok(tagged(
-        "lines",
-        [count_value(count), PyValue::str(digest.hex())],
-    ))
-}
-
-/// A store opened for a generated line, or the value the line takes when it does not open.
-fn opened_for(
-    directory: &Path,
-    names: &ScanNames,
-) -> Result<std::result::Result<OpenStore, PyValue>> {
-    Ok(match held(open_store(directory, names))? {
-        Ok(Some(opened)) => Ok(opened),
-        Ok(None) => Err(tagged("none", [])),
-        Err(failure) => Err(raised(&failure)),
-    })
-}
-
-fn u32s(value: &PyValue, what: &str) -> Result<Vec<u32>> {
-    items(value, what)?
-        .iter()
-        .map(|item| {
-            u32::try_from(integer(item, what)?)
-                .map_err(|_| WireError(format!("{what} holds an int that is not a u32")))
-        })
-        .collect()
-}
-
-fn texts_set(value: &PyValue, what: &str) -> Result<HashSet<String>> {
-    items(value, what)?
-        .iter()
-        .map(|item| text(item, what).map(str::to_owned))
-        .collect()
-}
-
-/// A generated line's value, by its form.
-fn answer(
-    input: &PyValue,
-    names: &ScanNames,
-    workspace: &mut Workspace,
-    key: &str,
-) -> Result<PyValue> {
-    let fields = items(input, key)?;
-    let Some((form, fields)) = fields.split_first() else {
-        return error(format!("{key}: an empty input"));
-    };
-    match (text(form, key)?, fields) {
-        ("open", [files]) => {
-            let directory = workspace.corpus(files, key)?;
-            Ok(match opened_for(&directory, names)? {
-                Ok(opened) => {
-                    let PyValue::Tuple(mut value) = opened_value(&opened) else {
-                        unreachable!("a tagged value is a tuple");
-                    };
-                    value.push(lines_value(&opened)?);
-                    PyValue::Tuple(value)
-                }
-                Err(value) => value,
-            })
-        }
-        ("scan", [files, keys, parse, trusted]) => {
-            let directory = workspace.corpus(files, key)?;
-            let keys = items(keys, key)?;
-            let mut column = Vec::with_capacity(keys.len() * KEY_BYTES);
-            for held in keys {
-                match held {
-                    PyValue::Bytes(bytes) => column.extend_from_slice(bytes),
-                    other => return error(format!("{key}: a key is {}", other.kind())),
-                }
-            }
-            let named = KeyIndex::new(&column, KEY_BYTES, keys.len())
-                .map_err(|failure| WireError(format!("{key}: {failure:?}")))?;
-            let trusted = texts_set(trusted, key)?;
-            let parse = matches!(parse, PyValue::Bool(true));
-            Ok(match opened_for(&directory, names)? {
-                Ok(opened) => scanned_value(scan_store(&opened, &named, &column, parse, &trusted))?,
-                Err(value) => value,
-            })
-        }
-        ("marked", [files, marked, trusted]) => {
-            let directory = workspace.corpus(files, key)?;
-            let marked = u32s(marked, key)?;
-            let trusted = texts_set(trusted, key)?;
-            Ok(match opened_for(&directory, names)? {
-                Ok(opened) => marked_value(scan_marked(&opened, &marked, &trusted))?,
-                Err(value) => value,
-            })
-        }
-        ("trusted", [files, stamps]) => {
-            let directory = workspace.corpus(files, key)?;
-            Ok(
-                match held(trusted_parts(&directory, &entries_of(stamps, key)?))? {
-                    Ok(trusted) => tagged("trusted", [sorted_texts(&trusted)]),
-                    Err(failure) => raised(&failure),
-                },
-            )
-        }
-        ("manifest", [files]) => {
-            let directory = workspace.corpus(files, key)?;
-            Ok(match held(manifest_stamp(&directory, names))? {
-                Ok(stamp) => PyValue::str(stamp),
-                Err(failure) => raised(&failure),
-            })
-        }
-        ("miss-note", [files, environment]) => {
-            let directory = workspace.corpus(files, key)?;
-            let environment = stamp_of(environment, key)?;
-            Ok(
-                match held(store_miss_note(&directory, names, &environment))? {
-                    Ok(note) => PyValue::optional_str(note.as_deref()),
-                    Err(failure) => raised(&failure),
-                },
-            )
-        }
-        ("rederiving", [stamps, lines]) => {
-            let environment = Stamp {
-                value: String::new(),
-                lines: items(lines, key)?
-                    .iter()
-                    .map(|line| text(line, key).map(str::to_owned))
-                    .collect::<Result<_>>()?,
-                detail: Vec::new(),
-                header: serde_json::Map::new(),
-            };
-            Ok(PyValue::Bool(rederiving_moved(
-                &entries_of(stamps, key)?,
-                &environment,
-                &names.rederiving,
-            )))
-        }
-        ("locate", [files, classes, class_of, words]) => {
-            let directory = workspace.corpus(files, key)?;
-            let classes = items(classes, key)?;
-            let class_of = u32s(class_of, key)?;
-            let words = items(words, key)?;
-            let mut wanted = WantedFragments::new();
-            for (class, word) in class_of.iter().zip(words) {
-                let class = text(&classes[*class as usize], key)?;
-                let word = u64::from_str_radix(text(word, key)?, 16)
-                    .map_err(|_| WireError(format!("{key}: a word is not hex")))?;
-                wanted.add(class, word);
-            }
-            Ok(
-                match held(locate_prior_fragments(&directory, &wanted, names))? {
-                    Ok(located) => located.value(&wanted),
-                    Err(failure) => raised(&failure),
-                },
-            )
-        }
-        ("adopt", [files, stamps, lines, rows_bytes]) => {
-            let directory = workspace.corpus(files, key)?;
-            let adopted = adopt_single_file(
-                &directory,
-                names,
-                &entries_of(stamps, key)?,
-                integer(lines, key)?,
-                integer(rows_bytes, key)?,
-                &Sink::new(None),
-            );
-            Ok(match held(adopted)? {
-                Ok(head) => PyValue::Tuple(vec![head.document(), directory_value(&directory)?]),
-                Err(failure) => raised(&failure),
-            })
-        }
-        (form, _) => error(format!("{key}: no form {form} with these arguments")),
-    }
-}
-
-/// A directory's files as the `scan` stage records them: each name, sorted, with the sha256 of its bytes.
-fn directory_value(directory: &Path) -> Result<PyValue> {
-    let fail =
-        |failure: io::Error| WireError(format!("cannot list {}: {failure}", directory.display()));
-    let mut files = Vec::new();
-    for entry in std::fs::read_dir(directory).map_err(fail)? {
-        let entry = entry.map_err(fail)?;
-        if entry.file_type().map_err(fail)?.is_file() {
-            let bytes = std::fs::read(entry.path()).map_err(fail)?;
-            files.push((
-                entry.file_name().to_string_lossy().into_owned(),
-                sha256_hex(&bytes),
-            ));
-        }
-    }
-    files.sort();
-    Ok(PyValue::Tuple(
-        files
-            .into_iter()
-            .map(|(name, digest)| PyValue::Tuple(vec![PyValue::str(name), PyValue::str(digest)]))
-            .collect(),
-    ))
-}
-
-/// The stage file's lines: the `unit:<ordinal>` ordinals it asks for, whether the build's run recorded any line, and each generated line's key and input.
-pub(crate) struct StageLines {
-    pub(crate) units: HashSet<usize>,
-    pub(crate) ran: bool,
-    pub(crate) generated: Vec<(String, PyValue)>,
-}
-
-pub(crate) fn stage_lines(stage_file: &Path) -> Result<StageLines> {
-    let read =
-        |failure: io::Error| WireError(format!("cannot read {}: {failure}", stage_file.display()));
-    let mut lines = StageLines {
-        units: HashSet::new(),
-        ran: false,
-        generated: Vec::new(),
-    };
-    for line in BufReader::new(File::open(stage_file).map_err(read)?).lines() {
-        let line = line.map_err(read)?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if record["from"] == "generated" {
-            let input = PyValue::from_typed(&record["input"])
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-            lines.generated.push((key.to_owned(), input));
-            continue;
-        }
-        lines.ran = true;
-        if let Some(ordinal) = key.strip_prefix(UNIT_PREFIX) {
-            lines.units.insert(
-                ordinal
-                    .parse()
-                    .map_err(|_| WireError(format!("the key {key} names no ordinal")))?,
-            );
-        }
-    }
-    Ok(lines)
-}
-
-/// The plan's reads of the prior store, from its opening to its end, as `_build_m1` makes them, written as the `scan` stage's run lines: the store's opening; its miss note where the plan warns one; each scanned line, a `unit:<index>` line for each index in `units`, the column over them and how the scan ended; the walk's placements of the records the scan found without an address, the second scan's lines and each placement it looked up; and, once the store read to its end, whether a re-deriving stamp moved and, for a single file, the head the plan puts it under, in a scratch copy of the store.
-fn plan_reads(
-    input: &BuildInput,
-    names: &ScanNames,
-    prior: &Path,
-    (named, column): (&KeyIndex, &[u8]),
-    units: &HashSet<usize>,
-    scratch: &Path,
-    out: &mut impl Write,
-) -> Result<()> {
-    let opened = match held(open_store(prior, names))? {
-        Ok(Some(opened)) => opened,
-        Ok(None) => return stage_line(out, "open", &tagged("none", [])),
-        Err(ScanError::Unreadable(_)) => return Ok(()),
-        Err(failure) => return error(format!("the store's opening failed: {failure}")),
-    };
-    stage_line(out, "open", &opened_value(&opened))?;
-    let environment = &input.environment;
-    let note = || -> Result<PyValue> {
-        let note = held(store_miss_note(prior, names, environment))?
-            .map_err(|failure| WireError(format!("the miss note failed: {failure}")))?;
-        Ok(PyValue::optional_str(note.as_deref()))
-    };
-    if !is_str(opened.stamp("format"), &names.store_format) {
-        return stage_line(out, "miss-note", &note()?);
-    }
-    let manifest = held(manifest_stamp(prior, names))?
-        .map_err(|failure| WireError(format!("the manifest stamp failed: {failure}")))?;
-    let manifest_holds = is_str(opened.stamp("manifest_sha256"), &manifest);
-    let trusted = if manifest_holds {
-        held(trusted_parts(prior, &opened.stamps))?
-            .map_err(|failure| WireError(format!("the trusted parts failed: {failure}")))?
-    } else {
-        HashSet::new()
-    };
-    let loadable = !input.recompute_all
-        && manifest_holds
-        && is_str(opened.stamp("environment"), &environment.value);
-    if !loadable && !input.recompute_all {
-        stage_line(out, "miss-note", &note()?)?;
-    }
-    let mut digest = ColumnDigest::new();
-    let mut wanted = WantedFragments::new();
-    let mut addressless: Vec<(u32, u32)> = Vec::new();
-    let (mut lines, mut rows_bytes) = (0usize, 0usize);
-    let mut ending = None;
-    for scanned in scan_store(&opened, named, column, loadable, &trusted) {
-        let scanned = match held(scanned)? {
-            Ok(scanned) => scanned,
-            Err(failure) => {
-                ending = Some(failure);
-                break;
-            }
-        };
-        let value = scanned.value();
-        if units.contains(&scanned.index) {
-            stage_line(out, &format!("{UNIT_PREFIX}{}", scanned.index), &value)?;
-        }
-        digest.add(&value);
-        lines += 1;
-        rows_bytes += scanned.line.len();
-        if let (Some(ordinal), Some(cached)) = (scanned.ordinal, &scanned.cached)
-            && cached.located().is_none()
-            && let Some(word) = id_word(&cached.prior_id)
-        {
-            addressless.push((scanned.index as u32, ordinal));
-            wanted.add(&cached.prior_class, word);
-        }
-    }
-    digest.write(out, "value")?;
-    let scan = PyValue::Tuple(vec![PyValue::Bool(loadable), sorted_texts(&trusted)]);
-    let ended = |ending: &Option<ScanError>| match ending {
-        Some(failure) => raised(failure),
-        None => tagged("done", [count_value(lines), count_value(rows_bytes)]),
-    };
-    let PyValue::Tuple(mut scan) = scan else {
-        unreachable!("the scan's value is a tuple");
-    };
-    scan.push(ended(&ending));
-    stage_line(out, "scan", &PyValue::Tuple(scan))?;
-    match ending {
-        Some(ScanError::Unreadable(_)) => return Ok(()),
-        Some(failure) => return error(format!("the scan failed: {failure}")),
-        None => {}
-    }
-    if !wanted.is_empty() {
-        let located = held(locate_prior_fragments(prior, &wanted, names))?
-            .map_err(|failure| WireError(format!("the walk failed: {failure}")))?;
-        stage_line(out, "locate", &located.value(&wanted))?;
-        let again = match held(open_store(prior, names))? {
-            Ok(Some(again)) => again,
-            Ok(None) | Err(ScanError::Unreadable(_)) => return Ok(()),
-            Err(failure) => return error(format!("the store's second opening failed: {failure}")),
-        };
-        let marked: Vec<u32> = addressless.iter().map(|&(line, _)| line).collect();
-        let mut parsed = Vec::new();
-        let mut ending = None;
-        for item in scan_marked(&again, &marked, &trusted) {
-            match held(item)? {
-                Ok((index, cached)) => {
-                    stage_line(
-                        out,
-                        &format!("marked:{index}"),
-                        &PyValue::Tuple(vec![count_value(index), cached.value()]),
-                    )?;
-                    parsed.push((index, cached));
-                }
-                Err(failure) => {
-                    ending = Some(failure);
-                    break;
-                }
-            }
-        }
-        let marked_ending = match &ending {
-            Some(failure) => raised(failure),
-            None => tagged("done", [count_value(parsed.len())]),
-        };
-        stage_line(
-            out,
-            "marked",
-            &PyValue::Tuple(vec![
-                PyValue::Tuple(
-                    marked
-                        .iter()
-                        .map(|&line| PyValue::Int(i64::from(line)))
-                        .collect(),
-                ),
-                sorted_texts(&trusted),
-                marked_ending,
-            ]),
-        )?;
-        for ((index, cached), &(line, _)) in parsed.iter().zip(&addressless) {
-            if *index != line as usize {
-                return Ok(());
-            }
-            let found = located.find(&cached.prior_class, &cached.prior_id);
-            let asked = json::dumps(&PyValue::List(vec![
-                PyValue::str(cached.prior_class.as_str()),
-                PyValue::str(cached.prior_id.as_str()),
-            ]))
-            .map_err(|failure| WireError(failure.0))?;
-            stage_line(
-                out,
-                &format!("find:{asked}"),
-                &found.map_or(PyValue::None, |found| found.value()),
-            )?;
-        }
-        match ending {
-            Some(ScanError::Unreadable(_)) => return Ok(()),
-            Some(failure) => return error(format!("the second scan failed: {failure}")),
-            None => {}
-        }
-    }
-    stage_line(
-        out,
-        "rederiving",
-        &PyValue::Bool(rederiving_moved(
-            &opened.stamps,
-            environment,
-            &names.rederiving,
-        )),
-    )?;
-    if opened.head.is_none() {
-        let _ = std::fs::remove_dir_all(scratch);
-        std::fs::create_dir_all(scratch).map_err(|failure| {
-            WireError(format!("cannot make the adoption's scratch: {failure}"))
-        })?;
-        std::fs::copy(names.store_path(prior), names.store_path(scratch))
-            .map_err(|failure| WireError(format!("cannot copy the single file: {failure}")))?;
-        let head = held(adopt_single_file(
-            scratch,
-            names,
-            &opened.stamps,
-            lines as i64,
-            rows_bytes as i64,
-            &Sink::new(None),
-        ))?
-        .map_err(|failure| WireError(format!("the adoption failed: {failure}")))?;
-        stage_line(out, "adopt", &head.document())?;
-    }
-    Ok(())
-}
-
-/// The `scan` stage: when the dump's build reached the plan's reads of the prior store, run the build's load ([`super::load_corpus`]) over the audit its build input names, read through the descriptors the process inherits, and the prior corpus of the dump, index the units' input keys and make the plan's reads of the dump's prior store as `_build_m1` makes them ([`plan_reads`]); then answer each generated line by its form over a corpus set up from the blobs its input names in [`STAGE_BLOBS`] beside the stage file: `open` ([`open_store`] and the store's lines), `scan` ([`scan_store`] over the keys it names), `marked` ([`scan_marked`]), `trusted` ([`trusted_parts`]), `manifest` ([`manifest_stamp`]), `miss-note` ([`store_miss_note`]), `rederiving` ([`rederiving_moved`]), `locate` ([`locate_prior_fragments`]) and `adopt` ([`adopt_single_file`], with the directory's files after it).
-pub fn stage_scan(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = ScanNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    let directory = stage_file.parent().unwrap_or_else(|| Path::new("."));
-    let scratch = std::env::temp_dir().join(format!("ams-review-scan-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    let outcome = (|| -> Result<()> {
-        if lines.ran {
-            let files = input.held_audit()?;
-            let prior = dump_prior(stage_file)?;
-            let loaded = super::load_corpus(&input, &files, &prior, &mut Vec::new())
-                .map_err(|failure| WireError(format!("the load failed: {failure}")))?;
-            let column = loaded.input_keys;
-            let named = KeyIndex::new(&column, KEY_BYTES, loaded.workload.table.n)
-                .map_err(|failure| WireError(format!("the input keys: {failure:?}")))?;
-            plan_reads(
-                &input,
-                &names,
-                &prior,
-                (&named, &column),
-                &lines.units,
-                &scratch.join("adopt"),
-                out,
-            )?;
-        }
-        let mut workspace = Workspace {
-            blobs: directory.join(STAGE_BLOBS),
-            scratch: scratch.join("generated"),
-            cases: 0,
-        };
-        for (key, input) in &lines.generated {
-            let value = answer(input, &names, &mut workspace, key)?;
-            stage_line(out, key, &value)?;
-        }
-        Ok(())
-    })();
-    let _ = std::fs::remove_dir_all(&scratch);
-    outcome
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::corpus::store::KEY_BYTES;
+    use std::io::Write;
 
     fn wanted(entries: &[(&str, u64)]) -> WantedFragments {
         let mut wanted = WantedFragments::new();
@@ -2784,6 +2020,40 @@ mod tests {
         (directory, names, column)
     }
 
+    /// The store scanned one line at a time on this thread, each line matched over `named` and parsed: what the threaded scan must apply, in its order, up to the first failure.
+    fn serial_scan(
+        opened: &OpenStore,
+        named: &KeyIndex,
+        column: &[u8],
+        trusted: &HashSet<String>,
+    ) -> Vec<std::result::Result<ScannedLine, ScanError>> {
+        let mut scanned = Vec::new();
+        for (index, line) in opened.lines().enumerate() {
+            let line = match line {
+                Ok((_, line)) => line,
+                Err(failure) => {
+                    scanned.push(Err(store_failure(failure)));
+                    break;
+                }
+            };
+            let ordinal = named_ordinal(named, column, &line);
+            let cached = match ordinal.map(|_| parse_line(&line, trusted)).transpose() {
+                Ok(cached) => cached,
+                Err(failure) => {
+                    scanned.push(Err(record_failure(failure)));
+                    break;
+                }
+            };
+            scanned.push(Ok(ScannedLine {
+                index,
+                ordinal,
+                cached,
+                line,
+            }));
+        }
+        scanned
+    }
+
     #[test]
     fn the_threaded_scan_applies_what_the_serial_scan_yields_in_its_order() {
         let cases = [
@@ -2801,7 +2071,7 @@ mod tests {
                 .expect("a store");
             let mut serial = Vec::new();
             let mut serial_end = Ok(());
-            for item in scan_store(&opened, &named, &column, true, &trusted) {
+            for item in serial_scan(&opened, &named, &column, &trusted) {
                 match item {
                     Ok(scanned) if Some(scanned.index) == stop => {
                         serial_end =

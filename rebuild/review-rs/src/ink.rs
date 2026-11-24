@@ -1,25 +1,19 @@
-//! The ink readings of a unit as the Python worker takes them (`rebuild/review/ink.py`): `InkComparator`'s placed pieces ([`InkComparator::named_run`], [`InkComparator::run_ink`], [`InkComparator::ink_pieces`], [`InkComparator::junior_pieces`]), its signature and `signature_digest` over the signature's marshal version 2 bytes ([`InkComparator::signature`], [`Signature::digest`]), its identity checks, and `config_diff` up to its picture path ([`InkComparator::config_diff`], [`picture_diff`]); `delta_digest` ([`delta_digest`]); `JuniorOracle.approves` ([`JuniorOracle`]); and `build._ink_readings` with the flag lines at the top of `build._phase1_unit` ([`InkReader`]).
+//! A unit's ink readings: the placed pieces of a run ([`InkComparator::named_run`], [`InkComparator::run_ink`], [`InkComparator::ink_pieces`], [`InkComparator::junior_pieces`]), its signature and the digest over the signature's marshal version 2 bytes ([`InkComparator::signature`], [`Signature::digest`]), its identity checks, and the configuration diff up to its picture path ([`InkComparator::config_diff`], [`picture_diff`]); the delta digest ([`delta_digest`]); the junior oracle's approval ([`JuniorOracle`]); and a unit's ink readings with the flags they set ([`InkReader`]).
 //!
-//! A piece is placed from the font facts, never from an outline: its shape is the glyph's interned shape and its position is the pen position plus the glyph's offsets and its shape's own-frame origin. A window with a piece that has no pixel picture takes the outline-level delta (`InkComparator._piece_diff`), which this engine does not build: such a window is refused with an error that says so, and the unit is the Python engine's (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § Byte-identity hazards).
-//!
-//! [`stage_ink`] is the `ink` stage of the stage fixtures.
+//! A piece is placed from the font facts, never from an outline: its shape is the glyph's interned shape and its position is the pen position plus the glyph's offsets and its shape's own-frame origin. A window with a piece that has no pixel picture takes the outline-level delta, which this engine does not build: such a window is refused with an error that says so, and the build fails.
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
 use std::rc::Rc;
 
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 use crate::config_fold::ConfigFold;
 use crate::fontfacts::{FontFacts, ShapeId, Side};
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr;
-use crate::shape::{Features, Fonts, ShapeError, ShapeResult, Shaper};
-use crate::wire::{Init, UnitRecord, WireError};
+use crate::shape::{Features, ShapeError, ShapeResult, Shaper};
+use crate::wire::{Init, WireError};
 
 /// The vocabulary name of `classify.PIXEL_SIZE`, the grid a piece's picture lies on.
 pub const PIXEL_SIZE_NAME: &str = "rebuild.validation.classify.PIXEL_SIZE";
@@ -27,13 +21,13 @@ pub const PIXEL_SIZE_NAME: &str = "rebuild.validation.classify.PIXEL_SIZE";
 /// The vocabulary name of `ink.IDENTITY_DIFF`, which must be the sentinel [`Diff::identity`] models.
 pub const IDENTITY_DIFF_NAME: &str = "rebuild.review.ink.IDENTITY_DIFF";
 
-/// The one configuration `JuniorOracle.approves` answers for.
+/// The one configuration the junior oracle answers for ([`JuniorOracle`]).
 pub const SS10: &str = "ss10";
 
 /// The glyph name prefix `junior_pieces` removes the tracking after.
 const LETTER_PREFIX: &str = "qs";
 
-/// A window the engine cannot read as Python reads it, or an `ink` stage input it cannot read.
+/// A window the engine cannot read.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InkError(pub String);
 
@@ -108,7 +102,7 @@ impl Diff {
     }
 }
 
-/// `repr(diffs)` for a unit's diffs, the tuple `_phase1_unit` hashes into its diffs digest.
+/// `repr(diffs)` for a unit's diffs, the tuple a unit's diffs digest hashes.
 pub fn diffs_repr(diffs: &[Diff]) -> String {
     repr(&PyValue::Tuple(diffs.iter().map(Diff::to_py).collect()))
         .expect("a tuple of diffs has a repr")
@@ -122,7 +116,7 @@ pub fn delta_digest(diff: &Diff) -> String {
     format!("d-{digest}")
 }
 
-/// One placed piece in run order (`InkComparator.run_ink`): its shape, its absolute x and y, and its shape's own-frame origin x.
+/// One placed piece in run order ([`InkComparator::run_ink`]): its shape, its absolute x and y, and its shape's own-frame origin x.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Piece {
     pub shape: ShapeId,
@@ -408,26 +402,6 @@ pub struct Signature {
 }
 
 impl Signature {
-    /// The signature as Python holds it: a pair of tuples of `(shape key, x, y, origin x)`.
-    pub fn to_py(&self, facts: &FontFacts) -> PyValue {
-        let side = |pieces: &[Piece]| {
-            PyValue::Tuple(
-                pieces
-                    .iter()
-                    .map(|piece| {
-                        PyValue::Tuple(vec![
-                            PyValue::Bytes(facts.shape(piece.shape).key.to_vec()),
-                            PyValue::Int(piece.x),
-                            PyValue::Int(piece.y),
-                            PyValue::Int(piece.origin_x),
-                        ])
-                    })
-                    .collect(),
-            )
-        };
-        PyValue::Tuple(vec![side(&self.before), side(&self.after)])
-    }
-
     /// `marshal.dumps(signature, 2)`: version 2 has no back references, so the bytes are a function of the value alone.
     pub fn marshal(&self, facts: &FontFacts) -> Vec<u8> {
         let mut out = Vec::new();
@@ -445,7 +419,7 @@ impl Signature {
         out
     }
 
-    /// `ink.signature_digest`: the sha256 of the signature's marshal version 2 bytes.
+    /// The sha256 of the signature's marshal version 2 bytes.
     pub fn digest(&self, facts: &FontFacts) -> [u8; 32] {
         Sha256::digest(self.marshal(facts)).into()
     }
@@ -489,7 +463,7 @@ fn marshal_int(out: &mut Vec<u8>, value: i64) {
     }
 }
 
-/// `ink.JuniorOracle`: the Junior font against the after font, and the Junior letter tracking the parent derived (`junior_tracking`).
+/// The Junior font against the after font, and the Junior letter tracking Python derives (`junior_tracking`).
 pub struct JuniorOracle<'f> {
     comparator: InkComparator<'f>,
     tracking: i64,
@@ -530,7 +504,7 @@ impl<'f> JuniorOracle<'f> {
     }
 }
 
-/// What phase 1 reads from a unit's ink (`_ink_readings` and the flag lines of `_phase1_unit`): the diffs, one per configuration in the unit's order, the three flags, the `ink_deltas` mapping as ordered pairs, `repr(diffs)` and its sha1, the diffs digest.
+/// What phase 1 reads from a unit's ink: the diffs, one per configuration in the unit's order, the three flags, the `ink_deltas` mapping as ordered pairs, `repr(diffs)` and its sha1, the diffs digest.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnitInk {
     pub diffs: Vec<Diff>,
@@ -540,35 +514,6 @@ pub struct UnitInk {
     pub ink_deltas: Vec<(String, String)>,
     pub diffs_repr: String,
     pub diffs_digest: String,
-}
-
-impl UnitInk {
-    /// The readings as the `ink` stage records them.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Dict(
-            vec![
-                ("diffs", PyValue::str(&self.diffs_repr)),
-                ("ink_identical", PyValue::Bool(self.ink_identical)),
-                ("picture_identical", PyValue::Bool(self.picture_identical)),
-                ("junior_equivalent", PyValue::Bool(self.junior_equivalent)),
-                (
-                    "ink_deltas",
-                    PyValue::Tuple(
-                        self.ink_deltas
-                            .iter()
-                            .map(|(config, digest)| {
-                                PyValue::Tuple(vec![PyValue::str(config), PyValue::str(digest)])
-                            })
-                            .collect(),
-                    ),
-                ),
-                ("diffs_digest", PyValue::str(&self.diffs_digest)),
-            ]
-            .into_iter()
-            .map(|(name, value)| (PyValue::str(name), value))
-            .collect(),
-        )
-    }
 }
 
 /// The grid a piece's picture lies on, the init's `PIXEL_SIZE`, which must be a positive int.
@@ -611,12 +556,7 @@ impl<'f> InkReader<'f> {
         &self.comparator
     }
 
-    /// The Junior oracle.
-    pub fn oracle(&self) -> &JuniorOracle<'f> {
-        &self.oracle
-    }
-
-    /// `build._ink_readings`: each configuration's diff, read once per distinct effective configuration (`ConfigFold.effective`) and given to every configuration that maps to it, and `ink_identical` over the distinct effective configurations.
+    /// Each configuration's diff, read once per distinct effective configuration (`ConfigFold.effective`) and given to every configuration that maps to it, and `ink_identical` over the distinct effective configurations.
     pub fn ink_readings(
         &self,
         shaper: &mut Shaper,
@@ -649,7 +589,7 @@ impl<'f> InkReader<'f> {
         Ok((diffs, identical))
     }
 
-    /// The ink lines of `_phase1_unit` for a text and its unit's configurations: `_ink_readings`, then `picture_identical` for a unit that is not ink-identical and whose every diff is `IDENTITY_DIFF`, `junior_equivalent` from the oracle for a unit that is neither, and each configuration's `delta_digest` whose diff is not `IDENTITY_DIFF`, in the unit's order.
+    /// A unit's ink readings for a text and its configurations: each configuration's diff and whether the unit is ink-identical, then `picture_identical` for a unit that is not ink-identical and whose every diff is `IDENTITY_DIFF`, `junior_equivalent` from the oracle for a unit that is neither, and each configuration's `delta_digest` whose diff is not `IDENTITY_DIFF`, in the unit's order.
     pub fn read(&self, shaper: &mut Shaper, text: &str, configs: &[String]) -> Result<UnitInk> {
         let (diffs, ink_identical) = self.ink_readings(shaper, text, configs)?;
         let picture_identical = !ink_identical && diffs.iter().all(Diff::is_identity);
@@ -678,26 +618,6 @@ impl<'f> InkReader<'f> {
             diffs_digest,
         })
     }
-
-    /// [`InkReader::read`] for one unit record, its text from its code points; a failure names the unit.
-    pub fn read_unit(&self, shaper: &mut Shaper, unit: &UnitRecord) -> Result<UnitInk> {
-        let text: Option<String> = unit
-            .codepoint_values
-            .iter()
-            .map(|&point| char::from_u32(point))
-            .collect();
-        text.ok_or_else(|| InkError("a code point is not a Unicode scalar value".to_string()))
-            .and_then(|text| self.read(shaper, &text, &unit.configs))
-            .map_err(|failure| unit_failure(unit, &failure))
-    }
-}
-
-/// A failure while reading one unit's ink, naming the unit by its ordinal and code points.
-pub fn unit_failure(unit: &UnitRecord, failure: &InkError) -> InkError {
-    InkError(format!(
-        "unit {} ({}): {failure}",
-        unit.ordinal, unit.codepoints
-    ))
 }
 
 // --- sha1 ----------------------------------------------------------------------------------------
@@ -765,113 +685,9 @@ pub fn sha1_hex(data: &[u8]) -> String {
         .collect()
 }
 
-// --- the ink stage ------------------------------------------------------------------------------
-
-fn placed_value(facts: &FontFacts, pieces: &[Placed]) -> PyValue {
-    PyValue::Tuple(
-        pieces
-            .iter()
-            .map(|&(shape, x, y)| {
-                PyValue::Tuple(vec![
-                    PyValue::Bytes(facts.shape(shape).key.to_vec()),
-                    PyValue::Int(x),
-                    PyValue::Int(y),
-                ])
-            })
-            .collect(),
-    )
-}
-
-fn line_text(record: &Value, key: &str) -> Result<String> {
-    match PyValue::from_typed(&record["text"])
-        .map_err(|failure| InkError(format!("{key}: {failure}")))?
-    {
-        PyValue::Str(text) => Ok(text),
-        other => Err(InkError(format!(
-            "{key}: the text is {}, not a str",
-            other.kind()
-        ))),
-    }
-}
-
-fn line_configs(record: &Value, key: &str) -> Result<Vec<String>> {
-    let PyValue::Tuple(items) = PyValue::from_typed(&record["configs"])
-        .map_err(|failure| InkError(format!("{key}: {failure}")))?
-    else {
-        return Err(InkError(format!(
-            "{key}: the configurations are not a tuple"
-        )));
-    };
-    items
-        .into_iter()
-        .map(|item| match item {
-            PyValue::Str(config) => Ok(config),
-            other => Err(InkError(format!(
-                "{key}: a configuration is {}, not a str",
-                other.kind()
-            ))),
-        })
-        .collect()
-}
-
-/// The `ink` stage: for each `ink:` line of `stage_file`, the unit's readings for its `text` and `configs` ([`InkReader::read`]); for each `junior:` line, the oracle's tracking-free Junior pieces for its `text` and its answer for `ss10` alone; each as one `{"key", "value"}` line in the typed encoding, through one [`Shaper`].
-pub fn stage_ink(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path)?;
-    let facts = FontFacts::read(&init.font_facts)?;
-    let fonts = Fonts::open(&init, &facts)?;
-    let reader = InkReader::new(&init, &facts)?;
-    let mut shaper = Shaper::new(&fonts, &facts);
-    let file = std::fs::File::open(stage_file)
-        .map_err(|failure| InkError(format!("cannot read {}: {failure}", stage_file.display())))?;
-    let ss10 = [SS10.to_string()];
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            InkError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| InkError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return Err(InkError(format!("a stage line has no key: {line:.200}")));
-        };
-        let text = line_text(&record, key)?;
-        let value = if key.starts_with("ink:") {
-            let configs = line_configs(&record, key)?;
-            reader
-                .read(&mut shaper, &text, &configs)
-                .map_err(|failure| InkError(format!("{key}: {failure}")))?
-                .to_py()
-        } else if key.starts_with("junior:") {
-            let oracle = reader.oracle();
-            let pieces = oracle
-                .junior_pieces(&mut shaper, &text)
-                .map_err(|failure| InkError(format!("{key}: {failure}")))?;
-            let approves = oracle
-                .approves(&mut shaper, &ss10, &text)
-                .map_err(|failure| InkError(format!("{key}: {failure}")))?;
-            PyValue::Dict(vec![
-                (PyValue::str("junior_pieces"), placed_value(&facts, &pieces)),
-                (PyValue::str("approves"), PyValue::Bool(approves)),
-            ])
-        } else {
-            return Err(InkError(format!(
-                "{key}: the ink stage answers ink: and junior: lines"
-            )));
-        };
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            value.to_typed()
-        )
-        .map_err(|failure| InkError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wire::error_frame;
 
     const DRAWN: &str = "00000000000000000000000000000000000000aa";
     const CURVED: &str = "00000000000000000000000000000000000000bb";
@@ -1031,34 +847,5 @@ mod tests {
         assert_eq!(comparator.diff_of_runs(&[pea], &[off_grid]), None);
         let curve = piece(&facts, Side::Before, "qsCurve", 0, 0);
         assert_eq!(comparator.diff_of_runs(&[curve], &[pea]), None);
-        let unit = UnitRecord {
-            ordinal: 41,
-            codepoints: "E650:E652".to_string(),
-            codepoint_values: vec![0xE650, 0xE652],
-            new: vec![],
-            class: String::new(),
-            configs: vec!["default".to_string()],
-            kinds: vec![],
-            group: String::new(),
-            exemplar: false,
-            unit_id: String::new(),
-            input_key: String::new(),
-            render_groups: vec![],
-            no_verdict: false,
-            config_classes: vec![],
-            duplicate_group: None,
-            cluster: None,
-            ledger_class: String::new(),
-        };
-        let failure = unit_failure(
-            &unit,
-            &InkError("the window needs the outline-level delta under default".to_string()),
-        );
-        let frame = error_frame(&failure.0);
-        assert!(
-            frame.starts_with(r#"{"op":"error","message":"unit 41 (E650:E652): "#),
-            "{frame}"
-        );
-        assert!(frame.contains("outline-level delta"), "{frame}");
     }
 }

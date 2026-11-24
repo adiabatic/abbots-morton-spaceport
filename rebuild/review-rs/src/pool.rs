@@ -1,4 +1,4 @@
-//! The units engine's thread pool, as `_RecomputeRunner` runs its pool of worker processes: threads over one shared set of [`Resources`], each holding its own [`Worker`] over them and taking the next job off one queue. The `units` subcommand serves its frames from it ([`crate::service`]), and the corpus build's units phase drives it in process.
+//! The units phase's thread pool: threads over one shared set of [`Resources`], each holding its own [`Worker`] over them and taking the next job off one queue. The corpus build's units phase drives it in process ([`crate::corpus::drive`]).
 //!
 //! A thread reports each job's answer, or a failure, to its owner's event queue as a [`Report`]. A failure names what failed: a worker that cannot start, a job whose run fails, or a panic inside a job, after which the thread takes no further job. A thread ends when the job queue closes, after its first failure, or once its owner's event queue is gone.
 
@@ -72,7 +72,7 @@ impl<J: Send + 'static> Pool<J> {
     }
 }
 
-/// `items` cut into contiguous shares of `ceil(len / threads)`, as `_RecomputeRunner.verify` cuts its sample among the workers.
+/// `items` cut into contiguous shares of `ceil(len / threads)`, as the verification cuts its sample among the threads.
 pub fn shares<T>(mut items: Vec<T>, threads: usize) -> Vec<Vec<T>> {
     let size = items.len().div_ceil(threads.max(1)).max(1);
     let mut shares = Vec::new();
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn a_verify_sample_is_cut_as_the_python_pool_cuts_it() {
+    fn a_verify_sample_is_cut_into_contiguous_shares_a_thread() {
         assert_eq!(
             shares((0..10).collect(), 4),
             vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8], vec![9]]

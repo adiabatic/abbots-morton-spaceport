@@ -1,13 +1,12 @@
-//! `build._FragmentPacker`: one thread's freshly drafted fragments deflated for the parent's arena, each alone, at level 1 against the preset dictionary, in the zlib framing (§ Boundary, Replies out, of `rebuild/CORPUS-UNITS-PORT-PLAN.md`).
+//! One thread's freshly drafted fragments deflated for the units phase's arena, each alone, at level 1 against the preset dictionary, in the zlib framing.
 //!
-//! The deflated bytes are not a byte-identity target; what the arena requires is that each fragment's bytes hold one zlib stream under the build's dictionary that inflates to the fragment's shard bytes and ends exactly where the bytes end (`_FragmentArena.read`), which the `fragment` stage's answer check proves through Python's `zlib`.
+//! The deflated bytes are not a byte-identity target; what the arena requires is that each fragment's bytes hold one zlib stream under the build's dictionary that inflates to the fragment's shard bytes and ends exactly where the bytes end, which [`crate::corpus::prior::read_arena`] checks as it reads each fragment back.
 
 use std::fmt;
-use std::path::Path;
 
 use crate::ffi::Deflater;
 
-/// `zlib.compressobj`'s level as `_FragmentPacker` makes it.
+/// `zlib.compressobj`'s level.
 pub const LEVEL: i32 = 1;
 
 /// A dictionary the engine cannot read or zlib cannot take, or a fragment zlib cannot deflate.
@@ -22,7 +21,7 @@ impl fmt::Display for PackError {
 
 impl std::error::Error for PackError {}
 
-/// `_FragmentPacker`: one compressor primed with the dictionary when the packer is made, copied for each fragment.
+/// One compressor primed with the dictionary when the packer is made, copied for each fragment.
 pub struct Packer {
     primed: Deflater,
 }
@@ -35,18 +34,7 @@ impl Packer {
         })
     }
 
-    /// The packer over the preset dictionary the init's `dictionary` path holds.
-    pub fn read(dictionary: &Path) -> Result<Self, PackError> {
-        let bytes = std::fs::read(dictionary).map_err(|failure| {
-            PackError(format!(
-                "cannot read the dictionary {}: {failure}",
-                dictionary.display()
-            ))
-        })?;
-        Self::new(&bytes)
-    }
-
-    /// `_FragmentPacker.pack`: a fragment's shard bytes deflated, and their length.
+    /// A fragment's shard bytes deflated, and their length.
     pub fn pack(&self, body: &[u8]) -> Result<(Vec<u8>, usize), PackError> {
         let packed = self.primed.deflate(body).map_err(PackError)?;
         Ok((packed, body.len()))

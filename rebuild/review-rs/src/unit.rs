@@ -1,21 +1,18 @@
-//! One worker's per-unit work, as `rebuild/review/build.py`'s `_corpus_worker` does it: `_phase1_unit` in its order (ink, flags, re-route, enrich, change group, draft, pack, check), batched as `_phase1_batches` batches it, and `_recompute_fragment` for the verification sample.
+//! One worker's per-unit work: each unit of a handout taken through ink, flags, re-route, enrich, change group, draft, pack and check, in that order, and a verification sample's units recomputed from nothing.
 //!
-//! [`Resources`] holds what every worker reads and never changes, shared by every thread: the init, the font facts, the HarfBuzz fonts, the settlement, the mapped subset pack, the rune schema, the fragment builder, the preset dictionary and the contract check. A [`Worker`] over it holds one thread's ink readers, enricher, drafter, shaper, settler and packer, and answers a batch ([`Worker::run_batch`]) and a verification sample ([`Worker::verify`]); its memos are released at each settlement batch's end. [`Projection`] is `_UnitProjection`, written in the reply's record shapes ([`Projection::to_json`]).
+//! [`Resources`] holds what every worker reads and never changes, shared by every thread: the init, the font facts, the HarfBuzz fonts, the settlement, the mapped subset pack, the rune schema, the fragment builder, the preset dictionary and the contract check. A [`Worker`] over it holds one thread's ink readers, enricher, drafter, shaper, settler and packer, and answers a batch ([`Worker::run_batch`]) and a verification sample ([`Worker::verify`]); its memos are released at each settlement batch's end. [`Projection`] is a recomputed unit as the units phase loads it into the unit store.
 
 use std::fmt;
 use std::path::Path;
 
 use ams_m1_kernel::index::SpecIndex;
-use serde_json::{Map, Value};
 
 use crate::change_groups::{
     ChangeGroupError, ChangeGroupInput, UNMATCHED, assign_change_group, reroutes,
 };
 use crate::check::{CheckError, ContractCheck};
 use crate::drafts::{DraftError, Drafter};
-use crate::enrich::{
-    EnrichError, Enriched, Enricher, Flags, Geometry, Highlight, Pair, SecondaryJunction, Span,
-};
+use crate::enrich::{EnrichError, Enriched, Enricher, Flags, Geometry};
 use crate::fontfacts::FontFacts;
 use crate::fragment::{FragmentBuilder, FragmentError, check_stamp, fragment_bytes, lookup};
 use crate::ink::{InkError, InkReader};
@@ -31,7 +28,7 @@ use crate::wire::{Init, Injection, UnitRecord, WireError};
 /// The vocabulary name of `enrich.EXPLAIN_UNIT_BATCH_SIZE`, the settlement batch after which the memos are released.
 pub const EXPLAIN_UNIT_BATCH_SIZE_NAME: &str = "rebuild.review.enrich.EXPLAIN_UNIT_BATCH_SIZE";
 
-/// The vocabulary name of `build.CONTRACT_ERRORS_SHOWN`, the most drafting-time errors a batch reply keeps.
+/// The vocabulary name of `build.CONTRACT_ERRORS_SHOWN`, the most drafting-time errors a batch keeps.
 pub const CONTRACT_ERRORS_SHOWN_NAME: &str = "rebuild.review.build.CONTRACT_ERRORS_SHOWN";
 
 /// A worker that cannot start, or a unit it cannot answer, with the reason.
@@ -144,7 +141,7 @@ impl Resources {
     }
 }
 
-/// `_UnitProjection`: what the parent's whole-corpus passes read of one recomputed unit, with its deflated fragment (empty for the verification sample, which deflates nothing) and the length of its shard bytes.
+/// What the build's whole-corpus passes read of one recomputed unit, with its deflated fragment (empty for the verification sample, which deflates nothing) and the length of its shard bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Projection {
     pub ordinal: i64,
@@ -164,121 +161,14 @@ pub struct Projection {
     pub packed: Vec<u8>,
 }
 
-fn pair_json((left, right): Pair) -> Value {
-    Value::Array(vec![Value::from(left), Value::from(right)])
-}
-
-fn spans_json(spans: &[Span]) -> Value {
-    Value::Array(spans.iter().map(|&span| pair_json(span)).collect())
-}
-
-fn strings_json(items: &[String]) -> Value {
-    Value::Array(
-        items
-            .iter()
-            .map(|item| Value::from(item.as_str()))
-            .collect(),
-    )
-}
-
-fn object(entries: Vec<(&str, Value)>) -> Value {
-    Value::Object(
-        entries
-            .into_iter()
-            .map(|(key, value)| (key.to_owned(), value))
-            .collect::<Map<String, Value>>(),
-    )
-}
-
-/// `_highlight`'s rect in its key order.
-fn highlight_json(highlight: &Highlight) -> Value {
-    object(vec![
-        ("x_min", Value::from(highlight.x_min)),
-        ("x_max", Value::from(highlight.x_max)),
-        ("advance_total", Value::from(highlight.advance_total)),
-    ])
-}
-
-/// A unit's ink deltas as an object in the unit's configuration order.
-pub fn deltas_json(ink_deltas: &[(String, String)]) -> Value {
-    Value::Object(
-        ink_deltas
-            .iter()
-            .map(|(config, digest)| (config.clone(), Value::from(digest.as_str())))
-            .collect(),
-    )
-}
-
-/// `build._junction_records`: the secondary junctions' rects as the unit store keeps them.
-fn junctions_json(junctions: &[SecondaryJunction]) -> Value {
-    Value::Array(
-        junctions
-            .iter()
-            .map(|junction| {
-                object(vec![
-                    ("pair", pair_json(junction.pair)),
-                    ("before", highlight_json(&junction.highlight_before)),
-                    ("after", highlight_json(&junction.highlight_after)),
-                ])
-            })
-            .collect(),
-    )
-}
-
-impl Projection {
-    /// The projection as a `batch` reply carries it (§ Replies out), in the unit store's record shapes; the deflated fragment itself follows the frame, and `packed_length` is its span there.
-    pub fn to_json(&self) -> Value {
-        let geometry = &self.geometry;
-        let proj = object(vec![
-            ("pair", geometry.pair.map_or(Value::Null, pair_json)),
-            ("after_spans", spans_json(&geometry.after_spans)),
-            ("after_cells", strings_json(&geometry.after_cells)),
-            ("after_junctions", strings_json(&geometry.after_junctions)),
-            ("before_spans", spans_json(&geometry.before_spans)),
-            ("before_glyphs", strings_json(&geometry.before_glyphs)),
-            ("before_junctions", strings_json(&geometry.before_junctions)),
-        ]);
-        object(vec![
-            ("ordinal", Value::from(self.ordinal)),
-            ("codepoints", Value::from(self.codepoints.as_str())),
-            ("id", Value::from(self.unit_id.as_str())),
-            ("input_key", Value::from(self.input_key.as_str())),
-            ("content_key", Value::from(self.content_key.as_str())),
-            ("ink_identical", Value::from(self.flags.ink_identical)),
-            (
-                "picture_identical",
-                Value::from(self.flags.picture_identical),
-            ),
-            (
-                "junior_equivalent",
-                Value::from(self.flags.junior_equivalent),
-            ),
-            ("ink_deltas", deltas_json(&self.ink_deltas)),
-            ("diffs_digest", Value::from(self.diffs_digest.as_str())),
-            ("cluster", Value::from(self.cluster.as_str())),
-            ("change_group", Value::from(self.change_group.as_str())),
-            ("ledger_class", Value::from(self.ledger_class.as_str())),
-            (
-                "pair_codepoints",
-                geometry.pair_codepoints.map_or(Value::Null, pair_json),
-            ),
-            ("proj", proj),
-            ("junctions", junctions_json(&geometry.secondary_junctions)),
-            ("mismatches", strings_json(&self.mismatches)),
-            ("raw_length", Value::from(self.raw_length)),
-            ("packed_length", Value::from(self.packed.len())),
-        ])
-    }
-}
-
-/// One batch's answer: each unit's projection in the batch's order, and the drafting-time contract errors, capped as `_keep_contract_errors` caps them.
+/// One batch's answer: each unit's projection in the batch's order, and the drafting-time contract errors, capped at the vocabulary's `CONTRACT_ERRORS_SHOWN`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     pub projections: Vec<Projection>,
     pub contract_errors: Vec<String>,
 }
 
-/// One verified unit's key as `_recompute_fragment` returns it, under the id its recomputation stamped: the content key and the ink deltas.
+/// One verified unit's key, under the id its recomputation stamped: the content key and the ink deltas.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VerifyKey {
     pub unit_id: String,
@@ -329,7 +219,7 @@ impl<'r> Worker<'r> {
         })
     }
 
-    /// The `phase1` message: each unit through phase 1 with its fragment deflated, in settlement batches of `EXPLAIN_UNIT_BATCH_SIZE` with the memos released after each (`_phase1_batches`), and the contract errors kept up to `CONTRACT_ERRORS_SHOWN`. A unit that fails stops the batch with a failure naming it.
+    /// The `phase1` message: each unit through phase 1 with its fragment deflated, in settlement batches of `EXPLAIN_UNIT_BATCH_SIZE` with the memos released after each, and the contract errors kept up to `CONTRACT_ERRORS_SHOWN`. A unit that fails stops the batch with a failure naming it.
     pub fn run_batch(&mut self, mut units: Vec<UnitRecord>) -> Result<Batch> {
         let mut batch = Batch::default();
         for chunk in units.chunks_mut(self.resources.batch_size) {
@@ -351,7 +241,7 @@ impl<'r> Worker<'r> {
         Ok(batch)
     }
 
-    /// The `verify` message: each sampled unit recomputed from nothing and patched with its injection (`_recompute_fragment`), in settlement batches with the memos released after each (`_released_batches`), keyed by the id the recomputation stamped.
+    /// The `verify` message: each sampled unit recomputed from nothing and patched with its injection, in settlement batches with the memos released after each, keyed by the id the recomputation stamped.
     pub fn verify(&mut self, mut items: Vec<(UnitRecord, Injection)>) -> Result<Vec<VerifyKey>> {
         let mut keys = Vec::with_capacity(items.len());
         for chunk in items.chunks_mut(self.resources.batch_size) {
@@ -372,7 +262,7 @@ impl<'r> Worker<'r> {
         self.settler.release();
     }
 
-    /// `_recompute_fragment`: phase 1 without the deflate, then the injected duplicate group, cluster and class on the unit, the fragment patched as the write patches it under the injected primary units, and its stamp checked.
+    /// Phase 1 without the deflate, then the injected duplicate group, cluster and class on the unit, the fragment patched as the write patches it under the injected primary units, and its stamp checked.
     fn recompute(&mut self, unit: &mut UnitRecord, injection: &Injection) -> Result<VerifyKey> {
         let Phase1 {
             projection,
@@ -399,7 +289,7 @@ impl<'r> Worker<'r> {
         })
     }
 
-    /// `_phase1_unit`: the ink flags and deltas, the re-route, the enrichment under the unit's first configuration, the change group of an UNMATCHED or re-routed unit, the drafted fragment, deflated when `pack`, the projection, and the contract check at `DRAFTED`. The unit's id becomes the drafting's stamp.
+    /// The ink flags and deltas, the re-route, the enrichment under the unit's first configuration, the change group of an UNMATCHED or re-routed unit, the drafted fragment, deflated when `pack`, the projection, and the contract check at `DRAFTED`. The unit's id becomes the drafting's stamp.
     fn phase1(&mut self, unit: &mut UnitRecord, pack: bool) -> Result<Phase1> {
         let resources = self.resources;
         let config = unit.configs.first().map_or("", String::as_str);
@@ -520,81 +410,9 @@ fn fragment_str(fragment: &PyValue, key: &str) -> Result<String> {
 mod tests {
     use super::*;
 
-    fn rect(x: i64) -> Highlight {
-        Highlight {
-            x_min: x,
-            x_max: x + 1,
-            advance_total: 10,
-        }
-    }
-
     #[test]
     fn every_thread_can_share_one_set_of_resources() {
         fn shared<T: Send + Sync>() {}
         shared::<Resources>();
-    }
-
-    #[test]
-    fn a_projection_carries_the_stores_record_shapes() {
-        let geometry = Geometry {
-            before_glyphs: vec!["qsPea".to_owned(), "qsTea".to_owned()],
-            before_junctions: vec!["y0".to_owned()],
-            after_cells: vec!["qsPea.half".to_owned(), "qsTea".to_owned()],
-            after_junctions: vec!["break".to_owned()],
-            after_extensions: vec![0, 0],
-            diff_positions: vec![0],
-            ink_positions: vec![0],
-            pair: Some((0, 1)),
-            pair_codepoints: None,
-            highlight_before: rect(0),
-            highlight_after: rect(2),
-            boundary_marks: Vec::new(),
-            after_spans: vec![(0, 1), (1, 2)],
-            before_spans: vec![(0, 1), (1, 2)],
-            secondary_junctions: vec![SecondaryJunction {
-                pair: (1, 2),
-                highlight_before: rect(4),
-                highlight_after: rect(5),
-            }],
-        };
-        let projection = Projection {
-            ordinal: 7,
-            codepoints: "E650:E652".to_owned(),
-            unit_id: "u-11111111111".to_owned(),
-            input_key: "k".to_owned(),
-            content_key: "c".to_owned(),
-            flags: Flags {
-                ink_identical: false,
-                picture_identical: false,
-                junior_equivalent: true,
-            },
-            ink_deltas: vec![
-                ("ss10".to_owned(), "d-2".to_owned()),
-                ("default".to_owned(), "d-1".to_owned()),
-            ],
-            diffs_digest: "f".to_owned(),
-            cluster: "c-01234567".to_owned(),
-            change_group: String::new(),
-            ledger_class: String::new(),
-            geometry,
-            mismatches: vec!["line".to_owned()],
-            raw_length: 40,
-            packed: vec![1, 2, 3],
-        };
-        assert_eq!(
-            projection.to_json().to_string(),
-            concat!(
-                r#"{"ordinal":7,"codepoints":"E650:E652","id":"u-11111111111","input_key":"k","content_key":"c","#,
-                r#""ink_identical":false,"picture_identical":false,"junior_equivalent":true,"#,
-                r#""ink_deltas":{"ss10":"d-2","default":"d-1"},"diffs_digest":"f","cluster":"c-01234567","#,
-                r#""change_group":"","ledger_class":"","pair_codepoints":null,"#,
-                r#""proj":{"pair":[0,1],"after_spans":[[0,1],[1,2]],"after_cells":["qsPea.half","qsTea"],"#,
-                r#""after_junctions":["break"],"before_spans":[[0,1],[1,2]],"before_glyphs":["qsPea","qsTea"],"#,
-                r#""before_junctions":["y0"]},"#,
-                r#""junctions":[{"pair":[1,2],"before":{"x_min":4,"x_max":5,"advance_total":10},"#,
-                r#""after":{"x_min":5,"x_max":6,"advance_total":10}}],"#,
-                r#""mismatches":["line"],"raw_length":40,"packed_length":3}"#
-            )
-        );
     }
 }

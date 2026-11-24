@@ -8,7 +8,7 @@ The index is stamped with the manifest's identity digest (`manifest_sha256`), as
 
 The materialized index (`materialized_index`) is the header line, the head's stamps, then the base's and the segments' records merged by key, `(class_shard_key(class), id)`, the order the build writes them in, each with its place put back from the manifest: byte for byte the file `write_index` writes whole over the same fragments (#618's decision 48), which `write_materialized_index` writes as the single file. A write (`write_index_lines`) takes one route, decided from the prior head before it writes anything of the index: a whole base when there is no prior (`first`) or one that does not read (`unusable`, counted as rewritten whole, `output_sink.note_rewritten`); the materialized form at this pass's content as the next generation's base when the head's fold is due and the index holds the pass's one fold or has waited `row_delta.FOLD_OVERRUN` segments past its cap (`fold`); and otherwise a segment of the records that differ from the prior's, compared with their places cut, or the head alone when none differs. No stamp says every record is re-derived and no size test switches to a base (#618's decisions 72 to 75): a segment of any size is written, and one whose bytes reach its base's makes the next write fold.
 
-This module also holds the one reader of fragments out of shard parts, the live-fragment iterator (`LiveCorpus`), the rule a from-scratch build cuts a class's parts by (`PartLayout`), and the codec a fragment is held deflated in (`deflate_fragment`, `inflate_fragment`). A class's parts are its base parts, which a from-scratch build, a fold or a direct write lays out in id order, and after them its overflow parts (`units/<class>.x<NNN>.json`), to which a build appends each fragment that changed, leaving its old slot dead (`build._ShardWriter`). So a part can hold a fragment no unit owns any more, and a unit's fragment can sit in a later part than its id order puts it in. A fragment is plain, its shard bytes as ASCII JSON, or deflated (#618's change 35): a fragment a build appends, folds or writes directly by the share rule into a class it already has parts for is held as its shard bytes deflated alone, a raw deflate stream that is not ASCII, between the same `[`, commas and closing bytes, while a first base, a from-scratch build's included, stays plain. A deflated fragment's unit store address records its inflated length as a fourth element (decision 76), and its app-index and locator rows carry a trailing `"deflated": true` (decision 77); a plain fragment's record and rows carry neither. The iterator reads only live fragments, each class's in id order, and always hands its readers plain bytes, inflating each deflated slot as it reads it (`LiveCorpus.read`). The first of these that describes the shards decides which fragments are live: where the corpus has a store head, the unit store's records, the fragment at the address each unit's record gives, with its inflated length when it is deflated (`_store_slots`, which reads the store's lines itself, with the slicers `unit_cache` reads them with too, so this module imports nothing of the corpus build); then the index, where it is current and reads to its end, each id it lists taken from its last occurrence in manifest order, since overflow parts follow the base parts and an append follows every older copy; and only for a corpus with no store head, no such index and no overflow part, the parts themselves, walked part by part with every fragment taken as live, as a from-scratch build lays them out (a build puts a store under a head before it appends, `unit_cache.adopt_single_file`, so only a head deleted by hand leaves an appended corpus without one). The index and the parts are walked as JSON, so neither can read a deflated fragment, and a part that is not ASCII is refused there (`LayoutError`): a corpus holding a deflated fragment is readable only through the store. A corpus with a head or an overflow part that neither the store nor the index describes is refused (`LayoutError`). `rebuild/test_unit_index.py`'s contract test fails on any read of shard parts, through `class_shards`, `shard_paths` or `_walk_elements`, outside the iterator and the readers of part names it allows, each named there with its reason.
+This module also holds the one reader of fragments out of shard parts, the live-fragment iterator (`LiveCorpus`), the rule a from-scratch build cuts a class's parts by (`PartLayout`), and the reader of a fragment held deflated (`inflate_fragment`). A class's parts are its base parts, which a from-scratch build, a fold or a direct write lays out in id order, and after them its overflow parts (`units/<class>.x<NNN>.json`), to which a build appends each fragment that changed, leaving its old slot dead. So a part can hold a fragment no unit owns any more, and a unit's fragment can sit in a later part than its id order puts it in. A fragment is plain, its shard bytes as ASCII JSON, or deflated (#618's change 35): a fragment a build appends, folds or writes directly by the share rule into a class it already has parts for is held as its shard bytes deflated alone, a raw deflate stream that is not ASCII, between the same `[`, commas and closing bytes, while a first base, a from-scratch build's included, stays plain. A deflated fragment's unit store address records its inflated length as a fourth element (decision 76), and its app-index and locator rows carry a trailing `"deflated": true` (decision 77); a plain fragment's record and rows carry neither. The iterator reads only live fragments, each class's in id order, and always hands its readers plain bytes, inflating each deflated slot as it reads it (`LiveCorpus.read`). The first of these that describes the shards decides which fragments are live: where the corpus has a store head, the unit store's records, the fragment at the address each unit's record gives, with its inflated length when it is deflated (`_store_slots`, which reads the store's lines itself, with the slicers `unit_cache` reads them with too, so this module imports nothing of the corpus build); then the index, where it is current and reads to its end, each id it lists taken from its last occurrence in manifest order, since overflow parts follow the base parts and an append follows every older copy; and only for a corpus with no store head, no such index and no overflow part, the parts themselves, walked part by part with every fragment taken as live, as a from-scratch build lays them out (a build puts a store under a head before it appends, so only a head deleted by hand leaves an appended corpus without one). The index and the parts are walked as JSON, so neither can read a deflated fragment, and a part that is not ASCII is refused there (`LayoutError`): a corpus holding a deflated fragment is readable only through the store. A corpus with a head or an overflow part that neither the store nor the index describes is refused (`LayoutError`). `rebuild/test_unit_index.py`'s contract test fails on any read of shard parts, through `class_shards`, `shard_paths` or `_walk_elements`, outside the iterator and the readers of part names it allows, each named there with its reason.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ MANIFEST_ORDER = "manifest"
 INDEX_FORMAT = "ams-review-unit-index/1"
 # The plain bytes of the index each gzip member of a base or a materialized index holds (`_Members`): the lines are cut at every multiple of this many bytes, wherever a line falls, so a member's bytes depend only on its slice of the file, never on how its writer cut its writes. A write holds the member it fills and `INDEX_DEFLATE_THREADS` handed to the pool, 0.013 GB at 4 MiB. On the live index's 2.87 GB of lines the corpus build's sidecars write in the same 3.9 s at 4, 8, 16 and 64 MiB (var/keep/perf/602/), so the smallest, which holds least, is the one taken; it comes out 0.12% larger than one stream at the same level.
 INDEX_MEMBER_BYTES = 4 << 20
-# The threads a base's or a materialized index's members deflate on (#602). zlib releases the interpreter lock, so the members deflate beside the thread that feeds them the lines, and on the corpus build beside the app sidecars' writer too (`build._write_sidecars`). On the live index's 2.87 GB of lines a base writes in 3.8 s on two, against 9.0 s as one stream, and in 2.6 s on three (var/keep/perf/602/). Only a base, at a first write, a fold or an index that does not read, deflates the whole index; a segment writes as one stream (`_write_segment`).
+# The threads a base's or a materialized index's members deflate on (#602). zlib releases the interpreter lock, so the members deflate beside the thread that feeds them the lines, and on the table-diff build beside the app sidecars' writer too. On the live index's 2.87 GB of lines a base writes in 3.8 s on two, against 9.0 s as one stream, and in 2.6 s on three (var/keep/perf/602/). Only a base, at a first write, a fold or an index that does not read, deflates the whole index; a segment writes as one stream (`_write_segment`).
 INDEX_DEFLATE_THREADS = 2
 ASSET_COMPONENTS: tuple[str, ...] = ("static",)
 ID_OPEN = b'{"id": "'
@@ -59,11 +59,6 @@ _NO_PLACE = b', "order": null, "batch": null'
 
 def index_path(corpus: Path) -> Path:
     return Path(corpus) / INDEX_NAME
-
-
-def deflate_fragment(body: bytes) -> bytes:
-    """Return a fragment's plain shard bytes (`build._fragment_bytes`) deflated alone as a shard part holds a deflated fragment (#618's change 35): raw deflate, with no zlib header or trailer and no preset dictionary, at level 1, the level the fragments' 2.5 to 1 was measured at. The app inflates it with the browser's `DecompressionStream('deflate-raw')`, which takes no dictionary, and nothing else is needed to read it back, so it outlives the build that wrote it, unlike the arena's dictionary deflate (`build._FragmentPacker`)."""
-    return zlib.compress(body, 1, wbits=-15)
 
 
 def inflate_fragment(stored: bytes, length: int | None = None) -> bytes:
@@ -87,11 +82,6 @@ def inflate_fragment(stored: bytes, length: int | None = None) -> bytes:
 def holds_unit(body: bytes, unit_id: str) -> bool:
     """Whether a fragment's plain shard bytes are unit `unit_id`'s: the shard writer's framing puts each field on its own line as `"key": value`, so the id is found as a substring."""
     return f'"id": {json.dumps(unit_id)}'.encode() in body
-
-
-def address_value(part: str, start: int, length: int, inflated: int = 0) -> list:
-    """Return a fragment's unit store address as a record holds it: `[part, start, length]` for a plain fragment, with `length` its bytes on disk, and `[part, start, length, inflated]` for a deflated one, whose fourth element is its inflated length (#618's decisions 76 and 77)."""
-    return [part, start, length, inflated] if inflated else [part, start, length]
 
 
 def class_shard_key(class_id: str) -> str:
@@ -123,7 +113,7 @@ def human_unit_slot(
 
 
 def index_record(fragment: dict, *, order: int | None = None, batch: int | None = None) -> dict:
-    """Project one shard fragment onto the fields the verdict update reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same corpus write the same bytes, and so that every line starts with `id`, `order`, and `batch`, with `class` after them at `CLASS_SEAM`. A line is read by its head without being parsed: its id is sliced after `ID_OPEN`, its place is everything between the id and `CLASS_SEAM`, which a segment's record leaves out and a reader replaces with the manifest's (`Places.placed`), and its key is its class and id (`index_key`). `copy_forward_index_line` joins a new head onto a line there too, and `load_human_units` classifies a line by its id without parsing it. rebuild/test_unit_index.py checks this opening."""
+    """Project one shard fragment onto the fields the verdict update reads, with the unit's place in the manifest's triage index passed in. The key order is fixed so that two builds of the same corpus write the same bytes, and so that every line starts with `id`, `order`, and `batch`, with `class` after them at `CLASS_SEAM`. A line is read by its head without being parsed: its id is sliced after `ID_OPEN`, its place is everything between the id and `CLASS_SEAM`, which a segment's record leaves out and a reader replaces with the manifest's (`Places.placed`), and its key is its class and id (`index_key`). `load_human_units` classifies a line by its id without parsing it. rebuild/test_unit_index.py checks this opening."""
     before = fragment.get("before") or {}
     after = fragment.get("after") or {}
     policy = (fragment.get("drafts") or {}).get("policy")
@@ -283,18 +273,8 @@ def shard_paths(corpus: Path) -> list[Path]:
 
 
 def index_line(fragment: dict, *, order: int | None = None, batch: int | None = None) -> bytes:
-    """Return one index record as its line in a whole file or a base, with its place. The build compresses these lines in memory as the fragments pass (`build._SidecarLines`), so it holds the compressed lines, not the fragments `write_index` holds."""
+    """Return one index record as its line in a whole file or a base, with its place. The crate's build compresses the same lines in memory as the fragments pass, so it holds the compressed lines, not the fragments `write_index` holds."""
     return (json.dumps(index_record(fragment, order=order, batch=batch), ensure_ascii=False) + "\n").encode()
-
-
-def line_head(unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """Return the start of an index or app-index line, the id and the unit's place in the queue, as `json.dumps` writes it, without the closing brace. A line whose other fields did not change can be copied forward by joining this to its tail."""
-    return json.dumps({"id": unit_id, "order": order, "batch": batch}, ensure_ascii=False).encode()[:-1]
-
-
-def copy_forward_index_line(line: bytes, *, unit_id: str, order: int | None, batch: int | None) -> bytes:
-    """Return a previous corpus's index line for a cached unit, as a base holds it with its old place or as a segment holds it with none, with this corpus's `order` and `batch`. Every field after those two is the fragment's own, and a byte-copied unit has an unchanged fragment, so the result is the id and the new place joined to the old tail, byte for byte what `index_line` writes for the same fragment."""
-    return line_head(unit_id, order, batch) + line[line.index(CLASS_SEAM) :]
 
 
 def _id_end(line: bytes) -> int:
@@ -350,7 +330,7 @@ class Places:
         self.batch_size = batch_size if isinstance(batch_size, int) and batch_size > 0 else 1
 
     def placed(self, line: bytes) -> bytes:
-        """Return an index line, a base's with whatever place it holds or a segment's with none, with this manifest's place for its unit in that place: `line_head`'s bytes for the id and the place, joined to the line from `CLASS_SEAM`, the place null for an id the triage index lacks."""
+        """Return an index line, a base's with whatever place it holds or a segment's with none, with this manifest's place for its unit in that place: the id and the place as `json.dumps` writes them, joined to the line from `CLASS_SEAM`, the place null for an id the triage index lacks."""
         end = _id_end(line)
         return self.placed_at(line, end, self.positions.get(line[_ID_AT:end].decode()))
 
@@ -360,61 +340,6 @@ class Places:
             _NO_PLACE if order is None else b', "order": %d, "batch": %d' % (order, order // self.batch_size)
         )
         return line[: end + 1] + place + line[line.index(CLASS_SEAM, end) :]
-
-
-class LineCursor:
-    """A forward-only reader over one of a corpus's sidecars, the app index's gzipped NDJSON file (`LineCursor(path)`) or the units index's record lines (`LineCursor.over_index`), that returns the line whose leading `field` has a requested value, skipping every line before it. Each sidecar is written in shard order, whose terms are all content-derived, so a cached unit keeps its relative place from one corpus to the next, and the build reads the previous sidecar once, in step with what it writes, without holding it. The units index's lines are its base's and segments' merged by key, a buffer a part (`OpenIndex.lines`), each with the place its part holds or none, since `copy_forward_index_line` writes this pass's own, so a write worker that reads them holds no places. A skipped line belongs to a unit this build projects again. Once a requested value is not found, as with a file from another build or no file at all, the cursor returns None for every later request, and the caller projects the unit itself."""
-
-    def __init__(self, path: Path, field: str = "id") -> None:
-        self._open(field, lambda: _sidecar_lines(Path(path)))
-
-    @classmethod
-    def over_index(cls, corpus: Path) -> LineCursor:
-        """Return a cursor by id over the units index of `corpus`."""
-        cursor = cls.__new__(cls)
-        cursor._open("id", lambda: _index_lines(Path(corpus)))
-        return cursor
-
-    def _open(self, field: str, opener: Callable[[], tuple[Iterator[bytes], Callable[[], None]]]) -> None:
-        self._field = field
-        self._lines: Iterator[bytes] | None = None
-        self._closer: Callable[[], None] | None = None
-        try:
-            self._lines, self._closer = opener()
-        except OSError, EOFError, ValueError, StopIteration:
-            self.close()
-
-    def take(self, value: str) -> bytes | None:
-        if self._lines is None:
-            return None
-        prefix = f"{{{json.dumps(self._field)}: {json.dumps(value)}, ".encode()
-        for line in self._lines:
-            if line.startswith(prefix):
-                return line
-        self.close()
-        return None
-
-    def close(self) -> None:
-        closer, self._closer, self._lines = self._closer, None, None
-        if closer is not None:
-            closer()
-
-
-def _sidecar_lines(path: Path) -> tuple[Iterator[bytes], Callable[[], None]]:
-    stream = gzip.open(path, "rb")
-    try:
-        next(stream)
-    except BaseException:
-        stream.close()
-        raise
-    return iter(stream), stream.close
-
-
-def _index_lines(corpus: Path) -> tuple[Iterator[bytes], Callable[[], None]]:
-    opened = open_index(corpus)
-    if opened is None:
-        raise FileNotFoundError(index_path(corpus))
-    return opened.lines(), opened.close
 
 
 def _manifest(corpus: Path) -> dict:
@@ -1078,11 +1003,6 @@ def base_part_names(class_id: str, count: int) -> list[str]:
     return [f"units/{class_id}.{index:03d}.json" for index in range(count)]
 
 
-def overflow_part_name(class_id: str, index: int) -> str:
-    """Return the name of a class's overflow part `index`, `units/<class>.x<NNN>.json`, numbered from `x000`."""
-    return f"units/{class_id}.x{index:03d}.json"
-
-
 def overflow_index(class_id: str, part: str) -> int | None:
     """Return the number of `part` if it is one of the class's overflow parts, else None."""
     match = re.fullmatch(rf"units/{re.escape(class_id)}\.x(\d{{3,}})\.json", part)
@@ -1090,7 +1010,7 @@ def overflow_index(class_id: str, part: str) -> int | None:
 
 
 class PartLayout:
-    """The rule a from-scratch build cuts one class's fragments into parts by, which `build._ShardWriter` writes a base by and the materialized form of the corpus is laid out by. Fragments arrive in id order, each with its bytes on disk; `place` returns the part index, the byte start and whether the fragment opens its part (else a comma precedes it). A part is `[`, its fragments joined by commas, and `PART_CLOSING`, so a part of plain fragments equals `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` under the shard writer's framing, and a class with no fragment is one part, `[]\\n`. A base of deflated fragments, a fold's or a share-rule direct write's, is cut by the same rule over their deflated lengths, so it takes fewer parts than its plain form, the materialized form's. A part closes before the fragment that would take it past `SHARD_PART_BYTES`, so every part stays within the cap but one holding a single fragment that alone exceeds it. `sizes` closes the layout and returns each part's size."""
+    """The rule a from-scratch build cuts one class's fragments into parts by, which the crate's shard writer and `build._write_shard` write a base by and the materialized form of the corpus is laid out by. Fragments arrive in id order, each with its bytes on disk; `place` returns the part index, the byte start and whether the fragment opens its part (else a comma precedes it). A part is `[`, its fragments joined by commas, and `PART_CLOSING`, so a part of plain fragments equals `json.dumps(part, indent=1, ensure_ascii=True) + "\\n"` under the shard writer's framing, and a class with no fragment is one part, `[]\\n`. A base of deflated fragments, a fold's or a share-rule direct write's, is cut by the same rule over their deflated lengths, so it takes fewer parts than its plain form, the materialized form's. A part closes before the fragment that would take it past `SHARD_PART_BYTES`, so every part stays within the cap but one holding a single fragment that alone exceeds it. `sizes` closes the layout and returns each part's size."""
 
     def __init__(self, cap: int | None = None) -> None:
         self._cap = SHARD_PART_BYTES if cap is None else cap
@@ -1255,7 +1175,7 @@ def record_class(line: bytes) -> str:
 
 
 def record_address(line: bytes) -> tuple[str, int, int, int] | None:
-    """Return a unit store line's address, sliced from its end, where `to_record` writes it, as its part, start, length on disk and inflated length, the last 0 for a plain fragment, whose address has three elements (`address_value`), or None for a record that has none."""
+    """Return a unit store line's address, sliced from its end, where the store's writer puts it, as its part, start, length on disk and inflated length, the last 0 for a plain fragment, whose address has three elements, or None for a record that has none."""
     value = json.loads(line[line.rindex(_ADDRESS_SEAM) + len(_ADDRESS_SEAM) :].rstrip()[:-1])
     if value is None:
         return None

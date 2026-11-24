@@ -115,6 +115,7 @@ def _stamps(root: Path, record_dir: str) -> dict:
             {"default": "X", "ss03": "X"},
             identical_classes=["b", "a"],
             draft_lines=["site_corpus\tP", "draft_harness\tQ"],
+            units_engine="U",
         ),
     }
 
@@ -140,7 +141,7 @@ def test_the_alphabet_token_joins_every_stamp_only_while_the_switch_is_set(monke
         '  "pipeline_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"\n}\n'
     )
     assert whole["settle"].value == "d5d85b5add5cb3dc9e984cc472db4c1ade6481f1b9c5577a2729577322a1c91a"
-    assert whole["unit"].value == "5c2b5700fd1989c967bca9a05e3b909410218fce1c7d7f86a4948810d2f82913"
+    assert whole["unit"].value == "b63dddc15aa3a8fe70085b8d4fd76071ead8f182e9f03e750e4bca8e1dff100d"
 
     monkeypatch.setenv(spec_load.M1_RUNES_ENV, SMALL)
     small = _stamps(tmp_path, "small")

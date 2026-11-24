@@ -2,7 +2,7 @@
 
 The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, including `explain` and `drafts`, the two largest fields of a full fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the queue view, search, duplicate groups, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field, as `rebuild/test_unit_index.py` does for the verdict update's index.
 
-In place of the dropped fields, each row carries the address of its own record in its class shard: the part index, byte offset and byte length on disk, captured as `build._ShardWriter` wrote the shard. A card fetches its record with an HTTP Range request against the static file, with no server-side endpoint: the sample text, the pair band and the settled cells when the card is drawn, and the explain table when its panel opens. So the shard writer's framing must keep every fragment addressable by byte offset: a plain fragment's bytes are a standalone JSON element, and they are pure ASCII, so a character offset is a byte offset; a deflated fragment's (#618's change 35) are that element deflated alone as a raw deflate stream (`unit_index.deflate_fragment`), and its row ends with `"deflated": true` after `byte_length` (decision 77), so the app inflates it (`DecompressionStream('deflate-raw')`) before it parses it. A plain fragment's row carries no marker, so it is byte for byte the row a from-scratch build writes for the fragment at that address, and no format string names the marker.
+In place of the dropped fields, each row carries the address of its own record in its class shard: the part index, byte offset and byte length on disk, captured as the shard writer wrote the shard. A card fetches its record with an HTTP Range request against the static file, with no server-side endpoint: the sample text, the pair band and the settled cells when the card is drawn, and the explain table when its panel opens. So the shard writer's framing must keep every fragment addressable by byte offset: a plain fragment's bytes are a standalone JSON element, and they are pure ASCII, so a character offset is a byte offset; a deflated fragment's (#618's change 35) are that element deflated alone as a raw deflate stream (`unit_index.inflate_fragment` reads one back), and its row ends with `"deflated": true` after `byte_length` (decision 77), so the app inflates it (`DecompressionStream('deflate-raw')`) before it parses it. A plain fragment's row carries no marker, so it is byte for byte the row a from-scratch build writes for the fragment at that address, and no format string names the marker.
 
 The locator holds the same address, without the other fields, for every unit the app index does not hold. The rows file is a sequence of gzip members, one per block of at most `LOCATOR_BLOCK_ROWS` rows. No block spans two classes. The blocks are in shard order: classes by `unit_index.class_shard_key`, and each class's rows in id order, which is the order the build writes a class's fragments in. The table file lists the blocks: each member's byte span inside the rows file, its class, and the first and last id it holds. A show-machine fold reads its class's rows one block at a time. A deep link to a machine unit binary-searches each class's blocks by id and Range-fetches the one member that can hold the id. Ids are content-derived strings, so the search compares strings. Each block decodes on its own, so neither path reads the whole file. Within a class the blocks are disjoint and ascending, but the id ranges of different classes overlap. One global id order would interleave the classes and make a fold read many blocks only to discard them, which is why the file is in shard order. A tab keeps the table, whose length is the number of machine units divided by the block size, and a few decoded blocks (`BLOCK_CACHE_CAP` in `static/slim.js`).
 
@@ -128,25 +128,6 @@ def app_line(
 
 def locator_line(fragment: dict, part: int, start: int, length: int, *, deflated: bool = False) -> bytes:
     return _line(locator_row(fragment, part, start, length, deflated=deflated))
-
-
-def copy_forward_app_line(
-    line: bytes,
-    *,
-    unit_id: str,
-    order: int,
-    batch: int,
-    part: int,
-    start: int,
-    length: int,
-    deflated: bool = False,
-) -> bytes:
-    """Rewrite a previous corpus's app-index row for a byte-copied unit so it fits this corpus. The id and queue place at the head and the address at the tail come from this build, and so does the tail's `"deflated": true`, which this build's span decides whatever the previous row's tail held. The fields between them are the fragment's own and have not changed, so the result is byte for byte what `app_line` writes for the same fragment."""
-    middle = line[line.index(b', "class": ') : line.rindex(b', "shard_part": ')]
-    tail = json.dumps(
-        {"shard_part": part, "byte_start": start, "byte_length": length, **_DEFLATED_MARK[deflated]}
-    ).encode()[1:]
-    return unit_index.line_head(unit_id, order, batch) + middle + b", " + tail + b"\n"
 
 
 def write_app_artifacts_lines(

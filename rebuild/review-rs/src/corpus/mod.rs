@@ -1,12 +1,12 @@
-//! The review corpus build's parent, which `rebuild/CORPUS-PARENT-PORT-PLAN.md` moves from `rebuild/review/build.py` into the crate beside the units engine, with `rebuild/review/corpus_exec.py` as its Python half. [`input`] reads the build input that interface writes, [`console`] prints the build's console lines, [`sink`] writes its whole-file outputs as `output_sink` does, [`gzip`] writes and reads its zlib and gzip containers as Python's `zlib` and `gzip` do, [`random`] draws the verification sample as CPython's `random.Random` does, [`rowdelta`] reads and writes the segment format's heads, parts and segments as `row_delta` does, [`audit`] finds the held audit's sections as `audit.audit_layout` does, [`stream`] walks them a window at a time as `audit_stream.lockstep` does, [`signatures`] loads and writes the ink-signature store as `unit_cache.SignatureArrays` does and finds and shapes its misses on threads as the build's key-only read and shaping do, [`columns`] holds the string table, the pools and the indexes the build's columns are built on as `rebuild/review/columns.py` does, and [`table`] orders the unit table's rows by `audit.triage_key` as `audit`'s counting sorts do, merges a window's ink-duplicate units as `audit._merge_members` does, and holds the unit table the build's stream loads as `audit.stream_workload` loads it; [`premerge`] holds the pre-merge snapshot the review facts are derived from, rebased onto the merge, as `facts.PremergeSnapshot` holds it; [`records`] parses, slices and writes the unit store's records as `unit_cache` does; [`store`] holds the unit store's columns as `unit_store.UnitStore` holds them; and [`scan`] reads the prior store and places its records as the plan's scans and walk do.
+//! The review corpus build, which `corpus_exec.run_build` runs over the build input `corpus_exec.write_input` writes. [`input`] reads that input, [`console`] prints the build's console lines, [`sink`] writes its whole-file outputs as `output_sink` does, [`gzip`] writes and reads its zlib and gzip containers as CPython's `zlib` and `gzip` do, [`random`] draws the verification sample as CPython's `random.Random` does, [`rowdelta`] reads and writes the segment format's heads, parts and segments as `row_delta` does, [`audit`] finds the held audit's sections, [`stream`] walks them a window at a time, [`signatures`] loads and writes the ink-signature store and finds and shapes its misses on threads, [`columns`] holds the string table, the pools and the indexes the build's columns are built on, and [`table`] puts the unit table's rows in triage order with counting sorts, merges a window's ink-duplicate units, and holds the unit table the build's stream loads; [`premerge`] holds the pre-merge snapshot the review facts are derived from, rebased onto the merge; [`records`] parses, slices and writes the unit store's records; [`store`] holds the unit store's columns; and [`scan`] reads the prior store and places its records as the plan's scans and walk do.
 //!
-//! The build's load phase is here ([`load_phase`], [`load_corpus`]), as `build._build_m1` runs it: the ink-signature store loaded, the misses found and shaped, the audit read as a stream into the unit table and the pre-merge snapshot. The Rust build reads an audit only as a stream, so an audit that is not in sorted sections, or whose key-only read or stream breaks, is refused, naming the Python build that reads it ([`not_a_stream`]). [`stage_load`] is the `load` stage of the stage fixtures.
+//! The build's load phase is here ([`load_phase`], [`load_corpus`]): the ink-signature store loaded, the misses found and shaped, the audit read as a stream into the unit table and the pre-merge snapshot. The build reads an audit only as a stream, so an audit that is not in sorted sections, or whose key-only read or stream breaks, is refused ([`not_a_stream`]).
 //!
-//! The build's plan phase is here too ([`plan_phase`]), as `build._build_m1` runs it after the load: the unit store made over the load's units and input keys, the prior unit store scanned and every unit it can reuse loaded, the records it cannot reuse kept by id, a store that stops reading partway answered by a restart over an emptied store, and the verification sample drawn from the reused units ([`Planned`]). [`stage_plan`] is the `plan` stage of the stage fixtures.
+//! The build's plan phase is here too ([`plan_phase`]), after the load: the unit store made over the load's units and input keys, the prior unit store scanned and every unit it can reuse loaded, the records it cannot reuse kept by id, a store that stops reading partway answered by a restart over an emptied store, and the verification sample drawn from the reused units ([`Planned`]).
 //!
-//! [`build`] runs the whole build in `build._build_m1`'s order of phases, each opened and closed by its console lines, and [`build_result`] gives the result line `ams-review build` ends with.
+//! [`build`] runs the whole build phase by phase, each phase opened and closed by its console lines, and [`build_result`] gives the result line `ams-review build` ends with.
 //!
-//! [`drive`] runs the units phase after the plan on the worker pool in process, as `build._RecomputeRunner` drives the Rust units engine, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches, the duplicate groups and the primary units, to the verification and its stale check. [`route`] decides how the write takes each class before it writes: each class's route and prediction, its manifest record, whether the previous sidecars are copied forward, and the runs. [`shards`] writes each class's fragments into its shard parts, directly into base parts or appended to the overflow parts after the parts the previous corpus holds, each part staged until the write commits. [`prior`] reads each fragment back for the write: a cached one from the previous corpus by its address, a recomputed one from the units phase's arena, each checked to be the unit and stamp its address carries. [`emit`] gives each unit as the write receives it: a fragment read back and patched with this build's scaffold and primary units, or a cached fragment's stored bytes with the identity that stands in for it. [`corpus_check`] checks the units the write writes, per unit at `PATCHED` and class by class against their manifest records as they pass, and as a whole against the manifest once each class's facts are folded in shard order. [`sidecars`] projects each run's sidecar lines as the write passes each unit, or copies a byte-copied unit's lines forward from the previous sidecars, and spills them until the manifest is on disk. [`write`] writes the classes' runs on threads through them, folds their results into the store and one checker in shard order, commits the staged parts and copies the fonts in. [`manifest`] writes the manifest after them and prunes the shards it no longer names. [`index`] writes the units index from the runs' spilled lines once the manifest is on disk: a first or unusable base, a fold, a segment of the records that differ from the prior's, or the head alone. Beside it, on a thread of its own, [`sidecars`] writes the app sidecars from the runs' spilled app-index lines and locator blocks, each staged until all three are written. [`facts`] writes the review facts once the manifest is on disk, from the pre-merge snapshot projected onto the units phase's products. [`cache`] writes the unit store after them: a first, unusable, re-derived, share or fold base, a segment of the records whose lines changed, or the head alone.
+//! [`drive`] runs the units phase after the plan on the worker pool in process, with the recomputed fragments in its arena's spill files. [`passes`] runs the whole-corpus passes after it, from the id index through the triage order and its batches, the duplicate groups and the primary units, to the verification and its stale check. [`route`] decides how the write takes each class before it writes: each class's route and prediction, its manifest record, whether the previous sidecars are copied forward, and the runs. [`shards`] writes each class's fragments into its shard parts, directly into base parts or appended to the overflow parts after the parts the previous corpus holds, each part staged until the write commits. [`prior`] reads each fragment back for the write: a cached one from the previous corpus by its address, a recomputed one from the units phase's arena, each checked to be the unit and stamp its address carries. [`emit`] gives each unit as the write receives it: a fragment read back and patched with this build's scaffold and primary units, or a cached fragment's stored bytes with the identity that stands in for it. [`corpus_check`] checks the units the write writes, per unit at `PATCHED` and class by class against their manifest records as they pass, and as a whole against the manifest once each class's facts are folded in shard order. [`sidecars`] projects each run's sidecar lines as the write passes each unit, or copies a byte-copied unit's lines forward from the previous sidecars, and spills them until the manifest is on disk. [`write`] writes the classes' runs on threads through them, folds their results into the store and one checker in shard order, commits the staged parts and copies the fonts in. [`manifest`] writes the manifest after them and prunes the shards it no longer names. [`index`] writes the units index from the runs' spilled lines once the manifest is on disk: a first or unusable base, a fold, a segment of the records that differ from the prior's, or the head alone. Beside it, on a thread of its own, [`sidecars`] writes the app sidecars from the runs' spilled app-index lines and locator blocks, each staged until all three are written. [`facts`] writes the review facts once the manifest is on disk, from the pre-merge snapshot projected onto the units phase's products. [`cache`] writes the unit store after them: a first, unusable, re-derived, share or fold base, a segment of the records whose lines changed, or the head alone.
 
 pub mod audit;
 pub mod cache;
@@ -43,7 +43,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::Instant;
 
-use audit::{Section, Vocabulary, audit_layout, stage_line};
+use audit::{Section, Vocabulary, audit_layout};
 use columns::{KeyIndex, KeyIndexError, RepeatedKey};
 use input::{BuildInput, Member};
 use premerge::PremergeSnapshot;
@@ -57,22 +57,16 @@ use scan::{
 };
 use signatures::{
     AUDIT_IDENTITY_KEY, FAMILY_KEYS_KEY, HeldWindows, InkShaping, MissError, SignatureArrays,
-    StoreNames, dump_prior, find_misses, get, is_str, key_only_count, lines_value,
-    signature_miss_note,
+    StoreNames, find_misses, get, is_str, key_only_count, signature_miss_note,
 };
 use sink::Sink;
 use store::{PriorFragment, UnitStore};
 use stream::{Lockstep, StreamError};
-use table::{
-    ColumnDigest, InkDigest, MergeStats, UNIT_PREFIX, Unit, UnitTable, Workload, WorkloadError,
-    count_value, int, stage_units, stream_workload, workload_unit,
-};
+use table::{InkDigest, Unit, UnitTable, Workload, WorkloadError, stream_workload};
 
 use crate::pyfmt::PyValue;
-use crate::wire::{Result, WireError};
+use crate::wire::WireError;
 
-/// The switch setting that builds what the Rust build refuses (`corpus_exec.ENGINE_VARIABLE`).
-pub const PYTHON_BUILD: &str = "AMS_CORPUS_BUILD_ENGINE=python";
 /// The label of the load phase's console lines.
 pub const LOAD_LABEL: &str = "review.build load";
 /// The label of the plan phase's console lines.
@@ -80,7 +74,7 @@ pub const PLAN_LABEL: &str = "review.build plan";
 /// The load's source, as the load phase's note names it.
 pub const STREAM_SOURCE: &str = "read as a stream";
 
-/// What stops the build, by how the Python build stops: a `SystemExit` with this text, or any other failure, which the result line carries as an `error`.
+/// What stops the build: a refusal, which the result line carries as an `exit` with this text for the launcher to raise as `SystemExit`, or any other failure, which it carries as an `error`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuildError {
     Exit(String),
@@ -108,10 +102,10 @@ fn failed(failure: impl std::fmt::Display) -> BuildError {
     BuildError::Failed(failure.to_string())
 }
 
-/// The refusal of an audit the Rust build does not read, where the Python build reads it through its in-memory source instead: why the audit at `path` is not read as a stream, and the switch setting that builds it.
+/// The refusal of an audit the build does not read: why the audit at `path` is not read as a stream.
 pub fn not_a_stream(path: &str, why: &str) -> BuildError {
     BuildError::Exit(format!(
-        "the Rust build reads an audit only as a stream, and {path} is not one, since {why}; {PYTHON_BUILD} builds it"
+        "the Rust build reads an audit only as a stream, and {path} is not one, since {why}"
     ))
 }
 
@@ -127,7 +121,7 @@ pub enum KeyOnlyRun {
 }
 
 impl KeyOnlyRun {
-    /// The key-only read's part of the load phase's note (`build._key_only_note`).
+    /// The key-only read's part of the load phase's note.
     pub fn note(&self) -> String {
         match self {
             Self::Skipped => "skipped, the store's stamps held".to_owned(),
@@ -140,7 +134,7 @@ impl KeyOnlyRun {
     }
 }
 
-/// What the load gives the plan (`build._Loaded` from the stream): the workload, its table merged and in load order; the pre-merge snapshot, rebased onto the merge; each unit's input key in load order; the ink-signature store's columns, hits marked and misses shaped, and the stamps its header records; the merge's stats; what the key-only read did; the misses shaped, late ones among them, and the threads the key-only read's misses were shaped on; and the held audit's parts, those held as gzip members and its segments' rows.
+/// What the load gives the plan: the workload, its table merged and in load order; the pre-merge snapshot, rebased onto the merge; each unit's input key in load order; the ink-signature store's columns, hits marked and misses shaped, and the stamps its header records; what the key-only read did; the misses shaped, late ones among them, and the threads the key-only read's misses were shaped on; and the held audit's parts, those held as gzip members and its segments' rows.
 #[derive(Debug)]
 pub struct Loaded {
     pub workload: Workload,
@@ -148,7 +142,6 @@ pub struct Loaded {
     pub input_keys: Vec<u8>,
     pub signatures: SignatureArrays,
     pub stamps: Vec<(PyValue, PyValue)>,
-    pub merge_stats: MergeStats,
     pub key_only: KeyOnlyRun,
     pub shaped: usize,
     pub width: usize,
@@ -158,7 +151,7 @@ pub struct Loaded {
 }
 
 impl Loaded {
-    /// The load phase's note (`_Loaded.note`), after the `build=rust` token: the signatures the store answered and those shaped, and on how many threads, what the key-only read did, the source, the held audit's parts, and the prior store's hits, unhit entries and misses.
+    /// The load phase's note, after the `build=rust` token: the signatures the store answered and those shaped, and on how many threads, what the key-only read did, the source, the held audit's parts, and the prior store's hits, unhit entries and misses.
     pub fn note(&self) -> String {
         let signatures = &self.signatures;
         let how = match (self.shaped, self.width) {
@@ -194,7 +187,7 @@ pub(crate) fn thousands(count: usize) -> String {
     written
 }
 
-/// The audit's sections in sorted order, as `audit.audit_layout` finds them over `files`, or the refusal of an audit that is not in sorted sections ([`not_a_stream`]); an audit with no header or another header, or a member that does not inflate to what its index records, fails as Python's raises.
+/// The audit's sections in sorted order, found over `files` ([`audit_layout`]), or the refusal of an audit that is not in sorted sections ([`not_a_stream`]); an audit with no header or another header, or a member that does not inflate to what its index records, fails.
 pub fn sorted_sections(
     files: &[File],
     path: &str,
@@ -216,7 +209,7 @@ fn stream_failure(path: &str, failure: WorkloadError) -> BuildError {
     }
 }
 
-/// Load the audit for the build (`build._load_corpus`'s stream path), the prior store read from `out_dir` and the audit through `files`, the parts the build input's descriptors hold: the ink-signature store read into columns, unless the build recomputes every unit, with its miss note on `console` when none loads, said for no store and warned otherwise; the audit's sections found ([`sorted_sections`]); the misses found by the key-only read at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads, unless the store's stamps hold, and shaped on its signature threads; the audit read as a stream ([`stream_workload`]), each digest the store does not hold shaped late; and the pre-merge snapshot taken over the ledger's `ink_identical` classes and rebased onto the merge. The shaping's fonts are dropped as the load returns.
+/// Load the audit for the build, the prior store read from `out_dir` and the audit through `files`, the parts the build input's descriptors hold: the ink-signature store read into columns, unless the build recomputes every unit, with its miss note on `console` when none loads, said for no store and warned otherwise; the audit's sections found ([`sorted_sections`]); the misses found by the key-only read at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads, unless the store's stamps hold, and shaped on its signature threads; the audit read as a stream ([`stream_workload`]), each digest the store does not hold shaped late; and the pre-merge snapshot taken over the ledger's `ink_identical` classes and rebased onto the merge. The shaping's fonts are dropped as the load returns.
 pub fn load_corpus(
     input: &BuildInput,
     files: &[File],
@@ -342,7 +335,6 @@ pub fn load_corpus(
         input_keys: streamed.input_keys,
         signatures,
         stamps,
-        merge_stats: streamed.merge_stats,
         key_only,
         shaped: shaped + late_shaped,
         width: if shaped > 0 { shaped_width } else { 1 },
@@ -352,7 +344,7 @@ pub fn load_corpus(
     })
 }
 
-/// The build's load phase (`build._build_m1` up to the plan): its `[phase]` line, the load over the audit's held parts and the prior store in the input's output directory ([`load_corpus`]), the refusal of a table with no units, and the `[t]` line that closes it with the load's note.
+/// The build's load phase, up to the plan: its `[phase]` line, the load over the audit's held parts and the prior store in the input's output directory ([`load_corpus`]), the refusal of a table with no units, and the `[t]` line that closes it with the load's note.
 pub fn load_phase(
     input: &BuildInput,
     files: &[File],
@@ -377,113 +369,7 @@ pub fn load_phase(
     Ok(loaded)
 }
 
-/// The keys of the `load` stage's lines beside its units and its pre-merge column (`units_stage_fixtures.LOAD_*_KEY`).
-const SOURCE_KEY: &str = "source";
-const KEY_ONLY_KEY: &str = "key-only";
-const SIGNATURES_KEY: &str = "signatures";
-const STAMPS_KEY: &str = "stamps";
-const ENVIRONMENT_KEY: &str = "environment";
-const MERGE_KEY: &str = "merge";
-const AUDIT_KEY: &str = "audit";
-const CONSOLE_KEY: &str = "console";
-
-/// Write the `load` stage's lines over what the load gave, as the Python stage's `load_boundary` lays them out: a `unit:<ordinal>` line for each ordinal in `units`, the unit as the `workload` stage holds it, and the column over every unit; a column over the pre-merge snapshot's rows; the source, the key-only read's facts, the store's counts and new lines, the stamps, the signature stamp's value, the merge's stats, the held audit's facts, and the console lines the load printed.
-fn load_lines(
-    loaded: &Loaded,
-    input: &BuildInput,
-    printed: &[u8],
-    units: &std::collections::HashSet<usize>,
-    out: &mut impl Write,
-) -> Result<()> {
-    let table = &loaded.workload.table;
-    let mut digest = ColumnDigest::new();
-    for ordinal in 0..table.n {
-        let value = workload_unit(table, &loaded.input_keys, ordinal);
-        if units.contains(&ordinal) {
-            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-        }
-        digest.add(&value);
-    }
-    digest.write(out, "value")?;
-    let snapshot = &loaded.premerge;
-    let (Some(survivor), Some(removed)) = (&snapshot.survivor, &snapshot.removed) else {
-        return Err(WireError(
-            "the load stage answers over a rebased snapshot".to_owned(),
-        ));
-    };
-    let mut rows = ColumnDigest::new();
-    for at in 0..snapshot.len() {
-        rows.add(&PyValue::Tuple(vec![
-            int(snapshot.class_id[at]),
-            int(snapshot.no_verdict[at]),
-            int(snapshot.configs[at]),
-            int(snapshot.window_start[at]),
-            int(snapshot.window_n[at]),
-            int(survivor[at]),
-            int(removed[at]),
-        ]));
-    }
-    rows.write(out, "premerge")?;
-    stage_line(out, SOURCE_KEY, &PyValue::str(STREAM_SOURCE))?;
-    let key_only = match loaded.key_only {
-        KeyOnlyRun::Skipped => PyValue::Tuple(vec![PyValue::str("skipped")]),
-        KeyOnlyRun::Ran { ranges, .. } => {
-            PyValue::Tuple(vec![PyValue::str("ran"), count_value(ranges)])
-        }
-    };
-    stage_line(out, KEY_ONLY_KEY, &key_only)?;
-    let signatures = &loaded.signatures;
-    stage_line(
-        out,
-        SIGNATURES_KEY,
-        &PyValue::Tuple(vec![
-            count_value(signatures.hits()),
-            count_value(loaded.shaped),
-            count_value(signatures.unhit()),
-            count_value(signatures.misses()),
-            PyValue::Bool(signatures.unchanged()),
-            lines_value(signatures)?,
-        ]),
-    )?;
-    stage_line(out, STAMPS_KEY, &PyValue::Dict(loaded.stamps.clone()))?;
-    stage_line(
-        out,
-        ENVIRONMENT_KEY,
-        &PyValue::str(&input.signature_environment.value),
-    )?;
-    stage_line(out, MERGE_KEY, &loaded.merge_stats.to_py())?;
-    stage_line(
-        out,
-        AUDIT_KEY,
-        &PyValue::Tuple(vec![
-            count_value(loaded.parts),
-            PyValue::Int(loaded.compressed),
-            PyValue::Int(loaded.segment_rows),
-        ]),
-    )?;
-    let printed = String::from_utf8_lossy(printed);
-    stage_line(
-        out,
-        CONSOLE_KEY,
-        &PyValue::List(printed.lines().map(PyValue::str).collect()),
-    )
-}
-
-/// The `load` stage: run the build's load ([`load_corpus`]) over the audit its build input names, read through the descriptors the process inherits, and the prior store of the dump's prior corpus, as its `source.json` names it, its console lines kept rather than printed, and answer with the lines `load_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose load did not return, is answered with none.
-pub fn stage_load(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let (units, lines) = stage_units(stage_file)?;
-    if lines == 0 {
-        return Ok(());
-    }
-    let files = input.held_audit()?;
-    let mut printed = Vec::new();
-    let loaded = load_corpus(&input, &files, &dump_prior(stage_file)?, &mut printed)
-        .map_err(|failure| WireError(format!("the load failed: {failure}")))?;
-    load_lines(&loaded, &input, &printed, &units, out)
-}
-
-/// What the plan learned of the prior unit store, for the cache write's choice of a head alone, a segment or a new base (`unit_cache.StorePlan`): whether a store existed; whether it read to its end in this format; its head, or for a single file the one the plan put it under; its materialized record count and its base's row bytes; and whether a stamp line moved that says every record is re-derived.
+/// What the plan learned of the prior unit store, for the cache write's choice of a head alone, a segment or a new base: whether a store existed; whether it read to its end in this format; its head, or for a single file the one the plan put it under; its materialized record count and its base's row bytes; and whether a stamp line moved that says every record is re-derived.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct StorePlan {
     pub existed: bool,
@@ -502,44 +388,16 @@ impl StorePlan {
             ..Self::default()
         }
     }
-
-    /// The plan as the `plan` stage records it, its head as its document.
-    pub fn value(&self) -> PyValue {
-        PyValue::Tuple(vec![
-            PyValue::Bool(self.existed),
-            PyValue::Bool(self.readable),
-            self.head.as_ref().map_or(PyValue::None, Head::document),
-            count_value(self.lines),
-            PyValue::Int(self.rows_bytes),
-            PyValue::Bool(self.rederived),
-        ])
-    }
 }
 
-/// What the plan read of the previous corpus's shard parts, for each class's fold as the write opens it (`build.PriorShards`): each part's size as the unit store records it, and the live bytes its records name in it, each live fragment with the comma or bracket before it. The plan keeps it only when the store describes the parts beside it.
+/// What the plan read of the previous corpus's shard parts, for each class's fold as the write opens it: each part's size as the unit store records it, and the live bytes its records name in it, each live fragment with the comma or bracket before it. The plan keeps it only when the store describes the parts beside it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PriorShards {
     pub sizes: BTreeMap<String, i64>,
     pub live: BTreeMap<String, i64>,
 }
 
-impl PriorShards {
-    /// The shards as the `plan` stage records them: each map's items in order.
-    pub fn value(&self) -> PyValue {
-        let items = |map: &BTreeMap<String, i64>| {
-            PyValue::Tuple(
-                map.iter()
-                    .map(|(part, bytes)| {
-                        PyValue::Tuple(vec![PyValue::str(part), PyValue::Int(*bytes)])
-                    })
-                    .collect(),
-            )
-        };
-        PyValue::Tuple(vec![items(&self.sizes), items(&self.live)])
-    }
-}
-
-/// What the plan gives the units phase: the unit store, every unit taken from the prior store loaded into it, every prior line it names and every prior record kept by id; the store plan; the prior shards; the count of units reused; the ordinals left to recompute, ascending; and the verification sample's ordinals, ascending, with the units materialized for it.
+/// What the plan gives the units phase: the unit store, every unit taken from the prior store loaded into it, every prior line it names and every prior record kept by id; the store plan; the prior shards; the count of units reused; the ordinals left to recompute, ascending; and the units of the verification sample, materialized in ascending ordinal order.
 #[derive(Debug)]
 pub struct Planned {
     pub store: UnitStore,
@@ -547,7 +405,6 @@ pub struct Planned {
     pub prior_shards: Option<PriorShards>,
     pub cached: usize,
     pub recomputed: Vec<u32>,
-    pub sampled: Vec<u32>,
     pub verify_units: Vec<Unit>,
 }
 
@@ -563,7 +420,7 @@ impl Planned {
     }
 }
 
-/// `build._slim_for`: whether this build would write the unit's fragment slim, from the record's machine flags and this build's exemption.
+/// Whether this build would write the unit's fragment slim, from the record's machine flags and this build's exemption.
 fn slim_for(no_verdict: bool, cached: &ParsedCachedUnit) -> bool {
     cached.ink_identical || cached.picture_identical || cached.junior_equivalent || no_verdict
 }
@@ -636,7 +493,7 @@ impl PriorScan<'_> {
             && cached.slim == slim_for(self.table.no_verdict(ordinal as usize), cached)
     }
 
-    /// The plan's reads of the open store `opened` as `_build_m1`'s `try` makes them: every record in the store's materialized order, read on one thread and parsed on the scan's threads ([`scan_store_threaded`]), each named one giving its unit its prior line, each reusable one loaded, each one not loaded kept by id while the addresses hold; then the records found without an address placed by one walk over the prior corpus and parsed again alone, each reusable one loaded at the place the walk found.
+    /// The plan's reads of the open store `opened`: every record in the store's materialized order, read on one thread and parsed on the scan's threads ([`scan_store_threaded`]), each named one giving its unit its prior line, each reusable one loaded, each one not loaded kept by id while the addresses hold; then the records found without an address placed by one walk over the prior corpus and parsed again alone, each reusable one loaded at the place the walk found.
     fn read(
         &self,
         opened: &OpenStore,
@@ -777,7 +634,7 @@ fn trusted_sizes(recorded: &[(PyValue, PyValue)]) -> BTreeMap<String, i64> {
         .collect()
 }
 
-/// The plan phase (`build._build_m1` from the plan's `[phase]` line to its `[t]` line): the unit store made over the table's units and their input keys, refusing two units with one key; the prior unit store under `out_dir` opened, with its notes, and scanned as [`PriorScan::read`] reads it, restarting over an emptied store with its note when it stops reading partway; once it reads to its end, the kept records sealed, a single file put under a head through `sink`, and the store plan and the prior shards it gives; the ordinals left to recompute; and the verification sample drawn from the reused units' ids, seeded with the store's environment stamp, with the units materialized for it.
+/// The plan phase, from its `[phase]` line to its `[t]` line: the unit store made over the table's units and their input keys, refusing two units with one key; the prior unit store under `out_dir` opened, with its notes, and scanned as [`PriorScan::read`] reads it, restarting over an emptied store with its note when it stops reading partway; once it reads to its end, the kept records sealed, a single file put under a head through `sink`, and the store plan and the prior shards it gives; the ordinals left to recompute; and the verification sample drawn from the reused units' ids, seeded with the store's environment stamp, with the units materialized for it.
 pub fn plan_phase(
     input: &BuildInput,
     out_dir: &Path,
@@ -947,7 +804,6 @@ pub fn plan_phase(
         prior_shards,
         cached,
         recomputed,
-        sampled,
         verify_units,
     };
     console::phase_timing(
@@ -958,128 +814,6 @@ pub fn plan_phase(
     )
     .map_err(failed)?;
     Ok(planned)
-}
-
-/// The keys of the `plan` stage's lines beside its units and their column (`units_stage_fixtures.PLAN_*`).
-const PRIOR_RECORDS_COLUMN: &str = "prior-records";
-const RECOMPUTED_COLUMN: &str = "recomputed";
-const STORE_PLAN_KEY: &str = "store-plan";
-const PRIOR_SHARDS_KEY: &str = "prior-shards";
-const CACHED_KEY: &str = "cached";
-const SAMPLE_KEY: &str = "sample";
-const NOTE_KEY: &str = "note";
-
-/// Write the `plan` stage's lines over what the plan gave, as the Python stage's `plan_boundary` lays them out: a `unit:<ordinal>` line for each ordinal in `units`, the store's row as the `store-load` stage reads one, and the column over every row; a column over the prior records the store keeps by id and one over the recomputed ordinals; the store plan, the prior shards, the count reused, the sample with its units, the note, and the console lines the plan printed but its `[t]` line.
-fn plan_lines(
-    planned: &Planned,
-    printed: &[u8],
-    units: &HashSet<usize>,
-    out: &mut impl Write,
-) -> Result<()> {
-    let store = &planned.store;
-    let mut digest = ColumnDigest::new();
-    for ordinal in 0..store.len() {
-        let value = store::reading(store, ordinal);
-        if units.contains(&ordinal) {
-            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-        }
-        digest.add(&value);
-    }
-    digest.write(out, "value")?;
-    let mut records = ColumnDigest::new();
-    for record in store::sealed_records(store) {
-        records.add(&record);
-    }
-    records.write(out, PRIOR_RECORDS_COLUMN)?;
-    let mut recomputed = ColumnDigest::new();
-    for &ordinal in &planned.recomputed {
-        recomputed.add(&int(ordinal));
-    }
-    recomputed.write(out, RECOMPUTED_COLUMN)?;
-    stage_line(out, STORE_PLAN_KEY, &planned.store_plan.value())?;
-    stage_line(
-        out,
-        PRIOR_SHARDS_KEY,
-        &planned
-            .prior_shards
-            .as_ref()
-            .map_or(PyValue::None, PriorShards::value),
-    )?;
-    stage_line(out, CACHED_KEY, &count_value(planned.cached))?;
-    stage_line(
-        out,
-        SAMPLE_KEY,
-        &PyValue::Tuple(vec![
-            PyValue::Tuple(planned.sampled.iter().copied().map(int).collect()),
-            PyValue::Tuple(planned.verify_units.iter().map(Unit::to_py).collect()),
-        ]),
-    )?;
-    stage_line(out, NOTE_KEY, &PyValue::str(planned.note()))?;
-    let printed = String::from_utf8_lossy(printed);
-    stage_line(
-        out,
-        CONSOLE_KEY,
-        &PyValue::List(
-            printed
-                .lines()
-                .filter(|line| !line.starts_with(console::TIMING))
-                .map(PyValue::str)
-                .collect(),
-        ),
-    )
-}
-
-/// Make `target` a tree of hard links to the files under `source`, so a build can write into it as into a clone while the files it reads stay where they are: every writer replaces a file by renaming a staged one over it.
-fn linked_tree(source: &Path, target: &Path) -> Result<()> {
-    let fail = |what: &Path, failure: std::io::Error| {
-        WireError(format!("cannot link {}: {failure}", what.display()))
-    };
-    std::fs::create_dir_all(target).map_err(|failure| fail(target, failure))?;
-    for entry in std::fs::read_dir(source).map_err(|failure| fail(source, failure))? {
-        let entry = entry.map_err(|failure| fail(source, failure))?;
-        let path = entry.path();
-        let linked = target.join(entry.file_name());
-        if entry
-            .file_type()
-            .map_err(|failure| fail(&path, failure))?
-            .is_dir()
-        {
-            linked_tree(&path, &linked)?;
-        } else {
-            std::fs::hard_link(&path, &linked).map_err(|failure| fail(&path, failure))?;
-        }
-    }
-    Ok(())
-}
-
-/// The `plan` stage: run the build's load ([`load_corpus`]) over the audit its build input names, read through the descriptors the process inherits, and the prior corpus of the dump, as its `source.json` names it; then the plan phase ([`plan_phase`]) over a tree of links to that prior corpus beside the stage file, which a single file's adoption writes into, its console lines kept rather than printed; and answer with the lines `plan_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose plan did not finish, is answered with none.
-pub fn stage_plan(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let (units, lines) = stage_units(stage_file)?;
-    if lines == 0 {
-        return Ok(());
-    }
-    let files = input.held_audit()?;
-    let prior = dump_prior(stage_file)?;
-    let loaded = load_corpus(&input, &files, &prior, &mut Vec::new())
-        .map_err(|failure| WireError(format!("the load failed: {failure}")))?;
-    let directory = stage_file.parent().unwrap_or_else(|| Path::new("."));
-    let scratch = directory.join(format!("plan.scratch-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    let mut printed = Vec::new();
-    let planned = linked_tree(&prior, &scratch).and_then(|()| {
-        plan_phase(
-            &input,
-            &scratch,
-            &Sink::new(None),
-            &loaded.workload.table,
-            loaded.input_keys,
-            &mut printed,
-        )
-        .map_err(|failure| WireError(format!("the plan failed: {failure}")))
-    });
-    let _ = std::fs::remove_dir_all(&scratch);
-    plan_lines(&planned?, &printed, &units, out)
 }
 
 /// The labels of the console lines of the phases after the plan.
@@ -1096,7 +830,7 @@ pub struct Built {
     pub signature_threads: usize,
 }
 
-/// The manifest+check phase's note, as `build._build_m1` closes its line: the write's width and counters, the plain bytes of each run's sidecar spill files in MB, where the Python build's note gives the compressed sidecar lines each run holds in memory, and what the units index's write did.
+/// The manifest+check phase's note: the write's width and counters, the plain bytes of each run's sidecar spill files in MB, and what the units index's write did.
 fn write_note(
     jobs: usize,
     units: usize,
@@ -1131,7 +865,7 @@ fn write_note(
     )
 }
 
-/// The whole build, as `build._build_m1` runs it from the load to the cache, over the audit's held parts `files` into the input's output directory, its console lines on `console`: the load and the plan, whose scan of the prior unit store parses on the input's threads; the units phase, which starts the ink-signature store's write on a thread of its own when the store changed ([`signatures::SignatureWrite`]), recomputes the plan's units on the worker pool with their fragments in the arena's spill files under the input's scratch directory, and runs the passes through the stale check, after which the pool and its resources are dropped; the manifest+check phase, which routes and writes the classes' runs, writes the manifest, prunes the shards it no longer names, copies the static files and writes the units index and the app sidecars, then refuses the build when the re-settlement, the drafting-time check or the corpus check found an error; the review facts; and the unit store, after which the ink-signature store's write is joined. A build that stops early waits for that write before it returns. Every whole-file write counts itself in the input's counts file, and the units index and the unit store take the pass's fold claim as the input's cycle names it.
+/// The whole build, from the load to the cache, over the audit's held parts `files` into the input's output directory, its console lines on `console`: the load and the plan, whose scan of the prior unit store parses on the input's threads; the units phase, which starts the ink-signature store's write on a thread of its own when the store changed ([`signatures::SignatureWrite`]), recomputes the plan's units on the worker pool with their fragments in the arena's spill files under the input's scratch directory, and runs the passes through the stale check, after which the pool and its resources are dropped; the manifest+check phase, which routes and writes the classes' runs, writes the manifest, prunes the shards it does not name, copies the static files and writes the units index and the app sidecars, then refuses the build when the re-settlement, the drafting-time check or the corpus check found an error; the review facts; and the unit store, after which the ink-signature store's write is joined. A build that stops early waits for that write before it returns. Every whole-file write counts itself in the input's counts file, and the units index and the unit store take the pass's fold claim as the input's cycle names it.
 pub fn build(
     input: &BuildInput,
     files: &[File],
@@ -1390,7 +1124,7 @@ pub fn build(
     })
 }
 
-/// Run the build the input at `input_path` describes, over the audit parts whose descriptors the process inherits, its console lines on `console` ([`build`]), and return its result line: `done` with the process's peak footprint and the widths it ran at; `exit` with the text of a refusal the Python build raises as `SystemExit`; or `error` with any other failure, a panic among them.
+/// Run the build the input at `input_path` describes, over the audit parts whose descriptors the process inherits, its console lines on `console` ([`build`]), and return its result line: `done` with the process's peak footprint and the widths it ran at; `exit` with the text of a refusal, which the launcher raises as `SystemExit`; or `error` with any other failure, a panic among them.
 pub fn build_result(input_path: &Path, console: &mut impl Write) -> serde_json::Value {
     result_line(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
         || {
@@ -1429,7 +1163,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_audit_out_of_section_order_is_refused_naming_why_and_the_python_build() {
+    fn an_audit_out_of_section_order_is_refused_naming_why() {
         let scratch =
             std::env::temp_dir().join(format!("ams-review-load-order-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&scratch);
@@ -1454,7 +1188,7 @@ mod tests {
         assert_eq!(
             refusal,
             BuildError::Exit(format!(
-                "the Rust build reads an audit only as a stream, and audit.tsv is not one, since the 'ss03' rows from byte {} of part 0 end in a row of 'default'; AMS_CORPUS_BUILD_ENGINE=python builds it",
+                "the Rust build reads an audit only as a stream, and audit.tsv is not one, since the 'ss03' rows from byte {} of part 0 end in a row of 'default'",
                 header.len()
             ))
         );
@@ -1472,8 +1206,8 @@ mod tests {
     );
 
     #[test]
-    fn a_build_over_an_audit_out_of_section_order_exits_at_its_load_naming_the_python_build_and_writes_nothing()
-     {
+    fn a_build_over_an_audit_out_of_section_order_exits_at_its_load_naming_why_and_writes_nothing()
+    {
         let scratch =
             std::env::temp_dir().join(format!("ams-review-build-order-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&scratch);
@@ -1521,7 +1255,7 @@ mod tests {
             serde_json::json!({
                 "op": "exit",
                 "message": format!(
-                    "the Rust build reads an audit only as a stream, and audit.tsv is not one, since the 'ss03' rows from byte {} of part 0 end in a row of 'default'; AMS_CORPUS_BUILD_ENGINE=python builds it",
+                    "the Rust build reads an audit only as a stream, and audit.tsv is not one, since the 'ss03' rows from byte {} of part 0 end in a row of 'default'",
                     header.len()
                 ),
             })

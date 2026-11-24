@@ -836,11 +836,16 @@ AFTER_CELLS = [
 ]
 
 
+def _cell_token(cell: CellId) -> str:
+    """A cell as a fragment's `after.cells` records it, `rune/stance/entry/exit/adjustments`, the adjustments joined by `+`."""
+    return f"{cell.rune}/{cell.stance}/{cell.entry}/{cell.exit}/{'+'.join(cell.adjustments)}"
+
+
 def test_a_cell_names_its_after_glyph_the_way_settle_labels_it(mini_bundle):
     """`_cell_glyph_name`, which reads no spec, must agree with `cell_label` over every field a cell carries, including each registry height, so a naming change in the pipeline fails this test."""
     spec = enrich.load_spec(mini_bundle.spec_root)
     for cell in AFTER_CELLS:
-        assert probe._cell_glyph_name(enrich.cell_token(cell)) == cell_label(spec, cell)
+        assert probe._cell_glyph_name(_cell_token(cell)) == cell_label(spec, cell)
 
 
 class _Intern:

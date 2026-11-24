@@ -1,20 +1,16 @@
-//! The baseline subset pack the build writes (`rebuild/review/subset_pack.py`), read as `SubsetPack.open` and `SubsetPack.row` read it: one read-only mapping (`ffi::Mapping`) every thread shares, refused when its header disagrees with what the init says Python would check, and each lookup a binary search of one configuration's keys that builds one [`SubsetRow`] from the record at that index.
+//! The baseline subset pack `rebuild/review/subset_pack.py` writes, read through one read-only mapping (`ffi::Mapping`) every thread shares, refused when its header disagrees with what the init says to check, and each lookup a binary search of one configuration's keys that builds one [`SubsetRow`] from the record at that index.
 //!
 //! The layout is the packer's: an 8-byte little-endian header length, the header's sort-keys JSON, padding to 8 bytes, then each configuration's section at the header's offsets from there, a sorted array of 8-byte keys in the header's byte order and a fixed-width little-endian record array, `<BBB{g}H{c}B{j}H` (the three counts, then the glyph ids, the cluster starts and the junction ids, each padded to its slot count). The packer's code digest in the header, which the init's must equal, stands for that layout.
-//!
-//! [`stage_subset`] is the `subset` stage of the stage fixtures.
 
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use ams_m1_kernel::emit::json_string;
 use serde_json::Value;
 
 use crate::ffi::Mapping;
 use crate::pyfmt::repr::repr_str;
-use crate::pyfmt::{PyValue, decimal_value, is_space};
-use crate::wire::{Init, SubsetPackInit};
+use crate::pyfmt::{decimal_value, is_space};
+use crate::wire::SubsetPackInit;
 
 /// `KEY_SLOTS`: the longest window a key packs.
 pub const KEY_SLOTS: usize = 4;
@@ -23,7 +19,7 @@ const KEY_BYTES: usize = 8;
 const ALIGN: usize = 8;
 const LENGTH_BYTES: usize = 8;
 
-/// A pack the engine refuses, a lookup it cannot answer as Python would, or a `subset` stage input it cannot read.
+/// A pack the engine refuses, or a lookup it cannot answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubsetPackError(pub String);
 
@@ -47,28 +43,6 @@ pub struct SubsetRow<'a> {
     pub glyphs: Vec<&'a str>,
     pub clusters: Vec<usize>,
     pub junctions: Vec<&'a str>,
-}
-
-impl SubsetRow<'_> {
-    /// The row as Python holds it, a `SubsetRow` record of three tuples.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Record(
-            "SubsetRow".to_string(),
-            vec![
-                ("glyphs".to_string(), PyValue::str_tuple(&self.glyphs)),
-                (
-                    "clusters".to_string(),
-                    PyValue::Tuple(
-                        self.clusters
-                            .iter()
-                            .map(|&cluster| PyValue::Int(cluster as i64))
-                            .collect(),
-                    ),
-                ),
-                ("junctions".to_string(), PyValue::str_tuple(&self.junctions)),
-            ],
-        )
-    }
 }
 
 /// Python's `int(part, 16)` over the ASCII text `_PyUnicode_TransformDecimalAndSpaceToASCII` makes of `part`: a non-ASCII space becomes a space and a decimal digit of any script its ASCII digit. The text is optional whitespace, an optional sign, an optional `0x` with one underscore allowed after it, hex digits with single underscores between them, and optional whitespace, where whitespace is the six ASCII characters `Py_ISSPACE` accepts. Returns the sign and the magnitude, which saturates past `u64`, or None for text `int` refuses.
@@ -211,7 +185,7 @@ fn header_disagreement(
 }
 
 impl SubsetPack {
-    /// `SubsetPack.open`: map the pack the init names, refusing a file that is not a pack, a header whose format, packer digest, byte order or table digests differ from the init's, which are what Python checks, and a header whose sections fall outside the file.
+    /// Map the pack the init names, refusing a file that is not a pack, a header whose format, packer digest, byte order or table digests differ from the init's, which are what Python checks, and a header whose sections fall outside the file.
     pub fn open(init: &SubsetPackInit) -> Result<Self> {
         let path = PathBuf::from(&init.path);
         let shown = path.display();
@@ -337,7 +311,7 @@ impl SubsetPack {
         }
     }
 
-    /// `_materialize`: the record at `index`, unpacked whole and sliced as Python slices its fields, each slice clamped to the record.
+    /// The record at `index`, unpacked whole and sliced as Python slices its fields, each slice clamped to the record.
     fn materialize(&self, section: &Section, index: usize) -> Result<SubsetRow<'_>> {
         let at = section.records_at + index * self.record_size;
         let record = &self.mapping.bytes()[at..at + self.record_size];
@@ -388,7 +362,7 @@ impl SubsetPack {
         })
     }
 
-    /// `SubsetPack.row`: the row for `codepoints` under `config`, or None when the pack has no such configuration or window, or when [`pack_key`] refuses the codepoints.
+    /// The row for `codepoints` under `config`, or None when the pack has no such configuration or window, or when [`pack_key`] refuses the codepoints.
     pub fn row(&self, config: &str, codepoints: &str) -> Result<Option<SubsetRow<'_>>> {
         let Some((_, section)) = self.sections.iter().find(|(held, _)| held == config) else {
             return Ok(None);
@@ -413,52 +387,11 @@ impl SubsetPack {
     }
 }
 
-/// The `subset` stage: map the pack the init names, and for each line of `stage_file` write one `{"key", "value"}` line, the value the row [`SubsetPack::row`] gives for the line's `config` and `codepoints` in the typed encoding, or None.
-pub fn stage_subset(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path).map_err(|failure| SubsetPackError(failure.to_string()))?;
-    let pack = SubsetPack::open(&init.subset_pack)?;
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        SubsetPackError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            SubsetPackError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| SubsetPackError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if !key.starts_with("subset:") && !key.starts_with("generated:") {
-            return error(format!(
-                "{key}: the subset stage answers subset: and generated: lines"
-            ));
-        }
-        let text = |name: &str| match PyValue::from_typed(&record[name]) {
-            Ok(PyValue::Str(text)) => Ok(text),
-            Ok(other) => error(format!("{key}: the {name} is {}, not a str", other.kind())),
-            Err(failure) => error(format!("{key}: {failure}")),
-        };
-        let (config, codepoints) = (text("config")?, text("codepoints")?);
-        let value = pack
-            .row(&config, &codepoints)
-            .map_err(|failure| SubsetPackError(format!("{key}: {failure}")))?
-            .map_or(PyValue::None, |row| row.to_py());
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            value.to_typed()
-        )
-        .map_err(|failure| SubsetPackError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::Path;
 
     const PACKER: &str = "packer-digest";
 
@@ -623,8 +556,8 @@ mod tests {
             .expect("a row")
             .expect("a hit");
         assert_eq!(
-            row.to_py().to_typed(),
-            r#"{"record":["SubsetRow",[["glyphs",{"tuple":["qsPea","qsTea"]}],["clusters",{"tuple":[0,1]}],["junctions",{"tuple":["y6"]}]]]}"#
+            (row.glyphs, row.clusters, row.junctions),
+            (vec!["qsPea", "qsTea"], vec![0, 1], vec!["y6"])
         );
         let single = pack.row("default", "e650").expect("a row").expect("a hit");
         assert_eq!(

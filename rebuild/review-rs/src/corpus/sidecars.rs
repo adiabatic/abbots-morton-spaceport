@@ -1,46 +1,37 @@
-//! Each run's sidecar lines as the write projects them, as `build._SidecarLines` does: a unit's units-index line, and its app-index row or, outside the triage index, its locator row ([`SidecarLines::unit`]), each carrying the span the shard writer returned and the trailing `"deflated": true` exactly when that span is a deflated fragment's; and a byte-copied unit's lines copied forward from the previous corpus's sidecars, read in step through a cursor over each ([`LineCursor`]), with this build's place and address put in, or projected from its stored bytes when a cursor cannot reach it ([`SidecarLines::cached`]). The index's and the app index's lines are appended plain to spill files in the build's scratch directory, unlinked as they are made, so a run holds none of them in memory; the locator's rows are cut into blocks as they come ([`LocatorBlocks`]) and each block appended to a third spill file as the gzip member the rows file takes. The headers wait for the manifest, so the sidecars are written from the spill files once it is on disk.
+//! Each run's sidecar lines as the write projects them: a unit's units-index line, and its app-index row or, outside the triage index, its locator row ([`SidecarLines::unit`]), each carrying the span the shard writer returned and the trailing `"deflated": true` exactly when that span is a deflated fragment's; and a byte-copied unit's lines copied forward from the previous corpus's sidecars, read in step through a cursor over each ([`LineCursor`]), with this build's place and address put in, or projected from its stored bytes when a cursor cannot reach it ([`SidecarLines::cached`]). The index's and the app index's lines are appended plain to spill files in the build's scratch directory, unlinked as they are made, so a run holds none of them in memory; the locator's rows are cut into blocks as they come ([`LocatorBlocks`]) and each block appended to a third spill file as the gzip member the rows file takes. The headers wait for the manifest, so the sidecars are written from the spill files once it is on disk.
 //!
-//! The projections are `unit_index.index_record` and `index_line`, `app_index.app_row`, `locator_row` and their lines, and the copy-forward surgery `unit_index.copy_forward_index_line` and `app_index.copy_forward_app_line` does; each fails with the class Python raises over a fragment it cannot read. [`stage_sidecar_lines`] is the `sidecar-lines` stage of the stage fixtures.
+//! The projections are the units index's record and line, the app index's row, the locator's row and their lines, and the copy-forward surgery on a prior index or app line; each fails with the exception class Python raises over a fragment it cannot read.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::os::unix::fs::FileExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use serde_json::Value;
-
 use super::BuildError;
-use super::audit::stage_line;
 use super::gzip::{
     APP_LEVEL, GzipError, GzipReader, GzipWriter, MTIME, compress_member, inflate_fragment,
 };
 use super::index::{IndexNames, IndexWrite, spilled_lines, write_index_lines};
 use super::input::BuildInput;
-use super::manifest::{ManifestNames, held_manifest, write_manifest};
 use super::records::truthy;
 use super::route::RouteNames;
 use super::rowdelta::{FoldClaim, PartReader, ReadError, py_str, type_name};
 use super::scan::{
-    Lines, OpenIndex, ScanError, ScanNames, Thrown, manifest_and_identity, open_index, stage_lines,
+    Lines, OpenIndex, ScanError, ScanNames, Thrown, manifest_and_identity, open_index,
 };
 use super::shards::Span;
-use super::signatures::dump_prior;
 use super::sink::Sink;
-use super::write::{Scratch as CaseScratch, case_input, files_held, hold, through_write};
-use crate::fragment::{lookup, py_eq, sha256_hex};
+use crate::fragment::{lookup, py_eq};
 use crate::pyfmt::{PyValue, json, repr::repr_str};
 use crate::wire::{Result as WireResult, WireError};
 
-/// The directory, beside the stage file, of the bytes the `sidecar-lines` stage's lines name by sha256.
-pub const STAGE_BLOBS: &str = "sidecar-lines.blobs";
 /// The flag `app_index._SLIMMED_FLAGS` adds to the machine checks.
 const NO_VERDICT: &str = "no_verdict";
-/// The field a cursor finds a line by (`unit_index.LineCursor`'s `field`).
+/// The field a cursor finds a line by.
 const ID_FIELD: &str = "id";
 /// `unit_index.CLASS_SEAM`, where an index line's place ends.
 const CLASS_SEAM: &[u8] = b", \"class\": ";
-/// Where an app-index row's address starts (`app_index.copy_forward_app_line`).
+/// Where an app-index row's address starts.
 const SHARD_PART_SEAM: &[u8] = b", \"shard_part\": ";
 
 /// Each spill file's serial in this process, so two runs over one directory never name one file.
@@ -88,12 +79,11 @@ impl From<SidecarError> for BuildError {
 
 type Raised<T> = std::result::Result<T, SidecarError>;
 
-/// The names the sidecar lines read from the build input's vocabulary: the three sidecars' files, the locator's block size, the flags no app-index row may carry (`app_index._SLIMMED_FLAGS`, the machine checks and `no_verdict`), and the names the units index is read by.
+/// The names the sidecar lines read from the build input's vocabulary: the units index's and the app index's files, the locator's block size, the flags no app-index row may carry (`app_index._SLIMMED_FLAGS`, the machine checks and `no_verdict`), and the names the units index is read by.
 #[derive(Clone, Debug)]
 pub struct SidecarNames {
     pub index_name: String,
     pub app_index_name: String,
-    pub locator_rows_name: String,
     pub block_rows: usize,
     pub slimmed: Vec<String>,
     pub scan: ScanNames,
@@ -119,7 +109,6 @@ impl SidecarNames {
         Ok(Self {
             index_name: route.scan.index_name.clone(),
             app_index_name: route.app_index_name,
-            locator_rows_name: route.locator_rows_name,
             block_rows,
             slimmed,
             scan: route.scan,
@@ -343,7 +332,7 @@ pub fn index_line(fragment: &PyValue, order: Option<i64>, batch: Option<i64>) ->
     line_of(&index_record(fragment, order, batch)?)
 }
 
-/// `unit_index.line_head`: the start of an index or app-index line, its id and place, without the closing brace.
+/// The start of an index or app-index line, its id and place, without the closing brace.
 pub fn line_head(unit_id: &str, order: Option<i64>, batch: Option<i64>) -> Raised<Vec<u8>> {
     let mut head = unicode_text(&dict(vec![
         ("id", PyValue::str(unit_id)),
@@ -354,7 +343,7 @@ pub fn line_head(unit_id: &str, order: Option<i64>, batch: Option<i64>) -> Raise
     Ok(head)
 }
 
-/// `unit_index.copy_forward_index_line`: a previous index line, a base's with its place or a segment's with none, with this build's id and place joined to its tail from the class on.
+/// A previous index line, a base's with its place or a segment's with none, with this build's id and place joined to its tail from the class on.
 pub fn copy_forward_index_line(
     line: &[u8],
     unit_id: &str,
@@ -451,7 +440,7 @@ pub fn locator_line(fragment: &PyValue, span: &Span, deflated: bool) -> Raised<V
     line_of(&locator_row(fragment, span, deflated)?)
 }
 
-/// `app_index.copy_forward_app_line`: a previous app-index row with this build's id and place at its head and this build's address and mark at its tail, the fields between them its own.
+/// A previous app-index row with this build's id and place at its head and this build's address and mark at its tail, the fields between them its own.
 pub fn copy_forward_app_line(
     line: &[u8],
     unit_id: &str,
@@ -532,15 +521,6 @@ impl Spill {
 pub struct Spilled {
     pub file: File,
     pub length: i64,
-}
-
-impl Spilled {
-    /// Every byte the spill file holds.
-    pub fn bytes(&self) -> io::Result<Vec<u8>> {
-        let mut data = vec![0; usize::try_from(self.length).unwrap_or_default()];
-        self.file.read_exact_at(&mut data, 0)?;
-        Ok(data)
-    }
 }
 
 // --- the locator's blocks -----------------------------------------------------------------------
@@ -732,7 +712,7 @@ impl PriorSidecars {
         })
     }
 
-    /// `LineCursor.over_index`: a cursor over the units index's record lines, a base's and its segments' merged by key.
+    /// A cursor over the units index's record lines, a base's and its segments' merged by key.
     pub fn index_cursor(&self, names: &SidecarNames) -> LineCursor<'_> {
         LineCursor {
             lines: self
@@ -761,17 +741,12 @@ impl PriorSidecars {
     }
 }
 
-/// `unit_index.LineCursor`: a forward-only reader over a sidecar's lines that returns the line whose leading id is the one asked for, skipping every line before it. Once an id is not found the cursor is closed, and every later request returns None. A read that fails fails the request.
+/// A forward-only reader over a sidecar's lines that returns the line whose leading id is the one asked for, skipping every line before it. Once an id is not found the cursor is closed, and every later request returns None. A read that fails fails the request.
 pub struct LineCursor<'a> {
     lines: Option<Lines<'a, Vec<u8>>>,
 }
 
 impl LineCursor<'_> {
-    /// Whether the cursor has lines to read.
-    pub fn is_open(&self) -> bool {
-        self.lines.is_some()
-    }
-
     pub fn take(&mut self, value: &str) -> Raised<Option<Vec<u8>>> {
         let Some(lines) = self.lines.as_mut() else {
             return Ok(None);
@@ -815,7 +790,7 @@ pub enum Cursor {
     App,
 }
 
-/// What a run did, in order, as the `sidecar-lines` stage follows it: each cursor's take with the id and the line it returned, and each line written with the sidecar it went to.
+/// What a run did, in order: each cursor's take with the id and the line it returned, and each line written with the sidecar it went to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     Take(Cursor, String, Option<Vec<u8>>),
@@ -833,7 +808,7 @@ pub struct SidecarRun {
     pub rows: Spilled,
 }
 
-/// `build._SidecarLines`: one run's sidecar lines, in shard order, spilled as they are projected or copied forward. With `trace` set, every take and write is kept there in order.
+/// One run's sidecar lines, in shard order, spilled as they are projected or copied forward. With `trace` set, every take and write is kept there in order.
 pub struct SidecarLines<'a> {
     names: &'a SidecarNames,
     index: Spill,
@@ -872,13 +847,6 @@ impl<'a> SidecarLines<'a> {
         })
     }
 
-    /// Whether each cursor, the units index's and the app index's, is open to lines.
-    pub fn cursors_open(&self) -> (bool, bool) {
-        let open =
-            |cursor: &Option<LineCursor<'_>>| cursor.as_ref().is_some_and(LineCursor::is_open);
-        (open(&self.index_cursor), open(&self.app_cursor))
-    }
-
     fn write(&mut self, sidecar: Sidecar, line: &[u8]) -> Raised<()> {
         if let Some(trace) = &mut self.trace {
             trace.push(Event::Write(sidecar, line.to_vec()));
@@ -905,7 +873,7 @@ impl<'a> SidecarLines<'a> {
         Ok(line)
     }
 
-    /// `_SidecarLines.unit`: a fragment's index line, and its app-index row when it has a place in the triage index, else its locator row, at `span`.
+    /// A fragment's index line, and its app-index row when it has a place in the triage index, else its locator row, at `span`.
     pub fn unit(
         &mut self,
         fragment: &PyValue,
@@ -928,7 +896,7 @@ impl<'a> SidecarLines<'a> {
         Ok(())
     }
 
-    /// `_SidecarLines.cached`: a byte-copied unit's lines copied forward from the previous sidecars, its index line and, with a place, its app-index row, each taken from its cursor; a unit a cursor cannot reach is projected from its stored bytes, inflated to `inflated` bytes when it is deflated, as [`SidecarLines::unit`] projects a fragment. Its locator row is made from `identity`.
+    /// A byte-copied unit's lines copied forward from the previous sidecars, its index line and, with a place, its app-index row, each taken from its cursor; a unit a cursor cannot reach is projected from its stored bytes, inflated to `inflated` bytes when it is deflated, as [`SidecarLines::unit`] projects a fragment. Its locator row is made from `identity`.
     #[allow(clippy::too_many_arguments)]
     pub fn cached(
         &mut self,
@@ -983,7 +951,7 @@ impl<'a> SidecarLines<'a> {
         Ok(())
     }
 
-    /// `_SidecarLines.close`: the cursors released, the last locator block written, and the run's counts, blocks and spill files.
+    /// The cursors released, the last locator block written, and the run's counts, blocks and spill files.
     pub fn close(self) -> Raised<SidecarRun> {
         let (blocks, rows) = self.locator.close()?;
         Ok(SidecarRun {
@@ -1229,7 +1197,7 @@ impl Read for SpilledRuns<'_> {
     }
 }
 
-/// `build._write_sidecars`: write the units index ([`write_index_lines`] over the runs' spilled index lines, under the pass's fold `claim`) on this thread and the three app sidecars ([`write_app_artifacts_lines`] over the runs' spilled app-index lines and locator blocks) on a thread of their own, named `corpus-app-sidecars_0`, side by side, and return what the index's write did. A writer that fails fails here once the other has finished, the index's first. Run once the manifest is on disk.
+/// Write the units index ([`write_index_lines`] over the runs' spilled index lines, under the pass's fold `claim`) on this thread and the three app sidecars ([`write_app_artifacts_lines`] over the runs' spilled app-index lines and locator blocks) on a thread of their own, named `corpus-app-sidecars_0`, side by side, and return what the index's write did. A writer that fails fails here once the other has finished, the index's first. Run once the manifest is on disk.
 pub fn write_sidecars(
     corpus: &Path,
     runs: &[SidecarRun],
@@ -1267,640 +1235,12 @@ pub fn write_sidecars(
     })
 }
 
-// --- the stage ----------------------------------------------------------------------------------
-
-fn failure(key: &str, message: impl std::fmt::Display) -> WireError {
-    WireError(format!("{key}: {message}"))
-}
-
-fn field(line: &Value, key: &str, name: &str) -> WireResult<PyValue> {
-    PyValue::from_typed(&line[name]).map_err(|message| failure(key, message))
-}
-
-fn int_field(line: &Value, key: &str, name: &str) -> WireResult<Option<i64>> {
-    match field(line, key, name)? {
-        PyValue::None => Ok(None),
-        PyValue::Int(value) => Ok(Some(value)),
-        other => Err(failure(
-            key,
-            format!("{name} is {}, not an int", other.kind()),
-        )),
-    }
-}
-
-fn span_field(line: &Value, key: &str) -> WireResult<Span> {
-    let span = field(line, key, "span")?;
-    let (PyValue::Tuple(items) | PyValue::List(items)) = &span else {
-        return Err(failure(key, "the span is not a tuple"));
-    };
-    let ints: Vec<i64> = items
-        .iter()
-        .map(|item| match item {
-            PyValue::Int(value) => Ok(*value),
-            other => Err(failure(key, format!("the span holds {}", other.kind()))),
-        })
-        .collect::<WireResult<_>>()?;
-    let [part, start, length, inflated] = ints[..] else {
-        return Err(failure(key, "the span is not four ints"));
-    };
-    Ok(Span {
-        part: usize::try_from(part).map_err(|_| failure(key, "the span's part is negative"))?,
-        start,
-        length,
-        inflated,
-    })
-}
-
-fn str_field(line: &Value, key: &str, name: &str) -> WireResult<String> {
-    match field(line, key, name)? {
-        PyValue::Str(text) => Ok(text),
-        other => Err(failure(
-            key,
-            format!("{name} is {}, not a str", other.kind()),
-        )),
-    }
-}
-
-fn raised(failure: &SidecarError) -> PyValue {
-    dict(vec![("raised", PyValue::str(&failure.class))])
-}
-
-fn digest(data: &[u8]) -> PyValue {
-    PyValue::Tuple(vec![
-        PyValue::Int(data.len() as i64),
-        PyValue::str(sha256_hex(data)),
-    ])
-}
-
-fn line_outcome(outcome: Raised<Vec<u8>>) -> PyValue {
-    match outcome {
-        Ok(line) => PyValue::Bytes(line),
-        Err(failure) => raised(&failure),
-    }
-}
-
-fn blob(blobs: &Path, digest: &str) -> WireResult<Vec<u8>> {
-    std::fs::read(blobs.join(digest))
-        .map_err(|why| WireError(format!("cannot read the blob {digest}: {why}")))
-}
-
-/// A directory the stage makes beside its file and removes when it is dropped.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(stage_file: &Path, what: &str) -> WireResult<Self> {
-        let directory = stage_file.with_file_name(format!(
-            ".sidecar-lines-{what}-{}-{}",
-            std::process::id(),
-            SPILLS.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&directory)
-            .map_err(|why| WireError(format!("cannot make {}: {why}", directory.display())))?;
-        Ok(Self(directory))
-    }
-
-    /// The scratch directory holding each file a corpus names by its blob.
-    fn holding(stage_file: &Path, blobs: &Path, corpus: &PyValue, key: &str) -> WireResult<Self> {
-        let scratch = Self::new(stage_file, "corpus")?;
-        let PyValue::Dict(files) = corpus else {
-            return Err(failure(key, "the corpus is not a dict"));
-        };
-        for (name, sha) in files {
-            let (PyValue::Str(name), PyValue::Str(sha)) = (name, sha) else {
-                return Err(failure(key, "the corpus names a file by what is not a str"));
-            };
-            std::fs::write(scratch.0.join(name), blob(blobs, sha)?)
-                .map_err(|why| failure(key, format!("cannot write {name}: {why}")))?;
-        }
-        Ok(scratch)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
-fn event_value(event: &Event, names: &SidecarNames) -> PyValue {
-    match event {
-        Event::Take(cursor, value, line) => PyValue::Tuple(vec![
-            PyValue::str("take"),
-            PyValue::str(match cursor {
-                Cursor::Index => "index",
-                Cursor::App => "app",
-            }),
-            PyValue::str(value),
-            line.as_deref().map_or(PyValue::None, digest),
-        ]),
-        Event::Write(sidecar, line) => {
-            let name = match sidecar {
-                Sidecar::Index => &names.index_name,
-                Sidecar::App => &names.app_index_name,
-                Sidecar::Locator => &names.locator_rows_name,
-            };
-            match digest(line) {
-                PyValue::Tuple(mut parts) => {
-                    parts.insert(0, PyValue::str(name));
-                    parts.insert(0, PyValue::str("write"));
-                    PyValue::Tuple(parts)
-                }
-                other => other,
-            }
-        }
-    }
-}
-
-/// Make one recorded call on `lines`: a `unit` call with its fragment read from its blob, or a `cached` call with its stored bytes read from theirs.
-fn call(
-    lines: &mut SidecarLines<'_>,
-    line: &Value,
-    key: &str,
-    blobs: &Path,
-) -> WireResult<Raised<()>> {
-    let span = span_field(line, key)?;
-    let order = int_field(line, key, "order")?;
-    let batch = int_field(line, key, "batch")?;
-    match str_field(line, key, "call")?.as_str() {
-        "unit" => {
-            let text = blob(blobs, &str_field(line, key, "fragment")?)?;
-            let typed: Value = serde_json::from_slice(&text)
-                .map_err(|why| failure(key, format!("the fragment's blob is not JSON: {why}")))?;
-            let fragment = PyValue::from_typed(&typed).map_err(|why| failure(key, why))?;
-            Ok(lines.unit(&fragment, span, order, batch))
-        }
-        "cached" => {
-            let body = blob(blobs, &str_field(line, key, "body")?)?;
-            let inflated = int_field(line, key, "inflated")?.unwrap_or_default();
-            let identity = field(line, key, "identity")?;
-            let unit_id = str_field(line, key, "unit_id")?;
-            Ok(lines.cached(&unit_id, &body, inflated, &identity, span, order, batch))
-        }
-        other => Err(failure(
-            key,
-            format!("the call {other} is not unit or cached"),
-        )),
-    }
-}
-
-/// Replay one run's lines, its `open`, its calls and its `close`, over the dump's prior corpus or the run's own corpus made again from the blobs, and answer each.
-fn replay(
-    names: &SidecarNames,
-    stage_file: &Path,
-    blobs: &Path,
-    run: &[(String, Value)],
-    out: &mut impl Write,
-) -> WireResult<()> {
-    let (open_key, open) = &run[0];
-    let copy_forward = matches!(field(open, open_key, "copy_forward")?, PyValue::Bool(true));
-    let corpus = field(open, open_key, "corpus")?;
-    let held = match corpus {
-        PyValue::None => None,
-        corpus => Some(Scratch::holding(stage_file, blobs, &corpus, open_key)?),
-    };
-    let directory = match &held {
-        Some(held) => held.0.clone(),
-        None => dump_prior(stage_file)?,
-    };
-    let spills = Scratch::new(stage_file, "spill")?;
-    let opened = |why: SidecarError| failure(open_key, format!("the run does not open: {why}"));
-    let prior = PriorSidecars::open(&directory, copy_forward, names).map_err(opened)?;
-    let mut lines = SidecarLines::new(&prior, &spills.0, names).map_err(opened)?;
-    lines.trace = Some(Vec::new());
-    let (index_open, app_open) = lines.cursors_open();
-    stage_line(
-        out,
-        open_key,
-        &PyValue::Tuple(vec![PyValue::Bool(index_open), PyValue::Bool(app_open)]),
-    )?;
-    for (key, line) in &run[1..] {
-        if key.ends_with(":close") {
-            let closed = lines
-                .close()
-                .map_err(|why| failure(key, format!("the run does not close: {why}")))?;
-            let spilled = |spilled: &Spilled| {
-                spilled
-                    .bytes()
-                    .map(|data| digest(&data))
-                    .map_err(|why| failure(key, format!("cannot read a spill file: {why}")))
-            };
-            let value = dict(vec![
-                ("human", PyValue::Int(closed.human)),
-                ("machine", PyValue::Int(closed.machine)),
-                ("copied_forward", PyValue::Int(closed.copied_forward)),
-                (
-                    "blocks",
-                    PyValue::List(closed.blocks.iter().map(|block| block.value(0)).collect()),
-                ),
-                ("index", spilled(&closed.index)?),
-                ("app", spilled(&closed.app)?),
-                ("rows", spilled(&closed.rows)?),
-            ]);
-            return stage_line(out, key, &value);
-        }
-        let outcome = call(&mut lines, line, key, blobs)?;
-        let events = lines.trace.replace(Vec::new()).unwrap_or_default();
-        let value = match &outcome {
-            Ok(()) => PyValue::Tuple(vec![
-                PyValue::List(
-                    events
-                        .iter()
-                        .map(|event| event_value(event, names))
-                        .collect(),
-                ),
-                PyValue::Tuple(vec![
-                    PyValue::Int(lines.human),
-                    PyValue::Int(lines.machine),
-                    PyValue::Int(lines.copied_forward),
-                ]),
-            ]),
-            Err(why) => raised(why),
-        };
-        stage_line(out, key, &value)?;
-        if outcome.is_err() {
-            break;
-        }
-    }
-    Ok(())
-}
-
-/// A generated projection: the fragment's index line, app-index row and locator row at the line's span and place, each its bytes or `{"raised": name}`.
-fn projected(names: &SidecarNames, line: &Value, key: &str) -> WireResult<PyValue> {
-    let fragment = field(line, key, "fragment")?;
-    let span = span_field(line, key)?;
-    let order = int_field(line, key, "order")?;
-    let batch = int_field(line, key, "batch")?;
-    let deflated = span.inflated != 0;
-    Ok(dict(vec![
-        ("index", line_outcome(index_line(&fragment, order, batch))),
-        (
-            "app",
-            line_outcome(app_line(
-                &fragment,
-                &span,
-                order,
-                batch,
-                deflated,
-                &names.slimmed,
-            )),
-        ),
-        (
-            "locator",
-            line_outcome(locator_line(&fragment, &span, deflated)),
-        ),
-    ]))
-}
-
-/// A generated copy-forward: the line rewritten the units index's way and, at a place with an order and a batch, the app index's.
-fn copied(line: &Value, key: &str) -> WireResult<PyValue> {
-    let PyValue::Bytes(held) = field(line, key, "line")? else {
-        return Err(failure(key, "the line is not bytes"));
-    };
-    let unit_id = str_field(line, key, "unit_id")?;
-    let span = span_field(line, key)?;
-    let order = int_field(line, key, "order")?;
-    let batch = int_field(line, key, "batch")?;
-    let mut entries = vec![(
-        "index",
-        line_outcome(copy_forward_index_line(&held, &unit_id, order, batch)),
-    )];
-    if let (Some(order), Some(batch)) = (order, batch) {
-        entries.push((
-            "app",
-            line_outcome(copy_forward_app_line(
-                &held,
-                &unit_id,
-                order,
-                batch,
-                &span,
-                span.inflated != 0,
-            )),
-        ));
-    }
-    Ok(dict(entries))
-}
-
-/// A generated cursor over its corpus made again from the blobs: whether it opened to lines, and each take's line until one raises.
-fn cursor(
-    names: &SidecarNames,
-    stage_file: &Path,
-    blobs: &Path,
-    line: &Value,
-    key: &str,
-) -> WireResult<PyValue> {
-    let held = Scratch::holding(stage_file, blobs, &field(line, key, "corpus")?, key)?;
-    let prior = PriorSidecars::open(&held.0, true, names)
-        .map_err(|why| failure(key, format!("the corpus does not open: {why}")))?;
-    let mut cursor = match str_field(line, key, "which")?.as_str() {
-        "index" => prior.index_cursor(names),
-        "app" => prior
-            .app_cursor()
-            .map_err(|why| failure(key, format!("the cursor does not open: {why}")))?,
-        other => return Err(failure(key, format!("no cursor {other}"))),
-    };
-    let opened = cursor.is_open();
-    let PyValue::List(takes) = field(line, key, "takes")? else {
-        return Err(failure(key, "the takes are not a list"));
-    };
-    let mut results = Vec::new();
-    for value in &takes {
-        let PyValue::Str(value) = value else {
-            return Err(failure(key, "a take is not a str"));
-        };
-        match cursor.take(value) {
-            Ok(line) => results.push(line.map_or(PyValue::None, PyValue::Bytes)),
-            Err(why) => {
-                results.push(raised(&why));
-                break;
-            }
-        }
-    }
-    Ok(dict(vec![
-        ("opened", PyValue::Bool(opened)),
-        ("results", PyValue::List(results)),
-    ]))
-}
-
-/// A generated locator: the line's rows, each made a locator line at its own address, cut into blocks; the table entries and the rows' length and sha256, or the refusal and its message.
-fn located(
-    names: &SidecarNames,
-    stage_file: &Path,
-    line: &Value,
-    key: &str,
-) -> WireResult<PyValue> {
-    let PyValue::List(rows) = field(line, key, "rows")? else {
-        return Err(failure(key, "the rows are not a list"));
-    };
-    let spills = Scratch::new(stage_file, "spill")?;
-    let spill = Spill::new(&spills.0).map_err(|why| failure(key, why))?;
-    let mut blocks = LocatorBlocks::new(spill, names.block_rows);
-    let cut = (|| -> Raised<(Vec<LocatorBlock>, Spilled)> {
-        for (index, row) in rows.iter().enumerate() {
-            let (PyValue::Tuple(row) | PyValue::List(row)) = row else {
-                return Err(SidecarError::new("Unread", "a row is not a pair"));
-            };
-            let [unit_id, class_id] = &row[..] else {
-                return Err(SidecarError::new("Unread", "a row is not a pair"));
-            };
-            let fragment = dict(vec![("id", unit_id.clone()), ("class", class_id.clone())]);
-            let index = index as i64;
-            let span = Span {
-                part: (index % 3) as usize,
-                start: index * 100,
-                length: 50 + index,
-                inflated: 0,
-            };
-            blocks.add(&locator_line(&fragment, &span, index % 4 == 0)?)?;
-        }
-        blocks.close()
-    })();
-    match cut {
-        Ok((entries, rows)) => Ok(dict(vec![
-            (
-                "blocks",
-                PyValue::List(entries.iter().map(|block| block.value(0)).collect()),
-            ),
-            (
-                "rows",
-                digest(&rows.bytes().map_err(|why| failure(key, why))?),
-            ),
-        ])),
-        Err(why) if why.class == "ValueError" => Ok(dict(vec![
-            ("raised", PyValue::str(&why.class)),
-            ("message", PyValue::str(&why.message)),
-        ])),
-        Err(why) => Err(failure(key, why)),
-    }
-}
-
-/// The run a run line belongs to, by its key's prefix, or None for a line that is not a run's.
-fn run_of(key: &str) -> Option<&str> {
-    if !(key.starts_with("run:") || key.starts_with("generated:run:")) {
-        return None;
-    }
-    key.strip_suffix(":open")
-        .or_else(|| key.strip_suffix(":close"))
-        .or_else(|| key.rfind(":call:").map(|at| &key[..at]))
-}
-
-/// The `sidecar-lines` stage: replay each run the stage file records, the build's over the dump's prior corpus and each generated one over its own corpus made again from the [`STAGE_BLOBS`] directory beside it, through [`SidecarLines`] with its trace kept, answering its `open` with whether each cursor opened to lines, each call with its events and the run's counts after it, or `{"raised": name}` for a call that fails, which ends the run, and its `close` with the counts, the locator blocks and the digests of what each spill file holds; and answer each generated projection, copy-forward, cursor and locator line.
-pub fn stage_sidecar_lines(
-    input_path: &Path,
-    stage_file: &Path,
-    out: &mut impl Write,
-) -> WireResult<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = SidecarNames::of(&input)?;
-    let blobs = stage_file.with_file_name(STAGE_BLOBS);
-    let file = File::open(stage_file)
-        .map_err(|why| WireError(format!("cannot read {}: {why}", stage_file.display())))?;
-    let mut lines = Vec::new();
-    for line in BufReader::new(file).lines() {
-        let line = line.map_err(|why| WireError(format!("cannot read a stage line: {why}")))?;
-        let line: Value = serde_json::from_str(&line)
-            .map_err(|why| WireError(format!("a stage line is not JSON: {why}")))?;
-        let Some(key) = line["key"].as_str().map(str::to_owned) else {
-            return Err(WireError("a stage line has no key".to_owned()));
-        };
-        lines.push((key, line));
-    }
-    let mut at = 0;
-    while at < lines.len() {
-        let key = lines[at].0.clone();
-        if let Some(run) = run_of(&key) {
-            if !key.ends_with(":open") {
-                return Err(failure(&key, "a run's line comes before its open"));
-            }
-            let end = lines[at..]
-                .iter()
-                .position(|(other, _)| run_of(other) != Some(run))
-                .map_or(lines.len(), |length| at + length);
-            replay(&names, stage_file, &blobs, &lines[at..end], out)?;
-            at = end;
-            continue;
-        }
-        let line = &lines[at].1;
-        let value = if key.starts_with("generated:line:") {
-            projected(&names, line, &key)?
-        } else if key.starts_with("generated:copy:") {
-            copied(line, &key)?
-        } else if key.starts_with("generated:cursor:") {
-            cursor(&names, stage_file, &blobs, line, &key)?
-        } else if key.starts_with("generated:locator:") {
-            located(&names, stage_file, line, &key)?
-        } else {
-            return Err(failure(&key, "not a line of the sidecar-lines stage"));
-        };
-        stage_line(out, &key, &value)?;
-        at += 1;
-    }
-    Ok(())
-}
-
-/// A locator table entry the `app-sidecars` stage's generated input gives as `app_index.locator_block` writes it.
-fn locator_block_of(entry: &PyValue, key: &str) -> WireResult<LocatorBlock> {
-    let field = |name: &str| {
-        lookup(entry, name)
-            .cloned()
-            .ok_or_else(|| failure(key, format!("a table entry has no {name}")))
-    };
-    let int = |name: &str| match field(name)? {
-        PyValue::Int(value) => Ok(value),
-        other => Err(failure(
-            key,
-            format!("{name} is {}, not an int", other.kind()),
-        )),
-    };
-    Ok(LocatorBlock {
-        class: field("class")?,
-        start: int("byte_start")?,
-        length: int("byte_length")?,
-        first: field("first")?,
-        last: field("last")?,
-        units: int("units")?,
-    })
-}
-
-/// Answer one generated line of the `app-sidecars` stage: [`write_app_artifacts_lines`] over a corpus holding the case's files, with its app-index lines and its locator runs' members and table entries, valued the class and text of what it raised, the class alone where the manifest does not decode, whose text the JSON reader words in its own way, or None, and the files the corpus holds then.
-fn answer_app_generated(
-    names: &AppNames,
-    stage_file: &Path,
-    key: &str,
-    line_input: &PyValue,
-) -> WireResult<PyValue> {
-    if !key.starts_with("generated:") {
-        return Err(failure(key, "not a line the app-sidecars stage answers"));
-    }
-    let scratch = CaseScratch::new(stage_file, "app-sidecars-case")?;
-    let corpus = scratch.0.join("out");
-    std::fs::create_dir_all(&corpus).map_err(|why| failure(key, why))?;
-    let (held, rest) = case_input(key, line_input)?;
-    hold(&corpus, held, key)?;
-    let [
-        PyValue::List(lines),
-        PyValue::List(runs),
-        PyValue::Int(human),
-        PyValue::Int(machine),
-    ] = rest
-    else {
-        return Err(failure(
-            key,
-            "the input does not end with the lines, the runs and the two counts",
-        ));
-    };
-    let mut app = Vec::new();
-    for line in lines {
-        let PyValue::Bytes(line) = line else {
-            return Err(failure(
-                key,
-                format!("a line is {}, not bytes", line.kind()),
-            ));
-        };
-        app.extend_from_slice(line);
-    }
-    let mut held_runs = Vec::new();
-    for run in runs {
-        let PyValue::Tuple(items) = run else {
-            return Err(failure(key, "a locator run is not a tuple"));
-        };
-        let [PyValue::Bytes(members), PyValue::List(entries)] = items.as_slice() else {
-            return Err(failure(
-                key,
-                "a locator run is not its members and its table entries",
-            ));
-        };
-        let blocks = entries
-            .iter()
-            .map(|entry| locator_block_of(entry, key))
-            .collect::<WireResult<Vec<_>>>()?;
-        held_runs.push((members.as_slice(), blocks));
-    }
-    let mut locator = held_runs.iter().map(|(members, blocks)| {
-        Ok(LocatorRun {
-            members: Box::new(*members),
-            blocks: blocks.as_slice(),
-        })
-    });
-    let outcome = match write_app_artifacts_lines(
-        &corpus,
-        &mut app.as_slice(),
-        &mut locator,
-        *human,
-        *machine,
-        names,
-    ) {
-        Ok(()) => PyValue::None,
-        Err(raised) if raised.class == "Unheld" || raised.class == "Unwritten" => {
-            return Err(failure(key, raised.message));
-        }
-        Err(raised)
-            if raised.class == "JSONDecodeError" || raised.class == "UnicodeDecodeError" =>
-        {
-            dict(vec![("raised", PyValue::Str(raised.class))])
-        }
-        Err(raised) => dict(vec![
-            ("raised", PyValue::Str(raised.class)),
-            ("message", PyValue::Str(raised.message)),
-        ]),
-    };
-    Ok(PyValue::Tuple(vec![outcome, files_held(&corpus)?]))
-}
-
-/// The `app-sidecars` stage: when the stage file holds lines from the build's run, run the build through the write's commit ([`through_write`]), write the manifest over what it holds ([`write_manifest`]), then the sidecars from the runs' spilled lines ([`write_sidecars`]), the units index under the pass's fold claim the build input names beside the app sidecars, and answer with the bytes of the app index, the locator's rows and the locator's table, each under its file's name; then answer each generated line ([`answer_app_generated`]).
-pub fn stage_app_sidecars(
-    input_path: &Path,
-    stage_file: &Path,
-    out: &mut impl Write,
-) -> WireResult<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = AppNames::of(&input)?;
-    let index_names = IndexNames::of(&input)?;
-    let manifest_names = ManifestNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_write(&input, stage_file, "app-sidecars", |held| {
-            let failed =
-                |failure: BuildError| WireError(format!("the sidecars' write failed: {failure}"));
-            let manifest = held_manifest(&input, &manifest_names, &held).map_err(failed)?;
-            let corpus = &held.run.corpus;
-            write_manifest(corpus, &manifest, &mut io::sink()).map_err(failed)?;
-            let claim = FoldClaim::new(
-                input.cycle.run.clone(),
-                PathBuf::from(&input.cycle.fold_claim),
-            );
-            write_sidecars(
-                corpus,
-                &held.written.runs,
-                &index_names,
-                &names,
-                &claim,
-                &Sink::new(None),
-            )
-            .map_err(failed)?;
-            for name in [
-                &names.app_index_name,
-                &names.locator_rows_name,
-                &names.locator_name,
-            ] {
-                let data = std::fs::read(corpus.join(name))
-                    .map_err(|why| WireError(format!("cannot read {name}: {why}")))?;
-                stage_line(out, name, &PyValue::Bytes(data))?;
-            }
-            Ok(())
-        })?;
-    }
-    for (key, key_input) in &lines.generated {
-        let value = answer_app_generated(&names, stage_file, key, key_input)?;
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::corpus::gzip::read_gzip;
+    use crate::corpus::gzip::tests::read_gzip;
     use crate::corpus::scan::manifest_identity;
+    use std::path::PathBuf;
 
     fn fragment() -> PyValue {
         dict(vec![

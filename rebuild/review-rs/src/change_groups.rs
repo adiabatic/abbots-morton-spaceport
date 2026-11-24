@@ -1,4 +1,4 @@
-//! The change groups, as `rebuild/review/change_groups.py` assigns them: whether a unit of an `ink_identical` ledger class is listed under a change group instead (`reroutes`), the configurations no ruling explains (`unexplained_configs`), and the group itself (`assign_change_group`): the set gate (`set_gate_group`), the ligature guard, the junction kind (`_junction_group`, `_height`), then the width.
+//! The change groups, as `rebuild/review/change_groups.py` assigns them: whether a unit of an `ink_identical` ledger class is listed under a change group instead (`reroutes`), the configurations no ruling explains (`unexplained_configs`), and the group itself (`assign_change_group`): the set gate (`set_gate_group`), the ligature guard, the junction kind, then the width.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -6,10 +6,10 @@ use std::fmt;
 use crate::pyfmt::repr::repr_str;
 use crate::pyfmt::{decimal_value, is_digit};
 
-/// `change_groups.UNMATCHED`, which is also `audit.UNMATCHED_CLASS`: the class of a unit no ledger ruling covers.
+/// The class of a unit no ledger ruling covers.
 pub const UNMATCHED: &str = "UNMATCHED";
 
-/// `change_groups.SET_GATE`: the stylistic sets the set gate tries, in order, and the group each one names.
+/// The stylistic sets the set gate tries, in order, and the group each one names.
 pub const SET_GATE: [(&str, &str); 4] = [
     ("ss04", "only-with-ss04"),
     ("ss10", "only-with-ss10"),
@@ -17,7 +17,7 @@ pub const SET_GATE: [(&str, &str); 4] = [
     ("ss05", "only-with-ss05"),
 ];
 
-/// `change_groups.SEVERAL_SETS`: the set gate's group when no one set is on in every unexplained configuration.
+/// The set gate's group when no one set is on in every unexplained configuration.
 pub const SEVERAL_SETS: &str = "only-with-several-sets";
 
 /// CPython's default `sys.int_info.default_max_str_digits`: `int` refuses a decimal string with more digits.
@@ -46,7 +46,7 @@ pub fn config_features(config: &str) -> BTreeSet<&str> {
     }
 }
 
-/// `change_groups.reroutes`: whether a unit of ledger class `class_id` is listed under a change group instead, because its class is one of `identical_classes`, the class does not exempt it from verdicts, and no machine check approves it.
+/// Whether a unit of ledger class `class_id` is listed under a change group instead, because its class is one of `identical_classes`, the class does not exempt it from verdicts, and no machine check approves it.
 pub fn reroutes(
     class_id: &str,
     no_verdict: bool,
@@ -56,7 +56,7 @@ pub fn reroutes(
     identical_classes.iter().any(|class| class == class_id) && !no_verdict && !machine_approved
 }
 
-/// `change_groups.unexplained_configs`: the configurations, in the unit's order, mapped to UNMATCHED or to one of `identical_classes` whose ink changed; every configuration when the unit has no per-configuration classes. `config_classes` and `ink_deltas` are dicts as ordered pairs, a later pair winning as in Python's dict.
+/// The configurations, in the unit's order, mapped to UNMATCHED or to one of `identical_classes` whose ink changed; every configuration when the unit has no per-configuration classes. `config_classes` and `ink_deltas` are dicts as ordered pairs, a later pair winning as in Python's dict.
 pub fn unexplained_configs<'u>(
     configs: &'u [String],
     config_classes: &[(String, String)],
@@ -82,7 +82,7 @@ pub fn unexplained_configs<'u>(
         .collect()
 }
 
-/// `change_groups.set_gate_group`: the set group for a unit whose unexplained configurations are `configs`, or None when one of them is the default. An empty list is refused, since a unit that takes a change group always has a configuration no ruling explains.
+/// The set group for a unit whose unexplained configurations are `configs`, or None when one of them is the default. An empty list is refused, since a unit that takes a change group always has a configuration no ruling explains.
 pub fn set_gate_group(configs: &[&str]) -> Result<Option<&'static str>> {
     let features: Vec<BTreeSet<&str>> = configs
         .iter()
@@ -112,7 +112,7 @@ impl Height {
     }
 }
 
-/// `change_groups._height`: a junction token's join height, or None for `break`. A token that is not `break` or `y` and digits is refused, and so is one whose digits `int` does not read: a digit that is not decimal, or more digits than `int` reads.
+/// A junction token's join height, or None for `break`. A token that is not `break` or `y` and digits is refused, and so is one whose digits `int` does not read: a digit that is not decimal, or more digits than `int` reads.
 fn height(token: &str) -> Result<Option<Height>> {
     if token == "break" {
         return Ok(None);
@@ -149,7 +149,7 @@ fn height(token: &str) -> Result<Option<Height>> {
     Ok(Some(Height(significant.len(), significant)))
 }
 
-/// `change_groups._junction_group`: the group the changed junctions decide, or None when every junction is as the old font had it. A new join decides first, then a dropped join, then the first change of height.
+/// The group the changed junctions decide, or None when every junction is as the old font had it. A new join decides first, then a dropped join, then the first change of height.
 fn junction_group(before: &[String], after: &[String]) -> Result<Option<&'static str>> {
     let mut changed: Vec<(Option<Height>, Option<Height>)> = Vec::new();
     for (was, now) in before.iter().zip(after) {
@@ -187,7 +187,7 @@ fn junction_group(before: &[String], after: &[String]) -> Result<Option<&'static
     }
 }
 
-/// What `assign_change_group` reads from an enriched unit (`change_groups.ChangeGroupInput`): the unit's configurations and per-configuration classes, the junction and cell tuples, and the two highlights' advance totals.
+/// What `assign_change_group` reads from an enriched unit: the unit's configurations and per-configuration classes, the junction and cell tuples, and the two highlights' advance totals.
 pub struct ChangeGroupInput<'a> {
     pub configs: &'a [String],
     pub config_classes: &'a [(String, String)],
@@ -198,7 +198,7 @@ pub struct ChangeGroupInput<'a> {
     pub advance_after: i64,
 }
 
-/// `change_groups.assign_change_group`: the change group of a unit that takes one, from the set gate, the ligature guard, the junction kind and then the width. `ink_deltas` are the unit's per-configuration ink deltas and `identical_classes` the ledger's `ink_identical` ids.
+/// The change group of a unit that takes one, from the set gate, the ligature guard, the junction kind and then the width. `ink_deltas` are the unit's per-configuration ink deltas and `identical_classes` the ledger's `ink_identical` ids.
 pub fn assign_change_group(
     enriched: &ChangeGroupInput<'_>,
     ink_deltas: &[(String, String)],

@@ -1,17 +1,11 @@
-//! Shaping as the Python worker shapes (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § HarfBuzz and outlines): `shaping.Shaper.shape` with its two assertions over the linked HarfBuzz (`ffi`), the per-process memo of `ink._MemoizedShaper` as a per-thread one released at each batch's end ([`Shaper::release`], `ink.release_shape_memos`), and the feature dicts of `ink.features_for` and `ink.kern_neutral` ([`Features`]).
+//! Shaping over the linked HarfBuzz (`ffi`), as `shaping.Shaper.shape` shapes with its two assertions, with a shape memo per thread released at each batch's end ([`Shaper::release`]), and the feature dicts a configuration shapes with, as `ink.features_for` and `ink.kern_neutral` build them ([`Features`]).
 //!
-//! [`Fonts`] holds one HarfBuzz font per side of the worker, shared read-only by every thread, and refuses an init whose HarfBuzz version is not the one this engine links. A [`Shaper`] owns one thread's buffer and memo. Glyph names come from the font facts' glyph order, never from HarfBuzz (`Shaper.glyph_name`).
-//!
-//! [`stage_shape`] is the `shape` stage of the stage fixtures.
+//! [`Fonts`] holds one HarfBuzz font per side of the worker, shared read-only by every thread, and refuses an init whose HarfBuzz version is not the one this engine links. A [`Shaper`] owns one thread's buffer and memo. Glyph names come from the font facts' glyph order, never from HarfBuzz.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
-
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 
 use crate::ffi::{self, Buffer, Feature, Font};
 use crate::fontfacts::{FontFacts, FontGlyphs, Side};
@@ -19,7 +13,7 @@ use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::{repr, repr_str};
 use crate::wire::{Init, WireError};
 
-/// A text the engine cannot shape as Python would, an init it refuses, or a `shape` stage input it cannot read.
+/// A text the engine cannot shape, or an init it refuses.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShapeError(pub String);
 
@@ -114,32 +108,7 @@ impl Features {
         )
     }
 
-    /// Read a `Shaper.shape` features argument as the typed encoding carries it: None, or a dict of `str` to `bool`.
-    pub fn from_py(value: &PyValue) -> Result<Self> {
-        let mut features = Self::new();
-        match value {
-            PyValue::None => {}
-            PyValue::Dict(entries) => {
-                for (tag, on) in entries {
-                    let (PyValue::Str(tag), PyValue::Bool(on)) = (tag, on) else {
-                        return Err(ShapeError(format!(
-                            "a feature entry is not a str and a bool: {tag:?}, {on:?}"
-                        )));
-                    };
-                    features.set(tag, *on);
-                }
-            }
-            other => {
-                return Err(ShapeError(format!(
-                    "the features are {}, not a dict or None",
-                    other.kind()
-                )));
-            }
-        }
-        Ok(features)
-    }
-
-    /// The memo's view of the dict, as `_MemoizedShaper.shape` keys it: the entries sorted, or None for an empty dict.
+    /// The memo's key for the dict: the entries sorted, or None for an empty dict.
     fn memo_key(&self) -> Option<Vec<(String, bool)>> {
         if self.0.is_empty() {
             return None;
@@ -175,35 +144,6 @@ impl ShapeResult {
             font.glyph_name(glyph)
                 .expect("a shaped glyph id is in the font's glyph order")
         })
-    }
-
-    /// The result as Python holds it: a `ShapeResult` of three tuples.
-    pub fn to_py(&self, font: &FontGlyphs) -> PyValue {
-        PyValue::Record(
-            "ShapeResult".to_string(),
-            vec![
-                (
-                    "names".to_string(),
-                    PyValue::Tuple(self.names(font).map(PyValue::str).collect()),
-                ),
-                ("clusters".to_string(), clusters_value(&self.clusters)),
-                (
-                    "positions".to_string(),
-                    PyValue::Tuple(
-                        self.positions
-                            .iter()
-                            .map(|&(x_offset, y_offset, x_advance)| {
-                                PyValue::Tuple(vec![
-                                    PyValue::Int(x_offset.into()),
-                                    PyValue::Int(y_offset.into()),
-                                    PyValue::Int(x_advance.into()),
-                                ])
-                            })
-                            .collect(),
-                    ),
-                ),
-            ],
-        )
     }
 }
 
@@ -298,7 +238,7 @@ impl<'a> Shaper<'a> {
         }
     }
 
-    /// `_MemoizedShaper.shape`: the memo's result for `(side, text, features)` when it holds one, otherwise `Shaper.shape`'s, kept until [`Shaper::release`]. Two dicts with the same entries in another order share a result, as they share Python's key.
+    /// The memo's result for `(side, text, features)` when it holds one, otherwise `Shaper.shape`'s, kept until [`Shaper::release`]. Two dicts with the same entries in another order share a result, as they share Python's key.
     pub fn shape(
         &mut self,
         side: Side,
@@ -314,7 +254,7 @@ impl<'a> Shaper<'a> {
         Ok(result)
     }
 
-    /// Forget every shape held (`_MemoizedShaper.release`); the engine calls it at each batch's end, as `release_shape_memos` runs after each of the worker's.
+    /// Forget every shape held; the engine calls it at each batch's end, as `release_shape_memos` runs after each of the worker's.
     pub fn release(&mut self) {
         self.memo.clear();
     }
@@ -372,66 +312,6 @@ impl<'a> Shaper<'a> {
     }
 }
 
-// --- the shape stage ----------------------------------------------------------------------------
-
-fn canonical(path: &str) -> Result<PathBuf> {
-    std::fs::canonicalize(path)
-        .map_err(|failure| ShapeError(format!("cannot resolve the font {path}: {failure}")))
-}
-
-/// The `shape` stage: for each line of `stage_file`, shape the line's `text` with its `features` on the init's font whose resolved path is the line's `font`, through one [`Shaper`], and write the `ShapeResult` as one `{"key", "value"}` line in the typed encoding.
-pub fn stage_shape(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path)?;
-    let facts = FontFacts::read(&init.font_facts)?;
-    let fonts = Fonts::open(&init, &facts)?;
-    let sides = Side::ALL
-        .iter()
-        .map(|&side| Ok((canonical(init_font(&init, side))?, side)))
-        .collect::<Result<Vec<_>>>()?;
-    let mut shaper = Shaper::new(&fonts, &facts);
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        ShapeError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            ShapeError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| ShapeError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return Err(ShapeError(format!("a stage line has no key: {line:.200}")));
-        };
-        let Some(font) = record["font"].as_str() else {
-            return Err(ShapeError(format!("{key}: the line names no font")));
-        };
-        let Some(&(_, side)) = sides.iter().find(|(path, _)| path == Path::new(font)) else {
-            return Err(ShapeError(format!(
-                "{key}: the font {font} is none of the init's three"
-            )));
-        };
-        let PyValue::Str(text) = PyValue::from_typed(&record["text"])
-            .map_err(|failure| ShapeError(format!("{key}: {failure}")))?
-        else {
-            return Err(ShapeError(format!("{key}: the text is not a str")));
-        };
-        let features = PyValue::from_typed(&record["features"])
-            .map_err(ShapeError)
-            .and_then(|value| Features::from_py(&value))
-            .map_err(|failure| ShapeError(format!("{key}: {failure}")))?;
-        let result = shaper
-            .shape(side, &text, &features)
-            .map_err(|failure| ShapeError(format!("{key}: {failure}")))?;
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            result.to_py(facts.font(side)).to_typed()
-        )
-        .map_err(|failure| ShapeError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -482,15 +362,6 @@ mod tests {
         backward.set("ss10", true);
         assert_eq!(forward.memo_key(), backward.memo_key());
         assert_eq!(Features::new().memo_key(), None);
-        assert_eq!(
-            Features::from_py(&PyValue::None).expect("None reads"),
-            Features::new()
-        );
-        assert_eq!(
-            Features::from_py(&forward.to_py()).expect("a dict reads"),
-            forward
-        );
-        assert!(Features::from_py(&PyValue::List(vec![])).is_err());
     }
 
     #[test]

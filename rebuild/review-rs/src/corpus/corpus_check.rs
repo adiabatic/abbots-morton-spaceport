@@ -1,28 +1,21 @@
-//! The corpus check the build's write runs over the units it writes, `build._CorpusCheck` in its `m1-audit` mode at `PATCHED`, with `check_shards`' messages: each fragment fed in shard order is checked per unit at `PATCHED` unless the unit cache supplied it ([`PatchedCheck`]), each class against its manifest record, and the whole corpus against the manifest's totals, its triage index and batches, its machine-approved counts, its duplicate groups and clusters, its secondary junctions' primary units and the policy files its fragments name.
+//! The corpus check the build's write runs over the units it writes, in its `m1-audit` mode at `PATCHED`: each fragment fed in shard order is checked per unit at `PATCHED` unless the unit cache supplied it ([`PatchedCheck`]), each class against its manifest record, and the whole corpus against the manifest's totals, its triage index and batches, its machine-approved counts, its duplicate groups and clusters, its secondary junctions' primary units and the policy files its fragments name.
 //!
 //! [`CorpusCheck`] is the accumulator one run of the write feeds: [`CorpusCheck::class_start`] with the class's manifest record, [`CorpusCheck::unit`] for each fragment, [`CorpusCheck::class_end`] after the class's last, and [`CorpusCheck::take_facts`] to hand what it has accumulated over as [`Facts`], which one checker folds class by class in shard order ([`CorpusCheck::absorb`]) before [`CorpusCheck::finish`] runs the cross-unit predicates over the manifest. It reads each fragment and record as the [`PyValue`] it is, so where Python hashes, compares, iterates or `.get`s a value of another type, it answers as Python does: the same errors, or a raise where Python raises ([`CheckError::raised`]).
-//!
-//! [`stage_corpus_check`] is the build's `corpus-check` stage of the stage fixtures.
 
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use serde_json::Value;
-
-use super::audit::stage_line;
 use super::input::BuildInput;
 use super::table::{FamilyRanks, family_ranks};
 use crate::check::{
-    CheckError, PatchedCheck, Result, engine, hashable, int_of, is_true, members, raise, sorted,
-    text_of, truthy,
+    PatchedCheck, Result, engine, hashable, int_of, is_true, members, raise, sorted, text_of,
+    truthy,
 };
 use crate::fragment::{lookup, py_eq};
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr;
 use crate::subset_pack::python_hex_int;
-use crate::wire::{Result as WireResult, WireError};
 
 /// The secondary-junction counts `finish` compares with the manifest's, in Python's order.
 const JUNCTION_COUNTS: [&str; 3] = [
@@ -174,10 +167,6 @@ impl PyMap<()> {
     pub fn add(&mut self, key: &PyValue) -> Result<()> {
         self.entry(key, || ()).map(|_| ())
     }
-
-    fn to_py(&self) -> PyValue {
-        PyValue::Set(self.keys.clone())
-    }
 }
 
 /// What a checker accumulates from the units fed to it, `_CorpusCheck._FACTS`: the errors in order, the units and rows of its closed classes, the ids it saw, each class's machine-approved count, each secondary junction's unit and primary unit, the junction counts, each duplicate group's and each cluster's (class, configs) keys and each duplicate group's first cluster, each human unit's class, group and window, each kept unit's identity (its window, whether it has a primary pair, and whether it is ink- or picture-identical), and the policy files the fragments name.
@@ -198,107 +187,6 @@ pub struct Facts {
     human_units: PyMap<[String; 3]>,
     identity: PyMap<(PyValue, bool, bool)>,
     policy_files: BTreeSet<String>,
-}
-
-impl Facts {
-    /// The facts as the stage records them: a dict of each `_FACTS` name without its underscore, in `_FACTS` order.
-    pub fn to_py(&self) -> PyValue {
-        let name = |text: &str| PyValue::str(text);
-        let keyed = |map: &PyMap<PyMap<()>>| {
-            PyValue::Dict(
-                map.iter()
-                    .map(|(key, keys)| (key.clone(), keys.to_py()))
-                    .collect(),
-            )
-        };
-        PyValue::Dict(vec![
-            (
-                name("errors"),
-                PyValue::List(self.errors.iter().cloned().map(PyValue::Str).collect()),
-            ),
-            (name("seen_units"), PyValue::Int(self.seen_units)),
-            (name("seen_rows"), PyValue::Int(self.seen_rows)),
-            (name("seen_ids"), self.seen_ids.to_py()),
-            (
-                name("seen_machine_by_class"),
-                PyValue::Dict(
-                    self.seen_machine_by_class
-                        .iter()
-                        .map(|(key, count)| (key.clone(), PyValue::Int(*count)))
-                        .collect(),
-                ),
-            ),
-            (
-                name("primary_units"),
-                PyValue::List(
-                    self.primary_units
-                        .iter()
-                        .map(|(unit, primary)| PyValue::Tuple(vec![unit.clone(), primary.clone()]))
-                        .collect(),
-                ),
-            ),
-            (name("junction_units"), PyValue::Int(self.junction_units)),
-            (
-                name("junctions_with_primary_unit"),
-                PyValue::Int(self.junctions_with_primary_unit),
-            ),
-            (
-                name("junctions_without_primary_unit"),
-                PyValue::Int(self.junctions_without_primary_unit),
-            ),
-            (
-                name("duplicate_group_keys"),
-                keyed(&self.duplicate_group_keys),
-            ),
-            (name("cluster_keys"), keyed(&self.cluster_keys)),
-            (
-                name("duplicate_group_cluster"),
-                PyValue::Dict(
-                    self.duplicate_group_cluster
-                        .iter()
-                        .map(|(key, cluster)| (key.clone(), cluster.clone()))
-                        .collect(),
-                ),
-            ),
-            (
-                name("human_units"),
-                PyValue::Dict(
-                    self.human_units
-                        .iter()
-                        .map(|(key, terms)| (key.clone(), PyValue::str_tuple(terms)))
-                        .collect(),
-                ),
-            ),
-            (
-                name("identity"),
-                PyValue::Dict(
-                    self.identity
-                        .iter()
-                        .map(|(key, (codepoints, paired, identical))| {
-                            (
-                                key.clone(),
-                                PyValue::Tuple(vec![
-                                    codepoints.clone(),
-                                    PyValue::Bool(*paired),
-                                    PyValue::Bool(*identical),
-                                ]),
-                            )
-                        })
-                        .collect(),
-                ),
-            ),
-            (
-                name("policy_files"),
-                PyValue::Set(
-                    self.policy_files
-                        .iter()
-                        .cloned()
-                        .map(PyValue::Str)
-                        .collect(),
-                ),
-            ),
-        ])
-    }
 }
 
 /// What every checker of one build reads besides the units: the per-unit check at `PATCHED` with its machine checks, the manifest's `feature_descriptions` a config gate's features are glossed by, the batch size, the root the policy files are looked up under, if any, and the families' ranks the triage order reads.
@@ -454,11 +342,6 @@ impl<'a> CorpusCheck<'a> {
             machine_count: 0,
             check_counts: Vec::new(),
         }
-    }
-
-    /// The facts accumulated since the checker was made or last asked.
-    pub fn facts(&self) -> &Facts {
-        &self.facts
     }
 
     /// Open a class with its manifest record: a no-verdict class must carry no batches.
@@ -1016,222 +899,6 @@ impl<'a> CorpusCheck<'a> {
         }
         Ok(errors)
     }
-}
-
-// --- the stage -----------------------------------------------------------------------------------
-
-const CHUNK_PREFIX: &str = "chunk:";
-const FINISH_PREFIX: &str = "finish:";
-const FINISH_GENERATED: &str = "generated:finish:";
-const CASE_GENERATED: &str = "generated:case:";
-
-fn failure(key: &str, message: impl std::fmt::Display) -> WireError {
-    WireError(format!("{key}: {message}"))
-}
-
-fn field(line: &Value, key: &str, name: &str) -> WireResult<PyValue> {
-    PyValue::from_typed(&line[name]).map_err(|message| failure(key, message))
-}
-
-fn items<'v>(value: &'v PyValue, key: &str, what: &str) -> WireResult<&'v [PyValue]> {
-    match value {
-        PyValue::Tuple(items) | PyValue::List(items) => Ok(items),
-        other => Err(failure(
-            key,
-            format!("{what} is {}, not a list", other.kind()),
-        )),
-    }
-}
-
-fn ids(value: &PyValue, key: &str) -> WireResult<Option<BTreeSet<String>>> {
-    match value {
-        PyValue::None => Ok(None),
-        other => items(other, key, "identity_for")?
-            .iter()
-            .map(|id| match id {
-                PyValue::Str(id) => Ok(id.clone()),
-                other => Err(failure(key, format!("identity_for holds {}", other.kind()))),
-            })
-            .collect::<WireResult<_>>()
-            .map(Some),
-    }
-}
-
-/// Feed one chunk of a run, as `build._write_run` feeds it: its class opened when it carries a record, each unit with whether the cache supplied it, and the class closed when it is the class's last; then take its facts.
-fn feed_chunk(
-    check: &mut CorpusCheck<'_>,
-    meta: &PyValue,
-    units: &[PyValue],
-    end: bool,
-) -> Result<Facts> {
-    if !matches!(meta, PyValue::None) {
-        check.class_start(meta)?;
-    }
-    for fed in units {
-        let (PyValue::Tuple(pair) | PyValue::List(pair)) = fed else {
-            return engine(format!("a fed unit is {}, not a pair", fed.kind()));
-        };
-        let [unit, PyValue::Bool(cached)] = pair.as_slice() else {
-            return engine("a fed unit is not a (unit, cached) pair");
-        };
-        check.unit(unit, *cached)?;
-    }
-    if end {
-        check.class_end()?;
-    }
-    Ok(check.take_facts())
-}
-
-/// Fold `chunks` into a fresh checker in order and finish it over `manifest`: the folded facts, then the errors `finish` returns.
-fn finished(
-    settings: &CheckSettings,
-    chunks: impl IntoIterator<Item = Facts>,
-    manifest: &PyValue,
-) -> Result<PyValue> {
-    let mut check = CorpusCheck::new(settings, None);
-    for facts in chunks {
-        check.absorb(facts)?;
-    }
-    let folded = check.facts().to_py();
-    let errors = check.finish(manifest)?;
-    Ok(PyValue::Dict(vec![
-        (PyValue::str("facts"), folded),
-        (
-            PyValue::str("errors"),
-            PyValue::List(errors.into_iter().map(PyValue::Str).collect()),
-        ),
-    ]))
-}
-
-/// A line's value: what the check gives, or `{"raised": name}` where Python raises; a failure Python never meets stops the stage.
-fn answered(key: &str, outcome: Result<PyValue>) -> WireResult<PyValue> {
-    match outcome {
-        Ok(value) => Ok(value),
-        Err(CheckError {
-            raised: Some(kind), ..
-        }) => Ok(PyValue::Dict(vec![(
-            PyValue::str("raised"),
-            PyValue::str(kind),
-        )])),
-        Err(CheckError { message, .. }) => Err(failure(key, message)),
-    }
-}
-
-/// One generated case: a run over its own settings and chunks, each chunk's facts folded into a fresh checker, finished over its manifest.
-fn case(input: &BuildInput, line: &Value, key: &str) -> WireResult<PyValue> {
-    let settings = field(line, key, "settings")?;
-    let setting = |name: &str| {
-        lookup(&settings, name)
-            .cloned()
-            .ok_or_else(|| failure(key, format!("the settings hold no {name}")))
-    };
-    let repo_root = match setting("repo_root")? {
-        PyValue::None => None,
-        PyValue::Str(root) => Some(PathBuf::from(root)),
-        other => return Err(failure(key, format!("repo_root is {}", other.kind()))),
-    };
-    let patched = PatchedCheck::of(input).map_err(|error| failure(key, error))?;
-    let settings_held = CheckSettings::new(
-        patched,
-        setting("descriptions")?,
-        setting("batch_size")?,
-        repo_root,
-        &input.family_of,
-    );
-    let identity_for = ids(&setting("identity_for")?, key)?;
-    let chunks = field(line, key, "chunks")?;
-    let manifest = field(line, key, "manifest")?;
-    let mut parsed = Vec::new();
-    for chunk in items(&chunks, key, "chunks")? {
-        let part = |name: &str| {
-            lookup(chunk, name).ok_or_else(|| failure(key, format!("a chunk holds no {name}")))
-        };
-        let end = match part("end")? {
-            PyValue::Bool(end) => *end,
-            other => return Err(failure(key, format!("a chunk's end is {}", other.kind()))),
-        };
-        parsed.push((part("meta")?, items(part("units")?, key, "units")?, end));
-    }
-    let outcome = (|| {
-        let mut run = CorpusCheck::new(&settings_held, identity_for.as_ref());
-        let mut taken = Vec::with_capacity(parsed.len());
-        for (meta, units, end) in &parsed {
-            taken.push(feed_chunk(&mut run, meta, units, *end)?);
-        }
-        finished(&settings_held, taken, &manifest)
-    })();
-    answered(key, outcome)
-}
-
-/// The build's `corpus-check` stage. The run's chunks, `chunk:` lines in the order the run fed them, are fed to one checker over the build input's settings, keeping the identities of the ids every line's `identity_for` names, and each answered with the facts it gave; each `finish:` line and each `generated:finish:` line folds the chunks it names, in its order, into a fresh checker and finishes it over its manifest; each `generated:case:` line runs a case of its own ([`case`]). A value Python raises on is answered `{"raised": name}`.
-pub fn stage_corpus_check(
-    input_path: &Path,
-    stage_file: &Path,
-    out: &mut impl Write,
-) -> WireResult<()> {
-    let input = BuildInput::read(input_path)?;
-    let settings = CheckSettings::of(&input).map_err(|error| WireError(error.to_string()))?;
-    let file = std::fs::File::open(stage_file)
-        .map_err(|error| WireError(format!("cannot read {}: {error}", stage_file.display())))?;
-    let mut lines = Vec::new();
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|error| WireError(format!("cannot read a stage line: {error}")))?;
-        let line: Value = serde_json::from_str(&line)
-            .map_err(|error| WireError(format!("a stage line is not JSON: {error}")))?;
-        let Some(key) = line["key"].as_str().map(str::to_owned) else {
-            return Err(WireError("a stage line has no key".to_owned()));
-        };
-        lines.push((key, line));
-    }
-    let mut identity_for: Option<BTreeSet<String>> = Some(BTreeSet::new());
-    for (key, line) in lines
-        .iter()
-        .filter(|(key, _)| key.starts_with(CHUNK_PREFIX))
-    {
-        match (
-            ids(&field(line, key, "identity_for")?, key)?,
-            &mut identity_for,
-        ) {
-            (Some(named), Some(held)) => held.extend(named),
-            _ => identity_for = None,
-        }
-    }
-    let mut run = CorpusCheck::new(&settings, identity_for.as_ref());
-    let mut taken: HashMap<String, Facts> = HashMap::new();
-    for (key, line) in &lines {
-        let value = if key.starts_with(CHUNK_PREFIX) {
-            let meta = field(line, key, "meta")?;
-            let units = field(line, key, "units")?;
-            let end = matches!(field(line, key, "end")?, PyValue::Bool(true));
-            let outcome =
-                feed_chunk(&mut run, &meta, items(&units, key, "units")?, end).map(|facts| {
-                    let value = facts.to_py();
-                    taken.insert(key.clone(), facts);
-                    value
-                });
-            answered(key, outcome)?
-        } else if key.starts_with(FINISH_PREFIX) || key.starts_with(FINISH_GENERATED) {
-            let chunks = field(line, key, "chunks")?;
-            let folded = items(&chunks, key, "chunks")?
-                .iter()
-                .map(|chunk| match chunk {
-                    PyValue::Str(chunk) => taken
-                        .get(chunk)
-                        .cloned()
-                        .ok_or_else(|| failure(key, format!("no chunk {chunk} came before it"))),
-                    other => Err(failure(key, format!("a chunk key is {}", other.kind()))),
-                })
-                .collect::<WireResult<Vec<Facts>>>()?;
-            let manifest = field(line, key, "manifest")?;
-            answered(key, finished(&settings, folded, &manifest))?
-        } else if key.starts_with(CASE_GENERATED) {
-            case(&input, line, key)?
-        } else {
-            return Err(failure(key, "not a line of the corpus-check stage"));
-        };
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

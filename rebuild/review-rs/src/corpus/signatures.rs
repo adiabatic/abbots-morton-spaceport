@@ -1,25 +1,17 @@
-//! The ink-signature store as the Python build holds, reads and writes it (`unit_cache.SignatureArrays`, `write_signature_arrays`, `signature_miss_note`; `rebuild/CORPUS-PARENT-PORT-PLAN.md` § Containers and § Reading what Python wrote): the prior store's keys in one sorted column beside their 32-byte digests and a hit bit an entry, the misses shaped before the stream and the late ones it shapes itself in two more, the new store's lines merged from them in key order, and the store written as one gzip stream at level 1 through its staging file. A store reads as absent on any read error but `zlib.error`, which Python's readers do not catch, so it fails the load ([`StoreError`]), as does JSON Python reads into a value the reader does not hold.
+//! The ink-signature store (`doc/rebuild-design.md` §14.2): the prior store's keys in one sorted column beside their 32-byte digests and a hit bit an entry, the misses shaped before the stream and the late ones it shapes itself in two more, the new store's lines merged from them in key order, and the store written as one gzip stream at level 1 through its staging file. A store reads as absent on any read error but `zlib.error`, which fails the load ([`StoreError`]), as does JSON the reader reads into a value it does not hold.
 //!
-//! A window's signature text ([`signature_text`], `build.signature_text`) is what the misses' shaping hands [`InkComparator::signature`].
+//! A window's signature text ([`signature_text`]) is what the misses' shaping hands [`InkComparator::signature`].
 //!
-//! The misses are found before the stream reads the audit ([`find_misses`], `build._find_misses`): skipped when the prior store's stamps hold, otherwise by the key-only read ([`key_only_read`], `build._key_only_read` and `audit_stream.main`), which cuts the windows into `KEY_ONLY_PROCESSES` ranges and walks each on a thread of its own, reading the audit through the inherited files, the hits marked and the misses kept in range order. [`InkShaping`] shapes them ([`InkShaping::shape_found_misses`], `build._shape_found_misses` and `_shape_misses`) on threads that share the font facts and the before and after fonts, each thread's shape memo released after each chunk, and the stream's late shaper ([`LateShaper`], `build._LateShaper`) shapes any key neither the prior store nor the misses hold.
-//!
-//! [`stage_signature_store`] is the `signature-store` stage of the stage fixtures, [`stage_signature`] the `signature` stage, and [`stage_key_only`] the `key-only` stage.
+//! The misses are found before the stream reads the audit ([`find_misses`]): skipped when the prior store's stamps hold, otherwise by the key-only read ([`key_only_read`]), which cuts the windows into `KEY_ONLY_PROCESSES` ranges and walks each on a thread of its own, reading the audit through the inherited files, the hits marked and the misses kept in range order. [`InkShaping`] shapes them ([`InkShaping::shape_found_misses`]) on threads that share the font facts and the before and after fonts, each thread's shape memo released after each chunk, and the stream's late shaper ([`LateShaper`]) shapes any key neither the prior store nor the misses hold.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use ams_m1_kernel::emit::json_string;
-use serde_json::{Map, Value};
-use sha2::{Digest as _, Sha256};
-
-use crate::corpus::audit::{
-    AuditError, Section, Vocabulary, audit_layout, integer, items, stage_line, text,
-};
+use crate::corpus::audit::{AuditError, Section};
 use crate::corpus::columns::sorted_by_word;
 use crate::corpus::gzip::{GzipError, GzipReader, GzipWriter, MTIME, PART_LEVEL};
 use crate::corpus::input::{BuildInput, Stamp};
@@ -29,33 +21,28 @@ use crate::corpus::stream::{
     window_ranges,
 };
 use crate::fontfacts::{FontFacts, Side};
-use crate::fragment::sha256_hex;
 use crate::ink::{self, InkComparator};
 use crate::pyfmt::repr::repr;
 use crate::pyfmt::{PyValue, json};
 use crate::shape::{Fonts, Shaper};
 use crate::wire::{Init, Result, WireError, error};
 
-/// The header key of the audit's identity the store was written over (`unit_cache.AUDIT_IDENTITY_KEY`).
+/// The header key of the audit's identity the store was written over.
 pub const AUDIT_IDENTITY_KEY: &str = "audit_identity";
-/// The header key of the family keys' digest the store was written over (`unit_cache.FAMILY_KEYS_KEY`).
+/// The header key of the family keys' digest the store was written over.
 pub const FAMILY_KEYS_KEY: &str = "family_keys_digest";
 /// The stamp's label whose per-file lines a miss note expands (`signature_miss_note`'s code label).
 pub const CODE_LABEL: &str = "comparator_code";
-/// The changed files a miss note names inside the code label (`unit_cache.CODE_FILES_SHOWN`).
+/// The changed files a miss note names inside the code label.
 pub const CODE_FILES_SHOWN: usize = 4;
 /// The changed labels a miss note names (`fingerprint.moved_note`'s default limit).
 pub const LABELS_SHOWN: usize = 8;
-/// The `signature-store` stage's directory, beside its stage file, of the files its lines name by sha256.
-pub const STAGE_BLOBS: &str = "signature-store.blobs";
-/// The `key-only` stage's directory, beside its stage file, of the stores its generated lines name by sha256.
-pub const KEY_ONLY_BLOBS: &str = "key-only.blobs";
-/// What a key-only read thread exits with when its walk fails but for a break or a member, in the words of the Python build's process (`build._key_only_read`).
+/// What a key-only read thread fails with when its walk fails but for a break or a member.
 pub const KEY_ONLY_EXIT: &str = "a key-only read process exited 1";
 
-/// One entry line: 16 hex digits, a tab, 64 hex digits and a newline (`unit_cache._SIGNATURE_LINE_BYTES`).
+/// One entry line: 16 hex digits, a tab, 64 hex digits and a newline.
 const LINE_BYTES: usize = 82;
-/// The entry lines read and checked at once (`unit_cache._SIGNATURE_READ_LINES`).
+/// The entry lines read and checked at once.
 const READ_LINES: usize = 12_800;
 /// What `gzip.open`'s reader buffers its plain bytes in (`gzip.READ_BUFFER_SIZE`).
 const READ_BUFFER_BYTES: usize = 128 * 1024;
@@ -187,7 +174,7 @@ fn hex_value(digit: u8) -> Option<u8> {
     }
 }
 
-/// One entry line's key and digest, or None for a line other than 16 lowercase hex digits, a tab, 64 lowercase hex digits and a newline (`unit_cache._SIGNATURE_LINE`).
+/// One entry line's key and digest, or None for a line other than 16 lowercase hex digits, a tab, 64 lowercase hex digits and a newline.
 fn entry(line: &[u8; LINE_BYTES]) -> Option<(u64, [u8; 32])> {
     if line[16] != b'\t' || line[81] != b'\n' {
         return None;
@@ -258,7 +245,7 @@ fn entry_line(key: u64, digest: &[u8; 32]) -> [u8; LINE_BYTES] {
     line
 }
 
-/// The ink-signature store in memory, as columns (`unit_cache.SignatureArrays`): the prior store's keys, strictly ascending, beside their digests, a bit a prior entry marking each the build hit, and the prior store's header, None when there was no usable store; the misses, sorted by key once they are shaped ([`SignatureArrays::set_misses`]); and the late misses the stream shaped itself ([`SignatureArrays::add_late`]).
+/// The ink-signature store in memory, as columns: the prior store's keys, strictly ascending, beside their digests, a bit a prior entry marking each the build hit, and the prior store's header, None when there was no usable store; the misses, sorted by key once they are shaped ([`SignatureArrays::set_misses`]); and the late misses the stream shaped itself ([`SignatureArrays::add_late`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SignatureArrays {
     keys: Vec<u64>,
@@ -272,11 +259,6 @@ pub struct SignatureArrays {
 }
 
 impl SignatureArrays {
-    /// A store with no prior entries and no header, `SignatureArrays()`.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     fn with_prior(keys: Vec<u64>, digests: Vec<[u8; 32]>, header: PyValue) -> Self {
         let hit = vec![0; keys.len().div_ceil(8)];
         Self {
@@ -288,7 +270,7 @@ impl SignatureArrays {
         }
     }
 
-    /// Read the prior store under `out_dir` into columns, as `SignatureArrays.load` reads it: None when it is not a file, does not read, holds a header that is not a dict or names another format or stamp than `environment`, holds a line other than an entry line, checked [`READ_LINES`] lines at a time before more are read, or holds keys that do not strictly ascend.
+    /// Read the prior store under `out_dir` into columns: None when it is not a file, does not read, holds a header that is not a dict or names another format or stamp than `environment`, holds a line other than an entry line, checked [`READ_LINES`] lines at a time before more are read, or holds keys that do not strictly ascend.
     pub fn load(out_dir: &Path, names: &StoreNames, environment: &str) -> Read<Option<Self>> {
         let Some(mut stream) = open_store(&names.path(out_dir)) else {
             return Ok(None);
@@ -330,11 +312,6 @@ impl SignatureArrays {
             return Ok(None);
         }
         Ok(Some(Self::with_prior(keys, digests, header)))
-    }
-
-    /// The prior entries.
-    pub fn len(&self) -> usize {
-        self.keys.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -447,7 +424,7 @@ impl SignatureArrays {
         merged.into_iter().unzip()
     }
 
-    /// Write the new store's entry lines in key order (`SignatureArrays.lines`): the hit prior entries merged with the misses, the late ones among them, a miss ahead of a prior entry only when its key is smaller. Returns the lines written.
+    /// Write the new store's entry lines in key order: the hit prior entries merged with the misses, the late ones among them, a miss ahead of a prior entry only when its key is smaller. Returns the lines written.
     pub fn write_lines(&self, out: &mut impl Write) -> io::Result<usize> {
         let merged;
         let (extra_keys, extra_digests): (&[u64], &[[u8; 32]]) = if self.late_keys.is_empty() {
@@ -478,7 +455,7 @@ impl SignatureArrays {
     }
 }
 
-/// Write the store under `out_dir` from `signatures` as `unit_cache.write_signature_arrays` writes it: a header line in `json.dumps`' default form of the format, then `stamp_header` (the stamp's fields, `unit_cache._stamp_header`) and `stamps` merged over it as a dict display merges them, then the entry lines ([`SignatureArrays::write_lines`]), as one gzip stream at level 1 and mtime 0 named for the store, through its staging file, renamed into place; the staging file is removed whether or not the write succeeds.
+/// Write the store under `out_dir` from `signatures`: a header line in `json.dumps`' default form of the format, then `stamp_header` (the stamp's fields, `unit_cache._stamp_header`) and `stamps` merged over it as a dict display merges them, then the entry lines ([`SignatureArrays::write_lines`]), as one gzip stream at level 1 and mtime 0 named for the store, through its staging file, renamed into place; the staging file is removed whether or not the write succeeds.
 pub fn write_signature_arrays(
     out_dir: &Path,
     names: &StoreNames,
@@ -509,7 +486,7 @@ pub fn write_signature_arrays(
     written
 }
 
-/// The store's write on a thread of its own (`build._SignatureWrite`), which owns the columns and drops them once the store is written. The build starts it as the units phase starts and joins it in the cache phase; dropped unjoined, as a build that stops early drops it, it waits for the write to end, so the build's result follows the store's write as the serial Python build's does.
+/// The store's write on a thread of its own, which owns the columns and drops them once the store is written. The build starts it as the units phase starts and joins it in the cache phase; dropped unjoined, as a build that stops early drops it, it waits for the write to end, so the build's result follows the store's write.
 pub struct SignatureWrite {
     thread: Option<std::thread::JoinHandle<io::Result<()>>>,
 }
@@ -581,7 +558,7 @@ pub(crate) fn labels_of<S: AsRef<str>>(lines: &[S]) -> HashMap<String, String> {
         .collect()
 }
 
-/// A header's recorded lines as labels (`unit_cache._recorded_labels`): None unless a list, each item taken as `str` takes it.
+/// A header's recorded lines as labels: None unless a list, each item taken as `str` takes it.
 pub(crate) fn recorded_labels(lines: Option<&PyValue>) -> Option<HashMap<String, String>> {
     let Some(PyValue::List(lines)) = lines else {
         return None;
@@ -637,7 +614,7 @@ fn moved_note(
     })
 }
 
-/// Why [`SignatureArrays::load`] rejects the store under `out_dir`, as `unit_cache.signature_miss_note` says it, or None when its header matches `environment`: no store, a header that does not read, or a stamp that moved, named through its lines with the code label's per-file lines expanded.
+/// Why [`SignatureArrays::load`] rejects the store under `out_dir`, or None when its header matches `environment`: no store, a header that does not read, or a stamp that moved, named through its lines with the code label's per-file lines expanded.
 pub fn signature_miss_note(
     out_dir: &Path,
     names: &StoreNames,
@@ -657,7 +634,7 @@ pub fn signature_miss_note(
     ))
 }
 
-/// Why a load of a store whose header, or head's stamps, is `header` fails under `environment`, as `unit_cache._miss_note` says it: `unreadable` for no header, a stamp that moved, named through its lines with `code_label`'s per-file lines expanded, and, where `manifest` names the manifest's identity and its note, that note for a header stamped for another manifest; None when everything checked matches.
+/// Why a load of a store whose header, or head's stamps, is `header` fails under `environment`: `unreadable` for no header, a stamp that moved, named through its lines with `code_label`'s per-file lines expanded, and, where `manifest` names the manifest's identity and its note, that note for a header stamped for another manifest; None when everything checked matches.
 pub(crate) fn miss_note(
     header: Option<&[(PyValue, PyValue)]>,
     environment: &Stamp,
@@ -705,396 +682,7 @@ pub(crate) fn miss_note(
     }
 }
 
-fn fail(what: &str, failure: impl std::fmt::Display) -> WireError {
-    WireError(format!("cannot {what}: {failure}"))
-}
-
-fn tagged(tag: &str, items: impl IntoIterator<Item = PyValue>) -> PyValue {
-    PyValue::Tuple(std::iter::once(PyValue::str(tag)).chain(items).collect())
-}
-
-fn arguments<'a, const COUNT: usize>(
-    value: &'a PyValue,
-    key: &str,
-) -> Result<&'a [PyValue; COUNT]> {
-    items(value, key)?.try_into().map_err(|_| {
-        WireError(format!(
-            "{key}: not {COUNT} arguments: {}",
-            value.to_typed()
-        ))
-    })
-}
-
-fn word(value: &PyValue, key: &str) -> Result<u64> {
-    let hex = text(value, key)?;
-    u64::from_str_radix(hex, 16).map_err(|_| WireError(format!("{key}: {hex:?} is not a key")))
-}
-
-fn digest(value: &PyValue, key: &str) -> Result<[u8; 32]> {
-    let hex = text(value, key)?;
-    let mut digest = [0u8; 32];
-    if hex.len() != 64 {
-        return error(format!("{key}: {hex:?} is not a digest"));
-    }
-    for (byte, pair) in digest.iter_mut().zip(hex.as_bytes().as_chunks::<2>().0) {
-        *byte = match (hex_value(pair[0]), hex_value(pair[1])) {
-            (Some(high), Some(low)) => (high << 4) | low,
-            _ => return error(format!("{key}: {hex:?} is not a digest")),
-        };
-    }
-    Ok(digest)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn raised(failure: &StoreError) -> PyValue {
-    tagged(
-        "raised",
-        [
-            PyValue::str(failure.class()),
-            PyValue::str(failure.message()),
-        ],
-    )
-}
-
-/// The stage's blobs and the scratch directory its lines' files are set up in.
-struct Workspace {
-    blobs: PathBuf,
-    read: HashMap<String, Vec<u8>>,
-    scratch: PathBuf,
-    cases: usize,
-    names: StoreNames,
-}
-
-impl Workspace {
-    fn blob(&mut self, digest: &str) -> Result<&[u8]> {
-        if !self.read.contains_key(digest) {
-            let path = self.blobs.join(digest);
-            let bytes = std::fs::read(&path)
-                .map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-            if sha256_hex(&bytes) != digest {
-                return error(format!(
-                    "{} does not hold the bytes it is named for",
-                    path.display()
-                ));
-            }
-            self.read.insert(digest.to_owned(), bytes);
-        }
-        Ok(&self.read[digest])
-    }
-
-    /// A fresh directory for one line.
-    fn directory(&mut self) -> Result<PathBuf> {
-        self.cases += 1;
-        let directory = self.scratch.join(self.cases.to_string());
-        std::fs::create_dir_all(&directory)
-            .map_err(|failure| fail("make a scratch directory", failure))?;
-        Ok(directory)
-    }
-
-    /// Put what a line's `held` names at `path`: nothing for `("missing",)`, a directory for `("directory",)`, or the blob of `("file", sha256)`.
-    fn place(&mut self, held: &PyValue, path: &Path, key: &str) -> Result<()> {
-        match items(held, key)? {
-            [PyValue::Str(tag)] if tag == "missing" => Ok(()),
-            [PyValue::Str(tag)] if tag == "directory" => std::fs::create_dir(path)
-                .map_err(|failure| fail(&format!("make {}", path.display()), failure)),
-            [PyValue::Str(tag), PyValue::Str(digest)] if tag == "file" => {
-                let data = self.blob(digest)?.to_vec();
-                std::fs::write(path, data)
-                    .map_err(|failure| fail(&format!("write {}", path.display()), failure))
-            }
-            _ => error(format!("{key}: not a held file: {}", held.to_typed())),
-        }
-    }
-
-    /// A directory holding the store a line's `held` names.
-    fn store(&mut self, held: &PyValue, key: &str) -> Result<PathBuf> {
-        let directory = self.directory()?;
-        let path = self.names.path(&directory);
-        self.place(held, &path, key)?;
-        Ok(directory)
-    }
-}
-
-/// What a file holds now: `("missing",)`, or `("file", sha256)`.
-fn held_now(path: &Path) -> Result<PyValue> {
-    match std::fs::read(path) {
-        Ok(data) => Ok(tagged("file", [PyValue::str(sha256_hex(&data))])),
-        Err(failure) if failure.kind() == io::ErrorKind::NotFound => Ok(tagged("missing", [])),
-        Err(failure) => Err(fail(&format!("read {}", path.display()), failure)),
-    }
-}
-
-/// A loaded store's columns as a line's value names them: the count, the sha256 of the keys as 8-byte big-endian words, the sha256 of the digests, and the header.
-fn columns_value(signatures: &SignatureArrays) -> PyValue {
-    let mut keys = Sha256::new();
-    for key in &signatures.keys {
-        keys.update(key.to_be_bytes());
-    }
-    let mut digests = Sha256::new();
-    for digest in &signatures.digests {
-        digests.update(digest);
-    }
-    tagged(
-        "columns",
-        [
-            PyValue::Int(signatures.keys.len() as i64),
-            PyValue::str(hex(&keys.finalize())),
-            PyValue::str(hex(&digests.finalize())),
-            signatures.header.clone().unwrap_or(PyValue::None),
-        ],
-    )
-}
-
-/// The store a trace starts from: `("empty",)`, `SignatureArrays()`, or `("load", held, environment)`, the store `held` names loaded under the stamp `environment`, which must load.
-fn origin(workspace: &mut Workspace, value: &PyValue, key: &str) -> Result<SignatureArrays> {
-    match items(value, key)? {
-        [PyValue::Str(tag)] if tag == "empty" => Ok(SignatureArrays::new()),
-        [PyValue::Str(tag), held, environment] if tag == "load" => {
-            let directory = workspace.store(held, key)?;
-            match SignatureArrays::load(&directory, &workspace.names, text(environment, key)?) {
-                Ok(Some(signatures)) => Ok(signatures),
-                Ok(None) => error(format!("{key}: the trace's store does not load")),
-                Err(failure) => error(format!("{key}: the trace's store raised {failure}")),
-            }
-        }
-        _ => error(format!("{key}: no origin {}", value.to_typed())),
-    }
-}
-
-fn count(value: usize) -> PyValue {
-    PyValue::Int(value as i64)
-}
-
-/// Make one call a trace records on `signatures` and give its result as the line records it: keys and digests as hex, a position of -1 for none.
-fn replay(signatures: &mut SignatureArrays, op: &PyValue, key: &str) -> Result<PyValue> {
-    let call = items(op, key)?;
-    let Some((name, arguments)) = call.split_first() else {
-        return error(format!("{key}: an empty call"));
-    };
-    let argument = |at: usize| {
-        arguments
-            .get(at)
-            .ok_or_else(|| WireError(format!("{key}: {} lacks an argument", op.to_typed())))
-    };
-    Ok(match text(name, key)? {
-        "stamps_hold" => {
-            let identity = items(argument(0)?, key)?
-                .iter()
-                .map(|value| integer(value, key))
-                .collect::<Result<Vec<_>>>()?;
-            PyValue::Bool(signatures.stamps_hold(&identity, text(argument(1)?, key)?))
-        }
-        "prior_index" => PyValue::Int(
-            signatures
-                .prior_index(word(argument(0)?, key)?)
-                .map_or(-1, |position| position as i64),
-        ),
-        "mark_hit" => {
-            let position = integer(argument(0)?, key)?;
-            match usize::try_from(position) {
-                Ok(position) if position < signatures.len() => signatures.mark_hit(position),
-                _ => return error(format!("{key}: no prior entry {position}")),
-            }
-            PyValue::None
-        }
-        "digest_of" => match signatures.digest_of(word(argument(0)?, key)?) {
-            Some(found) => PyValue::str(hex(&found)),
-            None => PyValue::None,
-        },
-        "set_misses" => {
-            let keys = items(argument(0)?, key)?
-                .iter()
-                .map(|value| word(value, key))
-                .collect::<Result<Vec<_>>>()?;
-            let digests = items(argument(1)?, key)?
-                .iter()
-                .map(|value| digest(value, key))
-                .collect::<Result<Vec<_>>>()?;
-            if digests.len() < keys.len() {
-                return error(format!("{key}: fewer digests than misses"));
-            }
-            signatures.set_misses(&keys, &digests);
-            PyValue::None
-        }
-        "add_late" => {
-            signatures.add_late(word(argument(0)?, key)?, digest(argument(1)?, key)?);
-            PyValue::None
-        }
-        "hits" => count(signatures.hits()),
-        "misses" => count(signatures.misses()),
-        "unhit" => count(signatures.unhit()),
-        "unchanged" => PyValue::Bool(signatures.unchanged()),
-        other => return error(format!("{key}: no SignatureArrays call {other:?}")),
-    })
-}
-
-/// A store's new lines as a trace's value ends with them: `("lines", count, sha256)` over the lines joined.
-pub(crate) fn lines_value(signatures: &SignatureArrays) -> Result<PyValue> {
-    let mut joined = Vec::new();
-    let written = signatures
-        .write_lines(&mut joined)
-        .map_err(|failure| fail("write the lines", failure))?;
-    Ok(tagged(
-        "lines",
-        [count(written), PyValue::str(sha256_hex(&joined))],
-    ))
-}
-
-/// Start from a trace's origin and replay its calls, answering each call's result.
-fn traced(
-    workspace: &mut Workspace,
-    start: &PyValue,
-    ops: &PyValue,
-    key: &str,
-) -> Result<(SignatureArrays, Vec<PyValue>)> {
-    let mut signatures = origin(workspace, start, key)?;
-    let results = items(ops, key)?
-        .iter()
-        .map(|op| replay(&mut signatures, op, key))
-        .collect::<Result<Vec<_>>>()?;
-    Ok((signatures, results))
-}
-
-fn dict_entries<'a>(value: &'a PyValue, key: &str) -> Result<&'a [(PyValue, PyValue)]> {
-    match value {
-        PyValue::Dict(entries) => Ok(entries),
-        PyValue::None => Ok(&[]),
-        other => error(format!("{key}: expected a dict, not {}", other.kind())),
-    }
-}
-
-/// A stamp a line names as `(value, lines, detail)`, with no header fields, which a miss note does not read.
-fn stamp_of(value: &PyValue, key: &str) -> Result<Stamp> {
-    let [value, lines, detail] = arguments(value, key)?;
-    let strings = |value: &PyValue| -> Result<Vec<String>> {
-        items(value, key)?
-            .iter()
-            .map(|line| text(line, key).map(str::to_owned))
-            .collect()
-    };
-    Ok(Stamp {
-        value: text(value, key)?.to_owned(),
-        lines: strings(lines)?,
-        detail: items(detail, key)?
-            .iter()
-            .map(|pair| {
-                let [label, lines] = arguments(pair, key)?;
-                Ok((text(label, key)?.to_owned(), strings(lines)?))
-            })
-            .collect::<Result<_>>()?,
-        header: Map::new(),
-    })
-}
-
-/// One `signature-store` line's answer, by its form.
-fn answer(record: &Value, key: &str, workspace: &mut Workspace) -> Result<PyValue> {
-    let input = PyValue::from_typed(&record["input"])
-        .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-    match record["form"].as_str() {
-        Some("load") => {
-            let [held, environment] = arguments(&input, key)?;
-            let directory = workspace.store(held, key)?;
-            Ok(
-                match SignatureArrays::load(&directory, &workspace.names, text(environment, key)?) {
-                    Ok(Some(signatures)) => columns_value(&signatures),
-                    Ok(None) => tagged("none", []),
-                    Err(failure) => raised(&failure),
-                },
-            )
-        }
-        Some("miss-note") => {
-            let [held, environment] = arguments(&input, key)?;
-            let directory = workspace.store(held, key)?;
-            let environment = stamp_of(environment, key)?;
-            Ok(
-                match signature_miss_note(&directory, &workspace.names, &environment) {
-                    Ok(note) => tagged("note", [PyValue::optional_str(note.as_deref())]),
-                    Err(failure) => raised(&failure),
-                },
-            )
-        }
-        Some("trace") => {
-            let [start, ops] = arguments(&input, key)?;
-            let (signatures, results) = traced(workspace, start, ops, key)?;
-            Ok(PyValue::Tuple(vec![
-                PyValue::List(results),
-                lines_value(&signatures)?,
-            ]))
-        }
-        Some("write") => {
-            let [start, ops, stamp_header, stamps, held, staging_held] = arguments(&input, key)?;
-            let (signatures, _results) = traced(workspace, start, ops, key)?;
-            let directory = workspace.directory()?;
-            let target = workspace.names.path(&directory);
-            let staging = staging_path(&target);
-            workspace.place(held, &target, key)?;
-            workspace.place(staging_held, &staging, key)?;
-            let names = workspace.names.clone();
-            let written = write_signature_arrays(
-                &directory,
-                &names,
-                dict_entries(stamp_header, key)?,
-                &signatures,
-                dict_entries(stamps, key)?,
-            );
-            let after = [held_now(&target)?, held_now(&staging)?];
-            Ok(match written {
-                Ok(()) => tagged("written", after),
-                Err(failure) => {
-                    return error(format!("{key}: the write failed: {failure}"));
-                }
-            })
-        }
-        other => error(format!("{key}: no signature-store form {other:?}")),
-    }
-}
-
-/// The `signature-store` stage: for each line of `stage_file`, set up the store its input names, from the blobs it names by sha256 in [`STAGE_BLOBS`] beside the stage file, in a scratch directory under the names the build input's vocabulary gives ([`StoreNames`]), make the line's call again by its `form`, and write one `{"key", "value"}` line in the typed encoding: `load` loads the store ([`SignatureArrays::load`]) to `("columns", count, keys sha256, digests sha256, header)`, `("none",)` or `("raised", class, message)`; `miss-note` answers [`signature_miss_note`] as `("note", note)`; `trace` starts from its origin, empty or a loaded store, replays its calls ([`replay`]) and answers their results with the new store's lines' count and sha256; and `write` replays its trace, puts what its target and staging file held in place, writes the store ([`write_signature_arrays`]) and answers `("written", target, staging)` with what each then holds.
-pub fn stage_signature_store(
-    input_path: &Path,
-    stage_file: &Path,
-    out: &mut impl Write,
-) -> Result<()> {
-    let names = StoreNames::of(&BuildInput::read(input_path)?)?;
-    let scratch =
-        std::env::temp_dir().join(format!("ams-review-signature-store-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch)
-        .map_err(|failure| fail("make the stage's scratch", failure))?;
-    let mut workspace = Workspace {
-        blobs: stage_file
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(STAGE_BLOBS),
-        read: HashMap::new(),
-        scratch: scratch.clone(),
-        cases: 0,
-        names,
-    };
-    let answered = (|| {
-        let file = File::open(stage_file)
-            .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-        for line in BufReader::new(file).lines() {
-            let line =
-                line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-            let record: Value = serde_json::from_str(&line)
-                .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-            let Some(key) = record["key"].as_str() else {
-                return error(format!("a stage line has no key: {line:.200}"));
-            };
-            let value = answer(&record, key, &mut workspace)?;
-            stage_line(out, key, &value)?;
-        }
-        Ok(())
-    })();
-    let _ = std::fs::remove_dir_all(&scratch);
-    answered
-}
-
-/// `build.signature_text`: the text a window's ink signature is taken over, its code points as characters. A code point that is no Unicode scalar value is refused, since no text the shaper reads holds one.
+/// The text a window's ink signature is taken over, its code points as characters. A code point that is no Unicode scalar value is refused, since no text the shaper reads holds one.
 pub fn signature_text(window: &str) -> Result<String> {
     parse_window(window)?
         .into_iter()
@@ -1109,64 +697,6 @@ pub fn signature_text(window: &str) -> Result<String> {
                 })
         })
         .collect()
-}
-
-/// The `signature` stage: for each line of `stage_file`, the signature of its `input`, a `pair`'s text or a `late` or `window` line's window as [`signature_text`] gives its text, under its configuration, shaped over the before and after fonts of the build input's units init through one [`Shaper`] ([`InkComparator::signature`]), written as one `{"key", "signature", "value"}` line in the typed encoding with the signature as Python holds it and its digest ([`Signature::digest`](crate::ink::Signature::digest)) as hex.
-pub fn stage_signature(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let init = Init::read(Path::new(&input.units_init))?;
-    let facts = FontFacts::read(&init.font_facts)?;
-    let fonts = Fonts::open(&init, &facts).map_err(|failure| WireError(failure.0))?;
-    let pixel_size = ink::pixel_size(&init).map_err(|failure| WireError(failure.0))?;
-    let comparator = InkComparator::new(&facts, pixel_size, Side::Before, Side::After);
-    let mut shaper = Shaper::new(&fonts, &facts);
-    let file = File::open(stage_file)
-        .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-    for line in BufReader::new(file).lines() {
-        let line =
-            line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let typed = |field: &str| {
-            PyValue::from_typed(&record[field])
-                .map_err(|failure| WireError(format!("{key}: the {field}: {failure}")))
-        };
-        let inputs = typed("input")?;
-        let [subject, config] = items(&inputs, "the input")? else {
-            return error(format!(
-                "{key}: the input is not a subject and a configuration"
-            ));
-        };
-        let (subject, config) = (
-            text(subject, "the subject")?,
-            text(config, "the configuration")?,
-        );
-        let shaped = match typed("form")? {
-            PyValue::Str(form) if form == "pair" => subject.to_owned(),
-            PyValue::Str(form) if form == "late" || form == "window" => signature_text(subject)?,
-            other => return error(format!("{key}: no signature form {other:?}")),
-        };
-        let signature = comparator
-            .signature(&mut shaper, &shaped, config)
-            .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-        let digest: String = signature
-            .digest(&facts)
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        writeln!(
-            out,
-            "{{\"key\":{},\"signature\":{},\"value\":{}}}",
-            json_string(key),
-            signature.to_py(&facts).to_typed(),
-            PyValue::str(&digest).to_typed()
-        )
-        .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
 }
 
 /// Run `job` over the indices `0..count` on at most `width` scoped threads, each thread making its own state with `make` and taking the next index as it finishes one, and give the results in index order. A thread that panics panics the caller.
@@ -1223,7 +753,7 @@ pub struct HeldWindows<'a> {
     pub family_keys: &'a [(String, String)],
 }
 
-/// What the key-only read found (`build._KeyOnly`): whether it ran, false when the prior store's stamps held; its seconds and its window ranges, a thread each at most; the misses' keys, section indices and windows in window order; and the first break in range order, the reason the Python build reads the audit through its in-memory source.
+/// What the key-only read found: whether it ran, false when the prior store's stamps held; its seconds and its window ranges, a thread each at most; the misses' keys, section indices and windows in window order; and the first break in range order, for which the build refuses the audit ([`super::not_a_stream`]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct KeyOnly {
     pub ran: bool,
@@ -1235,10 +765,10 @@ pub struct KeyOnly {
     pub broken: Option<String>,
 }
 
-/// A key-only read that fails the build, by what the Python build raises.
+/// A key-only read that fails the build.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MissError {
-    /// `audit_stream.MemberError`: a member that does not inflate to what its index records.
+    /// A member that does not inflate to what its index records.
     Member(String),
     /// A `SystemExit` with this text.
     Exit(String),
@@ -1258,7 +788,7 @@ impl std::fmt::Display for MissError {
 
 impl std::error::Error for MissError {}
 
-/// How one range's walk ended, as its Python process ends: done, at a break it replies, at a member that fails, or at any other failure.
+/// How one range's walk ended: done, at a break, at a member that fails, or at any other failure.
 enum RangeEnd {
     Done,
     Break(String),
@@ -1266,7 +796,7 @@ enum RangeEnd {
     Failed,
 }
 
-/// One range's walk (`audit_stream.main`): the prior entries it hit and the misses it found, each a key, a section index and a window, in window order, and how it ended.
+/// One range's walk: the prior entries it hit and the misses it found, each a key, a section index and a window, in window order, and how it ended.
 struct RangeFound {
     hits: Vec<usize>,
     misses: Vec<(u64, usize, String)>,
@@ -1313,7 +843,7 @@ fn read_range(
     found
 }
 
-/// The key-only read (`build._key_only_read`): cut the windows into at most `count` ranges (`audit_stream.window_ranges`), walk each on one of at most `threads` threads, and take what they found in range order: the hits marked in `signatures`, the misses kept, and the first break. A range whose walk fails fails the read as the first failing process in range order fails the Python build: a member that does not inflate as [`MissError::Member`], any other failure as [`KEY_ONLY_EXIT`].
+/// The key-only read: cut the windows into at most `count` ranges, walk each on one of at most `threads` threads, and take what they found in range order: the hits marked in `signatures`, the misses kept, and the first break. A range whose walk fails fails the read, the first failing range in range order deciding how: a member that does not inflate as [`MissError::Member`], any other failure as [`KEY_ONLY_EXIT`].
 pub fn key_only_read(
     audit: HeldWindows,
     signatures: &mut SignatureArrays,
@@ -1368,7 +898,7 @@ pub fn key_only_read(
     Ok(key_only)
 }
 
-/// Find every miss before the stream reads the audit (`build._find_misses`): nothing, and the read not run, when the prior store's stamps hold for this audit's `identity` and the family keys' `family_digest`, since no key can then miss; otherwise the key-only read ([`key_only_read`]).
+/// Find every miss before the stream reads the audit: nothing, and the read not run, when the prior store's stamps hold for this audit's `identity` and the family keys' `family_digest`, since no key can then miss; otherwise the key-only read ([`key_only_read`]).
 pub fn find_misses(
     audit: HeldWindows,
     signatures: &mut SignatureArrays,
@@ -1417,7 +947,7 @@ impl InkShaping {
         Ok(signature.digest(&self.facts))
     }
 
-    /// Shape `count` misses, `miss` giving each one's window and configuration, and give their digests in miss order with the threads they were shaped on (`build._shape_misses`): the misses cut into chunks of about an eighth of a thread's share, as the Python pool cuts them, taken in turn by at most `threads` threads, each with its own shaper whose memo it releases after each chunk; a window's text ([`signature_text`]) is made once for a run of misses in one window.
+    /// Shape `count` misses, `miss` giving each one's window and configuration, and give their digests in miss order with the threads they were shaped on: the misses cut into chunks of about an eighth of a thread's share, as the Python pool cuts them, taken in turn by at most `threads` threads, each with its own shaper whose memo it releases after each chunk; a window's text ([`signature_text`]) is made once for a run of misses in one window.
     pub fn shape_misses<'m>(
         &self,
         count: usize,
@@ -1457,7 +987,7 @@ impl InkShaping {
         Ok((digests, width.min(chunks)))
     }
 
-    /// Shape the key-only read's misses ([`InkShaping::shape_misses`]) into the store's columns in miss order, which is window order, each under its section's configuration, and drop the read's lists of them (`build._shape_found_misses`); give how many were shaped and on how many threads.
+    /// Shape the key-only read's misses ([`InkShaping::shape_misses`]) into the store's columns in miss order, which is window order, each under its section's configuration, and drop the read's lists of them; give how many were shaped and on how many threads.
     pub fn shape_found_misses(
         &self,
         key_only: &mut KeyOnly,
@@ -1499,7 +1029,7 @@ impl InkShaping {
     }
 }
 
-/// The stream's digest lookup (`build._LateShaper`): a key's digest from the store's columns ([`SignatureArrays::digest_of`]), or, for a key neither the prior store nor the misses hold, which only a wrong skip of the key-only read gives, the digest `shape` gives the window under the configuration, kept as a late miss ([`SignatureArrays::add_late`]) and counted in `shaped`.
+/// The stream's digest lookup: a key's digest from the store's columns ([`SignatureArrays::digest_of`]), or, for a key neither the prior store nor the misses hold, which only a wrong skip of the key-only read gives, the digest `shape` gives the window under the configuration, kept as a late miss ([`SignatureArrays::add_late`]) and counted in `shaped`.
 pub struct LateShaper<'s, F> {
     signatures: &'s mut SignatureArrays,
     shape: F,
@@ -1525,186 +1055,9 @@ impl<'s, F: FnMut(&str, &str) -> Result<[u8; 32]>> LateShaper<'s, F> {
         self.shaped += 1;
         Ok(digest)
     }
-
-    pub fn signatures(&self) -> &SignatureArrays {
-        self.signatures
-    }
 }
 
-/// The `key-only` stage's key of the read's line.
-const READ_KEY: &str = "read";
-/// The `key-only` stage's key of the shaped misses' count.
-const SHAPED_KEY: &str = "shaped";
-/// The `key-only` stage's key of the late shaper's line.
-const LATE_KEY: &str = "late";
-/// The `key-only` stage's column of the misses, a unit a miss.
-const MISS_COLUMN: &str = "value";
-/// The `key-only` stage's column of the hit prior entries' positions.
-const HITS_COLUMN: &str = "hits";
-/// The `key-only` stage's column of the misses' digests in miss order.
-const DIGEST_COLUMN: &str = "digest";
-const UNIT_PREFIX: &str = "unit:";
 const KEY_ONLY_PROCESSES: &str = "rebuild.review.build.KEY_ONLY_PROCESSES";
-
-/// A column's count and the sha256 of its values' typed encodings, each followed by a newline, as the stage's `column_line` digests one.
-fn column(values: &[PyValue]) -> (i64, String) {
-    let mut digest = Sha256::new();
-    for value in values {
-        digest.update(value.to_typed().as_bytes());
-        digest.update(b"\n");
-    }
-    (values.len() as i64, hex(&digest.finalize()))
-}
-
-fn column_line(out: &mut impl Write, name: &str, values: &[PyValue]) -> Result<()> {
-    let (count, digest) = column(values);
-    writeln!(
-        out,
-        "{{\"key\":{},\"values\":{count},\"sha256\":{}}}",
-        json_string(&format!("column:{name}")),
-        json_string(&digest)
-    )
-    .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
-}
-
-fn column_value(values: &[PyValue]) -> PyValue {
-    let (count, digest) = column(values);
-    PyValue::Tuple(vec![PyValue::Int(count), PyValue::str(digest)])
-}
-
-/// The load's signature resolution as the stage records it: the read, the hit positions and the misses after [`find_misses`]; then, unless the read broke, the misses' digests in miss order, how many were shaped, and the late shaper's count with the store's hits, misses, unhit entries and new lines once every row the stream keys has been looked up through it.
-struct Resolved {
-    read: PyValue,
-    hits: Vec<PyValue>,
-    misses: Vec<PyValue>,
-    after: Option<(Vec<PyValue>, usize, PyValue)>,
-}
-
-/// Look up every row the stream keys through `late`, as `audit.stream_workload` asks for them: in each window of two or more units, every row's signature key under its configuration. The walk stops at the audit's first break or failure, as the stream stops; a shape that fails is an error.
-fn late_walk<F: FnMut(&str, &str) -> Result<[u8; 32]>>(
-    audit: HeldWindows,
-    late: &mut LateShaper<F>,
-) -> Result<()> {
-    let mut family = FamilyLines::new(audit.family_of, audit.family_keys);
-    let Ok(mut stream) = Lockstep::new(audit.files, audit.sections, None, None) else {
-        return Ok(());
-    };
-    while let Ok(Some((window, rows))) = stream.next_window() {
-        if !sibling_window(&rows) {
-            continue;
-        }
-        let suffix = family.suffix(&parse_window(&window)?);
-        for (_section, fields, _line) in &rows {
-            late.digest(signature_key(fields, &suffix), &window, &fields[0])?;
-        }
-    }
-    Ok(())
-}
-
-/// Resolve the load's signatures over `signatures` as the build does (`build._load_corpus`): find the misses, then, unless the read broke, shape them and look every row up through the late shaper ([`late_walk`]).
-fn resolve(
-    audit: HeldWindows,
-    signatures: &mut SignatureArrays,
-    input: &BuildInput,
-    shaping: &InkShaping,
-    count: i64,
-) -> Result<Resolved> {
-    let width = |value: i64| usize::try_from(value).unwrap_or(1);
-    let mut found = find_misses(
-        audit,
-        signatures,
-        &input.audit.identity,
-        &input.family_keys_digest,
-        count,
-        width(input.widths.threads),
-    )
-    .map_err(|failure| WireError(format!("the key-only read failed: {failure}")))?;
-    let read = if found.ran {
-        tagged(
-            "ran",
-            [
-                count_value(found.ranges),
-                PyValue::optional_str(found.broken.as_deref()),
-            ],
-        )
-    } else {
-        tagged("skipped", [])
-    };
-    let hits = (0..signatures.len())
-        .filter(|&position| signatures.is_hit(position))
-        .map(count_value)
-        .collect();
-    let misses = found
-        .keys
-        .iter()
-        .zip(&found.sections)
-        .zip(&found.windows)
-        .map(|((key, section), window)| {
-            PyValue::Tuple(vec![
-                PyValue::str(format!("{key:016x}")),
-                PyValue::Int(i64::from(*section)),
-                PyValue::str(window),
-            ])
-        })
-        .collect();
-    if found.broken.is_some() {
-        return Ok(Resolved {
-            read,
-            hits,
-            misses,
-            after: None,
-        });
-    }
-    let keys = found.keys.clone();
-    let (shaped, _width) = shaping.shape_found_misses(
-        &mut found,
-        audit.sections,
-        signatures,
-        width(input.widths.signature_threads),
-    )?;
-    let digests = keys
-        .iter()
-        .map(|key| match signatures.miss_keys.binary_search(key) {
-            Ok(position) => Ok(PyValue::str(hex(&signatures.miss_digests[position]))),
-            Err(_) => error(format!("the shaped misses hold no key {key:016x}")),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let mut late = shaping.late(signatures);
-    late_walk(audit, &mut late)?;
-    let shaped_late = late.shaped;
-    let signatures = late.signatures();
-    let late_value = PyValue::Tuple(vec![
-        count_value(shaped_late),
-        count_value(signatures.hits()),
-        count_value(signatures.misses()),
-        count_value(signatures.unhit()),
-        lines_value(signatures)?,
-    ]);
-    Ok(Resolved {
-        read,
-        hits,
-        misses,
-        after: Some((digests, shaped, late_value)),
-    })
-}
-
-fn count_value(value: usize) -> PyValue {
-    PyValue::Int(value as i64)
-}
-
-/// The prior corpus directory of the dump `stage_file` lies in, as its `source.json` names it.
-pub(crate) fn dump_prior(stage_file: &Path) -> Result<PathBuf> {
-    let directory = stage_file.parent().unwrap_or_else(|| Path::new("."));
-    let path = directory.join("source.json");
-    let text = std::fs::read_to_string(&path)
-        .map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-    let source: Value = serde_json::from_str(&text)
-        .map_err(|failure| WireError(format!("{} is not JSON: {failure}", path.display())))?;
-    match source["prior"].as_str() {
-        Some(prior) => Ok(directory.join(prior)),
-        None => error(format!("{} names no prior corpus", path.display())),
-    }
-}
 
 /// The key-only read's ranges, the vocabulary's `KEY_ONLY_PROCESSES`.
 pub(crate) fn key_only_count(input: &BuildInput) -> Result<i64> {
@@ -1716,166 +1069,11 @@ pub(crate) fn key_only_count(input: &BuildInput) -> Result<i64> {
     }
 }
 
-/// The store the build of the dump `stage_file` lies in loads (`build._load_corpus`): empty for a build that recomputes every unit, otherwise the store of the dump's prior corpus, as its `source.json` names it, under the signature stamp, or empty when none loads there.
-pub(crate) fn dump_store(
-    input: &BuildInput,
-    names: &StoreNames,
-    stage_file: &Path,
-) -> Result<SignatureArrays> {
-    if input.recompute_all {
-        return Ok(SignatureArrays::new());
-    }
-    match SignatureArrays::load(
-        &dump_prior(stage_file)?,
-        names,
-        &input.signature_environment.value,
-    ) {
-        Ok(loaded) => Ok(loaded.unwrap_or_default()),
-        Err(failure) => error(format!("the prior store raised {failure}")),
-    }
-}
-
-/// The `key-only` stage: resolve the load's signatures over the audit its build input names, read through the descriptors the process inherits and laid out as [`audit_layout`] lays it out, at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads and shaped on its signature threads ([`resolve`]), and answer what the stage file asks. The build's lines start from the store the build loads, empty for a build that recomputes every unit or a prior corpus (as the dump's `source.json` names it) with no store that loads under the signature stamp: a `unit:<ordinal>` line for each miss asked for, a `column:value` line over every miss, `(key, section, window)`, a `column:hits` line over the hit prior entries' positions, and the read under `read`, `("ran", ranges, break)` or `("skipped",)`; then, unless the read broke, a `column:digest` line over the misses' digests in miss order, the count shaped under `shaped`, and under `late` the late shaper's count with the store's hits, misses, unhit entries and new lines' count and sha256. A generated line names a store in the [`KEY_ONLY_BLOBS`] directory beside `stage_file`, which must load under the signature stamp, and answers the same from it as one tuple, each column as its count and sha256 and the shaping's three as None after a break.
-pub fn stage_key_only(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = StoreNames::of(&input)?;
-    let count = key_only_count(&input)?;
-    let file = File::open(stage_file)
-        .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-    let mut units: HashSet<usize> = HashSet::new();
-    let mut run = false;
-    let mut generated = Vec::new();
-    for line in BufReader::new(file).lines() {
-        let line =
-            line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if let Some(ordinal) = key.strip_prefix(UNIT_PREFIX) {
-            units.insert(
-                ordinal
-                    .parse()
-                    .map_err(|_| WireError(format!("the key {key} names no ordinal")))?,
-            );
-            run = true;
-        } else if [READ_KEY, SHAPED_KEY, LATE_KEY].contains(&key)
-            || [MISS_COLUMN, HITS_COLUMN, DIGEST_COLUMN]
-                .iter()
-                .any(|name| key == format!("column:{name}"))
-        {
-            run = true;
-        } else {
-            let held = PyValue::from_typed(&record["input"])
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-            generated.push((key.to_owned(), held));
-        }
-    }
-    if !run && generated.is_empty() {
-        return Ok(());
-    }
-    let files = input.held_audit()?;
-    let layout = audit_layout(
-        &files,
-        &input.audit.path,
-        &input.audit.members,
-        &Vocabulary::of(&input)?,
-    )
-    .map_err(|failure| WireError(format!("cannot lay out the audit: {failure}")))?;
-    let Some(sections) = layout.sections else {
-        return error(format!(
-            "the audit is not in sorted sections: {}",
-            layout.why
-        ));
-    };
-    let audit = HeldWindows {
-        files: &files,
-        sections: &sections,
-        family_of: &input.family_of,
-        family_keys: &input.family_keys,
-    };
-    let shaping = InkShaping::open(Path::new(&input.units_init))?;
-    if run {
-        let mut signatures = dump_store(&input, &names, stage_file)?;
-        let resolved = resolve(audit, &mut signatures, &input, &shaping, count)?;
-        for (ordinal, miss) in resolved.misses.iter().enumerate() {
-            if units.contains(&ordinal) {
-                stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), miss)?;
-            }
-        }
-        column_line(out, MISS_COLUMN, &resolved.misses)?;
-        column_line(out, HITS_COLUMN, &resolved.hits)?;
-        stage_line(out, READ_KEY, &resolved.read)?;
-        if let Some((digests, shaped, late)) = &resolved.after {
-            column_line(out, DIGEST_COLUMN, digests)?;
-            stage_line(out, SHAPED_KEY, &count_value(*shaped))?;
-            stage_line(out, LATE_KEY, late)?;
-        }
-    }
-    if generated.is_empty() {
-        return Ok(());
-    }
-    let scratch = std::env::temp_dir().join(format!("ams-review-key-only-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch)
-        .map_err(|failure| fail("make the stage's scratch", failure))?;
-    let blobs = stage_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(KEY_ONLY_BLOBS);
-    let answered = (|| {
-        for (case, (key, held)) in generated.iter().enumerate() {
-            let [_label, digest] = arguments(held, key)?;
-            let digest = text(digest, key)?;
-            let path = blobs.join(digest);
-            let data = std::fs::read(&path)
-                .map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-            if sha256_hex(&data) != digest {
-                return error(format!(
-                    "{} does not hold the bytes it is named for",
-                    path.display()
-                ));
-            }
-            let directory = scratch.join(case.to_string());
-            std::fs::create_dir_all(&directory)
-                .map_err(|failure| fail("make a scratch directory", failure))?;
-            std::fs::write(names.path(&directory), data)
-                .map_err(|failure| fail("write a generated store", failure))?;
-            let mut signatures =
-                match SignatureArrays::load(&directory, &names, &input.signature_environment.value)
-                {
-                    Ok(Some(signatures)) => signatures,
-                    _ => return error(format!("{key}: the generated store does not load")),
-                };
-            let resolved = resolve(audit, &mut signatures, &input, &shaping, count)
-                .map_err(|failure| WireError(format!("{key}: {}", failure.0)))?;
-            let (digests, shaped, late) = match &resolved.after {
-                Some((digests, shaped, late)) => {
-                    (column_value(digests), count_value(*shaped), late.clone())
-                }
-                None => (PyValue::None, PyValue::None, PyValue::None),
-            };
-            let value = PyValue::Tuple(vec![
-                resolved.read,
-                column_value(&resolved.hits),
-                column_value(&resolved.misses),
-                digests,
-                shaped,
-                late,
-            ]);
-            stage_line(out, key, &value)?;
-        }
-        Ok(())
-    })();
-    let _ = std::fs::remove_dir_all(&scratch);
-    answered
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::corpus::gzip::read_gzip;
+    use crate::corpus::gzip::tests::read_gzip;
+    use serde_json::Map;
 
     fn names() -> StoreNames {
         StoreNames {
@@ -1949,7 +1147,7 @@ mod tests {
     #[test]
     fn the_threaded_write_writes_what_the_inline_write_writes_joined_or_dropped() {
         let names = names();
-        let mut signatures = SignatureArrays::new();
+        let mut signatures = SignatureArrays::default();
         signatures.set_misses(&[3, 1], &[filled(3), filled(1)]);
         let stamp_header = vec![(PyValue::str("environment"), PyValue::str("e"))];
         let stamps = vec![(PyValue::str(FAMILY_KEYS_KEY), PyValue::str("k"))];
@@ -1990,7 +1188,7 @@ mod tests {
     fn a_store_round_trips_and_reads_as_absent_where_python_drops_it() {
         let directory = scratch("round-trip");
         let names = names();
-        let mut written = SignatureArrays::new();
+        let mut written = SignatureArrays::default();
         written.set_misses(&[u64::MAX, 0], &[filled(0xab), filled(0)]);
         let stamp_header = [(PyValue::str("environment"), PyValue::str("e"))];
         let stamps = [
@@ -2194,7 +1392,7 @@ mod tests {
             family_of: &[],
             family_keys: &[],
         };
-        let mut signatures = SignatureArrays::new();
+        let mut signatures = SignatureArrays::default();
         let found = key_only_read(audit, &mut signatures, 1, 1).expect("a read");
         assert!(
             found
@@ -2228,9 +1426,9 @@ mod tests {
         assert_eq!(late.shaped, 1);
         assert_eq!(
             (
-                late.signatures().hits(),
-                late.signatures().misses(),
-                late.signatures().unhit()
+                late.signatures.hits(),
+                late.signatures.misses(),
+                late.signatures.unhit()
             ),
             (1, 2, 1)
         );

@@ -1,30 +1,19 @@
-//! A fragment's scaffold, as `rebuild/review/build.py` builds it: `unit_scaffold`, the config badge (`config_badge`, `_config_badge`, `_candidate_constraint_sets`, `_gate_clauses`, `_config_features`), the class note (`_config_class_note`), and the cluster id (`_cluster_id_from_repr`).
-//!
-//! [`stage_scaffold`] is the `scaffold` stage of the stage fixtures.
+//! A fragment's scaffold ([`unit_scaffold`]): the config badge ([`config_badge`]), the class note ([`config_class_note`]) and the cluster id ([`cluster_id_from_repr`]).
 
 use std::collections::BTreeSet;
 use std::fmt;
-use std::io::{BufRead, Write};
-use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
-use ams_m1_kernel::index::SpecIndex;
-use serde_json::Value;
-
-use crate::change_groups::{
-    ChangeGroupError, ChangeGroupInput, UNMATCHED, assign_change_group, config_features, reroutes,
-};
-use crate::enrich::{EnrichError, Enricher, Flags};
-use crate::fontfacts::FontFacts;
-use crate::ink::{InkError, InkReader, sha1_hex};
+use crate::change_groups::{ChangeGroupError, UNMATCHED, config_features};
+use crate::enrich::{EnrichError, Flags};
+use crate::ink::{InkError, sha1_hex};
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr_str;
-use crate::settle::{SettleError, Settlement, Settler, features_for_config};
-use crate::shape::{Fonts, ShapeError, Shaper};
-use crate::subset_pack::{SubsetPack, SubsetPackError};
+use crate::settle::SettleError;
+use crate::shape::ShapeError;
+use crate::subset_pack::SubsetPackError;
 use crate::wire::{Init, UnitRecord, WireError};
 
-/// The vocabulary name of `audit.ACCEPTANCE_CONFIGS`, the configurations a unit can hold, which the badge resolves a unit's configurations against and `_config_index` orders them by.
+/// The vocabulary name of `audit.ACCEPTANCE_CONFIGS`, the configurations a unit can hold, which the badge resolves a unit's configurations against and the class note orders them by.
 pub const ACCEPTANCE_CONFIGS_NAME: &str = "rebuild.review.audit.ACCEPTANCE_CONFIGS";
 /// The vocabulary name of `audit.WINDOW_SCOPED_CONFIGS`, the configurations a unit holds only when its window spells one of their letters, which [`Roster::window`] drops from the badge's configurations for any other window.
 pub const WINDOW_SCOPED_CONFIGS_NAME: &str = "rebuild.review.audit.WINDOW_SCOPED_CONFIGS";
@@ -32,7 +21,7 @@ pub const WINDOW_SCOPED_CONFIGS_NAME: &str = "rebuild.review.audit.WINDOW_SCOPED
 /// `build.GATE_CONSTRAINT_CAP`: the most on/off constraints a config gate holds.
 pub const GATE_CONSTRAINT_CAP: usize = 3;
 
-/// A scaffold the engine cannot build as Python builds it, or a `scaffold` stage input it cannot read.
+/// A scaffold the engine cannot build.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScaffoldError(pub String);
 
@@ -135,7 +124,7 @@ impl Roster {
         })
     }
 
-    /// `audit.window_configs`: the configurations a unit of the window `codepoints` (colon-separated) can hold, `acceptance` less each window-scoped configuration none of whose letters the window spells.
+    /// The configurations a unit of the window `codepoints` (colon-separated) can hold, `acceptance` less each window-scoped configuration none of whose letters the window spells.
     pub fn window(&self, codepoints: &str) -> Vec<String> {
         let letters: Vec<&str> = codepoints.split(':').collect();
         let dropped: Vec<&str> = self
@@ -329,7 +318,7 @@ pub fn config_badge(unit_configs: &[String], full_configs: &[String]) -> Badge {
     }
 }
 
-/// `audit._config_index`: a configuration's place in `acceptance`, or past the end for one outside it.
+/// A configuration's place in `acceptance`, or past the end for one outside it.
 fn config_index(acceptance: &[String], config: &str) -> usize {
     acceptance
         .iter()
@@ -337,7 +326,7 @@ fn config_index(acceptance: &[String], config: &str) -> usize {
         .unwrap_or(acceptance.len())
 }
 
-/// `_config_class_note`: for a unit UNMATCHED under some configurations and of a ledger class under others, `blessed as <class> under <configs>` for each class in the order its first configuration takes, then `novel under <configs>`, each list in `acceptance` order; None for a unit of one class under every configuration.
+/// For a unit UNMATCHED under some configurations and of a ledger class under others, `blessed as <class> under <configs>` for each class in the order its first configuration takes, then `novel under <configs>`, each list in `acceptance` order; None for a unit of one class under every configuration.
 pub fn config_class_note(
     config_classes: &[(String, String)],
     acceptance: &[String],
@@ -392,7 +381,7 @@ fn str_dict(pairs: &[(String, String)]) -> PyValue {
     )
 }
 
-/// `build.unit_scaffold` with its default `full_configs`, the roster's `acceptance`, its badge resolved against the configurations the unit's window can hold (`Roster::window`): the fragment fields the build derives from the workload, a dict in its literal order, with the unit's phase-1 `flags` and the comparator's `ink_deltas`.
+/// The unit's scaffold, with the roster's `acceptance` as its full configurations and its badge resolved against the configurations the unit's window can hold (`Roster::window`): the fragment fields the build derives from the workload, a dict in its fixed key order, with the unit's phase-1 `flags` and the comparator's `ink_deltas`.
 pub fn unit_scaffold(
     unit: &UnitRecord,
     flags: &Flags,
@@ -458,7 +447,7 @@ pub fn unit_scaffold(
     )
 }
 
-/// `build._cluster_id_from_repr`: `c-` and the first eight hex digits of the sha1 of `repr((tuple(configs), class_id, diffs))`, given the diffs' repr.
+/// `c-` and the first eight hex digits of the sha1 of `repr((tuple(configs), class_id, diffs))`, given the diffs' repr.
 pub fn cluster_id_from_repr(configs: &[String], class_id: &str, diffs_repr: &str) -> String {
     let mut key = String::with_capacity(diffs_repr.len() + 64);
     key.push('(');
@@ -478,185 +467,6 @@ pub fn cluster_id_from_repr(configs: &[String], class_id: &str, diffs_repr: &str
     key.push_str(diffs_repr);
     key.push(')');
     format!("c-{}", &sha1_hex(key.as_bytes())[..8])
-}
-
-fn line_ink_deltas(record: &Value, key: &str) -> Result<Vec<(String, String)>> {
-    let value = PyValue::from_typed(&record["ink_deltas"])
-        .map_err(|failure| ScaffoldError(format!("{key}: the ink deltas: {failure}")))?;
-    let PyValue::Dict(entries) = value else {
-        return error(format!("{key}: the ink deltas are not a dict"));
-    };
-    entries
-        .into_iter()
-        .map(|entry| match entry {
-            (PyValue::Str(config), PyValue::Str(digest)) => Ok((config, digest)),
-            _ => error(format!(
-                "{key}: the ink deltas hold an entry that is not two str"
-            )),
-        })
-        .collect()
-}
-
-fn line_final_class(record: &Value, key: &str) -> Result<Option<String>> {
-    match PyValue::from_typed(&record["final_class"])
-        .map_err(|failure| ScaffoldError(format!("{key}: the final class: {failure}")))?
-    {
-        PyValue::None => Ok(None),
-        PyValue::Str(class) => Ok(Some(class)),
-        other => error(format!(
-            "{key}: the final class is {}, not a str or None",
-            other.kind()
-        )),
-    }
-}
-
-fn line_configs(record: &Value, key: &str) -> Result<Vec<String>> {
-    let PyValue::Tuple(items) = PyValue::from_typed(&record["configs"])
-        .map_err(|failure| ScaffoldError(format!("{key}: the configs: {failure}")))?
-    else {
-        return error(format!("{key}: the configs are not a tuple"));
-    };
-    items
-        .into_iter()
-        .map(|item| match item {
-            PyValue::Str(config) => Ok(config),
-            other => error(format!(
-                "{key}: the configs hold {}, not a str",
-                other.kind()
-            )),
-        })
-        .collect()
-}
-
-/// The `scaffold` stage. A `scaffold:` line's unit, which its `record` carries as phase 1 received it, goes through phase 1 up to its fragment: its ink is read and checked first against the line's `ink_deltas`, which the worker's comparator found, so a failure there names the ink stage; the unit is re-routed (`reroutes`), which sets its ledger class and clears its exemplar flag, and enriched under its first configuration; and the line's answer is a dict of the `scaffold` `unit_scaffold` returns, the `change_group` of an UNMATCHED or re-routed unit (empty for any other), and the `cluster` over the unit's configurations, the line's `final_class` or else the unit's class, and the diffs' repr. A `badge:` line's answer is the `gate` and the `note` `config_badge` gives its `configs` against `ACCEPTANCE_CONFIGS`, and a `window:` line's the same against the configurations its `codepoints` window can hold ([`Roster::window`]), as [`unit_scaffold`] resolves a unit's badge. The shaper's and the settler's memos carry from line to line as a batch's do.
-pub fn stage_scaffold(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path)?;
-    let roster = Roster::read(&init)?;
-    let facts = FontFacts::read(&init.font_facts)?;
-    let fonts = Fonts::open(&init, &facts)?;
-    let reader = InkReader::new(&init, &facts)?;
-    let settlement = Settlement::new(SpecIndex::new(init.read_spec()?), init.settlement.clone())?;
-    let mut settler = Settler::new(&settlement);
-    let pack = SubsetPack::open(&init.subset_pack)?;
-    let enricher = Enricher::new(&init, &settlement, &pack, &facts)?;
-    let mut shaper = Shaper::new(&fonts, &facts);
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        ScaffoldError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            ScaffoldError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| ScaffoldError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let value = if key.starts_with("scaffold:") {
-            let Some(text) = record["record"].as_str() else {
-                return error(format!("{key}: the line has no unit record"));
-            };
-            let unit: Value = serde_json::from_str(text)
-                .map_err(|failure| ScaffoldError(format!("{key}: the unit record: {failure}")))?;
-            let mut unit = UnitRecord::from_json(&unit)?;
-            let ink = reader.read_unit(&mut shaper, &unit)?;
-            let recorded = line_ink_deltas(&record, key)?;
-            if ink.ink_deltas != recorded {
-                return error(format!(
-                    "{key}: the ink stage reads the ink deltas {:?}, and the worker's comparator found {recorded:?}",
-                    ink.ink_deltas
-                ));
-            }
-            let flags = Flags {
-                ink_identical: ink.ink_identical,
-                picture_identical: ink.picture_identical,
-                junior_equivalent: ink.junior_equivalent,
-            };
-            let machine_approved =
-                flags.ink_identical || flags.picture_identical || flags.junior_equivalent;
-            let rerouted = reroutes(
-                &unit.class,
-                unit.no_verdict,
-                machine_approved,
-                &init.identical_classes,
-            );
-            unit.ledger_class = if rerouted {
-                unit.class.clone()
-            } else {
-                String::new()
-            };
-            if rerouted {
-                unit.exemplar = false;
-            }
-            let config = unit.configs.first().map_or("", String::as_str);
-            let report = settler
-                .explain(&unit.codepoint_values, &features_for_config(config))
-                .map_err(|failure| ScaffoldError(format!("{key}: the settle stage: {failure}")))?;
-            let enriched = enricher
-                .enrich(&mut shaper, &unit, &flags, &report)
-                .map_err(|failure| ScaffoldError(format!("{key}: the enrich stage: {failure}")))?;
-            let change_group = if rerouted || unit.class == UNMATCHED {
-                let geometry = &enriched.geometry;
-                assign_change_group(
-                    &ChangeGroupInput {
-                        configs: &unit.configs,
-                        config_classes: &unit.config_classes,
-                        before_junctions: &geometry.before_junctions,
-                        after_junctions: &geometry.after_junctions,
-                        after_cells: &geometry.after_cells,
-                        advance_before: geometry.highlight_before.advance_total,
-                        advance_after: geometry.highlight_after.advance_total,
-                    },
-                    &ink.ink_deltas,
-                    &init.identical_classes,
-                )
-                .map_err(|failure| ScaffoldError(format!("{key}: {failure}")))?
-            } else {
-                ""
-            };
-            let final_class = line_final_class(&record, key)?;
-            let cluster = cluster_id_from_repr(
-                &unit.configs,
-                final_class.as_deref().unwrap_or(&unit.class),
-                &ink.diffs_repr,
-            );
-            PyValue::Dict(vec![
-                (
-                    PyValue::str("scaffold"),
-                    unit_scaffold(&unit, &flags, &ink.ink_deltas, &roster),
-                ),
-                (PyValue::str("change_group"), PyValue::str(change_group)),
-                (PyValue::str("cluster"), PyValue::str(cluster)),
-            ])
-        } else if key.starts_with("badge:") {
-            let badge = config_badge(&line_configs(&record, key)?, &roster.acceptance);
-            PyValue::Dict(vec![
-                (PyValue::str("gate"), badge.gate_py()),
-                (PyValue::str("note"), badge.note_py()),
-            ])
-        } else if key.starts_with("window:") {
-            let Some(codepoints) = record["codepoints"].as_str() else {
-                return error(format!("{key}: the line has no window"));
-            };
-            let badge = config_badge(&line_configs(&record, key)?, &roster.window(codepoints));
-            PyValue::Dict(vec![
-                (PyValue::str("gate"), badge.gate_py()),
-                (PyValue::str("note"), badge.note_py()),
-            ])
-        } else {
-            return error(format!(
-                "{key}: the scaffold stage answers scaffold:, badge: and window: lines"
-            ));
-        };
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            value.to_typed()
-        )
-        .map_err(|failure| ScaffoldError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

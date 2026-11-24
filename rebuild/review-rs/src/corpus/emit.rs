@@ -1,28 +1,21 @@
-//! Each unit as the write receives it, as `build._emission` gives it: a recomputed fragment read back from the units phase's arena and patched with this build's scaffold, ink deltas, ledger class and primary units under the scaffold check; a cached fragment whose patched fields all hold, taken as its stored bytes with the identity that stands in for it (`_cached_identity`); or any other cached fragment read from the previous corpus and patched ([`Emitter::emission`]). A fragment that no longer reads back as the unit and stamp at its address stops the build.
-//!
-//! [`stage_emit`] is the `emit` stage of the stage fixtures.
+//! Each unit as the write receives it: a recomputed fragment read back from the units phase's arena and patched with this build's scaffold, ink deltas, ledger class and primary units under the scaffold check; a cached fragment whose patched fields all hold, taken as its stored bytes with the identity that stands in for it; or any other cached fragment read from the previous corpus and patched ([`Emitter::emission`]). A fragment that does not read back as the unit and stamp at its address stops the build.
 
-use std::io::Write;
 use std::path::Path;
 
-use super::audit::stage_line;
-use super::drive::{Arena, through_units, unit_record};
+use super::drive::{Arena, unit_record};
 use super::input::BuildInput;
-use super::passes::{Passes, Triage, passes, triage};
 use super::prior::{PriorError, PriorFragmentReader, read_arena};
 use super::records::truthy;
-use super::route::{RouteNames, route_classes, write_fit};
-use super::scan::stage_lines;
 use super::store::{PriorFragment, UnitStore};
-use super::table::{UNIT_PREFIX, UnitTable};
+use super::table::UnitTable;
 use super::{BuildError, failed};
 use crate::enrich::{Flags, Highlight, SecondaryJunction};
-use crate::fragment::{FragmentBuilder, fragment_bytes, lookup, sha256_hex};
+use crate::fragment::{FragmentBuilder, lookup};
 use crate::pyfmt::PyValue;
 use crate::scaffold::{Badge, Roster, config_badge};
-use crate::wire::{Init, Result, WireError};
+use crate::wire::Init;
 
-/// What the write takes from one unit (`build._Emission`): a fragment to serialize, or a cached fragment's bytes as they are stored, deflated when its address records an inflated length, with that address and the identity the cross-unit checks and the sidecars read in place of the fragment.
+/// What the write takes from one unit: a fragment to serialize, or a cached fragment's bytes as they are stored, deflated when its address records an inflated length, with that address and the identity the cross-unit checks and the sidecars read in place of the fragment.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Emitted {
     Fragment(PyValue),
@@ -49,7 +42,7 @@ pub struct Emitter {
     dictionary: Vec<u8>,
 }
 
-/// `build._policy_file`: the rune file a fragment's policy draft names, or None.
+/// The rune file a fragment's policy draft names, or None.
 pub fn policy_file(fragment: &PyValue) -> std::result::Result<Option<String>, BuildError> {
     let empty = PyValue::Dict(Vec::new());
     let or_empty = |value: Option<&PyValue>, what: &str| match value {
@@ -70,7 +63,7 @@ pub fn policy_file(fragment: &PyValue) -> std::result::Result<Option<String>, Bu
     })
 }
 
-/// The store's secondary-junction rects for the unit (`UnitStore.junction_rects`) as the patch reads them.
+/// The store's secondary-junction rects for the unit as the patch reads them.
 fn junctions(
     store: &UnitStore,
     ordinal: usize,
@@ -138,18 +131,18 @@ impl Emitter {
         })
     }
 
-    /// `build.config_badge` over `configs` and the configurations a unit of the window `codepoints` can hold (`audit.window_configs`), as `_write_chunk` and `_cached_identity` resolve a byte-copied fragment's badge.
+    /// The config badge ([`crate::scaffold::config_badge`]) over `configs` and the configurations a unit of the window `codepoints` can hold, as the write resolves a byte-copied fragment's badge.
     fn window_badge(&self, configs: &[String], codepoints: &str) -> Badge {
         config_badge(configs, &self.roster.window(codepoints))
     }
 
-    /// `build.config_note` over the table's configurations of the unit at `ordinal` and the configurations its window can hold.
+    /// The config note over the table's configurations of the unit at `ordinal` and the configurations its window can hold.
     pub fn config_note(&self, table: &UnitTable, ordinal: usize) -> PyValue {
         self.window_badge(table.configs(ordinal), &table.codepoints_text(ordinal))
             .note_py()
     }
 
-    /// `build._cached_identity`: the dict that stands in for a byte-copied fragment when the cross-unit check and the locator row read it, from the table's and the store's columns.
+    /// The dict that stands in for a byte-copied fragment when the cross-unit check and the locator row read it, from the table's and the store's columns.
     fn cached_identity(
         &self,
         table: &UnitTable,
@@ -231,7 +224,7 @@ impl Emitter {
         )
     }
 
-    /// `build._emission`: the unit at `ordinal` read by the address the store holds for it (`source`). A recomputed fragment is read from `arena`, patched and checked by the scaffold check; a cached one whose patched fields all hold (`UnitStore.cached_as_is`) is taken as its stored bytes from `prior`, with its identity from the columns; any other cached one is read from `prior` and patched. A fragment that does not read back as the unit and stamp its address carries stops the build with Python's `SystemExit` text, as does a scaffold check that fails.
+    /// The unit at `ordinal` read by the address the store holds for it (`source`). A recomputed fragment is read from `arena`, patched and checked by the scaffold check; a cached one whose patched fields all hold is taken as its stored bytes from `prior`, with its identity from the columns; any other cached one is read from `prior` and patched. A fragment that does not read back as the unit and stamp its address carries stops the build with Python's `SystemExit` text, as does a scaffold check that fails.
     pub fn emission(
         &self,
         ordinal: usize,
@@ -334,148 +327,6 @@ impl Emitter {
             Emitted::Bytes { .. } => Ok(self.config_note(table, ordinal)),
         }
     }
-}
-
-/// An emission as an `emit` line's value (`units_stage_fixtures._emission_value`): its kind, unit id, content key and policy file, the sha256 of the bytes the write takes from it, its config note, and, for stored bytes, their address and identity.
-fn emission_value(
-    emitter: &Emitter,
-    emission: &Emission,
-    table: &UnitTable,
-    ordinal: usize,
-) -> std::result::Result<PyValue, BuildError> {
-    let note = emitter.emitted_note(emission, table, ordinal)?;
-    let (kind, digest, address, identity) = match &emission.emitted {
-        Emitted::Fragment(fragment) => (
-            "fragment",
-            sha256_hex(fragment_bytes(fragment).map_err(failed)?.as_bytes()),
-            PyValue::None,
-            PyValue::None,
-        ),
-        Emitted::Bytes {
-            body,
-            source,
-            identity,
-        } => (
-            "bytes",
-            sha256_hex(body),
-            PyValue::Tuple(vec![
-                PyValue::str(&source.part),
-                PyValue::Int(source.start),
-                PyValue::Int(source.length),
-                PyValue::str(&source.unit_id),
-                PyValue::optional_str(source.content_key.as_deref()),
-                PyValue::Bool(source.byte_copied),
-                PyValue::Int(source.inflated),
-            ]),
-            identity.clone(),
-        ),
-    };
-    Ok(PyValue::Tuple(vec![
-        PyValue::str(kind),
-        PyValue::str(&emission.unit_id),
-        PyValue::str(&emission.content_key),
-        PyValue::optional_str(emission.policy_file.as_deref()),
-        PyValue::str(digest),
-        note,
-        address,
-        identity,
-    ]))
-}
-
-/// The `emit` stage: when the stage file holds lines from the build's run, run the build through phase 1 ([`through_units`]), then [`triage`], [`passes`] and [`route_classes`] over the corpus directory the build ran in, and emit every unit of every class in shard order, each class's units by id, as the serial write does, through one reader over that directory and the units phase's arena; answer with a `unit:<ordinal>` line an emission. A generated line's input is a window's code points and a config tuple, and its answer the gate and the note of a byte-copied fragment's badge over them.
-pub fn stage_emit(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = RouteNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if !lines.generated.is_empty() {
-        let emitter = Emitter::open(&input)
-            .map_err(|failure| WireError(format!("the emitter cannot open: {failure}")))?;
-        for (key, generated) in &lines.generated {
-            let PyValue::Tuple(fields) = generated else {
-                return Err(WireError(format!("{key}: the input is not a tuple")));
-            };
-            let [PyValue::Str(codepoints), PyValue::Tuple(configs)] = fields.as_slice() else {
-                return Err(WireError(format!(
-                    "{key}: the input is not a window and a config tuple"
-                )));
-            };
-            let configs = configs
-                .iter()
-                .map(|config| match config {
-                    PyValue::Str(config) => Ok(config.clone()),
-                    other => Err(WireError(format!(
-                        "{key}: the configs hold {}, not a str",
-                        other.kind()
-                    ))),
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let badge = emitter.window_badge(&configs, codepoints);
-            stage_line(
-                out,
-                key,
-                &PyValue::Tuple(vec![badge.gate_py(), badge.note_py()]),
-            )?;
-        }
-    }
-    if !lines.ran {
-        return Ok(());
-    }
-    through_units(&input, stage_file, "emit", |run| {
-        let failure = |failure: BuildError| WireError(format!("the emission failed: {failure}"));
-        let emitter = Emitter::open(&input).map_err(failure)?;
-        let triage: Triage = triage(
-            &input,
-            &run.classes_present,
-            &mut run.table,
-            &mut run.planned.store,
-        )
-        .map_err(failure)?;
-        let passes: Passes = passes(
-            &mut run.table,
-            &mut run.planned.store,
-            &triage,
-            &run.drive,
-            &run.planned.verify_units,
-        )
-        .map_err(failure)?;
-        let routed = route_classes(
-            &run.corpus,
-            &run.table,
-            &run.planned.store,
-            &triage.classes,
-            &triage.sections,
-            &passes.by_class,
-            run.planned.prior_shards.as_ref(),
-            run.planned.cached,
-            write_fit(&input.widths),
-            &names,
-        )
-        .map_err(failure)?;
-        let mut prior = PriorFragmentReader::new(&run.corpus);
-        let store = &run.planned.store;
-        for entry in &routed.classes {
-            for &ordinal in &entry.ordinals {
-                let ordinal = ordinal as usize;
-                let source = store
-                    .source(ordinal)
-                    .ok_or_else(|| WireError(format!("ordinal {ordinal} has no source")))?;
-                let emission = emitter
-                    .emission(
-                        ordinal,
-                        &source,
-                        &run.table,
-                        store,
-                        run.drive.arena(),
-                        &mut prior,
-                    )
-                    .map_err(failure)?;
-                let value =
-                    emission_value(&emitter, &emission, &run.table, ordinal).map_err(failure)?;
-                stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-            }
-        }
-        Ok(())
-    })
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds
 
 run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that wrote there and then stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`, `draft_inputs`) itself.
 
-`draft_inputs` covers the approval drafter's site pages and harness: the `SITE_CORPUS_FILES` pages by raw bytes (their pins set a pin draft's `attribute` and `duplicate_of`), and the draft harness (`draft_harness_paths`) through `hash_paths`. `data`, `pipeline_code`, and `review_code` hold the drafter's other file and code inputs (the alias map, the rune schema, the validation code, and its own module). The after font the drafter shapes and classifies with is in no component; `artifact_cycle.corpus_build_skippable` and `status._freshness_check` compare the manifest's after-font sha256 with rebuild/out/m1/M1.otf instead. The shaping packages `uv.lock` pins are in no corpus component. The component's value is the digest of `draft_input_lines`, the two lines the review unit store's stamp (`unit_cache.environment_stamp`) also carries. The review build reads the pages once, before any drafter runs, and takes the drafters' index of pinned cells, the store's two lines, and the manifest's `draft_inputs` (through `stage_b`'s `draft_lines`) from that one read, so all three see the same page bytes. It hashes the harness at that point too, while each drafting process imports the harness when it drafts its first pin. Every other caller streams the pages through `file_sha256`.
+`draft_inputs` covers the approval drafter's site pages and harness: the `SITE_CORPUS_FILES` pages by raw bytes (their pins set a pin draft's `attribute` and `duplicate_of`), and the draft harness (`draft_harness_paths`) through `hash_paths`. `data`, `pipeline_code`, and `review_code` hold the drafter's other file and code inputs (the alias map, the rune schema, the validation code, and the review crate). The after font the drafter shapes and classifies with is in no component; `artifact_cycle.corpus_build_skippable` and `status._freshness_check` compare the manifest's after-font sha256 with rebuild/out/m1/M1.otf instead. The shaping packages `uv.lock` pins are in no corpus component. The component's value is the digest of `draft_input_lines`, the two lines the review unit store's stamp (`unit_cache.environment_stamp`) also carries. The review build reads the pages once, before the crate drafts anything, and takes the drafters' index of pinned cells (the units init's corpus index), the store's two lines, and the manifest's `draft_inputs` (through `stage_b`'s `draft_lines`) from that one read, so all three see the same page bytes. It hashes the harness at that point too, and the units init's glyph names come from the harness the build imports then (`drafts._import_test_shaping`). Every other caller streams the pages through `file_sha256`.
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar), and hashes each rune file without its `kern` block (`rune_file_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
@@ -39,6 +39,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -118,7 +119,7 @@ SITE_CORPUS_FILES = ("site/index.html", "site/the-manual.html", "site/extra-seni
 
 
 def draft_harness_paths(repo_root: Path) -> list[Path]:
-    """Return the draft harness the approval drafter runs: test/test_shaping.py, whose `parse_expect` and `_expand_maybe_ligatures` check every pin draft, postscript_glyph_names.yaml, which test_shaping reads when it is imported, and the tools/ modules it imports (`font_compile_tool_paths`, which rebuild/test_build_code_closure.py checks covers them)."""
+    """Return the draft harness the approval drafter follows: test/test_shaping.py, whose `parse_expect` and `_expand_maybe_ligatures` the crate's drafter ports to check every pin draft and whose character map the units init carries, postscript_glyph_names.yaml, which test_shaping reads when it is imported, and the tools/ modules it imports (`font_compile_tool_paths`, which rebuild/test_build_code_closure.py checks covers them)."""
     root = Path(repo_root)
     return [
         root / "test" / "test_shaping.py",
@@ -197,12 +198,23 @@ REVIEW_NON_BUILD_MODULES = frozenset(
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set against build.py's import graph in both directions."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
         if path.name not in REVIEW_NON_BUILD_MODULES
     )
+
+
+def review_crate_paths(repo_root: Path) -> list[Path]:
+    """Return every file under the review crate, rebuild/review-rs/, outside its `target/`, sorted: the sources and tests, `build.rs` with the HarfBuzz pin it holds, the manifest and the lock. The m1-audit corpus build runs in the crate, so `stage_b`'s `review_code` hashes these beside `review_code_paths`, and their digest (`units_exec.crate_digest`) is the unit store stamp's `units_engine` line and the ink-signature store stamp's `crate_code` line."""
+    crate = Path(repo_root) / "rebuild" / "review-rs"
+    paths: list[Path] = []
+    for directory, subdirectories, files in os.walk(crate):
+        if Path(directory) == crate:
+            subdirectories[:] = [name for name in subdirectories if name != "target"]
+        paths.extend(Path(directory) / name for name in files)
+    return sorted(paths)
 
 
 def static_files(static_dir: Path) -> list[Path]:
@@ -528,13 +540,6 @@ class EnvironmentStamp:
     def labels(self) -> dict[str, str]:
         """The same lines as a `label -> digest` map, which is the shape `moved_note` compares."""
         return _labels_of(self.lines)
-
-    def detail_labels(self, label: str) -> dict[str, str]:
-        """One label's expansion as a `label -> digest` map, for the sub-diff `moved_note` renders through `expand`; empty for a label carrying no detail."""
-        for name, lines in self.detail:
-            if name == label:
-                return _labels_of(lines)
-        return {}
 
 
 def moved_note(
@@ -1034,10 +1039,10 @@ def stage_b(
     *,
     draft_lines: Iterable[str] | None = None,
 ) -> dict:
-    """Return the review-side components. `explain_prose` takes its rune and ledger prose from `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales, and from the checkout otherwise; the change groups' prose comes from the checkout either way, and so do `draft_inputs`' pages and harness, which the drafter reads beside the build's own code. `draft_lines` is `draft_input_lines` when the caller has already taken them, as the review build does from the pages its drafters' index comes from; when it is None, they are taken here. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
+    """Return the review-side components. `explain_prose` takes its rune and ledger prose from `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales, and from the checkout otherwise; the change groups' prose comes from the checkout either way, and so do `draft_inputs`' pages and harness, which the drafter reads beside the build's own code. `review_code` hashes the review modules the build runs (`review_code_paths`) and the review crate (`review_crate_paths`). `draft_lines` is `draft_input_lines` when the caller has already taken them, as the review build does; when it is None, they are taken here. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
     root = Path(repo_root)
     return {
-        "review_code": hash_paths(root, review_code_paths(root)),
+        "review_code": hash_paths(root, review_code_paths(root) + review_crate_paths(root)),
         "static": hash_paths(root, static_paths(root)),
         "fonts": fonts_value(root, [Path(before_font), Path(junior_font)]),
         "explain_prose": explain_prose_value(root, spec_root),

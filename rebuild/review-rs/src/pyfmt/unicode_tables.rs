@@ -1,4 +1,4 @@
-//! The pinned CPython's `str` predicates as code point ranges, for `repr` and the ported string handling ([`super::is_printable`], [`super::is_space`], [`super::is_digit`], [`super::decimal_value`]). `uv run python -m rebuild.tools.units_stage_fixtures unicode-tables` generates this file and `--check` fails when it is stale; it is never edited by hand.
+//! The pinned CPython's `str` predicates as code point ranges, for `repr` and the ported string handling ([`super::is_printable`], [`super::is_space`], [`super::is_digit`], [`super::decimal_value`]). `uv run python -m rebuild.tools.unicode_tables` generates this file and `--check` fails when it is stale; it is never edited by hand.
 
 /// The Unicode version of the CPython the tables come from (`unicodedata.unidata_version`).
 pub const UNICODE_VERSION: &str = "16.0.0";

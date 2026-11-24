@@ -1,6 +1,6 @@
 """Tests for the corpus build's configuration fold (rebuild/review/feature_reach.py): which configurations take `default`'s shapes for a window without their trigger letters, and the fallback that shapes a configuration in every window when its features reach past them.
 
-The live fonts always pass the derivation's checks, so neither the fingerprint, the byte-identity tests nor rebuild/test_review_ink.py runs the fallback. The fonts here are built from a few rectangles, with a stylistic set that either stays on ·Tea or also reaches ·Fee, the corpus form of the deep sweep's test that a record gated on ss03 whose window can lack ·Tea makes ss03 shape every text (rebuild/test_deep_sweep.py). The old Senior font and the frozen mini bundle's font check the rule-by-rule judgment on today's class-based and single-substitution lookups.
+The live fonts always pass the derivation's checks, so neither the mini corpus's tests nor rebuild/test_review_ink.py runs the fallback. The fonts here are built from a few rectangles, with a stylistic set that either stays on ·Tea or also reaches ·Fee, the corpus form of the deep sweep's test that a record gated on ss03 whose window can lack ·Tea makes ss03 shape every text (rebuild/test_deep_sweep.py). The old Senior font and the frozen mini bundle's font check the rule-by-rule judgment on today's class-based and single-substitution lookups.
 """
 
 from pathlib import Path
@@ -77,8 +77,8 @@ def _build_font(path: Path, features: str = "") -> Path:
     return path
 
 
-def test_a_feature_that_reaches_past_its_trigger_is_shaped_in_every_window(tmp_path, capsys, monkeypatch):
-    """With ss03 confined to ·Tea, ss03 and ss03+ss05 take `default`'s shapes for a window without ·Tea, so a ·Fee·Fee unit that holds `default` and ss03 is compared once, and a ·Tea·Fee unit under both. Pointed at ·Fee too, ss03 and ss03+ss05 fail the check, the line names the rule, and the ·Fee·Fee unit is compared under ss03, where the after font draws the other ·Fee: its ss03 diff is a change, where `default`'s comparison would have read none. In both, the readings equal the ones each configuration gives compared on its own, and a unit that does not hold `default` is compared under every configuration it holds."""
+def test_a_feature_that_reaches_past_its_trigger_is_shaped_in_every_window(tmp_path, capsys):
+    """With ss03 confined to ·Tea, ss03 and ss03+ss05 take `default`'s shapes for a window without ·Tea (`ConfigFold.effective`), so a ·Fee·Fee unit that holds `default` and ss03 is compared once, and a ·Tea·Fee unit under both. Pointed at ·Fee too, ss03 and ss03+ss05 fail the check, the line names the rule, and the ·Fee·Fee unit is compared under ss03, where the after font draws the other ·Fee: its ss03 diff is a change, where `default`'s comparison would have read none. In both, the readings each configuration gets under its effective configuration equal the ones it gives compared on its own, and a unit that does not hold `default` is compared under every configuration it holds."""
     before = _build_font(tmp_path / "before.ttf")
     configs = ("default", "ss03")
     for features, reaches in ((CONFINED, False), (REACHING, True)):
@@ -93,28 +93,24 @@ def test_a_feature_that_reaches_past_its_trigger_is_shaped_in_every_window(tmp_p
             assert fold.triggers["ss03"] == fold.triggers["ss03+ss05"] == frozenset(TEA)
             assert "ss03 and ss03+ss05 take default's shapes for a window with no qsTea" in line
         comparator = InkComparator(before, after)
-        compared: list[str] = []
-        config_diff = comparator.config_diff
-
-        def recording(text: str, config: str, config_diff=config_diff) -> tuple:
-            compared.append(config)
-            return config_diff(text, config)
-
-        monkeypatch.setattr(comparator, "config_diff", recording)
         for text, unit_configs, shaped in (
             (FEE + FEE, configs, list(configs) if reaches else ["default"]),
             (TEA + FEE, configs, list(configs)),
             (FEE + FEE, ("ss03",), ["ss03"]),
         ):
-            compared.clear()
-            diffs, identical = review_build._ink_readings(comparator, fold, text, unit_configs)
-            assert compared == shaped
-            assert diffs == tuple(config_diff(text, config) for config in unit_configs)
-            assert identical == comparator.ink_identical(text, unit_configs)
-        diffs, identical = review_build._ink_readings(comparator, fold, FEE + FEE, configs)
+            effective = fold.effective(unit_configs, text)
+            assert list(dict.fromkeys(effective)) == shaped
+            assert [comparator.config_diff(text, config) for config in effective] == [
+                comparator.config_diff(text, config) for config in unit_configs
+            ]
+            assert comparator.ink_identical(
+                text, tuple(dict.fromkeys(effective))
+            ) == comparator.ink_identical(text, unit_configs)
+        effective = fold.effective(configs, FEE + FEE)
+        diffs = [comparator.config_diff(FEE + FEE, config) for config in effective]
         assert diffs[0] == IDENTITY_DIFF
         assert (diffs[1] != IDENTITY_DIFF) is reaches
-        assert identical is not reaches
+        assert comparator.ink_identical(FEE + FEE, tuple(dict.fromkeys(effective))) is not reaches
 
 
 def test_todays_old_font_confines_each_stylistic_set_to_one_letter():

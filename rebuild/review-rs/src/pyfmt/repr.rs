@@ -1,4 +1,4 @@
-//! CPython's `repr` over [`PyValue`], for the values the worker hashes (`ink.delta_digest`, the diffs digest, `build._cluster_id_from_repr`) and the `!r` and `{tuple}` fields of the strings it ships.
+//! CPython's `repr` over [`PyValue`], for the values the worker hashes (the delta digest, the diffs digest and the cluster id) and the `!r` and `{tuple}` fields of the strings it ships.
 //!
 //! It covers int, str, None, bool, tuple, list and dict, and refuses bytes, a set and a record, whose reprs no ported site reads.
 

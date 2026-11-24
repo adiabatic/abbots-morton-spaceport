@@ -1,19 +1,16 @@
-//! The rune-schema check the drafter runs on each policy record it drafts: `spec_load._load_schema` over `rebuild/schema/rune.schema.json`, `_SchemaValidator`'s closed vocabulary and root-local references, and `for_definition(...).check` as `Drafter.__init__` builds its three checkers ([`RuneSchema`], [`Checker`]).
+//! The rune-schema check the drafter runs on each policy record it drafts: `spec_load._load_schema` over `rebuild/schema/rune.schema.json`, `_SchemaValidator`'s closed vocabulary and root-local references, and `for_definition(...).check` as the drafter builds its three checkers ([`RuneSchema`], [`Checker`]).
 //!
 //! Only the verdict reaches the drafter's output: a record the schema rejects raises `DraftError`, and a shipped draft says `schema_valid: true`. So a [`Checker`] answers whether `check` finds no problem, and the problem text is not ported. The schema is compiled once into an arena of nodes when it is read, and what `_SchemaValidator` would refuse is refused then: a keyword outside the vocabulary, a `type` outside its types, `$id` or `$schema` below the root or another dialect, a keyword value of a shape the 2020-12 metaschema rejects, and a `$ref` that is not root-local or names no schema. A `pattern` outside the syntax [`Pattern`] reads, a float and an integer beyond 64 bits are refused too, since nothing the drafter writes reaches them.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io::{BufRead, Write};
 use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
 use serde_json::{Map, Value};
 
 use crate::pyfmt::{PyValue, decimal_value, is_space};
-use crate::wire::Init;
 
-/// A schema the check refuses, or a stage line it cannot read.
+/// A schema the check refuses.
 #[derive(Debug)]
 pub struct SchemaError(pub String);
 
@@ -1031,47 +1028,6 @@ fn escape(letter: char) -> std::result::Result<ClassItem, String> {
         letter if !letter.is_ascii_alphanumeric() => literal(letter),
         letter => Err(format!("an escape the check does not read: \\{letter}")),
     }
-}
-
-/// The `schema` stage: for each line of `stage_file`, its `record` checked against the rune schema's `definition` as the drafter's checker checks it, written as one `{"key", "value"}` line, the value the verdict as a typed bool.
-pub fn stage_schema(init_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let init = Init::read(init_path).map_err(|error| SchemaError(error.0))?;
-    let schema = RuneSchema::read(Path::new(&init.rune_schema))?;
-    let file = std::fs::File::open(stage_file).map_err(|failure| {
-        SchemaError(format!("cannot read {}: {failure}", stage_file.display()))
-    })?;
-    let mut checkers: HashMap<String, Checker<'_>> = HashMap::new();
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            SchemaError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let line: Value = serde_json::from_str(&line)
-            .map_err(|failure| SchemaError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = line["key"].as_str() else {
-            return refuse("a stage line has no key");
-        };
-        let Some(definition) = line["definition"].as_str() else {
-            return refuse(format!("{key}: the line names no definition"));
-        };
-        let record = PyValue::from_typed(&line["record"])
-            .map_err(|failure| SchemaError(format!("{key}: {failure}")))?;
-        let checker = match checkers.get(definition) {
-            Some(checker) => *checker,
-            None => {
-                let checker = schema.for_definition(definition)?;
-                checkers.insert(definition.to_owned(), checker);
-                checker
-            }
-        };
-        writeln!(
-            out,
-            "{{\"key\":{},\"value\":{}}}",
-            json_string(key),
-            PyValue::Bool(checker.check(&record)).to_typed()
-        )
-        .map_err(|failure| SchemaError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

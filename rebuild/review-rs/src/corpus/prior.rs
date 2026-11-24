@@ -1,29 +1,21 @@
-//! Reading fragments back for the write. [`PriorFragmentReader`] reads the previous corpus's fragments by address, as `unit_cache.PriorFragmentReader` does: one `pread` on a part kept open, up to [`OPEN_PARTS`] parts at once, each read checked against its address, a deflated fragment inflated to its recorded length first ([`inflate_fragment`]). [`read_arena`] reads a recomputed fragment back from the units phase's [`Arena`], as `build._FragmentArena.read` does: one zlib stream under the build's preset dictionary, ending where the span ends, holding the unit and stamp its address carries.
-//!
-//! [`stage_prior_read`] is the `prior-read` stage of the stage fixtures.
+//! Reading fragments back for the write. [`PriorFragmentReader`] reads the previous corpus's fragments by address: one `pread` on a part kept open, up to [`OPEN_PARTS`] parts at once, each read checked against its address, a deflated fragment inflated to its recorded length first ([`inflate_fragment`]). [`read_arena`] reads a recomputed fragment back from the units phase's [`Arena`]: one zlib stream under the build's preset dictionary, ending where the span ends, holding the unit and stamp its address carries.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 use std::fmt;
-use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::fs::File;
+use std::io;
 use std::os::unix::fs::FileExt;
 use std::path::{Path, PathBuf};
 
-use serde_json::Value;
-
-use super::audit::{integer, items, stage_line, text};
 use super::drive::{Arena, ArenaSpan};
 use super::gzip::{Decompressor, inflate_fragment};
-use super::shards::clone;
 use super::store::PriorFragment;
-use crate::fragment::{lookup, sha256_hex};
+use crate::fragment::lookup;
 use crate::pyfmt::{PyFmtError, PyValue, json};
-use crate::wire::{Result, WireError, error};
 
-/// How many prior parts a reader keeps open at once, `PriorFragmentReader.OPEN_PARTS`; the one opened first is closed to open another.
+/// How many prior parts a reader keeps open at once; the one opened first is closed to open another.
 pub const OPEN_PARTS: usize = 64;
-/// The window bits `_FragmentArena.read` inflates with, `zlib.decompressobj`'s default: the zlib framing.
+/// The window bits [`read_arena`] inflates with, `zlib.decompressobj`'s default: the zlib framing.
 const ARENA_WINDOW: i32 = 15;
 /// The window bits of a deflated fragment's raw stream.
 const RAW_WINDOW: i32 = -15;
@@ -82,7 +74,7 @@ fn holds_stamp(fragment: &PyValue, located: &PriorFragment) -> bool {
     id && content_key
 }
 
-/// `unit_cache.PriorFragmentReader`: reads the prior corpus's fragments under `out_dir` by address, each part opened once and kept open, the [`OPEN_PARTS`]th closing the one opened first.
+/// Reads the prior corpus's fragments under `out_dir` by address, each part opened once and kept open, the [`OPEN_PARTS`]th closing the one opened first.
 pub struct PriorFragmentReader {
     out_dir: PathBuf,
     open: Vec<(String, File)>,
@@ -96,7 +88,7 @@ impl PriorFragmentReader {
         }
     }
 
-    /// `PriorFragmentReader._refusal`'s text.
+    /// The text of a read refused because the prior corpus changed.
     fn refusal(located: &PriorFragment) -> String {
         format!(
             "{} no longer holds unit {} at bytes {}+{}: the prior corpus changed underneath this build",
@@ -136,7 +128,7 @@ impl PriorFragmentReader {
         Ok(bytes)
     }
 
-    /// `PriorFragmentReader._plain`: `body`'s plain bytes, a deflated fragment's inflated and checked against its recorded length.
+    /// `body`'s plain bytes, a deflated fragment's inflated and checked against its recorded length.
     fn plain<'a>(
         located: &PriorFragment,
         body: &'a [u8],
@@ -160,7 +152,7 @@ impl PriorFragmentReader {
             .map_err(|why| PriorError::Value(format!("{} ({why})", Self::refusal(located))))
     }
 
-    /// `PriorFragmentReader.read`: the fragment at `located` parsed, a deflated one inflated first, and checked to be the unit and stamp `located` carries.
+    /// The fragment at `located` parsed, a deflated one inflated first, and checked to be the unit and stamp `located` carries.
     pub fn read(&mut self, located: &PriorFragment) -> std::result::Result<PyValue, PriorError> {
         let body = self.bytes(located)?;
         let plain = Self::plain(located, &body)?;
@@ -171,7 +163,7 @@ impl PriorFragmentReader {
         Ok(fragment)
     }
 
-    /// `PriorFragmentReader.read_bytes`: the fragment's bytes as they are stored, a deflated fragment's deflated, unparsed. A deflated fragment is inflated and checked against its recorded length; a byte-copied address's plain bytes must hold its id and stamp as the shard writer frames them.
+    /// The fragment's bytes as they are stored, a deflated fragment's deflated, unparsed. A deflated fragment is inflated and checked against its recorded length; a byte-copied address's plain bytes must hold its id and stamp as the shard writer frames them.
     pub fn read_bytes(
         &mut self,
         located: &PriorFragment,
@@ -191,7 +183,7 @@ impl PriorFragmentReader {
         Ok(body)
     }
 
-    /// `PriorFragmentReader.same_bytes`: whether the prior corpus holds the plain shard bytes `body` at `located`, compared over inflated bytes. A fragment of another length is not read, and a deflated one that does not inflate to its recorded length compares unequal.
+    /// Whether the prior corpus holds the plain shard bytes `body` at `located`, compared over inflated bytes. A fragment of another length is not read, and a deflated one that does not inflate to its recorded length compares unequal.
     pub fn same_bytes(
         &mut self,
         located: &PriorFragment,
@@ -209,7 +201,7 @@ impl PriorFragmentReader {
     }
 }
 
-/// `_FragmentArena._refusal`'s text.
+/// The text of an arena read refused for `why`.
 fn arena_refusal(located: &PriorFragment, why: &str) -> String {
     format!(
         "the arena's bytes {}+{} do not hold unit {}: {why}",
@@ -217,7 +209,7 @@ fn arena_refusal(located: &PriorFragment, why: &str) -> String {
     )
 }
 
-/// `_FragmentArena.read`'s checks over the deflated bytes `packed` read at `located`: exactly one zlib stream under `dictionary`, ending where `packed` ends, whose fragment is the unit with the stamp `located` carries.
+/// The arena read's checks over the deflated bytes `packed` read at `located`: exactly one zlib stream under `dictionary`, ending where `packed` ends, whose fragment is the unit with the stamp `located` carries.
 pub fn arena_fragment(
     located: &PriorFragment,
     packed: &[u8],
@@ -249,7 +241,7 @@ pub fn arena_fragment(
     Ok(fragment)
 }
 
-/// `_FragmentArena.read`: the recomputed fragment at `located`, a span of `arena` under the part name of its spill file ([`ArenaSpan::part`]), inflated with `dictionary`, parsed and checked ([`arena_fragment`]).
+/// The recomputed fragment at `located`, a span of `arena` under the part name of its spill file ([`ArenaSpan::part`]), inflated with `dictionary`, parsed and checked ([`arena_fragment`]).
 pub fn read_arena(
     arena: &Arena,
     located: &PriorFragment,
@@ -278,224 +270,11 @@ pub fn read_arena(
     arena_fragment(located, &packed, dictionary)
 }
 
-/// The `prior-read` stage's directory, beside its stage file, of the parts, fragments and dictionaries its lines name by sha256.
-pub const STAGE_BLOBS: &str = "prior-read.blobs";
-
-fn fail(what: &str, failure: impl fmt::Display) -> WireError {
-    WireError(format!("cannot {what}: {failure}"))
-}
-
-fn tagged(tag: &str, values: impl IntoIterator<Item = PyValue>) -> PyValue {
-    PyValue::Tuple(std::iter::once(PyValue::str(tag)).chain(values).collect())
-}
-
-/// The bytes a blob holds, checked against its name.
-fn blob(blobs: &Path, digest: &str) -> Result<Vec<u8>> {
-    let path = blobs.join(digest);
-    let bytes =
-        fs::read(&path).map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-    if sha256_hex(&bytes) != digest {
-        return error(format!(
-            "{} does not hold the bytes it is named for",
-            path.display()
-        ));
-    }
-    Ok(bytes)
-}
-
-/// A line's address: `(part, start, length, unit_id, content_key, byte_copied, inflated)`.
-fn located_of(value: &PyValue) -> Result<PriorFragment> {
-    let [
-        part,
-        start,
-        length,
-        unit_id,
-        content_key,
-        byte_copied,
-        inflated,
-    ] = items(value, "an address")?
-    else {
-        return error("an address is not the seven fields of a PriorFragment");
-    };
-    Ok(PriorFragment {
-        part: text(part, "the part")?.to_owned(),
-        start: integer(start, "the start")?,
-        length: integer(length, "the length")?,
-        unit_id: text(unit_id, "the unit id")?.to_owned(),
-        content_key: match content_key {
-            PyValue::None => None,
-            other => Some(text(other, "the content key")?.to_owned()),
-        },
-        byte_copied: match byte_copied {
-            PyValue::Bool(flag) => *flag,
-            other => return error(format!("byte_copied is {}, not a bool", other.kind())),
-        },
-        inflated: integer(inflated, "the inflated length")?,
-    })
-}
-
-/// A read's outcome as the stage records it: what it gave, `("raised", "ValueError", message)` for a refusal of the reader's own, `("undecoded",)` where `json.loads` refuses the bytes, and `("os-error", errno)`.
-fn outcome(read: std::result::Result<PyValue, PriorError>) -> PyValue {
-    match read {
-        Ok(value) => value,
-        Err(PriorError::Value(message)) => tagged(
-            "raised",
-            [PyValue::str("ValueError"), PyValue::str(message)],
-        ),
-        Err(PriorError::Json(failure)) if json::unheld(&failure) => {
-            tagged("unheld", [PyValue::str(failure.0)])
-        }
-        Err(PriorError::Json(_)) => tagged("undecoded", []),
-        Err(PriorError::Os(failure)) => tagged(
-            "os-error",
-            [failure.raw_os_error().map_or_else(
-                || PyValue::str(failure.to_string()),
-                |code| PyValue::Int(code.into()),
-            )],
-        ),
-    }
-}
-
-/// The stage's scratch: a directory a set of held parts, made once, and the arena the arena lines place their fragments in.
-struct Scratch {
-    root: PathBuf,
-    directories: HashMap<Vec<(String, String)>, PathBuf>,
-}
-
-impl Scratch {
-    /// The directory holding exactly the parts `held` names, each a clone of its blob at its path there.
-    fn directory(&mut self, held: &PyValue, blobs: &Path) -> Result<PathBuf> {
-        let mut parts = Vec::new();
-        for part in items(held, "the held parts")? {
-            let [name, digest] = items(part, "a held part")? else {
-                return error("a held part is not a name and a blob");
-            };
-            parts.push((
-                text(name, "a held part's name")?.to_owned(),
-                text(digest, "a held part's blob")?.to_owned(),
-            ));
-        }
-        if let Some(directory) = self.directories.get(&parts) {
-            return Ok(directory.clone());
-        }
-        let directory = self.root.join(self.directories.len().to_string());
-        fs::create_dir_all(&directory)
-            .map_err(|failure| fail("make a read's directory", failure))?;
-        for (name, digest) in &parts {
-            let target = directory.join(name);
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|failure| fail("make a part's directory", failure))?;
-            }
-            blob(blobs, digest)?;
-            let source = blobs.join(digest);
-            if !clone(&source, &target).map_err(|failure| fail("clone a held part", failure))? {
-                fs::copy(&source, &target).map_err(|failure| fail("copy a held part", failure))?;
-            }
-        }
-        self.directories.insert(parts, directory.clone());
-        Ok(directory)
-    }
-}
-
-/// Answer one line: the read its form names, made over a directory holding the parts the line holds, or over an arena holding the line's span where Python's arena held it.
-fn answer(key: &str, input: &PyValue, blobs: &Path, scratch: &mut Scratch) -> Result<PyValue> {
-    let fields = items(input, "a line's input")?;
-    let Some(form) = fields.first() else {
-        return error(format!("{key}: the input names no form"));
-    };
-    Ok(match (text(form, "the form")?, &fields[1..]) {
-        ("read", [held, located]) => {
-            let directory = scratch.directory(held, blobs)?;
-            outcome(
-                PriorFragmentReader::new(&directory)
-                    .read(&located_of(located)?)
-                    .map(|fragment| tagged("fragment", [fragment])),
-            )
-        }
-        ("read-bytes", [held, located]) => {
-            let directory = scratch.directory(held, blobs)?;
-            outcome(
-                PriorFragmentReader::new(&directory)
-                    .read_bytes(&located_of(located)?)
-                    .map(|body| tagged("bytes", [PyValue::str(sha256_hex(&body))])),
-            )
-        }
-        ("same-bytes", [held, located, body]) => {
-            let directory = scratch.directory(held, blobs)?;
-            let body = blob(blobs, text(body, "the body's blob")?)?;
-            outcome(
-                PriorFragmentReader::new(&directory)
-                    .same_bytes(&located_of(located)?, &body)
-                    .map(|same| tagged("same", [PyValue::Bool(same)])),
-            )
-        }
-        ("arena", [dictionary, packed, located]) => {
-            let dictionary = blob(blobs, text(dictionary, "the dictionary's blob")?)?;
-            let packed = blob(blobs, text(packed, "the span's blob")?)?;
-            let mut located = located_of(located)?;
-            if usize::try_from(located.length).ok() != Some(packed.len()) {
-                return error(format!(
-                    "{key}: the span's {} bytes are not its address's {}",
-                    packed.len(),
-                    located.length
-                ));
-            }
-            let start = u64::try_from(located.start)
-                .map_err(|_| WireError(format!("{key}: a span starts before the arena")))?;
-            let arena = Arena::new(&scratch.root);
-            let span = arena.place(start, &packed).map_err(WireError)?;
-            located.part = span.part();
-            outcome(
-                read_arena(&arena, &located, &dictionary)
-                    .map(|fragment| tagged("fragment", [fragment])),
-            )
-        }
-        (form, rest) => {
-            return error(format!("{key}: no read {form} over {} values", rest.len()));
-        }
-    })
-}
-
-/// The `prior-read` stage: for each line of `stage_file`, make the read it names, a prior fragment's (`read`, `read-bytes` or `same-bytes`) over a scratch directory holding clones of the parts the line says the reader's directory held, or an arena fragment's (`arena`) over an arena holding the line's span at its start, the bytes read by sha256 from [`STAGE_BLOBS`] beside the stage file, and write one line with what it gave in the typed encoding: `("fragment", value)`, `("bytes", sha256)` or `("same", flag)`, or the refusal ([`outcome`]).
-pub fn stage_prior_read(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let blobs = stage_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(STAGE_BLOBS);
-    let root = std::env::temp_dir().join(format!("ams-review-prior-read-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).map_err(|failure| fail("make the stage's scratch", failure))?;
-    let mut scratch = Scratch {
-        root: root.clone(),
-        directories: HashMap::new(),
-    };
-    let answered = (|| {
-        let file = File::open(stage_file)
-            .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-        for line in BufReader::new(file).lines() {
-            let line =
-                line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-            let record: Value = serde_json::from_str(&line)
-                .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-            let Some(key) = record["key"].as_str() else {
-                return error(format!("a stage line has no key: {line:.200}"));
-            };
-            let input = PyValue::from_typed(&record["input"])
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-            let value = answer(key, &input, &blobs, &mut scratch)?;
-            stage_line(out, key, &value)?;
-        }
-        Ok(())
-    })();
-    let _ = fs::remove_dir_all(&root);
-    answered
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ffi::Deflater;
+    use std::fs;
 
     fn located(part: &str, start: i64, length: i64, inflated: i64) -> PriorFragment {
         PriorFragment {

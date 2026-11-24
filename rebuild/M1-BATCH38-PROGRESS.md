@@ -26,7 +26,7 @@ ss07 is ·Owe's exit unlock toward ·Day{,+Utter,+Eat}, as the old font's before
 
 ·Gay joins ·Owe at the x-height with its exit extended by two, entered or not: qsOwe is on ·Gay's x-height `toward:` and its by-two extension. An x-height-entered ·Gay cannot also exit at the x-height, so `·Utter ~x~ ·Gay | ·Owe`, while after ·Ah ·Gay's prefer for its own exit gives `·Ah | ·Gay ~x~ ·Owe`. Under ss03 ·Owe reaches only the half ·Tea, through that stance's ss03 unlock.
 
-A review unit's config badge is resolved against the configurations its window can hold (`audit.window_configs`, the Rust scaffold's `Roster::window`), so a unit without ·Owe, which never holds ss07, keeps the badge it had; only an ·Owe window's badge can name ss07.
+A review unit's config badge is resolved against the configurations its window can hold (`Roster::window` in `rebuild/review-rs/src/scaffold.rs`), so a unit without ·Owe, which never holds ss07, keeps the badge it had; only an ·Owe window's badge can name ss07.
 
 `rebuild/m1-contact-allow.yaml` allows the side-by-side contacts of ·Owe's ring with ·Owe, ·At, ·Foot, ·Et and ·Day{,+Utter,+Eat}, each composite pixel-identical to the old font's, and the declined-exit terminal of the ring's top, which `geometry.verify_unjoined_safe` cannot accept.
 

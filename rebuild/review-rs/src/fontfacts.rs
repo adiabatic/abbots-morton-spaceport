@@ -1,12 +1,11 @@
-//! The font facts (`rebuild/CORPUS-UNITS-PORT-PLAN.md` § The init file), `ams-review-font-facts/1`, which `units_exec.write_font_facts` writes through the ink module's own classes: what the Python worker's outline caches (`ink.OutlineCache.shape_key`), their intern (`ink.OutlineIntern.draws` and `cells`), its shapers' glyph names (`shaping.Shaper.glyph_name`) and its junction classifier's curs sets (`classify.JunctionClassifier.__init__`) read from the three fonts. The engine reads no outline.
+//! The font facts, `ams-review-font-facts/1`, which `units_exec.write_font_facts` writes through the ink module's own classes (`doc/rebuild-design.md` §14.2): each font's glyph order with each glyph's shape key and origin, the shapes' drawings and grid cells by shape key, and the after font's junction classifier sets. The engine reads no outline.
 //!
-//! A shape key derives from the outline's content, so keys compare across the three fonts. The engine holds each key as a [`ShapeId`], an index into the shape table sorted by key, so ids compare and sort as the keys' bytes do, which is how Python orders the pieces it leads with a key. A glyph with no outline has no shape (`ink.EMPTY_OUTLINE_KEY`), which orders before every shape as the empty key does.
+//! A shape key derives from the outline's content, so keys compare across the three fonts. The engine holds each key as a [`ShapeId`], an index into the shape table sorted by key, so ids compare and sort as the keys' bytes do, which is the order the pieces a key leads compare in. A glyph with no outline has no shape (`ink.EMPTY_OUTLINE_KEY`), which orders before every shape as the empty key does.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::pyfmt::PyValue;
 use crate::wire::{
     Result, WireError, array, boolean, error, integer, object, read_file, string, tuple,
 };
@@ -140,9 +139,6 @@ pub enum Side {
 }
 
 impl Side {
-    /// The three sides in the facts' order (`units_exec.FONT_SIDES`).
-    pub const ALL: [Side; 3] = [Side::Before, Side::After, Side::Junior];
-
     /// The side's name in the init and the facts.
     pub fn name(self) -> &'static str {
         match self {
@@ -389,86 +385,6 @@ impl FontFacts {
     pub fn cells(&self, id: ShapeId) -> Option<&[(i64, i64)]> {
         self.shape(id).cells.as_deref()
     }
-
-    /// The facts as Python holds them (`units_exec.font_facts`): each side's glyph rows with the key as bytes, the after side's curs sets as sets of glyph names by height, and the shape table by key.
-    pub fn to_py(&self) -> PyValue {
-        let key_of = |placement: &Placement| {
-            PyValue::Bytes(
-                placement
-                    .shape
-                    .map_or_else(Vec::new, |id| self.shape(id).key.to_vec()),
-            )
-        };
-        let names = |font: &FontGlyphs, ids: &[u32]| {
-            PyValue::Set(
-                ids.iter()
-                    .map(|id| PyValue::str(&font.glyphs[*id as usize].name))
-                    .collect(),
-            )
-        };
-        let sides = Side::ALL
-            .iter()
-            .map(|side| {
-                let font = self.font(*side);
-                let rows = font
-                    .glyphs
-                    .iter()
-                    .map(|glyph| {
-                        PyValue::Tuple(vec![
-                            PyValue::str(&glyph.name),
-                            key_of(&glyph.placement),
-                            PyValue::Int(glyph.placement.origin_x),
-                            PyValue::Int(glyph.placement.origin_y),
-                        ])
-                    })
-                    .collect();
-                let mut entries = vec![(PyValue::str("glyphs"), PyValue::Tuple(rows))];
-                if *side == Side::After {
-                    let junctions = &self.junctions;
-                    for (kind, sets) in
-                        [("exits", &junctions.exits), ("entries", &junctions.entries)]
-                    {
-                        entries.push((
-                            PyValue::str(kind),
-                            PyValue::Dict(
-                                junctions
-                                    .heights
-                                    .iter()
-                                    .zip(sets)
-                                    .map(|(height, ids)| (PyValue::Int(*height), names(font, ids)))
-                                    .collect(),
-                            ),
-                        ));
-                    }
-                }
-                (PyValue::str(side.name()), PyValue::Dict(entries))
-            })
-            .collect();
-        let shapes = self
-            .shapes
-            .iter()
-            .map(|shape| {
-                let cells = shape.cells.as_ref().map_or(PyValue::None, |cells| {
-                    PyValue::Set(
-                        cells
-                            .iter()
-                            .map(|(column, row)| {
-                                PyValue::Tuple(vec![PyValue::Int(*column), PyValue::Int(*row)])
-                            })
-                            .collect(),
-                    )
-                });
-                (
-                    PyValue::Bytes(shape.key.to_vec()),
-                    PyValue::Tuple(vec![PyValue::Bool(shape.drawn), cells]),
-                )
-            })
-            .collect();
-        PyValue::Dict(vec![
-            (PyValue::str("fonts"), PyValue::Dict(sides)),
-            (PyValue::str("shapes"), PyValue::Dict(shapes)),
-        ])
-    }
 }
 
 #[cfg(test)]
@@ -520,23 +436,6 @@ mod tests {
         assert_eq!(junctions.heights(), &[0, 5]);
         assert!(junctions.has_exit(0, 1) && !junctions.has_exit(1, 1));
         assert_eq!(junctions.entries(1), &[0, 1]);
-        let text = facts.to_py().to_typed();
-        assert!(
-            text.contains(&format!(
-                r#"[{{"bytes":"{HIGH}"}},{{"tuple":[true,{{"set":[{{"tuple":[0,0]}},{{"tuple":[0,1]}},{{"tuple":[1,0]}}]}}]}}]"#
-            )),
-            "{text}"
-        );
-        assert!(
-            text.contains(r#"{"tuple":["space",{"bytes":""},0,0]}"#),
-            "{text}"
-        );
-        assert!(
-            text.contains(
-                r#"["entries",{"dict":[[0,{"set":[]}],[5,{"set":["qsPea","qsPea.ex-y0"]}]]}]"#
-            ),
-            "{text}"
-        );
     }
 
     #[test]

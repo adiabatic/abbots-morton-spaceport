@@ -1,4 +1,4 @@
-"""Tests of the corpus build interface, `rebuild/review/corpus_exec.py`, the Python side of the Rust build of the review corpus's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md`): the switch and the engine it resolves, the vocabulary and the fields the build input carries, which the crate's reader names too, the Rust build writing the Python build's corpus over the mini bundle's `first`, `warm` and `incremental` scenarios, its refusals of the environments it cannot build in under an explicit `rust`, and the Python build those environments get with the switch unset. A change to the Python a build stage mirrors fails the mini test until the crate follows it."""
+"""Tests of the corpus build interface, `rebuild/review/corpus_exec.py`, the Python side of the review crate's corpus build (`ams-review build`): the vocabulary and the fields the build input carries, which the crate's reader names too, and what `run_build` files and the build reports over the mini bundle's corpus, built and then rebuilt warm."""
 
 from __future__ import annotations
 
@@ -7,10 +7,8 @@ import re
 import shutil
 from pathlib import Path
 
-import pytest
-
 from rebuild.review import build, corpus_exec, units_exec
-from rebuild.tools import cycle_timings, memory_tally, units_stage_fixtures
+from rebuild.tools import cycle_timings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INPUT_SOURCE = REPO_ROOT / "rebuild" / "review-rs" / "src" / "corpus" / "input.rs"
@@ -20,38 +18,10 @@ MINI_FONT = MINI / "M1.otf"
 REUSED = re.compile(r"reused (\d[\d,]*) of (\d[\d,]*) units from the cache")
 
 
-def test_the_switch_reads_the_environment_and_the_build_runs_both_engines(monkeypatch):
-    """`corpus_exec.engine()` reads `AMS_CORPUS_BUILD_ENGINE` at call time and refuses a value the switch does not know; the build runs either engine. Unset, the engine is `rust`, unless the process sets `AMS_CORPUS_UNITS_ENGINE=python` or `AMS_CORPUS_MEMORY_TALLY=1`, which only the Python build serves (`python_only_requests`), and then it is `python`; a switch that is set names the engine beside either, an explicit `rust` for the build to refuse."""
-    monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
-    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
-    assert corpus_exec.switch() is None
-    assert corpus_exec.python_only_requests() == []
-    assert corpus_exec.engine() == "rust"
-    for variable, value in ((units_exec.ENGINE_VARIABLE, "python"), (memory_tally.TALLY_ENV, "1")):
-        with monkeypatch.context() as patch:
-            patch.setenv(variable, value)
-            assert corpus_exec.python_only_requests() == [f"{variable}={value}"]
-            assert corpus_exec.engine() == "python"
-            for engine in corpus_exec.SWITCH_VALUES:
-                patch.setenv(corpus_exec.ENGINE_VARIABLE, engine)
-                assert corpus_exec.engine() == engine
-    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
-    assert corpus_exec.engine() == "rust"
-    monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "cobol")
-    with pytest.raises(ValueError, match="cobol"):
-        corpus_exec.engine()
-    for value in corpus_exec.SWITCH_VALUES:
-        monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, value)
-        assert corpus_exec.engine() == value
-    assert corpus_exec.SWITCH_VALUES == ("python", "rust")
-    assert corpus_exec.ENGINES == ("python", "rust")
-
-
 def _rust_names(name: str) -> tuple[str, ...]:
     source = INPUT_SOURCE.read_text(encoding="utf-8")
     block = re.search(rf"pub const {name}: &\[&str\] = &\[(.*?)\];", source, re.S)
-    assert block is not None, f"input.rs no longer declares {name}"
+    assert block is not None, f"input.rs does not declare {name}"
     return tuple(re.findall(r'"([^"]+)"', block.group(1)))
 
 
@@ -60,118 +30,39 @@ def test_the_vocabulary_resolves_and_the_build_reads_the_same_names_and_fields()
     values = corpus_exec.vocabulary()
     assert tuple(values) == corpus_exec.VOCABULARY
     for name, value in values.items():
-        assert units_exec.decode(json.loads(units_exec.compact(units_exec.encode(value)))) is not None, name
+        assert json.loads(units_exec.compact(units_exec.encode(value))) is not None, name
     assert _rust_names("VOCABULARY") == corpus_exec.VOCABULARY
     assert _rust_names("INPUT_FIELDS") == corpus_exec.INPUT_FIELDS
     source = INPUT_SOURCE.read_text(encoding="utf-8")
     assert re.search(rf'pub const INPUT_FORMAT: &str = "{re.escape(corpus_exec.INPUT_FORMAT)}";', source)
 
 
-def _build_mini(out: Path, inputs: units_stage_fixtures.BuildInputs) -> dict:
+def _build_mini(out: Path, mini_bundle) -> dict:
     return build.build_m1(
         out,
-        audit_path=inputs.audit,
-        ledger_path=inputs.ledger,
-        subset_dir=inputs.subset_dir,
-        after_font=inputs.after_font,
-        spec_root=inputs.spec_root,
-        subset_pack=inputs.subset_pack,
+        audit_path=MINI_AUDIT,
+        ledger_path=mini_bundle.ledger,
+        subset_dir=MINI,
+        after_font=MINI_FONT,
+        spec_root=mini_bundle.spec_root,
+        subset_pack=mini_bundle.subset_pack,
         jobs=2,
     )
 
 
-def _tree(path: Path) -> dict[str, bytes]:
-    return {
-        p.relative_to(path).as_posix(): p.read_bytes() for p in sorted(Path(path).rglob("*")) if p.is_file()
-    }
-
-
-def test_the_rust_build_writes_the_python_build_s_corpus_over_the_mini_s_first_warm_and_incremental_scenarios(
-    mini_bundle, tmp_path, capfd, monkeypatch
-):
-    """Behind the switch, `build_m1` runs the Rust build, which writes the Python build's corpus byte for byte, as `rebuild/test_unit_cache.py`'s tests compare two builds, over three of the mini source's scenarios (`units_stage_fixtures`' § Scenarios): `first`, from an empty directory; `warm`, over the Python `first` build with the same inputs; and `incremental`, over it with the scenario's edited audit and ledger (`_incremental_inputs`), which reuses some units and recomputes others. Both sides build at two jobs under the Rust units engine, so the Python build's unit store stamps the `units_engine` line the Rust build's always does. The Rust build's load line names it and it files one `corpus-build-rs` pool record a build."""
-    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
-    inputs = units_stage_fixtures.BuildInputs(
-        MINI_AUDIT, mini_bundle.ledger, MINI, mini_bundle.subset_pack, MINI_FONT, mini_bundle.spec_root
-    )
-    for engine in corpus_exec.ENGINES:
-        monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, engine)
-        _build_mini(tmp_path / engine / "first", inputs)
-        err = capfd.readouterr().err
-        assert ("\tbuild=rust " in err) == (engine == "rust"), err
-    base = tmp_path / "python" / "first"
-    edited = units_stage_fixtures._incremental_inputs(
-        units_stage_fixtures.BasePrior("mini", base, inputs), tmp_path / "incremental-inputs"
-    )
-    for name, scenario_inputs in (("warm", inputs), ("incremental", edited)):
-        reused = {}
-        for engine in corpus_exec.ENGINES:
-            monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, engine)
-            out = tmp_path / engine / name
-            shutil.copytree(base, out)
-            _build_mini(out, scenario_inputs)
-            match = REUSED.search(capfd.readouterr().err)
-            assert match, f"the {engine} {name} build did not report what it reused"
-            reused[engine] = tuple(int(group.replace(",", "")) for group in match.groups())
-        assert reused["rust"] == reused["python"], name
-        done, total = reused["python"]
-        assert (done == total) if name == "warm" else (0 < done < total), (name, reused)
-    for name in ("first", "warm", "incremental"):
-        assert _tree(tmp_path / "rust" / name) == _tree(tmp_path / "python" / name), name
+def test_a_build_files_one_pool_record_and_a_warm_rebuild_reuses_every_unit(mini_bundle, tmp_path, capfd):
+    """`build_m1` returns the manifest the build process wrote, and `corpus_exec.run_build` files one `corpus-build-rs` pool record for each build that ends done, its width the build's threads and its worker's reading a footprint. A second build over the first's corpus with the same inputs reuses every unit from the cache."""
+    first = tmp_path / "first"
+    manifest = _build_mini(first, mini_bundle)
+    assert manifest == json.loads((first / "manifest.json").read_bytes())
+    capfd.readouterr()
+    warm = tmp_path / "warm"
+    shutil.copytree(first, warm)
+    _build_mini(warm, mini_bundle)
+    match = REUSED.search(capfd.readouterr().err)
+    assert match, "the warm build did not report what it reused"
+    done, total = (int(group.replace(",", "")) for group in match.groups())
+    assert done == total > 0, (done, total)
     records = [json.loads(line) for line in cycle_timings.JOURNAL.read_text(encoding="utf-8").splitlines()]
     pools = [record for record in records if record["unit"] == "corpus-build-rs"]
-    assert [(record["width"], record["worker_reading"]) for record in pools] == [(2, "footprint")] * 3, pools
-
-
-@pytest.mark.parametrize(
-    ("variable", "value"),
-    [(units_exec.ENGINE_VARIABLE, "python"), (memory_tally.TALLY_ENV, "1")],
-    ids=["python-units-engine", "memory-tally"],
-)
-def test_the_rust_build_refuses_the_python_units_engine_and_the_memory_tally(
-    variable, value, mini_bundle, tmp_path, monkeypatch
-):
-    """The Rust build computes every unit with the Rust units engine and holds none of the Python objects the debug tally reads, so under an explicit `AMS_CORPUS_BUILD_ENGINE=rust` `build_m1` refuses `AMS_CORPUS_UNITS_ENGINE=python` and `AMS_CORPUS_MEMORY_TALLY=1` before it writes anything, naming both variables."""
-    monkeypatch.setenv(units_exec.ENGINE_VARIABLE, "rust")
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
-    monkeypatch.setenv(corpus_exec.ENGINE_VARIABLE, "rust")
-    monkeypatch.setenv(variable, value)
-    inputs = units_stage_fixtures.BuildInputs(
-        MINI_AUDIT, mini_bundle.ledger, MINI, mini_bundle.subset_pack, MINI_FONT, mini_bundle.spec_root
-    )
-    out = tmp_path / "corpus"
-    with pytest.raises(SystemExit) as stop:
-        _build_mini(out, inputs)
-    message = str(stop.value.code)
-    assert f"{variable}={value}" in message and f"{corpus_exec.ENGINE_VARIABLE}=rust" in message, message
-    assert not out.exists()
-
-
-@pytest.mark.parametrize(
-    ("variable", "value"),
-    [(units_exec.ENGINE_VARIABLE, "python"), (memory_tally.TALLY_ENV, "1")],
-    ids=["python-units-engine", "memory-tally"],
-)
-def test_with_the_switch_unset_a_request_only_the_python_build_serves_runs_the_python_build(
-    variable, value, mini_bundle, tmp_path, capfd, monkeypatch
-):
-    """With `AMS_CORPUS_BUILD_ENGINE` unset, `AMS_CORPUS_UNITS_ENGINE=python` or `AMS_CORPUS_MEMORY_TALLY=1` alone gives the Python build, since the caller asked by name for something that is the Python build's: its load line names no `build=rust`, it files no `corpus-build-rs` pool record, and it writes the corpus."""
-    monkeypatch.delenv(corpus_exec.ENGINE_VARIABLE, raising=False)
-    monkeypatch.delenv(units_exec.ENGINE_VARIABLE, raising=False)
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
-    monkeypatch.setenv(variable, value)
-    inputs = units_stage_fixtures.BuildInputs(
-        MINI_AUDIT, mini_bundle.ledger, MINI, mini_bundle.subset_pack, MINI_FONT, mini_bundle.spec_root
-    )
-    out = tmp_path / "corpus"
-    manifest = _build_mini(out, inputs)
-    err = capfd.readouterr().err
-    assert "[t] review.build load " in err and "\tbuild=rust " not in err, err
-    assert manifest == json.loads((out / "manifest.json").read_bytes())
-    journal = cycle_timings.JOURNAL
-    records = (
-        [json.loads(line) for line in journal.read_text(encoding="utf-8").splitlines()]
-        if journal.is_file()
-        else []
-    )
-    assert not [record for record in records if record["unit"] == "corpus-build-rs"], records
+    assert [(record["width"], record["worker_reading"]) for record in pools] == [(2, "footprint")] * 2, pools

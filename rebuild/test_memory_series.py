@@ -1,41 +1,29 @@
-"""Tests for the memory series (`rebuild/tools/memory_series.py`). The table steps build the mini fixture narrowed to ·Tea, ·May and ·It, a build of a fraction of a second, so they run the real crate; the corpus lines build the frozen mini bundle (`mini_bundle`, `mini_corpus`) through the real child, a build of a few seconds. The meter, the machine reading and the waits are replaced where a test reads their arithmetic."""
+"""Tests for the memory series (`rebuild/tools/memory_series.py`). The table steps build the mini fixture narrowed to ·Tea, ·May and ·It, a build of a fraction of a second, so they run the real crate. The meter, the machine reading and the waits are replaced where a test reads their arithmetic."""
 
-import gzip
 import io
 import json
 import os
-import re
 import signal
 import subprocess
 import sys
 import time
 import zlib
 from contextlib import suppress
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import conform, fingerprint, fixtures, kernel_exec, kernel_io, oracle, spec_load
-from rebuild.review import audit, build, store_lock, subset_pack, unit_cache
+from rebuild.pipeline import conform, fixtures, kernel_exec, kernel_io, spec_load
+from rebuild.review import store_lock
 from rebuild.tools import memory_series as ms
-from rebuild.tools import memory_tally, scaling_sweep, write_meter
+from rebuild.tools import scaling_sweep, write_meter
 from rebuild.tools.write_meter import Member, WriteReading
 
 CONFIGS = list(conform.SETTLEMENT_CONFIGS)
 FLAGS = ms.Flags(threads=2, scratch_beside_default=1)
 STAMP = "memory-series-test"
 QUIET = ms.Machine(swap_used=None, compressor=None, swapouts=None, device=None)
-MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
-WIDTHS = {"jobs": 2, "signature_jobs": 2, "write_jobs": 2}
-clones = pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason="the corpus step clones its inputs, which APFS alone does without writing them",
-)
-null_pack = pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason="the pack child links its pack to the null device, which takes `ftruncate` on macOS alone",
-)
 
 
 def _spec_path(tmp_path):
@@ -530,7 +518,7 @@ def test_the_absorbs_inputs_restate_the_live_rows_under_labels_of_their_own(tmp_
 
 
 def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(monkeypatch, tmp_path):
-    """An absorbs run clones the live `default` settle memo, its head and every part the head lists, into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment, without the allocator setting a corpus line takes; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
+    """An absorbs run clones the live `default` settle memo, its head and every part the head lists, into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment, without the allocator setting; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
     from multiprocessing import shared_memory
 
     from rebuild.pipeline import oracle_cache, run_m1
@@ -877,193 +865,8 @@ def test_the_tree_is_emptied_and_holds_its_own_copy_of_the_binary_run_once(tmp_p
     assert ran.read_text() == "ran\n"
 
 
-def _mini_inputs(mini_bundle, mini_corpus) -> ms.CorpusInputs:
-    return ms.CorpusInputs(
-        audit=MINI / "audit.tsv",
-        m1=MINI,
-        subset_pack=mini_bundle.subset_pack,
-        after_font=MINI / "M1.otf",
-        manifest=mini_corpus / "manifest.json",
-        signatures=unit_cache.signature_store_path(mini_corpus),
-        spec_root=mini_bundle.spec_root,
-        ledger=mini_bundle.ledger,
-        before_font=build.SITE_BEFORE_FONT,
-        junior_font=build.SITE_JUNIOR_FONT,
-    )
-
-
-def _routes(inputs: ms.CorpusInputs) -> list[str]:
-    live = json.loads(inputs.manifest.read_text(encoding="utf-8"))
-    return ms.null_routes(
-        live, [*(entry.id for entry in audit.load_ledger(inputs.ledger)), *audit.RESERVED_CLASS_IDS]
-    )
-
-
-def _measure_line(inputs, step_dir, cut, routes, audit_file=None, **given):
-    return ms.measure_corpus_line(
-        inputs,
-        step_dir,
-        cut,
-        WIDTHS,
-        routes,
-        audit_file or ms.prepare_audit(inputs, cut, step_dir.parent / ms.AUDITS_DIR),
-        **{
-            "env": ms.corpus_environment(),
-            "cwd": build.REPO_ROOT,
-            "idle_s": 0,
-            "after_s": 0,
-            "interval_s": 0.05,
-            "meter": lambda: write_meter.read(device=False),
-            "machine": lambda: QUIET,
-            **given,
-        },
-    )
-
-
-def _audit_rows(excluded=frozenset()):
-    rows = (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()[1:]
-    return [row for row in rows if not {int(part, 16) for part in row.split("\t")[1].split(":")} & excluded]
-
-
-@clones
-def test_a_cut_line_builds_over_the_cut_audit_and_writes_only_what_the_build_reads_back(
-    mini_bundle, mini_corpus, monkeypatch, tmp_path
-):
-    """A cut line's build reads the audit rows whose windows use only the cut's letters, here every letter but ·Out and ·Fee, from the cut audit the run wrote for it, a real file in sorted sections, which the build reads as a stream. As the child starts, its out dir holds a clone of the live signature store and a link to the null device at every staging name `null_routes` gives, and once the line is done the only regular files it left are the ones the build reads back or does not route, and its directory is gone. The line reads every mark in `CORPUS_MARKS` order, the key-only read's largest process peak from the load note, the signatures all answered by the clone, both pools' workers from their pool records and from the sampler, one held sidecar figure a write run from the write phase's note, and its pack child's block with one peak footprint a configuration's pack process from the pack's pool record, the child run with the line's allocator setting. The checkout's code digests are read after the idle wait and before the after-wait, so an edit made during either wait is not one made during the build."""
-    inputs = _mini_inputs(mini_bundle, mini_corpus)
-    routes = _routes(inputs)
-    excluded = frozenset({0xE67B, 0xE658})
-    seen: dict[str, str] = {}
-    route = ms.route_corpus
-    waits: list[float] = []
-    monkeypatch.setattr(ms, "corpus_code", lambda checkout: {"corpus_code": f"after {len(waits)} waits"})
-
-    def looking(step_dir, signatures, given):
-        out_dir = route(step_dir, signatures, given)
-        for path in out_dir.rglob("*"):
-            if path.is_symlink() or path.is_file():
-                seen[path.relative_to(out_dir).as_posix()] = (
-                    os.readlink(path) if path.is_symlink() else "file"
-                )
-        return out_dir
-
-    monkeypatch.setattr(ms, "route_corpus", looking)
-    step_dir = tmp_path / "step"
-    cut = ms.CorpusCut("r-test", ("qsDay",), 1, excluded)
-    audit_file = ms.prepare_audit(inputs, cut, tmp_path / ms.AUDITS_DIR)
-    assert audit_file.kind == "cut" and audit_file.path.read_text(encoding="utf-8").splitlines()[
-        1:
-    ] == _audit_rows(excluded)
-    measured = _measure_line(
-        inputs,
-        step_dir,
-        cut,
-        routes,
-        audit_file,
-        env={**ms.corpus_environment(), **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT},
-        idle_s=1,
-        after_s=1,
-        sleep=waits.append,
-    )
-    assert waits == [1, 1]
-    assert measured["code"] == {"corpus_code": "after 1 waits"} and "code_after" not in measured
-    assert seen == {**dict.fromkeys(routes, os.devnull), unit_cache.SIGNATURE_STORE_NAME: "file"}
-    assert measured["rows"] == len(_audit_rows(excluded)) < len(_audit_rows())
-    assert measured["audit"] == {"kind": "cut", "bytes": audit_file.bytes, "seconds": audit_file.seconds}
-    assert measured["load_source"] == "read as a stream"
-    assert re.fullmatch(
-        r"ran \d+\.\d\d s across \d+ processes, the largest \d+\.\d{3} GB resident", measured["key_only_read"]
-    ), measured["key_only_read"]
-    assert [mark["label"] for mark in measured["marks"]] == list(ms.CORPUS_MARKS)
-    assert measured["files"]["stray"] == {}
-    assert {"out/manifest.json", "out/review-facts.json", ms.POOLS_NAME} <= set(measured["files"]["kept"])
-    assert measured["signatures_shaped"] == 0
-    for name in ("units", "write"):
-        pool = measured["pools"][name]
-        assert pool["width"] == 2 and pool["reading"] == "footprint", pool
-        assert len(pool["peaks"]) == len(pool["resident"]) == 2, pool
-    assert measured["pools"]["signature"]["peaks"] == []
-    pack_pool = measured["pools"]["pack"]
-    assert pack_pool["width"] == len(pack_pool["peaks"]) == len(audit.ACCEPTANCE_CONFIGS), pack_pool
-    assert pack_pool["reading"] == "footprint" and all(peak > 0 for peak in pack_pool["peaks"]), pack_pool
-    assert len(pack_pool["resident"]) <= len(audit.ACCEPTANCE_CONFIGS) and measured["pack"]["rows"]
-    assert measured["pack"]["allocator_env"] == dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
-    assert len(measured["sidecar_lines_mb"]) == len(measured["write_runs"]) and all(
-        measured["sidecar_lines_mb"]
-    )
-    assert measured["recomputed"] == measured["units"] and measured["fragments"]["deflated"]
-    assert not step_dir.exists()
-
-
-@null_pack
-def test_a_cut_lines_pack_child_packs_the_cut_tables_through_fifos_onto_the_null_device(tmp_path):
-    """A cut line's pack child runs `write_pack` over each configuration's subset table cut to the line's letters, here every letter but ·Out and ·Fee, each served through a FIFO that is filled on every open, so the two passes read each table twice, with its pack linked to the null device, so it leaves only the FIFOs. It records the cut tables' rows and strings, each pass's seconds, its own peaks and environment, and under the `pack` pool one peak footprint a configuration's pack process from the pool record the pack's parent writes to the child's journal, which the line reads and removes; the sampler's resident readings are at most one a process."""
-    excluded = frozenset({0xE67B, 0xE658})
-    rows = 0
-    strings: set[str] = set()
-    for config in audit.ACCEPTANCE_CONFIGS:
-        for key, glyphs, _clusters, junctions in subset_pack._projected_rows(
-            subset_pack.table_path(MINI, config)
-        ):
-            if not {int(part, 16) for part in subset_pack.key_codepoints(key).split(":")} & excluded:
-                rows += 1
-                strings.update((*glyphs, *junctions))
-    env = {**ms.corpus_environment(), **kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT}
-    pack_dir = tmp_path / ms.PACK_DIR
-    pack, pool = ms.measure_pack(
-        MINI,
-        pack_dir,
-        ms.CorpusCut("r-test", ("qsDay",), 1, excluded),
-        env=env,
-        cwd=build.REPO_ROOT,
-        interval_s=0.05,
-        machine=lambda: QUIET,
-    )
-    assert (pack["rows"], pack["strings"]) == (rows, len(strings))
-    assert [mark["label"] for mark in pack["marks"]] == [
-        ms.PACK_STARTED_MARK,
-        subset_pack.SURVEYED_MARK,
-        ms.PACK_MARK,
-    ]
-    assert pack["survey_s"] > 0 and pack["write_s"] > 0 and pack["peak_footprint"] and pack["peak_resident"]
-    assert pack["fills"] == 2 * len(audit.ACCEPTANCE_CONFIGS)
-    assert pack["allocator_env"] == dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT)
-    assert pool["width"] == len(audit.ACCEPTANCE_CONFIGS) == len(pool["peaks"]), pool
-    assert pool["reading"] == "footprint" and all(peak > 0 for peak in pool["peaks"]) and pool["controller"]
-    assert len(pool["resident"]) <= len(audit.ACCEPTANCE_CONFIGS), pool
-    left = sorted(path.name for path in pack_dir.iterdir())
-    assert left == sorted(
-        subset_pack.table_path(pack_dir, config).name for config in audit.ACCEPTANCE_CONFIGS
-    )
-    assert not any(path.is_file() or path.is_symlink() for path in pack_dir.iterdir())
-
-
-@clones
-def test_a_load_line_stops_at_the_plan_over_the_audit_and_its_moved_copy(mini_bundle, mini_corpus, tmp_path):
-    """The ×1 load line's build reads the cloned live audit itself, the ×2 line's the live audit with each section merged in window order with its moved copy, a file in sorted sections, so both read it as a stream and ×2 loads twice the rows and twice the units with no merge between them. The mark reporter stops each build at the plan's mark: the marks end there, no pool starts, and the line leaves no file."""
-    inputs = _mini_inputs(mini_bundle, mini_corpus)
-    lines = {}
-    for scale in ms.LOAD_SCALES:
-        cut = ms.CorpusCut(f"{ms.LOAD_PREFIX}{scale}", ("qsDay",), 1, frozenset(), scale, True)
-        lines[scale] = _measure_line(inputs, tmp_path / cut.name, cut, _routes(inputs))
-    plan = ms.CORPUS_MARKS.index(ms.PLAN_MARK)
-    assert lines[1]["audit"] == {"kind": "clone", "bytes": inputs.audit.stat().st_size, "seconds": 0.0}
-    assert lines[2]["audit"]["kind"] == "doubled"
-    for line in lines.values():
-        assert [mark["label"] for mark in line["marks"]] == list(ms.CORPUS_MARKS[: plan + 1])
-        assert line["units_premerge"] == line["units"]
-        assert (
-            line["load_source"] == "read as a stream"
-            and line["key_only_read"] == "not run, the merge skipped"
-        )
-        assert line["files"] == {"kept": {}, "stray": {}}
-        assert all(pool["width"] is None for pool in line["pools"].values())
-    assert lines[1]["rows"] == len(_audit_rows())
-    assert (lines[2]["rows"], lines[2]["units"]) == (2 * lines[1]["rows"], 2 * lines[1]["units"])
-
-
-def test_a_line_that_fails_partway_kills_the_builds_whole_process_group(monkeypatch, tmp_path):
-    """A corpus child runs in a session of its own, so an error or a stop signal while it runs kills every process it started, as a pool worker would be, and not the child alone: here the child starts a grandchild that sleeps for a minute and exits, and the reading after its exit fails."""
+def test_a_line_that_fails_partway_kills_the_childs_whole_process_group(monkeypatch, tmp_path):
+    """A replay child runs in a session of its own, so an error or a stop signal while it runs kills every process it started, as a walk's crate or an absorb worker would be, and not the child alone: here the child starts a grandchild that sleeps for a minute and exits, and the reading after its exit fails."""
     pid_path = tmp_path / "grandchild"
     script = (
         "import pathlib, subprocess, sys; "
@@ -1077,10 +880,9 @@ def test_a_line_that_fails_partway_kills_the_builds_whole_process_group(monkeypa
 
     monkeypatch.setattr(ms.peak_rss, "peak_footprint_bytes", failing)
     with pytest.raises(RuntimeError, match="the footprint reading failed"):
-        ms.run_corpus_child(
+        ms.run_replay_child(
             [sys.executable, "-c", script],
             env=dict(os.environ),
-            cwd=tmp_path,
             interval=0.05,
             machine=lambda: QUIET,
         )
@@ -1094,235 +896,11 @@ def test_a_line_that_fails_partway_kills_the_builds_whole_process_group(monkeypa
         time.sleep(0.05)
     else:
         os.kill(grandchild, signal.SIGKILL)
-        pytest.fail("the grandchild outlived its build")
-
-
-def test_the_cut_audit_keeps_the_rows_whose_windows_use_only_the_cuts_letters_and_the_doubled_one_merges_each_section_with_its_moved_copy(
-    tmp_path,
-):
-    """The cut keeps a row when none of its window's code points is one the cut leaves out, matched as a whole token, so ·Bay's E651 does not drop a window holding 1E651, and it keeps the audit's sections in their order. The doubled audit merges each section in window order with its rows' moved copies, each Quikscript code point moved up by `MOVED` and both name fields tagged, so it stays in sorted sections. Both read the live audit's materialized stream: over a head, its base and a segment, they write what they write over the single file, and the corpus step clones the head and every part it lists."""
-    header = "\t".join(audit.AUDIT_HEADER)
-    rows = [
-        "default\t0020:E650\tcell\tUNMATCHED\tspace|qsPea\tspace/c|qsPea/d",
-        "default\tE650:E651\tcell\tjoin-dropped\tqsPea|qsBay\tqsPea/a|qsBay/b",
-        "default\tE650:E652\tcell\tjoin-dropped\tqsPea|qsTea\tqsPea/a|qsTea/b",
-        "default\t1E651:E650\tcell\tUNMATCHED\tx|qsPea\tx/c|qsPea/d",
-        "ss03\t200C:E651\tcell\tUNMATCHED\tzwnj|qsBay\tzwnj/c|qsBay/d",
-        "ss03\tE652:E650\tcell\tUNMATCHED\tqsTea|qsPea\tqsTea/c|qsPea/d",
-    ]
-    source = tmp_path / "audit.tsv"
-    source.write_text("".join(f"{line}\n" for line in (header, *rows)), encoding="utf-8")
-    cut = tmp_path / "cut.tsv"
-    assert ms.write_cut_audit(source, cut, ms.cut_pattern({0xE651})) == 4
-    assert cut.read_text(encoding="utf-8") == "".join(
-        f"{line}\n" for line in (header, rows[0], rows[2], rows[3], rows[5])
-    )
-    assert ms.cut_pattern(()) is None
-    whole = tmp_path / "whole.tsv"
-    assert ms.write_cut_audit(source, whole, None) == len(rows)
-    assert whole.read_bytes() == source.read_bytes()
-    doubled = tmp_path / "doubled.tsv"
-    assert ms.write_doubled_audit(source, doubled) == 2 * len(rows)
-    lines = doubled.read_text(encoding="utf-8").splitlines()
-    assert lines[0] == header
-    assert lines[1:] == [
-        rows[0],
-        "default\t0020:E750\tcell\tUNMATCHED\tspace|qsPea.x\tspace/c|qsPea/d.x",
-        rows[1],
-        rows[2],
-        "default\tE750:E751\tcell\tjoin-dropped\tqsPea|qsBay.x\tqsPea/a|qsBay/b.x",
-        "default\tE750:E752\tcell\tjoin-dropped\tqsPea|qsTea.x\tqsPea/a|qsTea/b.x",
-        rows[3],
-        "default\t1E651:E750\tcell\tUNMATCHED\tx|qsPea.x\tx/c|qsPea/d.x",
-        rows[4],
-        "ss03\t200C:E751\tcell\tUNMATCHED\tzwnj|qsBay.x\tzwnj/c|qsBay/d.x",
-        rows[5],
-        "ss03\tE752:E750\tcell\tUNMATCHED\tqsTea|qsPea.x\tqsTea/c|qsPea/d.x",
-    ]
-    for start, end in ms.audit_sections(doubled):
-        with doubled.open("rb") as reader:
-            reader.seek(start)
-            keys = [ms._window_order(line) for line in reader.read(end - start).splitlines()]
-        assert keys == sorted(keys) and len(set(keys)) == len(keys)
-    headed = tmp_path / "m1"
-    for lines in (rows[1:], rows):
-        with oracle.AuditWriter(headed) as writer:
-            writer.feed("".join(f"{line}\n" for line in lines).encode("utf-8"))
-    under_a_head = headed / oracle.AUDIT_NAME
-    assert ms._audit_files(headed) == [
-        "divergence-audit.tsv.head",
-        "divergence-audit.tsv.0.base",
-        "divergence-audit.tsv.0.1.delta",
-    ]
-    assert ms.audit_bytes(under_a_head) == sum(
-        (headed / name).stat().st_size for name in ms._audit_files(headed)
-    )
-    for written, wanted in (
-        (ms.write_cut_audit(under_a_head, tmp_path / "headed-cut.tsv", ms.cut_pattern({0xE651})), cut),
-        (ms.write_doubled_audit(under_a_head, tmp_path / "headed-doubled.tsv"), doubled),
-    ):
-        assert written == wanted.read_text(encoding="utf-8").count("\n") - 1
-    assert (tmp_path / "headed-cut.tsv").read_bytes() == cut.read_bytes()
-    assert (tmp_path / "headed-doubled.tsv").read_bytes() == doubled.read_bytes()
-
-
-def test_the_doubled_mini_audit_is_read_as_a_stream(tmp_path, mini_bundle):
-    """At the mini fixture's scale the doubled audit is in sorted sections, every section's windows strictly increasing, so a `load-x2` line's build reads it as a stream and loads twice the mini audit's rows."""
-    from rebuild.review import audit_stream
-
-    doubled = tmp_path / "doubled.tsv"
-    rows = ms.write_doubled_audit(MINI / "audit.tsv", doubled)
-    assert rows == 2 * len(_audit_rows())
-    descriptor = os.open(doubled, os.O_RDONLY)
-    try:
-        layout = audit.audit_layout((descriptor,), doubled)
-        assert layout.sections is not None and [section.config for section in layout.sections] == [
-            "default",
-            "ss03",
-            "ss04",
-            "ss05",
-            "ss03+ss05",
-        ]
-        assert (
-            sum(len(found) for _window, found in audit_stream.lockstep((descriptor,), layout.sections))
-            == rows
-        )
-    finally:
-        os.close(descriptor)
-
-
-def test_the_listing_names_every_file_the_build_left_and_strays_what_it_was_not_expected_to(tmp_path):
-    """A line's listing holds every regular file under its directory with its size, and puts any the step does not expect under `stray`: an output whose staging name the routes missed is written for real and shows there, while a link to the null device, a pack table's FIFO and the directories are not files."""
-    out_dir = tmp_path / ms.OUT_NAME
-    (out_dir / "units").mkdir(parents=True)
-    (out_dir / "manifest.json").write_text("{}")
-    (out_dir / "units" / "join-dropped.json").symlink_to(os.devnull)
-    (out_dir / "units-index.ndjson.gz.0.base").write_bytes(b"stray")
-    (tmp_path / ms.POOLS_NAME).write_text("{}\n")
-    (tmp_path / ms.PACK_DIR).mkdir()
-    os.mkfifo(tmp_path / ms.PACK_DIR / "baseline-default.subset.tsv.gz")
-    assert ms.step_files(tmp_path, ms.expected_files(False)) == {
-        "kept": {"out/manifest.json": 2, ms.POOLS_NAME: 3},
-        "stray": {"out/units-index.ndjson.gz.0.base": 5},
-    }
-    assert ms.step_files(tmp_path, ms.expected_files(True))["stray"] == {
-        "out/manifest.json": 2,
-        "out/units-index.ndjson.gz.0.base": 5,
-    }
-
-
-def test_a_corpus_run_records_each_line_and_stops_at_the_first_that_leaves_a_stray(
-    mini_bundle, mini_corpus, monkeypatch, tmp_path, capsys
-):
-    """A corpus run records each line under the corpus holder as it finishes, and a line that leaves a file the step does not expect is recorded and then stops the run, naming the file, before any later line or the fit. A cut the run names twice has its audit file written once, flushed and settled before the first of its lines, so no meter window holds its write-back, and removed after the last. Code that moved during a line's build is warned about under that line and recorded beside the digests it started with, code that moved since the first line is warned about too, a line whose build did not read its audit as a stream is warned about, and the run removes its clones and audit files however it ends. Each line, its build and its pack child, runs with the allocator's large cache off on macOS, as the cycle's corpus-build step runs the build, and without it elsewhere."""
-    measured_names: list[str] = []
-    environments: list[dict[str, str]] = []
-    readings = iter(
-        [
-            {
-                "code": {"corpus_code": "first"},
-                "code_after": {"corpus_code": "moved"},
-                "load_source": "read as a stream",
-            },
-            {"code": {"corpus_code": "first"}, "load_source": "read in memory, since it broke"},
-            {"code": {"corpus_code": "moved"}, "load_source": "read as a stream"},
-        ]
-    )
-    audits: list[tuple[str, Path, str, bool]] = []
-    settled: list[object] = []
-    clones = tmp_path / ms.TREE_PATH / ms.CORPUS / "inputs"
-
-    def clone_inputs(root, base):
-        assert base == clones
-        base.mkdir(parents=True)
-        (base / "audit.tsv").write_text("clone")
-        return _mini_inputs(mini_bundle, mini_corpus)
-
-    def measure_corpus_line(inputs, step_dir, cut, widths, routes, audit_file, **rest):
-        measured_names.append(cut.name)
-        settled.append(cut.name)
-        environments.append(rest["env"])
-        audits.append((cut.name, audit_file.path, audit_file.kind, audit_file.path.is_file()))
-        stray = {"out/units-index.ndjson.gz.0.base": 5} if len(measured_names) == 3 else {}
-        return {
-            "written": {"end": None, "after": None},
-            "signatures_shaped": 0,
-            "files": {"kept": {}, "stray": stray},
-            **next(readings),
-        }
-
-    monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
-    monkeypatch.delenv(memory_tally.TALLY_ENV, raising=False)
-    for name in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setattr(ms, "ROOT", tmp_path)
-    monkeypatch.setattr(ms.kernel_exec, "cargo_build", lambda: None)
-    monkeypatch.setattr(ms, "clone_inputs", clone_inputs)
-    monkeypatch.setattr(ms, "check_inputs", lambda inputs: {"stage_a": {}, "corpus_generated_at": None})
-    monkeypatch.setattr(ms.spec_load, "load_spec", lambda *paths: fixtures.mini_spec())
-    monkeypatch.setattr(ms, "_head", lambda: "head")
-    monkeypatch.setattr(ms.os, "sync", lambda: settled.append("sync"))
-    monkeypatch.setattr(ms.time, "sleep", lambda seconds: settled.append(("sleep", seconds)))
-    monkeypatch.setattr(ms, "measure_corpus_line", measure_corpus_line)
-    out = tmp_path / "series.txt"
-    with pytest.raises(SystemExit, match=r"r4 left files .*out/units-index\.ndjson\.gz\.0\.base \(5 B\)"):
-        ms.main(
-            [
-                "--holder",
-                "corpus",
-                "3",
-                "3",
-                "4",
-                "load-x1",
-                "--jobs",
-                "1",
-                "--write-jobs",
-                "1",
-                "--out",
-                str(out),
-            ]
-        )
-    assert measured_names == ["r3", "r3", "r4"]
-    assert [(name, kind, present) for name, _path, kind, present in audits] == [
-        ("r3", "cut", True),
-        ("r3", "cut", True),
-        ("r4", "cut", True),
-    ]
-    assert audits[0][1] == audits[1][1] and not audits[0][1].exists()
-    settle = ["sync", ("sleep", ms.SETTLE_S)]
-    assert settled == [*settle, *settle, "r3", "r3", *settle, "r4"]
-    recorded = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
-    assert [(line["step"], line["runes"]) for line in recorded] == [
-        ("corpus", 3),
-        ("corpus", 3),
-        ("corpus", 4),
-    ]
-    assert recorded[2]["files"]["stray"] == {"out/units-index.ndjson.gz.0.base": 5}
-    assert (recorded[0]["code"]["corpus_code"], recorded[0]["code_after"]["corpus_code"]) == (
-        "first",
-        "moved",
-    )
-    assert recorded[2]["code"]["corpus_code"] == "moved" and "code_after" not in recorded[2]
-    warned = [line for line in capsys.readouterr().err.splitlines() if line.startswith("[warn]")]
-    assert warned == [
-        "[warn] r3: the checkout's corpus code or crate binary moved during the build",
-        "[warn] r3: the build did not read its audit as a stream (read in memory, since it broke)",
-        "[warn] r4: the checkout's corpus code or crate binary moved since the first line",
-    ]
-    assert not clones.parent.exists()
-    allocator = dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT) if sys.platform == "darwin" else {}
-    assert [
-        {key: env[key] for key in kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT if key in env}
-        for env in environments
-    ] == [
-        allocator,
-        allocator,
-        allocator,
-    ]
+        pytest.fail("the grandchild outlived its child")
 
 
 def test_a_run_replaces_only_its_own_holders_lines_and_fit_in_the_record(tmp_path):
-    """The record holds each holder's last run, tables first: a corpus run replaces the corpus lines and fit and keeps the table lines and fit as the file held them, and a later table run keeps the corpus run's."""
+    """The record holds each holder's last run, tables first: a replay run replaces the replay lines and fit and keeps the table lines and fit as the file held them, and a later table run keeps the replay run's."""
     path = tmp_path / "series.txt"
     tables = [
         json.dumps({"step": "tables", "runes": 45}),
@@ -1330,67 +908,37 @@ def test_a_run_replaces_only_its_own_holders_lines_and_fit_in_the_record(tmp_pat
         "whole-series fit over 1 sizes",
         "  windows ~ runes^2.00",
     ]
-    old_corpus = [
-        json.dumps({"step": "corpus", "runes": 30}),
+    old_replay = [
+        json.dumps({"step": "replay", "runes": 34}),
         "",
-        "the corpus fit needs two cuts; this run has 1",
+        "the replay fit needs two cuts; this run has 1",
     ]
-    path.write_text("".join(f"{line}\n" for line in (*old_corpus, *tables)), encoding="utf-8")
-    record = ms.Record(path, ms.CORPUS)
+    path.write_text("".join(f"{line}\n" for line in (*old_replay, *tables)), encoding="utf-8")
+    record = ms.Record(path, ms.REPLAY)
     assert path.read_text(encoding="utf-8").splitlines() == tables
-    new_corpus = [
-        json.dumps({"step": "corpus", "runes": 34}),
-        json.dumps({"step": "corpus-load", "scale": 2}),
+    new_replay = [
+        json.dumps({"step": "replay", "runes": 38}),
+        json.dumps({"step": "replay", "runes": 41}),
     ]
-    record.add(*new_corpus)
-    record.add("", "corpus fit over 1 cuts")
+    record.add(*new_replay)
+    record.add("", "replay fit over 2 lines")
     assert path.read_text(encoding="utf-8").splitlines() == [
         *tables,
-        *new_corpus,
+        *new_replay,
         "",
-        "corpus fit over 1 cuts",
+        "replay fit over 2 lines",
     ]
     ms.Record(path, ms.TABLES).add(json.dumps({"step": "tables", "runes": 34}))
     assert path.read_text(encoding="utf-8").splitlines() == [
         json.dumps({"step": "tables", "runes": 34}),
-        *new_corpus,
+        *new_replay,
         "",
-        "corpus fit over 1 cuts",
+        "replay fit over 2 lines",
     ]
 
 
-def test_the_corpus_inputs_are_refused_when_the_live_corpus_or_the_pack_is_not_built_over_the_tables(
-    mini_bundle, tmp_path
-):
-    """Inputs whose live manifest carries the Stage A record beside the tables, and whose pack is current for those tables, give the line its inputs' identity. A manifest built over another Stage A record is refused, since its signature store would miss, and so is a pack another table no longer matches, since the build would rewrite it."""
-    m1 = tmp_path / "m1"
-    m1.mkdir()
-    for config in audit.ACCEPTANCE_CONFIGS:
-        name = subset_pack.table_path(MINI, config).name
-        (m1 / name).write_bytes((MINI / name).read_bytes())
-    stage_a = {key: f"{key}-digest" for key in fingerprint.STAGE_A_COMPONENTS}
-    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": "x", **stage_a}), encoding="utf-8")
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps({"generated_at": "then", "inputs_fingerprint": stage_a}), encoding="utf-8")
-    inputs = ms.CorpusInputs.under(tmp_path)
-    inputs = ms.CorpusInputs(
-        **{**asdict(inputs), "m1": m1, "subset_pack": mini_bundle.subset_pack, "manifest": manifest}
-    )
-    assert ms.check_inputs(inputs) == {"stage_a": stage_a, "corpus_generated_at": "then"}
-    manifest.write_text(json.dumps({"inputs_fingerprint": {**stage_a, "data": "older"}}), encoding="utf-8")
-    with pytest.raises(SystemExit, match="was not built over the M1 outputs' Stage A record"):
-        ms.check_inputs(inputs)
-    manifest.write_text(json.dumps({"inputs_fingerprint": stage_a}), encoding="utf-8")
-    table = subset_pack.table_path(m1, "default")
-    table.write_bytes(gzip.compress(gzip.decompress(table.read_bytes()) + b"\n"))
-    with pytest.raises(SystemExit, match="is not current for the subset tables"):
-        ms.check_inputs(inputs)
-
-
 def test_the_holder_picks_which_lines_and_flags_a_run_takes():
-    """Rune counts name cut lines for every holder but the absorbs holder, a count named twice twice, and `load-x1` and `load-x2` name the corpus holder's load lines; the replay holder takes `--configs` and `--replay-threads`; the absorbs holder takes row counts and `live`, `1000000 live 9000000 12000000` by default, and `--paths`, every path by default. A load line under another holder, a corpus width under the table or replay holder, a table width under the corpus or replay holder, the replay's width under another holder, a width below one, an absorbs line that is neither a row count nor `live`, a path the holder does not know, `--paths` under another holder, and another holder's flag under the absorbs holder are refused."""
-    args = ms.parse_arguments(["--holder", "corpus", "30", "load-x1", "45", "--jobs", "4"])
-    assert (args.holder, args.sizes, args.loads, args.jobs) == ("corpus", [30, 45], [1], 4)
+    """Rune counts name cut lines for the table and replay holders, a count named twice twice; the replay holder takes `--configs` and `--replay-threads`; the absorbs holder takes row counts and `live`, `1000000 live 9000000 12000000` by default, and `--paths`, every path by default. A line that is not a rune count, a table width under the replay holder, the replay's width under another holder, a width below one, an absorbs line that is neither a row count nor `live`, a path the holder does not know, `--paths` under another holder, and another holder's flag under the absorbs holder are refused."""
     assert (ms.parse_arguments(["34"]).holder, ms.parse_arguments(["34"]).sizes) == ("tables", [34])
     replay = ms.parse_arguments(
         ["--holder", "replay", "45", "45", "--configs", "default", "--replay-threads", "1"]
@@ -1403,14 +951,9 @@ def test_the_holder_picks_which_lines_and_flags_a_run_takes():
     )
     for refused in (
         ["load-x1"],
-        ["--jobs", "2"],
         ["--replay-threads", "2"],
-        ["--holder", "corpus", "--kernel-threads", "2"],
-        ["--holder", "corpus", "--replay-threads", "2"],
-        ["--holder", "corpus", "load-x3"],
         ["--holder", "replay", "load-x1"],
         ["--holder", "replay", "--kernel-threads", "2"],
-        ["--holder", "replay", "--write-jobs", "2"],
         ["--holder", "replay", "--replay-threads", "0"],
         ["--holder", "absorbs", "load-x1"],
         ["--holder", "absorbs", "lively"],
@@ -1433,112 +976,3 @@ def test_the_holder_picks_which_lines_and_flags_a_run_takes():
         [1_000_000, "live", 9_000_000, 12_000_000],
         list(ms.ABSORB_PATHS),
     )
-
-
-def test_a_corpus_run_refuses_while_the_debug_tally_is_on(monkeypatch):
-    """The tally keeps alive the collections it reads, which would move every corpus reading, so a corpus run refuses before anything is built while its switch is set."""
-    monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
-    monkeypatch.setenv(memory_tally.TALLY_ENV, "1")
-    monkeypatch.setattr(ms.kernel_exec, "cargo_build", lambda: pytest.fail("the crate was built"))
-    with pytest.raises(SystemExit, match="debug tally"):
-        ms.main(["--holder", "corpus"])
-
-
-def test_a_worker_belongs_to_the_pool_whose_marks_bracket_its_first_sample():
-    """A child of the parent that runs multiprocessing's spawn entry is a worker of the pool between whose closing mark and the previous pool's the sampler first saw it, and a pool's peaks come from its last pool record. The resource tracker is no pool's and nothing else's, and every other process, a git call the parent makes beside the write pool or a crate call below a worker, is no pool's and is summed apart."""
-    spawned = "python -c from multiprocessing.spawn import spawn_main; spawn_main(pipe_handle=9) --multiprocessing-fork"
-    marks = [
-        {"label": "signatures resolved", "at_s": 2.0},
-        {"label": "units pool stopped", "at_s": 10.0},
-        {"label": "write pool stopped", "at_s": 20.0},
-    ]
-    found = [
-        ms.Descendant(11, 1, 1.5, spawned, resident=100),
-        ms.Descendant(
-            12, 1, 1.0, "python -c from multiprocessing.resource_tracker import main;main(5)", resident=7
-        ),
-        ms.Descendant(13, 1, 3.0, spawned, resident=300),
-        ms.Descendant(14, 1, 3.5, spawned, resident=500),
-        ms.Descendant(15, 2, 4.0, "", resident=900, footprint=800),
-        ms.Descendant(16, 1, 12.0, spawned, resident=40),
-        ms.Descendant(17, 1, 13.0, "git rev-parse --short HEAD", resident=6, footprint=5),
-    ]
-    records = [
-        {"unit": "corpus", "width": 2, "worker_peak_rss_bytes": {"w0": 1}, "controller_peak_rss_bytes": 9},
-        {
-            "unit": "corpus",
-            "width": 2,
-            "worker_peak_rss_bytes": {"w0": 310, "w1": 520},
-            "controller_peak_rss_bytes": 900,
-            "worker_reading": "footprint",
-        },
-    ]
-    pools = ms.corpus_pools(records, found, marks)
-    assert pools["signature"]["resident"] == [100] and pools["signature"]["width"] is None
-    assert pools["units"] == {
-        "width": 2,
-        "reading": "footprint",
-        "peaks": [310, 520],
-        "peak_median": 415,
-        "peak_top": 520,
-        "controller": 900,
-        "resident": [300, 500],
-        "resident_median": 400,
-        "resident_top": 500,
-    }
-    assert pools["write"]["resident"] == [40] and pools["write"]["peaks"] == []
-    assert ms.subprocesses(found) == {"count": 2, "resident_top": 900, "footprint_top": 800}
-
-
-def test_the_corpus_report_fits_against_units_and_rows_and_states_the_doubled_load_against_the_single():
-    """The cut lines' figures are fitted against their units and the load's and the plan's footprints against their rows, and the ×2 load line's figures are stated as ratios to the ×1 line's, at the peak and at each mark both reached."""
-
-    def marks(scale, last):
-        labels = ms.CORPUS_MARKS[: ms.CORPUS_MARKS.index(last) + 1]
-        return [{"label": label, "footprint": scale} for label in labels]
-
-    def cut(units, rows):
-        return {
-            "step": "corpus",
-            "units": units,
-            "rows": rows,
-            "peak_footprint": units * units,
-            "peak_resident": units,
-            "cpu_s": float(units),
-            "pools": {"units": {"peak_top": 7}, "write": {"peak_top": None}},
-            "fragments": {"arena_gb": units / 10},
-            "sidecar_lines_mb": [units / 100, units / 100],
-            "marks": marks(rows * rows * rows, "unit store written"),
-        }
-
-    lines = [
-        cut(100, 10),
-        cut(400, 20),
-        {"step": "corpus-load", "scale": 1, "rows": 5, "peak_footprint": 10, "marks": marks(4, ms.PLAN_MARK)},
-        {
-            "step": "corpus-load",
-            "scale": 2,
-            "rows": 10,
-            "peak_footprint": 19,
-            "marks": marks(8, ms.PLAN_MARK),
-        },
-    ]
-    report = ms.corpus_report(lines)
-    assert report[0] == "corpus fit over 2 cuts (units 100..400)"
-    fits = {text.split(" ~ ")[0].strip(): text.split(" ~ ")[1] for text in report[1:10]}
-    assert fits == {
-        "peak footprint": "units^2.00",
-        "peak resident": "units^1.00",
-        "cpu": "units^1.00",
-        "units worker top": "units^0.00",
-        "write worker top": "units^n/a",
-        "arena": "units^1.00",
-        "sidecar lines": "units^1.00",
-        "compacted footprint": "rows^3.00",
-        "plan footprint": "rows^3.00",
-    }
-    assert report[10] == "load-x2 over load-x1 (10 rows over 5)"
-    ratios = {text.rsplit(" ", 1)[0].strip(): text.rsplit(" ", 1)[1] for text in report[11:]}
-    reached = ms.CORPUS_MARKS[: ms.CORPUS_MARKS.index(ms.PLAN_MARK) + 1]
-    assert ratios == {"peak footprint": "1.90", **{f"{label} footprint": "2.00" for label in reached}}
-    assert ms.corpus_report(lines[:1] + lines[2:3]) == ["the corpus fit needs two cuts; this run has 1"]

@@ -100,25 +100,6 @@ def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
-def test_a_corpus_pool_record_calibrates_the_worker_constant():
-    """The corpus build writes its own pool records under the unit `corpus`, and only the corpus-worker row reads them. The corpus-parent row reads the `corpus-build` step peak, so the two corpus rows never share an observation."""
-    record = _pool("corpus", [6_000_000_000, 7_000_000_000], reading="footprint")
-    observed, _, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
-    assert [item.peak_bytes for item in observed] == [6_000_000_000, 7_000_000_000]
-    assert {item.source for item in observed} == {"pool"}
-    parent, _, _, _ = cb.observations(_unit("corpus-parent"), [record], {}, host=HOST, recent=20)
-    assert parent == []
-
-
-def test_a_corpus_write_pool_record_calibrates_the_write_worker_constant_only():
-    """The Python corpus build's write runs a pool of its own after the units pool has stopped, whose workers each hold one chunk of the corpus's columns at a time, so it writes its records under the unit `corpus-write`. Only the corpus-write-worker row reads them, and the corpus-worker row reads none of them."""
-    record = _pool("corpus-write", [800_000_000, 600_000_000], reading="footprint")
-    observed, _, _, _ = cb.observations(_unit("corpus-write-worker"), [record], {}, host=HOST, recent=20)
-    assert [item.peak_bytes for item in observed] == [800_000_000, 600_000_000]
-    units, _, _, _ = cb.observations(_unit("corpus-worker"), [record], {}, host=HOST, recent=20)
-    assert units == []
-
-
 def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
     """The conformance sweep and the oracle both fan out from run_m1 over the acceptance configurations, but a conformance-sweep worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
     sweep = _pool("conform-sweep", [390_000_000, 920_000_000])
@@ -192,15 +173,15 @@ def test_the_oracle_rows_split_its_pool_records_between_ranges_and_absorbs():
 
 
 def test_a_footprint_row_sets_aside_the_records_of_resident_peaks(tmp_path, capsys):
-    """The corpus-worker row reads peak footprints, and the `corpus` records under its constant also hold resident peaks, whose `worker_reading` is `resident` or, in an older record, missing. Only the `footprint` records count, set aside before the recency bound, so a resident peak over the constant neither trips the check nor takes a footprint's place in the window, and the report counts the records it set aside. A row left with none is unverified on this host."""
-    constant = CONSTANTS["corpus-worker"]
-    footprint = _pool("corpus", [constant // 2], at="2026-08-01T12:00:00Z", reading="footprint")
+    """The oracle-shard row reads peak footprints, and the `oracle-shard` records under its constant can also hold resident peaks, whose `worker_reading` is `resident` or, in an older record, missing. Only the `footprint` records count, set aside before the recency bound, so a resident peak over the constant neither trips the check nor takes a footprint's place in the window, and the report counts the records it set aside. A row left with none is unverified on this host."""
+    constant = CONSTANTS["oracle-shard"]
+    footprint = _pool("oracle-shard", [constant // 2], at="2026-08-01T12:00:00Z", reading="footprint")
     resident = [
-        _pool("corpus", [constant * 2], at="2026-08-02T12:00:00Z"),
-        _pool("corpus", [constant * 2], at="2026-08-03T12:00:00Z", reading="resident"),
+        _pool("oracle-shard", [constant * 2], at="2026-08-02T12:00:00Z"),
+        _pool("oracle-shard", [constant * 2], at="2026-08-03T12:00:00Z", reading="resident"),
     ]
     observed, _, _, set_aside = cb.observations(
-        _unit("corpus-worker"), [footprint, *resident], {}, host=HOST, recent=1
+        _unit("oracle-shard"), [footprint, *resident], {}, host=HOST, recent=1
     )
     assert [item.peak_bytes for item in observed] == [constant // 2]
     assert set_aside == 2
@@ -208,13 +189,13 @@ def test_a_footprint_row_sets_aside_the_records_of_resident_peaks(tmp_path, caps
     assert code == 0
     assert (
         "  reading   : only the pool records whose worker readings are `footprint` count; 2 records naming another line or none set aside"
-        in _block(out, "corpus-worker")
+        in _block(out, "oracle-shard")
     )
     code, out = _run(capsys, _journal(tmp_path, resident), "--check")
     assert code == 0
     assert (
         "  UNVERIFIED HERE: no record from this host for this unit has worker readings that are `footprint`,"
-        in _block(out, "corpus-worker")
+        in _block(out, "oracle-shard")
     )
 
 
@@ -281,28 +262,6 @@ def test_the_standing_fill_parent_also_reads_the_journals_plumbing_rows(tmp_path
         (8_000_000_000, "step:verdict-update"),
         (9_000_000_000, "step:verdict-update"),
     ]
-
-
-def test_the_corpus_rows_also_read_the_journals_surface_records(tmp_path):
-    """Older journal lines name the corpus-build step `surface-build` and its pool `surface`. `load_journal` and `load_pool_records` read them under the current names, so both corpus rows read them as their own records."""
-    path = _journal(
-        tmp_path,
-        [
-            _step("surface-build", 8_000_000_000, run="r1"),
-            _step("corpus-build", 9_000_000_000, run="r2"),
-            _pool("surface", [6_000_000_000], reading="footprint"),
-            _pool("corpus", [7_000_000_000], reading="footprint"),
-        ],
-    )
-    _, steps, _ = cb.load_journal(path)
-    pools = cb.load_pool_records(path)
-    parent, _, _, _ = cb.observations(_unit("corpus-parent"), pools, steps, host=HOST, recent=20)
-    assert sorted((item.peak_bytes, item.source) for item in parent) == [
-        (8_000_000_000, "step:corpus-build"),
-        (9_000_000_000, "step:corpus-build"),
-    ]
-    worker, _, _, _ = cb.observations(_unit("corpus-worker"), pools, steps, host=HOST, recent=20)
-    assert sorted(item.peak_bytes for item in worker) == [6_000_000_000, 7_000_000_000]
 
 
 def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footprint_lines(tmp_path, capsys):
@@ -604,21 +563,6 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
     assert "40.00 GB" in out
 
 
-def test_a_signature_pool_record_goes_to_the_cores_bound_row(tmp_path, capsys):
-    """The corpus build's signature pool writes records under the unit `signature`, and only the `signature-worker` row reads them. A signature worker holds only a comparator, so reading its peak as a corpus worker's would understate the corpus worker's peak. The row has no constant, so `--check` passes at any peak and the row only reports the figure."""
-    assert _unit("signature-worker").constant is None
-    readers = [unit.name for unit in cb.UNITS if "signature" in unit.pool_units]
-    assert readers == ["signature-worker"]
-    path = _journal(tmp_path, [_pool("signature", [60_000_000, 40_000_000_000])])
-    code, out = _run(capsys, path, "--check")
-    assert code == 0
-    assert "signature-worker  (no constant — deliberately unmeasured)" in out
-    assert _unit("signature-worker").note in out
-    assert "40.00 GB" in out
-    corpus_block = out.split("corpus-worker")[1].split("\n\n")[0]
-    assert "40.00 GB" not in corpus_block
-
-
 @pytest.mark.parametrize("name", ["run-m1-parent", "replay-absorb", "subset-pack"])
 def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_path, capsys, name):
     """run_m1's own process, the string replay's settle-memo absorbs and the subset pack's processes record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
@@ -632,39 +576,16 @@ def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_pa
     assert _unit(name).note in block
 
 
-def test_the_rust_units_engines_records_go_to_their_own_row_and_are_never_checked(tmp_path, capsys):
-    """A corpus build under the Rust units engine records its one engine process under `corpus-units-rs`. Only that row reads it, so the Python workers' row never takes a whole process's reading as one worker's, and the row has no constant, since one reading at one width cannot separate the process figure from the per-thread one."""
-    assert _unit("corpus-units-rs").constant is None
-    assert [unit.name for unit in cb.UNITS if "corpus-units-rs" in unit.pool_units] == ["corpus-units-rs"]
-    path = _journal(tmp_path, [_pool("corpus-units-rs", [40_000_000_000], reading="footprint")])
-    code, out = _run(capsys, path, "--check")
-    assert code == 0
-    block = out.split("corpus-units-rs  (no constant")[1].split("\n\n")[0]
-    assert "max 40.00 GB" in block
-    assert "40.00 GB" not in out.split("\ncorpus-worker  ")[1].split("\n\n")[0]
-
-
-def test_the_rust_builds_records_go_to_their_own_row_and_its_steps_leave_the_parents_row(tmp_path, capsys):
-    """A corpus build under the Rust build records its one process under `corpus-build-rs`. Only that row reads it, and the row has no constant, since one reading at one width cannot separate the process figure from the per-thread one. Its corpus-build step's peak is that process's, not the Python parent's, so the corpus-parent row leaves out a step whose `[t] review.build load` line opens with `build=rust` and keeps every other."""
+def test_the_corpus_builds_records_go_to_their_own_row_and_are_never_checked(tmp_path, capsys):
+    """The corpus build records its one process under `corpus-build-rs`. Only that row reads it, and the row has no constant, since one reading at one width cannot separate the process figure from the per-thread one, so `--check` passes at any reading and the row reports the figure."""
     assert _unit("corpus-build-rs").constant is None
     assert [unit.name for unit in cb.UNITS if "corpus-build-rs" in unit.pool_units] == ["corpus-build-rs"]
-    rust_step = _step("corpus-build", 30_000_000_000, run="r1")
-    rust_step["inner"] = [{"label": "review.build load", "elapsed_s": 23.5, "build": "rust"}]
-    python_step = _step("corpus-build", 3_000_000_000, run="r2")
-    python_step["inner"] = [{"label": "review.build load", "elapsed_s": 57.7}]
-    path = _journal(
-        tmp_path,
-        [rust_step, python_step, _pool("corpus-build-rs", [40_000_000_000], reading="footprint")],
-    )
-    _, steps, _ = cb.load_journal(path)
-    pools = cb.load_pool_records(path)
-    parent, _, _, _ = cb.observations(_unit("corpus-parent"), pools, steps, host=HOST, recent=20)
-    assert [(item.peak_bytes, item.source) for item in parent] == [(3_000_000_000, "step:corpus-build")]
+    path = _journal(tmp_path, [_pool("corpus-build-rs", [40_000_000_000], reading="footprint")])
     code, out = _run(capsys, path, "--check")
     assert code == 0
     block = out.split("corpus-build-rs  (no constant")[1].split("\n\n")[0]
     assert "max 40.00 GB" in block
-    assert "30.00 GB" not in out.split("\ncorpus-parent  ")[1].split("\n\n")[0]
+    assert _unit("corpus-build-rs").note in block
 
 
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
@@ -689,11 +610,10 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. On twelve cores the corpus-parent row's division fits six of the tree's workers, so a hand build's cap of eleven leaves memory to bind it, while a gated cycle's cap, the build lane's six cores less the parent, binds first. The conformance sweep's second width is beside the Rust corpus build, the default, whose process and launcher come to the tree's Python parent and whose threads weigh what its workers do, so on twelve cores it fits 5 threads beside 35 GB, and on six cores the gated build's process and 2 threads leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. The conformance sweep's second width is beside the corpus build at its gated width, the build lane's six cores less its main thread, whose process and launcher come to 10 GB and whose threads 5 GB each, so on twelve cores it fits 5 threads beside 35 GB, and on six cores the gated build's process and 2 threads leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
-        f"{cb.CORPUS_PARENT_NAME} = 10_000_000_000\n{cb.CORPUS_WORKER_NAME} = 5_000_000_000\n"
         f"{cb.CORPUS_BUILD_RS_PROCESS_NAME} = 8_000_000_000\n{cb.CORPUS_BUILD_RS_LAUNCHER_NAME} = 2_000_000_000\n"
         f"{cb.CORPUS_BUILD_RS_THREAD_NAME} = 5_000_000_000\n"
         f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n"
@@ -717,40 +637,6 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     )
     out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
     assert "48.00 GB total" in out
-    worker_block = out.split("\ncorpus-worker  ")[1].split("\n\n")[0]
-    worker_fits = [
-        memory_budget.describe_fit(
-            CONSTANTS["corpus-worker"], coresident_bytes=10_000_000_000, cap=cap, total_bytes=48_000_000_000
-        )
-        for cap in (11, 5)
-    ]
-    assert worker_fits[1].startswith("5 at ")
-    assert (
-        f"a hand build runs {worker_fits[0]}; a gated cycle runs {worker_fits[1]}, its cap the build lane's share of the cores less the parent"
-        in worker_block
-    )
-    write_block = out.split("\ncorpus-write-worker  ")[1].split("\n\n")[0]
-    units = [
-        memory_budget.how_many_fit(
-            5_000_000_000, coresident_bytes=10_000_000_000, cap=cap, total_bytes=48_000_000_000
-        )
-        for cap in (11, 5)
-    ]
-    room = [max(1, width * 5_000_000_000 // CONSTANTS["corpus-write-worker"]) for width in units]
-    assert (
-        f"at most {room[0]} at {cb.format_gb(CONSTANTS['corpus-write-worker'])} GB each in place of a hand build's {units[0]} units workers at 5.00 GB, and at most {room[1]} in place of a gated cycle's {units[1]} "
-        in write_block
-    )
-    parent_block = out.split("\ncorpus-parent  ")[1].split("\n\n")[0]
-    solo, gated = (
-        memory_budget.describe_fit(
-            5_000_000_000, coresident_bytes=CONSTANTS["corpus-parent"], cap=cap, total_bytes=48_000_000_000
-        )
-        for cap in (11, 5)
-    )
-    assert solo.startswith("6 at ") and solo.endswith("capped at 11")
-    assert gated.startswith("5 at ")
-    assert f"with it off, a hand build runs {solo}, and a gated cycle runs {gated}" in parent_block
     assert (
         "its delta wave runs all 3 settlement configurations at once, booked at 30.00 GB of the 40.00 GB the reserve leaves of 48.00 GB ("
         in out
@@ -770,9 +656,6 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         "the font suite takes the cores this process may run on (12) by hand and the gate lane's share (6) under a cycle whose build lane runs, not the division"
         in out
     )
-    assert (
-        "the corpus build's parent is subtracted from the machine's memory rather than divided into it" in out
-    )
     assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
     sweep_block = out.split("\nconform-sweep  ")[1].split("\n\n")[0]
     sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
@@ -780,7 +663,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert idle.endswith("capped at 12")
     assert "less 35.00 GB co-resident, capped at 6" in beside
     assert (
-        "beside the Rust corpus build, the default, its process and launcher and 5 threads; on a pass that runs gate:make-test the corpus build can be narrower"
+        "beside the corpus build, its process and launcher and 5 threads; on a pass that runs gate:make-test the corpus build can be narrower"
         in beside
     )
     oracle_block = out.split("\noracle-shard  ")[1].split("\n\n")[0]
@@ -804,7 +687,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert f"`make replay-deep` walks {deep}, one unit a crate process" in out
     land_block = out.split("\nland  ")[1].split("\n\n")[0]
     assert (
-        "it is below CORPUS_PARENT_BYTES (10.00 GB), CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES together (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)"
+        "it is below CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES together (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)"
         in land_block
     )
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
@@ -813,7 +696,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     _idle, small_beside = small_width.split(" with the build lane idle, and ")
     assert "capped at 4" in small_beside
     assert (
-        "beside the Rust corpus build, the default, its process and launcher and 2 threads; on a pass that runs gate:make-test the corpus build can be narrower"
+        "beside the corpus build, its process and launcher and 2 threads; on a pass that runs gate:make-test the corpus build can be narrower"
         in small_beside
     )
 
@@ -881,9 +764,6 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
         "font-suite": (1.0, 100_000_000),
         "kernel-build": (None, None),
         "replay-walk": (1.25, 100_000_000),
-        "corpus-parent": (1.25, 1_000_000_000),
-        "corpus-worker": (1.25, 10_000_000),
-        "corpus-write-worker": (1.25, 10_000_000),
         "oracle-shard": (1.25, 100_000_000),
         "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),

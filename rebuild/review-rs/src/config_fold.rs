@@ -1,4 +1,4 @@
-//! `feature_reach.ConfigFold.effective`: the configuration each of a unit's configurations is compared under for its text, from the fold the parent derived once (`build._config_fold`) and the init carries.
+//! `feature_reach.ConfigFold.effective`: the configuration each of a unit's configurations is compared under for its text, from the fold Python derives once and the units init carries.
 
 use std::collections::HashMap;
 

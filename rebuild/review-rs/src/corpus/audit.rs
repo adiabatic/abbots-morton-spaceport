@@ -1,36 +1,25 @@
-//! The held divergence audit's layout, as `audit.audit_layout` finds it through the descriptors the process inherits: the header checked, and each part's sections found, a plain part's by bisecting on its line starts with `pread` ([`audit_sections`], over [`line_at`], [`next_line_start`], [`last_line_start`] and [`first_line`], as `audit_stream`'s do) and a part held as gzip members from its member index ([`member_sections`], `audit._member_sections`), then sorted by rank and part ([`audit_layout`]). A member is read as `audit_stream._MemberReader` reads one, a piece at a time by position, inflated with bounded output and checked against its index at its end ([`MemberReader`], [`member_bytes`], [`check_members`]), a member that does not inflate to what its index records failing as `MemberError` with Python's text ([`AuditError`]).
-//!
-//! [`stage_audit_layout`] is the `audit-layout` stage of the stage fixtures.
+//! The held divergence audit's layout, found through the descriptors the process inherits: the header checked, and each part's sections found, a plain part's by bisecting on its line starts with `pread` ([`audit_sections`], over [`line_at`], [`next_line_start`], [`last_line_start`] and [`first_line`]) and a part held as gzip members from its member index ([`member_sections`]), then sorted by rank and part ([`audit_layout`]). A member is read a piece at a time by position, inflated with bounded output and checked against its index at its end ([`MemberReader`], [`member_bytes`], [`check_members`]), and a member that does not inflate to what its index records fails as `MemberError` ([`AuditError`]).
 
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io;
 use std::os::unix::fs::FileExt;
-use std::path::Path;
-
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 
 use crate::corpus::gzip::Decompressor;
 use crate::corpus::input::{BuildInput, Member};
-use crate::fragment::sha256_hex;
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr_str;
 use crate::wire::{Result, WireError, error};
 
-/// What a cursor reads of a base section at a time, plain or inflated (`audit_stream.READ_BYTES`).
+/// What a cursor reads of a base section at a time, plain or inflated.
 pub const READ_BYTES: usize = 1 << 20;
-/// The share of its read a member reader reads compressed at a time (`audit_stream.PIECE_SHARE`).
+/// The share of its read a member reader reads compressed at a time.
 pub const PIECE_SHARE: usize = 16;
-/// What a line probe reads at a time (`audit_stream.PROBE_BYTES`).
+/// What a line probe reads at a time.
 pub const PROBE_BYTES: usize = 4096;
-/// The stage's directory, beside its stage file, of the audit parts its generated lines name by sha256.
-pub const STAGE_BLOBS: &str = "audit-layout.blobs";
-/// The key of the stage's line for the build's own call.
-pub const LAYOUT_KEY: &str = "layout";
 
 const GZIP_WINDOW: i32 = 31;
 
-/// One configuration's rows in one part (`audit_stream.Section`): its configuration and rank, the byte range `[start, end)` of its lines on disk (a member's bytes for a section held as one), its part, and, for a section held as a gzip member, the member's inflated bytes.
+/// One configuration's rows in one part: its configuration and rank, the byte range `[start, end)` of its lines on disk (a member's bytes for a section held as one), its part, and, for a section held as a gzip member, the member's inflated bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Section {
     pub config: String,
@@ -41,27 +30,7 @@ pub struct Section {
     pub inflated: Option<i64>,
 }
 
-impl Section {
-    /// The section as Python holds it, an `audit_stream.Section`.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Record(
-            "Section".into(),
-            vec![
-                ("config".into(), PyValue::str(&self.config)),
-                ("rank".into(), PyValue::Int(self.rank)),
-                ("start".into(), PyValue::Int(self.start)),
-                ("end".into(), PyValue::Int(self.end)),
-                ("part".into(), PyValue::Int(self.part as i64)),
-                (
-                    "inflated".into(),
-                    self.inflated.map_or(PyValue::None, PyValue::Int),
-                ),
-            ],
-        )
-    }
-}
-
-/// What reading the audit's layout raises, by the Python class it mirrors: the in-memory source's `ValueError` for an audit with no header or another header, `audit_stream.MemberError` for a member that does not inflate to what its index records, and an `OSError` from a read.
+/// What reading the audit's layout raises, by the Python exception class its text names: a `ValueError` for an audit with no header or another header, a `MemberError` for a member that does not inflate to what its index records, and an `OSError` from a read.
 #[derive(Debug)]
 pub enum AuditError {
     Value(String),
@@ -98,7 +67,7 @@ impl From<io::Error> for AuditError {
     }
 }
 
-/// What `audit_layout` finds (`audit.AuditLayout`): the sections across the parts, sorted by rank and then part, or None and why the audit is not in sorted sections, beside the byte the base's rows start at.
+/// What `audit_layout` finds: the sections across the parts, sorted by rank and then part, or None and why the audit is not in sorted sections, beside the byte the base's rows start at.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuditLayout {
     pub sections: Option<Vec<Section>>,
@@ -106,26 +75,7 @@ pub struct AuditLayout {
     pub rows_start: i64,
 }
 
-impl AuditLayout {
-    /// The layout as Python holds it, an `audit.AuditLayout` whose sections are a list.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Record(
-            "AuditLayout".into(),
-            vec![
-                (
-                    "sections".into(),
-                    self.sections.as_ref().map_or(PyValue::None, |sections| {
-                        PyValue::List(sections.iter().map(Section::to_py).collect())
-                    }),
-                ),
-                ("why".into(), PyValue::str(&self.why)),
-                ("rows_start".into(), PyValue::Int(self.rows_start)),
-            ],
-        )
-    }
-}
-
-/// The vocabulary the layout reads: the acceptance configurations, whose order ranks a section (`audit._config_index`), and the audit's header fields (`audit.AUDIT_HEADER`).
+/// The vocabulary the layout reads: the acceptance configurations, whose order ranks a section, and the audit's header fields (`audit.AUDIT_HEADER`).
 #[derive(Clone, Debug)]
 pub struct Vocabulary {
     pub configs: Vec<String>,
@@ -152,7 +102,7 @@ impl Vocabulary {
         })
     }
 
-    /// A configuration's rank (`audit._config_index`): its place among the acceptance configurations, or one past them for any other.
+    /// A configuration's rank: its place among the acceptance configurations, or one past them for any other.
     pub fn rank(&self, config: &str) -> i64 {
         self.configs
             .iter()
@@ -191,7 +141,7 @@ fn probe(start: i64, end: i64) -> i64 {
     (PROBE_BYTES as i64).min(end - start)
 }
 
-/// The first line start at or after `offset` and before `end`, or `end`; `lower` is a line start at or before `offset` (`audit_stream.next_line_start`).
+/// The first line start at or after `offset` and before `end`, or `end`; `lower` is a line start at or before `offset`.
 pub fn next_line_start(file: &File, offset: i64, lower: i64, end: i64) -> io::Result<i64> {
     if offset <= lower {
         return Ok(lower);
@@ -210,7 +160,7 @@ pub fn next_line_start(file: &File, offset: i64, lower: i64, end: i64) -> io::Re
     Ok(end)
 }
 
-/// The line that starts at `start`, without its newline, and the start of the line after it, reading no further than `end` (`audit_stream.line_at`).
+/// The line that starts at `start`, without its newline, and the start of the line after it, reading no further than `end`.
 pub fn line_at(file: &File, start: i64, end: i64) -> io::Result<(Vec<u8>, i64)> {
     let mut line = Vec::new();
     let mut position = start;
@@ -229,7 +179,7 @@ pub fn line_at(file: &File, start: i64, end: i64) -> io::Result<(Vec<u8>, i64)> 
     Ok((line, end))
 }
 
-/// The start of the last line that ends at or before `end`, reading back no further than `lower`, a line start (`audit_stream.last_line_start`).
+/// The start of the last line that ends at or before `end`, reading back no further than `lower`, a line start.
 pub fn last_line_start(file: &File, lower: i64, end: i64) -> io::Result<i64> {
     let mut position = end - 1;
     while position > lower {
@@ -271,7 +221,7 @@ pub fn first_line(
     Ok(low)
 }
 
-/// A line's field `index` between tabs, its invalid UTF-8 replaced, or `""` when the line has fewer fields (`audit_stream._field`).
+/// A line's field `index` between tabs, its invalid UTF-8 replaced, or `""` when the line has fewer fields.
 pub fn field(line: &[u8], index: usize) -> String {
     line.split(|&byte| byte == b'\t')
         .nth(index)
@@ -279,7 +229,7 @@ pub fn field(line: &[u8], index: usize) -> String {
         .unwrap_or_default()
 }
 
-/// The sections of one plain part from byte `start`, the first line after its header, to `end`, or why the part is not in sections (`audit_stream.audit_sections`). A segment's line (`part` above 0) holds its configuration one field later than a row's.
+/// The sections of one plain part from byte `start`, the first line after its header, to `end`, or why the part is not in sections. A segment's line (`part` above 0) holds its configuration one field later than a row's.
 pub fn audit_sections(
     file: &File,
     start: i64,
@@ -331,7 +281,7 @@ pub fn audit_sections(
     Ok(Ok(sections))
 }
 
-/// The sections of a part held as gzip members, one a member after its header's, from its index, or why the part is not in sections (`audit._member_sections`).
+/// The sections of a part held as gzip members, one a member after its header's, from its index, or why the part is not in sections.
 pub fn member_sections(
     members: &[Member],
     part: usize,
@@ -378,7 +328,7 @@ fn member_failure(section: &Section, why: &str) -> AuditError {
     ))
 }
 
-/// The inflated bytes of a section's gzip member from its start, at most `read_bytes` a call, read by `pread` a [`PIECE_SHARE`] of `read_bytes` at a time and inflated with gzip framing; a call at the member's end gives nothing (`audit_stream._MemberReader`). Read to its end, the member is checked against its section, and one that fails to inflate, whose stream ends before the section's end or runs past it, or that inflates past or short of its recorded bytes fails as [`AuditError::Member`].
+/// The inflated bytes of a section's gzip member from its start, at most `read_bytes` a call, read by `pread` a [`PIECE_SHARE`] of `read_bytes` at a time and inflated with gzip framing; a call at the member's end gives nothing. Read to its end, the member is checked against its section, and one that fails to inflate, whose stream ends before the section's end or runs past it, or that inflates past or short of its recorded bytes fails as [`AuditError::Member`].
 pub struct MemberReader<'a> {
     file: &'a File,
     section: Section,
@@ -485,7 +435,7 @@ impl<'a> MemberReader<'a> {
     }
 }
 
-/// A small member's whole inflated bytes, checked as [`MemberReader`] checks a member it reads to its end (`audit_stream.member_bytes`).
+/// A small member's whole inflated bytes, checked as [`MemberReader`] checks a member it reads to its end.
 pub fn member_bytes(file: &File, section: &Section) -> std::result::Result<Vec<u8>, AuditError> {
     let mut reader = MemberReader::new(file, section, READ_BYTES)
         .map_err(|failure| AuditError::Value(failure.0))?;
@@ -499,7 +449,7 @@ pub fn member_bytes(file: &File, section: &Section) -> std::result::Result<Vec<u
     }
 }
 
-/// Inflate every section held as a gzip member to its end, discarding what it gives, so a member that does not inflate to what its index records fails (`audit_stream._check_members`).
+/// Inflate every section held as a gzip member to its end, discarding what it gives, so a member that does not inflate to what its index records fails.
 pub fn check_members(files: &[File], sections: &[Section]) -> std::result::Result<(), AuditError> {
     for section in sections {
         if section.inflated.is_some() {
@@ -519,7 +469,7 @@ fn header_repr(fields: &[&str]) -> String {
     format!("[{}]", shown.join(", "))
 }
 
-/// Check the audit's header through its base and find the sections of the base and of each segment, sorted by rank and then part, or why it has none, as `audit.audit_layout` does: an empty base or another header fails as `ValueError` with `path` in its text, a header that is not UTF-8 or holds a carriage return is why, and so are sections out of rank order in any part. `members` gives each part's member index, aligned with `files`, None for a plain part; a base held as members has its header member inflated for the check, a member that fails it failing as `MemberError`.
+/// Check the audit's header through its base and find the sections of the base and of each segment, sorted by rank and then part, or why it has none: an empty base or another header fails as `ValueError` with `path` in its text, a header that is not UTF-8 or holds a carriage return is why, and so are sections out of rank order in any part. `members` gives each part's member index, aligned with `files`, None for a plain part; a base held as members has its header member inflated for the check, a member that fails it failing as `MemberError`.
 pub fn audit_layout(
     files: &[File],
     path: &str,
@@ -613,153 +563,11 @@ pub fn audit_layout(
     })
 }
 
-pub(crate) fn stage_line(out: &mut impl Write, key: &str, value: &PyValue) -> Result<()> {
-    writeln!(
-        out,
-        "{{\"key\":{},\"value\":{}}}",
-        json_string(key),
-        value.to_typed()
-    )
-    .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
-}
-
-pub(crate) fn items<'a>(value: &'a PyValue, what: &str) -> Result<&'a [PyValue]> {
-    match value {
-        PyValue::Tuple(items) | PyValue::List(items) => Ok(items),
-        other => error(format!("{what} is {}, not a tuple", other.kind())),
-    }
-}
-
-pub(crate) fn text<'a>(value: &'a PyValue, what: &str) -> Result<&'a str> {
-    match value {
-        PyValue::Str(text) => Ok(text),
-        other => error(format!("{what} is {}, not a str", other.kind())),
-    }
-}
-
 pub(crate) fn integer(value: &PyValue, what: &str) -> Result<i64> {
     match value {
         PyValue::Int(number) => Ok(*number),
         other => error(format!("{what} is {}, not an int", other.kind())),
     }
-}
-
-/// An audit's parts opened, base first, beside each one's member index or None.
-pub(crate) type HeldParts = (Vec<File>, Vec<Option<Vec<Member>>>);
-
-/// The parts a generated line names, each a blob's sha256 with its member index or None, base first: each blob opened from `blobs`, checked against its name, beside its member index.
-pub(crate) fn generated_parts(parts: &PyValue, blobs: &Path) -> Result<HeldParts> {
-    let mut files = Vec::new();
-    let mut indexes = Vec::new();
-    for part in items(parts, "the parts")? {
-        let [digest, index] = items(part, "a part")? else {
-            return error("a part is not a blob and its member index");
-        };
-        let digest = text(digest, "a part's blob")?;
-        let blob = blobs.join(digest);
-        let bytes = std::fs::read(&blob)
-            .map_err(|failure| WireError(format!("cannot read {}: {failure}", blob.display())))?;
-        if sha256_hex(&bytes) != digest {
-            return error(format!(
-                "{} does not hold the bytes it is named for",
-                blob.display()
-            ));
-        }
-        files.push(
-            File::open(&blob).map_err(|failure| {
-                WireError(format!("cannot open {}: {failure}", blob.display()))
-            })?,
-        );
-        indexes.push(match index {
-            PyValue::None => None,
-            index => Some(
-                items(index, "a member index")?
-                    .iter()
-                    .map(|member| {
-                        let [section, length, inflated] = items(member, "a member")? else {
-                            return error("a member is not a section and two lengths");
-                        };
-                        Ok(Member {
-                            section: text(section, "a member's section")?.to_owned(),
-                            length: integer(length, "a member's length")?,
-                            inflated: integer(inflated, "a member's inflated length")?,
-                        })
-                    })
-                    .collect::<Result<Vec<Member>>>()?,
-            ),
-        });
-    }
-    Ok((files, indexes))
-}
-
-/// A generated line's audit: the path its messages name, and each part's blob, opened, with its member index or None.
-struct GeneratedAudit {
-    path: String,
-    files: Vec<File>,
-    indexes: Vec<Option<Vec<Member>>>,
-}
-
-/// The audit a generated line's input names, its parts' blobs opened from `blobs`.
-fn generated_audit(input: &PyValue, blobs: &Path) -> Result<GeneratedAudit> {
-    let [path, parts] = items(input, "the input")? else {
-        return error("the input is not a path and parts");
-    };
-    let (files, indexes) = generated_parts(parts, blobs)?;
-    Ok(GeneratedAudit {
-        path: text(path, "the audit's path")?.to_owned(),
-        files,
-        indexes,
-    })
-}
-
-/// The `audit-layout` stage: answer the line under [`LAYOUT_KEY`] with the layout of the audit the build input names, read through the descriptors the process inherits, and every generated line with the layout of the parts it names in the `audit-layout.blobs` directory beside `stage_file`, `("raised", class, message)` for a `ValueError` or a `MemberError`; each as Python holds it (`audit.AuditLayout`).
-pub fn stage_audit_layout(
-    input_path: &Path,
-    stage_file: &Path,
-    out: &mut impl Write,
-) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let vocabulary = Vocabulary::of(&input)?;
-    let blobs = stage_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(STAGE_BLOBS);
-    let file = File::open(stage_file)
-        .map_err(|failure| WireError(format!("cannot read {}: {failure}", stage_file.display())))?;
-    for line in BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            WireError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let value = if key == LAYOUT_KEY {
-            let files = input.held_audit()?;
-            audit_layout(&files, &input.audit.path, &input.audit.members, &vocabulary)
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?
-                .to_py()
-        } else {
-            let held = PyValue::from_typed(&record["input"])
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-            let audit = generated_audit(&held, &blobs)
-                .map_err(|failure| WireError(format!("{key}: {}", failure.0)))?;
-            match audit_layout(&audit.files, &audit.path, &audit.indexes, &vocabulary) {
-                Ok(layout) => layout.to_py(),
-                Err(AuditError::Os(failure)) => {
-                    return error(format!("{key}: cannot read the audit: {failure}"));
-                }
-                Err(failure) => PyValue::Tuple(vec![
-                    PyValue::str("raised"),
-                    PyValue::str(failure.class()),
-                    PyValue::str(failure.message()),
-                ]),
-            }
-        };
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

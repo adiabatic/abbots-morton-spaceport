@@ -1,12 +1,8 @@
-//! The build input, `ams-review-build/1` (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § The build input), with `rebuild/review/corpus_exec.py` as its Python half: every value `build._rust_inputs` computes for one build, read as strictly as [`crate::wire`] reads the units init ([`BuildInput`]), and the audit's parts the process reads through the descriptors it inherits ([`BuildInput::held_audit`]). Rust computes none of these values; every stamp, digest and path is Python's.
-//!
-//! [`stage_build_input`] is the `build-input` stage of the stage fixtures: it writes each value back as the Python value `_rust_inputs` holds, in the typed encoding, and the size of each held audit part.
+//! The build input, `ams-review-build/1`, which `corpus_exec.write_input` writes (`doc/rebuild-design.md` §14.2): every value Python computes for one build, read as strictly as [`crate::wire`] reads the units init ([`BuildInput`]), and the audit's parts the process reads through the descriptors it inherits ([`BuildInput::held_audit`]). Rust computes none of these values; every stamp, digest and path is Python's.
 
 use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
 use serde_json::{Map, Value};
 
 use crate::pyfmt::PyValue;
@@ -96,7 +92,7 @@ pub struct Member {
     pub inflated: i64,
 }
 
-/// The audit as the Python build holds it (`audit.AuditParts`): its path, for messages; the descriptors the process inherits, base first, or None in an input no process inherits; the head document Python read, or None for a single file; each part's member index, None for a plain part; the identity the signature store records (`unit_cache.audit_identity`); and the segment rows and the parts held as members, for the load's note.
+/// The held audit: its path, for messages; the descriptors the process inherits, base first, or None in an input no process inherits; the head document Python read, or None for a single file; each part's member index, None for a plain part; the identity the signature store records; and the segment rows and the parts held as members, for the load's note.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AuditInput {
     pub path: String,
@@ -149,7 +145,7 @@ pub struct FontRecord {
     pub upem: i64,
 }
 
-/// The manifest's values Python computes before the build (`_write_corpus`'s literal, but for what the build itself counts and orders).
+/// The manifest's values Python computes before the build: every field but what the build itself counts and orders.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ManifestInput {
     pub generated_at: String,
@@ -189,7 +185,7 @@ pub struct Widths {
     pub write_threads: Option<i64>,
 }
 
-/// What the Python build reads from the environment: the cycle's run, the file that holds a cycle's fold claim, and the output-counts file.
+/// What Python reads from the environment for the build: the cycle's run, the file that holds a cycle's fold claim, and the output-counts file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cycle {
     pub run: Option<String>,
@@ -286,28 +282,6 @@ pub(crate) fn json_map_py(map: &Map<String, Value>) -> Result<PyValue> {
     json_py(&Value::Object(map.clone()))
 }
 
-fn entries(items: Vec<(&str, PyValue)>) -> PyValue {
-    PyValue::Dict(
-        items
-            .into_iter()
-            .map(|(key, value)| (PyValue::str(key), value))
-            .collect(),
-    )
-}
-
-fn str_dict(pairs: &[(String, String)]) -> PyValue {
-    PyValue::Dict(
-        pairs
-            .iter()
-            .map(|(key, value)| (PyValue::str(key), PyValue::str(value)))
-            .collect(),
-    )
-}
-
-fn optional_int(value: Option<i64>) -> PyValue {
-    value.map_or(PyValue::None, PyValue::Int)
-}
-
 impl BuildInput {
     /// Read the build input at `path`.
     pub fn read(path: &Path) -> Result<Self> {
@@ -320,7 +294,7 @@ impl BuildInput {
         Self::parse(&text)
     }
 
-    /// Parse a build input's text, refusing another format, an object with a missing, an extra or a mistyped field, and an input that lacks a [`VOCABULARY`] name. Every value is checked here, so [`BuildInput::to_py`] cannot fail.
+    /// Parse a build input's text, refusing another format, an object with a missing, an extra or a mistyped field, and an input that lacks a [`VOCABULARY`] name. Every value is checked here.
     pub fn parse(text: &str) -> Result<Self> {
         let value: Value = serde_json::from_str(text)
             .map_err(|failure| WireError(format!("the build input is not JSON: {failure}")))?;
@@ -709,360 +683,6 @@ impl BuildInput {
         crate::ffi::inherited_files(descriptors)
             .map_err(|failure| WireError(format!("the audit {}: {failure}", self.audit.path)))
     }
-
-    /// Each field's value as Python holds it in the dict `build._rust_inputs` returns, by field, in [`INPUT_FIELDS`] order; the audit's descriptors, which that dict does not hold, are left out.
-    pub fn to_py(&self) -> Vec<(&'static str, PyValue)> {
-        let checked = "the parse checked every JSON value";
-        let audit = &self.audit;
-        let manifest = &self.manifest;
-        vec![
-            ("format", PyValue::str(INPUT_FORMAT)),
-            ("units_init", PyValue::str(&self.units_init)),
-            ("out_dir", PyValue::str(&self.out_dir)),
-            ("scratch", PyValue::str(&self.scratch)),
-            (
-                "audit",
-                entries(vec![
-                    ("path", PyValue::str(&audit.path)),
-                    (
-                        "head",
-                        audit
-                            .head
-                            .as_ref()
-                            .map_or(PyValue::None, |head| json_map_py(head).expect(checked)),
-                    ),
-                    (
-                        "members",
-                        PyValue::Tuple(
-                            audit
-                                .members
-                                .iter()
-                                .map(|members| {
-                                    members.as_ref().map_or(PyValue::None, |members| {
-                                        PyValue::Tuple(
-                                            members
-                                                .iter()
-                                                .map(|member| {
-                                                    PyValue::Record(
-                                                        "Member".into(),
-                                                        vec![
-                                                            (
-                                                                "section".into(),
-                                                                PyValue::str(&member.section),
-                                                            ),
-                                                            (
-                                                                "length".into(),
-                                                                PyValue::Int(member.length),
-                                                            ),
-                                                            (
-                                                                "inflated".into(),
-                                                                PyValue::Int(member.inflated),
-                                                            ),
-                                                        ],
-                                                    )
-                                                })
-                                                .collect(),
-                                        )
-                                    })
-                                })
-                                .collect(),
-                        ),
-                    ),
-                    (
-                        "identity",
-                        PyValue::List(audit.identity.iter().copied().map(PyValue::Int).collect()),
-                    ),
-                    ("segment_rows", PyValue::Int(audit.segment_rows)),
-                    ("compressed", PyValue::Int(audit.compressed)),
-                ]),
-            ),
-            (
-                "ledger",
-                entries(vec![
-                    ("path", PyValue::str(&self.ledger_path)),
-                    (
-                        "entries",
-                        PyValue::List(self.ledger.iter().map(LedgerEntry::to_py).collect()),
-                    ),
-                ]),
-            ),
-            (
-                "family_of",
-                PyValue::Dict(
-                    self.family_of
-                        .iter()
-                        .map(|(codepoint, family)| (PyValue::Int(*codepoint), PyValue::str(family)))
-                        .collect(),
-                ),
-            ),
-            ("family_keys", str_dict(&self.family_keys)),
-            ("family_keys_digest", PyValue::str(&self.family_keys_digest)),
-            (
-                "change_groups",
-                entries(vec![
-                    ("order", PyValue::str_tuple(&self.group_order)),
-                    (
-                        "prose",
-                        PyValue::Dict(
-                            self.group_prose
-                                .iter()
-                                .map(|(group, prose)| {
-                                    (
-                                        PyValue::str(group),
-                                        PyValue::Record(
-                                            "ChangeGroupProse".into(),
-                                            vec![
-                                                ("title".into(), PyValue::str(&prose.title)),
-                                                ("summary".into(), PyValue::str(&prose.summary)),
-                                                ("why".into(), PyValue::str(&prose.why)),
-                                            ],
-                                        ),
-                                    )
-                                })
-                                .collect(),
-                        ),
-                    ),
-                ]),
-            ),
-            ("environment", self.environment.to_py()),
-            ("signature_environment", self.signature_environment.to_py()),
-            (
-                "manifest",
-                entries(vec![
-                    ("generated_at", PyValue::str(&manifest.generated_at)),
-                    ("repo_head", PyValue::str(&manifest.repo_head)),
-                    (
-                        "inputs_fingerprint",
-                        json_map_py(&manifest.inputs_fingerprint).expect(checked),
-                    ),
-                    (
-                        "source",
-                        entries(vec![
-                            ("audit", PyValue::str(&manifest.source_audit)),
-                            ("ledger", PyValue::str(&manifest.source_ledger)),
-                        ]),
-                    ),
-                    (
-                        "fonts",
-                        PyValue::Dict(
-                            manifest
-                                .fonts
-                                .iter()
-                                .map(|(side, record)| {
-                                    (
-                                        PyValue::str(side),
-                                        entries(vec![
-                                            ("file", PyValue::str(&record.file)),
-                                            ("family", PyValue::str(&record.family)),
-                                            ("source", PyValue::str(&record.source)),
-                                            ("sha256", PyValue::str(&record.sha256)),
-                                            ("upem", PyValue::Int(record.upem)),
-                                        ]),
-                                    )
-                                })
-                                .collect(),
-                        ),
-                    ),
-                    (
-                        "alphabet",
-                        entries(vec![
-                            ("migrated", PyValue::Int(manifest.migrated)),
-                            ("total", PyValue::Int(manifest.total)),
-                        ]),
-                    ),
-                    (
-                        "configs",
-                        PyValue::List(manifest.configs.iter().map(PyValue::str).collect()),
-                    ),
-                    (
-                        "feature_descriptions",
-                        str_dict(&manifest.feature_descriptions),
-                    ),
-                    ("batch_size", PyValue::Int(manifest.batch_size)),
-                    (
-                        "junior_font",
-                        entries(vec![
-                            ("source", PyValue::str(&manifest.junior_source)),
-                            ("sha256", PyValue::str(&manifest.junior_sha256)),
-                        ]),
-                    ),
-                    (
-                        "verification_methods",
-                        str_dict(&manifest.verification_methods),
-                    ),
-                    ("build_command", PyValue::str(&manifest.build_command)),
-                    ("serve_command", PyValue::str(&manifest.serve_command)),
-                ]),
-            ),
-            (
-                "fonts",
-                PyValue::Dict(
-                    self.fonts
-                        .iter()
-                        .map(|(side, copy)| {
-                            (
-                                PyValue::str(side),
-                                entries(vec![
-                                    ("source", PyValue::str(&copy.source)),
-                                    ("name", PyValue::str(&copy.name)),
-                                    ("family", PyValue::str(&copy.family)),
-                                    ("sha256", PyValue::str(&copy.sha256)),
-                                ]),
-                            )
-                        })
-                        .collect(),
-                ),
-            ),
-            (
-                "static",
-                entries(vec![
-                    (
-                        "files",
-                        PyValue::List(
-                            self.static_files
-                                .iter()
-                                .map(|(relative, source)| {
-                                    PyValue::Tuple(vec![
-                                        PyValue::str(relative),
-                                        PyValue::str(source),
-                                    ])
-                                })
-                                .collect(),
-                        ),
-                    ),
-                    ("fallback_index", PyValue::str(&self.fallback_index)),
-                ]),
-            ),
-            ("repo_root", PyValue::str(&self.repo_root)),
-            ("recompute_all", PyValue::Bool(self.recompute_all)),
-            (
-                "widths",
-                entries(vec![
-                    ("threads", PyValue::Int(self.widths.threads)),
-                    (
-                        "gates_idle_threads",
-                        optional_int(self.widths.gates_idle_threads),
-                    ),
-                    (
-                        "gates_idle_marker",
-                        PyValue::optional_str(self.widths.gates_idle_marker.as_deref()),
-                    ),
-                    (
-                        "signature_threads",
-                        PyValue::Int(self.widths.signature_threads),
-                    ),
-                    ("write_threads", optional_int(self.widths.write_threads)),
-                ]),
-            ),
-            (
-                "cycle",
-                entries(vec![
-                    ("run", PyValue::optional_str(self.cycle.run.as_deref())),
-                    ("fold_claim", PyValue::str(&self.cycle.fold_claim)),
-                    (
-                        "counts",
-                        PyValue::optional_str(self.cycle.counts.as_deref()),
-                    ),
-                ]),
-            ),
-            (
-                "vocabulary",
-                PyValue::Dict(
-                    self.vocabulary
-                        .iter()
-                        .map(|(name, value)| (PyValue::str(name), value.clone()))
-                        .collect(),
-                ),
-            ),
-        ]
-    }
-}
-
-impl LedgerEntry {
-    /// The entry as `audit.LedgerClass`, its exemplar keys a frozenset of `(config, codepoints)` tuples.
-    pub fn to_py(&self) -> PyValue {
-        PyValue::Record(
-            "LedgerClass".into(),
-            vec![
-                ("id".into(), PyValue::str(&self.id)),
-                ("status".into(), PyValue::str(&self.status)),
-                ("why".into(), PyValue::str(&self.why)),
-                ("ink_identical".into(), PyValue::Bool(self.ink_identical)),
-                ("no_verdict".into(), PyValue::Bool(self.no_verdict)),
-                (
-                    "exemplar_keys".into(),
-                    PyValue::Set(
-                        self.exemplar_keys
-                            .iter()
-                            .map(|(config, codepoints)| {
-                                PyValue::Tuple(vec![PyValue::str(config), PyValue::str(codepoints)])
-                            })
-                            .collect(),
-                    ),
-                ),
-                ("title".into(), PyValue::str(&self.title)),
-                ("summary".into(), PyValue::str(&self.summary)),
-                ("note".into(), PyValue::str(&self.note)),
-            ],
-        )
-    }
-}
-
-impl Stamp {
-    /// The stamp as `build._stamp_values` gives it: its lines and detail as tuples, its header as the dict `unit_cache._stamp_header` returns.
-    pub fn to_py(&self) -> PyValue {
-        entries(vec![
-            ("value", PyValue::str(&self.value)),
-            ("lines", PyValue::str_tuple(&self.lines)),
-            (
-                "detail",
-                PyValue::Tuple(
-                    self.detail
-                        .iter()
-                        .map(|(label, lines)| {
-                            PyValue::Tuple(vec![PyValue::str(label), PyValue::str_tuple(lines)])
-                        })
-                        .collect(),
-                ),
-            ),
-            (
-                "header",
-                json_map_py(&self.header).expect("the parse checked the header"),
-            ),
-        ])
-    }
-}
-
-fn stage_line(out: &mut impl Write, key: &str, value: &PyValue) -> Result<()> {
-    writeln!(
-        out,
-        "{{\"key\":{},\"value\":{}}}",
-        json_string(key),
-        value.to_typed()
-    )
-    .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
-}
-
-/// The `build-input` stage: read the build input at `input_path`, and write each field's value as Python holds it under `input:<field>` ([`BuildInput::to_py`]), then the size of each audit part, read through the inherited descriptors, under `audit.held`, as a tuple of ints.
-pub fn stage_build_input(input_path: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    for (field, value) in input.to_py() {
-        stage_line(out, &format!("input:{field}"), &value)?;
-    }
-    let sizes = input
-        .held_audit()?
-        .iter()
-        .map(|part| {
-            let size = part
-                .metadata()
-                .map_err(|failure| WireError(format!("cannot stat an audit part: {failure}")))?
-                .len();
-            i64::try_from(size)
-                .map(PyValue::Int)
-                .map_err(|_| WireError(format!("an audit part's size {size} outruns an int")))
-        })
-        .collect::<Result<_>>()?;
-    stage_line(out, "audit.held", &PyValue::Tuple(sizes))
 }
 
 #[cfg(test)]
@@ -1102,40 +722,10 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn an_input_reads_back_as_the_values_python_holds() {
+    fn an_input_reads_its_audit_members_and_vocabulary() {
         let input = BuildInput::parse(&input_text(&vocabulary())).expect("input");
         assert_eq!(input.audit.members[1].as_ref().map(Vec::len), Some(2));
         assert_eq!(input.constant(VOCABULARY[0]), Some(&PyValue::Int(1)));
-        let values = input.to_py();
-        assert_eq!(
-            values.iter().map(|(field, _)| *field).collect::<Vec<_>>(),
-            INPUT_FIELDS
-        );
-        let text = |field: &str| {
-            values
-                .iter()
-                .find(|(name, _)| *name == field)
-                .expect("field")
-                .1
-                .to_typed()
-        };
-        assert_eq!(
-            text("audit"),
-            r#"{"dict":[["path","audit.tsv"],["head",null],["members",{"tuple":[null,{"tuple":[{"record":["Member",[["section",""],["length",10],["inflated",20]]]},{"record":["Member",[["section","default"],["length",5],["inflated",9]]]}]}]}],["identity",{"list":[1,2,3,4]}],["segment_rows",0],["compressed",1]]}"#
-        );
-        assert_eq!(
-            text("ledger"),
-            r#"{"dict":[["path","l.yaml"],["entries",{"list":[{"record":["LedgerClass",[["id","a"],["status","per-unit"],["why","w"],["ink_identical",true],["no_verdict",false],["exemplar_keys",{"set":[{"tuple":["default","E650"]}]}],["title","t"],["summary","s"],["note",""]]]}]}]]}"#
-        );
-        assert_eq!(text("family_of"), r#"{"dict":[[58960,"qsPea"]]}"#);
-        assert_eq!(
-            text("environment"),
-            r#"{"dict":[["value","v"],["lines",{"tuple":["format\tf","code\tc"]}],["detail",{"tuple":[{"tuple":["code",{"tuple":["a.py\td"]}]}]}],["header",{"dict":[["environment","v"],["environment_lines",{"list":["format\tf"]}],["environment_detail",{"dict":[["code",{"list":["a.py\td"]}]]}]]}]]}"#
-        );
-        assert_eq!(
-            text("widths"),
-            r#"{"dict":[["threads",4],["gates_idle_threads",null],["gates_idle_marker",null],["signature_threads",2],["write_threads",1]]}"#
-        );
     }
 
     #[test]

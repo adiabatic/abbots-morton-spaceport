@@ -1,18 +1,10 @@
-//! CPython's `random.Random` as `build._verification_sample` calls it, draw for draw: seeded with a string at version 2 (`Random.seed`: the string's UTF-8 bytes followed by their sha512, read as one big-endian integer whose 32-bit words, least significant first, go to MT19937's `init_by_array`), with `getrandbits`, `_randbelow_with_getrandbits` and both branches of `sample`, whose choice between them turns on `setsize` from `math.log` as CPython computes it (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Byte-identity hazards).
-//!
-//! [`stage_sample`] is the `sample` stage of the stage fixtures.
+//! CPython's `random.Random`, draw for draw, as the verification sample draws from it ([`verification_sample`]): seeded with a string at version 2 (`Random.seed`: the string's UTF-8 bytes followed by their sha512, read as one big-endian integer whose 32-bit words, least significant first, go to MT19937's `init_by_array`), with `getrandbits`, `_randbelow_with_getrandbits` and both branches of `sample`, whose choice between them turns on `setsize` from `math.log` as CPython computes it ([`setsize`]), so the sample is the one CPython draws from the same seed.
 
 use std::collections::HashSet;
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 
-use serde_json::{Value, json};
 use sha2::{Digest as _, Sha512};
 
-use crate::wire::{Result, WireError, error};
-
-/// The units `build._verification_sample` draws at most (`build.VERIFICATION_SAMPLE`).
+/// The units the verification sample draws at most (`build.VERIFICATION_SAMPLE`).
 pub const VERIFICATION_SAMPLE: usize = 200;
 
 const N: usize = 624;
@@ -175,7 +167,7 @@ pub fn setsize(k: usize) -> u128 {
     21 + 4u128.pow(exponent.ceil() as u32)
 }
 
-/// `build._verification_sample`: the id words of the cached units the build recomputes and compares, drawn from `cached`, ascending, by `random.Random(seed).sample` at `min(size, len(cached))`, and none from none.
+/// The id words of the cached units the build recomputes and compares, drawn from `cached`, ascending, by `random.Random(seed).sample` at `min(size, len(cached))`, and none from none.
 pub fn verification_sample(cached: &[u64], seed: &str, size: usize) -> Vec<u64> {
     if cached.is_empty() {
         return Vec::new();
@@ -183,123 +175,6 @@ pub fn verification_sample(cached: &[u64], seed: &str, size: usize) -> Vec<u64> 
     Random::seeded(seed)
         .sample(cached, size.min(cached.len()))
         .expect("the sample is no larger than the population")
-}
-
-fn typed_items<'a>(value: &'a Value, key: &str) -> Result<&'a [Value]> {
-    match value
-        .as_object()
-        .filter(|object| object.len() == 1)
-        .and_then(|object| object.get("tuple").or_else(|| object.get("list")))
-        .and_then(Value::as_array)
-    {
-        Some(items) => Ok(items),
-        None => error(format!("{key}: not a typed tuple or list: {value:.200}")),
-    }
-}
-
-fn word(value: &Value, key: &str) -> Result<u64> {
-    match value.as_u64() {
-        Some(word) => Ok(word),
-        None => error(format!("{key}: not an unsigned 64-bit int: {value:.200}")),
-    }
-}
-
-fn words(value: &Value, key: &str) -> Result<Vec<u64>> {
-    typed_items(value, key)?
-        .iter()
-        .map(|item| word(item, key))
-        .collect()
-}
-
-fn text<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
-    match value.as_str() {
-        Some(text) => Ok(text),
-        None => error(format!("{key}: not a str: {value:.200}")),
-    }
-}
-
-fn arguments<'a, const COUNT: usize>(value: &'a Value, key: &str) -> Result<&'a [Value; COUNT]> {
-    match typed_items(value, key)?.try_into() {
-        Ok(items) => Ok(items),
-        Err(_) => error(format!("{key}: the input is not {COUNT} arguments")),
-    }
-}
-
-fn listed(values: Vec<u64>) -> Value {
-    json!({ "list": values })
-}
-
-/// One stage line's answer in the typed encoding.
-fn answer(record: &Value, key: &str) -> Result<Value> {
-    let input = &record["input"];
-    match record["form"].as_str() {
-        Some("verification") => {
-            let [cached, seed, size] = arguments(input, key)?;
-            let size = usize::try_from(word(size, key)?)
-                .map_err(|_| WireError(format!("{key}: the size is out of range")))?;
-            Ok(listed(verification_sample(
-                &words(cached, key)?,
-                text(seed, key)?,
-                size,
-            )))
-        }
-        Some("sample") => {
-            let [seed, population, k] = arguments(input, key)?;
-            let seed = text(seed, key)?;
-            let population = words(population, key)?;
-            let Some(k) = k.as_i64() else {
-                return error(format!("{key}: k is not an int: {k:.200}"));
-            };
-            let drawn = usize::try_from(k)
-                .ok()
-                .and_then(|k| Random::seeded(seed).sample(&population, k));
-            Ok(drawn.map_or_else(|| json!({ "tuple": ["refused"] }), listed))
-        }
-        Some("getrandbits") => {
-            let [seed, widths] = arguments(input, key)?;
-            let mut random = Random::seeded(text(seed, key)?);
-            let mut draws = Vec::new();
-            for width in words(widths, key)? {
-                match u32::try_from(width) {
-                    Ok(width) if width <= 64 => draws.push(random.getrandbits(width)),
-                    _ => return error(format!("{key}: no draw of {width} bits")),
-                }
-            }
-            Ok(listed(draws))
-        }
-        Some("randbelow") => {
-            let [seed, bounds] = arguments(input, key)?;
-            let mut random = Random::seeded(text(seed, key)?);
-            let mut draws = Vec::new();
-            for bound in words(bounds, key)? {
-                if bound == 0 {
-                    return error(format!("{key}: randbelow takes a positive bound"));
-                }
-                draws.push(random.randbelow(bound));
-            }
-            Ok(listed(draws))
-        }
-        other => error(format!("{key}: no sample form {other:?}")),
-    }
-}
-
-/// The `sample` stage: for each line of `stage_file`, answer its `input` by its `form` in one `{"key", "value"}` line, in the typed encoding: `verification` draws `build._verification_sample(cached, seed, size)` ([`verification_sample`]); `sample` draws `random.Random(seed).sample(population, k)`, or `("refused",)` where that raises; `getrandbits` and `randbelow` make one draw a width or a bound in order from `random.Random(seed)`. Every value is a list of unsigned 64-bit ints, which the stage reads and writes as JSON numbers rather than as `PyValue`'s 64-bit signed ints.
-pub fn stage_sample(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let read = |failure: std::io::Error| {
-        WireError(format!("cannot read {}: {failure}", stage_file.display()))
-    };
-    for line in BufReader::new(File::open(stage_file).map_err(read)?).lines() {
-        let line = line.map_err(read)?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let value = answer(&record, key)?;
-        writeln!(out, "{}", json!({ "key": key, "value": value }))
-            .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

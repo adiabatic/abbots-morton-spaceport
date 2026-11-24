@@ -1,31 +1,22 @@
-//! The parent's zlib and gzip containers, byte for byte as the Python build writes them (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Containers), and its readers with Python's tolerances (§ Reading what Python wrote), all through the system zlib the crate links (`ffi`), which deflates the same stream however its input is cut into calls.
+//! The build's zlib and gzip containers, byte for byte in the forms CPython's `zlib` and `gzip` write, and their readers with CPython's tolerances, all through the system zlib the crate links (`ffi`), which deflates the same stream however its input is cut into calls.
 //!
-//! Writers: a `gzip.GzipFile` stream at a level and mtime under a file name ([`GzipWriter`], whose header [`header`] writes), a `gzip.compress` member ([`compress_member`]), the index's run of members cut at a fixed size and deflated on threads (`unit_index._Members`, [`Members`]) and a fragment's raw deflate (`unit_index.deflate_fragment`, [`deflate_fragment`]). Each file's name and level are the constants below. Readers: `zlib.decompressobj` with its `unconsumed_tail` and `unused_data` ([`Decompressor`]), a deflated fragment checked (`unit_index.inflate_fragment`, [`inflate_fragment`]) and a whole gzip file read as `gzip.GzipFile` reads it ([`GzipReader`], [`read_gzip`]), each failing with the class and text Python raises.
-//!
-//! [`stage_containers`] is the `containers` stage of the stage fixtures.
+//! Writers: a `gzip.GzipFile` stream at a level and mtime under a file name ([`GzipWriter`], whose header [`header`] writes), a `gzip.compress` member ([`compress_member`]), the index's run of members cut at a fixed size and deflated on threads (`unit_index._Members`, [`Members`]) and a fragment's raw deflate ([`deflate_fragment`]). Each file's name and level are the constants below. Readers: `zlib.decompressobj` with its `unconsumed_tail` and `unused_data` ([`Decompressor`]), a deflated fragment checked (`unit_index.inflate_fragment`, [`inflate_fragment`]) and a whole gzip file read as `gzip.GzipFile` reads it ([`GzipReader`]), each failing with the class and text Python raises.
 
-use std::collections::{HashMap, VecDeque};
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::path::Path;
+use std::collections::VecDeque;
+use std::io::{self, Read, Write};
 use std::thread::JoinHandle;
 
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 use sha2::Digest as _;
 
 use crate::ffi::{self, Compressor, Inflater};
-use crate::fragment::sha256_hex;
-use crate::pyfmt::PyValue;
-use crate::wire::{Result, WireError, error};
 
 /// Every gzip header's MTIME.
 pub const MTIME: u32 = 0;
 /// Every gzip header's OS byte, which `gzip.GzipFile` writes and `gzip.compress` sets.
 pub const OS_UNKNOWN: u8 = 255;
-/// A deflated fragment's level (`unit_index.deflate_fragment`).
+/// A deflated fragment's level.
 pub const FRAGMENT_LEVEL: i32 = 1;
-/// A store or index part's level, a base's, a segment's and the signature store's (`row_delta.write_part`, `row_delta.StreamedPart`, `unit_cache._write_signature_lines`).
+/// A store or index part's level, a base's, a segment's and the signature store's (`row_delta.write_part`, `row_delta.StreamedPart`).
 pub const PART_LEVEL: i32 = 1;
 /// The name a unit store base's header carries whatever the part's name (`unit_cache._BASE_GZIP_NAME`).
 pub const STORE_BASE_GZIP_NAME: &str = "unit-cache.ndjson.gz.partial";
@@ -41,8 +32,6 @@ pub const LOCATOR_GZIP_NAME: &str = "app-locator.ndjson.gz.partial";
 pub const INDEX_MEMBER_LEVEL: i32 = 1;
 /// The `EOFError` text for a gzip file that ends inside a member (`gzip._read_exact`, `gzip._GzipReader.read`).
 pub const ENDED_EARLY: &str = "Compressed file ended before the end-of-stream marker was reached";
-/// The `containers` stage's directory of the bytes its lines name by sha256, beside the stage file.
-pub const STAGE_BLOBS: &str = "containers.blobs";
 
 const RAW_WINDOW: i32 = -15;
 const GZIP_WINDOW: i32 = 31;
@@ -122,7 +111,7 @@ impl<W: Write> GzipWriter<W> {
         })
     }
 
-    /// Deflate one run of the stream's bytes into the sink, as `GzipFile._write_raw` does.
+    /// Deflate one run of the stream's bytes into the sink.
     fn deflate(&mut self, data: &[u8]) -> io::Result<()> {
         if data.is_empty() {
             return Ok(());
@@ -192,7 +181,7 @@ pub fn compress_member(
     Ok(member)
 }
 
-/// A fragment's shard bytes as a shard part holds them deflated, as `unit_index.deflate_fragment` deflates them: raw deflate at level 1, no header, trailer or dictionary.
+/// A fragment's shard bytes as a shard part holds them deflated: raw deflate at level 1, no header, trailer or dictionary.
 pub fn deflate_fragment(body: &[u8]) -> std::result::Result<Vec<u8>, String> {
     ffi::compress(body, FRAGMENT_LEVEL, RAW_WINDOW)
 }
@@ -327,7 +316,7 @@ fn zlib_error_while(status: i32, message: Option<String>, doing: &str) -> ZlibEr
     })
 }
 
-/// `zlib.decompressobj(window_bits)` as the parent's readers drive it: [`Decompressor::decompress`] with an optional output limit, and the input left over in [`Decompressor::unconsumed_tail`] when the limit stopped it, or in [`Decompressor::unused_data`] after the stream's end, by CPython's rules for both. [`Decompressor::with_dictionary`] and [`Decompressor::decompress_with_dictionary`] are `zlib.decompressobj(window_bits, zdict=dictionary)` and its `decompress`.
+/// `zlib.decompressobj(window_bits)` as the build's readers drive it: [`Decompressor::decompress`] with an optional output limit, and the input left over in [`Decompressor::unconsumed_tail`] when the limit stopped it, or in [`Decompressor::unused_data`] after the stream's end, by CPython's rules for both. [`Decompressor::with_dictionary`] and [`Decompressor::decompress_with_dictionary`] are `zlib.decompressobj(window_bits, zdict=dictionary)` and its `decompress`.
 pub struct Decompressor {
     inflater: Inflater,
     eof: bool,
@@ -377,7 +366,7 @@ impl Decompressor {
         &self.unconsumed_tail
     }
 
-    /// Inflate `data`, giving at most `max_length` bytes when it is not 0, as `Decompress.decompress(data, max_length)` does. The stream's end sets [`Decompressor::eof`] and adds what follows it to `unused_data`; input the limit left is `unconsumed_tail`, which a call that consumes everything empties.
+    /// Inflate `data`, giving at most `max_length` bytes when it is not 0. The stream's end sets [`Decompressor::eof`] and adds what follows it to `unused_data`; input the limit left is `unconsumed_tail`, which a call that consumes everything empties.
     pub fn decompress(
         &mut self,
         data: &[u8],
@@ -740,304 +729,21 @@ impl<R: Read> Read for GzipReader<R> {
     }
 }
 
-/// A whole gzip file's bytes read as [`GzipReader`] reads them.
-pub fn read_gzip(data: &[u8]) -> std::result::Result<Vec<u8>, GzipError> {
-    let mut plain = Vec::new();
-    match GzipReader::new(data).read_to_end(&mut plain) {
-        Ok(_) => Ok(plain),
-        Err(failure) => Err(GzipError::of(&failure)
-            .cloned()
-            .unwrap_or_else(|| GzipError::Eof(failure.to_string()))),
-    }
-}
-
-fn fail(what: &str, failure: impl std::fmt::Display) -> WireError {
-    WireError(format!("cannot {what}: {failure}"))
-}
-
-/// The stage's blobs, each read once from the blob directory and checked against its name.
-struct Blobs<'a> {
-    directory: &'a Path,
-    read: HashMap<String, Vec<u8>>,
-}
-
-impl Blobs<'_> {
-    /// A line's input, `(sha256, length)`: the first `length` bytes of the blob of that digest.
-    fn input(&mut self, value: &PyValue, key: &str) -> Result<&[u8]> {
-        let PyValue::Tuple(parts) = value else {
-            return error(format!("{key}: the input is {}", value.kind()));
-        };
-        let [PyValue::Str(digest), PyValue::Int(length)] = parts.as_slice() else {
-            return error(format!("{key}: the input is {}", value.to_typed()));
-        };
-        if !self.read.contains_key(digest) {
-            let path = self.directory.join(digest);
-            let bytes = std::fs::read(&path)
-                .map_err(|failure| fail(&format!("read {}", path.display()), failure))?;
-            if sha256_hex(&bytes) != *digest {
-                return error(format!(
-                    "{} does not hold the bytes it is named for",
-                    path.display()
-                ));
-            }
-            self.read.insert(digest.clone(), bytes);
-        }
-        let bytes = &self.read[digest];
-        usize::try_from(*length)
-            .ok()
-            .and_then(|length| bytes.get(..length))
-            .ok_or_else(|| WireError(format!("{key}: the blob {digest} holds no {length} bytes")))
-    }
-}
-
-fn typed(record: &Value, name: &str, key: &str) -> Result<PyValue> {
-    PyValue::from_typed(&record[name])
-        .map_err(|failure| WireError(format!("{key} {name}: {failure}")))
-}
-
-fn integer(record: &Value, name: &str, key: &str) -> Result<i64> {
-    match typed(record, name, key)? {
-        PyValue::Int(value) => Ok(value),
-        other => error(format!("{key}: {name} is {}", other.kind())),
-    }
-}
-
-fn count(record: &Value, name: &str, key: &str) -> Result<usize> {
-    usize::try_from(integer(record, name, key)?)
-        .map_err(|_| WireError(format!("{key}: {name} is negative")))
-}
-
-fn level(record: &Value, key: &str) -> Result<i32> {
-    i32::try_from(integer(record, "level", key)?)
-        .map_err(|_| WireError(format!("{key}: the level is out of range")))
-}
-
-fn mtime(record: &Value, key: &str) -> Result<u32> {
-    u32::try_from(integer(record, "mtime", key)?)
-        .map_err(|_| WireError(format!("{key}: the mtime is out of range")))
-}
-
-/// The line's writes, each a size, cut from `data` in order; their sum must be its length.
-fn cuts<'a>(record: &Value, key: &str, data: &'a [u8]) -> Result<Vec<&'a [u8]>> {
-    let PyValue::Tuple(sizes) = typed(record, "writes", key)? else {
-        return error(format!("{key}: the writes are not a tuple"));
-    };
-    let mut pieces = Vec::with_capacity(sizes.len());
-    let mut rest = data;
-    for size in sizes {
-        let PyValue::Int(size) = size else {
-            return error(format!("{key}: a write's size is {}", size.kind()));
-        };
-        let size = usize::try_from(size)
-            .ok()
-            .filter(|&size| size <= rest.len())
-            .ok_or_else(|| WireError(format!("{key}: the writes overrun the input")))?;
-        let (piece, tail) = rest.split_at(size);
-        pieces.push(piece);
-        rest = tail;
-    }
-    if !rest.is_empty() {
-        return error(format!("{key}: the writes leave {} bytes", rest.len()));
-    }
-    Ok(pieces)
-}
-
-fn bytes_output(bytes: &[u8]) -> PyValue {
-    PyValue::Tuple(vec![
-        PyValue::str("bytes"),
-        PyValue::str(sha256_hex(bytes)),
-        PyValue::Int(bytes.len() as i64),
-    ])
-}
-
-fn raised(class: &str, message: &str) -> PyValue {
-    PyValue::Tuple(vec![
-        PyValue::str("raised"),
-        PyValue::str(class),
-        PyValue::str(message),
-    ])
-}
-
-fn written(result: io::Result<Vec<u8>>, key: &str) -> Result<PyValue> {
-    result
-        .map(|bytes| bytes_output(&bytes))
-        .map_err(|failure| WireError(format!("{key}: cannot write the container: {failure}")))
-}
-
-/// The member readers' loop (`audit_stream._MemberReader`, `row_delta._Inflating`) over `data` handed in `piece`-byte reads: each call inflates what the last left unconsumed, or the next read, at most `max_length` bytes, until the stream ends or nothing is left. Each call's output, tail and unused lengths; then what the stream gave, whether it ended and what follows it, or the `zlib.error`.
-fn member_read(
-    data: &[u8],
-    window_bits: i32,
-    piece: usize,
-    max_length: usize,
-) -> std::result::Result<PyValue, String> {
-    let mut inflater = Decompressor::new(window_bits)?;
-    let mut steps = Vec::new();
-    let mut plain = Vec::new();
-    let mut at = 0;
-    let mut pending: Vec<u8> = Vec::new();
-    let steps_of = |steps: &Vec<PyValue>| PyValue::Tuple(steps.clone());
-    while !inflater.eof() {
-        if pending.is_empty() && at < data.len() {
-            let end = (at + piece.max(1)).min(data.len());
-            pending = data[at..end].to_vec();
-            at = end;
-        }
-        let out = match inflater.decompress(&pending, max_length) {
-            Ok(out) => out,
-            Err(failure) => {
-                return Ok(PyValue::Tuple(vec![
-                    PyValue::str("raised"),
-                    PyValue::str("error"),
-                    PyValue::str(failure.0),
-                    steps_of(&steps),
-                ]));
-            }
-        };
-        pending = inflater.unconsumed_tail().to_vec();
-        plain.extend_from_slice(&out);
-        steps.push(PyValue::Tuple(vec![
-            PyValue::Int(out.len() as i64),
-            PyValue::Int(pending.len() as i64),
-            PyValue::Int(inflater.unused_data().len() as i64),
-        ]));
-        if out.is_empty() && pending.is_empty() && at >= data.len() {
-            break;
-        }
-    }
-    Ok(PyValue::Tuple(vec![
-        PyValue::str("member"),
-        PyValue::str(sha256_hex(&plain)),
-        PyValue::Int(plain.len() as i64),
-        PyValue::Bool(inflater.eof()),
-        PyValue::Int(inflater.unused_data().len() as i64),
-        steps_of(&steps),
-    ]))
-}
-
-/// One line's answer, by its framing.
-fn answer(record: &Value, key: &str, blobs: &mut Blobs<'_>) -> Result<PyValue> {
-    let framing = match typed(record, "framing", key)? {
-        PyValue::Str(framing) => framing,
-        other => return error(format!("{key}: the framing is {}", other.kind())),
-    };
-    let data = blobs.input(&typed(record, "input", key)?, key)?;
-    match framing.as_str() {
-        "gzipfile" => {
-            let name = match typed(record, "name", key)? {
-                PyValue::Str(name) => name,
-                other => return error(format!("{key}: the name is {}", other.kind())),
-            };
-            let pieces = cuts(record, key, data)?;
-            let (level, mtime) = (level(record, key)?, mtime(record, key)?);
-            written(
-                GzipWriter::new(Vec::new(), &name, level, mtime).and_then(|mut stream| {
-                    for piece in pieces {
-                        stream.write_all(piece)?;
-                    }
-                    stream.finish()
-                }),
-                key,
-            )
-        }
-        "compress" => written(
-            compress_member(data, level(record, key)?, mtime(record, key)?)
-                .map_err(io::Error::other),
-            key,
-        ),
-        "members" => {
-            let pieces = cuts(record, key, data)?;
-            let mut members = Members::new(
-                Vec::new(),
-                count(record, "member_bytes", key)?,
-                count(record, "member_threads", key)?,
-            );
-            written(
-                pieces
-                    .into_iter()
-                    .try_for_each(|piece| members.write_all(piece))
-                    .and_then(|()| members.finish())
-                    .map(|(raw, _, _)| raw),
-                key,
-            )
-        }
-        "raw" => written(deflate_fragment(data).map_err(io::Error::other), key),
-        "inflate-fragment" => {
-            let length = match typed(record, "length", key)? {
-                PyValue::None => None,
-                PyValue::Int(length) => Some(
-                    usize::try_from(length)
-                        .map_err(|_| WireError(format!("{key}: the length is negative")))?,
-                ),
-                other => return error(format!("{key}: the length is {}", other.kind())),
-            };
-            Ok(match inflate_fragment(data, length) {
-                Ok(body) => bytes_output(&body),
-                Err(refusal) => raised("ValueError", &refusal),
-            })
-        }
-        "read" => Ok(match read_gzip(data) {
-            Ok(plain) => bytes_output(&plain),
-            Err(failure) => raised(failure.class(), failure.message()),
-        }),
-        "member-read" => {
-            let window_bits = i32::try_from(integer(record, "wbits", key)?)
-                .map_err(|_| WireError(format!("{key}: wbits is out of range")))?;
-            member_read(
-                data,
-                window_bits,
-                count(record, "piece", key)?,
-                count(record, "max_length", key)?,
-            )
-            .map_err(|failure| WireError(format!("{key}: {failure}")))
-        }
-        "crc32" => {
-            let start = u32::try_from(integer(record, "start", key)?)
-                .map_err(|_| WireError(format!("{key}: the start is out of range")))?;
-            Ok(PyValue::Tuple(vec![
-                PyValue::str("crc32"),
-                PyValue::Int(i64::from(ffi::crc32_of(start, data))),
-            ]))
-        }
-        other => error(format!("{key}: no framing {other:?}")),
-    }
-}
-
-/// The `containers` stage: for each line of `stage_file`, make the container or read its line names again, from the input the line names by sha256 and length in [`STAGE_BLOBS`] beside the stage file, and write one `{"key", "output"}` line in the typed encoding: `("bytes", sha256, length)` for what a writer wrote or a reader read, `("raised", class, message)` for what a reader refused, the member readers' loop's steps for `member-read`, and `("crc32", value)`.
-pub fn stage_containers(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let directory = stage_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(STAGE_BLOBS);
-    let mut blobs = Blobs {
-        directory: &directory,
-        read: HashMap::new(),
-    };
-    let file = File::open(stage_file)
-        .map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-    for line in BufReader::new(file).lines() {
-        let line =
-            line.map_err(|failure| fail(&format!("read {}", stage_file.display()), failure))?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let output = answer(&record, key, &mut blobs)?;
-        writeln!(
-            out,
-            "{{\"key\":{},\"output\":{}}}",
-            json_string(key),
-            output.to_typed()
-        )
-        .map_err(|failure| fail("write a stage line", failure))?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use crate::fragment::sha256_hex;
+
+    /// A whole gzip file's bytes read as [`GzipReader`] reads them.
+    pub(crate) fn read_gzip(data: &[u8]) -> std::result::Result<Vec<u8>, GzipError> {
+        let mut plain = Vec::new();
+        match GzipReader::new(data).read_to_end(&mut plain) {
+            Ok(_) => Ok(plain),
+            Err(failure) => Err(GzipError::of(&failure)
+                .cloned()
+                .unwrap_or_else(|| GzipError::Eof(failure.to_string()))),
+        }
+    }
 
     fn gzip_file(name: &str, level: i32, plain: &[u8]) -> Vec<u8> {
         let mut stream = GzipWriter::new(Vec::new(), name, level, MTIME).expect("opens");

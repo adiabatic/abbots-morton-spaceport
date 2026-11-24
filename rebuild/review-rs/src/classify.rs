@@ -54,44 +54,6 @@ pub struct Row {
     pub positions: Vec<(i32, i32, i32)>,
 }
 
-impl Row {
-    /// The row as Python holds it: a `Row` of five tuples.
-    pub fn to_py(&self) -> PyValue {
-        let ints = |values: &[u32]| {
-            PyValue::Tuple(
-                values
-                    .iter()
-                    .map(|&value| PyValue::Int(value.into()))
-                    .collect(),
-            )
-        };
-        PyValue::Record(
-            "Row".to_owned(),
-            vec![
-                ("codepoints".to_owned(), ints(&self.codepoints)),
-                ("glyphs".to_owned(), PyValue::str_tuple(&self.glyphs)),
-                ("clusters".to_owned(), ints(&self.clusters)),
-                ("junctions".to_owned(), PyValue::str_tuple(&self.junctions)),
-                (
-                    "positions".to_owned(),
-                    PyValue::Tuple(
-                        self.positions
-                            .iter()
-                            .map(|&(x_offset, y_offset, x_advance)| {
-                                PyValue::Tuple(vec![
-                                    PyValue::Int(x_offset.into()),
-                                    PyValue::Int(y_offset.into()),
-                                    PyValue::Int(x_advance.into()),
-                                ])
-                            })
-                            .collect(),
-                    ),
-                ),
-            ],
-        )
-    }
-}
-
 /// `last_glyph_covering`: the last glyph whose cluster is at or before `position` while the clusters stay there, or the ValueError's message when the first glyph's cluster is past it.
 pub fn last_glyph_covering(clusters: &[u32], position: usize) -> Result<usize, String> {
     let mut covering = None;

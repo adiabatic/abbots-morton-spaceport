@@ -1,42 +1,24 @@
-//! The held audit read one window at a time, as `audit_stream` reads it: each section's rows read through its part's file a read at a time, a plain section's by `pread` and a section held as a gzip member's inflated with bounded output ([`SectionRows`], `section_rows`), a configuration's sections merged across their parts by window, the latest part's row winning and a tombstone removing it ([`Merged`], `_merged` over `_latest`'s `heapq.merge`), and every configuration's merged rows walked together, a window at a time in window order ([`Lockstep`], `lockstep`). Each step reads in the order the Python generators read, so a walk yields the same windows before the same break: an [`StreamError::Break`] (`OrderBreak`) with Python's text, raised once every member has been checked to its end ([`check_members`]), or the member's own failure ([`AuditError::Member`]). [`window_ranges`] cuts the windows into ranges as `audit_stream.window_ranges` does, [`FamilyLines`] gives a window's family lines, and [`signature_key`], [`input_key`] and [`sibling_window`] key and sort a window's rows as `audit_stream`'s functions do.
-//!
-//! [`stage_stream`] is the `stream` stage of the stage fixtures.
+//! The held audit read one window at a time: each section's rows read through its part's file a read at a time, a plain section's by `pread` and a section held as a gzip member's inflated with bounded output ([`SectionRows`]), a configuration's sections merged across their parts by window, the latest part's row winning and a tombstone removing it ([`Merged`]), and every configuration's merged rows walked together, a window at a time in window order ([`Lockstep`]). Each step reads in a fixed order, so a walk yields the same windows before the same break: a [`StreamError::Break`] (`OrderBreak`), raised once every member has been checked to its end ([`check_members`]), or the member's own failure ([`AuditError::Member`]). [`window_ranges`] cuts the windows into ranges, [`FamilyLines`] gives a window's family lines, and [`signature_key`], [`input_key`] and [`sibling_window`] key and sort a window's rows.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
-use std::path::Path;
+use std::io;
 
-use ams_m1_kernel::emit::json_string;
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::corpus::audit::{
-    self, AuditError, MemberReader, READ_BYTES, Section, Vocabulary, audit_layout, check_members,
-    field, first_line, generated_parts, integer, items, line_at, next_line_start, stage_line, text,
+    self, AuditError, MemberReader, READ_BYTES, Section, check_members, field, first_line, line_at,
+    next_line_start,
 };
-use crate::corpus::input::BuildInput;
-use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr_str;
-use crate::wire::{Result, WireError, error};
+use crate::wire::{Result, WireError};
 
-/// What a cursor reads of a segment's section at a time, plain or inflated (`audit_stream.SEGMENT_READ_BYTES`).
+/// What a cursor reads of a segment's section at a time, plain or inflated.
 pub const SEGMENT_READ_BYTES: usize = 1 << 16;
-/// The fields of an audit row (`audit_stream.FIELDS`).
+/// The fields of an audit row.
 pub const FIELDS: usize = 6;
-/// The stage's directory, beside its stage file, of the audit parts its generated lines name by sha256.
-pub const STAGE_BLOBS: &str = "stream.blobs";
-/// The key of the stage's line for how the build's walk ended.
-pub const END_KEY: &str = "end";
-/// The key of the stage's line for the build's window ranges and each range's walk.
-pub const RANGES_KEY: &str = "ranges";
-/// The stage's one column, a window's record.
-pub const COLUMN: &str = "value";
 
-const UNIT_PREFIX: &str = "unit:";
-const KEY_ONLY_PROCESSES: &str = "rebuild.review.build.KEY_ONLY_PROCESSES";
-
-/// A canonical window's order (`audit_stream.window_key`): its length in code points, then its text.
+/// A canonical window's order: its length in code points, then its text.
 pub type WindowKey = (usize, String);
 
 /// A window's rows as `lockstep` yields them: each configuration's index in the sections, its row's fields and its line.
@@ -55,7 +37,7 @@ pub struct Row {
     pub line: String,
 }
 
-/// What a walk raises, by the Python class it mirrors: `audit_stream.OrderBreak` for an audit not in sorted sections, or what reading the audit raises ([`AuditError`]).
+/// What a walk raises: an `OrderBreak` for an audit not in sorted sections, or what reading the audit raises ([`AuditError`]).
 #[derive(Debug)]
 pub enum StreamError {
     Break(String),
@@ -144,7 +126,7 @@ fn find_newline(bytes: &[u8], from: usize) -> Option<usize> {
         .map(|at| from + at)
 }
 
-/// `body`, whole lines without the last newline, from its first line whose window is at or past `low`, or nothing when its last line's is not (`audit_stream._from_window`).
+/// `body`, whole lines without the last newline, from its first line whose window is at or past `low`, or nothing when its last line's is not.
 fn from_window(body: &[u8], low: &WindowKey, shift: usize) -> Vec<u8> {
     let last = body
         .iter()
@@ -176,7 +158,7 @@ enum Reader<'a> {
     Member(MemberReader<'a>),
 }
 
-/// One section's rows from a byte (`audit_stream.section_rows`): read through its part's file [`READ_BYTES`] at a time from the base and [`SEGMENT_READ_BYTES`] from a segment, a plain section by `pread` and a section held as a gzip member inflated from its start, until a window at or past `stop`; with `low`, a member's rows below it are passed over a read at a time. A segment's upsert yields its row and its tombstone an empty field list and line. A row of another configuration, one without six fields, a segment line that is neither an upsert nor a tombstone, a window that does not follow the one before it, a carriage return or bytes that are not UTF-8 are a [`StreamError::Break`] with Python's text.
+/// One section's rows from a byte: read through its part's file [`READ_BYTES`] at a time from the base and [`SEGMENT_READ_BYTES`] from a segment, a plain section by `pread` and a section held as a gzip member inflated from its start, until a window at or past `stop`; with `low`, a member's rows below it are passed over a read at a time. A segment's upsert yields its row and its tombstone an empty field list and line. A row of another configuration, one without six fields, a segment line that is neither an upsert nor a tombstone, a window that does not follow the one before it, a carriage return or bytes that are not UTF-8 are a [`StreamError::Break`] with Python's text.
 pub struct SectionRows<'a> {
     section: Section,
     segment: bool,
@@ -402,7 +384,7 @@ fn change_key_below(change: &Option<Row>, key: &WindowKey) -> bool {
     change.as_ref().is_some_and(|change| change.key < *key)
 }
 
-/// The segments' rows of one configuration merged among themselves by window, the latest part's row or tombstone alone at each (`audit_stream._latest` over `heapq.merge`): every cursor primed in order on the first call, and after each yield the cursor that gave the row advanced on the next.
+/// The segments' rows of one configuration merged among themselves by window, the latest part's row or tombstone alone at each (as `heapq.merge` merges them): every cursor primed in order on the first call, and after each yield the cursor that gave the row advanced on the next.
 pub struct Latest<'a> {
     cursors: Vec<(usize, SectionRows<'a>)>,
     heads: Vec<Option<Row>>,
@@ -468,7 +450,7 @@ impl<'a> Latest<'a> {
     }
 }
 
-/// One configuration's rows merged across its parts' cursors (`audit_stream._merged`): at each window the latest part's row wins, and a tombstone there removes the row; the segments merged among themselves first ([`Latest`]) and that one stream merged with the base's cursor, read in the order the Python generator reads them.
+/// One configuration's rows merged across its parts' cursors: at each window the latest part's row wins, and a tombstone there removes the row; the segments merged among themselves first ([`Latest`]) and that one stream merged with the base's cursor, read in the order the Python generator reads them.
 pub struct Merged<'a> {
     base: Option<SectionRows<'a>>,
     latest: Option<Latest<'a>>,
@@ -613,7 +595,7 @@ fn cursors<'a>(
     Ok((named, groups.into_iter().map(Merged::new).collect()))
 }
 
-/// Whether a window is written as `audit_stream.CANONICAL_WINDOW` writes it: four uppercase hex digits a code point, joined by colons.
+/// Whether a window is written: four uppercase hex digits a code point, joined by colons.
 pub fn canonical(window: &str) -> bool {
     window.split(':').all(|piece| {
         piece.len() == 4
@@ -716,7 +698,7 @@ fn content(section: &Section) -> i64 {
     section.inflated.unwrap_or(section.end - section.start)
 }
 
-/// The line, without its newline, that starts at the first line start at or after each of `targets`, ascending offsets into the bytes `read` returns end to end (`audit_stream._lines_at`).
+/// The line, without its newline, that starts at the first line start at or after each of `targets`, ascending offsets into the bytes `read` returns end to end.
 fn lines_at(
     mut read: impl FnMut() -> std::result::Result<Vec<u8>, AuditError>,
     targets: &[i64],
@@ -823,7 +805,7 @@ pub fn window_ranges(
         .collect())
 }
 
-/// A canonical window's code points (`audit_stream.parse_window`).
+/// A canonical window's code points.
 pub fn parse_window(window: &str) -> Result<Vec<i64>> {
     window
         .split(':')
@@ -834,7 +816,7 @@ pub fn parse_window(window: &str) -> Result<Vec<i64>> {
         .collect()
 }
 
-/// A window's family lines as one suffix, `\n<family>\t<key>` for each family the window cites in name order, memoized a set of families (`audit_stream.FamilyLines`): a family is cited when every one of its `_`-joined components is a window letter's family.
+/// A window's family lines as one suffix, `\n<family>\t<key>` for each family the window cites in name order, memoized a set of families: a family is cited when every one of its `_`-joined components is a window letter's family.
 pub struct FamilyLines {
     family_of: HashMap<i64, String>,
     keys: HashMap<String, String>,
@@ -878,7 +860,7 @@ impl FamilyLines {
     }
 }
 
-/// The ink-signature store key of one audit row from its raw fields (`audit_stream.signature_key`): the first 64 bits of the sha256 of its config, window and both rendered-name fields, tab-joined, then its window's family lines.
+/// The ink-signature store key of one audit row from its raw fields: the first 64 bits of the sha256 of its config, window and both rendered-name fields, tab-joined, then its window's family lines.
 pub fn signature_key(fields: &[String], suffix: &str) -> u64 {
     let text = format!(
         "{}\t{}\t{}\t{}{suffix}",
@@ -888,7 +870,7 @@ pub fn signature_key(fields: &[String], suffix: &str) -> u64 {
     u64::from_be_bytes(digest[..8].try_into().expect("eight bytes"))
 }
 
-/// The unit store's input key of one unit from its run's audit lines, in run order (`audit_stream.input_key`): the sha256 of the lines joined by newlines, then its window's family lines.
+/// The unit store's input key of one unit from its run's audit lines, in run order: the sha256 of the lines joined by newlines, then its window's family lines.
 pub fn input_key<'l>(lines: impl IntoIterator<Item = &'l str>, suffix: &str) -> [u8; 32] {
     let mut digest = Sha256::new();
     for (index, line) in lines.into_iter().enumerate() {
@@ -901,7 +883,7 @@ pub fn input_key<'l>(lines: impl IntoIterator<Item = &'l str>, suffix: &str) -> 
     digest.finalize().into()
 }
 
-/// Whether a window's rows name two or more (baseline, new) pairs (`audit_stream.sibling_window`).
+/// Whether a window's rows name two or more (baseline, new) pairs.
 pub fn sibling_window(rows: &WindowRows) -> bool {
     if rows.len() < 2 {
         return false;
@@ -910,297 +892,6 @@ pub fn sibling_window(rows: &WindowRows) -> bool {
     rows[1..]
         .iter()
         .any(|(_index, fields, _line)| (&fields[4], &fields[5]) != first)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn rows_value(rows: &WindowRows) -> PyValue {
-    PyValue::List(
-        rows.iter()
-            .map(|(index, fields, line)| {
-                PyValue::Tuple(vec![
-                    PyValue::Int(*index as i64),
-                    PyValue::List(fields.iter().map(PyValue::str).collect()),
-                    PyValue::str(line),
-                ])
-            })
-            .collect(),
-    )
-}
-
-/// A window's record as the stage holds it: the window, its rows, its family lines, whether it holds siblings, each row's signature key as `%016x`, and the input key of its lines in order, as hex.
-pub fn window_record(family: &mut FamilyLines, window: &str, rows: &WindowRows) -> Result<PyValue> {
-    let suffix = family.suffix(&parse_window(window)?);
-    Ok(PyValue::Tuple(vec![
-        PyValue::str(window),
-        rows_value(rows),
-        PyValue::str(&suffix),
-        PyValue::Bool(sibling_window(rows)),
-        PyValue::Tuple(
-            rows.iter()
-                .map(|(_index, fields, _line)| {
-                    PyValue::str(format!("{:016x}", signature_key(fields, &suffix)))
-                })
-                .collect(),
-        ),
-        PyValue::str(hex(&input_key(
-            rows.iter().map(|(_index, _fields, line)| line.as_str()),
-            &suffix,
-        ))),
-    ]))
-}
-
-fn os_failure(failure: StreamError) -> WireError {
-    WireError(format!("cannot read the audit: {failure}"))
-}
-
-/// Walk `[low, high)` in lockstep, handing each window and its rows to `each`, and give how the walk ended: `("done",)`, or `("raised", class, message)` for a break or a member that fails; a read that fails is an error.
-fn walk(
-    files: &[File],
-    sections: &[Section],
-    low: Option<&WindowKey>,
-    high: Option<&WindowKey>,
-    mut each: impl FnMut(String, WindowRows) -> Result<()>,
-) -> Result<PyValue> {
-    let raised = |failure: StreamError| -> Result<PyValue> {
-        match failure {
-            StreamError::Audit(AuditError::Os(_)) | StreamError::Audit(AuditError::Value(_)) => {
-                Err(os_failure(failure))
-            }
-            failure => Ok(PyValue::Tuple(vec![
-                PyValue::str("raised"),
-                PyValue::str(failure.class()),
-                PyValue::str(failure.message()),
-            ])),
-        }
-    };
-    let mut stream = match Lockstep::new(files, sections, low, high) {
-        Ok(stream) => stream,
-        Err(failure) => return raised(failure),
-    };
-    loop {
-        match stream.next_window() {
-            Ok(Some((window, rows))) => each(window, rows)?,
-            Ok(None) => return Ok(PyValue::Tuple(vec![PyValue::str("done")])),
-            Err(failure) => return raised(failure),
-        }
-    }
-}
-
-fn entry(value: &PyValue) -> Vec<u8> {
-    let mut bytes = value.to_typed().into_bytes();
-    bytes.push(b'\n');
-    bytes
-}
-
-fn key_value(key: &Option<WindowKey>) -> PyValue {
-    key.as_ref().map_or(PyValue::None, |(length, text)| {
-        PyValue::Tuple(vec![PyValue::Int(*length as i64), PyValue::str(text)])
-    })
-}
-
-/// Each range with its walk: the windows it holds, the sha256 of their `(window, rows)` entries, and how it ended.
-fn split_walks(files: &[File], sections: &[Section], ranges: &[WindowRange]) -> Result<PyValue> {
-    let mut walks = Vec::new();
-    for (low, high) in ranges {
-        let mut digest = Sha256::new();
-        let mut count = 0i64;
-        let end = walk(
-            files,
-            sections,
-            low.as_ref(),
-            high.as_ref(),
-            |window, rows| {
-                digest.update(entry(&PyValue::Tuple(vec![
-                    PyValue::str(window),
-                    rows_value(&rows),
-                ])));
-                count += 1;
-                Ok(())
-            },
-        )?;
-        walks.push(PyValue::Tuple(vec![
-            key_value(low),
-            key_value(high),
-            PyValue::Tuple(vec![
-                PyValue::Int(count),
-                PyValue::str(hex(&digest.finalize())),
-                end,
-            ]),
-        ]));
-    }
-    Ok(PyValue::Tuple(walks))
-}
-
-fn section_of(value: &PyValue) -> Result<Section> {
-    let PyValue::Record(name, fields) = value else {
-        return error(format!("a section is {}, not a record", value.kind()));
-    };
-    let get = |wanted: &str| {
-        fields
-            .iter()
-            .find(|(field, _)| field == wanted)
-            .map(|(_, value)| value)
-            .ok_or_else(|| WireError(format!("the {name} record has no {wanted}")))
-    };
-    Ok(Section {
-        config: text(get("config")?, "a section's config")?.to_owned(),
-        rank: integer(get("rank")?, "a section's rank")?,
-        start: integer(get("start")?, "a section's start")?,
-        end: integer(get("end")?, "a section's end")?,
-        part: usize::try_from(integer(get("part")?, "a section's part")?)
-            .map_err(|_| WireError("a section's part is negative".into()))?,
-        inflated: match get("inflated")? {
-            PyValue::None => None,
-            inflated => Some(integer(inflated, "a section's inflated bytes")?),
-        },
-    })
-}
-
-/// A generated line's value: every window's record, how the walk ended, and for each count the ranges it is split into, each with its walk, or what splitting raised.
-fn generated_value(input: &PyValue, blobs: &Path, family: &mut FamilyLines) -> Result<PyValue> {
-    let [parts, sections, counts] = items(input, "the input")? else {
-        return error("the input is not parts, sections and counts");
-    };
-    let (files, _indexes) = generated_parts(parts, blobs)?;
-    let sections = items(sections, "the sections")?
-        .iter()
-        .map(section_of)
-        .collect::<Result<Vec<Section>>>()?;
-    let mut records = Vec::new();
-    let end = walk(&files, &sections, None, None, |window, rows| {
-        records.push(window_record(family, &window, &rows)?);
-        Ok(())
-    })?;
-    let mut splits = Vec::new();
-    for count in items(counts, "the counts")? {
-        let count = integer(count, "a count")?;
-        let split = match window_ranges(&files, &sections, count) {
-            Ok(ranges) => PyValue::Tuple(vec![
-                PyValue::str("ranges"),
-                split_walks(&files, &sections, &ranges)?,
-            ]),
-            Err(failure @ AuditError::Member(_)) => PyValue::Tuple(vec![
-                PyValue::str("raised"),
-                PyValue::str(failure.class()),
-                PyValue::str(failure.message()),
-            ]),
-            Err(failure) => return error(format!("cannot split the audit: {failure}")),
-        };
-        splits.push(PyValue::Tuple(vec![PyValue::Int(count), split]));
-    }
-    Ok(PyValue::Tuple(vec![
-        PyValue::Tuple(records),
-        end,
-        PyValue::Tuple(splits),
-    ]))
-}
-
-fn column_line(out: &mut impl Write, count: i64, digest: String) -> Result<()> {
-    writeln!(
-        out,
-        "{{\"key\":{},\"values\":{count},\"sha256\":{}}}",
-        json_string(&format!("column:{COLUMN}")),
-        json_string(&digest)
-    )
-    .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
-}
-
-/// The `stream` stage: answer the build's walk of the audit its build input names, read through the descriptors the process inherits, its sections found as [`audit_layout`] finds them, with a `unit:<ordinal>` line for each window the stage file asks for, the `column:value` line's count and digest over every window's record, and the walk's end under [`END_KEY`]; the build's window ranges at the vocabulary's `KEY_ONLY_PROCESSES`, each with its walk, under [`RANGES_KEY`]; and every generated line with the walk and the splits of the parts it names in the `stream.blobs` directory beside `stage_file`, over the sections it gives. A window's record is [`window_record`]'s, with the input's family keys.
-pub fn stage_stream(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let mut family = FamilyLines::new(&input.family_of, &input.family_keys);
-    let blobs = stage_file
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join(STAGE_BLOBS);
-    let file = File::open(stage_file)
-        .map_err(|failure| WireError(format!("cannot read {}: {failure}", stage_file.display())))?;
-    let mut generated = Vec::new();
-    let mut units: HashSet<i64> = HashSet::new();
-    let (mut walked, mut ranged) = (false, false);
-    for line in BufReader::new(file).lines() {
-        let line = line.map_err(|failure| {
-            WireError(format!("cannot read {}: {failure}", stage_file.display()))
-        })?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if let Some(ordinal) = key.strip_prefix(UNIT_PREFIX) {
-            units.insert(
-                ordinal
-                    .parse()
-                    .map_err(|_| WireError(format!("the key {key} names no ordinal")))?,
-            );
-            walked = true;
-        } else if key == END_KEY || key == format!("column:{COLUMN}") {
-            walked = true;
-        } else if key == RANGES_KEY {
-            ranged = true;
-        } else {
-            let held = PyValue::from_typed(&record["input"])
-                .map_err(|failure| WireError(format!("{key}: {failure}")))?;
-            generated.push((key.to_owned(), held));
-        }
-    }
-    if walked || ranged {
-        let files = input.held_audit()?;
-        let layout = audit_layout(
-            &files,
-            &input.audit.path,
-            &input.audit.members,
-            &Vocabulary::of(&input)?,
-        )
-        .map_err(|failure| WireError(format!("cannot lay out the audit: {failure}")))?;
-        let Some(sections) = layout.sections else {
-            return error(format!(
-                "the audit is not in sorted sections: {}",
-                layout.why
-            ));
-        };
-        if walked {
-            let mut digest = Sha256::new();
-            let mut ordinal = 0i64;
-            let end = walk(&files, &sections, None, None, |window, rows| {
-                let record = window_record(&mut family, &window, &rows)?;
-                digest.update(entry(&record));
-                if units.contains(&ordinal) {
-                    stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &record)?;
-                }
-                ordinal += 1;
-                Ok(())
-            })?;
-            column_line(out, ordinal, hex(&digest.finalize()))?;
-            stage_line(out, END_KEY, &end)?;
-        }
-        if ranged {
-            let count = match input.constant(KEY_ONLY_PROCESSES) {
-                Some(PyValue::Int(count)) => *count,
-                _ => {
-                    return error(format!(
-                        "the build input's vocabulary holds no int {KEY_ONLY_PROCESSES}"
-                    ));
-                }
-            };
-            let ranges = window_ranges(&files, &sections, count)
-                .map_err(|failure| WireError(format!("cannot split the audit: {failure}")))?;
-            let value = PyValue::Tuple(vec![
-                PyValue::Int(count),
-                split_walks(&files, &sections, &ranges)?,
-            ]);
-            stage_line(out, RANGES_KEY, &value)?;
-        }
-    }
-    for (key, held) in generated {
-        let value = generated_value(&held, &blobs, &mut family)
-            .map_err(|failure| WireError(format!("{key}: {}", failure.0)))?;
-        stage_line(out, &key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

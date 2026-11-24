@@ -1,4 +1,4 @@
-"""Tests for rebuild/tools/fragment_dictionary.py, which regenerates the preset dictionary the corpus build deflates each recomputed fragment against. No test reads the live corpus; the corpus here is written by the build's own shard writer."""
+"""Tests for rebuild/tools/fragment_dictionary.py, which regenerates the preset dictionary the corpus build deflates each recomputed fragment against. No test reads the live corpus; the corpus here is written by the build's shard writer for a first base (`build._write_shard`), whose framing the crate's shard writer shares."""
 
 import json
 

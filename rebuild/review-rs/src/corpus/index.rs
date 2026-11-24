@@ -1,26 +1,22 @@
 //! The units index, as `unit_index.write_index_lines` writes it once the manifest is on disk, from the index lines the write's runs spilled ([`spilled_lines`]): stamped with the manifest's identity, it takes one route, decided from the prior head before anything of the index is written ([`plan_write`]). With no prior index it writes a first base, and with one that does not read an `unusable` base, counted as rewritten whole; with the prior's fold due and the pass's one fold held or forced it writes the lines as the next generation's base, walking the prior's records beside them so the head's content moves only when a record did; and otherwise the records whose lines, their places cut ([`cut`]), differ from the prior materialized index's ([`compare`]) as the prior generation's next segment, upserts and tombstones ([`tombstone`]) in key order, or the head alone when none differs. A base is gzip members of the index's member size deflated on threads ([`Members`]); a segment one gzip stream. The single file a corpus from before the segment format holds is first put under a head as generation 0's base ([`adopt_single_file`]), and deleted once a later head is committed. What a write did and its note are [`IndexWrite`]'s.
-//!
-//! [`stage_index_write`] is the `index-write` stage of the stage fixtures.
 
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::BuildError;
-use super::audit::stage_line;
 use super::gzip::{GzipReader, Members};
 use super::input::BuildInput;
-use super::manifest::{ManifestNames, held_manifest, write_manifest};
 use super::rowdelta::{
     FoldClaim, Folding, Head, Key, MERGE_KEY, Part, PartReader, ReadError, StreamedPart, TOMBSTONE,
-    UPSERT, WriteError, base_name, check_gzipped_header, commit, fold_due, fold_forced, head_path,
-    open_parts, read_head, remove_staging, remove_unlisted, segment_header, segment_name,
+    UPSERT, WriteError, base_name, check_gzipped_header, commit, fold_due, fold_forced, open_parts,
+    read_head, remove_staging, remove_unlisted, segment_header, segment_name,
 };
-use super::scan::{OpenIndex, ScanError, ScanNames, index_key, manifest_and_identity, stage_lines};
+use super::scan::{OpenIndex, ScanError, ScanNames, index_key, manifest_and_identity};
 use super::sidecars::SidecarRun;
 use super::sink::Sink;
 use super::thousands;
-use super::write::{Scratch, case_input, counts_of, file_sha256, files_held, hold, through_write};
+use super::write::file_sha256;
 use crate::pyfmt::{PyValue, json};
 use crate::wire::{Result, WireError, error};
 
@@ -33,7 +29,7 @@ const CLUSTER_SEAM: &[u8] = b", \"cluster\": ";
 /// The text of the `ValueError` `bytes.index` and `bytes.rindex` raise.
 const NOT_FOUND: &str = "subsection not found";
 
-/// What the index's write raises, by the Python class it mirrors, with its text; `Unheld` for a value Python reads that the writer does not hold, which fails the Rust build.
+/// What the index's write raises, by the Python exception class its text names; `Unheld` for a value the writer does not hold.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexError {
     pub class: String,
@@ -148,15 +144,6 @@ impl IndexWrite {
         }
     }
 
-    /// The outcome's name, as `IndexWrite.outcome` holds it.
-    pub fn outcome_name(&self) -> &'static str {
-        match self.outcome {
-            Outcome::Head => "head",
-            Outcome::Segment => "segment",
-            Outcome::Base => "base",
-        }
-    }
-
     /// `IndexWrite.note`: what the build's `manifest+check` line says of the write.
     pub fn note(&self) -> String {
         let count = |rows: i64| thousands(usize::try_from(rows).unwrap_or_default());
@@ -169,16 +156,6 @@ impl IndexWrite {
             ),
             Outcome::Base => format!("a new base ({}), {} records", self.reason, count(self.rows)),
         }
-    }
-
-    /// The write as the `index-write` stage records it: its outcome, a base's reason, and its rows and their bytes.
-    pub fn value(&self) -> PyValue {
-        PyValue::Tuple(vec![
-            PyValue::str(self.outcome_name()),
-            PyValue::str(self.reason),
-            PyValue::Int(self.rows),
-            PyValue::Int(self.rows_bytes),
-        ])
     }
 }
 
@@ -694,7 +671,7 @@ pub fn write_index_lines(
     }
 }
 
-/// The index lines the write's runs spilled, run after run in shard order, each line with its newline, as `build._write_sidecars` hands them to the index's write.
+/// The index lines the write's runs spilled, run after run in shard order, each line with its newline, as the index's write takes them.
 pub fn spilled_lines(runs: &[SidecarRun]) -> impl Iterator<Item = Raised<Vec<u8>>> + '_ {
     let mut runs = runs.iter();
     let mut reading: Option<BufReader<io::Take<PartReader<'_>>>> = None;
@@ -719,154 +696,6 @@ pub fn spilled_lines(runs: &[SidecarRun]) -> impl Iterator<Item = Raised<Vec<u8>
             }
         }
     })
-}
-
-// --- the stage ----------------------------------------------------------------------------------
-
-/// The keys of the `index-write` stage's lines (`units_stage_fixtures.INDEX_WRITE_*`).
-const HEAD_KEY: &str = "head";
-const FILES_KEY: &str = "files";
-const OUTCOME_KEY: &str = "write";
-const NOTE_KEY: &str = "note";
-const GENERATED: &str = "generated:";
-
-/// Each regular file directly under `corpus` whose name starts with the index's, by name in code-point order, with its size and sha256.
-fn index_files(corpus: &Path, name: &str) -> Result<PyValue> {
-    let fail =
-        |failure: io::Error| WireError(format!("cannot list {}: {failure}", corpus.display()));
-    let mut found: Vec<String> = Vec::new();
-    for entry in fs::read_dir(corpus).map_err(fail)? {
-        let entry_name = entry
-            .map_err(fail)?
-            .file_name()
-            .to_string_lossy()
-            .into_owned();
-        if entry_name.starts_with(name) {
-            found.push(entry_name);
-        }
-    }
-    found.sort();
-    let mut held = Vec::new();
-    for entry_name in found {
-        let path = corpus.join(&entry_name);
-        if path.is_file() {
-            held.push(PyValue::Tuple(vec![
-                PyValue::Str(entry_name),
-                PyValue::Int(fs::metadata(&path).map_err(fail)?.len() as i64),
-                PyValue::Str(file_sha256(&path).map_err(fail)?),
-            ]));
-        }
-    }
-    Ok(PyValue::List(held))
-}
-
-/// Answer one generated line of the `index-write` stage: [`write_index_lines`] over a corpus holding the case's files, its lines, under a fold claim this process holds for the case's output or none, valued what the write did and its note, or the class and text of what it raised, the files the corpus holds then and the counts lines it appended.
-fn answer_generated(
-    names: &IndexNames,
-    stage_file: &Path,
-    key: &str,
-    line_input: &PyValue,
-) -> Result<PyValue> {
-    if !key.starts_with(GENERATED) {
-        return error(format!("{key}: not a line the index-write stage answers"));
-    }
-    let scratch = Scratch::new(stage_file, "index-write-case")?;
-    let corpus = scratch.0.join("out");
-    fs::create_dir_all(&corpus).map_err(|why| WireError(format!("{key}: {why}")))?;
-    let (held, rest) = case_input(key, line_input)?;
-    hold(&corpus, held, key)?;
-    let [PyValue::List(lines), holder] = rest else {
-        return error(format!(
-            "{key}: the input does not end with the lines and the holder"
-        ));
-    };
-    let lines = lines
-        .iter()
-        .map(|line| match line {
-            PyValue::Bytes(line) => Ok(line.clone()),
-            other => error(format!("{key}: a line is {}, not bytes", other.kind())),
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let counts = scratch.0.join("counts");
-    fs::write(&counts, b"").map_err(|why| WireError(format!("{key}: {why}")))?;
-    let sink = Sink::new(Some(counts.clone()));
-    let claim = FoldClaim::new(None, scratch.0.join("cycle").join("fold-claim.json"));
-    match holder {
-        PyValue::None => {}
-        PyValue::Str(holder) => {
-            claim
-                .claim(&sink, holder)
-                .map_err(|why| WireError(format!("{key}: {why}")))?;
-        }
-        other => return error(format!("{key}: the holder is {}", other.kind())),
-    }
-    let outcome = match write_index_lines(
-        &corpus,
-        &mut lines.into_iter().map(Ok),
-        names,
-        &claim,
-        &sink,
-    ) {
-        Ok(written) => {
-            let PyValue::Tuple(mut items) = written.value() else {
-                unreachable!("a write's value is a tuple");
-            };
-            items.push(PyValue::Str(written.note()));
-            PyValue::Tuple(items)
-        }
-        Err(failure) if failure.class == "Unheld" => {
-            return error(format!("{key}: {}", failure.message));
-        }
-        Err(failure) => PyValue::Dict(vec![
-            (PyValue::str("raised"), PyValue::Str(failure.class)),
-            (PyValue::str("message"), PyValue::Str(failure.message)),
-        ]),
-    };
-    Ok(PyValue::Tuple(vec![
-        outcome,
-        files_held(&corpus)?,
-        counts_of(&counts, key)?,
-    ]))
-}
-
-/// The `index-write` stage: when the stage file holds lines from the build's run, run the build through the write's commit ([`through_write`]), write the manifest over what it holds ([`write_manifest`]), then the index from the runs' spilled lines ([`write_index_lines`]) under the pass's fold claim the build input names, and answer with the head it committed, the files whose names start with the index's, what it did and its note; then answer each generated line ([`answer_generated`]).
-pub fn stage_index_write(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let names = IndexNames::of(&input)?;
-    let manifest_names = ManifestNames::of(&input)?;
-    let lines = stage_lines(stage_file)?;
-    if lines.ran {
-        through_write(&input, stage_file, "index-write", |held| {
-            let failure =
-                |failure: BuildError| WireError(format!("the index write failed: {failure}"));
-            let manifest = held_manifest(&input, &manifest_names, &held).map_err(failure)?;
-            let corpus = &held.run.corpus;
-            write_manifest(corpus, &manifest, &mut io::sink()).map_err(failure)?;
-            let claim = FoldClaim::new(
-                input.cycle.run.clone(),
-                PathBuf::from(&input.cycle.fold_claim),
-            );
-            let written = write_index_lines(
-                corpus,
-                &mut spilled_lines(&held.written.runs),
-                &names,
-                &claim,
-                &Sink::new(None),
-            )
-            .map_err(|why| WireError(format!("the index write failed: {why}")))?;
-            let head = fs::read(head_path(corpus, names.name()))
-                .map_err(|why| WireError(format!("cannot read the index's head: {why}")))?;
-            stage_line(out, HEAD_KEY, &PyValue::Bytes(head))?;
-            stage_line(out, FILES_KEY, &index_files(corpus, names.name())?)?;
-            stage_line(out, OUTCOME_KEY, &written.value())?;
-            stage_line(out, NOTE_KEY, &PyValue::Str(written.note()))
-        })?;
-    }
-    for (key, key_input) in &lines.generated {
-        let value = answer_generated(&names, stage_file, key, key_input)?;
-        stage_line(out, key, &value)?;
-    }
-    Ok(())
 }
 
 #[cfg(test)]

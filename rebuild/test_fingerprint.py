@@ -204,6 +204,28 @@ def test_review_code_excludes_the_non_build_modules(tmp_path):
     assert fingerprint.hash_paths(root, fingerprint.review_code_paths(root)) == before
 
 
+def test_review_code_covers_the_review_crate_outside_its_target(tmp_path):
+    """The m1-audit corpus build runs in the review crate, so an edit to any file of rebuild/review-rs/ moves `review_code`, the sources and the manifest alike, while a file under its `target/`, the crate's build output, does not."""
+    root = _fake_repo(tmp_path)
+    fonts = (root / "site" / "before.otf", root / "site" / "junior.otf")
+    before = fingerprint.stage_b(root, *fonts)["review_code"]
+    crate = root / "rebuild" / "review-rs"
+    (crate / "src").mkdir(parents=True)
+    (crate / "src" / "lib.rs").write_text("pub const BUILD: u8 = 1;\n")
+    (crate / "Cargo.toml").write_text("[package]\nname = 'review'\n")
+    assert [path.relative_to(crate).as_posix() for path in fingerprint.review_crate_paths(root)] == [
+        "Cargo.toml",
+        "src/lib.rs",
+    ]
+    with_crate = fingerprint.stage_b(root, *fonts)["review_code"]
+    assert with_crate != before
+    (crate / "target" / "release").mkdir(parents=True)
+    (crate / "target" / "release" / "ams-review").write_bytes(b"binary")
+    assert fingerprint.stage_b(root, *fonts)["review_code"] == with_crate
+    (crate / "src" / "lib.rs").write_text("pub const BUILD: u8 = 2;\n")
+    assert fingerprint.stage_b(root, *fonts)["review_code"] != with_crate
+
+
 def test_stage_a_round_trip(tmp_path):
     root = _fake_repo(tmp_path)
     out_dir = root / "rebuild" / "out" / "m1"
@@ -1230,7 +1252,7 @@ def test_moved_note_expands_a_changed_label_through_its_sub_diff():
 
 
 def test_an_environment_stamp_hashes_its_lines_and_carries_its_detail_outside_them():
-    """`value` and `labels` depend only on `lines`, so a store that starts recording `detail` keeps its recorded value. `detail_labels` returns a label's detail map, or an empty map for a label without one."""
+    """`value` and `labels` depend only on `lines`, so a store that starts recording `detail` keeps its recorded value."""
     lines = ("format\tf/1", "corpus_code\tabc", "data\tddd")
     bare = fingerprint.EnvironmentStamp(lines=lines)
     detailed = fingerprint.EnvironmentStamp(
@@ -1238,11 +1260,6 @@ def test_an_environment_stamp_hashes_its_lines_and_carries_its_detail_outside_th
     )
     assert detailed.value == bare.value == hashlib.sha256("\n".join(lines).encode()).hexdigest()
     assert detailed.labels == bare.labels == {"format": "f/1", "corpus_code": "abc", "data": "ddd"}
-    assert detailed.detail_labels("corpus_code") == {
-        "rebuild/review/ink.py": "1",
-        "rebuild/review/build.py": "2",
-    }
-    assert detailed.detail_labels("data") == {} == bare.detail_labels("corpus_code")
 
 
 def _code_keyed(root):

@@ -1,33 +1,19 @@
-//! The orders a corpus build puts its unit table's rows in, as `rebuild/review/audit.py` computes them. [`family_ranks`] maps each family to its code point, [`triage_key`] is the order a corpus pages its human units in, and [`counting_permutation`] and [`counting_permutation_by_id`] place a table's rows in that order with a counting sort over (class, group) buckets walked in window order, the permutation [`triage_permutation`] gives by sorting one key a row. [`merge_members`] merges a window's ink-duplicate units as `audit._merge_members` does, over runs of rows [`merged_rows`] merges.
+//! The orders a corpus build puts its unit table's rows in. [`family_ranks`] maps each family to its code point, and [`counting_permutation`] and [`counting_permutation_by_id`] put a table's rows in triage order, the order a corpus pages its human units in (by class, group, window and, within a window, id), with a counting sort over (class, group) buckets walked in window order. [`merge_members`] merges a window's ink-duplicate units, over runs of rows [`merged_rows`] merges.
 //!
-//! [`UnitTable`] holds the workload as columns over the unit's ordinal, as `audit.UnitTable` does, and [`stream_workload`] builds it from the held audit a window at a time, as `audit.stream_workload` does: each window's units classed, flagged and pooled, its ink duplicates merged through the stream's digests, each unit's input key taken over its run's lines, and the merged units placed in load order beside the pre-merge units' columns and the compaction between them.
-//!
-//! [`stage_permutation`] is the `permutation` stage of the stage fixtures, [`stage_merge`] the `merge` stage, and [`stage_workload`] the `workload` stage.
+//! [`UnitTable`] holds the workload as columns over the unit's ordinal, and [`stream_workload`] builds it from the held audit a window at a time: each window's units classed, flagged and pooled, its ink duplicates merged through the stream's digests, each unit's input key taken over its run's lines, and the merged units placed in load order beside the pre-merge units' columns and the compaction between them.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
-use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
 
-use ams_m1_kernel::emit::json_string;
-use serde_json::{Value, json};
-use sha2::{Digest as _, Sha256};
-
-use super::audit::{Section, Vocabulary, audit_layout, stage_line};
+use super::audit::Section;
 use super::columns::{
     MappingPool, Sealed, StringTable, TuplePool, WindowIndex, WindowKeys, window_word,
 };
-use super::input::{BuildInput, LedgerEntry};
-use super::signatures::{
-    HeldWindows, InkShaping, StoreNames, dump_store, find_misses, key_only_count,
-};
-use super::stream::{
-    FamilyLines, Lockstep, StreamError, WindowRows, input_key, parse_window, signature_key,
-};
+use super::input::LedgerEntry;
+use super::stream::{FamilyLines, StreamError, WindowRows, input_key, parse_window, signature_key};
 use crate::change_groups::UNMATCHED;
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr_str;
-use crate::wire::{Result, WireError, error};
+use crate::wire::{Result, error};
 
 /// The rank `audit.triage_key` gives a family the ranks do not name (`10**6`).
 pub const UNRANKED_FAMILY: i64 = 1_000_000;
@@ -59,10 +45,6 @@ impl FamilyRanks {
         self.index.get(name).map(|&at| self.entries[at].1)
     }
 
-    pub fn entries(&self) -> &[(String, i64)] {
-        &self.entries
-    }
-
     /// A group's families' ranks, [`UNRANKED_FAMILY`] for a family the ranks do not name: the term `triage_key` orders a group by.
     pub fn group(&self, group: &str) -> Vec<i64> {
         group
@@ -75,33 +57,6 @@ impl FamilyRanks {
 /// Each family's code point over `family_of`'s `(code point, family)` entries in order (`audit.family_ranks`).
 pub fn family_ranks(family_of: &[(i64, String)]) -> FamilyRanks {
     FamilyRanks::from_entries(family_of.iter().map(|(value, name)| (name.clone(), *value)))
-}
-
-/// `audit.triage_key`'s tuple, ordered as Python orders it: the class's index, the group's families' ranks, the window's length and code points, and the unit's id.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TriageKey {
-    pub class_index: usize,
-    pub families: Vec<i64>,
-    pub length: usize,
-    pub codepoints: Vec<u32>,
-    pub unit_id: String,
-}
-
-/// The key the corpus pages its human units by (`audit.triage_key`).
-pub fn triage_key(
-    class_index: usize,
-    group: &str,
-    codepoints: &[u32],
-    unit_id: &str,
-    family_rank: &FamilyRanks,
-) -> TriageKey {
-    TriageKey {
-        class_index,
-        families: family_rank.group(group),
-        length: codepoints.len(),
-        codepoints: codepoints.to_vec(),
-        unit_id: unit_id.to_owned(),
-    }
 }
 
 /// What a row's (class, group) bucket is read from, the first two terms of `audit.triage_key`: each row's class and group ids in the string table, the classes' order, and the families' ranks.
@@ -158,7 +113,7 @@ impl Terms {
     }
 }
 
-/// The rows' buckets and each bucket's next free place, `_counting_permutation`'s first pass.
+/// The rows' buckets and each bucket's next free place, the counting sort's first pass.
 struct Placer {
     bucket: Vec<usize>,
     fill: Vec<usize>,
@@ -200,7 +155,7 @@ fn py_slice<T>(items: &[T], start: usize, end: usize) -> &[T] {
     &items[start..end.clamp(start, items.len())]
 }
 
-/// `n` rows in `triage_key` order without a comparison sort (`audit._counting_permutation` with no runs or no id word): each row's (class, group) bucket counted in one pass, then the rows placed into their buckets' slices in the order `walk` gives, which must be window order with the rows of one window in ascending order, so a tie keeps `walk`'s order.
+/// `n` rows in triage order without a comparison sort: each row's (class, group) bucket counted in one pass, then the rows placed into their buckets' slices in the order `walk` gives, which must be window order with the rows of one window in ascending order, so a tie keeps `walk`'s order.
 pub fn counting_permutation(buckets: &Buckets<'_>, walk: &[u32], n: usize) -> Vec<u32> {
     let mut placer = Placer::new(buckets, n);
     let mut order = vec![0; n];
@@ -210,7 +165,7 @@ pub fn counting_permutation(buckets: &Buckets<'_>, walk: &[u32], n: usize) -> Ve
     order
 }
 
-/// [`counting_permutation`] with the ties of one window broken by id word (`audit._counting_permutation` with `runs` and `id_word`): `runs` gives the stretches of `walk` that share a window (`WindowIndex::runs`), and the rows of each that land in one bucket, which sit side by side there, are sorted by `id_word`, keeping ascending order among equal words.
+/// [`counting_permutation`] with the ties of one window broken by id word: `runs` gives the stretches of `walk` that share a window (`WindowIndex::runs`), and the rows of each that land in one bucket, which sit side by side there, are sorted by `id_word`, keeping ascending order among equal words.
 pub fn counting_permutation_by_id(
     buckets: &Buckets<'_>,
     walk: &[u32],
@@ -244,47 +199,7 @@ pub fn counting_permutation_by_id(
     order
 }
 
-/// A loaded table's window columns, which `triage_permutation` orders by: each row's window length, its start in `values`, and the windows' code points.
-pub struct Windows<'a> {
-    pub counts: &'a [u8],
-    pub starts: &'a [u32],
-    pub values: &'a [u16],
-}
-
-/// The table's `n` rows in `triage_key` order by one sort over every row (`audit._triage_permutation`): by class rank, group rank, window length, window code points, the id word when `id_word` is given, and ordinal. Python packs those terms into one integer a row, each field wide enough for its largest value, so its order is this order of the terms.
-pub fn triage_permutation(
-    buckets: &Buckets<'_>,
-    windows: &Windows<'_>,
-    n: usize,
-    id_word: Option<&dyn Fn(u32) -> u64>,
-) -> Vec<u32> {
-    let terms = Terms::new(buckets);
-    let words: Vec<u64> = match id_word {
-        Some(id_word) => (0..n).map(|ordinal| id_word(ordinal as u32)).collect(),
-        None => Vec::new(),
-    };
-    let window = |ordinal: usize| {
-        let start = windows.starts[ordinal] as usize;
-        &windows.values[start..start + usize::from(windows.counts[ordinal])]
-    };
-    let mut order: Vec<u32> = (0..n as u32).collect();
-    order.sort_by(|&left, &right| {
-        let key = |ordinal: u32| {
-            let at = ordinal as usize;
-            (
-                terms.class_rank[&buckets.class_col[at]],
-                terms.group_rank[&buckets.group_col[at]],
-                windows.counts[at],
-                window(at),
-                words.get(at).copied().unwrap_or(0),
-            )
-        };
-        key(left).cmp(&key(right)).then(left.cmp(&right))
-    });
-    order
-}
-
-/// One sibling unit of a window as the ink-duplicate merge reads and widens it (`audit._Member`): its place in its window (or its row in the table), its config rank, its configs, its kinds and its per-config classes in their order, its exemplar flag, its class and exemption, whether it absorbed a sibling, and the ordinal of the member that absorbed it (Python's -1 as `None`).
+/// One sibling unit of a window as the ink-duplicate merge reads and widens it: its place in its window (or its row in the table), its config rank, its configs, its kinds and its per-config classes in their order, its exemplar flag, its class and exemption, whether it absorbed a sibling, and the ordinal of the member that absorbed it (Python's -1 as `None`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Member {
     pub ordinal: usize,
@@ -299,44 +214,17 @@ pub struct Member {
     pub survivor: Option<usize>,
 }
 
-/// The ink-duplicate merge's counts, the stats dict `audit.stream_workload` starts in this order.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MergeStats {
-    pub windows_merged: i64,
-    pub units_merged: i64,
-    pub kept_split_matched_classes: i64,
-}
-
-impl MergeStats {
-    /// The stats as Python holds them, a dict of the counts in their order.
-    pub fn to_py(&self) -> PyValue {
-        let counts = [
-            self.windows_merged,
-            self.units_merged,
-            self.kept_split_matched_classes,
-        ];
-        PyValue::Dict(
-            MERGE_STATS
-                .iter()
-                .zip(counts)
-                .map(|(name, count)| (PyValue::str(*name), PyValue::Int(count)))
-                .collect(),
-        )
-    }
-}
-
-/// What `audit._merge_members` raises: `IndexError` for no members, and `KeyError` from `set.pop` when an absorbed member leaves the survivor no class, which only members with no config classes reach.
+/// What [`merge_members`] raises: `IndexError` for no members, and `KeyError` from `set.pop` when an absorbed member leaves the survivor no class, which only members with no config classes reach.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MergeError {
     NoMembers,
     NoClass,
 }
 
-/// Merge one window's members whose every config gives one ink signature (`audit._merge_members`): the survivor is the member of the lowest config rank, the first of them in `members`' order (a stable sort, which `members` is left in), and each later member is absorbed unless the two members' per-config classes name two matched ledger classes, which is counted. `absorb(survivor, other)` merges the two members' runs of rows, the survivor's first at an equal rank, and gives the merged run's configs; the survivor takes the union of the kinds, sorted, the other's per-config classes over its own (a config both name keeping its place and taking the other's class), the unmatched class when any of them is unmatched and the matched one otherwise, the exemption of that class, and either exemplar flag. Returns whether any member was absorbed.
+/// Merge one window's members whose every config gives one ink signature: the survivor is the member of the lowest config rank, the first of them in `members`' order (a stable sort, which `members` is left in), and each later member is absorbed unless the two members' per-config classes name two matched ledger classes. `absorb(survivor, other)` merges the two members' runs of rows, the survivor's first at an equal rank, and gives the merged run's configs; the survivor takes the union of the kinds, sorted, the other's per-config classes over its own (a config both name keeping its place and taking the other's class), the unmatched class when any of them is unmatched and the matched one otherwise, the exemption of that class, and either exemplar flag. Returns whether any member was absorbed.
 pub fn merge_members(
     members: &mut [Member],
     exempt: impl Fn(&str) -> bool,
-    stats: &mut MergeStats,
     mut absorb: impl FnMut(&Member, &Member) -> Vec<String>,
 ) -> std::result::Result<bool, MergeError> {
     members.sort_by_key(|member| member.rank);
@@ -352,7 +240,6 @@ pub fn merge_members(
             }
         }
         if matched.len() > 1 {
-            stats.kept_split_matched_classes += 1;
             continue;
         }
         survivor.configs = absorb(survivor, other);
@@ -387,13 +274,12 @@ pub fn merge_members(
         survivor.exemplar = survivor.exemplar || other.exemplar;
         survivor.merged = true;
         other.survivor = Some(survivor.ordinal);
-        stats.units_merged += 1;
         merged_any = true;
     }
     Ok(merged_any)
 }
 
-/// Two runs of rows merged by `key`, the first run's row ahead at an equal key (`audit._merged_rows`, which merges by section as `RowColumns.merge_runs` merges by config rank).
+/// Two runs of rows merged by `key`, the first run's row ahead at an equal key.
 pub fn merged_rows<T: Clone, K: Ord>(first: &[T], second: &[T], key: impl Fn(&T) -> K) -> Vec<T> {
     let mut merged = Vec::with_capacity(first.len() + second.len());
     let (mut i, mut j) = (0, 0);
@@ -411,548 +297,20 @@ pub fn merged_rows<T: Clone, K: Ord>(first: &[T], second: &[T], key: impl Fn(&T)
     merged
 }
 
-fn items<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
-    match value
-        .as_object()
-        .filter(|object| object.len() == 1)
-        .and_then(|object| object.get("tuple").or_else(|| object.get("list")))
-        .and_then(Value::as_array)
-    {
-        Some(items) => Ok(items),
-        None => error(format!("{what} is not a typed tuple or list: {value:.200}")),
-    }
-}
-
-fn arguments<'a, const COUNT: usize>(value: &'a Value, what: &str) -> Result<&'a [Value; COUNT]> {
-    match items(value, what)?.try_into() {
-        Ok(arguments) => Ok(arguments),
-        Err(_) => error(format!("{what} does not hold {COUNT} values: {value:.200}")),
-    }
-}
-
-fn text<'a>(value: &'a Value, what: &str) -> Result<&'a str> {
-    value
-        .as_str()
-        .ok_or_else(|| WireError(format!("{what} is not a str: {value:.200}")))
-}
-
-fn count(value: &Value, what: &str) -> Result<usize> {
-    value
-        .as_u64()
-        .and_then(|number| usize::try_from(number).ok())
-        .ok_or_else(|| WireError(format!("{what} is not a count: {value:.200}")))
-}
-
-fn rank(value: &Value, what: &str) -> Result<i64> {
-    value
-        .as_i64()
-        .ok_or_else(|| WireError(format!("{what} is not a 64-bit int: {value:.200}")))
-}
-
-fn ids(value: &Value, what: &str) -> Result<Vec<u32>> {
-    items(value, what)?
-        .iter()
-        .map(|item| {
-            item.as_u64()
-                .and_then(|number| u32::try_from(number).ok())
-                .ok_or_else(|| WireError(format!("{what} holds a value that is not a u32: {item}")))
-        })
-        .collect()
-}
-
-fn words(value: &Value, what: &str) -> Result<Vec<u64>> {
-    items(value, what)?
-        .iter()
-        .map(|item| {
-            item.as_u64().ok_or_else(|| {
-                WireError(format!("{what} holds a value that is not a word: {item}"))
-            })
-        })
-        .collect()
-}
-
-fn entries<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
-    value
-        .as_object()
-        .filter(|object| object.len() == 1)
-        .and_then(|object| object.get("dict"))
-        .and_then(Value::as_array)
-        .map(Vec::as_slice)
-        .ok_or_else(|| WireError(format!("{what} is not a typed dict: {value:.200}")))
-}
-
-fn pair<'a>(entry: &'a Value, what: &str) -> Result<(&'a Value, &'a Value)> {
-    match entry.as_array().map(Vec::as_slice) {
-        Some([key, value]) => Ok((key, value)),
-        _ => error(format!("{what}: a dict entry is not a pair: {entry:.200}")),
-    }
-}
-
-fn string_table(value: &Value, what: &str) -> Result<StringTable> {
-    let mut table = StringTable::new();
-    for (at, string) in items(value, what)?.iter().enumerate() {
-        let id = table.id(text(string, what)?);
-        if id as usize != at {
-            return error(format!("{what}: the string table holds {string} twice"));
-        }
-    }
-    Ok(table)
-}
-
-fn class_order(value: &Value, what: &str) -> Result<HashMap<String, usize>> {
-    entries(value, what)?
-        .iter()
-        .map(|entry| {
-            let (name, index) = pair(entry, what)?;
-            Ok((text(name, what)?.to_owned(), count(index, what)?))
-        })
-        .collect()
-}
-
-fn family_rank(value: &Value, what: &str) -> Result<FamilyRanks> {
-    let ranks = entries(value, what)?
-        .iter()
-        .map(|entry| {
-            let (name, value) = pair(entry, what)?;
-            Ok((text(name, what)?.to_owned(), rank(value, what)?))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    Ok(FamilyRanks::from_entries(ranks))
-}
-
-fn runs(value: &Value, what: &str) -> Result<Vec<(usize, usize)>> {
-    items(value, what)?
-        .iter()
-        .map(|run| {
-            let [start, end] = arguments(run, what)?;
-            Ok((count(start, what)?, count(end, what)?))
-        })
-        .collect()
-}
-
-fn listed(values: &[u32]) -> Value {
-    json!({ "list": values })
-}
-
-fn tuple(items: Vec<Value>) -> Value {
-    json!({ "tuple": items })
-}
-
-/// One stage line's answer in the typed encoding.
-fn answer(record: &Value, key: &str) -> Result<Value> {
-    let input = &record["input"];
-    match record["form"].as_str() {
-        Some("counting") => {
-            let [
-                class_col,
-                group_col,
-                strings,
-                order,
-                ranks,
-                walk,
-                n,
-                given_runs,
-                id_words,
-            ] = arguments(input, key)?;
-            let (class_col, group_col) = (ids(class_col, key)?, ids(group_col, key)?);
-            let (strings, order) = (string_table(strings, key)?, class_order(order, key)?);
-            let ranks = family_rank(ranks, key)?;
-            let buckets = Buckets {
-                class_col: &class_col,
-                group_col: &group_col,
-                strings: &strings,
-                class_order: &order,
-                family_rank: &ranks,
-            };
-            let (walk, n) = (ids(walk, key)?, count(n, key)?);
-            Ok(listed(&if given_runs.is_null() || id_words.is_null() {
-                counting_permutation(&buckets, &walk, n)
-            } else {
-                let id_words = words(id_words, key)?;
-                counting_permutation_by_id(&buckets, &walk, n, runs(given_runs, key)?, |ordinal| {
-                    id_words[ordinal as usize]
-                })
-            }))
-        }
-        Some("triage") => {
-            let [
-                class_col,
-                group_col,
-                strings,
-                counts,
-                starts,
-                values,
-                n,
-                order,
-                ranks,
-                id_words,
-            ] = arguments(input, key)?;
-            let counts = ids(counts, key)?
-                .into_iter()
-                .map(|value| {
-                    u8::try_from(value)
-                        .map_err(|_| WireError(format!("{key}: a window length past a byte")))
-                })
-                .collect::<Result<Vec<u8>>>()?;
-            let values = ids(values, key)?
-                .into_iter()
-                .map(|value| {
-                    u16::try_from(value)
-                        .map_err(|_| WireError(format!("{key}: a code point past 16 bits")))
-                })
-                .collect::<Result<Vec<u16>>>()?;
-            let starts = ids(starts, key)?;
-            let windows = Windows {
-                counts: &counts,
-                starts: &starts,
-                values: &values,
-            };
-            let id_words = if id_words.is_null() {
-                None
-            } else {
-                Some(words(id_words, key)?)
-            };
-            let id_word = id_words
-                .as_ref()
-                .map(|id_words| move |ordinal: u32| id_words[ordinal as usize]);
-            let (class_col, group_col) = (ids(class_col, key)?, ids(group_col, key)?);
-            let (strings, order) = (string_table(strings, key)?, class_order(order, key)?);
-            let ranks = family_rank(ranks, key)?;
-            let buckets = Buckets {
-                class_col: &class_col,
-                group_col: &group_col,
-                strings: &strings,
-                class_order: &order,
-                family_rank: &ranks,
-            };
-            Ok(listed(&triage_permutation(
-                &buckets,
-                &windows,
-                count(n, key)?,
-                id_word
-                    .as_ref()
-                    .map(|id_word| id_word as &dyn Fn(u32) -> u64),
-            )))
-        }
-        Some("triage-key") => {
-            let [class_index, group, codepoints, unit_id, ranks] = arguments(input, key)?;
-            let found = triage_key(
-                count(class_index, key)?,
-                text(group, key)?,
-                &ids(codepoints, key)?,
-                text(unit_id, key)?,
-                &family_rank(ranks, key)?,
-            );
-            Ok(tuple(vec![
-                found.class_index.into(),
-                tuple(found.families.into_iter().map(Value::from).collect()),
-                found.length.into(),
-                tuple(found.codepoints.into_iter().map(Value::from).collect()),
-                found.unit_id.into(),
-            ]))
-        }
-        Some("family-ranks") => {
-            let family_of = entries(input, key)?
-                .iter()
-                .map(|entry| {
-                    let (value, name) = pair(entry, key)?;
-                    Ok((rank(value, key)?, text(name, key)?.to_owned()))
-                })
-                .collect::<Result<Vec<_>>>()?;
-            Ok(json!({
-                "dict": family_ranks(&family_of)
-                    .entries()
-                    .iter()
-                    .map(|(name, rank)| json!([name, rank]))
-                    .collect::<Vec<_>>()
-            }))
-        }
-        other => error(format!("{key}: no permutation form {other:?}")),
-    }
-}
-
-/// The `permutation` stage: for each line of `stage_file`, answer its `input` by its `form` in one `{"key", "value"}` line, in the typed encoding: `counting` places rows as `audit._counting_permutation` does, by id word within a window ([`counting_permutation_by_id`]) when the line gives both runs and id words and in walk order ([`counting_permutation`]) otherwise; `triage` sorts a table's rows as `audit._triage_permutation` does ([`triage_permutation`]); `triage-key` gives `audit.triage_key`'s tuple ([`triage_key`]); and `family-ranks` gives `audit.family_ranks`' dict in its order ([`family_ranks`]). A line's string table is the table's strings in id order, and its id words are each row's word by ordinal.
-pub fn stage_permutation(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    answer_lines(stage_file, out, answer)
-}
-
-fn flag(value: &Value, what: &str) -> Result<bool> {
-    value
-        .as_bool()
-        .ok_or_else(|| WireError(format!("{what} is not a bool: {value:.200}")))
-}
-
-fn texts(value: &Value, what: &str) -> Result<Vec<String>> {
-    items(value, what)?
-        .iter()
-        .map(|item| Ok(text(item, what)?.to_owned()))
-        .collect()
-}
-
-/// A typed record's field values, checked against its class name and its field names in order.
-fn record<'a, const COUNT: usize>(
-    value: &'a Value,
-    class: &str,
-    names: [&str; COUNT],
-    what: &str,
-) -> Result<[&'a Value; COUNT]> {
-    let fields = match value["record"].as_array().map(Vec::as_slice) {
-        Some([name, fields]) if name == class => fields.as_array(),
-        _ => None,
-    };
-    let Some(fields) = fields.filter(|fields| fields.len() == COUNT) else {
-        return error(format!("{what} is not a {class} record: {value:.200}"));
-    };
-    let mut values = [&Value::Null; COUNT];
-    for ((slot, field), name) in values.iter_mut().zip(fields).zip(names) {
-        match field.as_array().map(Vec::as_slice) {
-            Some([held, field_value]) if held == name => *slot = field_value,
-            _ => {
-                return error(format!(
-                    "{what}: a {class} record's field is not {name}: {field:.200}"
-                ));
-            }
-        }
-    }
-    Ok(values)
-}
-
-const MEMBER_FIELDS: [&str; 10] = [
-    "ordinal",
-    "rank",
-    "configs",
-    "kinds",
-    "config_classes",
-    "exemplar",
-    "class_id",
-    "no_verdict",
-    "merged",
-    "survivor",
-];
-
-const MERGE_STATS: [&str; 3] = [
-    "windows_merged",
-    "units_merged",
-    "kept_split_matched_classes",
-];
-
-fn member(value: &Value, what: &str) -> Result<Member> {
-    let [
-        ordinal,
-        rank_value,
-        configs,
-        kinds,
-        config_classes,
-        exemplar,
-        class_id,
-        no_verdict,
-        merged,
-        survivor,
-    ] = record(value, "_Member", MEMBER_FIELDS, what)?;
-    let survivor = match rank(survivor, what)? {
-        -1 => None,
-        _ => Some(count(survivor, what)?),
-    };
-    Ok(Member {
-        ordinal: count(ordinal, what)?,
-        rank: rank(rank_value, what)?,
-        configs: texts(configs, what)?,
-        kinds: texts(kinds, what)?,
-        config_classes: entries(config_classes, what)?
-            .iter()
-            .map(|entry| {
-                let (config, class) = pair(entry, what)?;
-                Ok((
-                    text(config, what)?.to_owned(),
-                    text(class, what)?.to_owned(),
-                ))
-            })
-            .collect::<Result<_>>()?,
-        exemplar: flag(exemplar, what)?,
-        class_id: text(class_id, what)?.to_owned(),
-        no_verdict: flag(no_verdict, what)?,
-        merged: flag(merged, what)?,
-        survivor,
-    })
-}
-
-fn member_value(member: &Member) -> Value {
-    let survivor = member.survivor.map_or(-1, |ordinal| ordinal as i64);
-    let fields: [Value; 10] = [
-        member.ordinal.into(),
-        member.rank.into(),
-        tuple(
-            member
-                .configs
-                .iter()
-                .map(|config| config.as_str().into())
-                .collect(),
-        ),
-        tuple(
-            member
-                .kinds
-                .iter()
-                .map(|kind| kind.as_str().into())
-                .collect(),
-        ),
-        json!({ "dict": member.config_classes.iter().map(|(config, class)| json!([config, class])).collect::<Vec<_>>() }),
-        member.exemplar.into(),
-        member.class_id.as_str().into(),
-        member.no_verdict.into(),
-        member.merged.into(),
-        survivor.into(),
-    ];
-    json!({
-        "record": [
-            "_Member",
-            MEMBER_FIELDS.iter().zip(fields).map(|(name, value)| json!([name, value])).collect::<Vec<_>>(),
-        ]
-    })
-}
-
-fn merge_stats(value: &Value, what: &str) -> Result<MergeStats> {
-    let entries = entries(value, what)?;
-    let mut counts = [0i64; 3];
-    if entries.len() != counts.len() {
-        return error(format!(
-            "{what}: the stats do not hold {MERGE_STATS:?}: {value:.200}"
-        ));
-    }
-    for ((slot, entry), name) in counts.iter_mut().zip(entries).zip(MERGE_STATS) {
-        let (key, held) = pair(entry, what)?;
-        if key != name {
-            return error(format!(
-                "{what}: the stats do not hold {MERGE_STATS:?}: {value:.200}"
-            ));
-        }
-        *slot = rank(held, what)?;
-    }
-    let [windows_merged, units_merged, kept_split_matched_classes] = counts;
-    Ok(MergeStats {
-        windows_merged,
-        units_merged,
-        kept_split_matched_classes,
-    })
-}
-
-fn stats_value(stats: &MergeStats) -> Value {
-    let counts = [
-        stats.windows_merged,
-        stats.units_merged,
-        stats.kept_split_matched_classes,
-    ];
-    json!({ "dict": MERGE_STATS.iter().zip(counts).map(|(name, count)| json!([name, count])).collect::<Vec<_>>() })
-}
-
-type Run = Vec<(i64, String)>;
-
-fn run(value: &Value, what: &str) -> Result<Run> {
-    items(value, what)?
-        .iter()
-        .map(|row| {
-            let [key, config] = arguments(row, what)?;
-            Ok((rank(key, what)?, text(config, what)?.to_owned()))
-        })
-        .collect()
-}
-
-fn run_value(run: &Run) -> Value {
-    json!({ "list": run.iter().map(|(key, config)| tuple(vec![(*key).into(), config.as_str().into()])).collect::<Vec<_>>() })
-}
-
-/// One `merge` line's answer in the typed encoding.
-fn merge_answer(record: &Value, key: &str) -> Result<Value> {
-    let [members, exempt, stats, runs] = arguments(&record["input"], key)?;
-    let mut members = items(members, key)?
-        .iter()
-        .map(|value| member(value, key))
-        .collect::<Result<Vec<_>>>()?;
-    let exempt = texts(exempt, key)?;
-    let mut stats = merge_stats(stats, key)?;
-    let given: Vec<usize> = members.iter().map(|member| member.ordinal).collect();
-    let mut held: HashMap<usize, Run> = HashMap::new();
-    let runs = items(runs, key)?;
-    if runs.len() != given.len() {
-        return error(format!("{key}: the runs are not one a member"));
-    }
-    for (&ordinal, value) in given.iter().zip(runs) {
-        let run = run(value, key)?;
-        held.entry(ordinal).or_insert(run);
-    }
-    let absorb = |survivor: &Member, other: &Member| {
-        let merged = merged_rows(&held[&survivor.ordinal], &held[&other.ordinal], |row| row.0);
-        let configs = merged.iter().map(|(_key, config)| config.clone()).collect();
-        held.insert(survivor.ordinal, merged);
-        configs
-    };
-    let merged = merge_members(
-        &mut members,
-        |class| exempt.iter().any(|held| held == class),
-        &mut stats,
-        absorb,
-    );
-    Ok(match merged {
-        Ok(merged) => tuple(vec![
-            merged.into(),
-            json!({ "list": members.iter().map(member_value).collect::<Vec<_>>() }),
-            stats_value(&stats),
-            json!({ "list": given.iter().map(|ordinal| run_value(&held[ordinal])).collect::<Vec<_>>() }),
-        ]),
-        Err(MergeError::NoMembers) => tuple(vec![
-            "raised".into(),
-            "IndexError".into(),
-            "list index out of range".into(),
-        ]),
-        Err(MergeError::NoClass) => tuple(vec![
-            "raised".into(),
-            "KeyError".into(),
-            "'pop from an empty set'".into(),
-        ]),
-    })
-}
-
-/// The `merge` stage: for each line of `stage_file`, merge its window's members as `audit._merge_members` does ([`merge_members`]), each member's run of `(merge key, config)` rows merged by [`merged_rows`] as the line's `absorb` merged them, and answer in one `{"key", "value"}` line, in the typed encoding: whether any member was absorbed, the members in the order the merge leaves them, the stats and each member's run, aligned with the members as given; or the exception Python raised, as `("raised", class, message)`.
-pub fn stage_merge(stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    answer_lines(stage_file, out, merge_answer)
-}
-
-/// Answer each line of `stage_file` by `answer` in one `{"key", "value"}` line.
-fn answer_lines(
-    stage_file: &Path,
-    out: &mut impl Write,
-    answer: impl Fn(&Value, &str) -> Result<Value>,
-) -> Result<()> {
-    let read = |failure: std::io::Error| {
-        WireError(format!("cannot read {}: {failure}", stage_file.display()))
-    };
-    for line in BufReader::new(File::open(stage_file).map_err(read)?).lines() {
-        let line = line.map_err(read)?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        let value = answer(&record, key)?;
-        writeln!(out, "{}", json!({ "key": key, "value": value }))
-            .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))?;
-    }
-    Ok(())
-}
-
-/// A `u32` column's value for a row it names nothing for (`audit.NONE`).
+/// A `u32` column's value for a row it names nothing for.
 pub const NONE: u32 = u32::MAX;
 /// The bytes of a unit's input key (`audit.INPUT_KEY_BYTES`).
 pub const INPUT_KEY_BYTES: usize = 32;
-/// The flag of a unit the ledger names as an exemplar (`audit.EXEMPLAR`).
+/// The flag of a unit the ledger names as an exemplar.
 pub const EXEMPLAR: u8 = 1;
-/// The flag of a unit whose class takes no verdict (`audit.NO_VERDICT`).
+/// The flag of a unit whose class takes no verdict.
 pub const NO_VERDICT: u8 = 2;
-/// The flag of a unit the ink-duplicate merge left in the table (`audit.LIVE`).
+/// The flag of a unit the ink-duplicate merge left in the table.
 pub const LIVE: u8 = 4;
-/// The group of a window none of whose code points has a family (`audit.group_for`).
+/// The group of a window none of whose code points has a family.
 pub const BOUNDARIES_GROUP: &str = "(boundaries)";
 
-/// A window's group (`audit.group_for`): the families of its first two code points that have one, joined by `:`, or [`BOUNDARIES_GROUP`] when none has.
+/// A window's group: the families of its first two code points that have one, joined by `:`, or [`BOUNDARIES_GROUP`] when none has.
 pub fn group_for(values: &[i64], family_of: &HashMap<i64, String>) -> String {
     let families: Vec<&str> = values
         .iter()
@@ -965,7 +323,7 @@ pub fn group_for(values: &[i64], family_of: &HashMap<i64, String>) -> String {
     }
 }
 
-/// A configuration's rank (`audit._config_index`): its place among `acceptance`, or one past them for any other.
+/// A configuration's rank: its place among `acceptance`, or one past them for any other.
 pub fn config_index(config: &str, acceptance: &[String]) -> i64 {
     acceptance
         .iter()
@@ -973,7 +331,7 @@ pub fn config_index(config: &str, acceptance: &[String]) -> i64 {
         .unwrap_or(acceptance.len()) as i64
 }
 
-/// A unit's configs partitioned by rendered outcome (`audit.render_groups_for_rows`): each row's (baseline, new) pair and config, grouped by pair in the order the rows first name each.
+/// A unit's configs partitioned by rendered outcome: each row's (baseline, new) pair and config, grouped by pair in the order the rows first name each.
 pub fn render_groups_for_rows<K: PartialEq>(
     rows: impl IntoIterator<Item = (K, String)>,
 ) -> Vec<Vec<String>> {
@@ -987,7 +345,7 @@ pub fn render_groups_for_rows<K: PartialEq>(
     groups.into_iter().map(|(_pair, configs)| configs).collect()
 }
 
-/// The pool of the rendered-name tuples a unit's baseline and new columns name (`UnitTable.names`, a `TuplePool[str]`): each tuple held as the ids of its names in a table of their own, so its ids are the ones the Python pool gives the tuples of strings.
+/// The pool of the rendered-name tuples a unit's baseline and new columns name (a `TuplePool[str]`): each tuple held as the ids of its names in a table of their own, so its ids are the ones a pool of the tuples of strings would give them.
 #[derive(Clone, Debug, Default)]
 pub struct NamePool {
     labels: StringTable,
@@ -1019,37 +377,19 @@ impl NamePool {
             .collect()
     }
 
-    /// The distinct tuples without the empty one.
-    pub fn len(&self) -> usize {
-        self.tuples.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.tuples.is_empty()
-    }
-
-    /// The distinct tuples' lengths summed.
-    pub fn elements(&self) -> usize {
-        self.tuples.elements()
-    }
-
     pub fn seal(&mut self) {
         self.tuples.seal();
     }
-
-    pub fn sealed(&self) -> bool {
-        self.tuples.sealed()
-    }
 }
 
-/// What [`UnitTable::compact`] gives (`audit.Compaction`): each pre-merge row's survivor's post-merge row, and a byte a pre-merge row, 1 for a row the merge removed.
+/// What [`UnitTable::compact`] gives: each pre-merge row's survivor's post-merge row, and a byte a pre-merge row, 1 for a row the merge removed.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Compaction {
     pub survivor: Vec<u32>,
     pub removed: Vec<u8>,
 }
 
-/// What a unit store answers about a row, for [`UnitTable::unit`] (`audit.UnitStoreView`).
+/// What a unit store answers about a row, for [`UnitTable::unit`].
 pub trait UnitStoreView {
     fn input_key_hex(&self, ordinal: usize) -> String;
     fn loaded(&self, ordinal: usize) -> bool;
@@ -1057,7 +397,7 @@ pub trait UnitStoreView {
     fn machine_flags(&self, ordinal: usize) -> (bool, bool, bool);
 }
 
-/// One unit materialized from the table (`audit.Unit`), with every field but `ink_deltas`, which a materialized unit leaves empty.
+/// One unit materialized from the table, with every field but `ink_deltas`, which a materialized unit leaves empty.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unit {
     pub codepoints: String,
@@ -1087,70 +427,6 @@ pub struct Unit {
     pub ledger_class: String,
 }
 
-fn optional_int(value: Option<u32>) -> PyValue {
-    value.map_or(PyValue::None, |value| PyValue::Int(i64::from(value)))
-}
-
-impl Unit {
-    /// The unit as Python holds it, an `audit.Unit` record of its fields in their order but `ink_deltas`.
-    pub fn to_py(&self) -> PyValue {
-        let fields = [
-            ("codepoints", PyValue::str(&self.codepoints)),
-            ("baseline", PyValue::str_tuple(&self.baseline)),
-            ("new", PyValue::str_tuple(&self.new)),
-            ("class_id", PyValue::str(&self.class_id)),
-            ("row_count", PyValue::Int(i64::from(self.row_count))),
-            ("rows_start", PyValue::Int(i64::from(self.rows_start))),
-            ("configs", PyValue::str_tuple(&self.configs)),
-            ("kinds", PyValue::str_tuple(&self.kinds)),
-            ("group", PyValue::str(&self.group)),
-            ("exemplar", PyValue::Bool(self.exemplar)),
-            ("unit_id", PyValue::str(&self.unit_id)),
-            ("input_key", PyValue::str(&self.input_key)),
-            ("ordinal", PyValue::Int(self.ordinal as i64)),
-            ("order", optional_int(self.order)),
-            ("batch", optional_int(self.batch)),
-            (
-                "render_groups",
-                PyValue::Tuple(
-                    self.render_groups
-                        .iter()
-                        .map(|group| PyValue::str_tuple(group))
-                        .collect(),
-                ),
-            ),
-            ("ink_identical", PyValue::Bool(self.ink_identical)),
-            ("picture_identical", PyValue::Bool(self.picture_identical)),
-            ("junior_equivalent", PyValue::Bool(self.junior_equivalent)),
-            ("no_verdict", PyValue::Bool(self.no_verdict)),
-            ("config_classes", mapping_value(&self.config_classes)),
-            ("unmatched_group", PyValue::str(&self.unmatched_group)),
-            (
-                "duplicate_group",
-                PyValue::optional_str(self.duplicate_group.as_deref()),
-            ),
-            ("cluster", PyValue::optional_str(self.cluster.as_deref())),
-            ("ledger_class", PyValue::str(&self.ledger_class)),
-        ];
-        PyValue::Record(
-            "Unit".to_owned(),
-            fields
-                .into_iter()
-                .map(|(name, value)| (name.to_owned(), value))
-                .collect(),
-        )
-    }
-}
-
-fn mapping_value(pairs: &[(String, String)]) -> PyValue {
-    PyValue::Dict(
-        pairs
-            .iter()
-            .map(|(key, value)| (PyValue::str(key), PyValue::str(value)))
-            .collect(),
-    )
-}
-
 fn gather<T: Copy>(column: &[T], ordinals: &[u32]) -> Vec<T> {
     ordinals
         .iter()
@@ -1158,7 +434,7 @@ fn gather<T: Copy>(column: &[T], ordinals: &[u32]) -> Vec<T> {
         .collect()
 }
 
-/// The workload as columns over the unit's ordinal (`audit.UnitTable`): every name an id into [`UnitTable::strings`], the config and kind tuples ids into [`UnitTable::tuples`], the render groups into [`UnitTable::groups`], the per-config class maps into [`UnitTable::mappings`] in their insertion order, and the baseline and new name tuples into [`UnitTable::names`] until [`UnitTable::release_names`] drops both columns and the pool. The window is an offset and a count into one `u16` column; the ledger's two flags and the merge's [`LIVE`] bit share a byte; `order`, `batch` and `survivor` hold [`NONE`] for a unit they name nothing for; `rows_start` and `row_count` address the unit's run of the audit's rows. Each tuple id carries the rank of its first config (`_ranks`), which [`UnitTable::config_rank`] reads, and the window index ([`UnitTable::window_index`]) holds the rows in window order.
+/// The workload as columns over the unit's ordinal: every name an id into [`UnitTable::strings`], the config and kind tuples ids into [`UnitTable::tuples`], the render groups into [`UnitTable::groups`], the per-config class maps into [`UnitTable::mappings`] in their insertion order, and the baseline and new name tuples into [`UnitTable::names`] until [`UnitTable::release_names`] drops both columns and the pool. The window is an offset and a count into one `u16` column; the ledger's two flags and the merge's [`LIVE`] bit share a byte; `order`, `batch` and `survivor` hold [`NONE`] for a unit they name nothing for; `rows_start` and `row_count` address the unit's run of the audit's rows. Each tuple id carries the rank of its first config, which [`UnitTable::config_rank`] reads, and the window index ([`UnitTable::window_index`]) holds the rows in window order.
 #[derive(Clone, Debug)]
 pub struct UnitTable {
     pub n: usize,
@@ -1236,7 +512,7 @@ impl UnitTable {
         self.n == 0
     }
 
-    /// A config or kind tuple's id, the rank of its first value recorded beside a new one (`UnitTable._tuple_id`).
+    /// A config or kind tuple's id, the rank of its first value recorded beside a new one.
     pub fn tuple_id(&mut self, value: &[String]) -> u32 {
         let found = self
             .tuples
@@ -1321,15 +597,6 @@ impl UnitTable {
         self.flags[ordinal] & LIVE != 0
     }
 
-    /// The row a removed unit merged into, or the row itself while it is live.
-    pub fn survivor(&self, ordinal: usize) -> u32 {
-        if self.live(ordinal) {
-            ordinal as u32
-        } else {
-            self.survivor[ordinal]
-        }
-    }
-
     /// The rows in window order beside their packed windows, sorted from the window column on the first call when no source wrote it.
     pub fn window_index(&mut self) -> &WindowIndex {
         if self.window_index.is_none() {
@@ -1359,7 +626,7 @@ impl UnitTable {
             .collect()
     }
 
-    /// The window in the audit's format: colon-joined uppercase hex, at least four digits a code point (`audit.format_codepoints`).
+    /// The window in the audit's format: colon-joined uppercase hex, at least four digits a code point.
     pub fn codepoints_text(&self, ordinal: usize) -> String {
         self.codepoints(ordinal)
             .iter()
@@ -1368,7 +635,7 @@ impl UnitTable {
             .join(":")
     }
 
-    /// The rank of the unit's first config (`UnitTable.config_rank`).
+    /// The rank of the unit's first config.
     pub fn config_rank(&self, ordinal: usize) -> i64 {
         self.ranks[self.configs[ordinal] as usize]
     }
@@ -1415,7 +682,7 @@ impl UnitTable {
         self.cluster[ordinal] = self.strings.optional(cluster);
     }
 
-    /// Set the unit's place in the triage index and its batch, [`NONE`] for a unit outside it (`UnitTable.set_order_batch`).
+    /// Set the unit's place in the triage index and its batch, [`NONE`] for a unit outside it.
     pub fn set_order_batch(&mut self, ordinal: usize, order: Option<u32>, batch: Option<u32>) {
         self.order[ordinal] = order.unwrap_or(NONE);
         self.batch[ordinal] = batch.unwrap_or(NONE);
@@ -1441,7 +708,7 @@ impl UnitTable {
         Ok(())
     }
 
-    /// Drop every row the merge removed, renumber the rest in place, and give each pre-merge row's survivor's post-merge row (`UnitTable.compact`). The window values, the pools and the string table do not change, and a row's window offsets move with it.
+    /// Drop every row the merge removed, renumber the rest in place, and give each pre-merge row's survivor's post-merge row. The window values, the pools and the string table do not change, and a row's window offsets move with it.
     pub fn compact(&mut self) -> Compaction {
         let n = self.n;
         let mut remap = vec![NONE; n];
@@ -1504,7 +771,7 @@ impl UnitTable {
         self.names = None;
     }
 
-    /// Each change group's unit count, in the order the column first names each (`UnitTable.unmatched_group_counts`).
+    /// Each change group's unit count, in the order the column first names each.
     pub fn unmatched_group_counts(&self) -> Vec<(String, i64)> {
         let mut counts: Vec<(u32, i64)> = Vec::new();
         let mut at: HashMap<u32, usize> = HashMap::new();
@@ -1535,7 +802,7 @@ impl UnitTable {
             .collect()
     }
 
-    /// Every class's ordinals in the order `order` states them, the classes in the order they first appear along it (`UnitTable.rows_by_class`).
+    /// Every class's ordinals in the order `order` states them, the classes in the order they first appear along it.
     pub fn rows_by_class(&self, order: impl IntoIterator<Item = u32>) -> Vec<(String, Vec<u32>)> {
         let mut grouped: Vec<(u32, Vec<u32>)> = Vec::new();
         let mut at: HashMap<u32, usize> = HashMap::new();
@@ -1553,7 +820,7 @@ impl UnitTable {
             .collect()
     }
 
-    /// The unit at `ordinal` materialized from the table (`UnitTable.unit`); with a store, its input key from the store, and its id and machine flags once the store has loaded it.
+    /// The unit at `ordinal` materialized from the table; with a store, its input key from the store, and its id and machine flags once the store has loaded it.
     pub fn unit(&self, ordinal: usize, store: Option<&dyn UnitStoreView>) -> Unit {
         let (mut unit_id, mut input_key) = (String::new(), String::new());
         let mut flags = (false, false, false);
@@ -1594,44 +861,13 @@ impl UnitTable {
         }
     }
 
-    /// A row's ids in the table's columns, in `UnitTable.columns`' order, the name ids None once released.
-    pub fn ids(&self, ordinal: usize) -> [Option<u32>; 19] {
-        let name = |column: &Option<Vec<u32>>| column.as_ref().map(|column| column[ordinal]);
-        [
-            Some(self.class[ordinal]),
-            Some(self.group[ordinal]),
-            Some(self.unmatched_group[ordinal]),
-            Some(self.duplicate_group[ordinal]),
-            Some(self.cluster[ordinal]),
-            Some(self.configs[ordinal]),
-            Some(self.kinds[ordinal]),
-            Some(self.render_groups[ordinal]),
-            name(&self.baseline),
-            name(&self.new),
-            Some(self.config_classes[ordinal]),
-            Some(u32::from(self.flags[ordinal])),
-            Some(self.window_start[ordinal]),
-            Some(u32::from(self.window_n[ordinal])),
-            Some(self.rows_start[ordinal]),
-            Some(self.row_count[ordinal]),
-            Some(self.order[ordinal]),
-            Some(self.batch[ordinal]),
-            Some(self.survivor[ordinal]),
-        ]
-    }
-
-    /// The rank of each tuple id's first config, by id.
-    pub fn ranks(&self) -> &[i64] {
-        &self.ranks
-    }
-
     /// The window values every row's window offsets address.
     pub fn window_values(&self) -> &[u16] {
         &self.window_values
     }
 }
 
-/// The stream's pre-merge units in load order, in the columns the pre-merge snapshot holds (`audit.PremergeColumns`): each one's class id and config-set id, its exemption, and its window's offsets into the table's value column.
+/// The stream's pre-merge units in load order, in the columns the pre-merge snapshot holds: each one's class id and config-set id, its exemption, and its window's offsets into the table's value column.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PremergeColumns {
     pub class_id: Vec<u32>,
@@ -1641,7 +877,7 @@ pub struct PremergeColumns {
     pub window_n: Vec<u8>,
 }
 
-/// What the load gives the build (`audit.Workload` from the stream): the unit table, the audit's row count, and the places in the ledger of the classes the units reach.
+/// What the load gives the build: the unit table, the audit's row count, and the places in the ledger of the classes the units reach.
 #[derive(Clone, Debug)]
 pub struct Workload {
     pub table: UnitTable,
@@ -1649,17 +885,16 @@ pub struct Workload {
     pub classes_present: Vec<usize>,
 }
 
-/// What [`stream_workload`] gives (`audit.StreamedLoad`): the workload, the pre-merge units' columns and the compaction from each to its merged unit's row, each merged unit's input key in load order, and the merge's stats.
+/// What [`stream_workload`] gives: the workload, the pre-merge units' columns and the compaction from each to its merged unit's row, and each merged unit's input key in load order.
 #[derive(Clone, Debug)]
 pub struct StreamedLoad {
     pub workload: Workload,
     pub premerge: PremergeColumns,
     pub compaction: Compaction,
     pub input_keys: Vec<u8>,
-    pub merge_stats: MergeStats,
 }
 
-/// What stops the stream's load: what the walk raised (an `audit_stream.OrderBreak` or a failure reading the audit), a `ValueError` with Python's text, or any other failure.
+/// What stops the stream's load: what the walk raised (an `OrderBreak` or a failure reading the audit), a `ValueError` with its text, or any other failure.
 #[derive(Debug)]
 pub enum WorkloadError {
     Stream(StreamError),
@@ -1713,7 +948,7 @@ fn run_configs(rows: &WindowRows, sections: &[Section]) -> Vec<String> {
         .collect()
 }
 
-/// Load the audit from its sorted sections one window at a time, the build's stream source (`audit.stream_workload`): `next_window` gives each window and its rows as [`Lockstep::next_window`] walks them over `sections`. Each window's rows group into units by `(baseline, new)` in the order the file first names them; a unit is classed, flagged and pooled as Python does it, a unit whose rows match two ledger classes stops the load with Python's `ValueError`, and so does a row whose class the ledger does not declare once every row is read. In a window of two or more units each row's signature is `ink_digest` of its signature key, its window and its config, and the window's units whose rows give one signature merge as [`merge_members`] merges them; with no `ink_digest` the merge is skipped. Each merged unit's input key is [`input_key`] over its run's lines. The merged units are written in window order, the pre-merge units beside them, then placed in load order by [`counting_permutation`] over the pre-merge units' classes and groups, the merged units keeping their survivors' places; the window index is the merged units in window order when every window packs into a word, and left unbuilt otherwise.
+/// Load the audit from its sorted sections one window at a time, the build's stream source: `next_window` gives each window and its rows as [`Lockstep::next_window`] walks them over `sections`. Each window's rows group into units by `(baseline, new)` in the order the file first names them; a unit is classed, flagged and pooled as Python does it, a unit whose rows match two ledger classes stops the load with Python's `ValueError`, and so does a row whose class the ledger does not declare once every row is read. In a window of two or more units each row's signature is `ink_digest` of its signature key, its window and its config, and the window's units whose rows give one signature merge as [`merge_members`] merges them; with no `ink_digest` the merge is skipped. Each merged unit's input key is [`input_key`] over its run's lines. The merged units are written in window order, the pre-merge units beside them, then placed in load order by [`counting_permutation`] over the pre-merge units' classes and groups, the merged units keeping their survivors' places; the window index is the merged units in window order when every window packs into a word, and left unbuilt otherwise.
 #[allow(clippy::too_many_arguments)]
 pub fn stream_workload(
     mut next_window: impl FnMut() -> std::result::Result<Option<(String, WindowRows)>, StreamError>,
@@ -1743,7 +978,6 @@ pub fn stream_workload(
                 .map(|(config, window)| (config.as_str(), window.as_str()))
         })
         .collect();
-    let mut stats = MergeStats::default();
     let mut names = NamePool::new();
 
     let (mut class_col, mut group_col, mut configs_col, mut kinds_col) =
@@ -1896,21 +1130,16 @@ pub fn stream_workload(
                     units[survivor.ordinal] = merged;
                     configs
                 };
-                let merged = merge_members(
-                    &mut group,
-                    |class| exempt.contains(class),
-                    &mut stats,
-                    absorb,
-                )
-                .map_err(|failure| {
-                    WorkloadError::Failed(match failure {
-                        MergeError::NoMembers => "IndexError: list index out of range".to_owned(),
-                        MergeError::NoClass => "KeyError: 'pop from an empty set'".to_owned(),
-                    })
-                })?;
-                if merged {
-                    stats.windows_merged += 1;
-                }
+                merge_members(&mut group, |class| exempt.contains(class), absorb).map_err(
+                    |failure| {
+                        WorkloadError::Failed(match failure {
+                            MergeError::NoMembers => {
+                                "IndexError: list index out of range".to_owned()
+                            }
+                            MergeError::NoClass => "KeyError: 'pop from an empty set'".to_owned(),
+                        })
+                    },
+                )?;
                 for member in group {
                     let place = member.ordinal;
                     members[place] = member;
@@ -2107,405 +1336,17 @@ pub fn stream_workload(
         premerge,
         compaction,
         input_keys,
-        merge_stats: stats,
     })
-}
-
-/// A column line's count and the sha256 of its values' typed encodings, each followed by a newline, taken as the values come.
-pub(crate) struct ColumnDigest {
-    count: i64,
-    digest: Sha256,
-}
-
-impl ColumnDigest {
-    pub(crate) fn new() -> Self {
-        Self {
-            count: 0,
-            digest: Sha256::new(),
-        }
-    }
-
-    fn add_typed(&mut self, typed: &str) {
-        self.digest.update(typed.as_bytes());
-        self.digest.update(b"\n");
-        self.count += 1;
-    }
-
-    pub(crate) fn add(&mut self, value: &PyValue) {
-        self.add_typed(&value.to_typed());
-    }
-
-    /// The sha256 of the values added, as hex.
-    pub(crate) fn hex(self) -> String {
-        self.digest
-            .finalize()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect()
-    }
-
-    pub(crate) fn write(self, out: &mut impl Write, name: &str) -> Result<()> {
-        let digest: String = self
-            .digest
-            .finalize()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
-        writeln!(
-            out,
-            "{{\"key\":{},\"values\":{},\"sha256\":{}}}",
-            json_string(&format!("column:{name}")),
-            self.count,
-            json_string(&digest)
-        )
-        .map_err(|failure| WireError(format!("cannot write a stage line: {failure}")))
-    }
-}
-
-fn column_of(
-    out: &mut impl Write,
-    name: &str,
-    values: impl IntoIterator<Item = PyValue>,
-) -> Result<()> {
-    let mut digest = ColumnDigest::new();
-    for value in values {
-        digest.add(&value);
-    }
-    digest.write(out, name)
 }
 
 pub(crate) fn int(value: impl Into<i64>) -> PyValue {
     PyValue::Int(value.into())
 }
 
-pub(crate) fn count_value(value: usize) -> PyValue {
-    PyValue::Int(value as i64)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-/// A merged unit as the `workload` stage holds it: the unit [`UnitTable::unit`] materializes without a store, whether it is live, its survivor, its config rank, its row of the id columns and its input key as hex.
-pub(crate) fn workload_unit(table: &UnitTable, input_keys: &[u8], ordinal: usize) -> PyValue {
-    let ids = table
-        .ids(ordinal)
-        .iter()
-        .map(|id| id.map_or(PyValue::None, int))
-        .collect();
-    PyValue::Tuple(vec![
-        table.unit(ordinal, None).to_py(),
-        PyValue::Bool(table.live(ordinal)),
-        int(table.survivor(ordinal)),
-        int(table.config_rank(ordinal)),
-        PyValue::Tuple(ids),
-        PyValue::str(hex(
-            &input_keys[ordinal * INPUT_KEY_BYTES..(ordinal + 1) * INPUT_KEY_BYTES]
-        )),
-    ])
-}
-
-/// Write the `workload` stage's lines over what [`stream_workload`] gave: a `unit:<ordinal>` line for each ordinal in `units`, then the columns and the further lines the Python stage's `workload_boundary` lays out.
-fn workload_lines(
-    loaded: &StreamedLoad,
-    ledger: &[LedgerEntry],
-    units: &HashSet<usize>,
-    out: &mut impl Write,
-) -> Result<()> {
-    let table = &loaded.workload.table;
-    let mut digest = ColumnDigest::new();
-    for ordinal in 0..table.n {
-        let value = workload_unit(table, &loaded.input_keys, ordinal);
-        digest.add(&value);
-        if units.contains(&ordinal) {
-            stage_line(out, &format!("{UNIT_PREFIX}{ordinal}"), &value)?;
-        }
-    }
-    digest.write(out, "value")?;
-    column_of(
-        out,
-        "strings",
-        (0..=table.strings.len()).map(|id| PyValue::str(table.strings.get(id as u32))),
-    )?;
-    column_of(
-        out,
-        "tuples",
-        (0..=table.tuples.len()).map(|id| PyValue::str_tuple(table.tuples.get(id as u32))),
-    )?;
-    column_of(
-        out,
-        "groups",
-        (0..=table.groups.len()).map(|id| {
-            PyValue::Tuple(
-                table
-                    .groups
-                    .get(id as u32)
-                    .iter()
-                    .map(|group| PyValue::str_tuple(group))
-                    .collect(),
-            )
-        }),
-    )?;
-    column_of(
-        out,
-        "mappings",
-        (0..=table.mappings.len()).map(|id| mapping_value(table.mappings.get(id as u32))),
-    )?;
-    let names: Vec<PyValue> = match &table.names {
-        Some(names) => (0..=names.len())
-            .map(|id| PyValue::str_tuple(&names.get(id as u32)))
-            .collect(),
-        None => Vec::new(),
-    };
-    column_of(out, "names", names)?;
-    column_of(out, "ranks", table.ranks().iter().map(|&rank| int(rank)))?;
-    column_of(
-        out,
-        "window-values",
-        table.window_values().iter().map(|&value| int(value)),
-    )?;
-    let index = table.held_window_index();
-    column_of(
-        out,
-        "window-ordinals",
-        index
-            .map(|index| index.ordinals.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .map(int),
-    )?;
-    let mut keys = ColumnDigest::new();
-    match index.map(|index| &index.keys) {
-        Some(WindowKeys::Words(words)) => {
-            for word in words {
-                keys.add_typed(&word.to_string());
-            }
-        }
-        Some(WindowKeys::Windows(windows)) => {
-            for window in windows {
-                keys.add(&PyValue::Tuple(vec![
-                    count_value(window.len()),
-                    PyValue::Tuple(window.iter().map(|&value| int(value)).collect()),
-                ]));
-            }
-        }
-        None => {}
-    }
-    keys.write(out, "window-keys")?;
-    let premerge = &loaded.premerge;
-    column_of(
-        out,
-        "premerge",
-        (0..premerge.class_id.len()).map(|at| {
-            PyValue::Tuple(vec![
-                int(premerge.class_id[at]),
-                PyValue::Bool(premerge.no_verdict[at] != 0),
-                int(premerge.configs[at]),
-                int(premerge.window_start[at]),
-                int(premerge.window_n[at]),
-            ])
-        }),
-    )?;
-    let compaction = &loaded.compaction;
-    column_of(
-        out,
-        "compaction",
-        compaction
-            .survivor
-            .iter()
-            .zip(&compaction.removed)
-            .map(|(&survivor, &removed)| {
-                PyValue::Tuple(vec![int(survivor), PyValue::Bool(removed != 0)])
-            }),
-    )?;
-    column_of(
-        out,
-        "rows-by-class",
-        table
-            .rows_by_class(0..table.n as u32)
-            .into_iter()
-            .map(|(class, members)| {
-                PyValue::Tuple(vec![
-                    PyValue::str(class),
-                    PyValue::Tuple(members.into_iter().map(int).collect()),
-                ])
-            }),
-    )?;
-    let pools = PyValue::Tuple(vec![
-        count_value(table.strings.len()),
-        count_value(table.strings.chars()),
-        count_value(table.tuples.len()),
-        count_value(table.tuples.elements()),
-        count_value(table.groups.len()),
-        count_value(table.groups.elements()),
-        count_value(table.mappings.len()),
-        count_value(table.mappings.elements()),
-        table.names.as_ref().map_or(PyValue::None, |names| {
-            PyValue::Tuple(vec![
-                count_value(names.len()),
-                count_value(names.elements()),
-                PyValue::Bool(names.sealed()),
-            ])
-        }),
-    ]);
-    stage_line(out, POOLS_KEY, &pools)?;
-    let shape = index.map_or(PyValue::None, |index| {
-        PyValue::Tuple(vec![
-            PyValue::Bool(index.packed()),
-            count_value(index.windows()),
-        ])
-    });
-    stage_line(out, INDEX_KEY, &shape)?;
-    stage_line(out, MERGE_KEY, &loaded.merge_stats.to_py())?;
-    stage_line(out, ROWS_KEY, &count_value(loaded.workload.row_count))?;
-    stage_line(
-        out,
-        REACHED_KEY,
-        &PyValue::Tuple(
-            loaded
-                .workload
-                .classes_present
-                .iter()
-                .map(|&index| PyValue::str(&ledger[index].id))
-                .collect(),
-        ),
-    )?;
-    stage_line(
-        out,
-        PRESENT_KEY,
-        &PyValue::List(
-            table
-                .classes_present()
-                .into_iter()
-                .map(PyValue::str)
-                .collect(),
-        ),
-    )?;
-    stage_line(
-        out,
-        GROUPS_KEY,
-        &PyValue::Dict(
-            table
-                .unmatched_group_counts()
-                .into_iter()
-                .map(|(group, count)| (PyValue::str(group), int(count)))
-                .collect(),
-        ),
-    )
-}
-
-pub(crate) const UNIT_PREFIX: &str = "unit:";
-/// The keys of the `workload` stage's lines beside its units and columns (`units_stage_fixtures.WORKLOAD_*_KEY`).
-const POOLS_KEY: &str = "pools";
-const INDEX_KEY: &str = "window-index";
-const MERGE_KEY: &str = "merge";
-const ROWS_KEY: &str = "rows";
-const REACHED_KEY: &str = "classes-reached";
-const PRESENT_KEY: &str = "classes-present";
-const GROUPS_KEY: &str = "unmatched-groups";
-
-/// The `unit:<ordinal>` lines a boundary stage's file asks for, and how many lines it holds.
-pub(crate) fn stage_units(stage_file: &Path) -> Result<(HashSet<usize>, usize)> {
-    let read = |failure: std::io::Error| {
-        WireError(format!("cannot read {}: {failure}", stage_file.display()))
-    };
-    let mut units: HashSet<usize> = HashSet::new();
-    let mut lines = 0usize;
-    for line in BufReader::new(File::open(stage_file).map_err(read)?).lines() {
-        let line = line.map_err(read)?;
-        let record: Value = serde_json::from_str(&line)
-            .map_err(|failure| WireError(format!("a stage line is not JSON: {failure}")))?;
-        let Some(key) = record["key"].as_str() else {
-            return error(format!("a stage line has no key: {line:.200}"));
-        };
-        if let Some(ordinal) = key.strip_prefix(UNIT_PREFIX) {
-            units.insert(
-                ordinal
-                    .parse()
-                    .map_err(|_| WireError(format!("the key {key} names no ordinal")))?,
-            );
-        }
-        lines += 1;
-    }
-    Ok((units, lines))
-}
-
-/// Load the audit the build input `input` names as the build's stream does, for the build of the dump `stage_file` lies in: read through the descriptors the process inherits and laid out as [`audit_layout`] lays it out, its signatures resolved as the build resolves them before the stream (the store the dump's build loads, [`find_misses`] at the vocabulary's `KEY_ONLY_PROCESSES` ranges on the input's threads, the misses shaped on its signature threads) and the stream's digests looked up through the late shaper ([`stream_workload`]).
-pub(crate) fn dump_stream(input: &BuildInput, stage_file: &Path) -> Result<StreamedLoad> {
-    let vocabulary = Vocabulary::of(input)?;
-    let names = StoreNames::of(input)?;
-    let count = key_only_count(input)?;
-    let files = input.held_audit()?;
-    let layout = audit_layout(&files, &input.audit.path, &input.audit.members, &vocabulary)
-        .map_err(|failure| WireError(format!("cannot lay out the audit: {failure}")))?;
-    let Some(sections) = layout.sections else {
-        return error(format!(
-            "the audit is not in sorted sections: {}",
-            layout.why
-        ));
-    };
-    let held = HeldWindows {
-        files: &files,
-        sections: &sections,
-        family_of: &input.family_of,
-        family_keys: &input.family_keys,
-    };
-    let width = |value: i64| usize::try_from(value).unwrap_or(1);
-    let mut signatures = dump_store(input, &names, stage_file)?;
-    let mut found = find_misses(
-        held,
-        &mut signatures,
-        &input.audit.identity,
-        &input.family_keys_digest,
-        count,
-        width(input.widths.threads),
-    )
-    .map_err(|failure| WireError(format!("the key-only read failed: {failure}")))?;
-    if let Some(why) = &found.broken {
-        return error(format!(
-            "the key-only read broke, so the build reads no stream: {why}"
-        ));
-    }
-    let shaping = InkShaping::open(Path::new(&input.units_init))?;
-    shaping.shape_found_misses(
-        &mut found,
-        &sections,
-        &mut signatures,
-        width(input.widths.signature_threads),
-    )?;
-    let mut late = shaping.late(&mut signatures);
-    let digest: InkDigest<'_> =
-        &mut |key: u64, window: &str, config: &str| late.digest(key, window, config);
-    let mut stream = Lockstep::new(&files, &sections, None, None)
-        .map_err(|failure| WireError(format!("cannot walk the audit: {failure}")))?;
-    stream_workload(
-        || stream.next_window(),
-        &input.audit.path,
-        &input.ledger_path,
-        &sections,
-        &input.ledger,
-        &input.family_of,
-        &input.family_keys,
-        &vocabulary.configs,
-        Some(digest),
-    )
-    .map_err(|failure| WireError(format!("the stream's load failed: {failure}")))
-}
-
-/// The `workload` stage: load the audit its build input names as the build's stream does ([`dump_stream`]), and answer with the lines `workload_lines` writes, a `unit:<ordinal>` line for each one the stage file asks for. A stage file with no lines, from a build whose stream did not run, is answered with none.
-pub fn stage_workload(input_path: &Path, stage_file: &Path, out: &mut impl Write) -> Result<()> {
-    let input = BuildInput::read(input_path)?;
-    let (units, lines) = stage_units(stage_file)?;
-    if lines == 0 {
-        return Ok(());
-    }
-    let loaded = dump_stream(&input, stage_file)?;
-    workload_lines(&loaded, &input.ledger, &units, out)
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use sha2::{Digest as _, Sha256};
 
     /// A string table over `strings` in order after the empty one, with their ids.
     fn table(strings: &[&str]) -> (StringTable, Vec<u32>) {
@@ -2529,27 +1370,9 @@ pub(crate) mod tests {
             (2, "b".to_owned()),
             (3, "a".to_owned()),
         ]);
-        assert_eq!(ranks.entries(), [("a".to_owned(), 3), ("b".to_owned(), 2)]);
+        assert_eq!(ranks.entries, [("a".to_owned(), 3), ("b".to_owned(), 2)]);
         assert_eq!(ranks.group("b:c:a"), [2, UNRANKED_FAMILY, 3]);
         assert_eq!(ranks.group(""), [UNRANKED_FAMILY]);
-    }
-
-    #[test]
-    fn triage_keys_order_by_class_group_window_and_id() {
-        let ranks = ranks();
-        let key =
-            |class, group, codepoints: &[u32], id| triage_key(class, group, codepoints, id, &ranks);
-        let mut keys = [
-            key(1, "qsPea:qsTea", &[0xE650, 0xE652], "u-a"),
-            key(0, "qsTea:qsPea", &[0xE652, 0xE650], "u-b"),
-            key(0, "qsPea:qsTea", &[0x20, 0xE650, 0xE652], "u-c"),
-            key(0, "qsPea:qsTea", &[0xE650, 0xE652], "u-é"),
-            key(0, "qsPea:qsTea", &[0xE650, 0xE652], "u-d"),
-            key(0, "qsPea:qsNope", &[0xE650, 0xE652], "u-e"),
-        ];
-        keys.sort();
-        let ids: Vec<&str> = keys.iter().map(|key| key.unit_id.as_str()).collect();
-        assert_eq!(ids, ["u-d", "u-é", "u-c", "u-e", "u-b", "u-a"]);
     }
 
     /// Rows of two classes and two groups over windows given in window order, with their windows' columns, as a table the in-memory source loads holds them.
@@ -2624,6 +1447,46 @@ pub(crate) mod tests {
             runs,
             words,
         }
+    }
+
+    /// A loaded table's window columns, which [`triage_permutation`] orders by: each row's window length, its start in `values`, and the windows' code points.
+    struct Windows<'a> {
+        counts: &'a [u8],
+        starts: &'a [u32],
+        values: &'a [u16],
+    }
+
+    /// The table's `n` rows in triage order by one comparison sort over every row, the order the counting sort must give: by class rank, group rank, window length, window code points, the id word when `id_word` is given, and ordinal.
+    fn triage_permutation(
+        buckets: &Buckets<'_>,
+        windows: &Windows<'_>,
+        n: usize,
+        id_word: Option<&dyn Fn(u32) -> u64>,
+    ) -> Vec<u32> {
+        let terms = Terms::new(buckets);
+        let words: Vec<u64> = match id_word {
+            Some(id_word) => (0..n).map(|ordinal| id_word(ordinal as u32)).collect(),
+            None => Vec::new(),
+        };
+        let window = |ordinal: usize| {
+            let start = windows.starts[ordinal] as usize;
+            &windows.values[start..start + usize::from(windows.counts[ordinal])]
+        };
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        order.sort_by(|&left, &right| {
+            let key = |ordinal: u32| {
+                let at = ordinal as usize;
+                (
+                    terms.class_rank[&buckets.class_col[at]],
+                    terms.group_rank[&buckets.group_col[at]],
+                    windows.counts[at],
+                    window(at),
+                    words.get(at).copied().unwrap_or(0),
+                )
+            };
+            key(left).cmp(&key(right)).then(left.cmp(&right))
+        });
+        order
     }
 
     #[test]
@@ -2729,12 +1592,10 @@ pub(crate) mod tests {
             sibling(3, 1, &[("ss03", UNMATCHED)], &["a"]),
         ];
         members[3].exemplar = true;
-        let mut stats = MergeStats::default();
         let mut absorbed = Vec::new();
         let merged = merge_members(
             &mut members,
             |class| class == UNMATCHED,
-            &mut stats,
             |survivor, other| {
                 absorbed.push((survivor.ordinal, other.ordinal));
                 vec![format!("{}+{}", survivor.ordinal, other.ordinal)]
@@ -2759,27 +1620,18 @@ pub(crate) mod tests {
         assert!(survivor.no_verdict && survivor.exemplar && survivor.merged);
         assert_eq!(members[2].survivor, Some(0));
         assert_eq!(members[3].survivor, None);
-        assert_eq!(
-            stats,
-            MergeStats {
-                windows_merged: 0,
-                units_merged: 2,
-                kept_split_matched_classes: 1,
-            }
-        );
     }
 
     #[test]
     fn a_merge_with_no_class_to_take_fails_as_python_does() {
-        let mut stats = MergeStats::default();
         let configs = |_survivor: &Member, _other: &Member| Vec::new();
         assert_eq!(
-            merge_members(&mut [], |_class| false, &mut stats, configs),
+            merge_members(&mut [], |_class| false, configs),
             Err(MergeError::NoMembers)
         );
         let mut members = [sibling(0, 0, &[], &[]), sibling(1, 0, &[], &[])];
         assert_eq!(
-            merge_members(&mut members, |_class| false, &mut stats, configs),
+            merge_members(&mut members, |_class| false, configs),
             Err(MergeError::NoClass)
         );
     }
@@ -2899,14 +1751,6 @@ pub(crate) mod tests {
     #[test]
     fn the_stream_merges_ink_duplicates_and_places_the_units_in_load_order() {
         let loaded = load(mini_windows(), &mini_ledger()).expect("the stream loads");
-        assert_eq!(
-            loaded.merge_stats,
-            MergeStats {
-                windows_merged: 1,
-                units_merged: 1,
-                kept_split_matched_classes: 0,
-            }
-        );
         let table = &loaded.workload.table;
         assert_eq!(table.n, 4);
         assert_eq!(loaded.workload.row_count, 6);
@@ -2994,7 +1838,7 @@ pub(crate) mod tests {
             .table;
         assert!(table.merge_into(0, 2).is_ok());
         assert!(table.merge_into(1, 0).is_err());
-        assert_eq!(table.survivor(0), 2);
+        assert_eq!(table.survivor[0], 2);
         let compaction = table.compact();
         assert_eq!(compaction.survivor, [1, 0, 1, 2]);
         assert_eq!(compaction.removed, [1, 0, 0, 0]);

@@ -1,4 +1,4 @@
-//! PyYAML's flow dump over [`PyValue`], as `Drafter.draft_policy` ships a policy record: `yaml.safe_dump(record, default_flow_style=True, width=10**6, allow_unicode=True, sort_keys=False).strip()`.
+//! PyYAML's flow dump over [`PyValue`], as the drafter ships a policy record ([`crate::drafts`]): `yaml.safe_dump(record, default_flow_style=True, width=10**6, allow_unicode=True, sort_keys=False).strip()`.
 //!
 //! The dump follows PyYAML 6's pure-Python path, which `safe_dump` takes: `SafeRepresenter` turns the value into nodes (a tuple as a sequence, a dict's entries in insertion order, every collection in flow style), `Resolver`'s implicit resolvers decide whether a string would read back as a string, and `Emitter` picks each scalar's style from its analysis and writes it, tracking the column, the indent and the whitespace flags as the emitter does, so a multiline quoted scalar, a complex key and a line past the width come out as PyYAML writes them. Bytes, a set and a record are refused: `draft_policy` dumps none, and the safe representer writes the first two with tags and refuses the third. Since a [`PyValue`] has no identity, no anchor is ever written; a Python record that holds one container twice dumps with an anchor this writer cannot reproduce.
 
@@ -13,7 +13,7 @@ const BEST_INDENT: usize = 2;
 /// `check_simple_key`'s limit on a key's tag and text together.
 const SIMPLE_KEY_LIMIT: usize = 128;
 
-/// The text `Drafter.draft_policy` ships for `value`: its flow dump with surrounding whitespace stripped as `str.strip` strips it.
+/// The text the policy draft ships for `value`: its flow dump with surrounding whitespace stripped as `str.strip` strips it.
 pub fn flow_dump(value: &PyValue) -> Result<String, PyFmtError> {
     let node = represent(value)?;
     let mut emitter = Emitter::default();

@@ -1,4 +1,4 @@
-"""Tests for the segment format, rebuild/pipeline/row_delta.py, whose module docstring states the format: the head as the single commit point and its integrity checks, the parts no head lists, the positional encoding's generation check, the places a segment cuts between rows, and the merge readers stream. rebuild/test_unit_cache.py tests the unit store written in this format against the single file a whole write gives."""
+"""Tests for the segment format, rebuild/pipeline/row_delta.py, whose module docstring states the format: the head as the single commit point and its integrity checks, the parts no head lists, the positional encoding's generation check, and the merge readers stream. The segments by place here are written in the test (`_placed_segment`), line for line as the review crate writes the unit store's."""
 
 from __future__ import annotations
 
@@ -27,6 +27,27 @@ def _base(directory: Path, rows: list[bytes], generation: int = 0) -> row_delta.
     return row_delta.write_part(directory, row_delta.base_name(OUTPUT, generation), fill)
 
 
+def _placed_line(row: row_delta.Row) -> bytes:
+    """A segment row by place as its line: the operation, the place's base row and fraction, and the payload, tab-separated."""
+    anchor, fraction = row.place
+    return row.op + b"\t" + str(anchor).encode() + b"\t" + fraction.encode() + b"\t" + row.payload
+
+
+def _placed_segment(
+    directory: Path, generation: int, number: int, rows: list[row_delta.Row]
+) -> row_delta.Part:
+    """Write segment `number` of `generation` from `rows`, in place order, under a header that merges by place."""
+
+    def fill(stream) -> tuple[int, int]:
+        stream.write(row_delta.segment_header(OUTPUT, generation, number))
+        lines = [_placed_line(row) for row in rows]
+        for line in lines:
+            stream.write(line)
+        return len(lines), sum(map(len, lines))
+
+    return row_delta.write_part(directory, row_delta.segment_name(OUTPUT, generation, number), fill)
+
+
 def _materialized(directory: Path) -> list[tuple[row_delta.Place, bytes]]:
     head = row_delta.read_head(directory, OUTPUT)
     assert head is not None
@@ -44,30 +65,6 @@ def _materialized(directory: Path) -> list[tuple[row_delta.Place, bytes]]:
             for number, handle in enumerate(opened.handles[1:], start=1)
         ]
         return list(row_delta.merge_placed(base_rows, segments))
-
-
-def test_places_between_cut_ascending_places_strictly_inside_any_gap():
-    """A run of rows takes as many places as it needs strictly between its neighbors, ascending, whether the neighbors are base rows, rows a segment placed, or the ends; and a gap a run filled still has room for the next run, since a fraction has no trailing zero."""
-    gaps = [
-        (None, (0, "")),
-        ((0, ""), (1, "")),
-        ((2, ""), None),
-        ((3, "5"), (3, "51")),
-        ((3, "zz"), (4, "")),
-        ((-1, "h"), (0, "")),
-    ]
-    for low, high in gaps:
-        for count in (1, 2, 37, 1000):
-            places = row_delta.places_between(low, high, count)
-            assert len(places) == count == len(set(places))
-            assert places == sorted(places)
-            assert all(not fraction.endswith("0") and fraction for _anchor, fraction in places)
-            assert low is None or low < places[0]
-            assert high is None or places[-1] < high
-            inner = row_delta.places_between(places[0], places[1] if count > 1 else high, 3)
-            assert places[0] < inner[0] and (count == 1 or inner[-1] < places[1])
-    with pytest.raises(ValueError):
-        row_delta.places_between((1, ""), (1, ""), 1)
 
 
 def test_readers_merge_the_base_and_segments_by_place_and_a_later_part_supersedes_a_place(tmp_path):
@@ -95,16 +92,12 @@ def test_readers_merge_the_base_and_segments_by_place_and_a_later_part_supersede
     row_delta.commit(tmp_path, head)
     assert _materialized(tmp_path) == [((index, ""), row) for index, row in enumerate(rows)]
     for number, (segment, materialized) in enumerate(zip(segments, expected, strict=True), start=1):
-        part = row_delta.write_segment(tmp_path, OUTPUT, 0, number, segment)
-        assert (part.rows, part.rows_bytes) == (len(segment), sum(map(len, map(row_delta.row_line, segment))))
+        part = _placed_segment(tmp_path, 0, number, segment)
+        assert (part.rows, part.rows_bytes) == (len(segment), sum(map(len, map(_placed_line, segment))))
         head = row_delta.with_segment(head, part, {"pass": number})
         row_delta.commit(tmp_path, head)
         assert _materialized(tmp_path) == materialized
     assert head.content == 2 and head.identity == f"{OUTPUT}@2"
-    with pytest.raises(ValueError, match="out of place order"):
-        row_delta.write_segment(tmp_path, OUTPUT, 0, 3, list(reversed(segments[0])))
-    with pytest.raises(ValueError, match="out of place order"):
-        row_delta.write_segment(tmp_path, OUTPUT, 0, 3, [segments[1][0], segments[1][0]])
 
 
 def test_a_reader_refuses_a_part_that_is_not_the_one_its_head_records(tmp_path):
@@ -134,9 +127,7 @@ def test_a_part_no_head_lists_is_ignored_and_the_next_writer_deletes_it(tmp_path
     base = _base(tmp_path, [b"a1\n"])
     head = row_delta.Head(OUTPUT, 0, 0, {}, base)
     row_delta.commit(tmp_path, head)
-    stray = row_delta.write_segment(
-        tmp_path, OUTPUT, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a9\n")]
-    )
+    stray = _placed_segment(tmp_path, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a9\n")])
     _base(tmp_path, [b"z1\n"], generation=1)
     (tmp_path / f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial").write_bytes(b"")
     assert _materialized(tmp_path) == [((0, ""), b"a1\n")]
@@ -160,9 +151,7 @@ def test_a_part_no_head_lists_is_ignored_and_the_next_writer_deletes_it(tmp_path
 def test_a_segment_whose_header_names_another_generation_is_refused(tmp_path):
     """A segment's places index its generation's base, so its header names the generation and its number, and a reader refuses a segment the head lists under another, as when an old head is paired with a refolded base, instead of placing its rows against the wrong base."""
     base = _base(tmp_path, [b"a1\n", b"b1\n"])
-    forged = row_delta.write_segment(
-        tmp_path, OUTPUT, 1, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a2\n")]
-    )
+    forged = _placed_segment(tmp_path, 1, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a2\n")])
     listed = row_delta.segment_name(OUTPUT, 0, 1)
     (tmp_path / forged.name).rename(tmp_path / listed)
     head = row_delta.Head(OUTPUT, 0, 0, {}, base, (row_delta.Part(listed, forged.size, forged.sha256, 1, 9),))
@@ -176,11 +165,8 @@ def test_a_segment_whose_header_names_another_generation_is_refused(tmp_path):
         row_delta.read_head(tmp_path, OUTPUT)
 
 
-def test_the_share_rule_and_the_fold_decide_a_new_base(monkeypatch):
-    """The share rule writes a new base for a segment past half its base's row bytes or a pass whose stamps re-derive every row, and the fold is due once the segments' row bytes reach the base's or their count reaches the cap."""
-    assert not row_delta.writes_base(50, 100, every_row_rederived=False)
-    assert row_delta.writes_base(51, 100, every_row_rederived=False)
-    assert row_delta.writes_base(0, 100, every_row_rederived=True)
+def test_the_fold_is_due_once_the_segments_reach_the_base_or_the_cap(monkeypatch):
+    """The fold is due once the segments' row bytes reach the base's or their count reaches the cap."""
     base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 10, 100)
     segment = row_delta.Part(row_delta.segment_name(OUTPUT, 0, 1), 1, "", 1, 10)
     assert not row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base))
@@ -238,9 +224,7 @@ def test_a_keyed_merge_lets_the_latest_part_win_at_each_key_and_says_so_in_every
 def test_a_segment_of_the_other_kind_of_merge_is_refused(tmp_path):
     """A head's merge, by place or by key, is repeated in each segment's header, so a reader refuses a segment written for the other: a placed segment under a keyed head, and a keyed one read as placed. A head by place writes no `merge` field, so the unit store's head reads as it did before outputs merged by key."""
     base = _base(tmp_path, [b"a\ta\t1\n"])
-    placed = row_delta.write_segment(
-        tmp_path, OUTPUT, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a\ta\t2\n")]
-    )
+    placed = _placed_segment(tmp_path, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a\ta\t2\n")])
     keyed = row_delta.Head(OUTPUT, 0, 1, {}, base, (placed,), row_delta.MERGE_KEY)
     row_delta.commit(tmp_path, keyed)
     with row_delta.open_parts(tmp_path, keyed) as opened:

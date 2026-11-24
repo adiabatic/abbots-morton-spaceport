@@ -1,31 +1,29 @@
-"""The corpus build interface: the Python side of the review crate's corpus build under `rebuild/review-rs/`, the Rust engine of the review corpus build's parent (`rebuild/CORPUS-PARENT-PORT-PLAN.md` § Boundary). It owns every format that crosses to the build, as `units_exec` owns the units engine's: nothing pickled crosses, only files and compact JSON this module writes.
+"""The corpus build interface: the Python side of the review crate's corpus build under `rebuild/review-rs/`, `ams-review build`, the process that runs the m1-audit review corpus build's whole data path (`build.build_m1`). It owns every format that crosses to the build, as `units_exec` owns the units init's: nothing pickled crosses, only files and compact JSON this module writes. `doc/rebuild-design.md` §14.2 states the crate's design facts.
 
-`engine()` is the one place the engine a build runs is resolved: the switch, `AMS_CORPUS_BUILD_ENGINE`, read at call time, names it when it is set, and when it is unset the build is `rust` unless the process asks by name for something only the Python build serves (`python_only_requests`), which runs `python`. `ENGINES` holds the engines the build runs; under `rust` `build.build_m1` runs the m1-audit build in the crate (`build._rust_build_m1`), and the Python build stays as the reference the dual runs compare it with. `write_input` writes the build input (`INPUT_FORMAT`, the plan's § The build input) from the values `build._rust_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the ported code reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `run_build` runs the build, `ams-review build`, over a written input and returns its result, raising a refusal as `SystemExit` and any other failure as `BuildRunError`.
+`write_input` writes the build input (`INPUT_FORMAT`) from the values `build._build_inputs` computes, with the audit's held descriptors when the process inherits them, and `INPUT_FIELDS` is its fields in order. The module-level constants the crate reads cross in the input's vocabulary (`VOCABULARY`, read by `vocabulary` at call time), each in the typed encoding (`units_exec.encode`). `run_build` runs the build over a written input and returns its result, raising a refusal as `SystemExit` and any other failure as `BuildRunError`.
+
+The build input is one compact JSON document, `ams-review-build/1`. It holds the units init's path (`units_exec.write_init`); the corpus directory and the directory the process's spill files go in; the held audit (its path for messages, the descriptors the process inherits, base first, the head document, each part's member index, its identity, and the segment rows and compressed parts the load's note reports); the ledger's entries in file order; each code point's family and each family's content key with their digest; the change groups' order and prose; both stores' stamps (`environment`, `signature_environment`), each with its lines, the lines behind its code label and the header fields its store writes; the manifest's values; each font copy's source, name, family and digest; the static files and the fallback `index.html`; the widths; what the build reads from the environment (the cycle's run, its fold claim's file and the output-counts file); and the vocabulary. The crate parses no YAML and computes no closure digest: every stamp is Python's.
+
+The process reads its input path from `--input`, inherits the audit's descriptors and this process's standard error, which carries its console lines in `console`'s forms, and writes one result line, last, to standard output: `done` with its peak footprint and widths, `exit` with a refusal's message, or `error` with any other failure's. Its standard input is a pipe `run_build` holds open and never writes; one thread of the process blocks on reading it and, at its end, ends the process at once with status 1, so a stop that kills this process ends the build too, committing nothing further.
 """
 
 from __future__ import annotations
 
 import importlib
 import json
-import os
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from rebuild.review import units_exec
 from rebuild.review.units_exec import compact, encode, ensure_built, spawn
-from rebuild.tools import memory_tally
 from rebuild.tools.cycle_timings import record_pool
 from rebuild.tools.peak_rss import peak_footprint_self_bytes
 
 INPUT_FORMAT = "ams-review-build/1"
-ENGINE_VARIABLE = "AMS_CORPUS_BUILD_ENGINE"
-SWITCH_VALUES = ("python", "rust")
-ENGINES = ("python", "rust")
 
-# The build input's fields in the order `write_input` writes them (the plan's § The build input).
+# The build input's fields in the order `write_input` writes them.
 INPUT_FIELDS = (
     "format",
     "units_init",
@@ -49,7 +47,7 @@ INPUT_FIELDS = (
     "vocabulary",
 )
 
-# The module-level constants the ported parent reads, each by its dotted name, which is also its name in the input. `vocabulary` reads them at call time, and the build refuses an input that lacks a name it reads.
+# The module-level constants the crate's corpus build reads, each by its dotted name, which is also its name in the input. `vocabulary` reads them at call time, and the build refuses an input that lacks a name it reads.
 VOCABULARY = (
     "rebuild.pipeline.row_delta.AUDIT_SEGMENT_CAP",
     "rebuild.pipeline.row_delta.CONTENT_TIME_STAMP",
@@ -98,35 +96,7 @@ VOCABULARY = (
 
 
 class BuildRunError(RuntimeError):
-    """The Rust build failed other than by a refusal the Python build raises as `SystemExit`: an `error` result, a panic in any thread among them, or an ending with no result line."""
-
-
-def switch() -> str | None:
-    """`AMS_CORPUS_BUILD_ENGINE` as this process sets it, read at call time, or None when it is unset. A value outside `SWITCH_VALUES` raises ValueError."""
-    value = os.environ.get(ENGINE_VARIABLE)
-    if value is not None and value not in SWITCH_VALUES:
-        raise ValueError(
-            f"{ENGINE_VARIABLE}={value!r}; the corpus build engines are {', '.join(SWITCH_VALUES)}"
-        )
-    return value
-
-
-def python_only_requests() -> list[str]:
-    """The settings this process makes, read at call time, that only the Python build serves, each as `VARIABLE=value`: `AMS_CORPUS_UNITS_ENGINE=python`, whose units workers are the Python build's, and `AMS_CORPUS_MEMORY_TALLY=1`, which tallies the Python build's objects."""
-    requests = []
-    if units_exec.engine() == "python":
-        requests.append(f"{units_exec.ENGINE_VARIABLE}=python")
-    if memory_tally.enabled():
-        requests.append(f"{memory_tally.TALLY_ENV}=1")
-    return requests
-
-
-def engine() -> str:
-    """The corpus build engine a build in this process runs: the switch's value when it is set (`switch`); when it is unset, `python` if the process makes a request only the Python build serves (`python_only_requests`), since it asked for that by name, and `rust` otherwise. Under an explicit `rust` the build refuses such a request (`build._rust_build_m1`). A switch value outside `SWITCH_VALUES` raises ValueError."""
-    value = switch()
-    if value is not None:
-        return value
-    return "python" if python_only_requests() else "rust"
+    """The build failed other than by a refusal, which `run_build` raises as `SystemExit`: an `error` result, a panic in any thread among them, or an ending with no result line."""
 
 
 def vocabulary() -> dict[str, object]:
@@ -139,7 +109,7 @@ def vocabulary() -> dict[str, object]:
 
 
 def input_document(values: Mapping[str, Any], descriptors: Sequence[int] | None = None) -> dict[str, Any]:
-    """The build input's JSON document for the values `build._rust_inputs` computes, one entry a field of `INPUT_FIELDS` in order, with the audit's `descriptors`, base first, or null when no process inherits them. A ledger entry's exemplar keys are sorted, a stamp's detail and the change groups' prose are pairs in order, a code point's family is a `[code point, family]` pair, and the vocabulary's values are in the typed encoding. Values with a missing or an extra field raise ValueError."""
+    """The build input's JSON document for the values `build._build_inputs` computes, one entry a field of `INPUT_FIELDS` in order, with the audit's `descriptors`, base first, or null when no process inherits them. A ledger entry's exemplar keys are sorted, a stamp's detail and the change groups' prose are pairs in order, a code point's family is a `[code point, family]` pair, and the vocabulary's values are in the typed encoding. Values with a missing or an extra field raise ValueError."""
     if tuple(values) != INPUT_FIELDS:
         raise ValueError(f"the build input's fields are {', '.join(INPUT_FIELDS)}, not {', '.join(values)}")
     held = values["audit"]
@@ -211,7 +181,7 @@ def write_input(values: Mapping[str, Any], path: Path, descriptors: Sequence[int
 
 
 def run_build(input_path: Path, descriptors: Sequence[int]) -> dict[str, Any]:
-    """Run the Rust build, `ams-review build`, over the build input at `input_path`, and return its `done` result once it exits 0 (the plan's § The process and § The result). The crate is built first (`units_exec.ensure_built`). The process inherits the audit's held `descriptors` and this process's standard error, which carries its console lines, and its standard input is a pipe held open until it exits and never written, so a stop that kills this process ends the build too. A `done` result writes the `corpus-build-rs` pool record to the timings journal `cycle_timings.JOURNAL` names at call time, the route every pool record of the Python build takes, so a test's or a harness's redirect of the journal takes it too: the width is the build's threads, its one worker the process at its peak footprint, and this process's own footprint the controller's. An `exit` result raises `SystemExit` with its message, an `error` result raises `BuildRunError` with its message, and any other ending, a signal or no result line, raises `BuildRunError` naming the exit status."""
+    """Run the build, `ams-review build`, over the build input at `input_path`, and return its `done` result once it exits 0. The crate is built first (`units_exec.ensure_built`). The process inherits the audit's held `descriptors` and this process's standard error, which carries its console lines, and its standard input is a pipe held open until it exits and never written, so a stop that kills this process ends the build too. A `done` result writes the `corpus-build-rs` pool record to the timings journal `cycle_timings.JOURNAL` names at call time, the route every pool record takes, so a test's redirect of the journal takes it too: the width is the build's threads, its one worker the process at its peak footprint, and this process's own footprint the controller's. An `exit` result raises `SystemExit` with its message, an `error` result raises `BuildRunError` with its message, and any other ending, a signal or no result line, raises `BuildRunError` naming the exit status."""
     ensure_built()
     sys.stderr.flush()
     process = spawn(

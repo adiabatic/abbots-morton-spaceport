@@ -1,12 +1,12 @@
 """Checks the three code rosters that stamp the review corpus and its stores against the import closures they are meant to cover.
 
-`fingerprint.review_code_paths` hashes rebuild/review/ minus `REVIEW_NON_BUILD_MODULES`, and that exclusion list must name exactly the modules the corpus build never imports. An excluded module that the build starts importing would leave the corpus stale after an edit to it. A hashed module that the build never imports forces a full corpus rebuild and drops the per-unit store for an edit that cannot change the corpus. These tests walk the import graph from `rebuild.review.build` and check the list in both directions, at the same module granularity as rebuild/test_verdict_update_closure.py and rebuild/test_oracle_code_closure.py.
+`fingerprint.review_code_paths` hashes rebuild/review/ minus `REVIEW_NON_BUILD_MODULES`, and that exclusion list must name exactly the modules the corpus build never imports. An excluded module that the build starts importing would leave the corpus stale after an edit to it. A hashed module that the build never imports forces a full corpus rebuild and drops the per-unit store for an edit that cannot change the corpus. These tests walk the import graph from `rebuild.review.build` and from the modules whose constants the review crate reads through its build input's and units init's vocabularies (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`), which `vocabulary` imports by name at call time, where no import statement shows them, and check the list in both directions, at the same module granularity as rebuild/test_verdict_update_closure.py and rebuild/test_oracle_code_closure.py.
 
-`unit_cache.corpus_code_paths` stamps the per-unit store. It hashes the pipeline and validation modules the build reaches and no others (`PIPELINE_NON_CORPUS_MODULES` excludes the rest of rebuild/pipeline; the build reaches all of rebuild/validation), so a pipeline edit the build never executes keeps the store. The walk therefore expands rebuild/pipeline and rebuild/validation as well as rebuild/review. It records, without expanding, the modules the build reaches under rebuild/tools: the width and telemetry modules in `WIDTH_AND_TELEMETRY_MODULES`, which cannot change a unit's output. A test checks that they are the only such modules, so a new import of a module that could change output fails. The corpus manifest's Stage A `pipeline_code` component still hashes the whole pipeline tree, because run_m1 records it and the readiness check reads it back; only the two store stamps use narrower closures.
+`unit_cache.corpus_code_paths` stamps the per-unit store. It hashes the pipeline and validation modules the build reaches and no others (`PIPELINE_NON_CORPUS_MODULES` and `VALIDATION_NON_CORPUS_MODULES` exclude the rest of rebuild/pipeline and rebuild/validation), so a pipeline edit the build never executes keeps the store. The walk therefore expands rebuild/pipeline and rebuild/validation as well as rebuild/review. It records, without expanding, the modules the build reaches under rebuild/tools: the width and telemetry modules in `WIDTH_AND_TELEMETRY_MODULES`, which cannot change a unit's output. A test checks that they are the only such modules, so a new import of a module that could change output fails. The corpus manifest's Stage A `pipeline_code` component still hashes the whole pipeline tree, because run_m1 records it and the readiness check reads it back; only the two store stamps use narrower closures.
 
-`unit_cache.signature_code_paths` stamps the ink-signature store. It is the import closure of `rebuild.review.ink`, narrower than the corpus roster because a signature is `InkComparator.signature` over a `Shaper` and runs none of the driver, the enricher, the kernel interface, or the crate; an edit to those re-enriches units and re-shapes nothing. A module that can change a signature but is missing from this roster makes the store supply stale digests without any error, so the walk checks this roster in both directions too. The roster is a list of literal paths rather than an exclusion list, because the walk from ink.py reaches four modules and no package `__init__.py`. A rename would drop a path from the hash without failing, so `test_every_roster_entry_is_on_disk` checks that each entry exists.
+`unit_cache.signature_code_paths` stamps the ink-signature store's Python side. The crate takes each signature from the font facts, so the roster is their writer, rebuild/review/units_exec.py, and the import closure of `rebuild.review.ink`, whose outline caches give the facts' shape keys and cells. It is narrower than the corpus roster because reading the outlines runs none of the driver, the kernel interface, or the drafts' inputs; an edit to those re-enriches units and re-shapes nothing. A module that can change a signature but is missing from this roster makes the store supply stale digests without any error, so the walk checks this roster in both directions too. The roster is a list of literal paths rather than an exclusion list, because the walk from ink.py reaches four modules and no package `__init__.py`, and the writer's own imports reach most of the build. A rename would drop a path from the hash without failing, so `test_every_roster_entry_is_on_disk` checks that each entry exists.
 
-A Python import walk cannot see into the Rust crate. The corpus build calls the crate through two subcommands, `settle-cases` and `guard-sweep`, so `KERNEL_NON_CORPUS_MODULES` must list exactly the crate modules neither subcommand's handler reaches. The crate walk starts at function granularity in main.rs: the handler each subcommand's match arm calls, the module-level functions and impl blocks those name, and the crate modules any of them reach through main.rs's `use ams_m1_kernel::…` bindings. It continues at module granularity through each module's `crate::` references, with comment lines dropped and `#[cfg(test)]`-gated items skipped, since a release binary compiles none of those. Both walks are regular expressions over rustfmt-formatted source rather than a parser. Where the scan cannot tell whether a line is compiled, it keeps the line, and a `crate::` name that is not a module file counts as a reference to lib.rs. A reference in a form the regular expressions do not match, such as a grouped `use crate::{a, b}`, is missed. A module missed that way fails `test_no_crate_module_in_the_store_stamp_is_outside_the_verbs_reach`, whose message says to add it to `KERNEL_NON_CORPUS_MODULES`; check how the subcommands reach the module before doing so, because excluding a module they run lets cached units go stale.
+A Python import walk cannot see into the Rust crates. The review crate links the kernel library and runs the modules it names (`ams_m1_kernel::<module>`) in process, and the table-diff build calls the kernel binary through two subcommands, `settle-cases` and `guard-sweep`, whose reach covers the review crate's. So `KERNEL_NON_CORPUS_MODULES` must list exactly the kernel modules neither subcommand's handler reaches, and none the review crate reaches. The crate walk starts at function granularity in main.rs: the handler each subcommand's match arm calls, the module-level functions and impl blocks those name, and the crate modules any of them reach through main.rs's `use ams_m1_kernel::…` bindings. It continues at module granularity through each module's `crate::` references, with comment lines dropped and `#[cfg(test)]`-gated items skipped, since a release binary compiles none of those. Both walks are regular expressions over rustfmt-formatted source rather than a parser. Where the scan cannot tell whether a line is compiled, it keeps the line, and a `crate::` name that is not a module file counts as a reference to lib.rs. A reference in a form the regular expressions do not match, such as a grouped `use crate::{a, b}`, is missed. A module missed that way fails `test_no_crate_module_in_the_store_stamp_is_outside_the_verbs_reach`, whose message says to add it to `KERNEL_NON_CORPUS_MODULES`; check how the subcommands reach the module before doing so, because excluding a module they run lets cached units go stale.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import unit_cache
+from rebuild.review import corpus_exec, unit_cache, units_exec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REVIEW_DIR = REPO_ROOT / "rebuild" / "review"
@@ -25,9 +25,15 @@ VALIDATION_DIR = REPO_ROOT / "rebuild" / "validation"
 KERNEL_SRC = REPO_ROOT / "rebuild" / "kernel-rs" / "src"
 EXPANDED_DIRS = (REVIEW_DIR, PIPELINE_DIR, VALIDATION_DIR)
 
-BUILD_ENTRY_MODULES = ("rebuild.review.build",)
+# The build's entry point, and the modules whose constants the crate reads (the module docstring says why they are entry points too).
+BUILD_ENTRY_MODULES = (
+    "rebuild.review.build",
+    *sorted({name.rsplit(".", 1)[0] for name in (*corpus_exec.VOCABULARY, *units_exec.VOCABULARY)}),
+)
 SIGNATURE_ENTRY_MODULES = ("rebuild.review.ink",)
-# The modules the build reaches under rebuild/tools, and the only ones it may reach. The fan-out width: `artifact_cycle.corpus_job_budget`, and `memory_budget` under it and under kernel_exec's own width. The cost and progress readings: `peak_rss`, the `cycle_timings` pool record, the `console` phase and progress lines the cycle reads back, and the `memory_tally` debug tally, which a build prints only when its environment sets `AMS_CORPUS_MEMORY_TALLY`. Two leaf modules the fingerprints read: `site_fonts`, the two site font paths, a leaf so the root conftest can name the fonts without importing the pipeline (the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the fonts at the named paths, so a changed path changes the manifest stamp, not a unit's output); and `lock_digest`, the `uv.lock` digest, a leaf because the pyright gate, which the root conftest imports, hashes the lock with it, and read by no stamp of the corpus's stores. A leaf module of paths, `cycle_paths`, for the pass's fold claim (`row_delta.claim_fold`), which decides whether an output held as a base and segments folds or writes a segment this pass, never its materialized form. None of these can change a unit's output (rebuild/test_unit_cache.py's check that serial and parallel builds write identical bytes covers the width modules), so none is in `corpus_code_paths`. A new module here needs that argument before it is added. rebuild/test_oracle_code_closure.py's walks, which decide what the oracle row, settle memo and position stamps hash, and rebuild/test_build_code_closure.py's `_table_build_reach`, which decides what `run_m1.memo_structure_stamp` hashes, stop at this set too, so the argument must also hold for an oracle verdict, a settle memo entry, a stored position and a crate memo entry.
+# The font facts' writer, on the signature roster beside the walk from ink.py.
+FONT_FACTS_WRITER = REVIEW_DIR / "units_exec.py"
+# The modules the build reaches under rebuild/tools, and the only ones it may reach. The fan-out width: `artifact_cycle.corpus_job_budget`, and `memory_budget` under it and under kernel_exec's own width. The cost and progress readings: `peak_rss`, the `cycle_timings` pool record, and the `console` phase and progress lines the cycle reads back. Two leaf modules the fingerprints read: `site_fonts`, the two site font paths, a leaf so the root conftest can name the fonts without importing the pipeline (the build shapes with its own `SITE_BEFORE_FONT` and `SITE_JUNIOR_FONT`, and the manifest's `fonts` component hashes the fonts at the named paths, so a changed path changes the manifest stamp, not a unit's output); and `lock_digest`, the `uv.lock` digest, a leaf because the pyright gate, which the root conftest imports, hashes the lock with it, and read by no stamp of the corpus's stores. A leaf module of paths, `cycle_paths`, for the pass's fold claim (`row_delta.claim_fold`), which decides whether an output held as a base and segments folds or writes a segment this pass, never its materialized form. None of these can change a unit's output (rebuild/test_unit_cache.py's check that serial and parallel builds write identical bytes covers the width modules), so none is in `corpus_code_paths`. A new module here needs that argument before it is added. rebuild/test_oracle_code_closure.py's walks, which decide what the oracle row, settle memo and position stamps hash, and rebuild/test_build_code_closure.py's `_table_build_reach`, which decides what `run_m1.memo_structure_stamp` hashes, stop at this set too, so the argument must also hold for an oracle verdict, a settle memo entry, a stored position and a crate memo entry.
 WIDTH_AND_TELEMETRY_MODULES = frozenset(
     {
         "rebuild.tools.artifact_cycle",
@@ -36,7 +42,6 @@ WIDTH_AND_TELEMETRY_MODULES = frozenset(
         "rebuild.tools.cycle_timings",
         "rebuild.tools.lock_digest",
         "rebuild.tools.memory_budget",
-        "rebuild.tools.memory_tally",
         "rebuild.tools.peak_rss",
         "rebuild.tools.site_fonts",
     }
@@ -114,7 +119,10 @@ def _signature_reached() -> set[Path]:
     assert (
         VALIDATION_DIR / "shaping.py" in reached
     ), "the walk from the comparator never reached the shaper; ink.py's import moved"
-    return reached
+    assert "rebuild.review.ink" in _imports(
+        FONT_FACTS_WRITER
+    ), "the font facts' writer no longer reads the outlines through ink.py; the roster's argument moved"
+    return reached | {FONT_FACTS_WRITER}
 
 
 def _signature_stamped() -> set[Path]:
@@ -327,6 +335,36 @@ def test_no_crate_module_in_the_store_stamp_is_outside_the_verbs_reach():
     )
 
 
+def test_every_kernel_module_the_review_crate_reaches_is_stamped():
+    """The review crate runs the kernel library in process, so every kernel module it names (`ams_m1_kernel::<module>`), and every module those reach through their `crate::` references, must be in the unit store's `corpus_code` closure (`unit_cache.corpus_code_paths`), or a kernel edit could leave the store serving stale units."""
+    review_src = REPO_ROOT / "rebuild" / "review-rs" / "src"
+    named: set[str] = set()
+    for path in sorted(review_src.rglob("*.rs")):
+        source = _live_rust(path)
+        named.update(re.findall(r"\bams_m1_kernel::([a-z_][a-z0-9_]*)", source))
+        for group in re.findall(r"\bams_m1_kernel::\{([^}]*)\}", source):
+            named.update(re.findall(r"(?:^|,)\s*([a-z_][a-z0-9_]*)", group))
+    assert named, "the review crate names no kernel module, so this walk would be vacuous"
+    for module in sorted(named):
+        assert (KERNEL_SRC / f"{module}.rs").is_file() or (
+            KERNEL_SRC / module / "mod.rs"
+        ).is_file(), f"the review crate names ams_m1_kernel::{module}, which has no file under {KERNEL_SRC}"
+    files = {KERNEL_SRC / "lib.rs"}
+    queue = sorted(named)
+    while queue:
+        path = KERNEL_SRC / f"{queue.pop()}.rs"
+        if path in files or not path.is_file():
+            continue
+        files.add(path)
+        queue.extend(_crate_references(path))
+    unstamped = _relative(files - _corpus_stamped())
+    assert unstamped == [], (
+        "the review crate runs these kernel modules but corpus_code_paths does not hash them, so a cached "
+        "unit would outlive an edit there — remove them from KERNEL_NON_CORPUS_MODULES in "
+        "rebuild/review/unit_cache.py: " + ", ".join(unstamped)
+    )
+
+
 def test_the_enumeration_and_the_fold_stay_outside_the_store_stamp():
     """Checks named examples of the crate-side narrowing: the enumeration (`fixpoint.rs`), the fold, the fan-out, and the artifact writers are excluded, so editing them does not force the review corpus into a cold units phase. main.rs, lib.rs, the engine, the case replay, and both Cargo files stay in, since any of them can change what settle-cases returns."""
     stamped = {path.name for path in unit_cache.corpus_code_paths(REPO_ROOT)}
@@ -344,26 +382,26 @@ def test_the_sweep_the_row_cache_the_emitter_and_the_geometry_stay_outside_the_s
     assert "labels.py" in stamped
 
 
-def test_every_module_the_comparator_reaches_is_included_in_the_signature_stamp():
+def test_every_module_the_font_facts_readers_reach_is_included_in_the_signature_stamp():
     unstamped = _relative(_signature_reached() - _signature_stamped())
     assert unstamped == [], (
-        "the ink comparator runs these modules but signature_code_paths does not hash them, so a cached "
+        "the font facts' readers run these modules but signature_code_paths does not hash them, so a cached "
         "signature would outlive an edit to one and the ink-duplicate merge would merge windows on stale ink — "
         "add them to SIGNATURE_CODE_MODULES in rebuild/review/unit_cache.py: " + ", ".join(unstamped)
     )
 
 
-def test_no_module_on_the_signature_roster_is_outside_the_comparators_reach():
+def test_no_module_on_the_signature_roster_is_outside_the_font_facts_readers_reach():
     strays = _relative(_signature_stamped() - _signature_reached())
     assert strays == [], (
-        "signature_code_paths hashes these modules but the ink comparator never imports them, so an edit to "
+        "signature_code_paths hashes these modules but the font facts' readers never import them, so an edit to "
         "one drops the signature store and costs the next build a cold load phase while proving nothing — "
         "remove them from SIGNATURE_CODE_MODULES in rebuild/review/unit_cache.py: " + ", ".join(strays)
     )
 
 
 def test_the_signature_roster_is_the_narrow_half_of_the_corpus_roster():
-    """Checks that the signature roster is a strict subset of the corpus roster, and that the build driver, the unit cache, the kernel interface, and the crate's dispatcher are in the corpus roster only, so an edit to any of them drops the unit store and keeps the signature store."""
+    """Checks that the signature roster is a strict subset of the corpus roster, and that the build driver, the unit cache, the kernel interface, and the kernel crate's dispatcher are in the corpus roster only, so an edit to any of them drops the unit store and keeps the signature store."""
     signature = set(unit_cache.signature_code_paths(REPO_ROOT))
     corpus = set(unit_cache.corpus_code_paths(REPO_ROOT))
     assert signature < corpus
@@ -391,9 +429,12 @@ def test_the_labels_leaf_imports_nothing_that_would_regrow_the_closure():
 
 
 def test_every_roster_entry_is_on_disk():
-    """Checks every entry of the three rosters against the disk. `fingerprint.hash_paths` skips a missing path without error, so a rename would leave an entry that names nothing. For the two exclusion rosters that is only untidy. For the signature roster, an inclusion list, it is unsafe: a renamed comparator module would drop out of the signature store's hash, and no other test would fail."""
+    """Checks every entry of the four rosters against the disk. `fingerprint.hash_paths` skips a missing path without error, so a rename would leave an entry that names nothing. For the three exclusion rosters that is only untidy. For the signature roster, an inclusion list, it is unsafe: a renamed module would drop out of the signature store's hash, and no other test would fail."""
     missing = sorted(
         name for name in unit_cache.PIPELINE_NON_CORPUS_MODULES if not (PIPELINE_DIR / name).is_file()
+    )
+    missing += sorted(
+        name for name in unit_cache.VALIDATION_NON_CORPUS_MODULES if not (VALIDATION_DIR / name).is_file()
     )
     missing += sorted(
         name for name in unit_cache.KERNEL_NON_CORPUS_MODULES if not (KERNEL_SRC / name).is_file()

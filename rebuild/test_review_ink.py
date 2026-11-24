@@ -2,32 +2,28 @@
 
 `ink_identical` (the sorted placed pieces are equal) reproduces the worked readings: the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is off, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and two comparators give the same result. `config_diff` (the cells only one font paints over the whole window, with the shifted tail pulled back) ignores a tuck that leaves the union of painted cells unchanged. When one glyph stops painting a pixel that a neighbor still paints, the delta is the empty sentinel if nothing else changed. Beside a real change, the tuck leaves that change's digest as it is, so the window shares a key with its tuck-free siblings. The same change at a junction the neighbor no longer reaches stays in the delta as the hole it leaves.
 
-Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. The ink-duplicate merge needs no sampling: `signature` returns the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags. That the signature ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
+Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. The ink-duplicate merge needs no sampling: the crate's ink signature is the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
 
 Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and its recipe must stay byte-identical because rebuild/standing-approvals.yaml records digests made with it.
 
 And, on inputs this file builds itself, the two pixel-level readings the standing approvals' slide shape uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
+
+Last, `junior_tracking`, the letter tracking the Junior-equivalence check removes from Junior's placement, pinned over the site fonts.
 """
 
-import hashlib
-import marshal
-import shutil
 from pathlib import Path
 
 import pytest
 
+from rebuild.review.audit import ACCEPTANCE_CONFIGS, AUDIT_HEADER, parse_codepoints
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     InkComparator,
-    JuniorOracle,
     delta_digest,
     features_for,
+    junior_tracking,
     kern_neutral,
     rectilinear_cells,
-    release_shape_memos,
-    shape_memo_sizes,
-    shaper_for,
-    signature_digest,
 )
 from rebuild.validation.shaping import Shaper
 
@@ -44,16 +40,21 @@ def comparator():
 
 
 @pytest.fixture(scope="module")
-def mini_units(mini_bundle):
-    """Return the frozen bundle's whole workload as unit records: every window over the `LETTERS` and `BOUNDARIES` of rebuild/review/fixtures/mini/regenerate.py, plus its `EXAMPLE_WINDOWS`."""
-    from rebuild.review.audit import load_workload
-    from rebuild.review.enrich import LETTERS
-
-    return load_workload(MINI / "audit.tsv", mini_bundle.ledger, dict(LETTERS)).units()
-
-
-def _text(unit) -> str:
-    return "".join(chr(value) for value in unit.codepoint_values)
+def mini_windows() -> list[tuple[str, tuple[str, ...]]]:
+    """Return the frozen bundle's audit windows in audit order, each as its text with the configurations its rows name, in rank order: every window over the `LETTERS` and `BOUNDARIES` of rebuild/review/fixtures/mini/regenerate.py, plus its `EXAMPLE_WINDOWS`."""
+    lines = (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()
+    assert tuple(lines[0].split("\t")) == AUDIT_HEADER
+    configs: dict[str, set[str]] = {}
+    for line in lines[1:]:
+        config, window = line.split("\t")[:2]
+        configs.setdefault(window, set()).add(config)
+    return [
+        (
+            "".join(chr(value) for value in parse_codepoints(window)),
+            tuple(sorted(found, key=ACCEPTANCE_CONFIGS.index)),
+        )
+        for window, found in configs.items()
+    ]
 
 
 def test_features_for_config_tokens():
@@ -196,11 +197,13 @@ def test_run_ink_is_the_nameless_projection_of_named_run(marker_comparator):
     assert marker_comparator.run_ink("before", MARKER_TEXT, {}) == [piece[1:] for piece in pieces]
 
 
-def test_the_signature_is_blind_to_the_glyph_name(marker_comparator):
-    """`signature` is `run_ink` on both sides, and `run_ink` drops the glyph name, so two glyphs drawing the same outline at the same advance under different names have the same signature. The ink-duplicate merge depends on this, because the windows it merges differ only in glyph names. The synthetic merge tests stub `ink_sig`, so this test covers the real function."""
-    assert marker_comparator.signature(chr(0xE001), "default") == marker_comparator.signature(
-        chr(0xE003), "default"
-    )
+def test_run_ink_is_blind_to_the_glyph_name(marker_comparator):
+    """The crate's ink signature is `run_ink` on both sides, and `run_ink` drops the glyph name, so two glyphs drawing the same outline at the same advance under different names put down the same run. The ink-duplicate merge depends on this, because the windows it merges differ only in glyph names."""
+    features = features_for("default")
+    for side in ("before", "after"):
+        assert marker_comparator.run_ink(side, chr(0xE001), features) == marker_comparator.run_ink(
+            side, chr(0xE003), features
+        )
 
 
 def test_the_intern_rasterizes_a_shape_in_its_own_canonical_frame(marker_comparator):
@@ -327,12 +330,12 @@ def test_u_0000_is_ink_identical(comparator):
     assert comparator.ink_identical(text, ("default",)) is True
 
 
-def test_verdicts_are_deterministic_across_two_comparators(mini_units, comparator):
+def test_verdicts_are_deterministic_across_two_comparators(mini_windows, comparator):
     """A second comparator over the same fonts reaches the same verdict on a sample of about a hundred windows, which checks that the comparator's caches cannot change an answer."""
     again = InkComparator(BEFORE_FONT, MINI_FONT)
-    sample = mini_units[:: max(1, len(mini_units) // 100)]
-    assert [comparator.ink_identical(_text(unit), unit.configs) for unit in sample] == [
-        again.ink_identical(_text(unit), unit.configs) for unit in sample
+    sample = mini_windows[:: max(1, len(mini_windows) // 100)]
+    assert [comparator.ink_identical(text, configs) for text, configs in sample] == [
+        again.ink_identical(text, configs) for text, configs in sample
     ]
 
 
@@ -357,14 +360,14 @@ def test_a_real_one_pixel_change_is_not_picture_identical(comparator):
     assert comparator.picture_identical(text, ("default",)) is False
 
 
-def test_the_delta_sentinel_is_the_picture_reading_over_a_sample(mini_units, comparator):
+def test_the_delta_sentinel_is_the_picture_reading_over_a_sample(mini_windows, comparator):
     """Over a stride of the frozen windows, with real compiled outlines, `config_diff` returns the sentinel exactly when `picture_equal` is true, and always when the pieces are identical. So piece identity implies the sentinel, the sentinel matches picture identity, and the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`."""
-    for unit in mini_units[::5]:
-        for config in unit.configs:
-            sentinel = comparator.config_diff(_text(unit), config) == IDENTITY_DIFF
-            assert sentinel == comparator.picture_equal(_text(unit), config), (unit.codepoints, config)
-            if comparator.pieces_identical(_text(unit), config):
-                assert sentinel, (unit.codepoints, config)
+    for text, configs in mini_windows[::5]:
+        for config in configs:
+            sentinel = comparator.config_diff(text, config) == IDENTITY_DIFF
+            assert sentinel == comparator.picture_equal(text, config), (text, config)
+            if comparator.pieces_identical(text, config):
+                assert sentinel, (text, config)
 
 
 def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
@@ -384,97 +387,6 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
 
 
-def test_signature_digest_is_determined_by_the_tuple_alone(comparator):
-    """Equal signatures get equal digests across comparators and processes, which lets the persisted ink-signature store supply a digest recorded by an earlier build, and different placed ink gets a different digest."""
-    pair = "".join(chr(value) for value in (0xE650, 0xE665))
-    digest = signature_digest(comparator.signature(pair, "default"))
-    again = InkComparator(BEFORE_FONT, MINI_FONT)
-    assert signature_digest(again.signature(pair, "default")) == digest
-    assert signature_digest(comparator.signature(pair[:1], "default")) != digest
-
-
-def test_signature_digest_uses_alias_insensitive_marshal_v2():
-    outline = (("lineTo", ((1, 2), (3, 4))),)
-    shared = (outline, outline)
-    reconstructed = (
-        outline,
-        tuple((operator, tuple((x, y) for x, y in points)) for operator, points in outline),
-    )
-    assert shared == reconstructed
-    expected = hashlib.sha256(marshal.dumps(shared, 2)).hexdigest()
-    assert signature_digest(shared) == expected
-    assert signature_digest(reconstructed) == expected
-
-
-def test_shaper_for_shares_one_memoized_shaper_per_font():
-    """`shaper_for` returns one shared shaper per font per process. Its memoized `shape` returns what a plain Shaper returns, and the features dict is canonicalized so that {} and None, and any key order, share one memo entry."""
-    shared = shaper_for(BEFORE_FONT)
-    assert shaper_for(BEFORE_FONT) is shared
-    plain = Shaper(BEFORE_FONT)
-    text = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
-    features = {"ss03": True, "kern": False}
-    assert shared.shape(text, features) == plain.shape(text, features)
-    assert shared.shape(text, {"kern": False, "ss03": True}) is shared.shape(text, features)
-    assert shared.shape(text) == plain.shape(text)
-    assert shared.shape(text, {}) is shared.shape(text)
-
-
-def test_shaper_for_rekeys_when_the_font_changes_on_disk(tmp_path):
-    """A font rewritten in place, as when a test builds corpora over different mini fonts at one path, must not get stale shapes, so the registry keys on the path, mtime, and size."""
-    target = tmp_path / "font.otf"
-    shutil.copyfile(BEFORE_FONT, target)
-    first = shaper_for(target)
-    shutil.copyfile(JUNIOR_FONT, target)
-    second = shaper_for(target)
-    assert second is not first
-
-
-def test_the_shape_memo_reports_what_it_holds_and_releases_it_whole():
-    """`shape_memo_sizes` counts the entries all of `shaper_for`'s shapers hold, with an approximate byte figure that grows with the entries and is zero when there are none. A repeated shape is a memo hit and changes neither number. `release_shape_memos` empties every memo at once (the build calls it after each unit batch), and the next shape calls HarfBuzz again: the result is equal but is a new object, not the one the memo held."""
-    release_shape_memos()
-    assert shape_memo_sizes() == (0, 0)
-    shared = shaper_for(BEFORE_FONT)
-    text = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
-    held = shared.shape(text)
-    one = shape_memo_sizes()
-    assert one.entries == 1 and one.approx_bytes > 0
-    assert shared.shape(text) is held
-    assert shape_memo_sizes() == one
-    shared.shape(text, {"ss03": True, "kern": False})
-    two = shape_memo_sizes()
-    assert two.entries == 2 and two.approx_bytes > one.approx_bytes
-    release_shape_memos()
-    assert shape_memo_sizes() == (0, 0)
-    fresh = shared.shape(text)
-    assert fresh == held and fresh is not held
-    assert shape_memo_sizes().entries == 1
-
-
-@pytest.fixture(scope="module")
-def oracle():
-    return JuniorOracle(JUNIOR_FONT, BEFORE_FONT, MINI_FONT)
-
-
-def test_junior_tracking_premise_holds(oracle):
-    """The oracle's premise: Junior carries the same isolated letterforms as Senior plus one pixel (50 units at 550 units per em) of extra advance on every Quikscript glyph, and no advance difference on any other glyph. The constructor checks the advances, and this test pins the tracking value."""
-    assert oracle.tracking == 50
-
-
-def test_junior_oracle_approves_a_suppressed_ligature_unit(oracle):
-    """The ·No·Day·Utter·Utter window, where every configuration but ss10 forms the ·Day·Utter ligature: the rebuild's ss10 rendering is Junior's isolated rendering minus the tracking, so the unit is machine-approvable."""
-    text = "".join(chr(value) for value in (0xE666, 0xE653, 0xE67A, 0xE67A))
-    assert oracle.approves(("ss10",), text) is True
-
-
-def test_junior_oracle_only_judges_ss10_only_units(oracle):
-    """The oracle judges only units whose whole divergence is under ss10. A unit also divergent under any other config still needs those configs judged, so the oracle returns False regardless of the ink."""
-    text = "".join(chr(value) for value in (0xE666, 0xE653, 0xE67A, 0xE67A))
-    assert oracle.approves(("default",), text) is False
-    assert oracle.approves(("default", "ss10"), text) is False
-    assert oracle.approves((), text) is False
-
-
-def test_junior_oracle_refuses_the_lowered_namer_dot(oracle):
-    """The known counterexample, the `· ◊ZWNJ ·X·Y` boundary windows whose ·X is Short: Junior draws the namer dot lowered (periodcentered.lowered) where the rebuild's ss10 run draws the plain dot, so the placed ink differs and the oracle leaves the unit to a human."""
-    text = "".join(chr(value) for value in (0x00B7, 0x200C, 0xE666, 0xE653))
-    assert oracle.approves(("ss10",), text) is False
+def test_junior_tracking_premise_holds():
+    """The Junior-equivalence check's premise: Junior carries the same isolated letterforms as Senior plus one pixel (50 units at 550 units per em) of extra advance on every Quikscript glyph, and no advance difference on any other glyph. `junior_tracking` checks the advances, and this test pins the tracking value."""
+    assert junior_tracking(JUNIOR_FONT, BEFORE_FONT) == 50

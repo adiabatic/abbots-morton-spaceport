@@ -16,13 +16,15 @@ from fontTools.ttLib import TTFont
 from rebuild.review import unit_cache, unit_index
 from rebuild.review.build import build_m1
 from rebuild.review.enrich import load_spec
-from rebuild.test_unit_cache import _form
+from rebuild.test_unit_cache import CRATE, _form
+from rebuild.validation.classify import PIXEL_SIZE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 MINI_FONT = MINI / "M1.otf"
 MOVED_FAMILY = "qsRoe"
-WIDENED_BY = 10
+# One pixel, so every glyph the widened family pushes along stays on the pixel grid and each window keeps a pixel picture, which the crate's ink delta needs.
+WIDENED_BY = PIXEL_SIZE
 
 
 def _mini_build(out: Path, after_font: Path, bundle, **kwargs) -> dict:
@@ -102,9 +104,9 @@ def test_a_gsub_only_recompile_leaves_every_cache_key_alone(tmp_path, spec, mini
     assert families == families_after
     for stamp in (
         lambda digest: unit_cache.environment_stamp(
-            root, spec, MINI, MINI_FONT, MINI_FONT, digest, identical_classes=()
+            root, spec, MINI, MINI_FONT, MINI_FONT, digest, identical_classes=(), units_engine=CRATE
         ),
-        lambda digest: unit_cache.signature_environment(root, MINI_FONT, digest),
+        lambda digest: unit_cache.signature_environment(root, MINI_FONT, digest, CRATE),
     ):
         assert stamp(helpers) == stamp(helpers_after)
 
@@ -122,11 +124,11 @@ def test_a_widened_family_moves_that_family_key_and_leaves_the_environment(tmp_p
 
 
 def test_a_recompiled_font_reuses_the_untouched_units_and_matches_a_from_scratch_build(
-    python_mini_corpus, mini_bundle, tmp_path, capfd, python_build
+    mini_corpus, mini_bundle, tmp_path, capfd
 ):
-    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be, materialized (`build.materialize_corpus`), byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and `patch_fragment` rewrites a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `python_mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled. The test selects the Python build, since the Rust units engine refuses a window of the recompiled font that needs the outline-level delta (`InkComparator._piece_diff`), which only the Python build at one job computes."""
+    """End to end at mini scale: rebuild the mini corpus over a font recompiled the way a rune edit recompiles one. The store must supply the windows the widened family cannot reach (some units, not all and not none), and the tree it writes must be, materialized (`build.materialize_corpus`), byte-identical to a from-scratch build of the same inputs. The content keys are compared first and separately, because they carry a recorded verdict across the cycle: a cached fragment with a wrong key would orphan every verdict recorded against it, and the build patches a cached fragment's scaffold fields without recomputing that key. The base copied here is conftest's `mini_corpus`, built over the unmodified `MINI/M1.otf`; only the fonts passed to `_mini_build` are recompiled. The family is widened by a whole pixel (`WIDENED_BY`), since the crate refuses a window whose pieces leave the pixel grid, whose delta is the outline-level one."""
     incremental = tmp_path / "corpus"
-    shutil.copytree(python_mini_corpus, incremental)
+    shutil.copytree(mini_corpus, incremental)
     recompiled = _recompiled(MINI_FONT, tmp_path / "recompiled.otf")
 
     capfd.readouterr()
@@ -161,9 +163,9 @@ def test_a_version_bump_of_the_before_font_leaves_both_whole_store_stamps(tmp_pa
     assert bumped.read_bytes() != MINI_FONT.read_bytes()
     for stamp in (
         lambda font: unit_cache.environment_stamp(
-            root, spec, MINI, font, font, helpers, identical_classes=()
+            root, spec, MINI, font, font, helpers, identical_classes=(), units_engine=CRATE
         ),
-        lambda font: unit_cache.signature_environment(root, font, helpers),
+        lambda font: unit_cache.signature_environment(root, font, helpers, CRATE),
     ):
         base = stamp(MINI_FONT)
         assert stamp(bumped) == base

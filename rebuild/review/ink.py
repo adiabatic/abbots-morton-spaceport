@@ -6,10 +6,12 @@ Placed outlines are compared without being built. `OutlineIntern` interns each o
 
 There are two readings:
 
-- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. `_phase1_unit` in `rebuild/review/build.py` flags each unit with it.
+- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. The review crate flags each m1-audit unit with the same reading, and the table-diff build (`build.build_table_diff`) flags each entry with this one.
 - `config_diff` returns the pixel-level delta that every deduplication check keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a junction, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
-`signature` is built from the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling.
+The crate's ink signature, which the ink-duplicate merge groups windows by, is the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling. The crate reads each glyph's shape key and cells from the font facts (`units_exec.write_font_facts`), which `OutlineCache` and `OutlineIntern` give here, so its pieces are these pieces.
+
+The third machine check, Junior equivalence, approves a unit divergent only under ss10 when the rebuild's ss10 rendering places the same ink the old Junior font places for the same string, once Junior's letter tracking is removed (`junior_tracking`). Junior has Senior's isolated letterforms plus one pixel of extra advance on every Quikscript glyph. A pass means the rebuild draws every letter fully isolated, which is the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml), so approval does not depend on what the old font did. The crate runs the check.
 
 All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), so both fonts shape with `kern` off: a kern edit changes no unit, and neither font's kerning enters a before-and-after comparison.
 """
@@ -19,16 +21,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import marshal
-import sys
 from collections import Counter
 from pathlib import Path
-from typing import Callable, NamedTuple
 
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
 
 from rebuild.validation.classify import PIXEL_SIZE
-from rebuild.validation.shaping import Shaper, ShapeResult
+from rebuild.validation.shaping import Shaper
 
 # The M1 font has epoch-zero head timestamps, and fontTools logs a "timestamp seems very low" warning for each one.
 logging.getLogger("fontTools.ttLib.tables._h_e_a_d").setLevel(logging.ERROR)
@@ -77,91 +77,6 @@ IDENTITY_DIFF = ((), (), 0)
 def delta_digest(diff: tuple) -> str:
     """Return the stored id of one `config_diff` result: `d-` plus the first twelve hex digits of the sha1 of the tuple's repr. The corpus stores one digest per config whose delta is not `IDENTITY_DIFF` (the unit JSON's `ink_deltas`), so a standing-approval rule can approve a localized ink change once and match every window, in any batch, where exactly those pixels appear and disappear. The digests recorded in rebuild/standing-approvals.yaml depend on both this recipe and the delta's shape, as the cluster id depends on its repr recipe. Changing either invalidates every recorded digest, and each is then re-read from the `deltas` that rebuild/tools/standing_probe.py prints for one of its windows on the rebuilt corpus, not edited by hand."""
     return "d-" + hashlib.sha1(repr(diff).encode()).hexdigest()[:12]
-
-
-def signature_digest(signature: tuple) -> str:
-    """Return the sha256 of the marshal version 2 bytes of one `InkComparator.signature` result. Version 2 predates marshal's back references by object identity, so equal nested tuples give equal bytes even when one shares an object the other rebuilds. The ink-duplicate merge only groups by the value, so digest equality can stand in for signature equality, and the corpus build can reuse signatures from the persisted store (rebuild/review/unit_cache.py) instead of reshaping every window split only by glyph names on each pass. Unlike `delta_digest`, these digests are recorded in nothing checked in: they are compared only within one build and stored in a cache that is discarded on any stamp mismatch, so changing the signature's form costs one store miss."""
-    return hashlib.sha256(marshal.dumps(signature, 2)).hexdigest()
-
-
-class ShapeMemoSizes(NamedTuple):
-    """A shape memo's entry count and an approximate byte size of its keys and results. The size is `sys.getsizeof` summed over the containers and the ints they hold, so it does not count the glyph-name strings (the font's glyph-order strings, shared by every entry that shapes the same glyph) and does not discount the small ints CPython caches. It is cheap enough to take at a batch boundary. Measurements read it beside a worker's peak memory (issue #150); the build never acts on it."""
-
-    entries: int
-    approx_bytes: int
-
-
-def _approx_entry_bytes(key: tuple, result: ShapeResult) -> int:
-    text, features = key
-    size = sys.getsizeof(key) + sys.getsizeof(text)
-    if features is not None:
-        size += sys.getsizeof(features) + sum(
-            sys.getsizeof(pair) + sys.getsizeof(pair[0]) for pair in features
-        )
-    size += sys.getsizeof(result) + sys.getsizeof(result.__dict__)
-    size += sys.getsizeof(result.names) + sys.getsizeof(result.clusters) + sys.getsizeof(result.positions)
-    size += sum(sys.getsizeof(cluster) for cluster in result.clusters)
-    size += sum(
-        sys.getsizeof(position) + sum(sys.getsizeof(v) for v in position) for position in result.positions
-    )
-    return size
-
-
-class _MemoizedShaper(Shaper):
-    """A Shaper whose `shape` memoizes by (text, features). The corpus build shapes the same (text, config) in `config_diff`, in `Enricher.enrich`, in the JuniorOracle, and in the Drafter's semantics replay, and the memo turns those four calls into one HarfBuzz call, because a fragment is drafted in the same batch that enriched it. Only the corpus build uses it, through `shaper_for`.
-
-    The memo holds one unit batch of shapes at a time. The corpus build calls `release_shape_memos` after every unit batch (`_phase1_batches` and `_released_batches` in rebuild/review/build.py, in the pool worker and the in-process runner alike) and once after the parent's serial signature pass. The release is required. Measured on one tree one pass apart (issue #150): a serial build with the release peaked at 15.4 GB in the `corpus-build` step and finished its units phase in about twenty minutes. The same build with `release` made a no-op held 6.9 million shapes, about 10.5 GB by `sizes`, when it was just past half the corpus. By then it had used most of the 32 GiB machine's swap at twice the elapsed time, and it was stopped there. The memo grows linearly with the units, at about 1.5 KB a shape, so without the release it outgrows every other collection a serial build holds, the retained EnrichedUnits included.
-    """
-
-    def __init__(self, font_path: Path | str) -> None:
-        super().__init__(font_path)
-        self._memo: dict[tuple, ShapeResult] = {}
-
-    def shape(self, text: str, features: dict[str, bool] | None = None) -> ShapeResult:
-        key = (text, tuple(sorted(features.items())) if features else None)
-        result = self._memo.get(key)
-        if result is None:
-            result = self._memo[key] = super().shape(text, features)
-        return result
-
-    def release(self) -> None:
-        """Forget every shape held. Every release path calls this method, so an A/B measurement of the bound replaces the `clear()` line with `pass` and changes nothing else."""
-        self._memo.clear()
-
-    def sizes(self) -> ShapeMemoSizes:
-        return ShapeMemoSizes(
-            len(self._memo), sum(_approx_entry_bytes(key, result) for key, result in self._memo.items())
-        )
-
-
-_shaper_registry: dict[tuple[str, int, int], _MemoizedShaper] = {}
-
-
-def release_shape_memos() -> None:
-    """Release every memo `shaper_for` has handed out in this process. The corpus build calls it at each unit batch boundary. The shapers stay registered, so their fonts are not loaded again."""
-    for shaper in _shaper_registry.values():
-        shaper.release()
-
-
-def shape_memo_sizes() -> ShapeMemoSizes:
-    """Return the sum of every registered memo's sizes. A measurement reads it beside the process's peak RSS, at a batch boundary or, with the release disabled, when a worker stops."""
-    entries = approx_bytes = 0
-    for shaper in _shaper_registry.values():
-        sizes = shaper.sizes()
-        entries += sizes.entries
-        approx_bytes += sizes.approx_bytes
-    return ShapeMemoSizes(entries, approx_bytes)
-
-
-def shaper_for(font_path: Path | str) -> Shaper:
-    """Return the corpus build's shared memoized Shaper for one font, keyed by (resolved path, mtime, size) so that a font rewritten in place, such as a test building two corpora over different mini fonts at one path, never gets stale shapes. Sharing one instance across the comparator, oracle, enricher, and drafter also loads each font once per process instead of four times."""
-    path = Path(font_path).resolve()
-    stat = path.stat()
-    key = (str(path), stat.st_mtime_ns, stat.st_size)
-    shaper = _shaper_registry.get(key)
-    if shaper is None:
-        shaper = _shaper_registry[key] = _MemoizedShaper(path)
-    return shaper
 
 
 def translate_outline(value: tuple, dx: int, dy: int) -> tuple:
@@ -280,18 +195,16 @@ class OutlineCache:
 
 
 class InkComparator:
-    """One Shaper and one OutlineCache per font, the two caches sharing one `OutlineIntern` so pieces compare across fonts as (shape key, absolute x, absolute y) without building translated geometry. The corpus build passes `shaper_factory=shaper_for` so its components share one memoized Shaper per font. The default is a plain private Shaper, because a memo only costs memory for a caller that does not shape the same text twice."""
+    """One Shaper and one OutlineCache per font, the two caches sharing one `OutlineIntern` so pieces compare across fonts as (shape key, absolute x, absolute y) without building translated geometry."""
 
-    def __init__(
-        self, before_font: Path | str, after_font: Path | str, shaper_factory: Callable = Shaper
-    ) -> None:
+    def __init__(self, before_font: Path | str, after_font: Path | str) -> None:
         self.intern = OutlineIntern()
         self._sides: dict[str, tuple[Shaper, OutlineCache]] = {}
         for side, path in (("before", before_font), ("after", after_font)):
-            self._sides[side] = (shaper_factory(path), OutlineCache(path, self.intern))
+            self._sides[side] = (Shaper(path), OutlineCache(path, self.intern))
 
     def ink_pieces(self, side: str, text: str, features: dict[str, bool]) -> tuple:
-        """Return the sorted placed pieces of one shaped run: one (shape key, absolute x, absolute y) per glyph with ink, which is `run_ink` without the run order and the own-frame origin. Inkless glyphs (space, ZWNJ, empty markers) contribute nothing. Two pieces are equal exactly when the translated outlines would be, across fonts and processes, so the outlines are never built on this path. `ink_identical` compares this reading, and `JuniorOracle` compares it with Junior's tracking-free placement. Shaping is kern-neutral."""
+        """Return the sorted placed pieces of one shaped run: one (shape key, absolute x, absolute y) per glyph with ink, which is `run_ink` without the run order and the own-frame origin. Inkless glyphs (space, ZWNJ, empty markers) contribute nothing. Two pieces are equal exactly when the translated outlines would be, across fonts and processes, so the outlines are never built on this path. `ink_identical` compares this reading. Shaping is kern-neutral."""
         return tuple(sorted(piece[:3] for piece in self.run_ink(side, text, features)))
 
     def pieces_identical(self, text: str, config: str) -> bool:
@@ -300,30 +213,8 @@ class InkComparator:
         return self.ink_pieces("before", text, features) == self.ink_pieces("after", text, features)
 
     def ink_identical(self, text: str, configs: tuple[str, ...]) -> bool:
-        """Return whether `pieces_identical` holds under every config in the set. `ink_pieces` is a projection of the two run-order lists that make up `signature`, so two windows with equal signatures always get the same answer here, and no sample is needed to check that the merge and this flag agree."""
+        """Return whether `pieces_identical` holds under every config in the set. `ink_pieces` is a projection of the two run-order lists that make up the crate's ink signature, so two windows with equal signatures always get the same answer here, and no sample is needed to check that the merge and this flag agree."""
         return all(self.pieces_identical(text, config) for config in configs)
-
-    def signature(self, text: str, config: str) -> tuple:
-        """Return the rendered-outcome identity of one text under one config: the pair of `run_ink` lists in run order, each entry (shape key, absolute x, absolute y, own-frame origin x). Equal signatures mean both fonts put the same ink in the same places, so the rows present the same visual question whatever their glyph names. `config_diff` reads only these two lists, so equal signatures give an equal delta, an equal `ink_identical` result, and an equal `delta_digest`. That makes the ink-duplicate merge sound without sampling: the merge groups by this value, and everything downstream that could tell two merged siblings apart is a function of it. That the signature ignores glyph names follows from `run_ink` dropping them, and rebuild/test_review_ink.py checks it on a font that gives two names one outline."""
-        features = features_for(config)
-        return (
-            tuple(self.run_ink("before", text, features)),
-            tuple(self.run_ink("after", text, features)),
-        )
-
-    def junior_pieces(self, text: str, tracking: int) -> tuple:
-        """Return the before side's placed ink with a uniform letter tracking removed: like `ink_pieces` with no features, but each glyph whose name starts with `qs` advances the pen by its advance minus `tracking`, so the pieces land where a tracking-free rendering puts them. Meaningful only when the before side is the Junior font; see `JuniorOracle`."""
-        shaper, outlines = self._sides["before"]
-        result = shaper.shape(text, kern_neutral({}))
-        pieces = []
-        pen_x = 0
-        for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
-            key, origin_x, origin_y = outlines.shape_key(name)
-            if key:
-                pieces.append((key, pen_x + x_offset + origin_x, y_offset + origin_y))
-            pen_x += x_advance - (tracking if name.startswith("qs") else 0)
-        pieces.sort()
-        return tuple(pieces)
 
     def named_run(self, side: str, text: str, features: dict[str, bool]) -> tuple[tuple[str, ...], list]:
         """Return one shaped run's full glyph-name tuple (inkless markers included, so a caller can compare the run with a recorded glyph list) and one (glyph name, shape key, absolute x, absolute y, own-frame origin x) entry per glyph with ink. `run_ink` drops the names and is what the delta alignment reads; names never enter a piece comparison, because the two fonts use different names for the same ink. Shaping is kern-neutral."""
@@ -389,7 +280,7 @@ class InkComparator:
 
         Followers that only slid are read at the pixel level too. The longest tail of glyphs whose after picture is the before picture displaced by a whole number of columns is moved back by that displacement before the subtraction, and the displacement is the shift. A tail that includes a pixel given up to a neighbor therefore still counts as slid, which keeps ·Fee·Tea·At·J'ai under ss03 in the same group as every other window that shortens ·Fee the same way. The remaining cells are translated together so the delta's leftmost column is 0.
 
-        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus build's per-unit flag, and the standing approvals' empty-delta digest all read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the outline level (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the duplicate-group key.
+        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus's per-unit flag, and the standing approvals' empty-delta digest all read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the outline level (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the duplicate-group key.
         """
         features = features_for(config)
         before = self.run_ink("before", text, features)
@@ -470,33 +361,18 @@ def _picture_diff(before: list[frozenset[tuple[int, int]]], after: list[frozense
     )
 
 
-class JuniorOracle:
-    """The third machine-approval check, after ink identity and picture identity. A unit divergent only under ss10 is approvable when the rebuild's ss10 rendering places the same ink the old Junior font places for the same string, once Junior's letter tracking is removed. Junior has Senior's isolated letterforms plus one pixel of extra advance on every Quikscript glyph. The constructor checks the advance part of that premise against the old Senior font, derives the tracking from it, and raises ValueError when it does not hold. A pass means the rebuild draws every letter fully isolated, which is the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml), so approval does not depend on what the old font did."""
-
-    def __init__(
-        self,
-        junior_font: Path | str,
-        before_font: Path | str,
-        after_font: Path | str,
-        shaper_factory: Callable = Shaper,
-    ) -> None:
-        junior_metrics = TTFont(str(junior_font))["hmtx"].metrics
-        before_metrics = TTFont(str(before_font))["hmtx"].metrics
-        shared = set(junior_metrics) & set(before_metrics)
-        deltas = {name: junior_metrics[name][0] - before_metrics[name][0] for name in shared}
-        letter_deltas = {delta for name, delta in deltas.items() if name.startswith("qs")}
-        other_deltas = {delta for name, delta in deltas.items() if not name.startswith("qs")}
-        if len(letter_deltas) != 1 or other_deltas - {0}:
-            raise ValueError(
-                "the Junior tracking premise does not hold: Quikscript advance deltas "
-                f"{sorted(letter_deltas)} (expected exactly one value), non-Quikscript deltas "
-                f"{sorted(other_deltas - {0})} (expected none)"
-            )
-        self.tracking = next(iter(letter_deltas))
-        self._comparator = InkComparator(junior_font, after_font, shaper_factory)
-
-    def approves(self, configs, text: str) -> bool:
-        if tuple(configs) != ("ss10",):
-            return False
-        junior = self._comparator.junior_pieces(text, self.tracking)
-        return junior == self._comparator.ink_pieces("after", text, features_for("ss10"))
+def junior_tracking(junior_font: Path | str, before_font: Path | str) -> int:
+    """Return the letter tracking the Junior font adds, which the crate removes from Junior's placement for the Junior-equivalence check (the module docstring describes it): the one advance delta every Quikscript glyph shares between Junior and the old Senior font. Every other shared glyph must keep its advance. A font pair that breaks that premise raises ValueError, so the check never runs over a tracking it did not derive."""
+    junior_metrics = TTFont(str(junior_font))["hmtx"].metrics
+    before_metrics = TTFont(str(before_font))["hmtx"].metrics
+    shared = set(junior_metrics) & set(before_metrics)
+    deltas = {name: junior_metrics[name][0] - before_metrics[name][0] for name in shared}
+    letter_deltas = {delta for name, delta in deltas.items() if name.startswith("qs")}
+    other_deltas = {delta for name, delta in deltas.items() if not name.startswith("qs")}
+    if len(letter_deltas) != 1 or other_deltas - {0}:
+        raise ValueError(
+            "the Junior tracking premise does not hold: Quikscript advance deltas "
+            f"{sorted(letter_deltas)} (expected exactly one value), non-Quikscript deltas "
+            f"{sorted(other_deltas - {0})} (expected none)"
+        )
+    return next(iter(letter_deltas))
