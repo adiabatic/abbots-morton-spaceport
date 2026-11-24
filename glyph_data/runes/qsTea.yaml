@@ -106,19 +106,7 @@ stances:
         - entry: x-height
           exit: x-height
       cells: []
-      unlocks:
-      - entry: x-height
-        feature: ss03
-        when:
-          left:
-            family:
-            - qsMay
-            - qsLow
-            - qsI
-            - qsAh
-            - qsUtter
-            - qsOut
-            - qsOwe
+      unlocks: []
       require: []
 policy:
   order:

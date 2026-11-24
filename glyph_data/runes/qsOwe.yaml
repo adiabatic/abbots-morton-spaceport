@@ -137,11 +137,6 @@ policy:
     by: 2
     when:
       right: {family: qsFee}
-  - exit: x-height
-    by: 1
-    when:
-      feature: ss03
-      right: {family: qsTea}
   contract: []
   resolve: []
   groups: {}

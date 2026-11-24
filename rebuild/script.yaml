@@ -5,7 +5,7 @@ boundary_tokens:
   zwnj: {codepoint: 0x200C, splits_runs: true}
   namer-dot: {codepoint: 0x00B7, splits_runs: false}
 features:
-  ss03: {kind: capability, description: "x-height exiters reach ·Tea (full-size bar when a baseline-join follows, else the half stub)"}
+  ss03: {kind: capability, description: "x-height exiters with a flat stroke reach ·Tea as the full bar"}
   ss04: {kind: capability, description: "·It joins at the baseline on both sides at once, any neighbor"}
   ss05: {kind: capability, description: "·Tea joins at the baseline on both sides at once, any neighbor"}
   ss06: {kind: taste, description: "an ·Owe that joins neither neighbor drawn with its ring open at the top", overlay: cosmetic}

@@ -69,8 +69,8 @@ def test_qstea_cells_per_configuration(spec):
         ("full", "x-height", None),
     }
     tagged = dict(surface.enumerate_cells_with_unlocks(spec, "qsTea", frozenset({"ss03"})))
-    half_entry = tagged[CellId("qsTea", "half", "x-height", None, ())]
-    assert [unlock.feature for unlock in half_entry] == ["ss03"]
+    assert tagged[CellId("qsTea", "half", "x-height", None, ())] == ()
+    assert [unlock.feature for unlock in tagged[CellId("qsTea", "full", "x-height", None, ())]] == ["ss03"]
 
 
 def test_qsmay_and_ligature_cells(spec):
