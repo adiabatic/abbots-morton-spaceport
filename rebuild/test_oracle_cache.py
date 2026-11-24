@@ -13,6 +13,7 @@ import shutil
 from array import array
 from dataclasses import replace
 from fnmatch import fnmatch
+from multiprocessing import shared_memory
 from pathlib import Path
 
 import pytest
@@ -1399,6 +1400,115 @@ def test_a_store_under_its_head_writes_only_the_records_that_changed_and_reads_a
     assert json.loads(segment[0])["merge"] == row_delta.MERGE_ORDINAL
     assert [line.split(b"\t", 2)[1] for line in segment[1:]] == [b"4"]
     matches(5, changed, "changed")
+
+
+def _pooled_store_pass(
+    directory: Path, stamp, keys, position, ordinal: int, records, cut, pool=None
+) -> oracle_cache.StoreSet:
+    """One pass's stores as the pooled oracle writes them: the members shipped into shared memory as the ranges ship them, the configuration's store task (`oracle.store_section_task`) run on `pool`, or in this process without one, its ages taken into the store set (`StoreSet.accept`), and the set committed."""
+    import secrets
+
+    position_keys, position_stamp = position
+    stores = oracle_cache.StoreSet(
+        directory, ("default",), {"default": stamp}, keys, position_stamp, position_keys
+    )
+    token = secrets.token_hex(4)
+    shipped = []
+    for at, (rows, member) in enumerate(_members(stamp, keys, position, ordinal, records, cut)):
+        segment = oracle.ship([member], f"t{token}-{at}")
+        assert segment is not None
+        shipped.append((rows, segment))
+    arguments = (
+        stores.inputs,
+        "default",
+        stores.route("default"),
+        shipped,
+        cut is None,
+        ordinal,
+        f"t{token}-ages",
+    )
+    result = (
+        oracle.store_section_task(*arguments)
+        if pool is None
+        else pool.submit(oracle.store_section_task, *arguments).result()
+    )
+    for _rows, segment in shipped:
+        with pytest.raises(FileNotFoundError):
+            shared_memory.SharedMemory(segment.name, track=False)
+    assert result.ages is not None and result.written.ages == bytearray()
+    mapped = oracle._Mapped(result.ages)
+    ages = b"".join(bytes(piece) for piece in mapped.pieces)
+    mapped.close()
+    stores.accept(replace(result.written, ages=ages))
+    stores.finish()
+    assert oracle_cache.promote_stores(stores, ("default",)) == ["default"]
+    return stores
+
+
+def _store_files(directory: Path) -> dict[str, bytes]:
+    return {path.name: path.read_bytes() for path in sorted(directory.iterdir())}
+
+
+@pytest.mark.parametrize("cut", [(3, 2, 4), None], ids=["cut", "whole"])
+def test_a_pooled_store_task_writes_the_store_set_s_own_parts_on_every_route(
+    repo, tmp_path, monkeypatch, cut
+):
+    """The pooled oracle writes each configuration's store in a pool process (`oracle.store_section_task`) through the code the serial path's store set runs in its own (`oracle_cache.write_store`), and hands the store set the entry and the ages to commit (`StoreSet.accept`). Over the same records the two leave the same files byte for byte, the set head and the ages column among them, on every route: a `first` base, a pass that moves only the ages and writes no segment, a segment of changed records, an `unusable` base after a damaged part, a `rederived` base after a subset move, a fold at the segment cap, and a segment over a tree's single file adopted by link. One pass runs its task in a spawned process, so what the task is handed and what it returns cross a process as they do in a run."""
+    spec = fixtures.mini_spec()
+    stamp, keys = _stamp(repo, spec), _keys(repo, spec)
+    position = _position(repo, spec, MINI_FONT)
+    serial, pooled = tmp_path / "serial", tmp_path / "pooled"
+    moved = oracle_cache.EnvironmentStamp(
+        lines=tuple("subset\tanother" if line.startswith("subset\t") else line for line in stamp.lines)
+    )
+
+    def both(environment, ordinal: int, records, pool=None) -> None:
+        _store_pass(serial, environment, keys, position, ordinal, records, cut)
+        _pooled_store_pass(pooled, environment, keys, position, ordinal, records, cut, pool)
+        assert _store_files(pooled) == _store_files(serial)
+
+    first = _store_records(9, 3)
+    both(stamp, 3, first)
+    both(
+        stamp,
+        4,
+        [
+            (cached, 4 if index % 5 == 0 else derived, verdict, at)
+            for index, (cached, derived, verdict, at) in enumerate(first)
+        ],
+    )
+    with run_m1._spawn_pool(1, 1, max_tasks_per_child=1) as pool:
+        both(stamp, 5, _store_records(9, 5, changed=(4,)), pool)
+    head = oracle_cache.read_set_head(pooled)
+    assert head is not None and len(head.configs["default"].segments) == 1
+    for directory in (serial, pooled):
+        base = directory / head.configs["default"].base.name
+        damaged = bytearray(base.read_bytes())
+        damaged[len(damaged) // 2] ^= 0xFF
+        base.write_bytes(bytes(damaged))
+    both(stamp, 6, _store_records(9, 6, changed=(2,)))
+    head = oracle_cache.read_set_head(pooled)
+    assert head is not None and head.configs["default"].generation == 1
+    both(moved, 0, _store_records(9, 0))
+    head = oracle_cache.read_set_head(pooled)
+    assert head is not None and head.configs["default"].generation == 2
+    both(moved, 1, _store_records(9, 1, changed=(1,)))
+    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 1)
+    both(moved, 2, _store_records(9, 2, changed=(3,)))
+    head = oracle_cache.read_set_head(pooled)
+    assert (
+        head is not None
+        and head.configs["default"].generation == 3
+        and head.configs["default"].segments == ()
+    )
+    serial, pooled = tmp_path / "adopted-serial", tmp_path / "adopted-pooled"
+    for directory in (serial, pooled):
+        directory.mkdir()
+        _today(oracle_cache.store_path(directory, "default"), stamp, keys, position, 3, first, cut)
+    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 16)
+    both(stamp, 4, _store_records(9, 4, changed=(5,)))
+    head = oracle_cache.read_set_head(pooled)
+    assert head is not None and len(head.configs["default"].segments) == 1
 
 
 @pytest.mark.parametrize("cut", [(3, 2, 4), None], ids=["cut", "whole"])

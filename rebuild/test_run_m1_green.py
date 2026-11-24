@@ -1291,7 +1291,7 @@ class TestOracleFanIn:
     def test_a_cut_configurations_store_is_joined_from_its_ranges_segments_and_read_back(
         self, monkeypatch, tmp_path
     ):
-        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its members in memory through `open_row_cache` and ships them home in shared memory, the parent's in-order writer hands the store set's writer a configuration's members under the ordinal its ranges agreed on once its last range lands, and the set head commits every configuration at once, and the next pass's ranges load the store through its head and write under the next ordinal. The materialized store must equal what one writer over the whole table writes, which checks that the header's inputs (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results. The second pass re-derives every row to the same verdicts, so it writes no segment, only the ages column and the set head."""
+        """Runs the parent's row-store handling through `run_oracle`: each range of a cut configuration builds its members in memory through `open_row_cache` and ships them home in shared memory, the parent's in-order writer submits a configuration's store task with its members under the ordinal its ranges agreed on once its last range lands, which writes its segment or base in a pool process and hands the store set its entry and ages, read into the pool record as `<config> stores`, and the set head commits every configuration at once, and the next pass's ranges load the store through its head and write under the next ordinal. The materialized store must equal what one writer over the whole table writes, which checks that the header's inputs (the stamp, the subset digest, the ordinal, the keys, and the row count) come from the range results. The second pass re-derives every row to the same verdicts, so it writes no segment, only the ages column and the set head."""
         spec = fixtures.mini_spec()
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         stamps = {
@@ -1351,6 +1351,10 @@ class TestOracleFanIn:
             store = oracle_cache.load_store(promoted, stamps[config], f"{config}-digest", spec, keys)
             assert store is not None and store.rows == rows[config] and store.pass_ordinal == 0
 
+        records = ct.load_pool_records(ct.JOURNAL)
+        assert {f"{config} stores" for config in conform.ORACLE_CONFIGS} <= set(
+            records[-1]["worker_peak_rss_bytes"]
+        )
         loaded.clear()
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=10)
         assert loaded and all(ordinal == 0 for _label, ordinal in loaded)

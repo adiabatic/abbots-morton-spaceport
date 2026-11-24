@@ -58,8 +58,8 @@ import time
 import zlib
 from array import array
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from contextlib import ExitStack, contextmanager, suppress
+from dataclasses import dataclass, replace
 from operator import itemgetter
 from pathlib import Path
 from typing import IO, Callable, Collection, Iterable, Iterator, Mapping, NoReturn, Sequence
@@ -1438,7 +1438,7 @@ def _record_arrays(records: bytes | bytearray) -> tuple["array[int]", "array[int
 
 
 class RowWriter:
-    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. A writer with a `path` writes the configuration's whole file to a temporary path and moves it into place with `os.replace`, as the tests' stores are written. A writer with no `path` builds one gzip member in memory, which `close` leaves on `member` for the range to ship home (`oracle.ship`) and the stores' writer to compare or write (`StoreSet.put`): one row range of a cut configuration's records only, with no header or trailer, which the stores' writer places between a header member and a trailer member (`_joined_pieces`) once every range of the configuration has returned, or with `whole` an uncut configuration's whole file, header and trailer included, byte for byte the file a writer with a `path` writes."""
+    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. A writer with a `path` writes the configuration's whole file to a temporary path and moves it into place with `os.replace`, as the tests' stores are written. A writer with no `path` builds one gzip member in memory, which `close` leaves on `member` for the range to ship home (`oracle.ship`) and the store write to compare or write (`write_store`): one row range of a cut configuration's records only, with no header or trailer, which the store write places between a header member and a trailer member (`_joined_pieces`) once every range of the configuration has returned, or with `whole` an uncut configuration's whole file, header and trailer included, byte for byte the file a writer with a `path` writes."""
 
     def __init__(
         self,
@@ -1944,10 +1944,167 @@ def _parts_read(opened: row_delta.OpenParts) -> bool:
     return True
 
 
-class StoreSet:
-    """The oracle stores' writer for one pass, the pooled path's (`oracle.InOrderWriter`) and the serial path's (`oracle.compare_against_baseline`) alike, held in `run_m1`'s parent. Made before any range starts, it plans every configuration's route (`StoreRoute`): the set head read, the staging files a killed writer left and the parts no head lists deleted, which one oracle at a time does over an out dir (`run_m1_gates.oracle_lock`), each single file of a tree from before the segment format adopted by link, and the pass's one fold claimed for the set (`row_delta.claim_fold`) where a configuration's is due; the parts' sha256 checks and the adoptions' read-throughs then run on threads, a part a thread, each hashing through one buffer it reuses (`row_delta.part_hashes_to`, `row_delta.HASH_READ_BYTES` a part), which the first `put` joins, printing `[t] oracle_stores_plan`. A part that fails its check takes the `unusable` route.
+@dataclass(frozen=True)
+class StoreInputs:
+    """What every configuration's store write takes from the pass beside its own records: the directory, each configuration's environment stamp, the family keys, and the position stamp and keys. `StoreSet` holds them, and a pooled store task (`oracle.store_section_task`) is handed them."""
 
-    `put` takes one configuration's records as its ranges shipped them: a cut configuration's members, records alone, or a whole configuration's one member, its whole file. On a base route it writes the configuration's whole file as the next generation's base, `_joined_pieces` for a cut configuration and the member as it is for a whole one, under its final name. On the segment route it reads the prior's materialized records in lockstep (its base and segments merged by ordinal, `_RecordLines`) and writes one segment of whole records, keyed by ordinal and gzipped as a base is, holding every record whose line less its two trailing ages differs from the prior's at its ordinal; a pass with none writes no segment. On either route it takes the two ages of every record into the ages column, a signed byte a verdict (`encoded_ages`), so a record re-derived to the same verdict and settled digest moves only its ages. It compares a block of `_COMPARE_ROWS` records at a time, as lists of lines, and splits a record's ages off only where the block's lines differ, so it holds two blocks, its inflate buffers and the column. `finish` writes the column, whole, as `ages_name` of the next generation, once every configuration has an entry, and `commit` (`promote_stores`) puts the set head in place. Every part is written under its final name, which no head lists until the commit, so a pass that stops first leaves only parts the next plan deletes. `finish` prints `[t] oracle_stores`: the records compared and changed, each configuration's segment bytes, the column's bytes, the most segments a configuration holds after the pass, the compare's seconds and the most it held at once.
+    directory: Path
+    environment: Mapping[str, EnvironmentStamp]
+    family_keys: Mapping[str, str]
+    position_environment: EnvironmentStamp | None = None
+    position_keys: Mapping[str, str] | None = None
+
+
+@dataclass(frozen=True)
+class StoreWrite:
+    """What one configuration's store write came to (`write_store`): its entry under the next set head, its ages, two signed bytes a row, the records the segment route compared and changed, the most two of its compare blocks held, and its seconds."""
+
+    config: str
+    entry: StoreEntry
+    ages: bytearray
+    compared: int
+    changed: int
+    widest: int
+    seconds: float
+
+
+def write_store(
+    inputs: StoreInputs,
+    config: str,
+    route: StoreRoute,
+    members: Sequence[tuple[int, bytes | memoryview]],
+    whole: bool,
+    pass_ordinal: int,
+) -> StoreWrite:
+    """Compare or write one configuration's records, which its ranges shipped as `members` in row order (one member of its whole file when `whole`), recorded under `pass_ordinal`, on the route the stores' plan gave it (`StoreRoute`, whose parts this opens itself, so a pool process can run it), and return its entry and its ages for the commit (`StoreWrite`). On a base route it writes the configuration's whole file as the next generation's base, `_joined_pieces` for a cut configuration and the member as it is for a whole one, under its final name. On the segment route it reads the prior's materialized records in lockstep (its base and segments merged by ordinal, `_RecordLines`) and writes one segment of whole records, keyed by ordinal and gzipped as a base is, holding every record whose line less its two trailing ages differs from the prior's at its ordinal; a pass with none writes no segment. On either route it takes the two ages of every record into the ages, a signed byte a verdict (`encoded_ages`), so a record re-derived to the same verdict and settled digest moves only its ages. It compares a block of `_COMPARE_ROWS` records at a time, as lists of lines, and splits a record's ages off only where the block's lines differ, so it holds two blocks, its inflate buffers and the ages. A part it began and did not finish is removed."""
+    started = time.perf_counter()
+    stamp = inputs.environment[config]
+    header_line = store_header(
+        stamp,
+        stamp.labels["subset"],
+        pass_ordinal,
+        inputs.family_keys,
+        inputs.position_environment,
+        inputs.position_keys,
+    )
+    directory = inputs.directory
+    rows = sum(member_rows for member_rows, _member in members)
+    cut = None if whole else tuple(member_rows for member_rows, _member in members)
+    output = store_output(config)
+    prior = route.prior
+    new = _RecordLines(_member_records(members), framed=whole)
+    ages = bytearray()
+    part_writer: row_delta.StreamedPart | None = None
+    old: _RecordLines | None = None
+    with ExitStack() as stack:
+        if route.route == SEGMENT_ROUTE:
+            assert prior is not None
+            if prior.rows != rows:
+                raise ValueError(
+                    f"{config}: the stores' head records {prior.rows} rows where this pass's ranges returned {rows}"
+                )
+            opened = stack.enter_context(row_delta.open_parts(directory, prior.view(config)))
+            number = len(prior.segments) + 1
+            part_writer = row_delta.StreamedPart(
+                directory,
+                row_delta.segment_name(output, prior.generation, number),
+                row_delta.segment_header(output, prior.generation, number, row_delta.MERGE_ORDINAL),
+                gzipped=True,
+            )
+            upserts = _segment_upserts(opened, config, prior, range(prior.rows)) if prior.segments else None
+            old = _RecordLines(_part_runs(opened.handles[0]), framed=True, upserts=upserts)
+        rows_bytes = changed = ordinal = widest = 0
+        try:
+            while block := new.take(_COMPARE_ROWS):
+                block_bytes = sum(map(len, block)) + len(block)
+                rows_bytes += block_bytes
+                widest = max(widest, block_bytes)
+                parts = list(map(_AGES_PART, block))
+                if old is not None:
+                    standing = old.take(len(block))
+                    if len(standing) != len(block):
+                        raise ValueError(
+                            f"{config}: the standing store ends at row {ordinal + len(standing)}"
+                        )
+                    if standing != block:
+                        assert part_writer is not None
+                        for at in _changed_records(block, standing, parts):
+                            changed += 1
+                            part_writer.write(b"+\t%d\t%s\n" % (ordinal + at, block[at]))
+                row_ages = encoded_ages(
+                    list(map(int, map(operator.itemgetter(1), parts))), pass_ordinal, config, ordinal
+                )
+                position_ages = encoded_ages(
+                    list(map(int, map(operator.itemgetter(2), parts))), pass_ordinal, config, ordinal
+                )
+                interleaved = array("b", bytes(2 * len(block)))
+                interleaved[0::2] = row_ages
+                interleaved[1::2] = position_ages
+                ages += interleaved.tobytes()
+                ordinal += len(block)
+            if new.trailer is not None and new.trailer != ordinal:
+                raise ValueError(
+                    f"{config}: its whole member's trailer counts {new.trailer} rows of {ordinal}"
+                )
+            if ordinal != rows:
+                raise ValueError(f"{config}: its ranges counted {rows} rows and shipped {ordinal} records")
+            if old is not None:
+                if old.take(1):
+                    raise ValueError(f"{config}: the standing store holds more than {ordinal} rows")
+                old.finished()
+            if route.route == SEGMENT_ROUTE:
+                assert prior is not None and part_writer is not None
+                part = part_writer.close()
+                entry = StoreEntry(
+                    json.loads(header_line),
+                    rows,
+                    cut,
+                    prior.generation,
+                    prior.base,
+                    prior.segments if part is None else (*prior.segments, part),
+                )
+            else:
+                generation = 0 if prior is None else prior.generation + 1
+                name = row_delta.base_name(output, generation)
+                base = (
+                    row_delta.write_plain_part(directory, name, [members[0][1]], rows, rows_bytes)
+                    if whole
+                    else join_store_segments(
+                        directory / name,
+                        members,
+                        stamp,
+                        stamp.labels["subset"],
+                        pass_ordinal,
+                        inputs.family_keys,
+                        inputs.position_environment,
+                        inputs.position_keys,
+                        rows_bytes=rows_bytes,
+                    )
+                )
+                entry = StoreEntry(json.loads(header_line), rows, cut, generation, base)
+        except BaseException:
+            if part_writer is not None:
+                part_writer.abandon()
+            raise
+        finally:
+            new.close()
+            if old is not None:
+                old.close()
+    return StoreWrite(
+        config,
+        entry,
+        ages,
+        rows if route.route == SEGMENT_ROUTE else 0,
+        changed,
+        widest,
+        time.perf_counter() - started,
+    )
+
+
+class StoreSet:
+    """The oracle stores' writer for one pass, the pooled path's (`oracle.InOrderWriter`) and the serial path's (`oracle.compare_against_baseline`) alike, held in `run_m1`'s parent, which plans the routes, keeps each configuration's entry and ages, and commits the set head; each configuration's records are compared or written by `write_store`, in this process on the serial path (`put`) and in a pool process on the pooled one (`oracle.store_section_task`, handed `inputs` and `route`), whose write the set takes back (`accept`). Made before any range starts, it plans every configuration's route (`StoreRoute`): the set head read, the staging files a killed writer left and the parts no head lists deleted, which one oracle at a time does over an out dir (`run_m1_gates.oracle_lock`), each single file of a tree from before the segment format adopted by link, and the pass's one fold claimed for the set (`row_delta.claim_fold`) where a configuration's is due; the parts' sha256 checks and the adoptions' read-throughs then run on threads, a part a thread, each hashing through one buffer it reuses (`row_delta.part_hashes_to`, `row_delta.HASH_READ_BYTES` a part), which the first `put` or `route` joins, printing `[t] oracle_stores_plan`. A part that fails its check takes the `unusable` route.
+
+    A store write (`write_store`) takes one configuration's records as its ranges shipped them: a cut configuration's members, records alone, or a whole configuration's one member, its whole file. On a base route it writes the configuration's whole file as the next generation's base, and on the segment route one segment of the records that differ from the prior's, or none, and either way it gives back the configuration's ages, which the set holds until `finish`. `finish` writes the column, whole, as `ages_name` of the next generation, once every configuration has an entry, and `commit` (`promote_stores`) puts the set head in place. Every part is written under its final name, which no head lists until the commit, so a pass that stops first leaves only parts the next plan deletes. `finish` prints `[t] oracle_stores`: the records compared and changed, each configuration's segment bytes, the column's bytes, the most segments a configuration holds after the pass, the store writes' seconds, summed, and the most the set held at once, every configuration's ages taken so far beside the widest two compare blocks.
     """
 
     def __init__(
@@ -1963,9 +2120,9 @@ class StoreSet:
         self.directory = Path(directory)
         self.configs = tuple(configs)
         self._environment = environment
-        self._family_keys = family_keys
-        self._position_environment = position_environment
-        self._position_keys = position_keys
+        self.inputs = StoreInputs(
+            self.directory, environment, family_keys, position_environment, position_keys
+        )
         self._entries: dict[str, StoreEntry] = {}
         self._ages: dict[str, bytes] = {}
         self._column: row_delta.Part | None = None
@@ -2106,6 +2263,10 @@ class StoreSet:
             )
         return self._joined
 
+    def route(self, config: str) -> StoreRoute:
+        """`config`'s route for a store write in another process (`oracle.store_section_task`): the plan's route without the parts it holds open, which that process opens itself."""
+        return replace(self.routes()[config], opened=None)
+
     def put(
         self,
         config: str,
@@ -2113,128 +2274,27 @@ class StoreSet:
         whole: bool,
         pass_ordinal: int,
     ) -> StoreEntry:
-        """Compare or write one configuration's records, which its ranges shipped as `members` in row order (one member of its whole file when `whole`), recorded under `pass_ordinal`, and keep its entry and its ages for the commit."""
-        started = time.perf_counter()
+        """Compare or write one configuration's records, which its ranges shipped as `members` in row order (one member of its whole file when `whole`), recorded under `pass_ordinal`, in this process (`write_store`), and keep its entry and its ages for the commit (`accept`)."""
         route = self.routes()[config]
-        stamp = self._environment[config]
-        header_line = store_header(
-            stamp,
-            stamp.labels["subset"],
-            pass_ordinal,
-            self._family_keys,
-            self._position_environment,
-            self._position_keys,
-        )
-        rows = sum(member_rows for member_rows, _member in members)
-        cut = None if whole else tuple(member_rows for member_rows, _member in members)
-        output = store_output(config)
-        prior = route.prior
-        new = _RecordLines(_member_records(members), framed=whole)
-        ages = bytearray()
-        part_writer: row_delta.StreamedPart | None = None
-        old: _RecordLines | None = None
-        if route.route == SEGMENT_ROUTE:
-            assert prior is not None and route.opened is not None
-            if prior.rows != rows:
-                raise ValueError(
-                    f"{config}: the stores' head records {prior.rows} rows where this pass's ranges returned {rows}"
-                )
-            number = len(prior.segments) + 1
-            part_writer = row_delta.StreamedPart(
-                self.directory,
-                row_delta.segment_name(output, prior.generation, number),
-                row_delta.segment_header(output, prior.generation, number, row_delta.MERGE_ORDINAL),
-                gzipped=True,
-            )
-            opened = route.opened
-            upserts = _segment_upserts(opened, config, prior, range(prior.rows)) if prior.segments else None
-            old = _RecordLines(_part_runs(opened.handles[0]), framed=True, upserts=upserts)
-        rows_bytes = changed = ordinal = widest = 0
         try:
-            while block := new.take(_COMPARE_ROWS):
-                block_bytes = sum(map(len, block)) + len(block)
-                rows_bytes += block_bytes
-                widest = max(widest, block_bytes)
-                parts = list(map(_AGES_PART, block))
-                if old is not None:
-                    standing = old.take(len(block))
-                    if len(standing) != len(block):
-                        raise ValueError(
-                            f"{config}: the standing store ends at row {ordinal + len(standing)}"
-                        )
-                    if standing != block:
-                        assert part_writer is not None
-                        for at in _changed_records(block, standing, parts):
-                            changed += 1
-                            part_writer.write(b"+\t%d\t%s\n" % (ordinal + at, block[at]))
-                row_ages = encoded_ages(
-                    list(map(int, map(operator.itemgetter(1), parts))), pass_ordinal, config, ordinal
-                )
-                position_ages = encoded_ages(
-                    list(map(int, map(operator.itemgetter(2), parts))), pass_ordinal, config, ordinal
-                )
-                interleaved = array("b", bytes(2 * len(block)))
-                interleaved[0::2] = row_ages
-                interleaved[1::2] = position_ages
-                ages += interleaved.tobytes()
-                ordinal += len(block)
-            if new.trailer is not None and new.trailer != ordinal:
-                raise ValueError(
-                    f"{config}: its whole member's trailer counts {new.trailer} rows of {ordinal}"
-                )
-            if ordinal != rows:
-                raise ValueError(f"{config}: its ranges counted {rows} rows and shipped {ordinal} records")
-            if old is not None:
-                if old.take(1):
-                    raise ValueError(f"{config}: the standing store holds more than {ordinal} rows")
-                old.finished()
-            if route.route == SEGMENT_ROUTE:
-                assert prior is not None and part_writer is not None
-                part = part_writer.close()
-                entry = StoreEntry(
-                    json.loads(header_line),
-                    rows,
-                    cut,
-                    prior.generation,
-                    prior.base,
-                    prior.segments if part is None else (*prior.segments, part),
-                )
-            else:
-                generation = 0 if prior is None else prior.generation + 1
-                name = row_delta.base_name(output, generation)
-                base = (
-                    row_delta.write_plain_part(self.directory, name, [members[0][1]], rows, rows_bytes)
-                    if whole
-                    else join_store_segments(
-                        self.directory / name,
-                        members,
-                        stamp,
-                        stamp.labels["subset"],
-                        pass_ordinal,
-                        self._family_keys,
-                        self._position_environment,
-                        self._position_keys,
-                        rows_bytes=rows_bytes,
-                    )
-                )
-                entry = StoreEntry(json.loads(header_line), rows, cut, generation, base)
-        except BaseException:
-            if part_writer is not None:
-                part_writer.abandon()
-            raise
+            written = write_store(self.inputs, config, route, members, whole, pass_ordinal)
         finally:
-            new.close()
-            if old is not None:
-                old.close()
             route.close()
+        return self.accept(written)
+
+    def accept(self, written: StoreWrite) -> StoreEntry:
+        """Keep one configuration's store write (`write_store`), made in this process or a pool's, for the commit: its entry and its ages, which `finish` writes into the column, beside its counts for `[t] oracle_stores`; and close the parts its route holds open."""
+        self.routes()[written.config].close()
         with self._lock:
-            self._entries[config] = entry
-            self._ages[config] = bytes(ages)
-            self.compared += rows if route.route == SEGMENT_ROUTE else 0
-            self.changed += changed
-            self.seconds += time.perf_counter() - started
-            self.held_peak_bytes = max(self.held_peak_bytes, sum(map(len, self._ages.values())) + 2 * widest)
-        return entry
+            self._entries[written.config] = written.entry
+            self._ages[written.config] = bytes(written.ages)
+            self.compared += written.compared
+            self.changed += written.changed
+            self.seconds += written.seconds
+            self.held_peak_bytes = max(
+                self.held_peak_bytes, sum(map(len, self._ages.values())) + 2 * written.widest
+            )
+        return written.entry
 
     @property
     def generation(self) -> int:

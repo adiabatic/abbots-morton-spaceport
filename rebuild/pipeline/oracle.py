@@ -6,7 +6,7 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
-run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, its store records, one gzip member, in another, and the windows it settled fresh, compressed (`conform.FreshMemo`), in a third (`ship`); its result names them. The parent's `InOrderWriter` submits each configuration's section of the audit, once its last range has returned, to the same pool (`audit_section_task`), which compares the configuration's rows, in row order, with the standing audit's section through the compare the serial path's writer runs over the whole audit (`SectionCompare`, `AuditWriter`) and ships the section's bytes in this pass's part home, and the parent writes the part from the sections in the audit's order; it hands each configuration's members at the same moment to the stores' writer (`oracle_cache.StoreSet`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's because `_compare_config` addresses every row by its absolute index in the table, so the store records, the scheduled re-derivation, and the verification samples all key on it, and because the audit's compare is a merge by key that never pairs rows across two configurations' sections.
+run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, its store records, one gzip member, in another, and the windows it settled fresh, compressed (`conform.FreshMemo`), in a third (`ship`); its result names them. The parent's `InOrderWriter` submits each configuration's section of the audit, once its last range has returned, to the same pool (`audit_section_task`), which compares the configuration's rows, in row order, with the standing audit's section through the compare the serial path's writer runs over the whole audit (`SectionCompare`, `AuditWriter`) and ships the section's bytes in this pass's part home, and the parent writes the part from the sections in the audit's order; at the same moment it submits the configuration's store task (`store_section_task`), which compares or writes the configuration's store, the members its ranges shipped, through the code the serial path's stores' writer runs (`oracle_cache.write_store`) and ships its ages home for the parent's stores' writer to commit (`oracle_cache.StoreSet`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's because `_compare_config` addresses every row by its absolute index in the table, so the store records, the scheduled re-derivation, and the verification samples all key on it, and because the audit's compare is a merge by key that never pairs rows across two configurations' sections.
 
 The audit, `divergence-audit.tsv`, is held as a base and segments under a head (`rebuild/pipeline/row_delta.py`'s plain keyed merge): the base is the whole file, its header line and every row in the audit's order, and each pass that changes rows writes one segment of upserts and tombstones keyed by configuration and window, in the base's own order (`audit_key`). The audit's writer plans its route before any range starts (`AuditPlan`, `AuditRoute`), compares the pass's rows with the materialized audit in lockstep, over the whole audit on the serial path and a configuration's section at a time on the pooled one, and writes the rows that differ, or nothing and the head alone; a tree from before the segment format has its single file adopted by link as generation 0's base. A base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members, the header line alone and then one a configuration (`row_delta.MemberPart`), indexed by the head (`row_delta.Part.members`), so the corpus build and the pooled path's section tasks inflate only the sections they read, and a plain part's sections are found by bisection (`plain_sections`). The materialized audit (`materialized_audit`) is the whole file over the live rows, byte for byte, its parts inflated, and the head records when its content last moved (`CONTENT_TIME_STAMP`), which the review corpus takes as its identity.
 
@@ -182,7 +182,7 @@ class Shipped:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` names the shared memory segment that holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so the audit has them all. `store_segment` names the one that holds the range's store records as one gzip member (`oracle_cache.RowWriter` with no path): a cut configuration's range's records alone, and an uncut configuration's whole file, its header and trailer around them; it is None when the range writes no store. `fresh_memo` holds the counts of the settle memo windows the range settled fresh (`conform.FreshMemo` with no blocks), or None when it settled none, and `memo_blocks` names the segment that holds their blocks; `run_m1_gates.run_oracle` takes both off the result as it lands and hands them, with the configuration's other ranges', to its absorb. Any of the segments is None when the range has no such bytes or its caller named no segments (`oracle_config_worker`'s `ship_to`), and the result carries only names, lengths and counts, never the bytes (`Shipped`). The parent's `InOrderWriter` takes the audit and store segments off the result as it lands, handing the audit segment's name to the configuration's section task, and a folded result carries none of them. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store records were written under, or None when no store was written; the stores' writer records it in the set head's header for the configuration and measures the ages column against it. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
+    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` names the shared memory segment that holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so the audit has them all. `store_segment` names the one that holds the range's store records as one gzip member (`oracle_cache.RowWriter` with no path): a cut configuration's range's records alone, and an uncut configuration's whole file, its header and trailer around them; it is None when the range writes no store. `fresh_memo` holds the counts of the settle memo windows the range settled fresh (`conform.FreshMemo` with no blocks), or None when it settled none, and `memo_blocks` names the segment that holds their blocks; `run_m1_gates.run_oracle` takes both off the result as it lands and hands them, with the configuration's other ranges', to its absorb. Any of the segments is None when the range has no such bytes or its caller named no segments (`oracle_config_worker`'s `ship_to`), and the result carries only names, lengths and counts, never the bytes (`Shipped`). The parent's `InOrderWriter` takes the audit and store segments off the result as it lands, handing their names to the configuration's section and store tasks, and a folded result carries none of them. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store records were written under, or None when no store was written; the stores' writer records it in the set head's header for the configuration and measures the ages column against it. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
 
     config: str
     rows_compared: int = 0
@@ -205,7 +205,7 @@ class OracleConfigResult:
 
 @dataclass(frozen=True)
 class OracleRowCache:
-    """The row cache settings one oracle run passes to each configuration, so each can read the previous pass's verdicts and build this pass's. The parent computes the stamps and family keys once, before the first row is compared, and passes them to the workers. A worker that re-read the rune tree could see files edited mid-run, which is the race `run_m1_gates.run_oracle` checks for again at promotion. `position_environment` and `position_keys` are the position store's stamp and keys, computed from the font the same way; without them no position verdict is served. `read_dir` is where a committed store lives and `write_dir` the directory this pass's stores are written into, by the parent's stores' writer (`oracle_cache.StoreSet`), and either may be None; a worker only builds its records in memory when `write_dir` is set. A pass that may read but not write (`--gates-only`, which recompiles nothing and so may not write a build input) leaves `write_dir` None, which opens its stores read-only and so skips the scheduled re-derivation (`open_row_cache`), and sets a nonzero `rotation`: the pass ordinal advances only when a store is written, so the rotation is what moves the verification samples on such a pass (see `oracle_cache.RowStore`)."""
+    """The row cache settings one oracle run passes to each configuration, so each can read the previous pass's verdicts and build this pass's. The parent computes the stamps and family keys once, before the first row is compared, and passes them to the workers. A worker that re-read the rune tree could see files edited mid-run, which is the race `run_m1_gates.run_oracle` checks for again at promotion. `position_environment` and `position_keys` are the position store's stamp and keys, computed from the font the same way; without them no position verdict is served. `read_dir` is where a committed store lives and `write_dir` the directory this pass's stores are written into, by each configuration's store write (`oracle_cache.write_store`) and the set head the parent's stores' writer commits (`oracle_cache.StoreSet`), and either may be None; a worker only builds its records in memory when `write_dir` is set. A pass that may read but not write (`--gates-only`, which recompiles nothing and so may not write a build input) leaves `write_dir` None, which opens its stores read-only and so skips the scheduled re-derivation (`open_row_cache`), and sets a nonzero `rotation`: the pass ordinal advances only when a store is written, so the rotation is what moves the verification samples on such a pass (see `oracle_cache.RowStore`)."""
 
     environment: Mapping[str, oracle_cache.EnvironmentStamp]
     family_keys: Mapping[str, str]
@@ -1363,7 +1363,7 @@ class AuditBlocks:
 
 
 def ship(pieces: list[bytes], name: str) -> Shipped | None:
-    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`_Mapped`: a configuration's section task, `audit_section_task`, for the ranges' audit lines; the parent's `InOrderWriter`, for a range's store members as it lands and a section's bytes as it writes the part; or a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`InOrderWriter.__exit__`, `run_m1_gates._SweepSegments`)."""
+    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`_Mapped`: a configuration's section task, `audit_section_task`, for the ranges' audit lines; its store task, `store_section_task`, for their store members; the parent's `InOrderWriter`, for a section's bytes as it writes the part and a store's ages as it takes them; or a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`InOrderWriter.__exit__`, `run_m1_gates._SweepSegments`)."""
     lengths = tuple(len(piece) for piece in pieces)
     if not sum(lengths):
         return None
@@ -1404,8 +1404,13 @@ def _section_name(token: str, slot: int) -> str:
     return f"oracle-{token}-x{slot}"
 
 
+def _stores_name(token: str, slot: int) -> str:
+    """The name of the segment the store task in `slot` ships its configuration's ages home in (`store_section_task`)."""
+    return f"oracle-{token}-y{slot}"
+
+
 def _unlink_recorded_segments(scratch: Path) -> None:
-    """Unlink every shared memory segment a dead run's writer named, from the token, range count and section count it recorded in that run's scratch directory (`InOrderWriter`, `SEGMENT_RECORD`). A segment already gone, or a record that cannot be read, leaves nothing to do, and nothing here raises."""
+    """Unlink every shared memory segment a dead run's writer named, from the token, range count and configuration count it recorded in that run's scratch directory (`InOrderWriter`, `SEGMENT_RECORD`). A segment already gone, or a record that cannot be read, leaves nothing to do, and nothing here raises."""
     try:
         token, count, *sections = (scratch / SEGMENT_RECORD).read_text().split()
         positions = range(int(count))
@@ -1418,8 +1423,9 @@ def _unlink_recorded_segments(scratch: Path) -> None:
             with suppress(OSError, ValueError):
                 _unlink_if_made(name, track=False)
     for slot in slots:
-        with suppress(OSError, ValueError):
-            _unlink_if_made(_section_name(token, slot), track=False)
+        for name in (_section_name(token, slot), _stores_name(token, slot)):
+            with suppress(OSError, ValueError):
+                _unlink_if_made(name, track=False)
 
 
 class _Mapped:
@@ -1778,6 +1784,48 @@ def _header_member(header: bytes) -> bytes:
     return buffer.getvalue()
 
 
+@dataclass(frozen=True)
+class StoresResult:
+    """What one configuration's store write came to in a pool process (`store_section_task`): its write (`oracle_cache.StoreWrite`) without its ages, which wait in the shared memory segment `ages` names (None for a configuration with no rows), the task's seconds, and its process's peak footprint (`peak_rss.peak_footprint_self_bytes`), which the pool record takes as `<config> stores`."""
+
+    written: oracle_cache.StoreWrite
+    ages: Shipped | None
+    wall_seconds: float
+    peak_footprint_bytes: int
+
+
+def store_section_task(
+    inputs: oracle_cache.StoreInputs,
+    config: str,
+    route: oracle_cache.StoreRoute,
+    members: Sequence[tuple[int, Shipped]],
+    whole: bool,
+    pass_ordinal: int,
+    ship_name: str,
+) -> StoresResult:
+    """Write one configuration's store in a fresh pool process (`InOrderWriter`), through the same code the serial path's store set runs in its own process (`oracle_cache.write_store`): the members its row ranges shipped home, mapped from their shared memory segments in row order and each name unlinked as it is mapped (`_Mapped`), compared with the standing records on the route the stores' plan gave it, whose parts this process opens itself, and written as its segment or its base under its final name, which no head lists until the parent commits the set head. Its ages, two signed bytes a row, go home in the shared memory segment `ship_name`, for the parent's store set to take into the ages column (`oracle_cache.StoreSet.accept`)."""
+    started = time.perf_counter()
+    mapped: list[_Mapped] = []
+    try:
+        for _rows, shipped in members:
+            mapped.append(_Mapped(shipped))
+        written = oracle_cache.write_store(
+            inputs,
+            config,
+            route,
+            [(rows, segment.pieces[0]) for (rows, _shipped), segment in zip(members, mapped)],
+            whole,
+            pass_ordinal,
+        )
+    finally:
+        for segment in mapped:
+            segment.close()
+    ages = ship([cast(bytes, written.ages)], ship_name)
+    return StoresResult(
+        replace(written, ages=bytearray()), ages, time.perf_counter() - started, peak_footprint_self_bytes()
+    )
+
+
 class _InlineExecutor(Executor):
     """An executor that runs each task as it is submitted, in this process, and returns its finished future: the in-order writer's when its caller hands it no pool, as the tests that drive a fan-in by hand do."""
 
@@ -1791,11 +1839,11 @@ class _InlineExecutor(Executor):
 
 
 class InOrderWriter:
-    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes the audit once, as the serial writer (`AuditWriter`) writes it over the same rows, from one comparison a configuration run on the oracle's pool, and it hands each configuration's store records, the members its ranges ship, to the store set's writer (`oracle_cache.StoreSet`) when its last range lands. A range ships its bytes in the POSIX shared memory segments the writer names for it (`ship_to`, `ship`), and its result carries only their names and lengths. `land` takes each range's result as its future resolves, in any order, and takes the names off the result, so neither it nor its future keeps them. The audit's lines wait unmapped in their segments until the configuration's last range lands; then `land` submits the configuration's section task (`audit_section_task`) to `executor`, the oracle's pool, with the route the plan chose (`AuditPlan`, joined at the first submission) and the configuration's range segments in row order, and the task maps them, compares them with the standing audit's section and ships the section's bytes in the part home in a segment the writer names for the configuration (`section_name`). A configuration none of whose rows the plan compares but which the standing audit holds a section of gets a task with no ranges on the segment route, which tombstones every row of it; the plan's first submission finds those sections (`part_sections`), or the exit when nothing was submitted, which then runs them in this process. `in_flight` lists the section tasks not yet finished, which `run_m1_gates.run_oracle` counts against the pool's width as it does its absorbs. The writer maps each store segment as its range lands, and holds a configuration's members only until its last range lands and the store set's writer, on a thread of its own (`stores`), has compared or written them, so at worst it holds every configuration's members at once, which are the compressed stores the pass writes. The writer names each range's settle memo segment too, which it never maps: `run_m1_gates.run_oracle` hands it to the configuration's absorb, whose worker maps it.
+    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes the audit once, as the serial writer (`AuditWriter`) writes it over the same rows, from one comparison a configuration run on the oracle's pool, and it writes the stores, as the serial path's stores' writer does, from one store write a configuration run on the same pool. A range ships its bytes in the POSIX shared memory segments the writer names for it (`ship_to`, `ship`), and its result carries only their names and lengths. `land` takes each range's result as its future resolves, in any order, and takes the names off the result, so neither it nor its future keeps them. A range's audit lines and store members wait unmapped in their segments until the configuration's last range lands; then `land` submits to `executor`, the oracle's pool, the configuration's section task (`audit_section_task`), with the route the audit's plan chose (`AuditPlan`, joined at the first submission) and the configuration's audit segments in row order, which maps them, compares them with the standing audit's section and ships the section's bytes in the part home in a segment the writer names for the configuration (`section_name`); and, when the stores are written and the configuration's ranges agree on a store, its store task (`store_section_task`), with the route the stores' plan chose (`oracle_cache.StoreSet.route`) and the configuration's store segments in row order, which maps them, writes the configuration's segment or base through the serial path's code (`oracle_cache.write_store`) and ships its ages home (`stores_name`). A configuration none of whose rows the plan compares but which the standing audit holds a section of gets a section task with no ranges on the segment route, which tombstones every row of it; the plan's first submission finds those sections (`part_sections`), or the exit when nothing was submitted, which then runs them in this process. `in_flight` lists the tasks not yet finished, which `run_m1_gates.run_oracle` counts against the pool's width as it does its absorbs. The writer names each range's settle memo segment too, which it never maps: `run_m1_gates.run_oracle` hands it to the configuration's absorb, whose worker maps it.
 
-    What it holds sits in shared memory, which no process's footprint counts while it waits: a range closes its mapping once it has copied its bytes in, a range's audit segment waits unmapped until its configuration's task maps it, and the writer's mapping of a store segment touches a page only as the store set's writer reads it (`Shipped`). The peak footprint a bare run records under `run_m1.PARENT_POOL_UNIT`, which the run-m1-parent row of `make job-costs` reports, therefore leaves out what waits. So the writer counts it itself: `held_peak_bytes` is the most it held in shared memory at once, a landed range's audit lines until its configuration's task has finished, a store segment until the store set's writer has read it, and a section's bytes from its task's end until they are written into the part; `landing_seconds` is the time `land` took over every range, and `committed_at` the moment the audit was committed and the stores finished; `run_m1_gates.run_oracle` prints them on its `[t] oracle_fan_in` line.
+    What it holds sits in shared memory, which no process's footprint counts while it waits: a range closes its mapping once it has copied its bytes in, and its segments wait unmapped until its configuration's tasks map them (`Shipped`). The peak footprint a bare run records under `run_m1.PARENT_POOL_UNIT`, which the run-m1-parent row of `make job-costs` reports, therefore leaves out what waits. So the writer counts it itself: `held_peak_bytes` is the most it held in shared memory at once, a landed range's audit lines and store members until its configuration's tasks have finished with them, a section's bytes from its task's end until they are written into the part, and a store's ages from its task's end until the stores' writer has taken them; `landing_seconds` is the time `land` took over every range, and `committed_at` the moment the audit was committed and the stores finished; `run_m1_gates.run_oracle` prints them on its `[t] oracle_fan_in` line.
 
-    The audit's head is committed only when the block exits normally and three checks pass, so a partial audit never replaces the standing one: every planned range must have landed, every section task must have returned, and the lines the tasks took must equal the landed ranges' own `divergent_rows` total; a failure raises, and nothing is committed (`AuditPlan.settled`, `AuditRoute.discard`). Then the writer writes the part from the sections, in the audit's order, under the head's next part name: the header line, or the header line's gzip member, then each section's bytes as its task shipped them, mapped and unlinked one at a time (`_write_sections`), so the part, its size and sha256, its rows and its member index are the ones `AuditWriter` writes. On the segment route a pass whose sections hold nothing writes no part and commits the head alone. The commit follows `AuditWriter`'s content rule (`_audit_head`, `_commit_audit`), and `[t] oracle_audit` reports the tasks' compare and compress seconds summed and the most any section's old stream held. The stores are written only when `stores` is given and `row_cache` writes them: a configuration one of whose ranges returned no member, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), hands the store set's writer nothing, so `oracle_cache.promote_stores` commits no head. The store set's writer's own errors stop the block before the audit commits. On every exit, normal or not, the writer waits for the store set's writer and every section task it submitted, cancelling those not started when the exit is not normal, closes each mapping it still holds and unlinks every segment it named that is still there, a range's, a section's, and a settle memo segment no absorb mapped, so a run that fails or is interrupted while this block unwinds leaves no segment behind, and a run that maps every segment leaves the resource tracker nothing to warn about. The writer records its token, its range count and its section count in the run's scratch directory as it enters, and again as it names a section the plan did not (`SEGMENT_RECORD`), and deletes the record once its exit has unlinked every name, so after a SIGKILL of the whole process group, which skips the exit, the next oracle run over the same `out_dir` unlinks the segments the dead run left (`discard_oracle_audit_scratch`).
+    The audit's head is committed only when the block exits normally and three checks pass, so a partial audit never replaces the standing one: every planned range must have landed, every section and store task must have returned, and the lines the section tasks took must equal the landed ranges' own `divergent_rows` total; a failure raises, and nothing is committed (`AuditPlan.settled`, `AuditRoute.discard`, `oracle_cache.StoreSet.abandon`). Then the writer hands the stores' writer each store task's write with its ages (`_accept`), writes the part from the sections, in the audit's order, under the head's next part name: the header line, or the header line's gzip member, then each section's bytes as its task shipped them, mapped and unlinked one at a time (`_write_sections`), so the part, its size and sha256, its rows and its member index are the ones `AuditWriter` writes. On the segment route a pass whose sections hold nothing writes no part and commits the head alone. The commit follows `AuditWriter`'s content rule (`_audit_head`, `_commit_audit`), and `[t] oracle_audit` reports the tasks' compare and compress seconds summed and the most any section's old stream held; then the stores' writer writes the ages column (`oracle_cache.StoreSet.finish`), and `run_m1_gates.run_oracle` commits the stores' set head after the audit's. The stores are written only when `stores` is given and `row_cache` writes them: a configuration one of whose ranges returned no member, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), gets no store task, so `oracle_cache.promote_stores` commits no head. On every exit, normal or not, the writer waits for every task it submitted, cancelling those not started when the exit is not normal, and unlinks every segment it named that is still there, a range's, a section's, a store's ages, and a settle memo segment no absorb mapped, so a run that fails or is interrupted while this block unwinds leaves no segment behind, and a run that maps every segment leaves the resource tracker nothing to warn about. The writer records its token, its range count and its configuration count in the run's scratch directory as it enters, and again as it names a section the plan did not (`SEGMENT_RECORD`), and deletes the record once its exit has unlinked every name, so after a SIGKILL of the whole process group, which skips the exit, the next oracle run over the same `out_dir` unlinks the segments the dead run left (`discard_oracle_audit_scratch`).
     """
 
     def __init__(
@@ -1820,12 +1868,12 @@ class InOrderWriter:
         self._token = secrets.token_hex(6)
         self._landed: dict[int, Shipped | None] = {}
         self._counted = 0
-        self._segments: dict[str, dict[int, tuple[int, _Mapped | None, int | None]]] = {}
-        self._handed: list[tuple[Future, list[_Mapped | None]]] = []
+        self._segments: dict[str, dict[int, tuple[int, Shipped | None, int | None]]] = {}
         self._sections: dict[str, Future] = {}
-        self._waiting: dict[str, int] = {}
-        self._unwritten: dict[str, int] = {}
-        self._reaped: set[str] = set()
+        self._stored: dict[str, Future] = {}
+        self._waiting: dict[tuple[str, str], int] = {}
+        self._unwritten: dict[tuple[str, str], int] = {}
+        self._reaped: set[tuple[str, str]] = set()
         self._discovered = False
         self._lock = threading.Lock()
         self._held = 0
@@ -1834,7 +1882,6 @@ class InOrderWriter:
         self.committed_at: float | None = None
         self._plan: AuditPlan | None = None
         self._route: AuditRoute | None = None
-        self._storing: ThreadPoolExecutor | None = None
 
     def __enter__(self) -> "InOrderWriter":
         scratch = oracle_audit_scratch(self._out_dir)
@@ -1848,8 +1895,6 @@ class InOrderWriter:
             with suppress(OSError):
                 scratch.rmdir()
             raise
-        if self.stores is not None:
-            self._storing = ThreadPoolExecutor(max_workers=1, thread_name_prefix="oracle-stores")
         return self
 
     def _write_record(self) -> None:
@@ -1874,14 +1919,13 @@ class InOrderWriter:
             if not self._discovered:
                 self._discover(route, inline=True)
             results = {config: future.result() for config, future in self._sections.items()}
-            failures = self._join_stores()
+            stored = {config: future.result() for config, future in self._stored.items()}
             rows = sum(result.rows for result in results.values())
             if rows != self._counted:
                 raise ValueError(
                     f"the oracle's ranges returned {rows} audit rows where they counted {self._counted} divergent — divergence-audit.tsv is untouched"
                 )
-            if failures:
-                raise failures[0]
+            self._accept(stored)
             self._commit(route, results)
         except BaseException:
             try:
@@ -1908,17 +1952,25 @@ class InOrderWriter:
         """The name of the segment `config`'s section task ships the section's bytes home in."""
         return _section_name(self._token, self._slots[config])
 
+    def stores_name(self, config: str) -> str:
+        """The name of the segment `config`'s store task ships its ages home in."""
+        return _stores_name(self._token, self._slots[config])
+
     def in_flight(self) -> list[Future]:
-        """The section tasks submitted and not yet finished, each of which holds one slot of the pool's width."""
+        """The section and store tasks submitted and not yet finished, each of which holds one slot of the pool's width."""
         self._reap()
-        return [future for future in self._sections.values() if not future.done()]
+        return [future for future in (*self._sections.values(), *self._stored.values()) if not future.done()]
 
     def section_results(self) -> dict[str, SectionResult]:
         """Every section task's result, waiting for each, in the order they were submitted; a task's error is raised."""
         return {config: future.result() for config, future in self._sections.items()}
 
+    def store_results(self) -> dict[str, StoresResult]:
+        """Every store task's result, waiting for each, in the order they were submitted; a task's error is raised."""
+        return {config: future.result() for config, future in self._stored.items()}
+
     def land(self, shard: OracleShard, result: OracleConfigResult) -> None:
-        """Take one range's result: keep its audit segment's name for its configuration's section task, submitting that task when this is the last of the configuration's ranges to land, and hand the configuration's members to the store set's writer at the same moment."""
+        """Take one range's result: keep its audit and store segments' names for its configuration's tasks, and when this is the last of the configuration's ranges to land, submit its section task and, when its ranges agree on a store, its store task."""
         started = time.perf_counter()
         self._land(shard, result)
         self.landing_seconds += time.perf_counter() - started
@@ -1931,35 +1983,48 @@ class InOrderWriter:
         segment, result.store_segment = result.store_segment, None
         self._counted += result.divergent_rows
         self._landed[position] = blocks
-        self._waiting[shard.config] = self._waiting.get(shard.config, 0) + _shipped_size(blocks)
-        self._hold(_shipped_size(blocks))
+        self._wait(("audit", shard.config), blocks)
         positions = self._by_config[shard.config]
         if all(at in self._landed for at in positions):
             self._submit(shard.config, [self._landed[at] for at in positions])
-        member = self._map(segment)
         stores = self.stores
-        if stores is None or self._storing is None:
-            self._close(member)
+        if stores is None:
+            if segment is not None:
+                _unlink_if_made(segment.name)
             return
+        self._wait(("stores", shard.config), segment)
         held = self._segments.setdefault(shard.config, {})
-        held[shard.index] = (result.rows_compared, member, result.pass_ordinal)
+        held[shard.index] = (result.rows_compared, segment, result.pass_ordinal)
         if len(held) < shard.of:
             return
         del self._segments[shard.config]
         ranges = [held[index] for index in range(shard.of)]
-        mappings = [mapped for _rows, mapped, _ordinal in ranges]
         ordinal = ranges[0][2]
         if (
             ordinal is None
-            or any(mapped is None for mapped in mappings)
+            or any(shipped is None for _rows, shipped, _ordinal in ranges)
             or any(other != ordinal for *_, other in ranges)
         ):
-            for mapped in mappings:
-                self._close(mapped)
+            for _rows, shipped, _ordinal in ranges:
+                if shipped is not None:
+                    _unlink_if_made(shipped.name)
+            self._hold(-self._waiting.pop(("stores", shard.config), 0))
             return
-        members = [(rows, cast(_Mapped, mapped).pieces[0]) for rows, mapped, _ordinal in ranges]
-        future = self._storing.submit(self._store, shard.config, members, shard.of == 1, ordinal, mappings)
-        self._handed.append((future, mappings))
+        self._stored[shard.config] = self.executor.submit(
+            store_section_task,
+            stores.inputs,
+            shard.config,
+            stores.route(shard.config),
+            [(rows, cast(Shipped, shipped)) for rows, shipped, _ordinal in ranges],
+            shard.of == 1,
+            ordinal,
+            self.stores_name(shard.config),
+        )
+
+    def _wait(self, key: tuple[str, str], shipped: Shipped | None) -> None:
+        """Count a landed range's segment as held until the task `key` names has finished with it."""
+        self._waiting[key] = self._waiting.get(key, 0) + _shipped_size(shipped)
+        self._hold(_shipped_size(shipped))
 
     def _joined_route(self) -> AuditRoute:
         if self._route is None:
@@ -2013,15 +2078,33 @@ class InOrderWriter:
             )
 
     def _reap(self) -> None:
-        """Count each finished section task's ranges as no longer held and its shipped section as held."""
-        for config, future in self._sections.items():
-            if config in self._reaped or not future.done():
-                continue
-            self._reaped.add(config)
-            self._hold(-self._waiting.pop(config, 0))
-            if not future.cancelled() and future.exception() is None:
-                self._unwritten[config] = _shipped_size(future.result().output)
-                self._hold(self._unwritten[config])
+        """Count each finished task's ranges as no longer held, and what it shipped home, a section's bytes or a store's ages, as held."""
+        for kind, tasks in (("audit", self._sections), ("stores", self._stored)):
+            for config, future in tasks.items():
+                key = (kind, config)
+                if key in self._reaped or not future.done():
+                    continue
+                self._reaped.add(key)
+                self._hold(-self._waiting.pop(key, 0))
+                if not future.cancelled() and future.exception() is None:
+                    result = future.result()
+                    self._unwritten[key] = _shipped_size(result.output if kind == "audit" else result.ages)
+                    self._hold(self._unwritten[key])
+
+    def _accept(self, stored: Mapping[str, StoresResult]) -> None:
+        """Hand the store set's writer each store task's write with its ages, each segment mapped, copied and unlinked in turn (`oracle_cache.StoreSet.accept`)."""
+        self._reap()
+        assert self.stores is not None or not stored
+        for config, result in stored.items():
+            ages = b""
+            if result.ages is not None:
+                mapped = _Mapped(result.ages)
+                try:
+                    ages = b"".join(bytes(piece) for piece in mapped.pieces)
+                finally:
+                    mapped.close()
+            self._hold(-self._unwritten.pop(("stores", config), 0))
+            cast(oracle_cache.StoreSet, self.stores).accept(replace(result.written, ages=ages))
 
     def _commit(self, route: AuditRoute, results: Mapping[str, SectionResult]) -> None:
         """Write the part from the sections and commit the head, as `AuditWriter.commit` does over the same rows."""
@@ -2087,7 +2170,7 @@ class InOrderWriter:
                         )
                 finally:
                     mapped.close()
-                    self._hold(-self._unwritten.pop(section.config))
+                    self._hold(-self._unwritten.pop(("audit", section.config)))
                 if section.member is not None:
                     index.append(section.member)
         return row_delta.Part(
@@ -2099,65 +2182,19 @@ class InOrderWriter:
             members=tuple(index) if members else None,
         )
 
-    def _store(
-        self,
-        config: str,
-        members: list[tuple[int, memoryview]],
-        whole: bool,
-        ordinal: int,
-        mappings: list[_Mapped | None],
-    ) -> None:
-        assert self.stores is not None
-        try:
-            self.stores.put(config, members, whole, ordinal)
-        finally:
-            members.clear()
-            for mapped in mappings:
-                self._close(mapped)
-
     def _hold(self, size: int) -> None:
         with self._lock:
             self._held += size
             self.held_peak_bytes = max(self.held_peak_bytes, self._held)
 
-    def _map(self, shipped: Shipped | None) -> _Mapped | None:
-        if shipped is None:
-            return None
-        mapped = _Mapped(shipped)
-        self._hold(mapped.size)
-        return mapped
-
-    def _close(self, mapped: _Mapped | None) -> None:
-        if mapped is not None and not mapped.closed:
-            mapped.close()
-            self._hold(-mapped.size)
-
-    def _join_stores(self, cancel: bool = False) -> list[BaseException]:
-        """Wait for the store set's writer to finish what it was handed, or with `cancel` for what it has begun, cancelling the rest, closing the members of every store job that never ran, and return the store jobs' errors."""
-        failures: list[BaseException] = []
-        if self._storing is not None:
-            self._storing.shutdown(wait=True, cancel_futures=cancel)
-        for future, mappings in self._handed:
-            if future.cancelled():
-                for mapped in mappings:
-                    self._close(mapped)
-            elif (error := future.exception()) is not None:
-                failures.append(error)
-        self._handed = []
-        return failures
-
     def _release(self, cancel: bool) -> None:
-        """Wait for the store set's writer (`_join_stores`) and for every section task, with `cancel` cancelling those not started, close every mapping still held (a configuration's members short of its last range, members whose store job never ran), then unlink every segment named for one of the writer's ranges or sections that is still there: one a range made whose result the writer never took or whose task never mapped it, a section no commit wrote, or a settle memo segment no absorb mapped. Once every name is unlinked it deletes the record of them (`SEGMENT_RECORD`)."""
-        self._join_stores(cancel)
-        for future in self._sections.values():
+        """Wait for every section and store task, with `cancel` cancelling those not started, then unlink every segment named for one of the writer's ranges or tasks that is still there: one a range made whose result the writer never took or whose task never mapped it, a section no commit wrote, a store's ages no commit took, or a settle memo segment no absorb mapped. Once every name is unlinked it deletes the record of them (`SEGMENT_RECORD`)."""
+        for future in (*self._sections.values(), *self._stored.values()):
             if cancel:
                 future.cancel()
             with suppress(CancelledError):
                 future.exception()
-        held = [mapped for ranges in self._segments.values() for _rows, mapped, _ordinal in ranges.values()]
         self._segments = {}
-        for mapped in held:
-            self._close(mapped)
         for shard in self._order:
             names = self.ship_to(shard)
             _unlink_if_made(names.audit)
@@ -2165,6 +2202,7 @@ class InOrderWriter:
             _unlink_if_made(names.memo)
         for slot in range(len(self._slots)):
             _unlink_if_made(_section_name(self._token, slot))
+            _unlink_if_made(_stores_name(self._token, slot))
         self._reap()
         self._hold(-sum(self._waiting.values()) - sum(self._unwritten.values()))
         self._waiting, self._unwritten = {}, {}
