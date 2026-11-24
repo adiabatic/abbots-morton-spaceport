@@ -76,6 +76,10 @@ policy:
         family:
         - qsPea
         - qsHe
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsOwe}
   contract: []
   resolve: []
   groups: {}

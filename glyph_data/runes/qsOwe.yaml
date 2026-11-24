@@ -133,6 +133,7 @@ policy:
         - qsIt
         - qsEt
         - qsOwe
+        - qsFoot
   - exit: x-height
     by: 2
     when:
