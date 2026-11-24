@@ -125,6 +125,9 @@ policy:
     when:
       right:
         family:
+        - qsDay
+        - qsDay_qsEat
+        - qsDay_qsUtter
         - qsCheer
         - qsRoe
         - qsIt
