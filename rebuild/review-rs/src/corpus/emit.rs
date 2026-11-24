@@ -1,12 +1,13 @@
 //! Each unit as the write receives it: a recomputed fragment read back from the units phase's arena and patched with this build's scaffold, ink deltas, ledger class and primary units under the scaffold check; a cached fragment whose patched fields all hold, taken as its stored bytes with the identity that stands in for it; or any other cached fragment read from the previous corpus and patched ([`Emitter::emission`]). A fragment that does not read back as the unit and stamp at its address stops the build.
 
+use std::borrow::Cow;
 use std::path::Path;
 
 use super::drive::{Arena, unit_record};
 use super::input::BuildInput;
-use super::prior::{PriorError, PriorFragmentReader, read_arena};
+use super::prior::{PriorError, PriorFragmentReader};
 use super::records::truthy;
-use super::store::{PriorFragment, UnitStore};
+use super::store::{FragmentAt, UnitStore};
 use super::table::UnitTable;
 use super::{BuildError, failed};
 use crate::enrich::{Flags, Highlight, SecondaryJunction};
@@ -15,22 +16,22 @@ use crate::pyfmt::PyValue;
 use crate::scaffold::{Badge, Roster, config_badge};
 use crate::wire::Init;
 
-/// What the write takes from one unit: a fragment to serialize, or a cached fragment's bytes as they are stored, deflated when its address records an inflated length, with that address and the identity the cross-unit checks and the sidecars read in place of the fragment.
+/// What the write takes from one unit: a fragment to serialize, or a cached fragment's bytes as they are stored at the address the write read it by, deflated when that address records an inflated length, with the identity the cross-unit checks and the sidecars read in place of the fragment and the config note the write keeps for it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Emitted {
     Fragment(PyValue),
     Bytes {
         body: Vec<u8>,
-        source: PriorFragment,
         identity: PyValue,
+        note: PyValue,
     },
 }
 
-/// One unit as the write receives it, with the content key and policy file the fragment or the store record gives.
+/// One unit as the write receives it, with the content key a fragment gives (None for stored bytes, which are the store record's) and the policy file the fragment or the store record gives.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Emission {
-    pub unit_id: String,
-    pub content_key: String,
+pub struct Emission<'a> {
+    pub unit_id: Cow<'a, str>,
+    pub content_key: Option<String>,
     pub policy_file: Option<String>,
     pub emitted: Emitted,
 }
@@ -63,50 +64,30 @@ pub fn policy_file(fragment: &PyValue) -> std::result::Result<Option<String>, Bu
     })
 }
 
-/// The store's secondary-junction rects for the unit as the patch reads them.
+/// The store's secondary-junction rects for the unit as the patch reads them ([`UnitStore::junction_rect_values`]); a pair cell below 0 is refused.
 fn junctions(
     store: &UnitStore,
     ordinal: usize,
 ) -> std::result::Result<Vec<SecondaryJunction>, BuildError> {
-    let rect = |value: &PyValue| -> std::result::Result<Highlight, BuildError> {
-        let edge = |name: &str| match lookup(value, name) {
-            Some(PyValue::Int(edge)) => Ok(*edge),
-            _ => Err(failed(format!(
-                "a junction rect of ordinal {ordinal} has no int {name}"
-            ))),
-        };
-        Ok(Highlight {
-            x_min: edge("x_min")?,
-            x_max: edge("x_max")?,
-            advance_total: edge("advance_total")?,
+    let cell = |cell: i64| {
+        usize::try_from(cell).map_err(|_| {
+            failed(format!(
+                "a junction pair of ordinal {ordinal} names cell {cell}, which a fragment's junction does not hold"
+            ))
         })
     };
-    let PyValue::List(rects) = store.junction_rects(ordinal) else {
-        return Err(failed("the store's junction rects are not a list"));
+    let rect = |[x_min, x_max, advance_total]: [i64; 3]| Highlight {
+        x_min,
+        x_max,
+        advance_total,
     };
-    rects
-        .iter()
-        .map(|junction| {
-            let cell = |index: usize| match lookup(junction, "pair") {
-                Some(PyValue::List(pair)) => match pair.get(index) {
-                    Some(PyValue::Int(cell)) => usize::try_from(*cell).map_err(|_| {
-                        failed(format!(
-                            "a junction pair of ordinal {ordinal} names cell {cell}, which a fragment's junction does not hold"
-                        ))
-                    }),
-                    _ => Err(failed(format!("a junction pair of ordinal {ordinal} is not two ints"))),
-                },
-                _ => Err(failed(format!("a junction of ordinal {ordinal} has no pair"))),
-            };
-            let side = |name: &str| {
-                lookup(junction, name)
-                    .ok_or_else(|| failed(format!("a junction of ordinal {ordinal} has no {name}")))
-                    .and_then(rect)
-            };
+    store
+        .junction_rect_values(ordinal)
+        .map(|((left, right), before, after)| {
             Ok(SecondaryJunction {
-                pair: (cell(0)?, cell(1)?),
-                highlight_before: side("before")?,
-                highlight_after: side("after")?,
+                pair: (cell(left)?, cell(right)?),
+                highlight_before: rect(before),
+                highlight_after: rect(after),
             })
         })
         .collect()
@@ -142,7 +123,8 @@ impl Emitter {
             .note_py()
     }
 
-    /// The dict that stands in for a byte-copied fragment when the cross-unit check and the locator row read it, from the table's and the store's columns.
+    /// The dict that stands in for a byte-copied fragment when the cross-unit check and the locator row read it, from the table's and the store's columns, the window's text `codepoints` and its config `badge` ([`Emitter::window_badge`]).
+    #[allow(clippy::too_many_arguments)]
     fn cached_identity(
         &self,
         table: &UnitTable,
@@ -150,11 +132,12 @@ impl Emitter {
         ordinal: usize,
         unit_id: &str,
         junction_assign: &[(Option<String>, bool)],
+        codepoints: &str,
+        badge: &Badge,
     ) -> PyValue {
         let (ink_identical, picture_identical, junior_equivalent) = store.machine_flags(ordinal);
         let policy_file = store.policy_file(ordinal).filter(|file| !file.is_empty());
         let configs = table.configs(ordinal);
-        let codepoints = table.codepoints_text(ordinal);
         let primary_units: Vec<PyValue> = junction_assign
             .iter()
             .filter(|(_, suppressed)| !suppressed)
@@ -178,15 +161,12 @@ impl Emitter {
             ("cluster", PyValue::optional_str(table.cluster(ordinal))),
             ("class", PyValue::str(table.class_id(ordinal))),
             ("group", PyValue::str(table.group(ordinal))),
-            ("codepoints", PyValue::str(&codepoints)),
+            ("codepoints", PyValue::str(codepoints)),
             (
                 "configs",
                 PyValue::List(configs.iter().map(PyValue::str).collect()),
             ),
-            (
-                "config_gate",
-                self.window_badge(configs, &codepoints).gate_py(),
-            ),
+            ("config_gate", badge.gate_py()),
             (
                 "pair",
                 match store.cell_pair(ordinal) {
@@ -224,16 +204,16 @@ impl Emitter {
         )
     }
 
-    /// The unit at `ordinal` read by the address the store holds for it (`source`). A recomputed fragment is read from `arena`, patched and checked by the scaffold check; a cached one whose patched fields all hold is taken as its stored bytes from `prior`, with its identity from the columns; any other cached one is read from `prior` and patched. A fragment that does not read back as the unit and stamp its address carries stops the build with Python's `SystemExit` text, as does a scaffold check that fails.
-    pub fn emission(
+    /// The unit at `ordinal` read by the address the store holds for it (`source`). A recomputed fragment is read from `arena`, patched and checked by the scaffold check; a cached one whose patched fields all hold is taken as its stored bytes from `prior`, in a buffer the write hands back to `prior` ([`PriorFragmentReader::recycle`]), with its identity and config note from the columns; any other cached one is read from `prior` and patched. A fragment that does not read back as the unit and stamp its address carries stops the build with Python's `SystemExit` text, as does a scaffold check that fails.
+    pub fn emission<'a>(
         &self,
         ordinal: usize,
-        source: &PriorFragment,
+        source: FragmentAt<'a>,
         table: &UnitTable,
         store: &UnitStore,
         arena: &Arena,
         prior: &mut PriorFragmentReader,
-    ) -> std::result::Result<Emission, BuildError> {
+    ) -> std::result::Result<Emission<'a>, BuildError> {
         let refused = |failure: PriorError| match failure {
             PriorError::Os(failure) => failed(format!("OSError: {failure}")),
             failure => BuildError::Exit(format!(
@@ -244,7 +224,9 @@ impl Emitter {
         let recomputed = !store.flags(ordinal).cached;
         let junction_assign = store.primary_units(ordinal);
         let mut fragment = if recomputed {
-            read_arena(arena, source, &self.dictionary).map_err(refused)?
+            prior
+                .read_arena_at(arena, source, &self.dictionary)
+                .map_err(refused)?
         } else if store.cached_as_is(
             ordinal,
             table.class_id(ordinal),
@@ -252,21 +234,30 @@ impl Emitter {
             table.exemplar(ordinal),
             table.no_verdict(ordinal),
         ) {
-            let body = prior.read_bytes(source).map_err(refused)?;
-            let identity =
-                self.cached_identity(table, store, ordinal, &source.unit_id, &junction_assign);
+            let body = prior.read_bytes_at(source).map_err(refused)?;
+            let codepoints = table.codepoints_text(ordinal);
+            let badge = self.window_badge(table.configs(ordinal), &codepoints);
+            let identity = self.cached_identity(
+                table,
+                store,
+                ordinal,
+                source.unit_id,
+                &junction_assign,
+                &codepoints,
+                &badge,
+            );
             return Ok(Emission {
-                unit_id: source.unit_id.clone(),
-                content_key: store.content_key_hex(ordinal),
+                unit_id: Cow::Borrowed(source.unit_id),
+                content_key: None,
                 policy_file: store.policy_file(ordinal).map(str::to_owned),
                 emitted: Emitted::Bytes {
                     body,
-                    source: source.clone(),
                     identity,
+                    note: badge.note_py(),
                 },
             });
         } else {
-            prior.read(source).map_err(refused)?
+            prior.read_at(source).map_err(refused)?
         };
         let mut unit = table.unit(ordinal, Some(store));
         unit.ledger_class = store.ledger_class(ordinal).to_owned();
@@ -301,19 +292,17 @@ impl Emitter {
             }
         };
         Ok(Emission {
-            unit_id: unit.unit_id,
-            content_key,
+            unit_id: Cow::Owned(unit.unit_id),
+            content_key: Some(content_key),
             policy_file: policy_file(&fragment)?,
             emitted: Emitted::Fragment(fragment),
         })
     }
 
-    /// The config note the write keeps for the unit: a fragment's own, or [`Emitter::config_note`] for stored bytes.
+    /// The config note the write keeps for the unit: a fragment's own, or the one stored bytes carry, [`Emitter::config_note`]'s.
     pub fn emitted_note(
         &self,
-        emission: &Emission,
-        table: &UnitTable,
-        ordinal: usize,
+        emission: &Emission<'_>,
     ) -> std::result::Result<PyValue, BuildError> {
         match &emission.emitted {
             Emitted::Fragment(fragment) => {
@@ -324,7 +313,7 @@ impl Emitter {
                     ))
                 })
             }
-            Emitted::Bytes { .. } => Ok(self.config_note(table, ordinal)),
+            Emitted::Bytes { note, .. } => Ok(note.clone()),
         }
     }
 }

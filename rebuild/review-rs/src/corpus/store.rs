@@ -1,14 +1,14 @@
 //! The unit store: every phase-1 product the whole-corpus passes and the store writer read, held as fixed-width columns over the unit's ordinal, with each variable-length field an offset and a count into a side column, and every string an id into a [`StringTable`].
 //!
-//! A row is loaded once, by [`UnitStore::load_projection`] for a recomputed unit or [`UnitStore::load_cached`] for a unit taken from the prior store, and the whole-corpus passes and the write store their results through the `set_*` methods. Each column has the width of a typed Python `array`, and a value that does not fit is refused with the `OverflowError` the `array` raises; every other refusal is a Python exception class with its text ([`StoreError`]). The unit id is not stored: it is the content key's first eight bytes ([`UnitStore::id_word`]), and [`UnitStore::index`] sorts those words once for [`UnitStore::ordinal_of`]. Beside the rows the store keeps the prior store's line of each unit ([`UnitStore::set_prior_line`]) and the prior records the plan did not load, by unit id ([`UnitStore::add_prior_record`], [`UnitStore::seal_prior_records`]), which [`UnitStore::prior_fragment`] and [`UnitStore::predicted_unchanged`] read.
+//! A row is loaded once, by [`UnitStore::load_projection`] for a recomputed unit or [`UnitStore::load_cached`] for a unit taken from the prior store ([`UnitStore::load_flat`] for one whose record is read flat), and the whole-corpus passes and the write store their results through the `set_*` methods. Each column has the width of a typed Python `array`, and a value that does not fit is refused with the `OverflowError` the `array` raises; every other refusal is a Python exception class with its text ([`StoreError`]). The unit id is not stored: it is the content key's first eight bytes ([`UnitStore::id_word`]), and [`UnitStore::index`] sorts those words once for [`UnitStore::ordinal_of`]. Beside the rows the store keeps the prior store's line of each unit ([`UnitStore::set_prior_line`]) and the prior records the plan did not load, by unit id ([`UnitStore::add_prior_record`], [`UnitStore::seal_prior_records`]), which [`UnitStore::prior_fragment`] and [`UnitStore::predicted_unchanged`] read.
 
 use std::collections::{BTreeSet, HashMap};
 use std::fmt;
 
 use super::columns::{KeyIndex, KeyIndexError, StringTable, sorted_by_word};
-use super::records::{self, CachedUnit, ParsedCachedUnit, PriorRecord};
+use super::records::{self, CachedUnit, CachedView, FlatJunction, ParsedCachedUnit, PriorRecord};
 use super::rowdelta::{Unread, py_int, type_name};
-use crate::fragment::{base58_64, lookup, py_eq};
+use crate::fragment::{BASE58_ALPHABET, ID_SYMBOLS, lookup, py_eq};
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::{repr, repr_str};
 
@@ -146,41 +146,71 @@ fn hex_space(letter: char) -> bool {
     matches!(letter, ' ' | '\t' | '\n' | '\r' | '\x0b' | '\x0c')
 }
 
-/// `bytes.fromhex(text)`: pairs of hex digits in either case, ASCII whitespace skipped before each pair.
+/// `bytes.fromhex(text)`: pairs of hex digits in either case, ASCII whitespace skipped before each pair. A position in a message counts characters.
 fn from_hex(text: &str) -> Raised<Vec<u8>> {
-    let letters: Vec<char> = text.chars().collect();
-    let mut bytes = Vec::with_capacity(letters.len() / 2);
-    let mut at = 0;
-    while at < letters.len() {
-        if hex_space(letters[at]) {
-            while at < letters.len() && hex_space(letters[at]) {
-                at += 1;
-            }
-            if at >= letters.len() {
-                break;
-            }
-        }
-        let Some(top) = letters[at].to_digit(16) else {
+    let mut letters = text.chars().enumerate().peekable();
+    let mut bytes = Vec::with_capacity(text.len() / 2);
+    loop {
+        while letters.next_if(|&(_, letter)| hex_space(letter)).is_some() {}
+        let Some((at, top)) = letters.next() else {
+            break;
+        };
+        let Some(top) = top.to_digit(16) else {
             return value_error(format!(
                 "non-hexadecimal number found in fromhex() arg at position {at}"
             ));
         };
-        at += 1;
-        let Some(bottom) = letters.get(at).and_then(|letter| letter.to_digit(16)) else {
-            return value_error(if at >= letters.len() {
-                "fromhex() arg must contain an even number of hexadecimal digits".to_owned()
-            } else {
-                format!("non-hexadecimal number found in fromhex() arg at position {at}")
-            });
+        let bottom = match letters.next() {
+            None => {
+                return value_error(
+                    "fromhex() arg must contain an even number of hexadecimal digits",
+                );
+            }
+            Some((at, bottom)) => match bottom.to_digit(16) {
+                Some(bottom) => bottom,
+                None => {
+                    return value_error(format!(
+                        "non-hexadecimal number found in fromhex() arg at position {at}"
+                    ));
+                }
+            },
         };
-        at += 1;
         bytes.push((top * 16 + bottom) as u8);
     }
     Ok(bytes)
 }
 
+/// A key of exactly [`KEY_BYTES`] bytes spelled as that many pairs of hex digits in either case and nothing else, which [`from_hex`] reads to the same bytes; None for text of any other shape.
+fn key_bytes(text: &str) -> Option<[u8; KEY_BYTES]> {
+    let text = text.as_bytes();
+    if text.len() != 2 * KEY_BYTES {
+        return None;
+    }
+    let mut key = [0u8; KEY_BYTES];
+    for (byte, pair) in key.iter_mut().zip(text.as_chunks::<2>().0) {
+        *byte = (records::hex_digit(pair[0])? << 4) | records::hex_digit(pair[1])?;
+    }
+    Some(key)
+}
+
+/// The lowercase hex digits, by value.
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// `bytes` as lowercase hex, two digits a byte, written into `out`, which is twice as long as `bytes`.
+fn write_hex(bytes: &[u8], out: &mut [u8]) {
+    for (byte, pair) in bytes.iter().zip(out.as_chunks_mut::<2>().0) {
+        *pair = [
+            HEX_DIGITS[usize::from(byte >> 4)],
+            HEX_DIGITS[usize::from(byte & 0x0f)],
+        ];
+    }
+}
+
+/// `bytes.hex()`: lowercase hex, two digits a byte.
 fn hex_of(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    let mut out = vec![0; 2 * bytes.len()];
+    write_hex(bytes, &mut out);
+    String::from_utf8(out).expect("hex digits are ASCII")
 }
 
 /// `unit_cache.unit_id_for(content_key)`, which reads the key's first sixteen characters as `int(head, 16)` does: ASCII whitespace stripped from both ends, then hex digits in either case.
@@ -203,10 +233,23 @@ fn unit_id_for(content_key: &str) -> Raised<String> {
 
 /// The unit id a 64-bit word encodes (`unit_cache.unit_id_for` of a key that leads with it).
 fn id_of_word(word: u64) -> String {
-    format!(
-        "u-{}",
-        base58_64(&format!("{word:016x}")).expect("sixteen hex digits read as a word")
-    )
+    id_bytes_of_word(word)
+        .iter()
+        .copied()
+        .map(char::from)
+        .collect()
+}
+
+/// [`id_of_word`]'s ASCII bytes: `u-` and the word's [`ID_SYMBOLS`] base58 digits, as `fragment::base58_64` writes them.
+fn id_bytes_of_word(word: u64) -> [u8; 2 + ID_SYMBOLS] {
+    let mut id = [0u8; 2 + ID_SYMBOLS];
+    id[..2].copy_from_slice(b"u-");
+    let mut value = word;
+    for symbol in id[2..].iter_mut().rev() {
+        *symbol = BASE58_ALPHABET[(value % 58) as usize];
+        value /= 58;
+    }
+    id
 }
 
 /// The word a unit id encodes, or the `KeyError` Python raises for an id of any other shape.
@@ -380,6 +423,47 @@ pub struct PriorFragment {
     pub inflated: i64,
 }
 
+/// A [`PriorFragment`] borrowed from the texts that hold its part, unit id and content key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FragmentAt<'a> {
+    pub part: &'a str,
+    pub start: i64,
+    pub length: i64,
+    pub unit_id: &'a str,
+    pub content_key: Option<&'a str>,
+    pub byte_copied: bool,
+    pub inflated: i64,
+}
+
+impl PriorFragment {
+    /// The address borrowed.
+    pub fn at(&self) -> FragmentAt<'_> {
+        FragmentAt {
+            part: &self.part,
+            start: self.start,
+            length: self.length,
+            unit_id: &self.unit_id,
+            content_key: self.content_key.as_deref(),
+            byte_copied: self.byte_copied,
+            inflated: self.inflated,
+        }
+    }
+}
+
+/// A row's unit id and content key as text, which [`UnitStore::source_at`] and [`UnitStore::prior_fragment_at`] stamp a borrowed address with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stamp {
+    pub unit_id: String,
+    content_key: [u8; 2 * KEY_BYTES],
+}
+
+impl Stamp {
+    /// The content key as [`UnitStore::content_key_hex`] writes it.
+    pub fn content_key(&self) -> &str {
+        std::str::from_utf8(&self.content_key).expect("hex digits are ASCII")
+    }
+}
+
 impl ParsedCachedUnit {
     /// The record's address as a byte-copied [`PriorFragment`] stamped with its id and content key, or None for a record the walk has to locate.
     pub fn located(&self) -> Option<PriorFragment> {
@@ -474,6 +558,33 @@ fn texts_list(texts: &[String]) -> PyValue {
 enum Side {
     After,
     Before,
+}
+
+/// The scalar fields of a cached record that [`UnitStore::load_cached_fields`] loads, borrowed from a parsed record or one read flat, with its flag bits other than the cached bit.
+struct CachedFields<'a> {
+    key: &'a str,
+    prior_id: &'a str,
+    content_key: &'a str,
+    bits: u8,
+    diffs_digest: &'a str,
+    cluster: &'a str,
+    change_group: &'a str,
+    ledger_class: &'a str,
+    pair_codepoints: Option<(i64, i64)>,
+    prior_class: &'a str,
+    duplicate_group: Option<&'a str>,
+    policy_file: Option<&'a str>,
+}
+
+/// A cached record's flag bits other than the cached bit: its machine flags, slim, exemplar and no-verdict.
+fn cached_bits(machine: (bool, bool, bool), slim: bool, exemplar: bool, no_verdict: bool) -> u8 {
+    let bit = |set: bool, bit: u8| if set { bit } else { 0 };
+    bit(machine.0, INK_IDENTICAL)
+        | bit(machine.1, PICTURE_IDENTICAL)
+        | bit(machine.2, JUNIOR_EQUIVALENT)
+        | bit(slim, SLIM)
+        | bit(exemplar, EXEMPLAR)
+        | bit(no_verdict, NO_VERDICT)
 }
 
 // --- the store ------------------------------------------------------------------------------------------
@@ -680,21 +791,39 @@ impl UnitStore {
         content_key: &str,
         input_key: &str,
     ) -> Raised<()> {
-        let content = from_hex(content_key)?;
-        let inputs = from_hex(input_key)?;
-        if content.len() != KEY_BYTES || inputs.len() != KEY_BYTES {
-            return value_error(format!(
-                "ordinal {row}: a content key and an input key are {KEY_BYTES} bytes each"
-            ));
-        }
-        if unit_id_for(content_key)? != unit_id {
-            return value_error(format!(
+        let mismatched = || {
+            value_error(format!(
                 "ordinal {row}: id {unit_id} is not the id of content key {content_key}"
-            ));
-        }
+            ))
+        };
+        let (content, inputs) = match (key_bytes(content_key), key_bytes(input_key)) {
+            (Some(content), Some(inputs)) => {
+                let word = u64::from_be_bytes(content[..8].try_into().expect("eight bytes"));
+                if id_bytes_of_word(word) != unit_id.as_bytes() {
+                    return mismatched();
+                }
+                (content, inputs)
+            }
+            _ => {
+                let content = from_hex(content_key)?;
+                let inputs = from_hex(input_key)?;
+                let (Ok(content), Ok(inputs)) = (
+                    <[u8; KEY_BYTES]>::try_from(content),
+                    <[u8; KEY_BYTES]>::try_from(inputs),
+                ) else {
+                    return value_error(format!(
+                        "ordinal {row}: a content key and an input key are {KEY_BYTES} bytes each"
+                    ));
+                };
+                if unit_id_for(content_key)? != unit_id {
+                    return mismatched();
+                }
+                (content, inputs)
+            }
+        };
         let held = &mut self.input_keys[Self::key_range(row)];
         if held.iter().any(|&byte| byte != 0) {
-            if *held != *inputs {
+            if *held != inputs {
                 return value_error(format!(
                     "ordinal {row}: the load carries input key {input_key}, not the key the plan wrote for the row"
                 ));
@@ -725,13 +854,13 @@ impl UnitStore {
     }
 
     /// One side of the primary-unit projection, `n` spans, `n` names and `n - 1` junctions.
-    fn load_row(
+    fn load_row<'n>(
         &mut self,
         row: usize,
         side: Side,
         spans: &[(i64, i64)],
-        names: &[String],
-        junctions: &[String],
+        names: impl ExactSizeIterator<Item = &'n str>,
+        junctions: impl ExactSizeIterator<Item = &'n str>,
     ) -> Raised<()> {
         let count = spans.len();
         if names.len() != count || junctions.len() != count.saturating_sub(1) {
@@ -772,22 +901,22 @@ impl UnitStore {
             span_column.push(unsigned_short(left)?);
             span_column.push(unsigned_short(right)?);
         }
-        name_column.extend(names.iter().map(|name| strings.id(name)));
-        junction_column.extend(junctions.iter().map(|junction| strings.id(junction)));
+        name_column.extend(names.map(|name| strings.id(name)));
+        junction_column.extend(junctions.map(|junction| strings.id(junction)));
         Ok(())
     }
 
-    fn load_projection_rows(
+    fn load_projection_rows<'n, N: ExactSizeIterator<Item = &'n str>>(
         &mut self,
         row: usize,
-        codepoint_values: &[i64],
+        codepoint_values: impl ExactSizeIterator<Item = i64>,
         pair: Option<(i64, i64)>,
-        after: (&[(i64, i64)], &[String], &[String]),
-        before: (&[(i64, i64)], &[String], &[String]),
+        after: (&[(i64, i64)], N, N),
+        before: (&[(i64, i64)], N, N),
     ) -> Raised<()> {
         self.codepoints_start[row] = offset(self.codepoint_values.len());
         self.codepoints_n[row] = count_byte(codepoint_values.len())?;
-        for &value in codepoint_values {
+        for value in codepoint_values {
             self.codepoint_values.push(unsigned_short(value)?);
         }
         if let Some((left, right)) = pair {
@@ -866,20 +995,102 @@ impl UnitStore {
     }
 
     fn load_source(&mut self, row: usize, address: Option<&LoadAddress>) -> Raised<()> {
-        let (part, start, length) = match address {
-            None => return Ok(()),
-            Some(LoadAddress::Span(part, start, length)) => (part, *start, *length),
-            Some(LoadAddress::Fragment(fragment)) => {
-                if fragment.byte_copied {
-                    self.flags[row] |= BYTE_COPIED;
-                }
-                self.src_inflated[row] = unsigned_int(fragment.inflated)?;
-                (&fragment.part, fragment.start, fragment.length)
+        match address {
+            None => Ok(()),
+            Some(LoadAddress::Span(part, start, length)) => {
+                self.load_span_source(row, part, *start, *length)
             }
-        };
+            Some(LoadAddress::Fragment(fragment)) => self.load_fragment_source(
+                row,
+                &fragment.part,
+                fragment.start,
+                fragment.length,
+                fragment.inflated,
+                fragment.byte_copied,
+            ),
+        }
+    }
+
+    /// The source columns of a prior fragment: its byte-copied bit and inflated length, then its span.
+    fn load_fragment_source(
+        &mut self,
+        row: usize,
+        part: &str,
+        start: i64,
+        length: i64,
+        inflated: i64,
+        byte_copied: bool,
+    ) -> Raised<()> {
+        if byte_copied {
+            self.flags[row] |= BYTE_COPIED;
+        }
+        self.src_inflated[row] = unsigned_int(inflated)?;
+        self.load_span_source(row, part, start, length)
+    }
+
+    fn load_span_source(&mut self, row: usize, part: &str, start: i64, length: i64) -> Raised<()> {
         self.src_part[row] = self.strings.id(part);
         self.src_start[row] = unsigned_long_long(start)?;
         self.src_len[row] = unsigned_int(length)?;
+        Ok(())
+    }
+
+    /// The columns of a cached record up to its projection rows: its keys, its flags with the cached bit, its strings, its judged code points, its prior class, duplicate group and policy file, and its ink deltas.
+    fn load_cached_fields<'d>(
+        &mut self,
+        row: usize,
+        fields: &CachedFields<'_>,
+        deltas: impl IntoIterator<Item = (&'d str, &'d str)>,
+    ) -> Raised<()> {
+        self.load_keys(row, fields.prior_id, fields.content_key, fields.key)?;
+        self.flags[row] = CACHED | fields.bits;
+        self.diffs_digest[row] = self.strings.id(fields.diffs_digest);
+        self.cluster[row] = self.strings.id(fields.cluster);
+        self.change_group[row] = self.strings.id(fields.change_group);
+        self.ledger_class[row] = self.strings.id(fields.ledger_class);
+        if let Some((left, right)) = fields.pair_codepoints {
+            self.pair_l[row] = signed_char(left)?;
+            self.pair_r[row] = signed_char(right)?;
+        }
+        self.prior_class[row] = self.strings.id(fields.prior_class);
+        self.duplicate_group[row] = self.strings.optional(fields.duplicate_group);
+        self.policy_file[row] = self.strings.optional(fields.policy_file);
+        self.load_deltas(row, deltas)
+    }
+
+    /// The secondary-junction side column of a record read flat, as [`UnitStore::load_junctions`] loads the same record parsed: its junctions' pairs and rects, each rect's edges already read as ints, and its cached primary units.
+    fn load_flat_junctions<'u>(
+        &mut self,
+        row: usize,
+        junctions: &[FlatJunction],
+        units: impl ExactSizeIterator<Item = (Option<&'u str>, bool)>,
+    ) -> Raised<()> {
+        let count = junctions.len();
+        if units.len() != count {
+            return value_error(format!(
+                "ordinal {row}: {count} junctions beside {} cached primary_units",
+                units.len()
+            ));
+        }
+        self.junction_start[row] = offset(self.primary_unit.len());
+        self.junction_n[row] = count_byte(count)?;
+        for junction in junctions {
+            self.junction_pairs.push(signed_char(junction.pair.0)?);
+            self.junction_pairs.push(signed_char(junction.pair.1)?);
+            for value in junction.before.into_iter().chain(junction.after) {
+                self.rect_edges.push(signed_int(value)?);
+            }
+        }
+        self.primary_unit
+            .extend(std::iter::repeat_n(NO_PRIMARY_UNIT, count));
+        self.primary_unit_suppressed
+            .extend(std::iter::repeat_n(0, count));
+        for (unit, suppressed) in units {
+            let id = self.strings.optional(unit);
+            self.cached_primary_unit.push(id);
+            self.cached_primary_unit_suppressed
+                .push(u8::from(suppressed));
+        }
         Ok(())
     }
 
@@ -947,13 +1158,17 @@ impl UnitStore {
         )?;
         self.load_projection_rows(
             row,
-            &rows.codepoint_values,
+            rows.codepoint_values.iter().copied(),
             rows.pair,
-            (&rows.after_spans, &rows.after_cells, &rows.after_junctions),
+            (
+                &rows.after_spans,
+                rows.after_cells.iter().map(String::as_str),
+                rows.after_junctions.iter().map(String::as_str),
+            ),
             (
                 &rows.before_spans,
-                &rows.before_glyphs,
-                &rows.before_junctions,
+                rows.before_glyphs.iter().map(String::as_str),
+                rows.before_junctions.iter().map(String::as_str),
             ),
         )?;
         self.load_junctions(
@@ -979,10 +1194,18 @@ impl UnitStore {
         codepoints: &[i64],
         found: Option<&PriorFragment>,
     ) -> Raised<usize> {
-        let Some(found) = found.cloned().or_else(|| cached.located()) else {
-            return value_error(format!(
-                "ordinal {ordinal}: a cached unit is loaded with the fragment the plan located"
-            ));
+        let located;
+        let found = match found {
+            Some(found) => found,
+            None => {
+                located = cached.located();
+                let Some(found) = &located else {
+                    return value_error(format!(
+                        "ordinal {ordinal}: a cached unit is loaded with the fragment the plan located"
+                    ));
+                };
+                found
+            }
         };
         if found.unit_id != cached.prior_id
             || found.content_key.as_deref() != Some(cached.content_key.as_str())
@@ -993,39 +1216,32 @@ impl UnitStore {
             ));
         }
         let row = self.begin(ordinal)?;
-        self.load_keys(row, &cached.prior_id, &cached.content_key, &cached.key)?;
-        self.flags[row] = CACHED
-            | (if cached.ink_identical {
-                INK_IDENTICAL
-            } else {
-                0
-            })
-            | (if cached.picture_identical {
-                PICTURE_IDENTICAL
-            } else {
-                0
-            })
-            | (if cached.junior_equivalent {
-                JUNIOR_EQUIVALENT
-            } else {
-                0
-            })
-            | (if cached.slim { SLIM } else { 0 })
-            | (if cached.exemplar { EXEMPLAR } else { 0 })
-            | (if cached.no_verdict { NO_VERDICT } else { 0 });
-        self.diffs_digest[row] = self.strings.id(&cached.diffs_digest);
-        self.cluster[row] = self.strings.id(&cached.cluster);
-        self.change_group[row] = self.strings.id(&cached.change_group);
-        self.ledger_class[row] = self.strings.id(&cached.ledger_class);
-        if let Some((left, right)) = cached.pair_codepoints {
-            self.pair_l[row] = signed_char(left)?;
-            self.pair_r[row] = signed_char(right)?;
-        }
-        self.prior_class[row] = self.strings.id(&cached.prior_class);
-        self.duplicate_group[row] = self.strings.optional(cached.duplicate_group.as_deref());
-        self.policy_file[row] = self.strings.optional(cached.policy_file.as_deref());
-        self.load_deltas(
+        let fields = CachedFields {
+            key: &cached.key,
+            prior_id: &cached.prior_id,
+            content_key: &cached.content_key,
+            bits: cached_bits(
+                (
+                    cached.ink_identical,
+                    cached.picture_identical,
+                    cached.junior_equivalent,
+                ),
+                cached.slim,
+                cached.exemplar,
+                cached.no_verdict,
+            ),
+            diffs_digest: &cached.diffs_digest,
+            cluster: &cached.cluster,
+            change_group: &cached.change_group,
+            ledger_class: &cached.ledger_class,
+            pair_codepoints: cached.pair_codepoints,
+            prior_class: &cached.prior_class,
+            duplicate_group: cached.duplicate_group.as_deref(),
+            policy_file: cached.policy_file.as_deref(),
+        };
+        self.load_cached_fields(
             row,
+            &fields,
             cached
                 .ink_deltas
                 .iter()
@@ -1033,17 +1249,17 @@ impl UnitStore {
         )?;
         self.load_projection_rows(
             row,
-            codepoints,
+            codepoints.iter().copied(),
             cached.pair,
             (
                 &cached.after_spans,
-                &cached.after_cells,
-                &cached.after_junctions,
+                cached.after_cells.iter().map(String::as_str),
+                cached.after_junctions.iter().map(String::as_str),
             ),
             (
                 &cached.before_spans,
-                &cached.before_glyphs,
-                &cached.before_junctions,
+                cached.before_glyphs.iter().map(String::as_str),
+                cached.before_junctions.iter().map(String::as_str),
             ),
         )?;
         let mut rects = Vec::new();
@@ -1061,7 +1277,14 @@ impl UnitStore {
             &rects,
             Some(&cached.primary_units),
         )?;
-        self.load_source(row, Some(&LoadAddress::Fragment(found.clone())))?;
+        self.load_fragment_source(
+            row,
+            &found.part,
+            found.start,
+            found.length,
+            found.inflated,
+            found.byte_copied,
+        )?;
         self.shard_len[row] = unsigned_int(if found.inflated != 0 {
             found.inflated
         } else {
@@ -1069,6 +1292,70 @@ impl UnitStore {
         })?;
         if !cached.mismatches.is_empty() {
             self.mismatches.insert(row, cached.mismatches.clone());
+        }
+        Ok(row)
+    }
+
+    /// Load one cached unit read flat from its store line ([`CachedView`]) into its row at the record's own address, as [`UnitStore::load_cached`] loads the record [`records::parse_line`] parses from the same line, and return the row. `codepoints` is the unit's window.
+    pub fn load_flat(
+        &mut self,
+        ordinal: i64,
+        cached: &CachedView<'_>,
+        codepoints: &[u32],
+    ) -> Raised<usize> {
+        let Some((part, start, length)) = cached.address() else {
+            return value_error(format!(
+                "ordinal {ordinal}: a cached unit is loaded with the fragment the plan located"
+            ));
+        };
+        let row = self.begin(ordinal)?;
+        let fields = CachedFields {
+            key: cached.key(),
+            prior_id: cached.prior_id(),
+            content_key: cached.content_key(),
+            bits: cached_bits(
+                (
+                    cached.ink_identical(),
+                    cached.picture_identical(),
+                    cached.junior_equivalent(),
+                ),
+                cached.slim(),
+                cached.exemplar(),
+                cached.no_verdict(),
+            ),
+            diffs_digest: cached.diffs_digest(),
+            cluster: cached.cluster(),
+            change_group: cached.change_group(),
+            ledger_class: cached.ledger_class(),
+            pair_codepoints: cached.pair_codepoints(),
+            prior_class: cached.prior_class(),
+            duplicate_group: cached.duplicate_group(),
+            policy_file: cached.policy_file(),
+        };
+        self.load_cached_fields(row, &fields, cached.ink_deltas())?;
+        self.load_projection_rows(
+            row,
+            codepoints.iter().map(|&value| i64::from(value)),
+            cached.pair(),
+            (
+                cached.after_spans(),
+                cached.after_cells(),
+                cached.after_junctions(),
+            ),
+            (
+                cached.before_spans(),
+                cached.before_glyphs(),
+                cached.before_junctions(),
+            ),
+        )?;
+        self.load_flat_junctions(row, cached.junctions(), cached.primary_units())?;
+        let inflated = cached.inflated();
+        self.load_fragment_source(row, part, start, length, inflated, true)?;
+        self.shard_len[row] = unsigned_int(if inflated != 0 { inflated } else { length })?;
+        let mismatches = cached.mismatches();
+        if mismatches.len() != 0 {
+            self.mismatches
+                .insert(row, mismatches.map(str::to_owned).collect());
         }
         Ok(row)
     }
@@ -1130,6 +1417,26 @@ impl UnitStore {
 
     pub fn content_key_hex(&self, ordinal: usize) -> String {
         hex_of(&self.content_keys[Self::key_range(ordinal)])
+    }
+
+    /// Whether `text` is [`UnitStore::content_key_hex`] of the unit.
+    pub fn content_key_is(&self, ordinal: usize, text: &str) -> bool {
+        let mut hex = [0; 2 * KEY_BYTES];
+        write_hex(&self.content_keys[Self::key_range(ordinal)], &mut hex);
+        text.as_bytes() == hex
+    }
+
+    /// The unit's id and content key as text.
+    pub fn stamp(&self, ordinal: usize) -> Stamp {
+        let mut content_key = [0; 2 * KEY_BYTES];
+        write_hex(
+            &self.content_keys[Self::key_range(ordinal)],
+            &mut content_key,
+        );
+        Stamp {
+            unit_id: self.unit_id(ordinal),
+            content_key,
+        }
     }
 
     pub fn input_key_hex(&self, ordinal: usize) -> String {
@@ -1278,6 +1585,32 @@ impl UnitStore {
             content_key: Some(self.content_key_hex(ordinal)),
             byte_copied: self.flags[ordinal] & BYTE_COPIED != 0,
             inflated: i64::from(self.src_inflated[ordinal]),
+        })
+    }
+
+    /// [`UnitStore::source`] borrowed, stamped with `stamp`, the row's [`UnitStore::stamp`].
+    pub fn source_at<'a>(&'a self, ordinal: usize, stamp: &'a Stamp) -> Option<FragmentAt<'a>> {
+        let part = self.src_part[ordinal];
+        (part != 0).then(|| FragmentAt {
+            part: self.strings.get(part),
+            start: self.src_start[ordinal] as i64,
+            length: i64::from(self.src_len[ordinal]),
+            unit_id: &stamp.unit_id,
+            content_key: Some(stamp.content_key()),
+            byte_copied: self.flags[ordinal] & BYTE_COPIED != 0,
+            inflated: i64::from(self.src_inflated[ordinal]),
+        })
+    }
+
+    /// [`UnitStore::source`]'s part, start and length, without its stamp.
+    pub fn source_span(&self, ordinal: usize) -> Option<(&str, i64, i64)> {
+        let part = self.src_part[ordinal];
+        (part != 0).then(|| {
+            (
+                self.strings.get(part),
+                self.src_start[ordinal] as i64,
+                i64::from(self.src_len[ordinal]),
+            )
         })
     }
 
@@ -1445,6 +1778,29 @@ impl UnitStore {
         )
     }
 
+    /// The values [`UnitStore::junction_rects`] holds, a junction at a time: its pair, then its before and after rects' edges in [`RECT_EDGES`] order.
+    pub fn junction_rect_values(
+        &self,
+        ordinal: usize,
+    ) -> impl Iterator<Item = ((i64, i64), [i64; 3], [i64; 3])> + '_ {
+        let start = self.junction_start[ordinal] as usize;
+        let count = self.junction_count(ordinal);
+        let pairs = &self.junction_pairs[2 * start..2 * (start + count)];
+        let edges = &self.rect_edges[6 * start..6 * (start + count)];
+        pairs
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .zip(edges.as_chunks::<6>().0)
+            .map(|(&[left, right], &[a, b, c, d, e, f])| {
+                (
+                    (i64::from(left), i64::from(right)),
+                    [i64::from(a), i64::from(b), i64::from(c)],
+                    [i64::from(d), i64::from(e), i64::from(f)],
+                )
+            })
+    }
+
     /// The primary-unit resolution pass's result for the unit, one `(primary unit, suppressed)` a junction, in junction order. Each entry is written as it is resolved, so a refusal partway leaves the entries before it written, as Python does.
     pub fn set_primary_units(&mut self, ordinal: usize, assign: &[(Target, bool)]) -> Raised<()> {
         let start = self.junction_start[ordinal] as usize;
@@ -1531,6 +1887,25 @@ impl UnitStore {
             .collect()
     }
 
+    /// Whether [`UnitStore::cached_primary_units`] equals [`UnitStore::primary_units`] for the unit, junction by junction, without building either.
+    fn primary_units_as_cached(&self, ordinal: usize) -> bool {
+        let start = self.junction_start[ordinal] as usize;
+        (start..start + self.junction_count(ordinal)).all(|at| {
+            (self.cached_primary_unit_suppressed[at] != 0)
+                == (self.primary_unit_suppressed[at] != 0)
+                && match (
+                    self.optional(self.cached_primary_unit[at]),
+                    self.primary_unit[at],
+                ) {
+                    (None, NO_PRIMARY_UNIT) => true,
+                    (Some(held), target) if target != NO_PRIMARY_UNIT => {
+                        held == self.unit_id(target as usize)
+                    }
+                    _ => false,
+                }
+        })
+    }
+
     /// Whether the cached fragment's bytes on disk already equal what this build writes for the unit.
     pub fn cached_as_is(
         &self,
@@ -1547,7 +1922,7 @@ impl UnitStore {
             && self.cached_duplicate_group(ordinal) == duplicate_group
             && flags.exemplar == exemplar
             && flags.no_verdict == no_verdict
-            && self.cached_primary_units(ordinal) == self.primary_units(ordinal)
+            && self.primary_units_as_cached(ordinal)
     }
 
     /// The unit's fragment's plain shard bytes as the build knows them before the write.
@@ -1658,6 +2033,27 @@ impl UnitStore {
             length: i64::from(length),
             unit_id: self.unit_id(ordinal),
             content_key: Some(self.content_key_hex(ordinal)),
+            byte_copied: true,
+            inflated: i64::from(inflated),
+        })
+    }
+
+    /// [`UnitStore::prior_fragment`] borrowed, stamped with `stamp`, the row's [`UnitStore::stamp`].
+    pub fn prior_fragment_at<'a>(
+        &'a self,
+        ordinal: usize,
+        stamp: &'a Stamp,
+    ) -> Option<FragmentAt<'a>> {
+        if self.flags[ordinal] & CACHED != 0 {
+            return self.source_at(ordinal, stamp);
+        }
+        let (part, start, length, inflated) = self.prior_address(ordinal)?;
+        Some(FragmentAt {
+            part,
+            start: i64::from(start),
+            length: i64::from(length),
+            unit_id: &stamp.unit_id,
+            content_key: Some(stamp.content_key()),
             byte_copied: true,
             inflated: i64::from(inflated),
         })
@@ -1887,6 +2283,147 @@ mod tests {
         assert_eq!(from_hex(" ab\tCD "), Ok(vec![0xab, 0xcd]));
     }
 
+    /// A store line of a cached unit with junctions, deltas, primary units and a mismatch, edited by `edit` first.
+    fn cached_line(edit: impl FnOnce(&mut CachedUnit)) -> Vec<u8> {
+        let content_key = "d177b592".repeat(8);
+        let mut unit = CachedUnit {
+            key: "0123456789abcdef".repeat(4),
+            prior_id: unit_id_for(&content_key).expect("an id"),
+            prior_class: "new-joins-near-tea-oy".to_owned(),
+            content_key,
+            slim: true,
+            address: Some(("units/a.json".to_owned(), 3, 500)),
+            ink_identical: false,
+            picture_identical: false,
+            junior_equivalent: true,
+            ink_deltas: vec![
+                ("default".to_owned(), "d-1".to_owned()),
+                ("ss03".to_owned(), "d-2".to_owned()),
+            ],
+            diffs_digest: "758a".to_owned(),
+            cluster: "c-33bad1c7".to_owned(),
+            change_group: String::new(),
+            ledger_class: "ledger".to_owned(),
+            pair_codepoints: Some((0, 1)),
+            proj: crate::pyfmt::json::loads(
+                r#"{"pair": [0, 1], "after_spans": [[0, 1], [1, 2]], "after_cells": ["qsMay/loop", "qsIt/sole"], "after_junctions": ["y5"], "before_spans": [[0, 2]], "before_glyphs": ["qsMay"], "before_junctions": []}"#,
+            )
+            .expect("JSON"),
+            junctions: crate::pyfmt::json::loads(
+                r#"[{"pair": [1, 2], "before": {"x_min": 300, "x_max": 750, "advance_total": 750}, "after": {"x_min": -300, "x_max": 650, "advance_total": 650}}]"#,
+            )
+            .expect("JSON"),
+            mismatches: vec!["\u{b7}Pea".to_owned()],
+            duplicate_group: Some("e-f8P2bEFApF9".to_owned()),
+            exemplar: true,
+            no_verdict: false,
+            primary_units: vec![(Some("u-DuyicL6fVGo".to_owned()), true)],
+            policy_file: None,
+            inflated: 9000,
+        };
+        edit(&mut unit);
+        records::record_line(&unit).expect("a line")
+    }
+
+    /// The store each load leaves, as its debug text, or the refusal: the line parsed and loaded by [`UnitStore::load_cached`], and read flat and loaded by [`UnitStore::load_flat`].
+    fn both_loads(line: &[u8]) -> (Raised<String>, Raised<String>) {
+        let trusted: std::collections::HashSet<String> = ["units/a.json".to_owned()].into();
+        let parsed = records::parse_line(line, &trusted).expect("parsed");
+        let mut flat = records::CachedRecords::new();
+        let at = flat.read(line, &trusted).expect("read flat");
+        let mut by_parse = UnitStore::new(2, StringTable::new(), None).expect("a store");
+        let mut by_flat = by_parse.clone();
+        (
+            by_parse
+                .load_cached(1, &parsed, &[0xE650, 0xE670], None)
+                .map(|_| format!("{by_parse:?}")),
+            by_flat
+                .load_flat(1, &flat.get(at), &[0xE650, 0xE670])
+                .map(|_| format!("{by_flat:?}")),
+        )
+    }
+
+    #[test]
+    fn a_record_read_flat_loads_as_the_parsed_record_loads() {
+        let (parsed, flat) = both_loads(&cached_line(|_| {}));
+        assert!(parsed.is_ok());
+        assert_eq!(parsed, flat);
+        let edits: [fn(&mut CachedUnit); 12] = [
+            |unit| unit.inflated = 0,
+            |unit| unit.content_key = "D177B592".repeat(8),
+            |unit| unit.key = format!(" {}", unit.key),
+            |unit| unit.key = "0g".repeat(32),
+            |unit| unit.prior_id = "u-11111111111".to_owned(),
+            |unit| unit.pair_codepoints = Some((0, 200)),
+            |unit| unit.address = Some(("units/a.json".to_owned(), -1, 500)),
+            |unit| unit.primary_units.clear(),
+            |unit| {
+                unit.ink_deltas = (0..300)
+                    .map(|at| (format!("c{at}"), String::new()))
+                    .collect()
+            },
+            |unit| {
+                unit.junctions = crate::pyfmt::json::loads(
+                    r#"[{"pair": [1, 300], "before": {"x_min": 0, "x_max": 0, "advance_total": 0}, "after": {"x_min": 0, "x_max": 0, "advance_total": 0}}]"#,
+                )
+                .expect("JSON")
+            },
+            |unit| {
+                unit.junctions = crate::pyfmt::json::loads(
+                    r#"[{"pair": [1, 2], "before": {"x_min": 0, "x_max": 4294967296, "advance_total": 0}, "after": {"x_min": 0, "x_max": 0, "advance_total": 0}}]"#,
+                )
+                .expect("JSON")
+            },
+            |unit| {
+                unit.proj = crate::pyfmt::json::loads(
+                    r#"{"pair": [0, 1], "after_spans": [[0, 70000]], "after_cells": ["a"], "after_junctions": [], "before_spans": [[0, 2]], "before_glyphs": ["qsMay", "b"], "before_junctions": []}"#,
+                )
+                .expect("JSON")
+            },
+        ];
+        for edit in edits {
+            let (parsed, flat) = both_loads(&cached_line(edit));
+            assert_eq!(parsed, flat);
+        }
+        assert_eq!(
+            both_loads(&cached_line(|unit| unit.pair_codepoints = Some((0, 200)))).1,
+            overflow("signed char is greater than maximum")
+        );
+    }
+
+    #[test]
+    fn a_key_spelled_in_64_hex_digits_reads_as_from_hex_reads_it_and_leads_with_its_id() {
+        for text in [
+            "d177b592".repeat(8),
+            "D177B592".repeat(8),
+            "0123456789abcdef".repeat(4),
+        ] {
+            assert_eq!(
+                key_bytes(&text).map(|key| key.to_vec()),
+                from_hex(&text).ok()
+            );
+            let word = u64::from_str_radix(&text[..16], 16).expect("hex");
+            assert_eq!(
+                id_of_word(word),
+                format!(
+                    "u-{}",
+                    crate::fragment::base58_64(&text).expect("sixteen hex digits")
+                )
+            );
+            assert_eq!(unit_id_for(&text), Ok(id_of_word(word)));
+        }
+        for text in [
+            " ".repeat(64),
+            "0g".repeat(32),
+            "ab".repeat(31),
+            "ab".repeat(33),
+        ] {
+            assert_eq!(key_bytes(&text), None);
+        }
+        assert_eq!(id_of_word(0), "u-11111111111");
+        assert_eq!(id_of_word(u64::MAX), "u-jpXCZedGfVQ");
+    }
+
     #[test]
     fn the_index_bisects_ids_and_refuses_a_repeat() {
         let mut store = UnitStore::new(2, StringTable::new(), None).expect("a store");
@@ -1909,5 +2446,57 @@ mod tests {
         assert!(refusal.message.ends_with(
             ": E650:E670 and E650:E670; their carry projections hash to one 64-bit prefix"
         ));
+    }
+
+    #[test]
+    fn the_borrowed_reads_agree_with_the_owned_ones() {
+        let mut store = UnitStore::new(2, StringTable::new(), None).expect("a store");
+        let address = LoadAddress::Span("arena".to_owned(), 7, 40);
+        store
+            .load_projection(&projection(), false, None, Some(&address), 120)
+            .expect("loaded");
+        assert_eq!(hex_of(&[0x00, 0x0f, 0xa5, 0xff]), "000fa5ff");
+        let stamp = store.stamp(1);
+        assert_eq!(stamp.unit_id, store.unit_id(1));
+        assert_eq!(stamp.content_key(), store.content_key_hex(1));
+        assert_eq!(stamp.content_key(), "d177b592".repeat(8));
+        assert!(store.content_key_is(1, &"d177b592".repeat(8)));
+        assert!(!store.content_key_is(1, &"D177B592".repeat(8)));
+        assert!(!store.content_key_is(1, "d177b592"));
+        let source = store.source(1).expect("a source");
+        assert_eq!(store.source_at(1, &stamp), Some(source.at()));
+        assert_eq!(
+            store.source_span(1),
+            Some((source.part.as_str(), source.start, source.length))
+        );
+        assert_eq!(store.source_at(0, &stamp), None);
+        assert_eq!(
+            store.prior_fragment_at(1, &stamp),
+            store.prior_fragment(1).as_ref().map(PriorFragment::at)
+        );
+        assert_eq!(
+            store.junction_rect_values(1).collect::<Vec<_>>(),
+            [((1, 2), [300, 750, 750], [300, 650, 650])]
+        );
+        let same = |store: &UnitStore| store.cached_primary_units(1) == store.primary_units(1);
+        assert!(same(&store) && store.primary_units_as_cached(1));
+        let start = store.junction_start[1] as usize;
+        for held in [None, Some(store.unit_id(0)), Some(store.unit_id(1))] {
+            store.cached_primary_unit[start] = store.strings.optional(held.as_deref());
+            for target in [Target::Ordinal(0), Target::Absent] {
+                for suppressed in [true, false] {
+                    store
+                        .set_primary_units(1, &[(target.clone(), suppressed)])
+                        .expect("set");
+                    assert_eq!(store.primary_units_as_cached(1), same(&store));
+                }
+            }
+        }
+        let first = store.unit_id(0);
+        store.cached_primary_unit[start] = store.strings.id(&first);
+        store
+            .set_primary_units(1, &[(Target::Ordinal(0), false)])
+            .expect("set");
+        assert!(same(&store) && store.primary_units_as_cached(1));
     }
 }

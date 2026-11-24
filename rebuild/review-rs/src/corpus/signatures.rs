@@ -17,8 +17,8 @@ use crate::corpus::gzip::{GzipError, GzipReader, GzipWriter, MTIME, PART_LEVEL};
 use crate::corpus::input::{BuildInput, Stamp};
 use crate::corpus::sink::staging_path;
 use crate::corpus::stream::{
-    FamilyLines, Lockstep, StreamError, WindowKey, parse_window, sibling_window, signature_key,
-    window_ranges,
+    FamilyLines, Lockstep, StreamError, WindowKey, parse_window, parse_window_into, sibling_window,
+    signature_key, window_ranges,
 };
 use crate::fontfacts::{FontFacts, Side};
 use crate::ink::{self, InkComparator};
@@ -817,18 +817,22 @@ fn read_range(
     let mut family = FamilyLines::new(audit.family_of, audit.family_keys);
     let mut walk = |found: &mut RangeFound| -> std::result::Result<(), StreamError> {
         let mut stream = Lockstep::new(audit.files, audit.sections, low.as_ref(), high.as_ref())?;
-        while let Some((window, rows)) = stream.next_window()? {
-            if !sibling_window(&rows) {
+        let mut values = Vec::new();
+        while let Some(rows) = stream.next_window()? {
+            if !sibling_window(rows) {
                 continue;
             }
-            let values = parse_window(&window)
+            let window = rows.window();
+            parse_window_into(window, &mut values)
                 .map_err(|failure| StreamError::Audit(AuditError::Value(failure.0)))?;
             let suffix = family.suffix(&values);
-            for (section, fields, _line) in &rows {
-                let key = signature_key(fields, &suffix);
+            for row in 0..rows.len() {
+                let key = signature_key(&rows.fields(row), suffix);
                 match prior.binary_search(&key) {
                     Ok(position) => found.hits.push(position),
-                    Err(_) => found.misses.push((key, *section, window.clone())),
+                    Err(_) => found
+                        .misses
+                        .push((key, rows.section(row), window.to_owned())),
                 }
             }
         }
@@ -1327,7 +1331,7 @@ mod tests {
         };
         let key = |family: &mut FamilyLines, config: &str, window: &str, new: &str| {
             let suffix = family.suffix(&parse_window(window).expect("a window"));
-            signature_key(&fields(config, window, new), &suffix)
+            signature_key(&fields(config, window, new), suffix)
         };
         let held = key(&mut family, "ss03", "E650:E651", "b");
         let mut misses = Vec::new();

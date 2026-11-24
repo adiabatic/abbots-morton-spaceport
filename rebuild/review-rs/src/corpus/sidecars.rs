@@ -3,22 +3,21 @@
 //! The projections are the units index's record and line, the app index's row, the locator's row and their lines, and the copy-forward surgery on a prior index or app line; each fails with the exception class Python raises over a fragment it cannot read.
 
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::BuildError;
-use super::gzip::{
-    APP_LEVEL, GzipError, GzipReader, GzipWriter, MTIME, compress_member, inflate_fragment,
-};
-use super::index::{IndexNames, IndexWrite, spilled_lines, write_index_lines};
+use super::gzip::{APP_LEVEL, GzipError, GzipWriter, MTIME, compress_member, inflate_fragment};
+use super::index::{IndexNames, IndexWrite, SpilledLines, prior_lines, write_index_lines};
 use super::input::BuildInput;
 use super::records::truthy;
 use super::route::RouteNames;
-use super::rowdelta::{FoldClaim, PartReader, ReadError, py_str, type_name};
-use super::scan::{
-    Lines, OpenIndex, ScanError, ScanNames, Thrown, manifest_and_identity, open_index,
+use super::rowdelta::{
+    FoldClaim, GzipLineReader, KeyedLines, PartReader, ReadError, gzip_line_reader, py_str,
+    type_name,
 };
+use super::scan::{OpenIndex, ScanError, ScanNames, Thrown, manifest_and_identity, open_index};
 use super::shards::Span;
 use super::sink::Sink;
 use crate::fragment::{lookup, py_eq};
@@ -332,14 +331,85 @@ pub fn index_line(fragment: &PyValue, order: Option<i64>, batch: Option<i64>) ->
     line_of(&index_record(fragment, order, batch)?)
 }
 
+/// Append an int as `json.dumps` writes it.
+fn push_int(out: &mut Vec<u8>, value: i64) {
+    let mut digits = [0u8; 20];
+    let mut at = digits.len();
+    let mut rest = value.unsigned_abs();
+    loop {
+        at -= 1;
+        digits[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    if value < 0 {
+        out.push(b'-');
+    }
+    out.extend_from_slice(&digits[at..]);
+}
+
+/// Append `value` as `json.dumps(value, ensure_ascii=False)` writes it when it is None, a bool, an int or a str, through `text`, a string buffer the caller keeps; false, with nothing appended, for any other value.
+fn push_scalar(out: &mut Vec<u8>, text: &mut String, value: &PyValue) -> bool {
+    match value {
+        PyValue::None => out.extend_from_slice(b"null"),
+        PyValue::Bool(true) => out.extend_from_slice(b"true"),
+        PyValue::Bool(false) => out.extend_from_slice(b"false"),
+        PyValue::Int(number) => push_int(out, *number),
+        PyValue::Str(value) => {
+            text.clear();
+            json::write_unicode_string(text, value);
+            out.extend_from_slice(text.as_bytes());
+        }
+        _ => return false,
+    }
+    true
+}
+
+fn push_optional_int(out: &mut Vec<u8>, value: Option<i64>) {
+    match value {
+        Some(value) => push_int(out, value),
+        None => out.extend_from_slice(b"null"),
+    }
+}
+
+/// Append [`line_head`]'s bytes.
+fn push_line_head(
+    out: &mut Vec<u8>,
+    text: &mut String,
+    unit_id: &str,
+    order: Option<i64>,
+    batch: Option<i64>,
+) {
+    out.extend_from_slice(b"{\"id\": ");
+    text.clear();
+    json::write_unicode_string(text, unit_id);
+    out.extend_from_slice(text.as_bytes());
+    out.extend_from_slice(b", \"order\": ");
+    push_optional_int(out, order);
+    out.extend_from_slice(b", \"batch\": ");
+    push_optional_int(out, batch);
+}
+
+/// Append a row's address, its mark when it is a deflated fragment's ([`with_mark`]), and the closing brace, as `json.dumps` writes the tail of a dict that ends with them.
+fn push_address(out: &mut Vec<u8>, span: &Span, deflated: bool) {
+    out.extend_from_slice(b"\"shard_part\": ");
+    push_int(out, span.part as i64);
+    out.extend_from_slice(b", \"byte_start\": ");
+    push_int(out, span.start);
+    out.extend_from_slice(b", \"byte_length\": ");
+    push_int(out, span.length);
+    if deflated {
+        out.extend_from_slice(b", \"deflated\": true");
+    }
+    out.push(b'}');
+}
+
 /// The start of an index or app-index line, its id and place, without the closing brace.
 pub fn line_head(unit_id: &str, order: Option<i64>, batch: Option<i64>) -> Raised<Vec<u8>> {
-    let mut head = unicode_text(&dict(vec![
-        ("id", PyValue::str(unit_id)),
-        ("order", optional_int(order)),
-        ("batch", optional_int(batch)),
-    ]))?;
-    head.pop();
+    let mut head = Vec::new();
+    push_line_head(&mut head, &mut String::new(), unit_id, order, batch);
     Ok(head)
 }
 
@@ -350,10 +420,24 @@ pub fn copy_forward_index_line(
     order: Option<i64>,
     batch: Option<i64>,
 ) -> Raised<Vec<u8>> {
-    let mut copied = line_head(unit_id, order, batch)?;
-    let at = find(line, CLASS_SEAM).ok_or_else(not_found)?;
-    copied.extend_from_slice(&line[at..]);
+    let mut copied = Vec::new();
+    copy_forward_index_into(&mut copied, &mut String::new(), line, unit_id, order, batch)?;
     Ok(copied)
+}
+
+/// [`copy_forward_index_line`] appended to `out`, through `text`, a string buffer the caller keeps.
+fn copy_forward_index_into(
+    out: &mut Vec<u8>,
+    text: &mut String,
+    line: &[u8],
+    unit_id: &str,
+    order: Option<i64>,
+    batch: Option<i64>,
+) -> Raised<()> {
+    push_line_head(out, text, unit_id, order, batch);
+    let at = find(line, CLASS_SEAM).ok_or_else(not_found)?;
+    out.extend_from_slice(&line[at..]);
+    Ok(())
 }
 
 /// `app_index.app_row`: a human unit's app-index row at its address. A fragment carrying a machine check or `no_verdict` fails as the assertion does.
@@ -440,6 +524,33 @@ pub fn locator_line(fragment: &PyValue, span: &Span, deflated: bool) -> Raised<V
     line_of(&locator_row(fragment, span, deflated)?)
 }
 
+/// [`locator_line`] appended to `out`, through `text`, a string buffer the caller keeps, when the fragment's id and class are each None, a bool, an int or a str, with the two values, which reading the line back gives; None, with nothing appended, for any other id or class.
+fn push_locator_line(
+    out: &mut Vec<u8>,
+    text: &mut String,
+    fragment: &PyValue,
+    span: &Span,
+    deflated: bool,
+) -> Raised<Option<(PyValue, PyValue)>> {
+    let unit_id = subscript(fragment, "id")?;
+    let class_id = get(fragment, "class")?;
+    let start = out.len();
+    out.extend_from_slice(b"{\"id\": ");
+    if !push_scalar(out, text, &unit_id) {
+        out.truncate(start);
+        return Ok(None);
+    }
+    out.extend_from_slice(b", \"class\": ");
+    if !push_scalar(out, text, &class_id) {
+        out.truncate(start);
+        return Ok(None);
+    }
+    out.extend_from_slice(b", ");
+    push_address(out, span, deflated);
+    out.push(b'\n');
+    Ok(Some((unit_id, class_id)))
+}
+
 /// A previous app-index row with this build's id and place at its head and this build's address and mark at its tail, the fields between them its own.
 pub fn copy_forward_app_line(
     line: &[u8],
@@ -449,27 +560,44 @@ pub fn copy_forward_app_line(
     span: &Span,
     deflated: bool,
 ) -> Raised<Vec<u8>> {
-    let start = find(line, b", \"class\": ").ok_or_else(not_found)?;
-    let end = rfind(line, SHARD_PART_SEAM).ok_or_else(not_found)?;
-    let middle = line.get(start..end).unwrap_or_default();
-    let tail = json::dumps(&with_mark(
-        vec![
-            ("shard_part", PyValue::Int(span.part as i64)),
-            ("byte_start", PyValue::Int(span.start)),
-            ("byte_length", PyValue::Int(span.length)),
-        ],
+    let mut copied = Vec::new();
+    copy_forward_app_into(
+        &mut copied,
+        &mut String::new(),
+        line,
+        unit_id,
+        (order, batch),
+        span,
         deflated,
-    ))
-    .map_err(|failure| SidecarError::new("Unwritten", failure.0))?;
-    let mut copied = line_head(unit_id, Some(order), Some(batch))?;
-    copied.extend_from_slice(middle);
-    copied.extend_from_slice(b", ");
-    copied.extend_from_slice(&tail.as_bytes()[1..]);
-    copied.push(b'\n');
+    )?;
     Ok(copied)
 }
 
+/// [`copy_forward_app_line`] appended to `out`, through `text`, a string buffer the caller keeps; `place` is the order and the batch.
+fn copy_forward_app_into(
+    out: &mut Vec<u8>,
+    text: &mut String,
+    line: &[u8],
+    unit_id: &str,
+    place: (i64, i64),
+    span: &Span,
+    deflated: bool,
+) -> Raised<()> {
+    let start = find(line, b", \"class\": ").ok_or_else(not_found)?;
+    let end = rfind(line, SHARD_PART_SEAM).ok_or_else(not_found)?;
+    let middle = line.get(start..end).unwrap_or_default();
+    push_line_head(out, text, unit_id, Some(place.0), Some(place.1));
+    out.extend_from_slice(middle);
+    out.extend_from_slice(b", ");
+    push_address(out, span, deflated);
+    out.push(b'\n');
+    Ok(())
+}
+
 // --- spill files --------------------------------------------------------------------------------
+
+/// What a spill file's writer gathers before it writes to the file.
+const SPILL_WRITE_BYTES: usize = 64 * 1024;
 
 /// A spill file being appended to, unlinked as it is made, and how many bytes it holds.
 pub struct Spill {
@@ -493,7 +621,7 @@ impl Spill {
             .map_err(|failure| SidecarError::os(&failure))?;
         std::fs::remove_file(&path).map_err(|failure| SidecarError::os(&failure))?;
         Ok(Self {
-            writer: BufWriter::new(file),
+            writer: BufWriter::with_capacity(SPILL_WRITE_BYTES, file),
             length: 0,
         })
     }
@@ -588,6 +716,11 @@ impl LocatorBlocks {
         })?;
         let unit_id = subscript(&row, "id")?;
         let class_id = get(&row, "class")?;
+        self.add_row(line, unit_id, class_id)
+    }
+
+    /// [`LocatorBlocks::add`] for a line whose id and class, as reading it back gives them, the caller holds.
+    fn add_row(&mut self, line: &[u8], unit_id: PyValue, class_id: PyValue) -> Raised<()> {
         if self.count > 0 && !py_eq(&class_id, &self.class) {
             self.flush()?;
             self.last = None;
@@ -646,39 +779,26 @@ impl LocatorBlocks {
 
 // --- the cursors --------------------------------------------------------------------------------
 
-/// A gzip file's lines past its header line, read as iterating a `gzip.GzipFile` reads them.
-struct GzipFileLines<'a> {
-    reader: BufReader<GzipReader<PartReader<'a>>>,
-    done: bool,
+/// The lines a cursor reads, lent one at a time: the units index's record lines, a base's and its segments' merged by key, or a gzip file's lines past its header line, read as iterating a `gzip.GzipFile` reads them.
+enum CursorLines<'a> {
+    Index(Box<KeyedLines<'a>>),
+    File(GzipLineReader<'a>),
 }
 
-impl<'a> GzipFileLines<'a> {
-    fn new(file: &'a File) -> Self {
-        Self {
-            reader: BufReader::new(GzipReader::new(PartReader::new(file))),
-            done: false,
+impl CursorLines<'_> {
+    fn advance(&mut self) -> std::result::Result<bool, ReadError> {
+        match self {
+            Self::Index(lines) => lines.advance(),
+            Self::File(lines) => lines
+                .advance()
+                .map_err(|failure| ReadError::of_io(&failure)),
         }
     }
-}
 
-impl Iterator for GzipFileLines<'_> {
-    type Item = std::result::Result<Vec<u8>, ReadError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-        let mut line = Vec::new();
-        match self.reader.read_until(b'\n', &mut line) {
-            Ok(0) => {
-                self.done = true;
-                None
-            }
-            Ok(_) => Some(Ok(line)),
-            Err(failure) => {
-                self.done = true;
-                Some(Err(ReadError::of_io(&failure)))
-            }
+    fn current(&self) -> &[u8] {
+        match self {
+            Self::Index(lines) => lines.current(),
+            Self::File(lines) => lines.current(),
         }
     }
 }
@@ -714,63 +834,91 @@ impl PriorSidecars {
 
     /// A cursor over the units index's record lines, a base's and its segments' merged by key.
     pub fn index_cursor(&self, names: &SidecarNames) -> LineCursor<'_> {
-        LineCursor {
-            lines: self
-                .index
+        LineCursor::new(
+            self.index
                 .as_ref()
-                .map(|opened| opened.lines(&names.index_name)),
-        }
+                .map(|opened| CursorLines::Index(Box::new(prior_lines(opened, &names.index_name)))),
+        )
     }
 
     /// `LineCursor` over the app index's file: its header line read now, a file whose header does not read leaving the cursor closed, but for deflate data that does not inflate, which fails.
     pub fn app_cursor(&self) -> Raised<LineCursor<'_>> {
         let Some(file) = &self.app else {
-            return Ok(LineCursor { lines: None });
+            return Ok(LineCursor::new(None));
         };
-        let mut lines = GzipFileLines::new(file);
-        Ok(LineCursor {
-            lines: match lines.next() {
-                Some(Ok(_)) => Some(Box::new(lines)),
-                None => None,
-                Some(Err(ReadError::Gzip(GzipError::Zlib(why)))) => {
+        let mut lines = gzip_line_reader(file);
+        let lines = match lines.advance() {
+            Ok(true) => Some(CursorLines::File(lines)),
+            Ok(false) => None,
+            Err(failure) => match ReadError::of_io(&failure) {
+                ReadError::Gzip(GzipError::Zlib(why)) => {
                     return Err(SidecarError::new("error", why));
                 }
-                Some(Err(_)) => None,
+                _ => None,
             },
-        })
+        };
+        Ok(LineCursor::new(lines))
     }
 }
 
-/// A forward-only reader over a sidecar's lines that returns the line whose leading id is the one asked for, skipping every line before it. Once an id is not found the cursor is closed, and every later request returns None. A read that fails fails the request.
+/// A forward-only reader over a sidecar's lines that stops on the line whose leading id is the one asked for, skipping every line before it, and lends it until the next request ([`LineCursor::seek`], [`LineCursor::current`]). Once an id is not found the cursor is closed, and every later request finds nothing. A read that fails fails the request.
 pub struct LineCursor<'a> {
-    lines: Option<Lines<'a, Vec<u8>>>,
+    lines: Option<CursorLines<'a>>,
+    prefix: String,
 }
 
-impl LineCursor<'_> {
-    pub fn take(&mut self, value: &str) -> Raised<Option<Vec<u8>>> {
+impl<'a> LineCursor<'a> {
+    fn new(lines: Option<CursorLines<'a>>) -> Self {
+        Self {
+            lines,
+            prefix: String::new(),
+        }
+    }
+
+    /// Step to the line whose leading id is `value`, its prefix `{"id": <value>, ` as `json.dumps` writes the two strings: true when the cursor stops on it.
+    pub fn seek(&mut self, value: &str) -> Raised<bool> {
         let Some(lines) = self.lines.as_mut() else {
-            return Ok(None);
+            return Ok(false);
         };
-        let quoted = |text: &str| {
-            json::dumps(&PyValue::str(text))
-                .map_err(|failure| SidecarError::new("Unwritten", failure.0))
-        };
-        let prefix = format!("{{{}: {}, ", quoted(ID_FIELD)?, quoted(value)?).into_bytes();
+        self.prefix.clear();
+        self.prefix.push('{');
+        json::write_string(&mut self.prefix, ID_FIELD);
+        self.prefix.push_str(": ");
+        json::write_string(&mut self.prefix, value);
+        self.prefix.push_str(", ");
         loop {
-            match lines.next() {
-                Some(Ok(line)) if line.starts_with(&prefix) => return Ok(Some(line)),
-                Some(Ok(_)) => {}
-                Some(Err(failure)) => {
+            match lines.advance() {
+                Ok(true) => {
+                    if lines.current().starts_with(self.prefix.as_bytes()) {
+                        return Ok(true);
+                    }
+                }
+                Ok(false) => {
+                    self.lines = None;
+                    return Ok(false);
+                }
+                Err(failure) => {
                     self.lines = None;
                     return Err(failure.into());
-                }
-                None => {
-                    self.lines = None;
-                    return Ok(None);
                 }
             }
         }
     }
+
+    /// The line the last [`LineCursor::seek`] that found its id stopped on.
+    pub fn current(&self) -> &[u8] {
+        self.lines.as_ref().map_or(&[], CursorLines::current)
+    }
+
+    /// The line whose leading id is `value` ([`LineCursor::seek`]), None when the cursor does not find it.
+    pub fn take(&mut self, value: &str) -> Raised<Option<Vec<u8>>> {
+        Ok(self.seek(value)?.then(|| self.current().to_vec()))
+    }
+}
+
+/// The line a cursor last stopped on, nothing for a cursor the run does not hold.
+fn current_of<'a>(cursor: &'a Option<LineCursor<'_>>) -> &'a [u8] {
+    cursor.as_ref().map_or(&[], LineCursor::current)
 }
 
 // --- one run's lines ----------------------------------------------------------------------------
@@ -808,7 +956,7 @@ pub struct SidecarRun {
     pub rows: Spilled,
 }
 
-/// One run's sidecar lines, in shard order, spilled as they are projected or copied forward. With `trace` set, every take and write is kept there in order.
+/// One run's sidecar lines, in shard order, spilled as they are projected or copied forward. A line copied forward or a locator row is built in `line`, through `text`, buffers the run keeps. With `trace` set, every take and write is kept there in order.
 pub struct SidecarLines<'a> {
     names: &'a SidecarNames,
     index: Spill,
@@ -816,6 +964,8 @@ pub struct SidecarLines<'a> {
     locator: LocatorBlocks,
     index_cursor: Option<LineCursor<'a>>,
     app_cursor: Option<LineCursor<'a>>,
+    line: Vec<u8>,
+    text: String,
     pub human: i64,
     pub machine: i64,
     pub copied_forward: i64,
@@ -840,6 +990,8 @@ impl<'a> SidecarLines<'a> {
             locator,
             index_cursor,
             app_cursor,
+            line: Vec::new(),
+            text: String::new(),
             human: 0,
             machine: 0,
             copied_forward: 0,
@@ -858,19 +1010,41 @@ impl<'a> SidecarLines<'a> {
         }
     }
 
-    fn take(&mut self, which: Cursor, unit_id: &str) -> Raised<Option<Vec<u8>>> {
+    /// A locator row at `span`, from the id and class `fragment` holds, written straight to the locator's blocks with the two values when they are plain, else projected and read back.
+    fn write_locator(&mut self, fragment: &PyValue, span: &Span, deflated: bool) -> Raised<()> {
+        let mut line = std::mem::take(&mut self.line);
+        line.clear();
+        match push_locator_line(&mut line, &mut self.text, fragment, span, deflated)? {
+            Some((unit_id, class_id)) => {
+                if let Some(trace) = &mut self.trace {
+                    trace.push(Event::Write(Sidecar::Locator, line.clone()));
+                }
+                self.locator.add_row(&line, unit_id, class_id)?;
+            }
+            None => {
+                let projected = locator_line(fragment, span, deflated)?;
+                self.write(Sidecar::Locator, &projected)?;
+            }
+        }
+        self.line = line;
+        Ok(())
+    }
+
+    /// Step `which` cursor to `unit_id`'s line, and whether it stopped there; the line is the cursor's until its next take.
+    fn take(&mut self, which: Cursor, unit_id: &str) -> Raised<bool> {
         let cursor = match which {
             Cursor::Index => &mut self.index_cursor,
             Cursor::App => &mut self.app_cursor,
         };
         let Some(cursor) = cursor else {
-            return Ok(None);
+            return Ok(false);
         };
-        let line = cursor.take(unit_id)?;
+        let found = cursor.seek(unit_id)?;
         if let Some(trace) = &mut self.trace {
-            trace.push(Event::Take(which, unit_id.to_owned(), line.clone()));
+            let line = found.then(|| cursor.current().to_vec());
+            trace.push(Event::Take(which, unit_id.to_owned(), line));
         }
-        Ok(line)
+        Ok(found)
     }
 
     /// A fragment's index line, and its app-index row when it has a place in the triage index, else its locator row, at `span`.
@@ -889,8 +1063,7 @@ impl<'a> SidecarLines<'a> {
             self.write(Sidecar::App, &line)?;
             self.human += 1;
         } else {
-            let line = locator_line(fragment, &span, deflated)?;
-            self.write(Sidecar::Locator, &line)?;
+            self.write_locator(fragment, &span, deflated)?;
             self.machine += 1;
         }
         Ok(())
@@ -909,11 +1082,11 @@ impl<'a> SidecarLines<'a> {
         batch: Option<i64>,
     ) -> Raised<()> {
         let line = self.take(Cursor::Index, unit_id)?;
-        let mut row = None;
-        if line.is_some() && order.is_some() && batch.is_some() && self.app_cursor.is_some() {
+        let mut row = false;
+        if line && order.is_some() && batch.is_some() && self.app_cursor.is_some() {
             row = self.take(Cursor::App, unit_id)?;
         }
-        let Some(line) = line.filter(|_| order.is_none() || row.is_some()) else {
+        if !line || (order.is_some() && !row) {
             let plain = if inflated != 0 {
                 let length = usize::try_from(inflated)
                     .map_err(|_| SidecarError::new("ValueError", "a negative length"))?;
@@ -931,19 +1104,38 @@ impl<'a> SidecarLines<'a> {
                 SidecarError::new(class, failure.0)
             })?;
             return self.unit(&fragment, span, order, batch);
-        };
-        let copied = copy_forward_index_line(&line, unit_id, order, batch)?;
+        }
+        let mut copied = std::mem::take(&mut self.line);
+        copied.clear();
+        copy_forward_index_into(
+            &mut copied,
+            &mut self.text,
+            current_of(&self.index_cursor),
+            unit_id,
+            order,
+            batch,
+        )?;
         self.write(Sidecar::Index, &copied)?;
         let deflated = span.inflated != 0;
         match (order, batch, row) {
-            (Some(order), Some(batch), Some(row)) => {
-                let copied = copy_forward_app_line(&row, unit_id, order, batch, &span, deflated)?;
+            (Some(order), Some(batch), true) => {
+                copied.clear();
+                copy_forward_app_into(
+                    &mut copied,
+                    &mut self.text,
+                    current_of(&self.app_cursor),
+                    unit_id,
+                    (order, batch),
+                    &span,
+                    deflated,
+                )?;
                 self.write(Sidecar::App, &copied)?;
+                self.line = copied;
                 self.human += 1;
             }
             _ => {
-                let line = locator_line(identity, &span, deflated)?;
-                self.write(Sidecar::Locator, &line)?;
+                self.line = copied;
+                self.write_locator(identity, &span, deflated)?;
                 self.machine += 1;
             }
         }
@@ -1225,7 +1417,13 @@ pub fn write_sidecars(
             .map_err(|failure| {
                 BuildError::Failed(format!("cannot start the app sidecars' writer: {failure}"))
             })?;
-        let index = write_index_lines(corpus, &mut spilled_lines(runs), index_names, claim, sink);
+        let index = write_index_lines(
+            corpus,
+            &mut SpilledLines::new(runs),
+            index_names,
+            claim,
+            sink,
+        );
         let app = app
             .join()
             .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
@@ -1324,6 +1522,58 @@ mod tests {
         )
         .expect_err("slimmed");
         assert_eq!(failure.class, "AssertionError");
+    }
+
+    #[test]
+    fn a_locator_line_written_in_place_is_the_projected_line_with_the_values_it_reads_back_as() {
+        let ids = [
+            PyValue::str("u-1"),
+            PyValue::str("\u{e9}\"\\\n\u{1}\u{7f}\u{2028}"),
+            PyValue::Int(-9_223_372_036_854_775_808),
+            PyValue::Int(0),
+            PyValue::Bool(true),
+            PyValue::None,
+        ];
+        let classes = [PyValue::str("A"), PyValue::None, PyValue::Int(42)];
+        let mut text = String::new();
+        for id in &ids {
+            for class in &classes {
+                for deflated in [false, true] {
+                    let fragment = dict(vec![("class", class.clone()), ("id", id.clone())]);
+                    let mut line = b"kept".to_vec();
+                    let values =
+                        push_locator_line(&mut line, &mut text, &fragment, &SPAN, deflated)
+                            .expect("written");
+                    let projected = locator_line(&fragment, &SPAN, deflated).expect("projected");
+                    assert_eq!(&line[4..], &projected[..]);
+                    let row = json::loads_bytes(&projected).expect("read back");
+                    let read = (
+                        subscript(&row, "id").expect("id"),
+                        get(&row, "class").expect("class"),
+                    );
+                    assert_eq!(values, Some(read));
+                }
+            }
+        }
+        let listed = dict(vec![("id", PyValue::List(Vec::new()))]);
+        let mut line = Vec::new();
+        assert_eq!(
+            push_locator_line(&mut line, &mut text, &listed, &SPAN, false).expect("unwritten"),
+            None
+        );
+        assert!(line.is_empty());
+        assert_eq!(
+            push_locator_line(&mut line, &mut text, &dict(Vec::new()), &SPAN, false)
+                .expect_err("no id")
+                .class,
+            "KeyError"
+        );
+        let mut head = Vec::new();
+        push_line_head(&mut head, &mut text, "\u{e9}", Some(-3), None);
+        assert_eq!(
+            head,
+            "{\"id\": \"\u{e9}\", \"order\": -3, \"batch\": null".as_bytes()
+        );
     }
 
     #[test]

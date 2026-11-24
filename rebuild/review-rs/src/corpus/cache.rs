@@ -343,13 +343,14 @@ fn changed_rows(
     let mut prior = opened.lines().enumerate();
     let mut pending: Vec<u32> = Vec::new();
     let mut previous: Option<Place> = None;
+    let mut tombstone = Vec::new();
     // `gap`: advance the prior lines to line `stop`, tombstoning every one before it that no kept record holds, and return the last place passed and line `stop` itself.
     let mut gap = |stop: Option<usize>,
-                   previous: &Option<Place>,
+                   previous: Option<Place>,
                    rows: &mut SegmentRows,
                    count: &mut dyn FnMut(&Place, usize) -> std::result::Result<(), Stop>|
      -> std::result::Result<Gap, Stop> {
-        let mut last = previous.clone();
+        let mut last = previous;
         for (index, line) in prior.by_ref() {
             let (place, line) = line?;
             if Some(index) == stop {
@@ -357,7 +358,8 @@ fn changed_rows(
             }
             if !*held.get(index).ok_or_else(CacheError::index_out_of_range)? {
                 let cut = (KEY_PREFIX.len() + 64).min(line.len());
-                let mut tombstone = line[..cut].to_vec();
+                tombstone.clear();
+                tombstone.extend_from_slice(&line[..cut]);
                 tombstone.extend_from_slice(b"\"}\n");
                 rows.tombstone(&place, &tombstone)?;
                 count(&place, tombstone.len())?;
@@ -392,7 +394,7 @@ fn changed_rows(
             continue;
         }
         let stop = (records.prior_line)(ordinal as usize) as usize;
-        let (low, found) = gap(Some(stop), &previous, &mut rows, &mut count)?;
+        let (low, found) = gap(Some(stop), previous.take(), &mut rows, &mut count)?;
         let (place, line) = found.expect("a gap to a line returns it");
         place_pending(
             low.as_ref(),
@@ -410,7 +412,7 @@ fn changed_rows(
         }
         previous = Some(place);
     }
-    let (low, _found) = gap(None, &previous, &mut rows, &mut count)?;
+    let (low, _found) = gap(None, previous.take(), &mut rows, &mut count)?;
     place_pending(low.as_ref(), None, &mut pending, &mut rows, &mut count)?;
     Ok(rows)
 }
@@ -633,15 +635,15 @@ pub fn unchanged(store: &UnitStore, predicted: &[bool], ordinal: usize) -> bool 
     if !predicted[ordinal] || !store.flags(ordinal).cached {
         return false;
     }
-    let Some(source) = store.source(ordinal) else {
+    let Some((source_part, source_start, source_length)) = store.source_span(ordinal) else {
         return false;
     };
     store
         .written_address(ordinal)
         .is_some_and(|(part, start, length)| {
-            part == source.part
-                && i128::from(start) == i128::from(source.start)
-                && i64::from(length) == source.length
+            part == source_part
+                && i128::from(start) == i128::from(source_start)
+                && i64::from(length) == source_length
         })
 }
 

@@ -3,13 +3,18 @@
 //! [`UnitTable`] holds the workload as columns over the unit's ordinal, and [`stream_workload`] builds it from the held audit a window at a time: each window's units classed, flagged and pooled, its ink duplicates merged through the stream's digests, each unit's input key taken over its run's lines, and the merged units placed in load order beside the pre-merge units' columns and the compaction between them.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::hash::BuildHasher;
+
+use ams_m1_kernel::hash::{HashMap as FastMap, HashSet as FastSet};
 
 use super::audit::Section;
 use super::columns::{
     MappingPool, Sealed, StringTable, TuplePool, WindowIndex, WindowKeys, window_word,
 };
 use super::input::LedgerEntry;
-use super::stream::{FamilyLines, StreamError, WindowRows, input_key, parse_window, signature_key};
+use super::stream::{
+    FamilyLines, StreamError, WindowRows, WindowSource, input_key, parse_window_into, signature_key,
+};
 use crate::change_groups::UNMATCHED;
 use crate::pyfmt::PyValue;
 use crate::pyfmt::repr::repr_str;
@@ -311,15 +316,32 @@ pub const LIVE: u8 = 4;
 pub const BOUNDARIES_GROUP: &str = "(boundaries)";
 
 /// A window's group: the families of its first two code points that have one, joined by `:`, or [`BOUNDARIES_GROUP`] when none has.
-pub fn group_for(values: &[i64], family_of: &HashMap<i64, String>) -> String {
-    let families: Vec<&str> = values
-        .iter()
-        .filter_map(|value| family_of.get(value).map(String::as_str))
-        .collect();
-    if families.is_empty() {
-        BOUNDARIES_GROUP.to_owned()
-    } else {
-        families[..families.len().min(2)].join(":")
+pub fn group_for<S: BuildHasher>(values: &[i64], family_of: &HashMap<i64, String, S>) -> String {
+    let mut group = String::new();
+    group_into(values, family_of, &mut group);
+    group
+}
+
+/// [`group_for`] written into `group`, which it empties first.
+fn group_into<S: BuildHasher>(
+    values: &[i64],
+    family_of: &HashMap<i64, String, S>,
+    group: &mut String,
+) {
+    group.clear();
+    let mut named = 0;
+    for family in values.iter().filter_map(|value| family_of.get(value)) {
+        if named == 2 {
+            break;
+        }
+        if named == 1 {
+            group.push(':');
+        }
+        group.push_str(family);
+        named += 1;
+    }
+    if named == 0 {
+        group.push_str(BOUNDARIES_GROUP);
     }
 }
 
@@ -345,11 +367,13 @@ pub fn render_groups_for_rows<K: PartialEq>(
     groups.into_iter().map(|(_pair, configs)| configs).collect()
 }
 
-/// The pool of the rendered-name tuples a unit's baseline and new columns name (a `TuplePool[str]`): each tuple held as the ids of its names in a table of their own, so its ids are the ones a pool of the tuples of strings would give them.
+/// The pool of the rendered-name tuples a unit's baseline and new columns name (a `TuplePool[str]`): each tuple held as the ids of its names in a table of their own, so its ids are the ones a pool of the tuples of strings would give them. A tuple's name ids are gathered in one reused buffer, each name's id found through a memo of the names met so far, which [`NamePool::seal`] drops.
 #[derive(Clone, Debug, Default)]
 pub struct NamePool {
     labels: StringTable,
     tuples: TuplePool<u32>,
+    ids: Vec<u32>,
+    known: FastMap<String, u32>,
 }
 
 impl NamePool {
@@ -365,8 +389,22 @@ impl NamePool {
         if self.tuples.sealed() {
             return Err(Sealed);
         }
-        let ids: Vec<u32> = names.into_iter().map(|name| self.labels.id(name)).collect();
-        self.tuples.id(&ids)
+        let mut ids = std::mem::take(&mut self.ids);
+        ids.clear();
+        for name in names {
+            let id = match self.known.get(name) {
+                Some(&id) => id,
+                None => {
+                    let id = self.labels.id(name);
+                    self.known.insert(name.to_owned(), id);
+                    id
+                }
+            };
+            ids.push(id);
+        }
+        let found = self.tuples.id(&ids);
+        self.ids = ids;
+        found
     }
 
     pub fn get(&self, id: u32) -> Vec<&str> {
@@ -379,6 +417,7 @@ impl NamePool {
 
     pub fn seal(&mut self) {
         self.tuples.seal();
+        self.known = FastMap::default();
     }
 }
 
@@ -923,35 +962,185 @@ impl From<StreamError> for WorkloadError {
 /// The ink digest the stream asks for each row of a window of siblings: its signature key, its window and its config.
 pub type InkDigest<'d> = &'d mut dyn FnMut(u64, &str, &str) -> Result<[u8; 32]>;
 
-/// One window's units grouped by `(baseline, new)` in the order the window's rows first name each pair.
-fn window_units(found: WindowRows) -> Vec<WindowRows> {
-    if found.len() == 1 {
-        return vec![found];
-    }
-    let mut units: Vec<WindowRows> = Vec::new();
-    for row in found {
-        match units
-            .iter_mut()
-            .find(|unit| unit[0].1[4] == row.1[4] && unit[0].1[5] == row.1[5])
-        {
-            Some(unit) => unit.push(row),
-            None => units.push(vec![row]),
+/// One unit's ids and flags as its window's rows give them, before the ink-duplicate merge: its class, config tuple, kind tuple and per-config class map ids, its exemption and its exemplar flag.
+#[derive(Clone, Copy, Debug)]
+struct UnitFacts {
+    class_index: u32,
+    configs_id: u32,
+    kinds_id: u32,
+    mapping_id: u32,
+    exempted: bool,
+    exemplar: bool,
+}
+
+/// The load's memos over the table's pools and its scratch buffers. Each memo maps what a unit's rows give to the id its pool gave that value first: a group or class name to its id in the string table, a run's section indices to its config tuple's id, its sorted kinds joined by commas to its kind tuple's id, its per-config classes (each config and class length-prefixed) to its map's id, and a config tuple's id to its render group's id. A pool is asked only for a value the memo has not met, so every id is the one the pool alone would give, assigned in the same order. The scratch buffers are cleared, not reallocated, at each unit.
+#[derive(Default)]
+struct Interning {
+    strings: FastMap<String, u32>,
+    configs: FastMap<Vec<usize>, u32>,
+    kinds: FastMap<String, u32>,
+    mappings: FastMap<Vec<u8>, u32>,
+    render: FastMap<u32, u32>,
+    sections: Vec<usize>,
+    spans: Vec<(usize, usize)>,
+    text: String,
+    bytes: Vec<u8>,
+    pairs: Vec<(usize, usize)>,
+}
+
+impl Interning {
+    /// The id of a group or class name in the table's strings.
+    fn string_id(&mut self, table: &mut UnitTable, text: &str) -> u32 {
+        if let Some(&id) = self.strings.get(text) {
+            return id;
         }
+        let id = table.strings.id(text);
+        self.strings.insert(text.to_owned(), id);
+        id
     }
-    units
+
+    /// The id of the config tuple of the rows `run` names in `window`, its configs by their sections.
+    fn configs_id(
+        &mut self,
+        table: &mut UnitTable,
+        window: &WindowRows,
+        run: &[usize],
+        sections: &[Section],
+    ) -> u32 {
+        self.sections.clear();
+        self.sections
+            .extend(run.iter().map(|&row| window.section(row)));
+        if let Some(&id) = self.configs.get(self.sections.as_slice()) {
+            return id;
+        }
+        let configs: Vec<String> = self
+            .sections
+            .iter()
+            .map(|&section| sections[section].config.clone())
+            .collect();
+        let id = table.tuple_id(&configs);
+        self.configs.insert(self.sections.clone(), id);
+        id
+    }
+
+    /// The id of the kind tuple of the rows `run` names: every comma-separated piece of their kinds field, sorted, each once.
+    fn kinds_id(&mut self, table: &mut UnitTable, window: &WindowRows, run: &[usize]) -> u32 {
+        let text = window.text();
+        self.spans.clear();
+        for &row in run {
+            let (start, end) = window.field_span(row, 2);
+            let mut at = start;
+            for piece in text[start..end].split(',') {
+                self.spans.push((at, at + piece.len()));
+                at += piece.len() + 1;
+            }
+        }
+        self.spans
+            .sort_unstable_by(|left, right| text[left.0..left.1].cmp(&text[right.0..right.1]));
+        self.spans
+            .dedup_by(|left, right| text[left.0..left.1] == text[right.0..right.1]);
+        self.text.clear();
+        for (index, &(start, end)) in self.spans.iter().enumerate() {
+            if index > 0 {
+                self.text.push(',');
+            }
+            self.text.push_str(&text[start..end]);
+        }
+        if let Some(&id) = self.kinds.get(self.text.as_str()) {
+            return id;
+        }
+        let kinds: Vec<String> = self
+            .spans
+            .iter()
+            .map(|&(start, end)| text[start..end].to_owned())
+            .collect();
+        let id = table.tuple_id(&kinds);
+        self.kinds.insert(self.text.clone(), id);
+        id
+    }
+
+    /// The id of the per-config class map of the rows `run` names: each row's config mapped to its class, a config named twice keeping its first place and taking its last class.
+    fn mapping_id(
+        &mut self,
+        table: &mut UnitTable,
+        window: &WindowRows,
+        run: &[usize],
+        sections: &[Section],
+    ) -> u32 {
+        let config = |row: usize| sections[window.section(row)].config.as_str();
+        self.pairs.clear();
+        for &row in run {
+            match self
+                .pairs
+                .iter_mut()
+                .find(|(named, _class)| config(*named) == config(row))
+            {
+                Some(pair) => pair.1 = row,
+                None => self.pairs.push((row, row)),
+            }
+        }
+        self.bytes.clear();
+        for &(named, class) in &self.pairs {
+            for part in [config(named), window.field(class, 3)] {
+                self.bytes.extend_from_slice(&part.len().to_le_bytes());
+                self.bytes.extend_from_slice(part.as_bytes());
+            }
+        }
+        if let Some(&id) = self.mappings.get(self.bytes.as_slice()) {
+            return id;
+        }
+        let mapping: Vec<(String, String)> = self
+            .pairs
+            .iter()
+            .map(|&(named, class)| (config(named).to_owned(), window.field(class, 3).to_owned()))
+            .collect();
+        let id = table.mappings.id(&mapping);
+        self.mappings.insert(self.bytes.clone(), id);
+        id
+    }
+
+    /// The id of the render groups of a unit whose config tuple is `configs_id`: the one group of all its configs.
+    fn render_id(&mut self, table: &mut UnitTable, configs_id: u32) -> u32 {
+        if let Some(&id) = self.render.get(&configs_id) {
+            return id;
+        }
+        let configs = table.tuples.get(configs_id).to_vec();
+        let id = table
+            .groups
+            .id(std::slice::from_ref(&configs))
+            .expect("the render groups are never sealed");
+        self.render.insert(configs_id, id);
+        id
+    }
 }
 
-/// The configs of a merged run of rows, by its rows' sections.
-fn run_configs(rows: &WindowRows, sections: &[Section]) -> Vec<String> {
-    rows.iter()
-        .map(|(index, _fields, _line)| sections[*index].config.clone())
-        .collect()
+/// The member the ink-duplicate merge reads for the unit at `place` of its window, whose rows `run` names, from its facts and the table's pools.
+fn member_of(
+    table: &UnitTable,
+    window: &WindowRows,
+    run: &[usize],
+    unit: UnitFacts,
+    place: usize,
+    sections: &[Section],
+) -> Member {
+    Member {
+        ordinal: place,
+        rank: sections[window.section(run[0])].rank,
+        configs: table.tuples.get(unit.configs_id).to_vec(),
+        kinds: table.tuples.get(unit.kinds_id).to_vec(),
+        config_classes: table.mappings.get(unit.mapping_id).to_vec(),
+        exemplar: unit.exemplar,
+        class_id: table.strings.get(unit.class_index).to_owned(),
+        no_verdict: unit.exempted,
+        merged: false,
+        survivor: None,
+    }
 }
 
-/// Load the audit from its sorted sections one window at a time, the build's stream source: `next_window` gives each window and its rows as [`Lockstep::next_window`] walks them over `sections`. Each window's rows group into units by `(baseline, new)` in the order the file first names them; a unit is classed, flagged and pooled as Python does it, a unit whose rows match two ledger classes stops the load with Python's `ValueError`, and so does a row whose class the ledger does not declare once every row is read. In a window of two or more units each row's signature is `ink_digest` of its signature key, its window and its config, and the window's units whose rows give one signature merge as [`merge_members`] merges them; with no `ink_digest` the merge is skipped. Each merged unit's input key is [`input_key`] over its run's lines. The merged units are written in window order, the pre-merge units beside them, then placed in load order by [`counting_permutation`] over the pre-merge units' classes and groups, the merged units keeping their survivors' places; the window index is the merged units in window order when every window packs into a word, and left unbuilt otherwise.
+/// Load the audit from its sorted sections one window at a time, the build's stream source: `stream` gives each window and its rows as [`crate::corpus::stream::Lockstep::next_window`] walks them over `sections`, read in place through the window's arena. Each window's rows group into units by `(baseline, new)` in the order the file first names them, each unit a run of the window's rows; a unit is classed, flagged and pooled as Python does it, a unit whose rows match two ledger classes stops the load with Python's `ValueError`, and so does a row whose class the ledger does not declare once every row is read. In a window of two or more units each row's signature is `ink_digest` of its signature key, its window and its config, and the window's units whose rows give one signature merge as [`merge_members`] merges them; with no `ink_digest` the merge is skipped. Each merged unit's input key is [`input_key`] over its run's lines. The merged units are written in window order, the pre-merge units beside them, then placed in load order by [`counting_permutation`] over the pre-merge units' classes and groups, the merged units keeping their survivors' places; the window index is the merged units in window order when every window packs into a word, and left unbuilt otherwise.
 #[allow(clippy::too_many_arguments)]
 pub fn stream_workload(
-    mut next_window: impl FnMut() -> std::result::Result<Option<(String, WindowRows)>, StreamError>,
+    stream: &mut impl WindowSource,
     audit_path: &str,
     ledger_path: &str,
     sections: &[Section],
@@ -963,13 +1152,13 @@ pub fn stream_workload(
 ) -> std::result::Result<StreamedLoad, WorkloadError> {
     let mut table = UnitTable::new(0, acceptance);
     let mut lines_of = FamilyLines::new(family_of, family_keys);
-    let families: HashMap<i64, String> = family_of.iter().cloned().collect();
-    let exempt: HashSet<&str> = ledger
+    let families: FastMap<i64, String> = family_of.iter().cloned().collect();
+    let exempt: FastSet<&str> = ledger
         .iter()
         .filter(|entry| entry.no_verdict)
         .map(|entry| entry.id.as_str())
         .collect();
-    let exemplar_keys: HashSet<(&str, &str)> = ledger
+    let exemplar_keys: FastSet<(&str, &str)> = ledger
         .iter()
         .flat_map(|entry| {
             entry
@@ -979,6 +1168,7 @@ pub fn stream_workload(
         })
         .collect();
     let mut names = NamePool::new();
+    let mut interning = Interning::default();
 
     let (mut class_col, mut group_col, mut configs_col, mut kinds_col) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -994,13 +1184,23 @@ pub fn stream_workload(
     let (mut pre_start, mut pre_count) = (Vec::new(), Vec::<u8>::new());
     let (mut post_of, mut absorbed) = (Vec::<u32>::new(), Vec::<u8>::new());
 
-    let mut entries_seen: HashSet<String> = HashSet::new();
+    let mut entries_seen: FastSet<String> = FastSet::default();
     let mut packed = true;
     let mut row_total = 0usize;
 
-    while let Some((window, found)) = next_window()? {
+    let mut values: Vec<i64> = Vec::new();
+    let mut points: Vec<u32> = Vec::new();
+    let mut group_text = String::new();
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    let mut facts: Vec<UnitFacts> = Vec::new();
+    let mut signatures: Vec<[u8; 32]> = Vec::new();
+    let mut posts: Vec<u32> = Vec::new();
+
+    while let Some(found) = stream.next_window()? {
+        let window = found.window();
         row_total += found.len();
-        let values = parse_window(&window).map_err(|failure| WorkloadError::Value(failure.0))?;
+        parse_window_into(window, &mut values)
+            .map_err(|failure| WorkloadError::Value(failure.0))?;
         let offset = table.window_values.len() as u32;
         for &value in &values {
             table.window_values.push(u16::try_from(value).map_err(|_| {
@@ -1014,13 +1214,17 @@ pub fn stream_workload(
                 "the window {window} holds more code points than a byte counts"
             ))
         })?;
-        let group = table.strings.id(&group_for(&values, &families));
-        let word = match values
-            .iter()
-            .map(|&value| u32::try_from(value).ok())
-            .collect::<Option<Vec<u32>>>()
-            .and_then(|values| window_word(&values))
-        {
+        group_into(&values, &families, &mut group_text);
+        let group = interning.string_id(&mut table, &group_text);
+        points.clear();
+        let fits = values.iter().all(|&value| match u32::try_from(value) {
+            Ok(point) => {
+                points.push(point);
+                true
+            }
+            Err(_) => false,
+        });
+        let word = match fits.then(|| window_word(&points)).flatten() {
             Some(word) => word,
             None => {
                 packed = false;
@@ -1028,83 +1232,91 @@ pub fn stream_workload(
             }
         };
         let suffix = lines_of.suffix(&values);
-        let mut units = window_units(found);
-        let mut members: Vec<Member> = Vec::with_capacity(units.len());
-        let mut identities: Vec<(u32, u32, u32, u32, bool)> = Vec::with_capacity(units.len());
-        for (place, unit_rows) in units.iter().enumerate() {
-            let configs = run_configs(unit_rows, sections);
-            let configs_id = table.tuple_id(&configs);
-            let kinds: Vec<String> = unit_rows
-                .iter()
-                .flat_map(|(_index, fields, _line)| fields[2].split(','))
-                .map(str::to_owned)
-                .collect::<BTreeSet<String>>()
-                .into_iter()
-                .collect();
-            let kinds_id = table.tuple_id(&kinds);
-            let entries: Vec<&str> = unit_rows
-                .iter()
-                .map(|(_index, fields, _line)| fields[3].as_str())
-                .collect();
-            let classes: BTreeSet<&str> = entries.iter().copied().collect();
-            let matched: Vec<&str> = classes
-                .iter()
-                .copied()
-                .filter(|class| *class != UNMATCHED)
-                .collect();
-            if matched.len() > 1 {
-                let listed: Vec<String> = matched.iter().map(|class| repr_str(class)).collect();
+        let mut unit_count = 0;
+        for row in 0..found.len() {
+            let pair = (found.field(row, 4), found.field(row, 5));
+            match runs[..unit_count]
+                .iter_mut()
+                .find(|run| (found.field(run[0], 4), found.field(run[0], 5)) == pair)
+            {
+                Some(run) => run.push(row),
+                None => {
+                    if unit_count == runs.len() {
+                        runs.push(Vec::new());
+                    }
+                    runs[unit_count].clear();
+                    runs[unit_count].push(row);
+                    unit_count += 1;
+                }
+            }
+        }
+        facts.clear();
+        for run in &runs[..unit_count] {
+            let configs_id = interning.configs_id(&mut table, found, run, sections);
+            let kinds_id = interning.kinds_id(&mut table, found, run);
+            let (mut unmatched, mut matched, mut split) = (false, None::<&str>, false);
+            for &row in run {
+                let class = found.field(row, 3);
+                if class == UNMATCHED {
+                    unmatched = true;
+                } else {
+                    match matched {
+                        None => matched = Some(class),
+                        Some(held) => split |= held != class,
+                    }
+                }
+            }
+            if split {
+                let classes: BTreeSet<&str> = run
+                    .iter()
+                    .map(|&row| found.field(row, 3))
+                    .filter(|class| *class != UNMATCHED)
+                    .collect();
+                let listed: Vec<String> = classes.iter().map(|class| repr_str(class)).collect();
                 return Err(WorkloadError::Value(format!(
                     "unit {window} spans multiple matched ledger classes: [{}]",
                     listed.join(", ")
                 )));
             }
-            entries_seen.extend(classes.iter().map(|class| (*class).to_owned()));
-            let class_name = if classes.contains(UNMATCHED) {
-                UNMATCHED
-            } else {
-                matched[0]
-            };
-            let mut mapping: Vec<(String, String)> = Vec::new();
-            for ((index, _fields, _line), entry) in unit_rows.iter().zip(&entries) {
-                let config = &sections[*index].config;
-                match mapping.iter_mut().find(|(held, _entry)| held == config) {
-                    Some(pair) => pair.1 = (*entry).to_owned(),
-                    None => mapping.push((config.clone(), (*entry).to_owned())),
+            for &row in run {
+                let class = found.field(row, 3);
+                if !entries_seen.contains(class) {
+                    entries_seen.insert(class.to_owned());
                 }
             }
-            let mapping_id = table.mappings.id(&mapping);
-            let class_index = table.strings.id(class_name);
+            let class_name = if unmatched {
+                UNMATCHED
+            } else {
+                matched.expect("a unit holds a row")
+            };
+            let mapping_id = interning.mapping_id(&mut table, found, run, sections);
+            let class_index = interning.string_id(&mut table, class_name);
             let exemplar = !exemplar_keys.is_empty()
-                && configs
-                    .iter()
-                    .any(|config| exemplar_keys.contains(&(config.as_str(), window.as_str())));
-            let exempted = exempt.contains(class_name);
-            members.push(Member {
-                ordinal: place,
-                rank: sections[unit_rows[0].0].rank,
-                configs,
-                kinds,
-                config_classes: mapping,
+                && run.iter().any(|&row| {
+                    exemplar_keys.contains(&(sections[found.section(row)].config.as_str(), window))
+                });
+            facts.push(UnitFacts {
+                class_index,
+                configs_id,
+                kinds_id,
+                mapping_id,
+                exempted: exempt.contains(class_name),
                 exemplar,
-                class_id: class_name.to_owned(),
-                no_verdict: exempted,
-                merged: false,
-                survivor: None,
             });
-            identities.push((class_index, configs_id, kinds_id, mapping_id, exempted));
         }
-        if units.len() > 1
+        let mut outcomes: Vec<Option<Member>> = Vec::new();
+        if unit_count > 1
             && let Some(digest) = ink_digest.as_mut()
         {
             let mut by_signature: Vec<([u8; 32], Vec<usize>)> = Vec::new();
-            for (place, unit_rows) in units.iter().enumerate() {
-                let mut signatures: Vec<[u8; 32]> = Vec::new();
-                for (_index, fields, _line) in unit_rows {
-                    let found = (*digest)(signature_key(fields, &suffix), &window, &fields[0])
+            for (place, run) in runs[..unit_count].iter().enumerate() {
+                signatures.clear();
+                for &row in run {
+                    let fields = found.fields(row);
+                    let ink = (*digest)(signature_key(&fields, suffix), window, fields[0])
                         .map_err(|failure| WorkloadError::Failed(failure.0))?;
-                    if !signatures.contains(&found) {
-                        signatures.push(found);
+                    if !signatures.contains(&ink) {
+                        signatures.push(ink);
                     }
                 }
                 if let [signature] = signatures[..] {
@@ -1121,13 +1333,22 @@ pub fn stream_workload(
                 if places.len() < 2 {
                     continue;
                 }
-                let mut group: Vec<Member> =
-                    places.iter().map(|&place| members[place].clone()).collect();
+                let mut group: Vec<Member> = places
+                    .iter()
+                    .map(|&place| {
+                        member_of(&table, found, &runs[place], facts[place], place, sections)
+                    })
+                    .collect();
                 let absorb = |survivor: &Member, other: &Member| {
                     let merged =
-                        merged_rows(&units[survivor.ordinal], &units[other.ordinal], |row| row.0);
-                    let configs = run_configs(&merged, sections);
-                    units[survivor.ordinal] = merged;
+                        merged_rows(&runs[survivor.ordinal], &runs[other.ordinal], |&row| {
+                            found.section(row)
+                        });
+                    let configs = merged
+                        .iter()
+                        .map(|&row| sections[found.section(row)].config.clone())
+                        .collect();
+                    runs[survivor.ordinal] = merged;
                     configs
                 };
                 merge_members(&mut group, |class| exempt.contains(class), absorb).map_err(
@@ -1140,74 +1361,81 @@ pub fn stream_workload(
                         })
                     },
                 )?;
+                if outcomes.is_empty() {
+                    outcomes.resize(unit_count, None);
+                }
                 for member in group {
                     let place = member.ordinal;
-                    members[place] = member;
+                    outcomes[place] = Some(member);
                 }
             }
         }
-        let mut posts = vec![0u32; members.len()];
-        for (member, unit_rows) in members.iter().zip(&units) {
-            if member.survivor.is_some() {
+        posts.clear();
+        posts.resize(unit_count, 0);
+        for (place, run) in runs[..unit_count].iter().enumerate() {
+            let outcome = outcomes.get(place).and_then(Option::as_ref);
+            if outcome.is_some_and(|member| member.survivor.is_some()) {
                 continue;
             }
-            posts[member.ordinal] = class_col.len() as u32;
-            let (mut class_index, mut configs_id, mut kinds_id, mut mapping_id, _exempted) =
-                identities[member.ordinal];
-            if member.merged {
-                class_index = table.strings.id(&member.class_id);
-                configs_id = table.tuple_id(&member.configs);
-                kinds_id = table.tuple_id(&member.kinds);
-                mapping_id = table.mappings.id(&member.config_classes);
+            posts[place] = class_col.len() as u32;
+            let unit = facts[place];
+            let (mut class_index, mut configs_id, mut kinds_id, mut mapping_id) = (
+                unit.class_index,
+                unit.configs_id,
+                unit.kinds_id,
+                unit.mapping_id,
+            );
+            let (mut exemplar, mut no_verdict) = (unit.exemplar, unit.exempted);
+            if let Some(member) = outcome {
+                if member.merged {
+                    class_index = table.strings.id(&member.class_id);
+                    configs_id = table.tuple_id(&member.configs);
+                    kinds_id = table.tuple_id(&member.kinds);
+                    mapping_id = table.mappings.id(&member.config_classes);
+                }
+                exemplar = member.exemplar;
+                no_verdict = member.no_verdict;
             }
             class_col.push(class_index);
             group_col.push(group);
             configs_col.push(configs_id);
             kinds_col.push(kinds_id);
-            render_col.push(
-                table
-                    .groups
-                    .id(std::slice::from_ref(&member.configs))
-                    .expect("the render groups are never sealed"),
-            );
-            let first = &unit_rows[0].1;
+            render_col.push(interning.render_id(&mut table, configs_id));
+            let first = run[0];
             baseline_col.push(
                 names
-                    .id(first[4].split('|'))
+                    .id(found.field(first, 4).split('|'))
                     .expect("the names are sealed only once the stream ends"),
             );
             new_col.push(
                 names
-                    .id(first[5].split('|'))
+                    .id(found.field(first, 5).split('|'))
                     .expect("the names are sealed only once the stream ends"),
             );
             mapping_col.push(mapping_id);
             flags_col.push(
-                LIVE | if member.exemplar { EXEMPLAR } else { 0 }
-                    | if member.no_verdict { NO_VERDICT } else { 0 },
+                LIVE | if exemplar { EXEMPLAR } else { 0 }
+                    | if no_verdict { NO_VERDICT } else { 0 },
             );
             start_col.push(offset);
             count_col.push(length);
-            rows_col.push(unit_rows.len() as u32);
+            rows_col.push(run.len() as u32);
             words.push(word);
-            keys.extend_from_slice(&input_key(
-                unit_rows
-                    .iter()
-                    .map(|(_index, _fields, line)| line.as_str()),
-                &suffix,
-            ));
+            keys.extend_from_slice(&input_key(run.iter().map(|&row| found.line(row)), suffix));
         }
-        for member in &members {
-            let (class_index, configs_id, _kinds_id, _mapping_id, exempted) =
-                identities[member.ordinal];
-            pre_class.push(class_index);
+        for (place, unit) in facts.iter().enumerate() {
+            let survivor = outcomes
+                .get(place)
+                .and_then(Option::as_ref)
+                .and_then(|member| member.survivor);
+            pre_class.push(unit.class_index);
             pre_group.push(group);
-            pre_exempt.push(u8::from(exempted));
-            pre_configs.push(configs_id);
+            pre_exempt.push(u8::from(unit.exempted));
+            pre_configs.push(unit.configs_id);
             pre_start.push(offset);
             pre_count.push(length);
-            absorbed.push(u8::from(member.survivor.is_some()));
-            post_of.push(posts[member.survivor.unwrap_or(member.ordinal)]);
+            absorbed.push(u8::from(survivor.is_some()));
+            post_of.push(posts[survivor.unwrap_or(place)]);
         }
     }
     names.seal();
@@ -1647,6 +1875,22 @@ pub(crate) mod tests {
         }
     }
 
+    /// A window's rows as the tests write them: each row's section, its fields and its line.
+    pub(crate) type Rows = Vec<(usize, Vec<String>, String)>;
+
+    /// Windows held in memory, given in order through one arena each.
+    struct Held {
+        windows: Vec<WindowRows>,
+        at: usize,
+    }
+
+    impl WindowSource for Held {
+        fn next_window(&mut self) -> std::result::Result<Option<&WindowRows>, StreamError> {
+            self.at += 1;
+            Ok(self.windows.get(self.at - 1))
+        }
+    }
+
     fn row(section: usize, fields: [&str; 6]) -> (usize, Vec<String>, String) {
         (
             section,
@@ -1689,7 +1933,7 @@ pub(crate) mod tests {
 
     /// Load `windows` in order as the stream loads them, every row's digest its window's unless the window is `E652`, where it is its config's.
     pub(crate) fn load(
-        windows: Vec<(&str, WindowRows)>,
+        windows: Vec<(&str, Rows)>,
         ledger: &[LedgerEntry],
     ) -> std::result::Result<StreamedLoad, WorkloadError> {
         let sections = [
@@ -1697,15 +1941,26 @@ pub(crate) mod tests {
             section("ss03", 1),
             section("ss04", 2),
         ];
-        let mut windows = windows
-            .into_iter()
-            .map(|(window, rows)| (window.to_owned(), rows));
+        let mut windows = Held {
+            windows: windows
+                .into_iter()
+                .map(|(window, rows)| {
+                    let mut held = WindowRows::default();
+                    held.begin(window);
+                    for (section, _fields, line) in rows {
+                        held.push_line(section, &line);
+                    }
+                    held
+                })
+                .collect(),
+            at: 0,
+        };
         let mut digest = |_key: u64, window: &str, config: &str| -> Result<[u8; 32]> {
             let seed = if window == "E652" { config } else { window };
             Ok(Sha256::digest(seed.as_bytes()).into())
         };
         stream_workload(
-            || Ok(windows.next()),
+            &mut windows,
             "audit.tsv",
             "ledger.yaml",
             &sections,
@@ -1717,7 +1972,7 @@ pub(crate) mod tests {
         )
     }
 
-    pub(crate) fn mini_windows() -> Vec<(&'static str, WindowRows)> {
+    pub(crate) fn mini_windows() -> Vec<(&'static str, Rows)> {
         vec![
             (
                 "E650",
@@ -1871,5 +2126,51 @@ pub(crate) mod tests {
             (("a", "b"), "ss04".to_owned()),
         ]);
         assert_eq!(groups, [vec!["default", "ss04"], vec!["ss03"]]);
+    }
+
+    #[test]
+    fn the_memos_give_the_ids_the_pools_give() {
+        let sections = [section("default", 0), section("ss03", 1)];
+        let mut window = WindowRows::default();
+        window.begin("E650");
+        window.push_line(0, "default\tE650\tb,a\tclass-a\tx\ty");
+        window.push_line(1, "ss03\tE650\ta,c,a\tUNMATCHED\tx\ty");
+        window.push_line(0, "default\tE650\tc\tclass-b\tx\ty");
+        let run = [0, 1, 2];
+        let mut table = UnitTable::new(0, &acceptance());
+        let mut interning = Interning::default();
+        let kinds = interning.kinds_id(&mut table, &window, &run);
+        let configs = interning.configs_id(&mut table, &window, &run, &sections);
+        let mapping = interning.mapping_id(&mut table, &window, &run, &sections);
+        assert_eq!(table.tuples.get(kinds), ["a", "b", "c"]);
+        assert_eq!(table.tuples.get(configs), ["default", "ss03", "default"]);
+        assert_eq!(
+            table.mappings.get(mapping),
+            [
+                ("default".to_owned(), "class-b".to_owned()),
+                ("ss03".to_owned(), UNMATCHED.to_owned())
+            ]
+        );
+        assert_eq!(interning.kinds_id(&mut table, &window, &[2, 1, 0]), kinds);
+        assert_eq!(
+            interning.configs_id(&mut table, &window, &run, &sections),
+            configs
+        );
+        assert_eq!(
+            interning.mapping_id(&mut table, &window, &run[..2], &sections),
+            table.mappings.id(&[
+                ("default".to_owned(), "class-a".to_owned()),
+                ("ss03".to_owned(), UNMATCHED.to_owned())
+            ])
+        );
+        let render = interning.render_id(&mut table, configs);
+        assert_eq!(
+            table.groups.get(render),
+            [vec!["default", "ss03", "default"]]
+        );
+        assert_eq!(
+            interning.string_id(&mut table, "class-a"),
+            table.strings.id("class-a")
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! The build's zlib and gzip containers, byte for byte in the forms CPython's `zlib` and `gzip` write, and their readers with CPython's tolerances, all through the system zlib the crate links (`ffi`), which deflates the same stream however its input is cut into calls.
 //!
-//! Writers: a `gzip.GzipFile` stream at a level and mtime under a file name ([`GzipWriter`], whose header [`header`] writes), a `gzip.compress` member ([`compress_member`]), the index's run of members cut at a fixed size and deflated on threads (`unit_index._Members`, [`Members`]) and a fragment's raw deflate ([`deflate_fragment`]). Each file's name and level are the constants below. Readers: `zlib.decompressobj` with its `unconsumed_tail` and `unused_data` ([`Decompressor`]), a deflated fragment checked (`unit_index.inflate_fragment`, [`inflate_fragment`]) and a whole gzip file read as `gzip.GzipFile` reads it ([`GzipReader`]), each failing with the class and text Python raises.
+//! Writers: a `gzip.GzipFile` stream at a level and mtime under a file name ([`GzipWriter`], whose header [`header`] writes), a `gzip.compress` member ([`compress_member`]), the index's run of members cut at a fixed size and deflated on threads (`unit_index._Members`, [`Members`]) and a fragment's raw deflate ([`deflate_fragment`]). Each file's name and level are the constants below. Readers: `zlib.decompressobj` with its `unconsumed_tail` and `unused_data` ([`Decompressor`]), one stream reused for one whole stream after another ([`StreamInflater`]), a deflated fragment checked (`unit_index.inflate_fragment`, [`inflate_fragment`]) and a whole gzip file read as `gzip.GzipFile` reads it ([`GzipReader`]), each failing with the class and text Python raises.
 
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -392,59 +392,190 @@ impl Decompressor {
         dictionary: Option<&[u8]>,
     ) -> std::result::Result<Vec<u8>, ZlibError> {
         let mut out = Vec::new();
-        let mut at = 0;
-        let mut ended = false;
-        let mut failure = None;
-        loop {
-            let room = if max_length > 0 {
-                (max_length - out.len()).min(DECOMPRESS_STEP.max(data.len()))
-            } else {
-                DECOMPRESS_STEP.max(data.len().saturating_mul(2))
-            };
-            if room == 0 {
-                break;
-            }
-            let start = out.len();
-            out.resize(start + room, 0);
-            let step = self.inflater.inflate(&data[at..], &mut out[start..]);
-            out.truncate(start + step.produced);
-            at += step.consumed;
-            if step.needs_dictionary()
-                && let Some(dictionary) = dictionary
-            {
-                self.inflater
-                    .set_dictionary(dictionary)
-                    .map_err(|(status, message)| {
-                        zlib_error_while(status, message, "setting zdict")
-                    })?;
-                continue;
-            }
-            if step.failed() {
-                failure = Some(zlib_error(step.status, step.message));
-                break;
-            }
-            if step.ended() {
-                ended = true;
-                break;
-            }
-            if step.produced < room && at == data.len() {
-                break;
-            }
-        }
-        let left = &data[at..];
-        if ended && !left.is_empty() {
+        let run = decompress_into(&mut self.inflater, data, max_length, dictionary, &mut out)?;
+        let left = &data[run.at..];
+        if run.ended && !left.is_empty() {
             self.unused_data.extend_from_slice(left);
         }
-        if (!ended && !left.is_empty()) || !self.unconsumed_tail.is_empty() {
+        if (!run.ended && !left.is_empty()) || !self.unconsumed_tail.is_empty() {
             self.unconsumed_tail = left.to_vec();
         }
-        if ended {
+        if run.ended {
             self.eof = true;
         }
-        match failure {
+        match run.failure {
             Some(failure) => Err(failure),
             None => Ok(out),
         }
+    }
+}
+
+/// How one `decompress` call's inflate loop ended: the input it consumed, whether the stream ended, and the `zlib.error` an inflate step raised.
+struct Run {
+    at: usize,
+    ended: bool,
+    failure: Option<ZlibError>,
+}
+
+/// `decompressobj.decompress(data, max_length)`'s inflate loop over `inflater`, its output appended to `out`: at most `max_length` bytes when it is not 0, each step offered what CPython offers it, and a stream that asks for its preset dictionary given `dictionary` when there is one. A dictionary zlib refuses is the `zlib.error` CPython raises while setting it, raised before the call's state is touched.
+fn decompress_into(
+    inflater: &mut Inflater,
+    data: &[u8],
+    max_length: usize,
+    dictionary: Option<&[u8]>,
+    out: &mut Vec<u8>,
+) -> std::result::Result<Run, ZlibError> {
+    let base = out.len();
+    let mut at = 0;
+    let mut ended = false;
+    let mut failure = None;
+    loop {
+        let room = if max_length > 0 {
+            (max_length - (out.len() - base)).min(DECOMPRESS_STEP.max(data.len()))
+        } else {
+            DECOMPRESS_STEP.max(data.len().saturating_mul(2))
+        };
+        if room == 0 {
+            break;
+        }
+        let step = inflater.inflate_into(&data[at..], out, room);
+        at += step.consumed;
+        if step.needs_dictionary()
+            && let Some(dictionary) = dictionary
+        {
+            inflater
+                .set_dictionary(dictionary)
+                .map_err(|(status, message)| zlib_error_while(status, message, "setting zdict"))?;
+            continue;
+        }
+        if step.failed() {
+            failure = Some(zlib_error(step.status, step.message));
+            break;
+        }
+        if step.ended() {
+            ended = true;
+            break;
+        }
+        if step.produced < room && at == data.len() {
+            break;
+        }
+    }
+    Ok(Run { at, ended, failure })
+}
+
+/// The output a [`StreamInflater`] keeps between streams; a buffer grown past it is given up before the next stream.
+const RETAINED_OUTPUT: usize = 256 << 10;
+
+/// Why a [`StreamInflater::decompress`] stopped: the decompressor could not be made, with the text `zlib.decompressobj` raises, or the stream does not inflate, with the `zlib.error`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StreamFailure {
+    Start(String),
+    Inflate(ZlibError),
+}
+
+/// How a [`StreamInflater::decompress`] ended: whether the stream reached its end (`decompressobj.eof`) and how many input bytes follow that end (`len(decompressobj.unused_data)`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StreamEnd {
+    pub eof: bool,
+    pub unused: usize,
+}
+
+/// One inflate stream of fixed window bits used for one whole stream after another, as a reader that inflates a fragment at a time keeps it: [`StreamInflater::decompress`] gives what a new `zlib.decompressobj(window_bits)`'s first `decompress` gives, with `zdict` for a zlib stream that asks for one, through a stream made at the first call and reset (`inflateReset`) before each later one, its output written into a buffer the inflater owns and clears for each stream.
+pub struct StreamInflater {
+    window_bits: i32,
+    inflater: Option<Inflater>,
+    out: Vec<u8>,
+}
+
+impl StreamInflater {
+    /// An inflater for streams of `window_bits`; zlib's stream is made at the first [`StreamInflater::decompress`].
+    pub fn new(window_bits: i32) -> Self {
+        Self {
+            window_bits,
+            inflater: None,
+            out: Vec::new(),
+        }
+    }
+
+    /// Inflate `data` as a new decompressor's first `decompress(data, max_length)` does, into [`StreamInflater::output`]. A `dictionary` is checked as `decompressobj` checks its `zdict` and given to a zlib stream when its header asks for it. A failure leaves the output empty or partial.
+    pub fn decompress(
+        &mut self,
+        data: &[u8],
+        max_length: usize,
+        dictionary: Option<&[u8]>,
+    ) -> std::result::Result<StreamEnd, StreamFailure> {
+        if let Some(dictionary) = dictionary
+            && u32::try_from(dictionary.len()).is_err()
+        {
+            return Err(StreamFailure::Start(
+                "zdict length does not fit in an unsigned int".to_owned(),
+            ));
+        }
+        self.trim();
+        self.out.clear();
+        let inflater = match &mut self.inflater {
+            Some(inflater) => {
+                inflater.reset().map_err(StreamFailure::Start)?;
+                inflater
+            }
+            None => self
+                .inflater
+                .insert(Inflater::new(self.window_bits).map_err(StreamFailure::Start)?),
+        };
+        let run = decompress_into(inflater, data, max_length, dictionary, &mut self.out)
+            .map_err(StreamFailure::Inflate)?;
+        if let Some(failure) = run.failure {
+            return Err(StreamFailure::Inflate(failure));
+        }
+        Ok(StreamEnd {
+            eof: run.ended,
+            unused: if run.ended { data.len() - run.at } else { 0 },
+        })
+    }
+
+    /// What the last [`StreamInflater::decompress`] wrote.
+    pub fn output(&self) -> &[u8] {
+        &self.out
+    }
+
+    /// Give up an output buffer grown past [`RETAINED_OUTPUT`], so a rare large stream is not held after it is read.
+    pub fn trim(&mut self) {
+        if self.out.capacity() > RETAINED_OUTPUT {
+            self.out = Vec::new();
+        }
+    }
+
+    /// [`inflate_fragment`] through this inflater, which must be a raw one (window bits −15): the same checks, refused with the same texts, and the plain bytes in [`StreamInflater::output`].
+    pub fn inflate_fragment(
+        &mut self,
+        stored: &[u8],
+        length: Option<usize>,
+    ) -> std::result::Result<&[u8], String> {
+        let end = match self.decompress(stored, length.map_or(0, |length| length + 1), None) {
+            Ok(end) => end,
+            Err(StreamFailure::Start(why)) => return Err(why),
+            Err(StreamFailure::Inflate(failure)) => {
+                return Err(format!("it does not inflate ({failure})"));
+            }
+        };
+        let body = self.out.as_slice();
+        if let Some(length) = length
+            && body.len() > length
+        {
+            return Err(format!("it inflates past its {length} bytes"));
+        }
+        if !end.eof {
+            return Err("its deflated stream is cut short".to_owned());
+        }
+        if end.unused != 0 {
+            return Err("bytes follow the end of its deflated stream".to_owned());
+        }
+        if let Some(length) = length
+            && body.len() != length
+        {
+            return Err(format!("it inflates to {} bytes, not {length}", body.len()));
+        }
+        Ok(body)
     }
 }
 
@@ -934,5 +1065,92 @@ pub(crate) mod tests {
         assert!(inflater.eof());
         assert_eq!(inflater.unused_data(), b"tail");
         assert_eq!(inflater.unconsumed_tail(), b"tail");
+    }
+
+    #[test]
+    fn a_reused_inflater_checks_each_fragment_as_a_fresh_one_does() {
+        let body = b"{\"id\": \"u-1\"}".repeat(40);
+        let other = b"[\"content_key\", 7]".repeat(9000);
+        let stored = deflate_fragment(&body).expect("deflates");
+        let large = deflate_fragment(&other).expect("deflates");
+        let cases: Vec<(Vec<u8>, Option<usize>)> = vec![
+            (stored.clone(), Some(body.len())),
+            (stored.clone(), None),
+            (stored.clone(), Some(body.len() - 1)),
+            (stored.clone(), Some(body.len() + 1)),
+            (stored[..stored.len() - 1].to_vec(), None),
+            (stored[..stored.len() / 2].to_vec(), Some(body.len())),
+            ([stored.as_slice(), b"x"].concat(), None),
+            ([stored.as_slice(), b"x"].concat(), Some(body.len())),
+            (vec![0xff; 4], None),
+            (vec![0xff; 4], Some(3)),
+            (large.clone(), Some(other.len())),
+            (large.clone(), None),
+            (Vec::new(), Some(0)),
+            (stored.clone(), Some(body.len())),
+        ];
+        let mut reused = StreamInflater::new(RAW_WINDOW);
+        for (data, length) in cases.iter().chain(cases.iter().rev()) {
+            assert_eq!(
+                reused.inflate_fragment(data, *length).map(<[u8]>::to_vec),
+                inflate_fragment(data, *length),
+                "{length:?}"
+            );
+        }
+        let huge = vec![b' '; 2 * RETAINED_OUTPUT];
+        let packed = deflate_fragment(&huge).expect("deflates");
+        assert_eq!(
+            reused.inflate_fragment(&packed, Some(huge.len())),
+            Ok(huge.as_slice())
+        );
+        reused.trim();
+        assert_eq!(reused.out.capacity(), 0);
+        assert_eq!(
+            reused.inflate_fragment(&stored, Some(body.len())),
+            Ok(body.as_slice())
+        );
+    }
+
+    #[test]
+    fn a_reused_inflater_asks_each_zlib_stream_for_its_dictionary_again() {
+        let dictionary = b"\"content_key\": \"id\": ".repeat(8);
+        let packed = |body: &[u8]| {
+            crate::ffi::Deflater::primed(1, &dictionary)
+                .expect("prime")
+                .deflate(body)
+                .expect("deflate")
+        };
+        let first = packed(b"{\"id\": \"u-a\"}");
+        let second = packed(b"{\"id\": \"u-b\", \"content_key\": null}");
+        let fresh = |data: &[u8],
+                     dictionary: &[u8]|
+         -> std::result::Result<(Vec<u8>, StreamEnd), StreamFailure> {
+            let mut inflater =
+                Decompressor::with_dictionary(15, dictionary).map_err(StreamFailure::Start)?;
+            let out = inflater
+                .decompress_with_dictionary(data, 0, dictionary)
+                .map_err(StreamFailure::Inflate)?;
+            Ok((
+                out,
+                StreamEnd {
+                    eof: inflater.eof(),
+                    unused: inflater.unused_data().len(),
+                },
+            ))
+        };
+        let mut reused = StreamInflater::new(15);
+        for (data, dictionary) in [
+            (first.clone(), dictionary.as_slice()),
+            (second.clone(), dictionary.as_slice()),
+            (first.clone(), b"another".as_slice()),
+            ([first.as_slice(), b"zz"].concat(), dictionary.as_slice()),
+            (first[..first.len() - 2].to_vec(), dictionary.as_slice()),
+            (second.clone(), dictionary.as_slice()),
+        ] {
+            let ended = reused
+                .decompress(&data, 0, Some(dictionary))
+                .map(|end| (reused.output().to_vec(), end));
+            assert_eq!(ended, fresh(&data, dictionary));
+        }
     }
 }

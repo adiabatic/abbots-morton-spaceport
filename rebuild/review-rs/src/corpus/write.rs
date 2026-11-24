@@ -150,10 +150,13 @@ fn write_unit(
     class: &mut ClassWritten,
 ) -> std::result::Result<(), BuildError> {
     let (table, store) = (shared.table, shared.store);
-    let source = store.source(ordinal).ok_or_else(|| assertion(ordinal))?;
+    let stamp = store.stamp(ordinal);
+    let source = store
+        .source_at(ordinal, &stamp)
+        .ok_or_else(|| assertion(ordinal))?;
     let emission = shared
         .emitter
-        .emission(ordinal, &source, table, store, shared.arena, prior)?;
+        .emission(ordinal, source, table, store, shared.arena, prior)?;
     if emission.unit_id != source.unit_id {
         return Err(assertion(format!("({:?}, {ordinal})", emission.unit_id)));
     }
@@ -163,13 +166,13 @@ fn write_unit(
         Emitted::Fragment(fragment) => {
             let body = fragment_bytes(fragment).map_err(failed)?;
             let former = if writer.appending() {
-                store.prior_fragment(ordinal)
+                store.prior_fragment_at(ordinal, &stamp)
             } else {
                 None
             };
-            let kept = match &former {
-                Some(former) if writer.holds(&former.part) => prior
-                    .same_bytes(former, body.as_bytes())
+            let kept = match former {
+                Some(former) if writer.holds(former.part) => prior
+                    .same_bytes_at(former, body.as_bytes())
                     .map_err(|failure| failed(format!("OSError: {failure}")))?,
                 _ => false,
             };
@@ -177,7 +180,7 @@ fn write_unit(
                 Some(former) if kept => {
                     class.kept += 1;
                     writer
-                        .keep(&former.part, former.start, former.length, former.inflated)
+                        .keep(former.part, former.start, former.length, former.inflated)
                         .map_err(shard_failure)?
                 }
                 _ => writer
@@ -189,19 +192,16 @@ fn write_unit(
                 .unit(fragment, store.flags(ordinal).cached)
                 .map_err(check_failure)?;
             sidecars.unit(fragment, span, order, batch)?;
-            (
-                span,
-                shared.emitter.emitted_note(&emission, table, ordinal)?,
-            )
+            (span, shared.emitter.emitted_note(&emission)?)
         }
         Emitted::Bytes {
             body,
-            source,
             identity,
+            note,
         } => {
-            let span = if writer.holds(&source.part) {
+            let span = if writer.holds(source.part) {
                 writer
-                    .keep(&source.part, source.start, source.length, source.inflated)
+                    .keep(source.part, source.start, source.length, source.inflated)
                     .map_err(shard_failure)?
             } else {
                 let inflated = u32::try_from(source.inflated).map_err(|_| {
@@ -223,10 +223,12 @@ fn write_unit(
                 batch,
             )?;
             class.byte_copied += 1;
-            (span, shared.emitter.config_note(table, ordinal))
+            (span, note.clone())
         }
     };
-    if emission.content_key != store.content_key_hex(ordinal) {
+    if let Some(content_key) = &emission.content_key
+        && !store.content_key_is(ordinal, content_key)
+    {
         return Err(assertion(&emission.unit_id));
     }
     class.spans.push(span);
@@ -234,6 +236,9 @@ fn write_unit(
         .notes
         .push(optional_text(&note, "config note", &emission.unit_id)?);
     class.policy_files.push(emission.policy_file);
+    if let Emitted::Bytes { body, .. } = emission.emitted {
+        prior.recycle(body);
+    }
     Ok(())
 }
 

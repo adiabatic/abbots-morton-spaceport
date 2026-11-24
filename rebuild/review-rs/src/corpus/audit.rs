@@ -132,6 +132,37 @@ pub(crate) fn pread(file: &File, length: i64, position: i64) -> io::Result<Vec<u
     }
 }
 
+/// [`pread`] onto the end of `buffer`, giving how many bytes it added.
+pub(crate) fn pread_into(
+    file: &File,
+    length: i64,
+    position: i64,
+    buffer: &mut Vec<u8>,
+) -> io::Result<usize> {
+    let held = buffer.len();
+    buffer.resize(held + length.max(0) as usize, 0);
+    let at = match offset(position) {
+        Ok(at) => at,
+        Err(failure) => {
+            buffer.truncate(held);
+            return Err(failure);
+        }
+    };
+    loop {
+        match file.read_at(&mut buffer[held..], at) {
+            Ok(count) => {
+                buffer.truncate(held + count);
+                return Ok(count);
+            }
+            Err(failure) if failure.kind() == io::ErrorKind::Interrupted => {}
+            Err(failure) => {
+                buffer.truncate(held);
+                return Err(failure);
+            }
+        }
+    }
+}
+
 fn size_of(file: &File) -> io::Result<i64> {
     i64::try_from(file.metadata()?.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "a part outruns an int"))

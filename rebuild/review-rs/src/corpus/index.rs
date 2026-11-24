@@ -1,4 +1,4 @@
-//! The units index, as `unit_index.write_index_lines` writes it once the manifest is on disk, from the index lines the write's runs spilled ([`spilled_lines`]): stamped with the manifest's identity, it takes one route, decided from the prior head before anything of the index is written ([`plan_write`]). With no prior index it writes a first base, and with one that does not read an `unusable` base, counted as rewritten whole; with the prior's fold due and the pass's one fold held or forced it writes the lines as the next generation's base, walking the prior's records beside them so the head's content moves only when a record did; and otherwise the records whose lines, their places cut ([`cut`]), differ from the prior materialized index's ([`compare`]) as the prior generation's next segment, upserts and tombstones ([`tombstone`]) in key order, or the head alone when none differs. A base is gzip members of the index's member size deflated on threads ([`Members`]); a segment one gzip stream. The single file a corpus from before the segment format holds is first put under a head as generation 0's base ([`adopt_single_file`]), and deleted once a later head is committed. What a write did and its note are [`IndexWrite`]'s.
+//! The units index, as `unit_index.write_index_lines` writes it once the manifest is on disk, from the index lines the write's runs spilled, lent one at a time ([`SpilledLines`]): stamped with the manifest's identity, it takes one route, decided from the prior head before anything of the index is written ([`plan_write`]). With no prior index it writes a first base, and with one that does not read an `unusable` base, counted as rewritten whole; with the prior's fold due and the pass's one fold held or forced it writes the lines as the next generation's base, walking the prior's records beside them so the head's content moves only when a record did; and otherwise the records whose lines, their places cut ([`cut`]), differ from the prior materialized index's ([`compare`]) as the prior generation's next segment, upserts and tombstones ([`tombstone`]) in key order, or the head alone when none differs. A base is gzip members of the index's member size deflated on threads ([`Members`]); a segment one gzip stream. The single file a corpus from before the segment format holds is first put under a head as generation 0's base ([`adopt_single_file`]), and deleted once a later head is committed. What a write did and its note are [`IndexWrite`]'s.
 
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
@@ -8,9 +8,10 @@ use super::BuildError;
 use super::gzip::{GzipReader, Members};
 use super::input::BuildInput;
 use super::rowdelta::{
-    FoldClaim, Folding, Head, Key, MERGE_KEY, Part, PartReader, ReadError, StreamedPart, TOMBSTONE,
-    UPSERT, WriteError, base_name, check_gzipped_header, commit, fold_due, fold_forced, open_parts,
-    read_head, remove_staging, remove_unlisted, segment_header, segment_name,
+    FoldClaim, Folding, Head, Key, KeyBuf, KeyedLines, LineReader, MERGE_KEY, Part, PartReader,
+    ReadError, StreamedPart, TOMBSTONE, UPSERT, WriteError, base_name, check_gzipped_header,
+    commit, fold_due, fold_forced, open_parts, read_head, remove_staging, remove_unlisted,
+    segment_header, segment_name,
 };
 use super::scan::{OpenIndex, ScanError, ScanNames, index_key, manifest_and_identity};
 use super::sidecars::SidecarRun;
@@ -174,16 +175,36 @@ fn id_end(line: &[u8]) -> Raised<usize> {
     find(line, b"\"", ID_OPEN.len()).ok_or_else(IndexError::not_found)
 }
 
-/// `unit_index._cut`: an index line with its place cut out, as a segment holds the record.
-pub fn cut(line: &[u8]) -> Raised<Vec<u8>> {
+/// [`cut`] as the two pieces of the line it joins, the second empty when the line has no place to cut.
+fn cut_pieces(line: &[u8]) -> Raised<(&[u8], &[u8])> {
     let end = id_end(line)?;
     let at = find(line, CLASS_SEAM, end).ok_or_else(IndexError::not_found)?;
     if at == end + 1 {
-        return Ok(line.to_vec());
+        return Ok((line, &[]));
     }
-    let mut cut = line[..=end].to_vec();
-    cut.extend_from_slice(&line[at..]);
-    Ok(cut)
+    Ok((&line[..=end], &line[at..]))
+}
+
+/// Whether two pairs of pieces join into the same bytes.
+fn joined_equal(left: (&[u8], &[u8]), right: (&[u8], &[u8])) -> bool {
+    if left.0.len() + left.1.len() != right.0.len() + right.1.len() {
+        return false;
+    }
+    let (short, long) = if left.0.len() <= right.0.len() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    let split = long.0.len() - short.0.len();
+    short.0 == &long.0[..short.0.len()]
+        && short.1[..split] == long.0[short.0.len()..]
+        && short.1[split..] == *long.1
+}
+
+/// `unit_index._cut`: an index line with its place cut out, as a segment holds the record.
+pub fn cut(line: &[u8]) -> Raised<Vec<u8>> {
+    let (head, tail) = cut_pieces(line)?;
+    Ok([head, tail].concat())
 }
 
 /// `unit_index._tombstone`: the payload of the tombstone that removes the record whose line, its place cut, is `cut`: its id and class, which `index_key` reads as the record's key.
@@ -205,6 +226,76 @@ fn key_of(line: &[u8]) -> Raised<Key> {
     Ok(index_key(line)?)
 }
 
+/// A JSON text that is a string literal `json.loads` reads as its own bytes, the bytes between its quotes: no quote, backslash or control character inside, and UTF-8.
+fn plain_json_string(raw: &[u8]) -> Option<&[u8]> {
+    let inner = raw.strip_prefix(b"\"")?.strip_suffix(b"\"")?;
+    let plain = inner
+        .iter()
+        .all(|&byte| byte >= 0x20 && byte != b'"' && byte != b'\\');
+    (plain && std::str::from_utf8(inner).is_ok()).then_some(inner)
+}
+
+/// `unit_index.index_key` ([`index_key`]) written into `key`: a line whose class is a plain string is keyed from its bytes in place, and any other line by [`index_key`] itself, which fails as it fails.
+pub fn index_key_into(line: &[u8], key: &mut KeyBuf) -> std::result::Result<(), ReadError> {
+    let pieces = find(line, b"\"", ID_OPEN.len()).and_then(|end| {
+        let start = find(line, CLASS_SEAM, end)? + CLASS_SEAM.len();
+        let stop = match find(line, CLUSTER_SEAM, start) {
+            Some(stop) => stop,
+            None => line.iter().rposition(|&byte| byte == b'}')?,
+        };
+        let class = plain_json_string(line.get(start..stop)?)?;
+        Some((class, &line[ID_OPEN.len()..end]))
+    });
+    match pieces {
+        Some((class, id)) => {
+            key.clear();
+            key.push(&[class, b".json"]);
+            key.push(&[id]);
+        }
+        None => key.set(&index_key(line)?),
+    }
+    Ok(())
+}
+
+/// A source of index lines lent one at a time: [`IndexLines::advance`] steps to the next line, false at the end, and [`IndexLines::current`] is that line until the next step.
+pub trait IndexLines {
+    fn advance(&mut self) -> Raised<bool>;
+    fn current(&self) -> &[u8];
+}
+
+impl IndexLines for KeyedLines<'_> {
+    fn advance(&mut self) -> Raised<bool> {
+        Ok(KeyedLines::advance(self)?)
+    }
+
+    fn current(&self) -> &[u8] {
+        KeyedLines::current(self)
+    }
+}
+
+/// An iterator of owned lines as [`IndexLines`], each held until the next.
+struct OwnedLines<'a, E> {
+    lines: &'a mut dyn Iterator<Item = std::result::Result<Vec<u8>, E>>,
+    line: Vec<u8>,
+}
+
+impl<E: Into<IndexError>> IndexLines for OwnedLines<'_, E> {
+    fn advance(&mut self) -> Raised<bool> {
+        match self.lines.next() {
+            Some(Ok(line)) => {
+                self.line = line;
+                Ok(true)
+            }
+            Some(Err(failure)) => Err(failure.into()),
+            None => Ok(false),
+        }
+    }
+
+    fn current(&self) -> &[u8] {
+        &self.line
+    }
+}
+
 /// `repr` of a key, a list of bytes.
 fn key_repr(key: &Key) -> String {
     let fields: Vec<String> = key
@@ -220,10 +311,30 @@ pub fn compare(
     old: &mut dyn Iterator<Item = std::result::Result<Vec<u8>, ReadError>>,
     emit: &mut dyn FnMut(&[u8]) -> Raised<()>,
 ) -> Raised<i64> {
-    let mut ours = new.next().transpose()?;
-    let mut theirs = old.next().transpose()?;
+    compare_lines(
+        &mut OwnedLines {
+            lines: new,
+            line: Vec::new(),
+        },
+        &mut OwnedLines {
+            lines: old,
+            line: Vec::new(),
+        },
+        emit,
+    )
+}
+
+/// [`compare`] over lent lines: two lines are compared in place, byte for byte and then cut ([`cut_pieces`]), and only a record that differs is copied out to be keyed and emitted.
+fn compare_lines(
+    new: &mut dyn IndexLines,
+    old: &mut dyn IndexLines,
+    emit: &mut dyn FnMut(&[u8]) -> Raised<()>,
+) -> Raised<i64> {
+    let mut has_ours = new.advance()?;
+    let mut has_theirs = old.advance()?;
     let mut rows = 0;
     let mut last: Option<Key> = None;
+    let mut line = Vec::new();
     let mut row = |op: u8, payload: &[u8], key: Key| -> Raised<()> {
         if last.as_ref().is_some_and(|last| key <= *last) {
             return Err(IndexError::new(
@@ -235,7 +346,7 @@ pub fn compare(
             ));
         }
         last = Some(key);
-        let mut line = Vec::with_capacity(payload.len() + 2);
+        line.clear();
         line.push(op);
         line.push(b'\t');
         line.extend_from_slice(payload);
@@ -243,19 +354,25 @@ pub fn compare(
         rows += 1;
         Ok(())
     };
-    while ours.is_some() || theirs.is_some() {
+    while has_ours || has_theirs {
+        let ours = has_ours.then(|| new.current());
+        let theirs = has_theirs.then(|| old.current());
         if ours.is_some() && ours == theirs {
-            ours = new.next().transpose()?;
-            theirs = old.next().transpose()?;
+            has_ours = new.advance()?;
+            has_theirs = old.advance()?;
             continue;
         }
-        let cut_ours = ours.as_deref().map(cut).transpose()?;
-        let cut_theirs = theirs.as_deref().map(cut).transpose()?;
-        if cut_ours.is_some() && cut_ours == cut_theirs {
-            ours = new.next().transpose()?;
-            theirs = old.next().transpose()?;
+        let pieces_ours = ours.map(cut_pieces).transpose()?;
+        let pieces_theirs = theirs.map(cut_pieces).transpose()?;
+        if let (Some(left), Some(right)) = (pieces_ours, pieces_theirs)
+            && joined_equal(left, right)
+        {
+            has_ours = new.advance()?;
+            has_theirs = old.advance()?;
             continue;
         }
+        let cut_ours = pieces_ours.map(|(head, tail)| [head, tail].concat());
+        let cut_theirs = pieces_theirs.map(|(head, tail)| [head, tail].concat());
         let key_ours = cut_ours.as_deref().map(key_of).transpose()?;
         let key_theirs = cut_theirs.as_deref().map(key_of).transpose()?;
         match (&cut_ours, key_ours) {
@@ -265,16 +382,16 @@ pub fn compare(
                 let same = key_theirs.as_ref() == Some(&key_ours);
                 row(UPSERT, cut_ours, key_ours)?;
                 if same {
-                    theirs = old.next().transpose()?;
+                    has_theirs = old.advance()?;
                 }
-                ours = new.next().transpose()?;
+                has_ours = new.advance()?;
             }
             _ => {
                 let (Some(cut_theirs), Some(key_theirs)) = (cut_theirs, key_theirs) else {
                     unreachable!("a record on neither side");
                 };
                 row(TOMBSTONE, &tombstone(&cut_theirs)?, key_theirs)?;
-                theirs = old.next().transpose()?;
+                has_theirs = old.advance()?;
             }
         }
     }
@@ -474,27 +591,39 @@ fn header_line(stamps: &PyValue) -> Raised<Vec<u8>> {
 
 /// The lines a fold walks beside the prior's, each written to the base as it is drawn and counted (`_write_base`'s `through`).
 struct Through<'a> {
-    lines: &'a mut dyn Iterator<Item = Raised<Vec<u8>>>,
+    lines: &'a mut dyn IndexLines,
     stream: &'a mut dyn Write,
     rows: i64,
     rows_bytes: i64,
 }
 
-impl Iterator for Through<'_> {
-    type Item = Raised<Vec<u8>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let line = match self.lines.next()? {
-            Ok(line) => line,
-            Err(failure) => return Some(Err(failure)),
-        };
-        if let Err(failure) = self.stream.write_all(&line) {
-            return Some(Err(failure.into()));
+impl IndexLines for Through<'_> {
+    fn advance(&mut self) -> Raised<bool> {
+        if !self.lines.advance()? {
+            return Ok(false);
         }
+        let line = self.lines.current();
+        self.stream.write_all(line)?;
         self.rows += 1;
         self.rows_bytes += line.len() as i64;
-        Some(Ok(line))
+        Ok(true)
     }
+
+    fn current(&self) -> &[u8] {
+        self.lines.current()
+    }
+}
+
+/// The prior index's materialized lines, its base and segments merged by key ([`KeyedLines`]), as `OpenIndex.lines` reads them.
+pub(crate) fn prior_lines<'a>(opened: &'a OpenIndex, output: &str) -> KeyedLines<'a> {
+    let generation = opened.head.as_ref().map_or(0, |head| head.generation);
+    KeyedLines::new(
+        &opened.files,
+        output,
+        generation,
+        index_key_into,
+        index_key_into,
+    )
 }
 
 /// Delete the single file a corpus from before the segment format holds, once a later head is committed.
@@ -510,7 +639,7 @@ fn write_base(
     corpus: &Path,
     route: &mut IndexRoute,
     stamps: &PyValue,
-    lines: &mut dyn Iterator<Item = Raised<Vec<u8>>>,
+    lines: &mut dyn IndexLines,
     names: &IndexNames,
     sink: &Sink,
 ) -> Raised<IndexWrite> {
@@ -530,28 +659,32 @@ fn write_base(
             names.deflate_threads,
         );
         members.write_all(&header)?;
-        let (rows, rows_bytes) = match &route.opened {
-            None => {
-                let (mut rows, mut rows_bytes) = (0i64, 0i64);
-                for line in &mut *lines {
-                    let line = line?;
-                    members.write_all(&line)?;
-                    rows += 1;
-                    rows_bytes += line.len() as i64;
+        let (rows, rows_bytes) =
+            match &route.opened {
+                None => {
+                    let (mut rows, mut rows_bytes) = (0i64, 0i64);
+                    while lines.advance()? {
+                        let line = lines.current();
+                        members.write_all(line)?;
+                        rows += 1;
+                        rows_bytes += line.len() as i64;
+                    }
+                    (rows, rows_bytes)
                 }
-                (rows, rows_bytes)
-            }
-            Some(opened) => {
-                let mut through = Through {
-                    lines: &mut *lines,
-                    stream: &mut members,
-                    rows: 0,
-                    rows_bytes: 0,
-                };
-                differs = compare(&mut through, &mut opened.lines(name), &mut |_| Ok(()))?;
-                (through.rows, through.rows_bytes)
-            }
-        };
+                Some(opened) => {
+                    let mut through = Through {
+                        lines: &mut *lines,
+                        stream: &mut members,
+                        rows: 0,
+                        rows_bytes: 0,
+                    };
+                    differs =
+                        compare_lines(&mut through, &mut prior_lines(opened, name), &mut |_| {
+                            Ok(())
+                        })?;
+                    (through.rows, through.rows_bytes)
+                }
+            };
         let (mut file, size, sha256) = members.finish()?;
         file.flush()?;
         written = Some(Part {
@@ -596,7 +729,7 @@ fn write_segment(
     corpus: &Path,
     route: &mut IndexRoute,
     stamps: &PyValue,
-    lines: &mut dyn Iterator<Item = Raised<Vec<u8>>>,
+    lines: &mut dyn IndexLines,
     names: &IndexNames,
     sink: &Sink,
 ) -> Raised<IndexWrite> {
@@ -611,7 +744,7 @@ fn write_segment(
         &segment_name(name, prior.generation, number),
         segment_header(name, prior.generation, number, MERGE_KEY),
     );
-    compare(lines, &mut opened.lines(name), &mut |row| {
+    compare_lines(lines, &mut prior_lines(opened, name), &mut |row| {
         part.write(row).map_err(IndexError::from)
     })?;
     let written = part.close()?;
@@ -640,7 +773,7 @@ fn write_segment(
 /// `unit_index.write_index_lines`: write the index under `corpus` from already-projected lines, each with its place, in key order, stamped with the format and the identity of the manifest beside it, so this runs after the manifest is written. It takes one route, decided before anything of the index is written ([`plan_write`]), a new base ([`write_base`]) or a segment or the head alone ([`write_segment`]), and commits by putting the head in place last. `claim` is the pass's fold claim and `sink` counts the writes.
 pub fn write_index_lines(
     corpus: &Path,
-    lines: &mut dyn Iterator<Item = Raised<Vec<u8>>>,
+    lines: &mut dyn IndexLines,
     names: &IndexNames,
     claim: &FoldClaim,
     sink: &Sink,
@@ -673,29 +806,62 @@ pub fn write_index_lines(
 
 /// The index lines the write's runs spilled, run after run in shard order, each line with its newline, as the index's write takes them.
 pub fn spilled_lines(runs: &[SidecarRun]) -> impl Iterator<Item = Raised<Vec<u8>>> + '_ {
-    let mut runs = runs.iter();
-    let mut reading: Option<BufReader<io::Take<PartReader<'_>>>> = None;
-    std::iter::from_fn(move || {
+    let mut lines = SpilledLines::new(runs);
+    std::iter::from_fn(move || match lines.advance() {
+        Ok(true) => Some(Ok(lines.current().to_vec())),
+        Ok(false) => None,
+        Err(failure) => Some(Err(failure)),
+    })
+}
+
+/// What a spill file's reader reads of it at once.
+const SPILL_READ_BYTES: usize = 128 * 1024;
+
+/// [`spilled_lines`] lent one at a time ([`IndexLines`]).
+pub struct SpilledLines<'a> {
+    runs: std::slice::Iter<'a, SidecarRun>,
+    reading: Option<LineReader<io::Take<PartReader<'a>>>>,
+}
+
+impl<'a> SpilledLines<'a> {
+    pub fn new(runs: &'a [SidecarRun]) -> Self {
+        Self {
+            runs: runs.iter(),
+            reading: None,
+        }
+    }
+}
+
+impl IndexLines for SpilledLines<'_> {
+    fn advance(&mut self) -> Raised<bool> {
         loop {
-            if reading.is_none() {
-                let run = runs.next()?;
-                let length = u64::try_from(run.index.length).unwrap_or_default();
-                reading = Some(BufReader::new(
-                    PartReader::new(&run.index.file).take(length),
-                ));
-            }
-            let stream = reading.as_mut().expect("a run being read");
-            let mut line = Vec::new();
-            match stream.read_until(b'\n', &mut line) {
-                Ok(0) => reading = None,
-                Ok(_) => return Some(Ok(line)),
+            let reading = match &mut self.reading {
+                Some(reading) => reading,
+                None => {
+                    let Some(run) = self.runs.next() else {
+                        return Ok(false);
+                    };
+                    let length = u64::try_from(run.index.length).unwrap_or_default();
+                    self.reading.insert(LineReader::with_capacity(
+                        SPILL_READ_BYTES,
+                        PartReader::new(&run.index.file).take(length),
+                    ))
+                }
+            };
+            match reading.advance() {
+                Ok(true) => return Ok(true),
+                Ok(false) => self.reading = None,
                 Err(failure) => {
-                    reading = None;
-                    return Some(Err(failure.into()));
+                    self.reading = None;
+                    return Err(failure.into());
                 }
             }
         }
-    })
+    }
+
+    fn current(&self) -> &[u8] {
+        self.reading.as_ref().map_or(&[], LineReader::current)
+    }
 }
 
 #[cfg(test)]
@@ -786,5 +952,50 @@ mod tests {
             write(Outcome::Base, "fold", 1_234_567, 9).note(),
             "a new base (fold), 1,234,567 records"
         );
+    }
+
+    #[test]
+    fn a_key_read_in_place_is_the_key_index_key_reads_and_fails_as_it_fails() {
+        let lines: [&[u8]; 13] = [
+            b"{\"id\": \"u1\", \"order\": 3, \"batch\": 1, \"class\": \"a\", \"cluster\": \"k\"}\n",
+            b"{\"id\": \"u1\", \"class\": \"a\"}\n",
+            b"{\"id\": \"u1\", \"class\": \"\", \"cluster\": null}\n",
+            "{\"id\": \"u\u{e9}\", \"class\": \"\u{e9}t\u{e9}\", \"cluster\": 1}\n".as_bytes(),
+            b"{\"id\": \"u1\", \"class\": \"a\\\"b\", \"cluster\": 1}\n",
+            b"{\"id\": \"u1\", \"class\": \"a\\u0041\", \"cluster\": 1}\n",
+            b"{\"id\": \"u1\", \"class\": null, \"cluster\": 1}\n",
+            b"{\"id\": \"u1\", \"class\": 7}\n",
+            b"{\"id\": \"u1\", \"class\": \"a\tb\", \"cluster\": 1}\n",
+            b"{\"id\": \"u1\", \"class\": \"\xff\", \"cluster\": 1}\n",
+            b"{\"id\": \"u1\", \"class\": \"a\"x, \"cluster\": 1}\n",
+            b"{\"id\": \"u1\", \"order\": 3}\n",
+            b"{\"id\": ",
+        ];
+        for line in lines {
+            let mut key = KeyBuf::default();
+            key.push(&[b"stale"]);
+            let read = index_key_into(line, &mut key).map(|()| key.to_key());
+            assert_eq!(read, index_key(line), "{}", String::from_utf8_lossy(line));
+        }
+    }
+
+    #[test]
+    fn pieces_join_equal_exactly_when_their_bytes_do() {
+        let text = b"abcabcab";
+        for left in 0..=text.len() {
+            for right in 0..=text.len() {
+                for end in [text.len(), text.len() - 1] {
+                    let a = (&text[..left], &text[left..]);
+                    let b = (&text[..right.min(end)], &text[right.min(end)..end]);
+                    assert_eq!(
+                        joined_equal(a, b),
+                        [a.0, a.1].concat() == [b.0, b.1].concat(),
+                        "{left} {right} {end}"
+                    );
+                }
+            }
+        }
+        let shifted = (&b"bca"[..], &b"bcab"[..]);
+        assert!(!joined_equal((&text[..3], &text[3..7]), shifted));
     }
 }

@@ -523,6 +523,7 @@ unsafe extern "C" {
         stream_size: c_int,
     ) -> c_int;
     fn inflate(strm: *mut z_stream, flush: c_int) -> c_int;
+    fn inflateReset(strm: *mut z_stream) -> c_int;
     fn inflateSetDictionary(strm: *mut z_stream, dictionary: *const u8, length: c_uint) -> c_int;
     fn inflateEnd(strm: *mut z_stream) -> c_int;
     fn crc32(crc: c_ulong, buf: *const u8, len: c_uint) -> c_ulong;
@@ -747,6 +748,45 @@ impl Inflater {
                 produced: (offered_out - (*raw).avail_out) as usize,
             }
         }
+    }
+
+    /// [`Inflater::inflate`] over `input` into `room` bytes past the end of `out`, the same call zlib makes into a slice of that length, with what zlib writes appended to `out` and the room left unfilled never initialized.
+    pub fn inflate_into(&mut self, input: &[u8], out: &mut Vec<u8>, room: usize) -> Inflated {
+        out.reserve(room);
+        let raw = self.stream.raw();
+        let held = out.len();
+        let offered_in = input.len().min(ZLIB_SPAN) as c_uint;
+        let offered_out = room.min(ZLIB_SPAN) as c_uint;
+        // SAFETY: the stream is initialized and owned here; `next_in` describes `avail_in` live bytes of `input`, `next_out` the first `avail_out` bytes of `out`'s spare capacity, which `reserve` made at least `room` long, and `out` is lengthened by exactly the bytes zlib wrote there; zlib's message, when set, is a static NUL-terminated string.
+        unsafe {
+            (*raw).next_in = input.as_ptr();
+            (*raw).avail_in = offered_in;
+            (*raw).next_out = out.as_mut_ptr().add(held);
+            (*raw).avail_out = offered_out;
+            let status = inflate(raw, Z_SYNC_FLUSH);
+            let produced = (offered_out - (*raw).avail_out) as usize;
+            out.set_len(held + produced);
+            let message = (!(*raw).msg.is_null())
+                .then(|| CStr::from_ptr((*raw).msg).to_string_lossy().into_owned());
+            Inflated {
+                status,
+                message,
+                consumed: (offered_in - (*raw).avail_in) as usize,
+                produced,
+            }
+        }
+    }
+
+    /// `inflateReset`: the stream made ready for a new stream of the same window bits, as a decompressor just made with them is, its window and state memory kept; zlib's status when it refuses.
+    pub fn reset(&mut self) -> Result<(), String> {
+        // SAFETY: the stream is initialized and owned here.
+        let status = unsafe { inflateReset(self.stream.raw()) };
+        if status != Z_OK {
+            return Err(format!(
+                "zlib cannot reset a decompressor (status {status})"
+            ));
+        }
+        Ok(())
     }
 
     /// `inflateSetDictionary` with `dictionary`, as `decompressobj` gives its `zdict` to a stream that asks for it: zlib's status and message when zlib refuses it, and its stream error for a dictionary longer than a `uInt` counts, which zlib cannot be handed.
@@ -1097,6 +1137,19 @@ mod tests {
         let step = broken.inflate(&[0xff; 8], &mut out);
         assert!(step.failed());
         assert_eq!(step.message.as_deref(), Some("invalid block type"));
+        broken.reset().expect("reset");
+        let mut appended = b"kept".to_vec();
+        let step = broken.inflate_into(&packed, &mut appended, plain.len() + 1);
+        assert!(step.ended() && step.message.is_none());
+        assert_eq!(
+            (step.consumed, step.produced, &appended[4..]),
+            (packed.len(), plain.len(), &plain[..])
+        );
+        broken.reset().expect("reset");
+        let mut short = Vec::new();
+        let step = broken.inflate_into(&packed, &mut short, 10);
+        assert!(!step.ended() && !step.failed());
+        assert_eq!(short, plain[..10]);
     }
 
     #[test]

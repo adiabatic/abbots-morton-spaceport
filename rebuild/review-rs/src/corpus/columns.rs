@@ -2,7 +2,9 @@
 
 use std::cmp::Ordering;
 use std::fmt;
-use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher, Hash};
+use std::hash::{BuildHasher, BuildHasherDefault, Hash};
+
+use ams_m1_kernel::hash::FastHasher;
 
 /// The empty slot of an open-addressed table, which no id or ordinal takes.
 pub const KEY_EMPTY: u32 = u32::MAX;
@@ -10,8 +12,9 @@ pub const KEY_EMPTY: u32 = u32::MAX;
 /// The code points a window word holds at most.
 pub const WINDOW_SLOTS: usize = 4;
 
+/// A value's hash under the kernel's [`FastHasher`], which the tables probe from; no table's ids or lookups depend on which hasher it is.
 fn hash_of<H: Hash + ?Sized>(value: &H) -> u64 {
-    BuildHasherDefault::<DefaultHasher>::default().hash_one(value)
+    BuildHasherDefault::<FastHasher>::default().hash_one(value)
 }
 
 /// The `u32` a table stores for `count`, which stays below [`KEY_EMPTY`].

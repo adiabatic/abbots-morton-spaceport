@@ -48,12 +48,12 @@ use columns::{KeyIndex, KeyIndexError, RepeatedKey};
 use input::{BuildInput, Member};
 use premerge::PremergeSnapshot;
 use random::verification_sample;
-use records::{ParsedCachedUnit, id_word, prior_record, truthy};
+use records::{Cached, ParsedCachedUnit, id_word, prior_record, truthy};
 use rowdelta::Head;
 use scan::{
-    OpenStore, ScanError, ScanNames, ScannedLine, WantedFragments, adopt_single_file,
+    OpenStore, ScanError, ScanNames, ScannedRecord, WantedFragments, adopt_single_file,
     locate_prior_fragments, manifest_stamp, open_store, rederiving_moved, scan_marked,
-    scan_store_threaded, store_miss_note, trusted_parts,
+    scan_store_flat, store_miss_note, trusted_parts,
 };
 use signatures::{
     AUDIT_IDENTITY_KEY, FAMILY_KEYS_KEY, HeldWindows, InkShaping, MissError, SignatureArrays,
@@ -304,7 +304,7 @@ pub fn load_corpus(
             .map_err(WorkloadError::from)
             .and_then(|mut stream| {
                 stream_workload(
-                    || stream.next_window(),
+                    &mut stream,
                     path,
                     &input.ledger_path,
                     &sections,
@@ -453,6 +453,16 @@ struct PriorRead {
     live: BTreeMap<String, i64>,
 }
 
+/// Count a live fragment of `length` bytes in `part`, with the comma or bracket before it.
+fn add_live(live: &mut BTreeMap<String, i64>, part: &str, length: i64) {
+    match live.get_mut(part) {
+        Some(total) => *total += length + 1,
+        None => {
+            live.insert(part.to_owned(), length + 1);
+        }
+    }
+}
+
 /// What the plan scans with: the prior corpus and its names, the input keys' index over the column it reads, whether the scan parses named lines and keeps addresses, the parts an address is trusted in, the table the loads read, and the threads the scan parses on.
 struct PriorScan<'a> {
     out_dir: &'a Path,
@@ -487,13 +497,42 @@ impl PriorScan<'_> {
         Ok(())
     }
 
+    /// Load one record the scan gave, read flat or parsed, into the store at its own address.
+    fn load_scanned(
+        &self,
+        store: &mut UnitStore,
+        ordinal: u32,
+        cached: &Cached<'_>,
+    ) -> std::result::Result<(), BuildError> {
+        let codepoints = self.table.codepoints(ordinal as usize);
+        match cached {
+            Cached::Flat(view) => store.load_flat(i64::from(ordinal), view, &codepoints),
+            Cached::Parsed(cached) => {
+                let codepoints: Vec<i64> = codepoints.into_iter().map(i64::from).collect();
+                store.load_cached(i64::from(ordinal), cached, &codepoints, None)
+            }
+        }
+        .map_err(failed)?;
+        Ok(())
+    }
+
     /// Whether the fragment `found` carries the record's content key and has the shape this build writes the unit in.
     fn reusable(&self, ordinal: u32, cached: &ParsedCachedUnit, found: &PriorFragment) -> bool {
         found.content_key.as_deref() == Some(cached.content_key.as_str())
             && cached.slim == slim_for(self.table.no_verdict(ordinal as usize), cached)
     }
 
-    /// The plan's reads of the open store `opened`: every record in the store's materialized order, read on one thread and parsed on the scan's threads ([`scan_store_threaded`]), each named one giving its unit its prior line, each reusable one loaded, each one not loaded kept by id while the addresses hold; then the records found without an address placed by one walk over the prior corpus and parsed again alone, each reusable one loaded at the place the walk found.
+    /// Whether a record the scan gave, at its own address, which carries its own content key, has the shape this build writes the unit in ([`PriorScan::reusable`]).
+    fn reusable_in_place(&self, ordinal: u32, cached: &Cached<'_>) -> bool {
+        let (ink_identical, picture_identical, junior_equivalent) = cached.machine_flags();
+        cached.slim()
+            == (ink_identical
+                || picture_identical
+                || junior_equivalent
+                || self.table.no_verdict(ordinal as usize))
+    }
+
+    /// The plan's reads of the open store `opened`: every record in the store's materialized order, read on one thread and read flat or parsed on the scan's threads ([`scan_store_flat`]), each named one giving its unit its prior line, each reusable one loaded, each one not loaded kept by id while the addresses hold; then the records found without an address placed by one walk over the prior corpus and parsed again alone, each reusable one loaded at the place the walk found.
     fn read(
         &self,
         opened: &OpenStore,
@@ -508,15 +547,15 @@ impl PriorScan<'_> {
         let mut addressless: Vec<(u32, u32)> = Vec::new();
         let mut wanted = WantedFragments::new();
         // The parse threads read each kept record beside the line's parse, for every line the load will not take.
-        let kept_record = |scanned: &ScannedLine| {
+        let kept_record = |scanned: &ScannedRecord<'_>, line: &[u8]| {
             let loads = matches!(
                 (&scanned.cached, scanned.ordinal),
                 (Some(cached), Some(ordinal))
-                    if cached.located().is_some_and(|found| self.reusable(ordinal, cached, &found))
+                    if cached.address().is_some() && self.reusable_in_place(ordinal, cached)
             );
-            (self.addresses_hold && !loads).then(|| prior_record(&scanned.line))
+            (self.addresses_hold && !loads).then(|| prior_record(line))
         };
-        scan_store_threaded(
+        scan_store_flat(
             opened,
             self.named,
             self.column,
@@ -526,7 +565,7 @@ impl PriorScan<'_> {
             kept_record,
             |scanned, kept| -> std::result::Result<(), ScanStop> {
                 read.lines += 1;
-                read.rows_bytes += scanned.line.len();
+                read.rows_bytes += scanned.length;
                 let index = i64::try_from(scanned.index).map_err(failed)?;
                 if let Some(ordinal) = scanned.ordinal {
                     store
@@ -534,32 +573,30 @@ impl PriorScan<'_> {
                         .map_err(failed)?;
                 }
                 if let (Some(cached), Some(ordinal)) = (&scanned.cached, scanned.ordinal) {
-                    let Some(found) = cached.located() else {
-                        if let Some(word) = id_word(&cached.prior_id) {
+                    let Some((part, _, length)) = cached.address() else {
+                        if let Some(word) = id_word(cached.prior_id()) {
                             addressless.push((u32::try_from(index).map_err(failed)?, ordinal));
-                            wanted.add(&cached.prior_class, word);
+                            wanted.add(cached.prior_class(), word);
                         }
                         return Ok(());
                     };
-                    if self.reusable(ordinal, cached, &found) {
-                        self.load(store, ordinal, cached, &found)?;
+                    if self.reusable_in_place(ordinal, cached) {
+                        self.load_scanned(store, ordinal, cached)?;
                         *cached_count += 1;
                         if self.addresses_hold {
-                            *read.live.entry(found.part).or_default() += found.length + 1;
+                            add_live(&mut read.live, part, length);
                         }
                         return Ok(());
                     }
                 }
-                if self.addresses_hold {
-                    let record = kept
-                        .unwrap_or_else(|| prior_record(&scanned.line))
-                        .map_err(|why| {
-                            failed(format!("a value the reader does not hold: {why}"))
-                        })?;
+                if let Some(kept) = kept {
+                    let record = kept.map_err(|why| {
+                        failed(format!("a value the reader does not hold: {why}"))
+                    })?;
                     if let Some(record) = record
                         && let Some((part, _, length)) = &record.address
                     {
-                        *read.live.entry(part.clone()).or_default() += length + 1;
+                        add_live(&mut read.live, part, *length);
                         store.add_prior_record(&record).map_err(failed)?;
                     }
                 }

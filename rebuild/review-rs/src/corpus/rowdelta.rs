@@ -1,4 +1,4 @@
-//! The segment format, `rebuild/pipeline/row_delta.py` as the unit store and the units index read and write it. Its readers: a head read and parsed as `parse_head` and `Part.parse` read one, values taken as Python's `int` and `str` take them ([`read_head`], [`parse_head`], [`Head::document`]); every part it lists opened and checked against it ([`open_parts`]); a gzipped base's rows past its header line ([`base_rows`]), a segment's rows after its header is checked ([`check_segment_header`], [`segment_rows`], [`keyed_segment_rows`]), and the parts merged by place and by key as `heapq.merge` streams them ([`merge_placed`], [`merge_keyed`]).
+//! The segment format, `rebuild/pipeline/row_delta.py` as the unit store and the units index read and write it. Its readers: a head read and parsed as `parse_head` and `Part.parse` read one, values taken as Python's `int` and `str` take them ([`read_head`], [`parse_head`], [`Head::document`]); every part it lists opened and checked against it ([`open_parts`]); a gzipped base's rows past its header line ([`base_rows`]), a segment's rows after its header is checked ([`check_segment_header`], [`segment_rows`], [`keyed_segment_rows`]), and the parts merged by place and by key as `heapq.merge` streams them ([`merge_placed`], [`merge_keyed`]), the merge by key also over gzipped parts with each line lent from a buffer its reader keeps rather than returned ([`KeyedLines`], [`LineReader`]).
 //!
 //! Each reader fails as Python's does, with the class and text it raises ([`ReadError`]), and a value Python reads that the reader does not hold (an int beyond 64 bits, or what [`json::unheld`] names) fails as [`ReadError::Unheld`], which fails the build. A reader reads a part by position from its start (`pread`, [`PartReader`]), so readers of one opened part never move each other.
 //!
@@ -768,23 +768,138 @@ pub fn open_parts(
     Ok(opened)
 }
 
+/// The longest line a [`LineReader`] keeps its gathering buffer at once the line is done with; a longer one's buffer is let go.
+const HELD_LINE_BYTES: usize = 1 << 20;
+
+/// Where the first newline in `bytes` is, found eight bytes at a time.
+pub fn find_newline(bytes: &[u8]) -> Option<usize> {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    const NEWLINES: u64 = ONES * b'\n' as u64;
+    let (chunks, remainder) = bytes.as_chunks::<8>();
+    let mut offset = 0;
+    for chunk in chunks {
+        let word = u64::from_le_bytes(*chunk) ^ NEWLINES;
+        if word.wrapping_sub(ONES) & !word & HIGHS != 0
+            && let Some(at) = chunk.iter().position(|&byte| byte == b'\n')
+        {
+            return Some(offset + at);
+        }
+        offset += 8;
+    }
+    remainder
+        .iter()
+        .position(|&byte| byte == b'\n')
+        .map(|at| offset + at)
+}
+
+/// A source's lines lent one at a time, as `BufRead::read_until(b'\n')` cuts them, through a `BufReader` whose reads of the source are the ones `read_until` makes: [`LineReader::advance`] steps to the next line, false at the end, and [`LineReader::current`] is that line, with its newline, until the next step. A line that lies whole in the reader's buffer is lent from it; one that crosses a refill is gathered in a buffer the reader keeps, so no line allocates.
+pub struct LineReader<R: Read> {
+    reader: BufReader<R>,
+    held: Vec<u8>,
+    lent: usize,
+    from_held: bool,
+}
+
+impl<R: Read> LineReader<R> {
+    /// A reader through a `BufReader` of the default capacity, as `BufReader::new` makes one.
+    pub fn new(source: R) -> Self {
+        Self::from_buffered(BufReader::new(source))
+    }
+
+    /// A reader through a `BufReader` of `capacity` bytes.
+    pub fn with_capacity(capacity: usize, source: R) -> Self {
+        Self::from_buffered(BufReader::with_capacity(capacity, source))
+    }
+
+    fn from_buffered(reader: BufReader<R>) -> Self {
+        Self {
+            reader,
+            held: Vec::new(),
+            lent: 0,
+            from_held: false,
+        }
+    }
+
+    /// Step to the next line; false at the source's end. A failure of the source is the I/O error `read_until` returns.
+    pub fn advance(&mut self) -> io::Result<bool> {
+        self.reader.consume(std::mem::take(&mut self.lent));
+        if self.held.capacity() > HELD_LINE_BYTES {
+            self.held = Vec::new();
+        }
+        self.held.clear();
+        loop {
+            let (found, available) = match self.reader.fill_buf() {
+                Ok(buffer) => (find_newline(buffer), buffer.len()),
+                Err(failure) if failure.kind() == io::ErrorKind::Interrupted => continue,
+                Err(failure) => return Err(failure),
+            };
+            match found {
+                Some(at) if self.held.is_empty() => {
+                    self.lent = at + 1;
+                    self.from_held = false;
+                    return Ok(true);
+                }
+                Some(at) => {
+                    self.held.extend_from_slice(&self.reader.buffer()[..=at]);
+                    self.reader.consume(at + 1);
+                    self.from_held = true;
+                    return Ok(true);
+                }
+                None if available == 0 => {
+                    self.from_held = true;
+                    return Ok(!self.held.is_empty());
+                }
+                None => {
+                    self.held.extend_from_slice(self.reader.buffer());
+                    self.reader.consume(available);
+                }
+            }
+        }
+    }
+
+    /// The line the last [`LineReader::advance`] stepped to.
+    pub fn current(&self) -> &[u8] {
+        if self.from_held {
+            &self.held
+        } else {
+            &self.reader.buffer()[..self.lent]
+        }
+    }
+
+    /// The next line, None at the source's end.
+    pub fn next_line(&mut self) -> io::Result<Option<&[u8]>> {
+        Ok(if self.advance()? {
+            Some(self.current())
+        } else {
+            None
+        })
+    }
+}
+
+/// A part's lines read through gzip from its start, as `gzip.GzipFile` iterates them.
+pub type GzipLineReader<'a> = LineReader<GzipReader<PartReader<'a>>>;
+
+/// A gzipped part's lines read from its start through a `BufReader` of the default capacity.
+pub fn gzip_line_reader(file: &File) -> GzipLineReader<'_> {
+    LineReader::new(GzipReader::new(PartReader::new(file)))
+}
+
 /// A gzipped part's lines, read from its start as `gzip.GzipFile` iterates them.
 struct GzipLines<'a> {
-    reader: BufReader<GzipReader<PartReader<'a>>>,
+    reader: GzipLineReader<'a>,
 }
 
 impl<'a> GzipLines<'a> {
     fn new(file: &'a File) -> Self {
         Self {
-            reader: BufReader::new(GzipReader::new(PartReader::new(file))),
+            reader: gzip_line_reader(file),
         }
     }
 
     fn line(&mut self) -> std::result::Result<Option<Vec<u8>>, ReadError> {
-        let mut line = Vec::new();
-        match self.reader.read_until(b'\n', &mut line) {
-            Ok(0) => Ok(None),
-            Ok(_) => Ok(Some(line)),
+        match self.reader.next_line() {
+            Ok(line) => Ok(line.map(<[u8]>::to_vec)),
             Err(failure) => Err(ReadError::of_io(&failure)),
         }
     }
@@ -845,15 +960,28 @@ pub struct Row {
     pub payload: Vec<u8>,
 }
 
-/// `row_delta._parse_row`.
-fn parse_row(line: &[u8]) -> std::result::Result<Row, ReadError> {
-    let fields: Vec<&[u8]> = line.splitn(4, |&byte| byte == b'\t').collect();
-    let [op, anchor, fraction, payload] = fields.as_slice() else {
+/// `row_delta._parse_row`, the payload kept in the line's own buffer.
+fn parse_row(mut line: Vec<u8>) -> std::result::Result<Row, ReadError> {
+    let mut tabs = [0usize; 3];
+    let mut found = 0;
+    for (at, &byte) in line.iter().enumerate() {
+        if byte == b'\t' {
+            tabs[found] = at;
+            found += 1;
+            if found == tabs.len() {
+                break;
+            }
+        }
+    }
+    if found < tabs.len() {
         return Err(ReadError::value(format!(
             "not enough values to unpack (expected 4, got {})",
-            fields.len()
+            found + 1
         )));
-    };
+    }
+    let op = &line[..tabs[0]];
+    let anchor = &line[tabs[0] + 1..tabs[1]];
+    let fraction = &line[tabs[1] + 1..tabs[2]];
     let op = match op {
         [UPSERT] => UPSERT,
         [TOMBSTONE] => TOMBSTONE,
@@ -874,13 +1002,12 @@ fn parse_row(line: &[u8]) -> std::result::Result<Row, ReadError> {
             ),
         ));
     }
+    let fraction = String::from_utf8(fraction.to_vec()).expect("ASCII is UTF-8");
+    line.drain(..=tabs[2]);
     Ok(Row {
         op,
-        place: (
-            anchor,
-            String::from_utf8(fraction.to_vec()).expect("ASCII is UTF-8"),
-        ),
-        payload: payload.to_vec(),
+        place: (anchor, fraction),
+        payload: line,
     })
 }
 
@@ -935,22 +1062,24 @@ pub fn check_segment_header(
 
 /// The header line of a gzipped segment, refused as `row_delta.gzipped_header` refuses a segment that is not gzipped, then checked.
 fn checked_header(
-    lines: &mut GzipLines<'_>,
+    lines: &mut GzipLineReader<'_>,
     output: &str,
     generation: i64,
     number: i64,
     merge: &str,
 ) -> std::result::Result<(), ReadError> {
-    let header = match lines.line() {
+    let header = match lines.next_line() {
         Ok(line) => line.unwrap_or_default(),
-        Err(ReadError::Gzip(GzipError::BadGzipFile(why))) => {
-            return Err(ReadError::Head(format!(
-                "segment {number} of {output} is not a gzipped segment: {why}"
-            )));
+        Err(failure) => {
+            return Err(match ReadError::of_io(&failure) {
+                ReadError::Gzip(GzipError::BadGzipFile(why)) => ReadError::Head(format!(
+                    "segment {number} of {output} is not a gzipped segment: {why}"
+                )),
+                failure => failure,
+            });
         }
-        Err(failure) => return Err(failure),
     };
-    check_segment_header(&header, output, generation, number, merge)
+    check_segment_header(header, output, generation, number, merge)
 }
 
 /// A gzipped segment's header line read from its start and checked against the head that lists it, as `unit_index._checked` reads `row_delta.gzipped_header` and checks it (`check_segment_header`).
@@ -961,7 +1090,13 @@ pub fn check_gzipped_header(
     number: i64,
     merge: &str,
 ) -> std::result::Result<(), ReadError> {
-    checked_header(&mut GzipLines::new(file), output, generation, number, merge)
+    checked_header(
+        &mut gzip_line_reader(file),
+        output,
+        generation,
+        number,
+        merge,
+    )
 }
 
 /// One segment's rows, its header checked at the first read as `row_delta.segment_rows` and `keyed_segment_rows` check it.
@@ -1001,7 +1136,7 @@ impl<'a> SegmentLines<'a> {
         if !self.started {
             self.started = true;
             if let Err(failure) = checked_header(
-                &mut self.lines,
+                &mut self.lines.reader,
                 &self.output,
                 self.generation,
                 self.number,
@@ -1041,12 +1176,27 @@ impl Iterator for SegmentRows<'_> {
     type Item = std::result::Result<Row, ReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let row = self.0.line()?.and_then(|line| parse_row(&line));
+        let row = self.0.line()?.and_then(parse_row);
         if row.is_err() {
             self.0.done = true;
         }
         Some(row)
     }
+}
+
+/// A segment by key's row's operation, when its first tab follows an upsert's or a tombstone's mark.
+fn keyed_op(line: &[u8]) -> Option<u8> {
+    match line {
+        [op, b'\t', ..] if *op == UPSERT || *op == TOMBSTONE => Some(*op),
+        _ => None,
+    }
+}
+
+/// What a segment by key raises for a row that is neither an upsert nor a tombstone.
+fn not_keyed(number: i64, output: &str) -> ReadError {
+    ReadError::value(format!(
+        "segment {number} of {output} holds a row that is not an upsert or a tombstone"
+    ))
 }
 
 /// `row_delta.keyed_segment_rows`: a segment by key's rows, each its operation and its payload with its newline.
@@ -1067,17 +1217,12 @@ impl Iterator for KeyedSegmentRows<'_> {
     type Item = std::result::Result<(u8, Vec<u8>), ReadError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (output, number) = (self.0.output.clone(), self.0.number);
-        let row = self.0.line()?.and_then(|line| {
-            let tab = line.iter().position(|&byte| byte == b'\t');
-            match (tab, line.first()) {
-                (Some(1), Some(&op)) if op == UPSERT || op == TOMBSTONE => {
-                    Ok((op, line[2..].to_vec()))
-                }
-                _ => Err(ReadError::value(format!(
-                    "segment {number} of {output} holds a row that is not an upsert or a tombstone"
-                ))),
+        let row = self.0.line()?.and_then(|mut line| match keyed_op(&line) {
+            Some(op) => {
+                line.drain(..2);
+                Ok((op, line))
             }
+            None => Err(not_keyed(self.0.number, &self.0.output)),
         });
         if row.is_err() {
             self.0.done = true;
@@ -1422,6 +1567,474 @@ impl Iterator for MergeKeyed<'_> {
                 self.state = KeyedState::Done;
                 self.failure = Some(failure);
             }
+        }
+    }
+}
+
+/// A [`Key`] held flat: its fields end to end in one buffer and where each ends, compared field by field as Python compares lists of bytes.
+#[derive(Clone, Debug, Default)]
+pub struct KeyBuf {
+    bytes: Vec<u8>,
+    ends: Vec<usize>,
+}
+
+impl KeyBuf {
+    pub fn clear(&mut self) {
+        self.bytes.clear();
+        self.ends.clear();
+    }
+
+    /// Add one field, `parts` end to end.
+    pub fn push(&mut self, parts: &[&[u8]]) {
+        for part in parts {
+            self.bytes.extend_from_slice(part);
+        }
+        self.ends.push(self.bytes.len());
+    }
+
+    /// The fields in order.
+    pub fn fields(&self) -> impl Iterator<Item = &[u8]> {
+        let mut start = 0;
+        self.ends.iter().map(move |&end| {
+            let field = &self.bytes[start..end];
+            start = end;
+            field
+        })
+    }
+
+    /// Hold `key`'s fields in place of these.
+    pub fn set(&mut self, key: &Key) {
+        self.clear();
+        for field in key {
+            self.push(&[field]);
+        }
+    }
+
+    /// Hold `other`'s fields in place of these.
+    pub fn assign(&mut self, other: &Self) {
+        self.bytes.clear();
+        self.bytes.extend_from_slice(&other.bytes);
+        self.ends.clear();
+        self.ends.extend_from_slice(&other.ends);
+    }
+
+    pub fn to_key(&self) -> Key {
+        self.fields().map(<[u8]>::to_vec).collect()
+    }
+
+    /// `repr` of the key, a list of bytes.
+    fn repr(&self) -> String {
+        let fields: Vec<String> = self.fields().map(bytes_repr).collect();
+        format!("[{}]", fields.join(", "))
+    }
+}
+
+impl PartialEq for KeyBuf {
+    fn eq(&self, other: &Self) -> bool {
+        self.ends == other.ends && self.bytes == other.bytes
+    }
+}
+
+impl Eq for KeyBuf {}
+
+impl PartialOrd for KeyBuf {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for KeyBuf {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.fields().cmp(other.fields())
+    }
+}
+
+/// What writes a row's key, or a tombstone's, into a [`KeyBuf`], failing as the [`KeyOf`] it stands for fails.
+pub type KeyInto = fn(&[u8], &mut KeyBuf) -> std::result::Result<(), ReadError>;
+
+/// A row of a segment by key held past its reader's next line: its operation, its payload with its newline, and its key.
+#[derive(Default)]
+struct HeldRow {
+    op: u8,
+    payload: Vec<u8>,
+    key: KeyBuf,
+}
+
+/// A gzipped base's rows past its header line lent one at a time, as [`BaseRows`] reads them.
+struct BaseLines<'a> {
+    lines: GzipLineReader<'a>,
+    started: bool,
+    done: bool,
+}
+
+impl BaseLines<'_> {
+    fn advance(&mut self) -> std::result::Result<bool, ReadError> {
+        if self.done {
+            return Ok(false);
+        }
+        if !self.started {
+            self.started = true;
+            match self.lines.advance() {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.done = true;
+                    return Ok(false);
+                }
+                Err(failure) => {
+                    self.done = true;
+                    return Err(ReadError::of_io(&failure));
+                }
+            }
+        }
+        match self.lines.advance() {
+            Ok(true) => Ok(true),
+            Ok(false) => {
+                self.done = true;
+                Ok(false)
+            }
+            Err(failure) => {
+                self.done = true;
+                Err(ReadError::of_io(&failure))
+            }
+        }
+    }
+}
+
+/// One segment by key in [`KeyedLines`], read as [`KeyedSegmentRows`] reads it and keyed as [`merge_keyed`] keys it: its header checked at the first read, then each row with its key, checked to strictly ascend. `pulled` says `row` holds a row the merge has not taken.
+struct KeyedSegment<'a> {
+    lines: GzipLineReader<'a>,
+    number: usize,
+    started: bool,
+    done: bool,
+    pulled: bool,
+    row: HeldRow,
+    previous: KeyBuf,
+    has_previous: bool,
+}
+
+impl KeyedSegment<'_> {
+    /// Read the segment's next row into `row`, or nothing at its end, as `heapq.merge` pulls a stream's next item.
+    fn pull(
+        &mut self,
+        output: &str,
+        generation: i64,
+        key: KeyInto,
+        tombstone_key: KeyInto,
+    ) -> std::result::Result<(), ReadError> {
+        self.pulled = false;
+        if self.done {
+            return Ok(());
+        }
+        let number = self.number as i64;
+        if !self.started {
+            self.started = true;
+            if let Err(failure) =
+                checked_header(&mut self.lines, output, generation, number, MERGE_KEY)
+            {
+                self.done = true;
+                return Err(failure);
+            }
+        }
+        let line = match self.lines.next_line() {
+            Ok(Some(line)) => line,
+            Ok(None) => {
+                self.done = true;
+                return Ok(());
+            }
+            Err(failure) => {
+                self.done = true;
+                return Err(ReadError::of_io(&failure));
+            }
+        };
+        let Some(op) = keyed_op(line) else {
+            self.done = true;
+            return Err(not_keyed(number, output));
+        };
+        self.row.op = op;
+        self.row.payload.clear();
+        self.row.payload.extend_from_slice(&line[2..]);
+        if op == UPSERT {
+            key(&self.row.payload, &mut self.row.key)?;
+        } else {
+            tombstone_key(&self.row.payload, &mut self.row.key)?;
+        }
+        if self.has_previous && self.row.key <= self.previous {
+            return Err(ReadError::value(format!(
+                "segment {} is out of key order at {}",
+                self.number,
+                self.row.key.repr()
+            )));
+        }
+        self.previous.assign(&self.row.key);
+        self.has_previous = true;
+        self.pulled = true;
+        Ok(())
+    }
+}
+
+/// Which line [`KeyedLines::current`] lends.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Lent {
+    Nothing,
+    Base,
+    Change,
+}
+
+/// Where [`KeyedLines`] stands between two of its lines, as [`MergeKeyed`]'s steps stand; `Row` holds a base row whose key is read, not yet passed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum KeyedStep {
+    Start,
+    Base,
+    Row,
+    Streaming,
+    Tail,
+    Done,
+}
+
+/// [`merge_keyed`] over a gzipped base and its gzipped segments by key, as `OpenIndex.lines` reads them ([`base_rows`], [`keyed_segment_rows`]), with each line lent rather than returned ([`KeyedLines::advance`], [`KeyedLines::current`]): the same lines in the same order, and each failure after the same lines. A base row is lent from its reader; a segment's row is copied once into buffers the merge keeps, since the merge holds it past that segment's next row, and keys are read into buffers it keeps ([`KeyBuf`]).
+pub struct KeyedLines<'a> {
+    base: BaseLines<'a>,
+    segments: Vec<KeyedSegment<'a>>,
+    output: String,
+    generation: i64,
+    key: KeyInto,
+    tombstone_key: KeyInto,
+    merge_started: bool,
+    merge_last: Option<usize>,
+    merge_done: bool,
+    held: HeldRow,
+    has_held: bool,
+    latest_done: bool,
+    change: HeldRow,
+    has_change: bool,
+    pending_change: bool,
+    row_key: KeyBuf,
+    previous: KeyBuf,
+    has_previous: bool,
+    step: KeyedStep,
+    lent: Lent,
+}
+
+impl<'a> KeyedLines<'a> {
+    /// The lines of `files`, a base then its segments numbered from 1, of `output`'s `generation`; with no segment, the base's rows alone.
+    pub fn new(
+        files: &'a [File],
+        output: &str,
+        generation: i64,
+        key: KeyInto,
+        tombstone_key: KeyInto,
+    ) -> Self {
+        let segments = files[1..]
+            .iter()
+            .enumerate()
+            .map(|(index, file)| KeyedSegment {
+                lines: gzip_line_reader(file),
+                number: index + 1,
+                started: false,
+                done: false,
+                pulled: false,
+                row: HeldRow::default(),
+                previous: KeyBuf::default(),
+                has_previous: false,
+            })
+            .collect();
+        Self {
+            base: BaseLines {
+                lines: gzip_line_reader(&files[0]),
+                started: false,
+                done: false,
+            },
+            segments,
+            output: output.to_owned(),
+            generation,
+            key,
+            tombstone_key,
+            merge_started: false,
+            merge_last: None,
+            merge_done: false,
+            held: HeldRow::default(),
+            has_held: false,
+            latest_done: false,
+            change: HeldRow::default(),
+            has_change: false,
+            pending_change: false,
+            row_key: KeyBuf::default(),
+            previous: KeyBuf::default(),
+            has_previous: false,
+            step: KeyedStep::Start,
+            lent: Lent::Nothing,
+        }
+    }
+
+    fn pull(&mut self, index: usize) -> std::result::Result<(), ReadError> {
+        self.segments[index].pull(&self.output, self.generation, self.key, self.tombstone_key)
+    }
+
+    /// [`HeapMerge`] over the segments: the segment whose row comes next, its row taken, or None at their end.
+    fn merge_next(&mut self) -> std::result::Result<Option<usize>, ReadError> {
+        if self.merge_done {
+            return Ok(None);
+        }
+        let pulled = if self.merge_started {
+            self.merge_last.map_or(Ok(()), |index| self.pull(index))
+        } else {
+            self.merge_started = true;
+            (0..self.segments.len()).try_for_each(|index| self.pull(index))
+        };
+        if let Err(failure) = pulled {
+            self.merge_done = true;
+            return Err(failure);
+        }
+        let least = (0..self.segments.len())
+            .filter(|&index| self.segments[index].pulled)
+            .min_by(|&left, &right| {
+                self.segments[left]
+                    .row
+                    .key
+                    .cmp(&self.segments[right].row.key)
+                    .then(right.cmp(&left))
+            });
+        let Some(index) = least else {
+            self.merge_done = true;
+            return Ok(None);
+        };
+        self.merge_last = Some(index);
+        self.segments[index].pulled = false;
+        Ok(Some(index))
+    }
+
+    /// The next change, the latest segment's row at each key ([`Latest`]), into `change`; `has_change` is false at their end.
+    fn next_change(&mut self) -> std::result::Result<(), ReadError> {
+        self.has_change = false;
+        if self.latest_done {
+            return Ok(());
+        }
+        loop {
+            match self.merge_next() {
+                Ok(Some(index)) => {
+                    if !self.has_held {
+                        std::mem::swap(&mut self.held, &mut self.segments[index].row);
+                        self.has_held = true;
+                    } else if self.held.key != self.segments[index].row.key {
+                        std::mem::swap(&mut self.change, &mut self.held);
+                        std::mem::swap(&mut self.held, &mut self.segments[index].row);
+                        self.has_change = true;
+                        return Ok(());
+                    }
+                }
+                Ok(None) => {
+                    self.latest_done = true;
+                    if self.has_held {
+                        std::mem::swap(&mut self.change, &mut self.held);
+                        self.has_held = false;
+                        self.has_change = true;
+                    }
+                    return Ok(());
+                }
+                Err(failure) => {
+                    self.latest_done = true;
+                    return Err(failure);
+                }
+            }
+        }
+    }
+
+    /// Pass the change in hand: lend it when it is an upsert, reading the next change at the following step, or read the next change now.
+    fn take_change(&mut self) -> std::result::Result<bool, ReadError> {
+        if self.change.op == UPSERT {
+            self.lent = Lent::Change;
+            self.pending_change = true;
+            return Ok(true);
+        }
+        self.next_change()?;
+        Ok(false)
+    }
+
+    fn step(&mut self) -> std::result::Result<bool, ReadError> {
+        loop {
+            if self.pending_change {
+                self.pending_change = false;
+                self.next_change()?;
+            }
+            match self.step {
+                KeyedStep::Done => return Ok(false),
+                KeyedStep::Start => {
+                    self.step = KeyedStep::Base;
+                    self.next_change()?;
+                }
+                KeyedStep::Base => {
+                    if !self.base.advance()? {
+                        self.step = KeyedStep::Tail;
+                        continue;
+                    }
+                    if !self.has_change {
+                        self.step = KeyedStep::Streaming;
+                        self.lent = Lent::Base;
+                        return Ok(true);
+                    }
+                    (self.key)(self.base.lines.current(), &mut self.row_key)?;
+                    if self.has_previous && self.row_key <= self.previous {
+                        return Err(ReadError::value(format!(
+                            "the base is out of key order at {}",
+                            self.row_key.repr()
+                        )));
+                    }
+                    self.previous.assign(&self.row_key);
+                    self.has_previous = true;
+                    self.step = KeyedStep::Row;
+                }
+                KeyedStep::Row => {
+                    if self.has_change && self.change.key < self.row_key {
+                        if self.take_change()? {
+                            return Ok(true);
+                        }
+                        continue;
+                    }
+                    self.step = KeyedStep::Base;
+                    if self.has_change && self.change.key == self.row_key {
+                        if self.take_change()? {
+                            return Ok(true);
+                        }
+                        continue;
+                    }
+                    self.lent = Lent::Base;
+                    return Ok(true);
+                }
+                KeyedStep::Streaming => {
+                    if self.base.advance()? {
+                        self.lent = Lent::Base;
+                        return Ok(true);
+                    }
+                    self.step = KeyedStep::Done;
+                }
+                KeyedStep::Tail => {
+                    if !self.has_change {
+                        self.step = KeyedStep::Done;
+                    } else if self.take_change()? {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Step to the next line; false at the end. A failure ends the lines.
+    pub fn advance(&mut self) -> std::result::Result<bool, ReadError> {
+        self.lent = Lent::Nothing;
+        let stepped = self.step();
+        if stepped.is_err() {
+            self.step = KeyedStep::Done;
+            self.pending_change = false;
+        }
+        stepped
+    }
+
+    /// The line the last [`KeyedLines::advance`] stepped to.
+    pub fn current(&self) -> &[u8] {
+        match self.lent {
+            Lent::Nothing => &[],
+            Lent::Base => self.base.lines.current(),
+            Lent::Change => &self.change.payload,
         }
     }
 }
@@ -2271,5 +2884,180 @@ mod tests {
             failure,
             ReadError::value("segment 1 is out of key order at [b'a']".to_owned())
         );
+    }
+
+    /// A small deterministic generator for the readers' randomized comparisons.
+    struct Draws(u64);
+
+    impl Draws {
+        fn below(&mut self, bound: u64) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % bound
+        }
+    }
+
+    #[test]
+    fn a_line_reader_cuts_and_reads_as_read_until_does() {
+        let mut draws = Draws(7);
+        for &capacity in &[1usize, 2, 3, 7, 8, 9, 64, 8192] {
+            for _ in 0..40 {
+                let length = draws.below(300) as usize;
+                let data: Vec<u8> = (0..length)
+                    .map(|_| match draws.below(6) {
+                        0 => b'\n',
+                        _ => b'a' + draws.below(26) as u8,
+                    })
+                    .collect();
+                let mut expected = Vec::new();
+                let mut reader = BufReader::with_capacity(capacity, &data[..]);
+                loop {
+                    let mut line = Vec::new();
+                    if reader.read_until(b'\n', &mut line).expect("read") == 0 {
+                        break;
+                    }
+                    expected.push(line);
+                }
+                let mut lent = Vec::new();
+                let mut lines = LineReader::with_capacity(capacity, &data[..]);
+                while let Some(line) = lines.next_line().expect("read") {
+                    lent.push(line.to_vec());
+                }
+                assert_eq!(lent, expected, "capacity {capacity}");
+            }
+        }
+        for length in 0..40 {
+            for at in 0..length {
+                let mut bytes = vec![b'x'; length];
+                bytes[at] = b'\n';
+                assert_eq!(find_newline(&bytes), Some(at));
+                bytes[at] = b'\n' ^ 0x80;
+                assert_eq!(find_newline(&bytes), None);
+            }
+        }
+    }
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("ams-review-rowdelta-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).expect("scratch");
+        directory
+    }
+
+    /// `text` as a gzip stream, cut to `keep` bytes when given.
+    fn gzipped(text: &[u8], keep: Option<usize>) -> Vec<u8> {
+        let mut stream = GzipWriter::new(Vec::new(), "part", PART_LEVEL, MTIME).expect("stream");
+        stream.write_all(text).expect("written");
+        let mut data = stream.finish().expect("finished");
+        if let Some(keep) = keep {
+            data.truncate(keep.min(data.len()));
+        }
+        data
+    }
+
+    fn word(payload: &[u8]) -> &[u8] {
+        payload
+            .split(|&byte| byte == b' ' || byte == b'\n')
+            .next()
+            .unwrap_or_default()
+    }
+
+    fn word_key(payload: &[u8]) -> std::result::Result<Key, ReadError> {
+        if payload.starts_with(b"!") {
+            return Err(ReadError::value("no key".to_owned()));
+        }
+        Ok(vec![word(payload).to_vec(), b"k".to_vec()])
+    }
+
+    fn word_key_into(payload: &[u8], key: &mut KeyBuf) -> std::result::Result<(), ReadError> {
+        key.set(&word_key(payload)?);
+        Ok(())
+    }
+
+    /// The lines [`merge_keyed`] gives over gzipped parts, and the ones [`KeyedLines`] lends, each up to and with the first failure.
+    fn both_merges(files: &[File]) -> [Vec<std::result::Result<Vec<u8>, ReadError>>; 2] {
+        let segments: Vec<Stream<'_, (u8, Vec<u8>)>> = files[1..]
+            .iter()
+            .enumerate()
+            .map(|(index, file)| {
+                Box::new(keyed_segment_rows(file, "out", 3, index as i64 + 1)) as Stream<'_, _>
+            })
+            .collect();
+        let expected =
+            merge_keyed(base_rows(&files[0]), segments, &word_key, &word_key).collect::<Vec<_>>();
+        let mut lent = Vec::new();
+        let mut lines = KeyedLines::new(files, "out", 3, word_key_into, word_key_into);
+        loop {
+            match lines.advance() {
+                Ok(true) => lent.push(Ok(lines.current().to_vec())),
+                Ok(false) => break,
+                Err(failure) => lent.push(Err(failure)),
+            }
+        }
+        [expected, lent]
+    }
+
+    #[test]
+    fn lent_keyed_lines_are_the_merge_by_keys_lines_and_failures() {
+        let directory = scratch_dir("keyed");
+        let mut draws = Draws(11);
+        for case in 0..400 {
+            let segments = draws.below(4) as usize;
+            let mut parts = Vec::new();
+            let mut text = b"{\"header\": 1}\n".to_vec();
+            let mut keys: Vec<u64> = (0..30).filter(|_| draws.below(3) == 0).collect();
+            if draws.below(12) == 0 && keys.len() > 2 {
+                keys.swap(0, 1);
+            }
+            for key in &keys {
+                text.extend_from_slice(format!("w{key:02} base {case}\n").as_bytes());
+            }
+            if draws.below(15) == 0 {
+                text.extend_from_slice(b"!bad\n");
+            }
+            let cut = (draws.below(20) == 0).then(|| draws.below(60) as usize);
+            parts.push(gzipped(&text, cut));
+            for number in 1..=segments {
+                let mut text = segment_header("out", 3, number as i64, MERGE_KEY);
+                if draws.below(25) == 0 {
+                    text = segment_header("out", 3, number as i64 + 1, MERGE_KEY);
+                }
+                let mut keys: Vec<u64> = (0..32).filter(|_| draws.below(4) == 0).collect();
+                if draws.below(12) == 0 && keys.len() > 2 {
+                    keys.swap(1, 2);
+                }
+                for key in keys {
+                    let op = if draws.below(3) == 0 { '-' } else { '+' };
+                    text.extend_from_slice(
+                        format!("{op}\tw{key:02} seg{number} {case}\n").as_bytes(),
+                    );
+                }
+                match draws.below(30) {
+                    0 => text.extend_from_slice(b"x\tw99\n"),
+                    1 => text.extend_from_slice(b"+\t!w99\n"),
+                    _ => {}
+                }
+                let cut = (draws.below(25) == 0).then(|| draws.below(80) as usize);
+                parts.push(gzipped(&text, cut));
+            }
+            if draws.below(30) == 0 {
+                parts[0] = b"not gzip".to_vec();
+            }
+            let files: Vec<File> = parts
+                .iter()
+                .enumerate()
+                .map(|(index, data)| {
+                    let path = directory.join(format!("part-{index}"));
+                    std::fs::write(&path, data).expect("part");
+                    File::open(&path).expect("opened")
+                })
+                .collect();
+            let [expected, lent] = both_merges(&files);
+            assert_eq!(lent, expected, "case {case}");
+        }
+        std::fs::remove_dir_all(&directory).expect("removed");
     }
 }

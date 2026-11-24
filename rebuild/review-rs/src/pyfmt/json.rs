@@ -2,7 +2,7 @@
 //!
 //! The writers cover every form the build writes: `json.dumps(value)` ([`dumps`]), with `sort_keys=True` ([`dumps_sorted`], the carry projection whose sha256 is a unit's content key, and `manifest_sha256`), with `indent=1` ([`dumps_indent`], `manifest.json` and the row-delta heads), with `ensure_ascii=False` ([`dumps_unicode`], the index and app lines), with `separators=(",", ":")` ([`dumps_compact`], `review-facts.json`), and a fragment's shard bytes, `json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]` ([`fragment_text`]). A tuple is written as a list, as `json` writes one. A dict key must be a `str`: one `json` would stringify (an int, a bool, None) is refused, as are bytes, a set and a record, which `json` refuses; there is no float to write.
 //!
-//! The reader ([`loads`] for a `str`, [`loads_bytes`] for `bytes`, and [`raw_decode`] for one value inside a `str`, as a shard part's walk reads its elements) reads what `json.loads` reads into the value it gives: an object as a dict whose repeated key keeps its first place and its last value, an array as a list, and an int as an int. It refuses what `json.loads` refuses, and what `json.loads` reads but the value model cannot hold: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, a lone surrogate, escaped or in the bytes, and text `json.detect_encoding` takes for UTF-16 or UTF-32. Such a refusal names [`UNHELD`], so [`unheld`] tells it from one `json.loads` makes too: the reader reads on past a value it cannot hold and refuses it only when the rest of the text reads, so a text `json.loads` refuses anywhere is never taken for one it reads.
+//! The reader ([`loads`] for a `str`, [`loads_bytes`] for `bytes`, and [`raw_decode`] for one value inside a `str`, as a shard part's walk reads its elements) reads what `json.loads` reads into the value it gives: an object as a dict whose repeated key keeps its first place and its last value, an array as a list, and an int as an int. It refuses what `json.loads` refuses, and what `json.loads` reads but the value model cannot hold: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, a lone surrogate, escaped or in the bytes, and text `json.detect_encoding` takes for UTF-16 or UTF-32. Such a refusal names [`UNHELD`], so [`unheld`] tells it from one `json.loads` makes too: the reader reads on past a value it cannot hold and refuses it only when the rest of the text reads, so a text `json.loads` refuses anywhere is never taken for one it reads. [`Cursor`] walks a text's bytes forward without building a value, for a caller that reads a few fields of a document and leaves the rest to the reader.
 
 use super::{INT_MAX_STR_DIGITS, PyFmtError, PyValue, int_digits_exceeded};
 
@@ -678,6 +678,279 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// The most digits an int [`Cursor::int`] reads has, the most an `i64` holds.
+const CURSOR_INT_DIGITS: usize = 19;
+
+/// Whether a JSON string runs on over the byte: anything but `"`, `\` and the C0 controls.
+fn plain(byte: u8) -> bool {
+    byte >= 0x20 && byte != b'"' && byte != b'\\'
+}
+
+/// The bytes of `word`, read little-endian, that a JSON string stops at (`"`, `\` and the C0 controls), each as its high bit: the lowest bit set is the first such byte, and none is set when there is none. A bit above the lowest can be set for a byte that is not one, from the borrow out of the byte below it.
+fn stops_in(word: u64) -> u64 {
+    const ONES: u64 = 0x0101_0101_0101_0101;
+    const HIGHS: u64 = 0x8080_8080_8080_8080;
+    let zeros = |word: u64| word.wrapping_sub(ONES) & !word & HIGHS;
+    (word.wrapping_sub(0x20 * ONES) & !word & HIGHS)
+        | zeros(word ^ (u64::from(b'"') * ONES))
+        | zeros(word ^ (u64::from(b'\\') * ONES))
+}
+
+/// A forward read over one JSON text's bytes, as [`loads_bytes`] reads them, that allocates nothing of its own. Each step gives None where [`loads_bytes`] refuses the text or reads a value the model cannot hold, and also where the text takes a form the cursor does not read: an int followed by `.`, `e` or `E`, an int of more than nineteen digits, a `\u` escape of a surrogate, and a key with an escape where [`Cursor::key`] matches keys. A caller that gets None reads the text with [`loads_bytes`] instead, so a text the cursor reads to its end is one [`loads_bytes`] reads to the same values. It reads a `str`: a caller starts it only on bytes that are UTF-8 and whose first byte is `{`, which `json.detect_encoding` takes for UTF-8 with no byte order mark and [`loads_bytes`] decodes to the same text.
+#[derive(Clone, Debug)]
+pub struct Cursor<'a> {
+    text: &'a str,
+    bytes: &'a [u8],
+    at: usize,
+}
+
+impl<'a> Cursor<'a> {
+    /// A cursor at the start of `text`.
+    pub fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            bytes: text.as_bytes(),
+            at: 0,
+        }
+    }
+
+    /// The byte at the cursor.
+    pub fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.at).copied()
+    }
+
+    fn whitespace(&mut self) {
+        while let Some(b' ' | b'\t' | b'\n' | b'\r') = self.peek() {
+            self.at += 1;
+        }
+    }
+
+    /// The end of the text, past JSON's whitespace, as `json.loads` requires after the one value.
+    pub fn end(&mut self) -> Option<()> {
+        self.whitespace();
+        (self.at == self.bytes.len()).then_some(())
+    }
+
+    fn word(&mut self, word: &[u8]) -> Option<()> {
+        self.bytes[self.at..].starts_with(word).then(|| {
+            self.at += word.len();
+        })
+    }
+
+    /// `null` at the cursor.
+    pub fn null(&mut self) -> Option<()> {
+        self.word(b"null")
+    }
+
+    /// `true` or `false` at the cursor.
+    pub fn bool(&mut self) -> Option<bool> {
+        match self.peek()? {
+            b't' => self.word(b"true").map(|()| true),
+            b'f' => self.word(b"false").map(|()| false),
+            _ => None,
+        }
+    }
+
+    /// An int at the cursor, as `json`'s `NUMBER_RE` reads one with no fraction or exponent.
+    pub fn int(&mut self) -> Option<i64> {
+        let negative = self.peek() == Some(b'-');
+        if negative {
+            self.at += 1;
+        }
+        let start = self.at;
+        match self.peek()? {
+            b'0' => self.at += 1,
+            b'1'..=b'9' => {
+                while let Some(b'0'..=b'9') = self.peek() {
+                    self.at += 1;
+                }
+            }
+            _ => return None,
+        }
+        let digits = &self.bytes[start..self.at];
+        if digits.len() > CURSOR_INT_DIGITS || matches!(self.peek(), Some(b'.' | b'e' | b'E')) {
+            return None;
+        }
+        let magnitude = digits
+            .iter()
+            .fold(0i128, |value, &digit| value * 10 + i128::from(digit - b'0'));
+        i64::try_from(if negative { -magnitude } else { magnitude }).ok()
+    }
+
+    /// A string at the cursor, its text appended to `out` when there is one; whether it holds an escape.
+    fn scan_string(&mut self, mut out: Option<&mut String>) -> Option<bool> {
+        if self.peek()? != b'"' {
+            return None;
+        }
+        self.at += 1;
+        let mut escaped = false;
+        loop {
+            let run = self.at;
+            while let Some(word) = self.bytes.get(self.at..self.at + 8) {
+                let stops = stops_in(u64::from_le_bytes(word.try_into().expect("eight bytes")));
+                if stops != 0 {
+                    self.at += (stops.trailing_zeros() / 8) as usize;
+                    break;
+                }
+                self.at += 8;
+            }
+            while self.peek().is_some_and(plain) {
+                self.at += 1;
+            }
+            if let Some(out) = out.as_deref_mut() {
+                out.push_str(&self.text[run..self.at]);
+            }
+            match self.peek()? {
+                b'"' => {
+                    self.at += 1;
+                    return Some(escaped);
+                }
+                b'\\' => {
+                    escaped = true;
+                    let (letter, length) = match *self.bytes.get(self.at + 1)? {
+                        b'"' => ('"', 2),
+                        b'\\' => ('\\', 2),
+                        b'/' => ('/', 2),
+                        b'b' => ('\u{8}', 2),
+                        b'f' => ('\u{c}', 2),
+                        b'n' => ('\n', 2),
+                        b'r' => ('\r', 2),
+                        b't' => ('\t', 2),
+                        b'u' => {
+                            let digits = self.bytes.get(self.at + 2..self.at + 6)?;
+                            let unit = digits.iter().try_fold(0u32, |unit, &digit| {
+                                Some((unit << 4) | char::from(digit).to_digit(16)?)
+                            })?;
+                            (char::from_u32(unit)?, 6)
+                        }
+                        _ => return None,
+                    };
+                    self.at += length;
+                    if let Some(out) = out.as_deref_mut() {
+                        out.push(letter);
+                    }
+                }
+                _ => return None,
+            }
+        }
+    }
+
+    /// A string at the cursor, its text appended to `out`.
+    pub fn string(&mut self, out: &mut String) -> Option<()> {
+        self.scan_string(Some(out)).map(drop)
+    }
+
+    /// Past the `{` at the cursor and the whitespace after it.
+    pub fn open_object(&mut self) -> Option<()> {
+        if self.peek()? != b'{' {
+            return None;
+        }
+        self.at += 1;
+        self.whitespace();
+        Some(())
+    }
+
+    /// The next key of the object the cursor is in, past its `:` and the whitespace after it, its value next; None in the inner option past the object's `}`. `first` says the object was just opened, so no `,` comes before the key. With `plain`, a key with an escape is not read.
+    fn entry(&mut self, first: bool, plain: bool) -> Option<Option<&'a str>> {
+        if !first {
+            self.whitespace();
+            match self.peek()? {
+                b'}' => {
+                    self.at += 1;
+                    return Some(None);
+                }
+                b',' => {
+                    self.at += 1;
+                    self.whitespace();
+                }
+                _ => return None,
+            }
+        } else if self.peek()? == b'}' {
+            self.at += 1;
+            return Some(None);
+        }
+        let start = self.at + 1;
+        if self.scan_string(None)? && plain {
+            return None;
+        }
+        let key = &self.text[start..self.at - 1];
+        self.whitespace();
+        if self.peek()? != b':' {
+            return None;
+        }
+        self.at += 1;
+        self.whitespace();
+        Some(Some(key))
+    }
+
+    /// The next key of the object the cursor is in, as [`Cursor::entry`] reads it, a key with an escape not read.
+    pub fn key(&mut self, first: bool) -> Option<Option<&'a str>> {
+        self.entry(first, true)
+    }
+
+    /// Past the `[` at the cursor and the whitespace after it.
+    pub fn open_array(&mut self) -> Option<()> {
+        if self.peek()? != b'[' {
+            return None;
+        }
+        self.at += 1;
+        self.whitespace();
+        Some(())
+    }
+
+    /// Whether another item of the array the cursor is in follows, the cursor at it; false past the array's `]`. `first` says the array was just opened, so no `,` comes before the item.
+    pub fn item(&mut self, first: bool) -> Option<bool> {
+        if !first {
+            self.whitespace();
+            match self.peek()? {
+                b']' => {
+                    self.at += 1;
+                    Some(false)
+                }
+                b',' => {
+                    self.at += 1;
+                    self.whitespace();
+                    (self.peek() != Some(b']')).then_some(true)
+                }
+                _ => None,
+            }
+        } else if self.peek() == Some(b']') {
+            self.at += 1;
+            Some(false)
+        } else {
+            Some(true)
+        }
+    }
+
+    /// Past the value at the cursor, whatever it is.
+    pub fn skip(&mut self) -> Option<()> {
+        match self.peek()? {
+            b'"' => self.scan_string(None).map(drop),
+            b'{' => {
+                self.open_object()?;
+                let mut first = true;
+                while self.entry(first, false)?.is_some() {
+                    self.skip()?;
+                    first = false;
+                }
+                Some(())
+            }
+            b'[' => {
+                self.open_array()?;
+                let mut first = true;
+                while self.item(first)? {
+                    self.skip()?;
+                    first = false;
+                }
+                Some(())
+            }
+            b'n' => self.null(),
+            b't' | b'f' => self.bool().map(drop),
+            _ => self.int().map(drop),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -810,6 +1083,88 @@ mod tests {
             loads_bytes(b"\xef\xbb\xbf[]").expect("read"),
             PyValue::List(vec![])
         );
+    }
+
+    #[test]
+    fn the_first_stop_in_a_word_is_its_lowest_flagged_byte() {
+        for first in 0..8 {
+            for stop in [b'"', b'\\', 0, 0x1f] {
+                for other in [b' ', b'a', 0x7f, 0x80, 0xa0, 0xff, b'"', 0x01] {
+                    let mut bytes = [b'x'; 8];
+                    bytes[first] = stop;
+                    for byte in &mut bytes[first + 1..] {
+                        *byte = other;
+                    }
+                    let stops = stops_in(u64::from_le_bytes(bytes));
+                    assert_eq!(stops.trailing_zeros() / 8, first as u32, "{bytes:?}");
+                }
+            }
+        }
+        for byte in (0x20..=0xffu8).filter(|&byte| byte != b'"' && byte != b'\\') {
+            assert_eq!(stops_in(u64::from_le_bytes([byte; 8])), 0, "{byte}");
+        }
+    }
+
+    /// Whether a cursor reads `data` as one value with only whitespace after it.
+    fn cursor_reads(data: &[u8]) -> bool {
+        let Ok(text) = std::str::from_utf8(data) else {
+            return false;
+        };
+        let mut cursor = Cursor::new(text);
+        cursor.skip().and_then(|()| cursor.end()).is_some()
+    }
+
+    #[test]
+    fn a_cursor_reads_a_text_only_where_loads_reads_it_to_values_it_holds() {
+        for text in [
+            "{}",
+            "[]",
+            "-0",
+            "-9223372036854775808",
+            "\"\\u00e9\\/\\\"\u{e9}\"",
+            "{\"a\": [1, -2, true, false, null, \"x\\n\"], \"a\": {}, \"\\u0062\": [[]]}\n",
+            "[ 1 ,\t2\r\n]",
+        ] {
+            assert!(loads_bytes(text.as_bytes()).is_ok(), "{text:?}");
+            assert!(cursor_reads(text.as_bytes()), "{text:?}");
+        }
+        for text in [
+            "1.5",
+            "1e5",
+            "NaN",
+            "-Infinity",
+            "9223372036854775808",
+            r#""\ud800""#,
+            r#""\ud83d\ude00""#,
+            "",
+            "[1,]",
+            "{\"a\":1,}",
+            "{a:1}",
+            "01",
+            "-",
+            "[1 2]",
+            "{} x",
+            "\"\t\"",
+            "\"\\x\"",
+            "\"\\u12\"",
+            "tru",
+            "1.",
+            "1e",
+            "[1.]",
+            " 1",
+        ] {
+            assert!(!cursor_reads(text.as_bytes()), "{text:?}");
+        }
+        for data in [b"\"\xff\"".as_slice(), b"\"\xed\xa0\x80\"", b"\"\xc3\""] {
+            assert!(!cursor_reads(data), "{data:?}");
+        }
+        let mut cursor = Cursor::new(r#"{"k": "v\u00e9", "\u006b": 1}"#);
+        let mut out = String::new();
+        cursor.open_object().expect("an object");
+        assert_eq!(cursor.key(true), Some(Some("k")));
+        cursor.string(&mut out).expect("a string");
+        assert_eq!(out, "v\u{e9}");
+        assert_eq!(cursor.key(false), None);
     }
 
     #[test]

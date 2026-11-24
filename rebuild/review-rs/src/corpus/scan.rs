@@ -1,4 +1,4 @@
-//! The plan's reads of the prior corpus: the unit store opened ([`open_store`]), its materialized lines read in order as `unit_index.store_lines` merges its base and segments ([`OpenStore::lines`]), each matched to a unit of this build by its input key and, where the plan may reuse it, parsed, the lines read on one thread and parsed on several and handed back in the store's order ([`scan_store_threaded`]), and the lines the walk placed parsed again alone ([`scan_marked`]); the parts a record's address is trusted in ([`trusted_parts`]) and the manifest identity the store is stamped with ([`manifest_stamp`], [`manifest_identity`]); the records the scan found without an address ([`WantedFragments`]) placed by a walk over the prior corpus's live fragments ([`locate_prior_fragments`], [`LocatedFragments`]), read through the live-fragment iterator from the store's addresses, the index's ids or the parts themselves; the single file a store written before the segment format leaves put under a head ([`adopt_single_file`]); and why a store does not load ([`store_miss_note`]) and whether its stamps say every record is re-derived ([`rederiving_moved`]).
+//! The plan's reads of the prior corpus: the unit store opened ([`open_store`]), its materialized lines read in order as `unit_index.store_lines` merges its base and segments ([`OpenStore::lines`]), each matched to a unit of this build by its input key and, where the plan may reuse it, parsed, the lines read on one thread and parsed on several and handed back in the store's order ([`scan_store_threaded`]), or read flat into each batch's buffers where they can be ([`scan_store_flat`]), and the lines the walk placed parsed again alone ([`scan_marked`]); the parts a record's address is trusted in ([`trusted_parts`]) and the manifest identity the store is stamped with ([`manifest_stamp`], [`manifest_identity`]); the records the scan found without an address ([`WantedFragments`]) placed by a walk over the prior corpus's live fragments ([`locate_prior_fragments`], [`LocatedFragments`]), read through the live-fragment iterator from the store's addresses, the index's ids or the parts themselves; the single file a store written before the segment format leaves put under a head ([`adopt_single_file`]); and why a store does not load ([`store_miss_note`]) and whether its stamps say every record is re-derived ([`rederiving_moved`]).
 //!
 //! What a read raises is taken as the plan takes it ([`ScanError`]): a store that does not read, which the plan answers by restarting over an emptied store; another exception, or a value the reader does not hold, either of which fails the build. The walk keeps what it placed before an `OSError` or a `ValueError` stops it, and fails on anything else.
 
@@ -14,8 +14,8 @@ use super::gzip::{GzipError, GzipReader, inflate_fragment};
 use super::input::{BuildInput, Stamp};
 use super::prior::holds_unit;
 use super::records::{
-    ParsedCachedUnit, RecordError, hashable, id_word, line_address, line_class, line_id,
-    named_ordinal, parse_line, truthy,
+    Cached, CachedRecords, ParsedCachedUnit, RecordError, hashable, id_word, line_address,
+    line_class, line_id, named_ordinal, parse_line, truthy,
 };
 use super::rowdelta::{
     Head, Key, MERGE_PLACE, Part, PartReader, Place, ReadError, base_name, base_rows, commit,
@@ -201,10 +201,9 @@ impl<'a> StoreBaseLines<'a> {
     }
 }
 
-impl Iterator for StoreBaseLines<'_> {
-    type Item = std::result::Result<Vec<u8>, ReadError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl StoreBaseLines<'_> {
+    /// The next record line appended to `buffer`, as [`Iterator::next`] gives it: Some(Ok) with the line appended, None at the end, and the failure with nothing appended.
+    fn next_into(&mut self, buffer: &mut Vec<u8>) -> Option<std::result::Result<(), ReadError>> {
         if self.done {
             return None;
         }
@@ -225,11 +224,46 @@ impl Iterator for StoreBaseLines<'_> {
                 }
             }
         }
-        let line = next_line(&mut self.reader).transpose();
-        if !matches!(line, Some(Ok(_))) {
-            self.done = true;
+        let mark = buffer.len();
+        match self.reader.read_until(b'\n', buffer) {
+            Ok(0) => {
+                self.done = true;
+                None
+            }
+            Ok(_) => Some(Ok(())),
+            Err(failure) => {
+                buffer.truncate(mark);
+                self.done = true;
+                Some(Err(ReadError::of_io(&failure)))
+            }
         }
-        line
+    }
+}
+
+impl Iterator for StoreBaseLines<'_> {
+    type Item = std::result::Result<Vec<u8>, ReadError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut line = Vec::new();
+        self.next_into(&mut line).map(|read| read.map(|()| line))
+    }
+}
+
+/// A unit store's materialized record lines as the threaded scan reads them: the base's straight into the caller's buffer for a store with no head or no segment, else [`store_lines`]' merge of the base and the segments.
+enum LineSource<'a> {
+    Base(StoreBaseLines<'a>),
+    Merged(Lines<'a, (Place, Vec<u8>)>),
+}
+
+impl LineSource<'_> {
+    /// The next line appended to `buffer`, as [`StoreBaseLines::next_into`] appends one.
+    fn next_into(&mut self, buffer: &mut Vec<u8>) -> Option<std::result::Result<(), ReadError>> {
+        match self {
+            Self::Base(lines) => lines.next_into(buffer),
+            Self::Merged(lines) => lines
+                .next()
+                .map(|read| read.map(|(_, line)| buffer.extend_from_slice(&line))),
+        }
     }
 }
 
@@ -281,6 +315,14 @@ impl OpenStore {
     /// The store's materialized record lines in order, each with its place.
     pub fn lines(&self) -> Lines<'_, (Place, Vec<u8>)> {
         store_lines(self.head.as_ref(), &self.files, &self.output)
+    }
+
+    /// The same lines as [`OpenStore::lines`], as the threaded scan reads them.
+    fn line_source(&self) -> LineSource<'_> {
+        match &self.head {
+            Some(head) if !head.segments.is_empty() => LineSource::Merged(self.lines()),
+            _ => LineSource::Base(StoreBaseLines::new(&self.files[0])),
+        }
     }
 }
 
@@ -485,35 +527,43 @@ pub struct ScannedLine {
 /// How many lines the threaded scan hands a parse thread at once.
 const SCAN_BATCH_LINES: usize = 512;
 
-/// A run of lines the reading thread hands the parse threads: its place among the batches, the index of its first line, its lines, and the failure that ended the read after them.
+/// A run of lines the reading thread hands the parse threads: its place among the batches, the index of its first line, its lines one after another in one buffer with each one's end, and the failure that ended the read after them.
 struct ReadBatch {
     sequence: usize,
     first: usize,
-    lines: Vec<Vec<u8>>,
+    bytes: Vec<u8>,
+    ends: Vec<usize>,
     failure: Option<ReadError>,
 }
 
-/// A batch as the parse threads give it back: each line scanned with what `beside` gave for it, up to the first line that does not parse, and the failure that ends the scan after them.
-struct ParsedBatch<T> {
+impl ReadBatch {
+    /// The batch's lines in order.
+    fn lines(&self) -> impl Iterator<Item = &[u8]> {
+        let mut start = 0;
+        self.ends.iter().map(move |&end| {
+            let line = &self.bytes[start..end];
+            start = end;
+            line
+        })
+    }
+}
+
+/// A batch as the parse threads give it back: what the work made of its lines, and the failure that ends the scan after them.
+struct WorkedBatch<B> {
     sequence: usize,
-    scanned: Vec<(ScannedLine, T)>,
+    worked: B,
     failure: Option<ScanError>,
 }
 
-/// The scan of an open store on threads: every line of it in its materialized order, each matched to this build's units by input key over `named`, the index of the input-key column `column`, and, with `parse`, a named line parsed with its address kept only in a `trusted` part. The store's lines are read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread; the first failure, the scan's or `apply`'s, ends it, a panic in a parse thread among them. At most two batches a parse thread are in flight between the read and `apply`.
-#[allow(clippy::too_many_arguments)]
-pub fn scan_store_threaded<T, E>(
+/// The threads of a scan of an open store: the store's lines read and merged in order on one thread a batch at a time, each batch given to `work` on one of `threads` threads, and what `work` made of each batch handed to `apply` in the batches' order on the calling thread. `work` gives what it made of the batch's lines up to the first that does not parse, beside the failure that ends the scan after them, the read's or the parse's; the first failure, the scan's or `apply`'s, ends it, a panic in a parse thread among them. At most two batches a parse thread are in flight between the read and `apply`.
+fn scan_batches<B, E>(
     opened: &OpenStore,
-    named: &KeyIndex,
-    column: &[u8],
-    parse: bool,
-    trusted: &HashSet<String>,
     threads: usize,
-    beside: impl Fn(&ScannedLine) -> T + Sync,
-    mut apply: impl FnMut(ScannedLine, T) -> std::result::Result<(), E>,
+    work: impl Fn(ReadBatch) -> (B, Option<ScanError>) + Sync,
+    mut apply: impl FnMut(B) -> std::result::Result<(), E>,
 ) -> std::result::Result<(), E>
 where
-    T: Send,
+    B: Send + Default,
     E: From<ScanError>,
 {
     use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -529,14 +579,15 @@ where
     }
     let (batches, batch_source) = mpsc::channel::<ReadBatch>();
     let batch_source = Mutex::new(batch_source);
-    let (parsed, parsed_source) = mpsc::channel::<ParsedBatch<T>>();
+    let (worked, worked_source) = mpsc::channel::<WorkedBatch<B>>();
     std::thread::scope(|scope| {
         let stopped = &stopped;
         std::thread::Builder::new()
             .name("store-scan-read".to_owned())
             .spawn_scoped(scope, move || {
-                let mut lines = opened.lines();
+                let mut lines = opened.line_source();
                 let mut first = 0;
+                let mut reserved = 0;
                 for sequence in 0.. {
                     if token_source.recv().is_err() || stopped.load(Ordering::Relaxed) {
                         return;
@@ -544,12 +595,13 @@ where
                     let mut batch = ReadBatch {
                         sequence,
                         first,
-                        lines: Vec::with_capacity(SCAN_BATCH_LINES),
+                        bytes: Vec::with_capacity(reserved),
+                        ends: Vec::with_capacity(SCAN_BATCH_LINES),
                         failure: None,
                     };
                     let mut ended = false;
-                    while batch.lines.len() < SCAN_BATCH_LINES {
-                        match lines.next() {
+                    while batch.ends.len() < SCAN_BATCH_LINES {
+                        match lines.next_into(&mut batch.bytes) {
                             None => {
                                 ended = true;
                                 break;
@@ -559,11 +611,12 @@ where
                                 ended = true;
                                 break;
                             }
-                            Some(Ok((_, line))) => batch.lines.push(line),
+                            Some(Ok(())) => batch.ends.push(batch.bytes.len()),
                         }
                     }
-                    first += batch.lines.len();
-                    if (!batch.lines.is_empty() || batch.failure.is_some())
+                    first += batch.ends.len();
+                    reserved = batch.bytes.len() + batch.bytes.len() / 8;
+                    if (!batch.ends.is_empty() || batch.failure.is_some())
                         && batches.send(batch).is_err()
                     {
                         return;
@@ -575,9 +628,9 @@ where
             })
             .expect("the store scan's reading thread starts");
         for _ in 0..threads {
-            let parsed = parsed.clone();
+            let worked = worked.clone();
             let batch_source = &batch_source;
-            let beside = &beside;
+            let work = &work;
             std::thread::Builder::new()
                 .name("store-scan-parse".to_owned())
                 .spawn_scoped(scope, move || {
@@ -594,62 +647,38 @@ where
                         }
                         let sequence = batch.sequence;
                         // A batch lost to a panic would leave `apply` waiting on its sequence forever, so the panic comes back in its place as the scan's failure.
-                        let out = catch_unwind(AssertUnwindSafe(|| {
-                            let mut out = ParsedBatch {
-                                sequence,
-                                scanned: Vec::with_capacity(batch.lines.len()),
-                                failure: batch.failure.map(store_failure),
-                            };
-                            for (offset, line) in batch.lines.into_iter().enumerate() {
-                                let ordinal = named_ordinal(named, column, &line);
-                                let mut cached = None;
-                                if parse && ordinal.is_some() {
-                                    match parse_line(&line, trusted) {
-                                        Ok(record) => cached = Some(record),
-                                        Err(failure) => {
-                                            out.failure = Some(record_failure(failure));
-                                            break;
-                                        }
-                                    }
-                                }
-                                let scanned = ScannedLine {
-                                    index: batch.first + offset,
-                                    ordinal,
-                                    cached,
-                                    line,
-                                };
-                                let extra = beside(&scanned);
-                                out.scanned.push((scanned, extra));
-                            }
-                            out
-                        }))
-                        .unwrap_or_else(|panic| ParsedBatch {
+                        let (made, failure) = catch_unwind(AssertUnwindSafe(|| work(batch)))
+                            .unwrap_or_else(|panic| {
+                                (
+                                    B::default(),
+                                    Some(ScanError::Failed(format!(
+                                        "a store scan's parse thread panicked: {}",
+                                        crate::pool::panic_message(&*panic)
+                                    ))),
+                                )
+                            });
+                        let out = WorkedBatch {
                             sequence,
-                            scanned: Vec::new(),
-                            failure: Some(ScanError::Failed(format!(
-                                "a store scan's parse thread panicked: {}",
-                                crate::pool::panic_message(&*panic)
-                            ))),
-                        });
-                        if parsed.send(out).is_err() {
+                            worked: made,
+                            failure,
+                        };
+                        if worked.send(out).is_err() {
                             return;
                         }
                     }
                 })
                 .expect("a store scan's parse thread starts");
         }
-        drop(parsed);
-        let mut waiting: std::collections::BTreeMap<usize, ParsedBatch<T>> =
+        drop(worked);
+        let mut waiting: std::collections::BTreeMap<usize, WorkedBatch<B>> =
             std::collections::BTreeMap::new();
         let mut following = 0;
         let outcome = (|| {
-            for batch in parsed_source {
+            for batch in worked_source {
                 waiting.insert(batch.sequence, batch);
                 while let Some(batch) = waiting.remove(&following) {
                     following += 1;
-                    for (scanned, extra) in batch.scanned {
-                        apply(scanned, extra)?;
-                    }
+                    apply(batch.worked)?;
                     if let Some(failure) = batch.failure {
                         return Err(failure.into());
                     }
@@ -662,6 +691,202 @@ where
         drop(tokens);
         outcome
     })
+}
+
+/// The scan of an open store on threads: every line of it in its materialized order, each matched to this build's units by input key over `named`, the index of the input-key column `column`, and, with `parse`, a named line parsed with its address kept only in a `trusted` part. The store's lines are read and merged in order on one thread, matched and parsed a batch at a time on `threads` threads, each line with what `beside` computes from it there, and handed to `apply` in the store's materialized order on the calling thread; the first failure, the scan's or `apply`'s, ends it, a panic in a parse thread among them ([`scan_batches`]). At most two batches a parse thread are in flight between the read and `apply`.
+#[allow(clippy::too_many_arguments)]
+pub fn scan_store_threaded<T, E>(
+    opened: &OpenStore,
+    named: &KeyIndex,
+    column: &[u8],
+    parse: bool,
+    trusted: &HashSet<String>,
+    threads: usize,
+    beside: impl Fn(&ScannedLine) -> T + Sync,
+    mut apply: impl FnMut(ScannedLine, T) -> std::result::Result<(), E>,
+) -> std::result::Result<(), E>
+where
+    T: Send,
+    E: From<ScanError>,
+{
+    scan_batches(
+        opened,
+        threads,
+        |batch: ReadBatch| {
+            let mut failure = None;
+            let mut scanned = Vec::with_capacity(batch.ends.len());
+            for (offset, line) in batch.lines().enumerate() {
+                let ordinal = named_ordinal(named, column, line);
+                let mut cached = None;
+                if parse && ordinal.is_some() {
+                    match parse_line(line, trusted) {
+                        Ok(record) => cached = Some(record),
+                        Err(fault) => {
+                            failure = Some(record_failure(fault));
+                            break;
+                        }
+                    }
+                }
+                let line = ScannedLine {
+                    index: batch.first + offset,
+                    ordinal,
+                    cached,
+                    line: line.to_vec(),
+                };
+                let extra = beside(&line);
+                scanned.push((line, extra));
+            }
+            (
+                scanned,
+                failure.or_else(|| batch.failure.map(store_failure)),
+            )
+        },
+        |scanned: Vec<(ScannedLine, T)>| {
+            for (line, extra) in scanned {
+                apply(line, extra)?;
+            }
+            Ok(())
+        },
+    )
+}
+
+/// What a line of the flat scan holds of its record: none, a record read flat, or a record parsed, by its index among the batch's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeldRecord {
+    None,
+    Flat(usize),
+    Parsed(usize),
+}
+
+/// One line of a flat scan's batch: its place in the materialized order, the ordinal whose input key it names, its length in bytes, and its record.
+#[derive(Clone, Copy, Debug)]
+struct ScannedEntry {
+    index: usize,
+    ordinal: Option<u32>,
+    length: usize,
+    record: HeldRecord,
+}
+
+/// A batch as the flat scan's parse threads give it back: its lines' entries beside what `beside` gave for each, the records read flat, and the records parsed where a line is not read flat.
+struct ScannedBatch<T> {
+    entries: Vec<ScannedEntry>,
+    extras: Vec<T>,
+    records: CachedRecords,
+    parsed: Vec<ParsedCachedUnit>,
+}
+
+impl<T> Default for ScannedBatch<T> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            extras: Vec::new(),
+            records: CachedRecords::new(),
+            parsed: Vec::new(),
+        }
+    }
+}
+
+/// The record a batch's entry names, borrowed from the batch's records.
+fn scanned_record<'a>(
+    records: &'a CachedRecords,
+    parsed: &'a [ParsedCachedUnit],
+    entry: &ScannedEntry,
+) -> ScannedRecord<'a> {
+    ScannedRecord {
+        index: entry.index,
+        ordinal: entry.ordinal,
+        length: entry.length,
+        cached: match entry.record {
+            HeldRecord::None => None,
+            HeldRecord::Flat(at) => Some(Cached::Flat(records.get(at))),
+            HeldRecord::Parsed(at) => Some(Cached::Parsed(&parsed[at])),
+        },
+    }
+}
+
+/// One line of the prior store as the flat scan gives it: its place in the materialized order, the ordinal whose input key it names, its length in bytes, and its record when the scan parses named lines, read flat where it can be ([`CachedRecords`]).
+#[derive(Clone, Copy, Debug)]
+pub struct ScannedRecord<'a> {
+    pub index: usize,
+    pub ordinal: Option<u32>,
+    pub length: usize,
+    pub cached: Option<Cached<'a>>,
+}
+
+/// [`scan_store_threaded`] with each named line's record read flat where it can be and parsed where it cannot, held in its batch's buffers: `beside` is given each line's record and its bytes on the parse thread, and `apply` each line's record, borrowed from its batch, in the store's materialized order. A line is refused where [`parse_line`] refuses it, with the same failure.
+#[allow(clippy::too_many_arguments)]
+pub fn scan_store_flat<T, E>(
+    opened: &OpenStore,
+    named: &KeyIndex,
+    column: &[u8],
+    parse: bool,
+    trusted: &HashSet<String>,
+    threads: usize,
+    beside: impl Fn(&ScannedRecord<'_>, &[u8]) -> T + Sync,
+    mut apply: impl FnMut(&ScannedRecord<'_>, T) -> std::result::Result<(), E>,
+) -> std::result::Result<(), E>
+where
+    T: Send,
+    E: From<ScanError>,
+{
+    scan_batches(
+        opened,
+        threads,
+        |batch: ReadBatch| {
+            let mut failure = None;
+            let mut out = ScannedBatch {
+                entries: Vec::with_capacity(batch.ends.len()),
+                extras: Vec::with_capacity(batch.ends.len()),
+                records: if parse {
+                    CachedRecords::with_capacity(batch.ends.len(), batch.bytes.len())
+                } else {
+                    CachedRecords::new()
+                },
+                parsed: Vec::new(),
+            };
+            for (offset, line) in batch.lines().enumerate() {
+                let ordinal = named_ordinal(named, column, line);
+                let mut record = HeldRecord::None;
+                if parse && ordinal.is_some() {
+                    record = match out.records.read(line, trusted) {
+                        Some(at) => HeldRecord::Flat(at),
+                        None => match parse_line(line, trusted) {
+                            Ok(parsed) => {
+                                out.parsed.push(parsed);
+                                HeldRecord::Parsed(out.parsed.len() - 1)
+                            }
+                            Err(fault) => {
+                                failure = Some(record_failure(fault));
+                                break;
+                            }
+                        },
+                    };
+                }
+                let entry = ScannedEntry {
+                    index: batch.first + offset,
+                    ordinal,
+                    length: line.len(),
+                    record,
+                };
+                let extra = beside(&scanned_record(&out.records, &out.parsed, &entry), line);
+                out.entries.push(entry);
+                out.extras.push(extra);
+            }
+            (out, failure.or_else(|| batch.failure.map(store_failure)))
+        },
+        |batch: ScannedBatch<T>| {
+            let ScannedBatch {
+                entries,
+                extras,
+                records,
+                parsed,
+            } = batch;
+            for (entry, extra) in entries.iter().zip(extras) {
+                apply(&scanned_record(&records, &parsed, entry), extra)?;
+            }
+            Ok(())
+        },
+    )
 }
 
 /// The lines of an open store at the materialized places `marked` names, ascending, each with its place and parsed as the scan parses it ([`scan_store_threaded`]). A line is read before the first place is looked for, as the loop's first iteration reads one before it can stop.
@@ -733,7 +958,7 @@ impl Iterator for Marked<'_> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WantedFragments {
     pub classes: Vec<String>,
-    class_ids: HashMap<String, u32>,
+    class_ids: ams_m1_kernel::hash::HashMap<String, u32>,
     pub class_of: Vec<u32>,
     pub words: Vec<u64>,
 }
@@ -744,14 +969,15 @@ impl WantedFragments {
     }
 
     pub fn add(&mut self, prior_class: &str, word: u64) {
-        let next = self.classes.len() as u32;
-        let found = *self
-            .class_ids
-            .entry(prior_class.to_owned())
-            .or_insert_with(|| next);
-        if found == next {
-            self.classes.push(prior_class.to_owned());
-        }
+        let found = match self.class_ids.get(prior_class) {
+            Some(&found) => found,
+            None => {
+                let next = self.classes.len() as u32;
+                self.class_ids.insert(prior_class.to_owned(), next);
+                self.classes.push(prior_class.to_owned());
+                next
+            }
+        };
         self.class_of.push(found);
         self.words.push(word);
     }
@@ -1176,8 +1402,8 @@ fn find(haystack: &[u8], needle: &[u8], start: usize) -> Option<usize> {
 /// The units index open for reading (`unit_index.OpenIndex`): its header, its head (None for the single file) and its parts.
 pub(crate) struct OpenIndex {
     header: Vec<(PyValue, PyValue)>,
-    head: Option<Head>,
-    files: Vec<File>,
+    pub(crate) head: Option<Head>,
+    pub(crate) files: Vec<File>,
 }
 
 impl OpenIndex {
@@ -1814,6 +2040,7 @@ pub fn rederiving_moved(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::corpus::records::Address;
     use crate::corpus::store::KEY_BYTES;
     use std::io::Write;
 
@@ -2103,6 +2330,86 @@ mod tests {
                             return Err(ScanError::Failed(format!("stopped at {}", scanned.index)));
                         }
                         applied.push((doubled, scanned));
+                        Ok(())
+                    },
+                );
+                assert_eq!(end, serial_end, "{name} at {threads}");
+                assert!(applied == serial, "{name} at {threads}");
+            }
+            let _ = std::fs::remove_dir_all(&directory);
+        }
+    }
+
+    #[test]
+    fn the_flat_scan_applies_what_the_serial_scan_yields_in_its_order() {
+        type Seen = (
+            usize,
+            Option<u32>,
+            usize,
+            Option<(String, Option<Address>)>,
+            Vec<u8>,
+        );
+        let held = |cached: Option<Cached<'_>>| {
+            cached.map(|cached| {
+                (
+                    cached.prior_id().to_owned(),
+                    cached
+                        .address()
+                        .map(|(part, start, length)| (part.to_owned(), start, length)),
+                )
+            })
+        };
+        for (name, broken, kept) in [
+            ("flat-whole", None, None),
+            ("flat-broken", Some(1101), None),
+            ("flat-cut", None, Some(80)),
+        ] {
+            let (directory, names, column) = single_file_store(name, 1500, broken, kept);
+            let named = KeyIndex::new(&column, KEY_BYTES, column.len() / KEY_BYTES).expect("keys");
+            let trusted: HashSet<String> = ["units/new-joins-near-tea-oy.json".to_owned()].into();
+            let opened = open_store(&directory, &names)
+                .expect("opens")
+                .expect("a store");
+            let mut serial: Vec<Seen> = Vec::new();
+            let mut serial_end = Ok(());
+            for item in serial_scan(&opened, &named, &column, &trusted) {
+                match item {
+                    Ok(scanned) => serial.push((
+                        scanned.index,
+                        scanned.ordinal,
+                        scanned.line.len(),
+                        held(scanned.cached.as_ref().map(Cached::Parsed)),
+                        scanned.line,
+                    )),
+                    Err(failure) => {
+                        serial_end = Err(failure);
+                        break;
+                    }
+                }
+            }
+            assert!(serial.iter().any(|seen| seen.3.is_some()));
+            for threads in [1, 2, 5] {
+                let mut applied: Vec<Seen> = Vec::new();
+                let end = scan_store_flat(
+                    &opened,
+                    &named,
+                    &column,
+                    true,
+                    &trusted,
+                    threads,
+                    |_, line| line.to_vec(),
+                    |scanned, line| -> std::result::Result<(), ScanError> {
+                        assert!(matches!(
+                            (scanned.ordinal, scanned.cached),
+                            (None, None) | (Some(_), Some(Cached::Flat(_)))
+                        ));
+                        applied.push((
+                            scanned.index,
+                            scanned.ordinal,
+                            scanned.length,
+                            held(scanned.cached),
+                            line,
+                        ));
                         Ok(())
                     },
                 );
