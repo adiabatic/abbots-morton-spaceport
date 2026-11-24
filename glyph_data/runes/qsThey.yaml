@@ -68,7 +68,6 @@ stances:
             - qsGay
             - qsThaw
             - qsVie
-            - qsSee
             - qsIng
             - qsMay
             - qsNo
@@ -76,12 +75,6 @@ stances:
             - qsRoe
             - qsExam
             - qsIt
-            - qsAt
-            - qsI
-            - qsAh
-            - qsOut
-            - qsOut_qsTea
-            - qsOoze
         x-height:
           x: 3
           stroke: vertical
