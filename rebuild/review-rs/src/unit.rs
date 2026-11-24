@@ -14,7 +14,7 @@ use crate::check::{CheckError, ContractCheck};
 use crate::drafts::{DraftError, Drafter};
 use crate::enrich::{EnrichError, Enriched, Enricher, Flags, Geometry};
 use crate::fontfacts::FontFacts;
-use crate::fragment::{FragmentBuilder, FragmentError, check_stamp, fragment_bytes, lookup};
+use crate::fragment::{FragmentBuilder, FragmentError, check_stamp, fragment_bytes_into, lookup};
 use crate::ink::{InkError, InkReader};
 use crate::pack::{PackError, Packer};
 use crate::pyfmt::PyValue;
@@ -141,7 +141,7 @@ impl Resources {
     }
 }
 
-/// What the build's whole-corpus passes read of one recomputed unit, with its deflated fragment (empty for the verification sample, which deflates nothing) and the length of its shard bytes.
+/// What the build's whole-corpus passes read of one recomputed unit, with the length of its deflated fragment in its batch's [`Batch::packed`] (0 for the verification sample, which deflates nothing) and the length of its shard bytes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Projection {
     pub ordinal: i64,
@@ -158,13 +158,14 @@ pub struct Projection {
     pub geometry: Geometry,
     pub mismatches: Vec<String>,
     pub raw_length: usize,
-    pub packed: Vec<u8>,
+    pub packed_length: usize,
 }
 
-/// One batch's answer: each unit's projection in the batch's order, and the drafting-time contract errors, capped at the vocabulary's `CONTRACT_ERRORS_SHOWN`.
+/// One batch's answer: each unit's projection in the batch's order, the deflated fragments one after another in that order, and the drafting-time contract errors, capped at the vocabulary's `CONTRACT_ERRORS_SHOWN`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     pub projections: Vec<Projection>,
+    pub packed: Vec<u8>,
     pub contract_errors: Vec<String>,
 }
 
@@ -183,7 +184,7 @@ struct Phase1 {
     errors: Vec<String>,
 }
 
-/// One thread's worker over shared [`Resources`], with its own engines, HarfBuzz buffer, shape memo and primed compressor.
+/// One thread's worker over shared [`Resources`], with its own engines, HarfBuzz buffer, shape memo, primed compressor and fragment buffer.
 pub struct Worker<'r> {
     resources: &'r Resources,
     reader: InkReader<'r>,
@@ -192,7 +193,12 @@ pub struct Worker<'r> {
     shaper: Shaper<'r>,
     settler: Settler<'r>,
     packer: Packer,
+    /// The shard bytes of the fragment being deflated, kept between units.
+    body: String,
 }
+
+/// The most bytes [`Worker`]'s fragment buffer keeps between units; one that grew past it for a large fragment is released.
+const BODY_CAPACITY: usize = 1 << 16;
 
 impl<'r> Worker<'r> {
     /// A worker over `resources`, with empty memos.
@@ -216,6 +222,7 @@ impl<'r> Worker<'r> {
             shaper: Shaper::new(&shared.fonts, &shared.facts),
             settler: Settler::new(&shared.settlement),
             packer: Packer::new(&shared.dictionary)?,
+            body: String::new(),
         })
     }
 
@@ -225,7 +232,7 @@ impl<'r> Worker<'r> {
         for chunk in units.chunks_mut(self.resources.batch_size) {
             for unit in chunk {
                 let done = self
-                    .phase1(unit, true)
+                    .phase1(unit, Some(&mut batch.packed))
                     .map_err(|failure| unit_failure(unit, &failure))?;
                 batch.projections.push(done.projection);
                 let room = self
@@ -268,7 +275,7 @@ impl<'r> Worker<'r> {
             projection,
             mut fragment,
             ..
-        } = self.phase1(unit, false)?;
+        } = self.phase1(unit, None)?;
         unit.duplicate_group.clone_from(&injection.duplicate_group);
         unit.cluster.clone_from(&injection.cluster);
         unit.class.clone_from(&injection.class);
@@ -289,8 +296,8 @@ impl<'r> Worker<'r> {
         })
     }
 
-    /// The ink flags and deltas, the re-route, the enrichment under the unit's first configuration, the change group of an UNMATCHED or re-routed unit, the drafted fragment, deflated when `pack`, the projection, and the contract check at `DRAFTED`. The unit's id becomes the drafting's stamp.
-    fn phase1(&mut self, unit: &mut UnitRecord, pack: bool) -> Result<Phase1> {
+    /// The ink flags and deltas, the re-route, the enrichment under the unit's first configuration, the change group of an UNMATCHED or re-routed unit, the drafted fragment, deflated onto the end of `packed` when there is one, the projection, and the contract check at `DRAFTED`. The unit's id becomes the drafting's stamp.
+    fn phase1(&mut self, unit: &mut UnitRecord, packed: Option<&mut Vec<u8>>) -> Result<Phase1> {
         let resources = self.resources;
         let config = unit.configs.first().map_or("", String::as_str);
         let report: Report = self
@@ -355,11 +362,17 @@ impl<'r> Worker<'r> {
             &enriched,
             |unit| drafter.draft(shaper, unit, &enriched),
         )?;
-        let (packed, raw_length) = if pack {
-            let body = fragment_bytes(&fragment)?;
-            self.packer.pack(body.as_bytes())?
-        } else {
-            (Vec::new(), 0)
+        let (packed_length, raw_length) = match packed {
+            Some(packed) => {
+                fragment_bytes_into(&mut self.body, &fragment)?;
+                let length = self.packer.pack_into(self.body.as_bytes(), packed)?;
+                let raw_length = self.body.len();
+                if self.body.capacity() > BODY_CAPACITY {
+                    self.body = String::new();
+                }
+                (length, raw_length)
+            }
+            None => (0, 0),
         };
         let cluster = cluster_id_from_repr(
             &unit.configs,
@@ -386,7 +399,7 @@ impl<'r> Worker<'r> {
             geometry,
             mismatches,
             raw_length,
-            packed,
+            packed_length,
         };
         let errors = resources.check.check_drafted(&fragment)?;
         Ok(Phase1 {

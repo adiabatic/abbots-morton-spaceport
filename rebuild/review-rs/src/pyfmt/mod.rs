@@ -36,6 +36,40 @@ pub fn int_digits_exceeded(digits: usize) -> String {
     )
 }
 
+/// The lowercase hex digits, indexed by their value.
+pub const LOWER_HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// The most bytes [`decimal`] writes: an `i64`'s sign and nineteen digits.
+pub const DECIMAL_WIDTH: usize = 20;
+
+/// `str(value)` for an int, written into the end of `buffer` and returned as the text there, the same text `value.to_string()` gives.
+pub fn decimal(value: i64, buffer: &mut [u8; DECIMAL_WIDTH]) -> &str {
+    let mut magnitude = value.unsigned_abs();
+    let mut at = DECIMAL_WIDTH;
+    loop {
+        at -= 1;
+        buffer[at] = b'0' + (magnitude % 10) as u8;
+        magnitude /= 10;
+        if magnitude == 0 {
+            break;
+        }
+    }
+    if value < 0 {
+        at -= 1;
+        buffer[at] = b'-';
+    }
+    std::str::from_utf8(&buffer[at..]).expect("decimal digits are ASCII")
+}
+
+/// Append `bytes` to `out` as lowercase hex, two digits a byte, as `format!("{byte:02x}")` writes each.
+pub fn push_lower_hex(out: &mut String, bytes: &[u8]) {
+    out.reserve(bytes.len() * 2);
+    for &byte in bytes {
+        out.push(char::from(LOWER_HEX_DIGITS[usize::from(byte >> 4)]));
+        out.push(char::from(LOWER_HEX_DIGITS[usize::from(byte & 0xf)]));
+    }
+}
+
 fn in_ranges(ranges: &[(u32, u32)], letter: char) -> bool {
     let point = u32::from(letter);
     let index = ranges.partition_point(|&(_, end)| end < point);
@@ -313,6 +347,31 @@ mod tests {
                 assert!(pair[0].1 + 1 < pair[1].0, "{pair:?}");
             }
         }
+    }
+
+    #[test]
+    fn decimal_and_hex_write_what_rust_s_formatting_writes() {
+        let mut buffer = [0u8; DECIMAL_WIDTH];
+        for value in [
+            0,
+            7,
+            -7,
+            10,
+            -10,
+            1234567890,
+            i64::MIN,
+            i64::MAX,
+            -1,
+            99,
+            100,
+        ] {
+            assert_eq!(decimal(value, &mut buffer), value.to_string());
+        }
+        let bytes: Vec<u8> = (0..=255).collect();
+        let mut out = "x".to_owned();
+        push_lower_hex(&mut out, &bytes);
+        let expected: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(out, format!("x{expected}"));
     }
 
     #[test]

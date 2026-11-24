@@ -1,5 +1,7 @@
-//! The write's runs, up to the manifest: each run of classes ([`Routed`]'s runs, contiguous stretches of shard order) written on a thread of its own with a shard writer, sidecar lines, a checker and a reader over the previous corpus of its own ([`write_run`]), every unit emitted ([`Emitter::emission`]) and put into its class's parts, kept where its bytes equal its prior's on a class appended to; then the runs' results folded into the unit store and one checker in shard order (`keep`), so the store's columns, the folded facts and every file come out as the serial write leaves them at any width; the staged parts renamed into place once every run has written (the commit); and the fonts copied in ([`copy_font`]). A failed run stops the runs after it in shard order and deletes what every run staged ([`discard_runs`]), so nothing is committed. [`copy_static`] copies the static app files, which the build does once the manifest is written.
+//! The write's runs, up to the manifest: each run of classes ([`Routed`]'s runs, contiguous stretches of shard order) written on a thread of its own with a shard writer, sidecar lines, a checker and a reader over the previous corpus of its own ([`write_run`]), every unit emitted ([`Emitter::emission`]), on the run's thread or ahead of it by the threads the runs leave over ([`Ahead`]), and put into its class's parts in its class's order, kept where its bytes equal its prior's on a class appended to; then the runs' results folded into the unit store and one checker in shard order (`keep`), so the store's columns, the folded facts and every file come out as the serial write leaves them at any width; the staged parts renamed into place once every run has written (the commit); and the fonts copied in ([`copy_font`]). A failed run stops the runs after it in shard order and deletes what every run staged ([`discard_runs`]), so nothing is committed. [`copy_static`] copies the static app files, which the build does once the manifest is written.
 
+use std::any::Any;
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -9,17 +11,18 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sha2::{Digest, Sha256};
 
+use super::ahead::{Ahead, Feed, Made, make_chunk};
 use super::audit::integer;
 use super::corpus_check::{CheckSettings, CorpusCheck, Facts};
 use super::drive::Arena;
-use super::emit::{Emitted, Emitter};
+use super::emit::{Emission, Emitted, Emitter};
 use super::input::{BuildInput, FontCopy, FontRecord};
 use super::prior::PriorFragmentReader;
 use super::route::{ClassToWrite, Route, RouteNames, Routed, class_meta};
 use super::shards::{ShardError, ShardWriter, Span, discard_runs};
 use super::sidecars::{PriorSidecars, SidecarLines, SidecarNames, SidecarRun};
 use super::sink::Sink;
-use super::store::UnitStore;
+use super::store::{FragmentAt, Stamp, UnitStore};
 use super::table::UnitTable;
 use super::{BuildError, failed};
 use crate::check::CheckError;
@@ -138,7 +141,7 @@ fn optional_text(
     }
 }
 
-/// Write one unit of the open class: its emission read from the arena or the previous corpus, put into the class's parts through `writer` (kept at its prior address where the class is appended to and its bytes equal its prior's, a stored fragment's where its part is the class's), checked at `PATCHED` unless the cache supplied it, and projected or copied forward onto the run's sidecar lines. Its span, config note and policy file go onto `class`, which counts it when it was written without parsing or kept its prior address by compare.
+/// Write one unit of the open class: its emission read from the arena or the previous corpus through `prior`, then written ([`write_emission`]).
 #[allow(clippy::too_many_arguments)]
 fn write_unit(
     shared: &Shared<'_>,
@@ -157,6 +160,127 @@ fn write_unit(
     let emission = shared
         .emitter
         .emission(ordinal, source, table, store, shared.arena, prior)?;
+    write_emission(
+        shared, ordinal, &stamp, source, emission, writer, prior, check, sidecars, class,
+    )
+}
+
+/// A unit's emission made ahead of its run's thread ([`prepare`]): the stamp its address was read by, and the emission's fields, its id None where it is the stamp's.
+struct Prepared {
+    stamp: Stamp,
+    unit_id: Option<String>,
+    content_key: Option<String>,
+    policy_file: Option<String>,
+    emitted: Emitted,
+}
+
+/// The emission of the unit at `ordinal` as [`write_unit`] makes it, through a helper's own `prior`, to be written by its run's thread ([`write_prepared`]).
+fn prepare(
+    shared: &Shared<'_>,
+    ordinal: u32,
+    prior: &mut PriorFragmentReader,
+) -> std::result::Result<Prepared, BuildError> {
+    let (table, store) = (shared.table, shared.store);
+    let ordinal = ordinal as usize;
+    let stamp = store.stamp(ordinal);
+    let source = store
+        .source_at(ordinal, &stamp)
+        .ok_or_else(|| assertion(ordinal))?;
+    let Emission {
+        unit_id,
+        content_key,
+        policy_file,
+        emitted,
+    } = shared
+        .emitter
+        .emission(ordinal, source, table, store, shared.arena, prior)?;
+    let unit_id = (*unit_id != *stamp.unit_id).then(|| unit_id.into_owned());
+    Ok(Prepared {
+        stamp,
+        unit_id,
+        content_key,
+        policy_file,
+        emitted,
+    })
+}
+
+/// The emissions of a chunk of consecutive units, in order and stopping after the first that fails ([`make_chunk`]), through `prior` with a horizon in each part the chunk's cached units are read from at the furthest end of their spans there ([`PriorFragmentReader::set_horizon`]), so its read ahead reads no more than the chunk reads; the horizons are cleared once the chunk is made.
+fn prepare_chunk(
+    shared: &Shared<'_>,
+    units: &[u32],
+    prior: &mut PriorFragmentReader,
+    made: &mut Vec<Made<Prepared, BuildError>>,
+) {
+    let store = shared.store;
+    for &unit in units {
+        let ordinal = unit as usize;
+        if !store.flags(ordinal).cached {
+            continue;
+        }
+        if let Some((part, start, length)) = store.source_span(ordinal)
+            && let Ok(end) = u64::try_from(start.saturating_add(length))
+        {
+            prior.set_horizon(part, end);
+        }
+    }
+    make_chunk(
+        units,
+        prior,
+        &|prior: &mut PriorFragmentReader, unit| prepare(shared, unit, prior),
+        made,
+    );
+    prior.clear_horizons();
+}
+
+/// Write one unit of the open class from its emission made ahead ([`prepare`]), as [`write_unit`] writes it.
+#[allow(clippy::too_many_arguments)]
+fn write_prepared(
+    shared: &Shared<'_>,
+    ordinal: usize,
+    prepared: Prepared,
+    writer: &mut ShardWriter,
+    prior: &mut PriorFragmentReader,
+    check: &mut CorpusCheck<'_>,
+    sidecars: &mut SidecarLines<'_>,
+    class: &mut ClassWritten,
+) -> std::result::Result<(), BuildError> {
+    let Prepared {
+        stamp,
+        unit_id,
+        content_key,
+        policy_file,
+        emitted,
+    } = prepared;
+    let source = shared
+        .store
+        .source_at(ordinal, &stamp)
+        .ok_or_else(|| assertion(ordinal))?;
+    let emission = Emission {
+        unit_id: unit_id.map_or(Cow::Borrowed(stamp.unit_id.as_str()), Cow::Owned),
+        content_key,
+        policy_file,
+        emitted,
+    };
+    write_emission(
+        shared, ordinal, &stamp, source, emission, writer, prior, check, sidecars, class,
+    )
+}
+
+/// Write one unit of the open class, at `ordinal` with `stamp` and the address `source` the store holds for it, from its emission: put into the class's parts through `writer` (kept at its prior address where the class is appended to and its bytes equal its prior's, read through `prior`, a stored fragment's where its part is the class's), checked at `PATCHED` unless the cache supplied it, and projected or copied forward onto the run's sidecar lines. Its span, config note and policy file go onto `class`, which counts it when it was written without parsing or kept its prior address by compare.
+#[allow(clippy::too_many_arguments)]
+fn write_emission(
+    shared: &Shared<'_>,
+    ordinal: usize,
+    stamp: &Stamp,
+    source: FragmentAt<'_>,
+    emission: Emission<'_>,
+    writer: &mut ShardWriter,
+    prior: &mut PriorFragmentReader,
+    check: &mut CorpusCheck<'_>,
+    sidecars: &mut SidecarLines<'_>,
+    class: &mut ClassWritten,
+) -> std::result::Result<(), BuildError> {
+    let (table, store) = (shared.table, shared.store);
     if emission.unit_id != source.unit_id {
         return Err(assertion(format!("({:?}, {ordinal})", emission.unit_id)));
     }
@@ -166,7 +290,7 @@ fn write_unit(
         Emitted::Fragment(fragment) => {
             let body = fragment_bytes(fragment).map_err(failed)?;
             let former = if writer.appending() {
-                store.prior_fragment_at(ordinal, &stamp)
+                store.prior_fragment_at(ordinal, stamp)
             } else {
                 None
             };
@@ -242,12 +366,26 @@ fn write_unit(
     Ok(())
 }
 
-/// Write the run's classes, in shard order, through `writer`, with sidecar lines, a reader over the previous corpus and a checker of the run's own; None when `stopped` says a run before this one failed.
+/// The run's emissions made ahead by helpers, taken in its units' order.
+type RunFeed<'a, 's> = Feed<'a, 's, Prepared, BuildError>;
+
+/// The text of a panic of a thread of the write.
+fn panic_text(payload: &(dyn Any + Send)) -> String {
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|text| (*text).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".to_owned());
+    format!("a thread of the write panicked: {message}")
+}
+
+/// Write the run's classes, in shard order, through `writer`, with sidecar lines, a reader over the previous corpus and a checker of the run's own, each unit's emission taken from `feed` when helpers make them ahead ([`write_prepared`]) and made here otherwise ([`write_unit`]); None when `stopped` says a run before this one failed. A helper's panic fails the run at the unit it was making.
 fn write_classes(
     shared: &Shared<'_>,
     places: &[usize],
     writer: &mut ShardWriter,
     stopped: &dyn Fn() -> bool,
+    mut feed: Option<RunFeed<'_, '_>>,
 ) -> std::result::Result<Option<(Vec<ClassWritten>, SidecarRun)>, BuildError> {
     let names = &shared.names.sidecars;
     let prior_sidecars = PriorSidecars::open(shared.out_dir, shared.copy_forward, names)?;
@@ -287,9 +425,30 @@ fn write_classes(
             if stopped() {
                 return Ok(None);
             }
-            write_unit(
+            let Some(feed) = feed.as_mut() else {
+                write_unit(
+                    shared,
+                    ordinal as usize,
+                    writer,
+                    &mut prior,
+                    &mut check,
+                    &mut sidecars,
+                    &mut class,
+                )?;
+                continue;
+            };
+            let (made, prepared) = feed
+                .next(&mut prior, |prior, units, made| {
+                    prepare_chunk(shared, units, prior, made);
+                })
+                .map_err(|payload| failed(panic_text(payload.as_ref())))?;
+            if made != ordinal {
+                return Err(assertion(format!("({made}, {ordinal})")));
+            }
+            write_prepared(
                 shared,
                 ordinal as usize,
+                prepared?,
                 writer,
                 &mut prior,
                 &mut check,
@@ -311,15 +470,20 @@ fn write_classes(
 /// A run's outcome: what it wrote, None when a run before it in shard order failed and stopped it, or why it failed.
 type RunOutcome = std::result::Result<Option<RunWritten>, BuildError>;
 
-/// Write one run of classes with a shard writer of its own, its staged parts left for the commit; a run that fails or is stopped deletes what it staged.
-fn write_run(shared: &Shared<'_>, places: &[usize], stopped: &dyn Fn() -> bool) -> RunOutcome {
+/// Write one run of classes with a shard writer of its own, its staged parts left for the commit, its emissions taken from `feed` when helpers make them; a run that fails or is stopped deletes what it staged.
+fn write_run(
+    shared: &Shared<'_>,
+    places: &[usize],
+    stopped: &dyn Fn() -> bool,
+    feed: Option<RunFeed<'_, '_>>,
+) -> RunOutcome {
     let mut writer = ShardWriter::new(
         shared.out_dir,
         shared.names.cap,
         shared.names.route.part_closing.clone(),
     )
     .map_err(os_failure)?;
-    match write_classes(shared, places, &mut writer, stopped) {
+    match write_classes(shared, places, &mut writer, stopped, feed) {
         Ok(Some((classes, sidecars))) => Ok(Some(RunWritten {
             classes,
             pending: writer.take_pending(),
@@ -332,8 +496,35 @@ fn write_run(shared: &Shared<'_>, places: &[usize], stopped: &dyn Fn() -> bool) 
     }
 }
 
-/// The runs written on `jobs` threads, each taking the largest run left, by index in shard order: each run's outcome, or None for a run not written because a run before it failed. At one thread the runs are written on this one.
-fn write_runs(shared: &Shared<'_>, runs: &[Vec<usize>], jobs: usize) -> Vec<Option<RunOutcome>> {
+/// Counts the threads still writing runs; the last to stop, by finishing or by a panic, closes the hand-off, so the threads helping it return.
+struct Writing<'a, 's> {
+    ahead: &'a Ahead<'s, Prepared, BuildError>,
+    running: &'a AtomicUsize,
+}
+
+impl Drop for Writing<'_, '_> {
+    fn drop(&mut self) {
+        if self.running.fetch_sub(1, Ordering::AcqRel) == 1 {
+            self.ahead.close();
+        }
+    }
+}
+
+/// Make emissions ahead for the runs `ahead` hands out, with a reader over the previous corpus of this thread's own, until it closes.
+fn help(shared: &Shared<'_>, ahead: &Ahead<'_, Prepared, BuildError>) {
+    let mut prior = PriorFragmentReader::new(shared.out_dir);
+    ahead.serve(&mut prior, |prior, units, made| {
+        prepare_chunk(shared, units, prior, made);
+    });
+}
+
+/// The runs written on `jobs` threads, each taking the largest run left, by index in shard order: each run's outcome, or None for a run not written because a run before it failed. At one thread the runs are written on this one. With `helpers` above 0, that many more threads make the emissions of the units the runs are about to write ([`Ahead`]), shared across the runs, and a thread that finds no run left to take helps the runs still being written; they are joined before this returns.
+fn write_runs(
+    shared: &Shared<'_>,
+    runs: &[Vec<usize>],
+    jobs: usize,
+    helpers: usize,
+) -> Vec<Option<RunOutcome>> {
     let mut queue: Vec<usize> = (0..runs.len()).collect();
     queue.sort_by_key(|&index| {
         std::cmp::Reverse(
@@ -346,17 +537,37 @@ fn write_runs(shared: &Shared<'_>, runs: &[Vec<usize>], jobs: usize) -> Vec<Opti
     let next = AtomicUsize::new(0);
     let failed_at = AtomicUsize::new(usize::MAX);
     let outcomes: Vec<Mutex<Option<RunOutcome>>> = runs.iter().map(|_| Mutex::new(None)).collect();
+    let ahead = (helpers > 0).then(|| {
+        Ahead::new(
+            runs.iter()
+                .map(|places| {
+                    places
+                        .iter()
+                        .map(|&place| shared.classes[place].ordinals.as_slice())
+                        .collect()
+                })
+                .collect(),
+            helpers,
+        )
+    });
+    let ahead = ahead.as_ref();
+    let running = AtomicUsize::new(jobs.max(1));
     let work = || {
+        let writing = ahead.map(|ahead| Writing {
+            ahead,
+            running: &running,
+        });
         loop {
             let taken = next.fetch_add(1, Ordering::Relaxed);
             let Some(&index) = queue.get(taken) else {
-                return;
+                break;
             };
             if failed_at.load(Ordering::Relaxed) < index {
                 continue;
             }
             let stopped = || failed_at.load(Ordering::Relaxed) < index;
-            let outcome = write_run(shared, &runs[index], &stopped);
+            let feed = ahead.map(|ahead| ahead.feed(index));
+            let outcome = write_run(shared, &runs[index], &stopped, feed);
             if outcome.is_err() {
                 failed_at.fetch_min(index, Ordering::Relaxed);
             }
@@ -364,21 +575,32 @@ fn write_runs(shared: &Shared<'_>, runs: &[Vec<usize>], jobs: usize) -> Vec<Opti
                 *held = Some(outcome);
             }
         }
+        drop(writing);
+        if let Some(ahead) = ahead {
+            help(shared, ahead);
+        }
     };
     let mut panicked: Option<String> = None;
-    if jobs <= 1 {
+    if jobs <= 1 && ahead.is_none() {
         work();
     } else {
         std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..jobs).map(|_| scope.spawn(work)).collect();
-            for handle in handles {
+            let helping: Vec<_> = (0..helpers)
+                .filter_map(|_| ahead.map(|ahead| scope.spawn(move || help(shared, ahead))))
+                .collect();
+            if jobs <= 1 {
+                work();
+            } else {
+                let handles: Vec<_> = (0..jobs).map(|_| scope.spawn(work)).collect();
+                for handle in handles {
+                    if let Err(payload) = handle.join() {
+                        panicked.get_or_insert(panic_text(payload.as_ref()));
+                    }
+                }
+            }
+            for handle in helping {
                 if let Err(payload) = handle.join() {
-                    let message = payload
-                        .downcast_ref::<&str>()
-                        .map(|text| (*text).to_owned())
-                        .or_else(|| payload.downcast_ref::<String>().cloned())
-                        .unwrap_or_else(|| "a panic with no message".to_owned());
-                    panicked.get_or_insert(message);
+                    panicked.get_or_insert(panic_text(payload.as_ref()));
                 }
             }
         });
@@ -389,9 +611,7 @@ fn write_runs(shared: &Shared<'_>, runs: &[Vec<usize>], jobs: usize) -> Vec<Opti
         .collect();
     if let Some(message) = panicked {
         let first = outcomes.iter().position(Option::is_none).unwrap_or(0);
-        outcomes[first] = Some(Err(failed(format!(
-            "a thread of the write panicked: {message}"
-        ))));
+        outcomes[first] = Some(Err(failed(message)));
     }
     outcomes
 }
@@ -417,7 +637,7 @@ fn set_shards(meta: &mut PyValue, shards: &[String]) {
     }
 }
 
-/// The write up to the manifest, over the classes `routed` holds in shard order with their routes and runs: each class's manifest record; the runs written on as many threads as there are runs, at most the width they were cut at ([`write_runs`]); their results folded in shard order into `store` (each unit's span, config note, policy file and, once its class names its parts, its part) and into one checker, with the counters; the staged parts renamed into place; and the fonts copied into `fonts/` ([`copy_font`]). A run that fails, or a rename, deletes what every run staged ([`discard_runs`]) and fails the write with the first failure in shard order; a font that fails comes after the commit.
+/// The write up to the manifest, over the classes `routed` holds in shard order with their routes and runs: each class's manifest record; the runs written on as many threads as there are runs, at most the width they were cut at, with the threads up to the most the write may take making their emissions ahead ([`write_runs`]); their results folded in shard order into `store` (each unit's span, config note, policy file and, once its class names its parts, its part) and into one checker, with the counters; the staged parts renamed into place; and the fonts copied into `fonts/` ([`copy_font`]). A run that fails, or a rename, deletes what every run staged ([`discard_runs`]) and fails the write with the first failure in shard order; a font that fails comes after the commit.
 #[allow(clippy::too_many_arguments)]
 pub fn write_corpus<'a>(
     input: &BuildInput,
@@ -439,6 +659,7 @@ pub fn write_corpus<'a>(
         .collect::<std::result::Result<Vec<_>, _>>()?;
     let primary_units = store.primary_unit_ids();
     let jobs = routed.width.min(routed.runs.len());
+    let helpers = routed.fit.saturating_sub(jobs);
     let discard = || {
         discard_runs(
             out_dir,
@@ -465,7 +686,7 @@ pub fn write_corpus<'a>(
             names,
             copy_forward: routed.copy_forward,
         };
-        write_runs(&shared, &routed.runs, jobs)
+        write_runs(&shared, &routed.runs, jobs, helpers)
     };
     let mut written = Vec::with_capacity(outcomes.len());
     for outcome in outcomes {

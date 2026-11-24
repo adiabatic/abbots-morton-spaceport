@@ -11,8 +11,8 @@ use crate::drafts::{DraftError, Drafts};
 use crate::enrich::{EnrichError, Enriched, Flags, SecondaryJunction};
 use crate::ink::InkError;
 use crate::pack::PackError;
-use crate::pyfmt::json::{dumps_sorted, fragment_text};
-use crate::pyfmt::{PyFmtError, PyValue};
+use crate::pyfmt::json::{JsonSink, fragment_text, write_fragment_text, write_sorted_dict};
+use crate::pyfmt::{PyFmtError, PyValue, push_lower_hex};
 use crate::scaffold::{Roster, ScaffoldError, unit_scaffold};
 use crate::schema::SchemaError;
 use crate::settle::SettleError;
@@ -155,42 +155,133 @@ pub fn checked_scaffold_keys() -> impl Iterator<Item = &'static str> {
 
 // --- the content key and the id ------------------------------------------------------------------
 
+/// Whether a fragment key is one of [`CARRY_PRESENTATION_KEYS`], which the carry projection leaves out.
+fn presentation_key(key: &PyValue) -> bool {
+    matches!(key, PyValue::Str(key) if CARRY_PRESENTATION_KEYS.contains(&key.as_str()))
+}
+
+/// The fragment's entries the carry projection keeps, borrowed in the fragment's order.
+fn carried_entries(fragment: &PyValue) -> Result<Vec<&(PyValue, PyValue)>> {
+    Ok(entries(fragment)?
+        .iter()
+        .filter(|(key, _)| !presentation_key(key))
+        .collect())
+}
+
 /// `unit_cache.carry_projection`: the fragment's keys outside [`CARRY_PRESENTATION_KEYS`] as sorted-key JSON.
 pub fn carry_projection(fragment: &PyValue) -> Result<String> {
-    let entries = entries(fragment)?;
-    let kept = entries
-        .iter()
-        .filter(|(key, _)| !matches!(key, PyValue::Str(key) if CARRY_PRESENTATION_KEYS.contains(&key.as_str())))
-        .cloned()
-        .collect();
-    Ok(dumps_sorted(&PyValue::Dict(kept))?)
+    let mut out = String::new();
+    write_sorted_dict(&mut out, &carried_entries(fragment)?)?;
+    Ok(out)
+}
+
+/// A SHA-256 that takes JSON text as a writer writes it, gathering the small pieces in a buffer it hashes whenever the buffer fills, so it hashes the bytes the text holds, in order.
+struct DigestSink {
+    hasher: sha2::Sha256,
+    buffer: [u8; DIGEST_BUFFER],
+    held: usize,
+}
+
+/// The bytes a [`DigestSink`] gathers before it hashes them.
+const DIGEST_BUFFER: usize = 1024;
+
+impl DigestSink {
+    fn new() -> Self {
+        Self {
+            hasher: sha2::Sha256::new(),
+            buffer: [0; DIGEST_BUFFER],
+            held: 0,
+        }
+    }
+
+    fn finish(mut self) -> [u8; 32] {
+        self.hasher.update(&self.buffer[..self.held]);
+        self.hasher.finalize().into()
+    }
+}
+
+impl JsonSink for DigestSink {
+    fn push_text(&mut self, text: &str) {
+        let bytes = text.as_bytes();
+        if self.held + bytes.len() > DIGEST_BUFFER {
+            self.hasher.update(&self.buffer[..self.held]);
+            self.held = 0;
+            if bytes.len() > DIGEST_BUFFER {
+                self.hasher.update(bytes);
+                return;
+            }
+        }
+        self.buffer[self.held..self.held + bytes.len()].copy_from_slice(bytes);
+        self.held += bytes.len();
+    }
+
+    fn push_ascii(&mut self, byte: u8) {
+        if self.held == DIGEST_BUFFER {
+            self.hasher.update(self.buffer.as_slice());
+            self.held = 0;
+        }
+        self.buffer[self.held] = byte;
+        self.held += 1;
+    }
+}
+
+/// The sha256 digest of the carry projection's bytes, hashed as the projection is written.
+fn carry_digest(fragment: &PyValue) -> Result<[u8; 32]> {
+    let mut sink = DigestSink::new();
+    write_sorted_dict(&mut sink, &carried_entries(fragment)?)?;
+    Ok(sink.finish())
 }
 
 /// `hashlib.sha256(data).hexdigest()`.
 pub fn sha256_hex(data: &[u8]) -> String {
-    sha2::Sha256::digest(data)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let mut out = String::with_capacity(64);
+    push_lower_hex(&mut out, &sha2::Sha256::digest(data));
+    out
 }
 
 /// `unit_cache.carry_content_hash`: the sha256 of the carry projection, a unit's content key.
 pub fn carry_content_hash(fragment: &PyValue) -> Result<String> {
-    Ok(sha256_hex(carry_projection(fragment)?.as_bytes()))
+    let mut out = String::with_capacity(64);
+    push_lower_hex(&mut out, &carry_digest(fragment)?);
+    Ok(out)
 }
 
-/// `unit_cache.base58_64`: the digest's first 64 bits as [`ID_SYMBOLS`] base58 symbols, most significant first, padded with the zero symbol.
-pub fn base58_64(digest_hex: &str) -> Result<String> {
-    let head = digest_hex.get(..16).unwrap_or(digest_hex);
-    let Ok(mut value) = u64::from_str_radix(head, 16) else {
-        return error(format!("{digest_hex:?} does not lead with 64 bits of hex"));
-    };
+/// The content key ([`carry_content_hash`]) and the id derived from it ([`unit_id_for`]), the id read from the digest's first eight bytes, which are the 64 bits its first sixteen hex digits spell.
+fn content_key_and_id(fragment: &PyValue) -> Result<(String, String)> {
+    let digest = carry_digest(fragment)?;
+    let mut content_key = String::with_capacity(64);
+    push_lower_hex(&mut content_key, &digest);
+    let head = u64::from_be_bytes(digest[..8].try_into().expect("eight bytes"));
+    let mut id = String::with_capacity(2 + ID_SYMBOLS);
+    id.push_str("u-");
+    id.extend(
+        base58_symbols(head)
+            .iter()
+            .map(|&symbol| char::from(symbol)),
+    );
+    Ok((content_key, id))
+}
+
+/// A 64-bit value as [`ID_SYMBOLS`] base58 symbols, most significant first, padded with the zero symbol.
+fn base58_symbols(mut value: u64) -> [u8; ID_SYMBOLS] {
     let mut symbols = [0u8; ID_SYMBOLS];
     for symbol in symbols.iter_mut().rev() {
         *symbol = BASE58_ALPHABET[(value % 58) as usize];
         value /= 58;
     }
-    Ok(symbols.iter().map(|&symbol| char::from(symbol)).collect())
+    symbols
+}
+
+/// `unit_cache.base58_64`: the digest's first 64 bits as [`ID_SYMBOLS`] base58 symbols, most significant first, padded with the zero symbol.
+pub fn base58_64(digest_hex: &str) -> Result<String> {
+    let head = digest_hex.get(..16).unwrap_or(digest_hex);
+    let Ok(value) = u64::from_str_radix(head, 16) else {
+        return error(format!("{digest_hex:?} does not lead with 64 bits of hex"));
+    };
+    Ok(base58_symbols(value)
+        .iter()
+        .map(|&symbol| char::from(symbol))
+        .collect())
 }
 
 /// `unit_cache.unit_id_for`: `u-` and the content key's first 64 bits in base58.
@@ -225,8 +316,17 @@ pub fn lookup<'v>(fragment: &'v PyValue, key: &str) -> Option<&'v PyValue> {
     }
 }
 
-fn required<'v>(fragment: &'v PyValue, key: &str) -> Result<&'v PyValue> {
-    lookup(fragment, key).ok_or_else(|| FragmentError(format!("the fragment has no {key}")))
+/// The value under `key`, moved out of the dict with None left in its place, refusing a dict without the key as a lookup of it is refused.
+fn take_required(fragment: &mut PyValue, key: &str) -> Result<PyValue> {
+    let held = match fragment {
+        PyValue::Dict(entries) => entries
+            .iter_mut()
+            .find(|(held, _)| matches!(held, PyValue::Str(held) if held == key))
+            .map(|(_, value)| value),
+        _ => None,
+    };
+    held.map(|value| std::mem::replace(value, PyValue::None))
+        .ok_or_else(|| FragmentError(format!("the fragment has no {key}")))
 }
 
 /// `fragment[key] = value`: replace the value in place, keeping the key's position, or append the key.
@@ -293,6 +393,12 @@ fn pair_dict(left: usize, right: usize) -> PyValue {
 /// The fragment's shard bytes, ASCII text framed as a shard part frames a list element.
 pub fn fragment_bytes(fragment: &PyValue) -> Result<String> {
     Ok(fragment_text(fragment)?)
+}
+
+/// [`fragment_bytes`] written into `out`, which is cleared first.
+pub fn fragment_bytes_into(out: &mut String, fragment: &PyValue) -> Result<()> {
+    out.clear();
+    Ok(write_fragment_text(out, fragment)?)
 }
 
 /// The secondary junctions' rects in the shape `patch_fragment` reads and the unit store persists, `[{"pair": [left, right], "before": ..., "after": ...}, ...]`.
@@ -437,7 +543,7 @@ impl FragmentBuilder {
         let geometry = &enriched.geometry;
         let mut fragment: Vec<(PyValue, PyValue)> = Vec::with_capacity(44);
         for key in SCAFFOLD_HEAD {
-            fragment.push((PyValue::str(key), required(&scaffold, key)?.clone()));
+            fragment.push((PyValue::str(key), take_required(&mut scaffold, key)?));
         }
         fragment.push((
             PyValue::str("text_entities"),
@@ -449,7 +555,7 @@ impl FragmentBuilder {
             str_list(&enriched.notation_tokens),
         ));
         for key in SCAFFOLD_TAIL {
-            fragment.push((PyValue::str(key), required(&scaffold, key)?.clone()));
+            fragment.push((PyValue::str(key), take_required(&mut scaffold, key)?));
         }
         let rest = vec![
             (
@@ -561,12 +667,11 @@ impl FragmentBuilder {
             }
         }
         let mut fragment = PyValue::Dict(fragment);
-        let content_key = carry_content_hash(&fragment)?;
-        let id = unit_id_for(&content_key)?;
+        let (content_key, id) = content_key_and_id(&fragment)?;
         let entries = entries_mut(&mut fragment)?;
-        assign(entries, "content_key", PyValue::str(&content_key));
+        assign(entries, "content_key", PyValue::Str(content_key));
         unit.unit_id.clone_from(&id);
-        assign(entries, "id", PyValue::str(&id));
+        assign(entries, "id", PyValue::Str(id));
         if !slim {
             let drafts = drafts(unit)?;
             assign(entries_mut(&mut fragment)?, "drafts", drafts.to_py());
@@ -672,6 +777,61 @@ mod tests {
         assert_eq!(
             carry_projection(&unit).expect("dumps"),
             r#"{"codepoints": "E650", "kinds": ["join"]}"#
+        );
+    }
+
+    #[test]
+    fn the_streamed_content_key_and_id_are_the_hash_of_the_projection_text() {
+        let long = "\u{b7}x\"".repeat(900);
+        let unit = fragment(vec![
+            ("id", PyValue::str("u-x")),
+            ("summary", PyValue::str("prose")),
+            ("notation", PyValue::str(&long)),
+            (
+                "highlight",
+                fragment(vec![
+                    ("x_max", PyValue::Int(-4)),
+                    ("advance_total", PyValue::Int(9)),
+                ]),
+            ),
+            (
+                "kinds",
+                PyValue::List(vec![PyValue::str("join"), PyValue::None]),
+            ),
+            ("codepoints", PyValue::str("E650")),
+            ("content_key", PyValue::None),
+        ]);
+        let PyValue::Dict(entries) = &unit else {
+            panic!("a dict");
+        };
+        let kept = PyValue::Dict(
+            entries
+                .iter()
+                .filter(|(key, _)| !presentation_key(key))
+                .cloned()
+                .collect(),
+        );
+        let text = crate::pyfmt::json::dumps_sorted(&kept).expect("dumps");
+        assert!(text.len() > DIGEST_BUFFER * 2);
+        assert_eq!(carry_projection(&unit).expect("dumps"), text);
+        let key = sha256_hex(text.as_bytes());
+        assert_eq!(carry_content_hash(&unit).expect("hashes"), key);
+        assert_eq!(
+            content_key_and_id(&unit).expect("hashes"),
+            (key.clone(), unit_id_for(&key).expect("an id"))
+        );
+        let empty = fragment(vec![("id", PyValue::str("u-x"))]);
+        assert_eq!(
+            carry_content_hash(&empty).expect("hashes"),
+            sha256_hex(b"{}")
+        );
+        let refused = fragment(vec![(
+            "kinds",
+            PyValue::Dict(vec![(PyValue::Int(1), PyValue::None)]),
+        )]);
+        assert_eq!(
+            carry_content_hash(&refused).map_err(|failure| failure.0),
+            Err("a JSON object key must be a str, not an int".to_owned())
         );
     }
 

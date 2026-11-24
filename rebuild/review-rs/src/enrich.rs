@@ -6,6 +6,7 @@
 //!
 //! A piece is placed from the font facts, as [`crate::ink`] places one: its shape is the glyph's interned shape, so two pieces compare equal across fonts exactly when their shape keys do.
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 
@@ -229,6 +230,21 @@ pub fn parse_entry_extension(index: &SpecIndex, adjustments: &[AdjustmentToken])
     Ok(total)
 }
 
+/// Each code point as a numeric character reference, `&#x`, its uppercase hex at least four digits wide and `;`, as `format!("&#x{value:04X};")` writes it, one after another.
+pub fn text_entities(values: &[u32]) -> String {
+    const UPPER: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(values.len() * 9);
+    for &value in values {
+        out.push_str("&#x");
+        let digits = ((32 - value.leading_zeros()).div_ceil(4) as usize).max(4);
+        for shift in (0..digits).rev() {
+            out.push(char::from(UPPER[((value >> (shift * 4)) & 0xf) as usize]));
+        }
+        out.push(';');
+    }
+    out
+}
+
 /// The pen x before each glyph and after the last.
 pub fn pen_positions(positions: &[(i32, i32, i32)]) -> Vec<i64> {
     let mut pens = Vec::with_capacity(positions.len() + 1);
@@ -400,6 +416,7 @@ pub struct Enricher<'a> {
     facts: &'a FontFacts,
     aliases: HashMap<&'a str, &'a Alias>,
     boundary_glyph_names: HashSet<String>,
+    /// Each letter's code point and its display token ([`letter_display`] of its family).
     letters: HashMap<u32, String>,
 }
 
@@ -456,7 +473,10 @@ impl<'a> Enricher<'a> {
                 .map(|(name, alias)| (name.as_str(), alias))
                 .collect(),
             boundary_glyph_names,
-            letters: init_letters(init)?,
+            letters: init_letters(init)?
+                .into_iter()
+                .map(|(value, family)| (value, letter_display(&family)))
+                .collect(),
         })
     }
 
@@ -924,11 +944,11 @@ impl<'a> Enricher<'a> {
         let values = &unit.codepoint_values;
         Ok(Enriched {
             notation: self.notation(values),
-            notation_tokens: values.iter().map(|&value| self.token(value)).collect(),
-            text_entities: values
+            notation_tokens: values
                 .iter()
-                .map(|value| format!("&#x{value:04X};"))
+                .map(|&value| self.token(value).into_owned())
                 .collect(),
+            text_entities: text_entities(values),
             explain_text,
             provenance,
             positions: report
@@ -943,15 +963,15 @@ impl<'a> Enricher<'a> {
     }
 
     /// One code point's display token, as `notation_tokens` writes it: a letter's name, a boundary's token, or `U+` and the code point.
-    fn token(&self, value: u32) -> String {
+    fn token(&self, value: u32) -> Cow<'_, str> {
         match self.letters.get(&value) {
-            Some(family) => letter_display(family),
+            Some(display) => Cow::Borrowed(display),
             None => BOUNDARY_NOTATION
                 .iter()
                 .find(|(boundary, _)| *boundary == value)
                 .map_or_else(
-                    || format!("U+{value:04X}"),
-                    |(_, token)| (*token).to_owned(),
+                    || Cow::Owned(format!("U+{value:04X}")),
+                    |(_, token)| Cow::Borrowed(*token),
                 ),
         }
     }
@@ -1232,6 +1252,28 @@ mod tests {
         assert_eq!(covering(&spans, 2), 1);
         assert_eq!(covering(&spans, 9), 1);
         assert_eq!(pen_positions(&[(0, 0, 100), (5, -5, 50)]), [0, 100, 150]);
+    }
+
+    #[test]
+    fn text_entities_write_what_the_format_writes() {
+        let values = [
+            0,
+            0x7,
+            0x20,
+            0xB7,
+            0xE650,
+            0xFFFF,
+            0x1_0000,
+            0x1F600,
+            0x10_FFFF,
+            u32::MAX,
+        ];
+        let expected: String = values
+            .iter()
+            .map(|value| format!("&#x{value:04X};"))
+            .collect();
+        assert_eq!(text_entities(&values), expected);
+        assert_eq!(text_entities(&[]), "");
     }
 
     #[test]

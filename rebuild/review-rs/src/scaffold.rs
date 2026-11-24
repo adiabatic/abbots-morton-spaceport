@@ -5,9 +5,9 @@ use std::fmt;
 
 use crate::change_groups::{ChangeGroupError, UNMATCHED, config_features};
 use crate::enrich::{EnrichError, Flags};
-use crate::ink::{InkError, sha1_hex};
-use crate::pyfmt::PyValue;
+use crate::ink::{InkError, sha1};
 use crate::pyfmt::repr::repr_str;
+use crate::pyfmt::{PyValue, push_lower_hex};
 use crate::settle::SettleError;
 use crate::shape::ShapeError;
 use crate::subset_pack::SubsetPackError;
@@ -126,6 +126,14 @@ impl Roster {
 
     /// The configurations a unit of the window `codepoints` (colon-separated) can hold, `acceptance` less each window-scoped configuration none of whose letters the window spells.
     pub fn window(&self, codepoints: &str) -> Vec<String> {
+        self.window_configs(codepoints)
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// [`Roster::window`]'s configurations, borrowed from `acceptance`.
+    fn window_configs(&self, codepoints: &str) -> Vec<&str> {
         let letters: Vec<&str> = codepoints.split(':').collect();
         let dropped: Vec<&str> = self
             .scoped
@@ -139,8 +147,8 @@ impl Roster {
             .collect();
         self.acceptance
             .iter()
-            .filter(|config| !dropped.contains(&config.as_str()))
-            .cloned()
+            .map(String::as_str)
+            .filter(|config| !dropped.contains(config))
             .collect()
     }
 }
@@ -262,6 +270,155 @@ fn gate_clauses(constraints: &[(&str, bool)]) -> Vec<Clause> {
 
 /// `config_badge`: the smallest conjunction of at most [`GATE_CONSTRAINT_CAP`] feature on/off constraints that selects exactly the unit's configurations within `full_configs`, as the gate and its clauses' texts joined as the note; neither when the unit covers every non-ss10 configuration; and the literal `only under: <set>` note with no gate when no conjunction does. A set that holds no ss10 configuration is resolved against the non-ss10 configurations alone.
 pub fn config_badge(unit_configs: &[String], full_configs: &[String]) -> Badge {
+    let full: Vec<&str> = full_configs.iter().map(String::as_str).collect();
+    badge_within(unit_configs, &full)
+}
+
+/// [`config_badge`] over `full_configs` borrowed.
+fn badge_within(unit_configs: &[String], full_configs: &[&str]) -> Badge {
+    let covered: BTreeSet<&str> = unit_configs.iter().map(String::as_str).collect();
+    let isolated = |config: &str| config != "default" && config.split('+').any(|tag| tag == "ss10");
+    let non_isolated: Vec<&str> = full_configs
+        .iter()
+        .copied()
+        .filter(|config| !isolated(config))
+        .collect();
+    if non_isolated.iter().all(|config| covered.contains(config)) {
+        return Badge {
+            gate: None,
+            note: None,
+        };
+    }
+    let universe: Vec<&str> = if covered.iter().any(|config| isolated(config)) {
+        full_configs.to_vec()
+    } else {
+        non_isolated
+    };
+    let tags: Vec<&str> = universe
+        .iter()
+        .flat_map(|config| config_features(config))
+        .collect::<BTreeSet<&str>>()
+        .into_iter()
+        .collect();
+    let mut distinct: Vec<&str> = Vec::with_capacity(universe.len());
+    for config in &universe {
+        if !distinct.contains(config) {
+            distinct.push(config);
+        }
+    }
+    let found = if tags.len() <= 64 && distinct.len() <= 64 {
+        gate_by_masks(&covered, &distinct, &tags)
+    } else {
+        gate_by_sets(&covered, &universe, &tags)
+    };
+    if let Some(constraints) = found {
+        let clauses = gate_clauses(&constraints);
+        let note = clauses
+            .iter()
+            .map(|clause| clause.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+        return Badge {
+            gate: Some(clauses),
+            note: Some(note),
+        };
+    }
+    Badge {
+        gate: None,
+        note: Some(format!("only under: {}", unit_configs.join(", "))),
+    }
+}
+
+/// The first constraint set, in `config_badge`'s order (sizes up to [`GATE_CONSTRAINT_CAP`], each in [`candidate_constraint_sets`]' order), whose selection from `universe` is the `covered` set, with each configuration and each candidate held as a bit mask: a configuration's features over `tags` (at most 64, sorted), and the configurations a candidate selects over `universe` (at most 64, distinct). A configuration a candidate selects is one whose features hold each of the candidate's tags exactly when the candidate turns it on, so it is chosen when its features masked by the candidate's tags are the candidate's on tags.
+fn gate_by_masks<'t>(
+    covered: &BTreeSet<&str>,
+    universe: &[&str],
+    tags: &[&'t str],
+) -> Option<Vec<(&'t str, bool)>> {
+    if covered.iter().any(|config| !universe.contains(config)) {
+        return None;
+    }
+    let bit = |tag: &str| {
+        tags.iter()
+            .position(|held| *held == tag)
+            .map_or(0, |at| 1u64 << at)
+    };
+    let features: Vec<u64> = universe
+        .iter()
+        .map(|config| {
+            config_features(config)
+                .into_iter()
+                .map(bit)
+                .fold(0, |mask, tag| mask | tag)
+        })
+        .collect();
+    let covered_mask = universe
+        .iter()
+        .enumerate()
+        .filter(|(_, config)| covered.contains(*config))
+        .fold(0u64, |mask, (at, _)| mask | (1 << at));
+    for size in 1..=GATE_CONSTRAINT_CAP.min(tags.len()) {
+        let combinations_of_tags = combinations(tags.len(), size);
+        for on_count in (0..=size).rev() {
+            let ons = combinations(size, on_count);
+            for combination in &combinations_of_tags {
+                let mask = combination
+                    .iter()
+                    .fold(0u64, |mask, &tag| mask | (1 << tag));
+                for on in &ons {
+                    let wanted = on
+                        .iter()
+                        .fold(0u64, |wanted, &slot| wanted | (1 << combination[slot]));
+                    let selected = features
+                        .iter()
+                        .enumerate()
+                        .filter(|&(_, held)| held & mask == wanted)
+                        .fold(0u64, |selected, (at, _)| selected | (1 << at));
+                    if selected == covered_mask {
+                        return Some(
+                            combination
+                                .iter()
+                                .enumerate()
+                                .map(|(slot, &tag)| (tags[tag], on.contains(&slot)))
+                                .collect(),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The first constraint set, in `config_badge`'s order, whose selection from `universe` is the `covered` set, each candidate's selection built as a set of configurations.
+fn gate_by_sets<'t>(
+    covered: &BTreeSet<&str>,
+    universe: &[&str],
+    tags: &[&'t str],
+) -> Option<Vec<(&'t str, bool)>> {
+    for size in 1..=GATE_CONSTRAINT_CAP.min(tags.len()) {
+        for constraints in candidate_constraint_sets(tags, size) {
+            let selected: BTreeSet<&str> = universe
+                .iter()
+                .copied()
+                .filter(|config| {
+                    let features = config_features(config);
+                    constraints
+                        .iter()
+                        .all(|(tag, on)| features.contains(tag) == *on)
+                })
+                .collect();
+            if selected == *covered {
+                return Some(constraints);
+            }
+        }
+    }
+    None
+}
+
+/// `config_badge` as it builds each candidate's selection as a set, for the tests to hold [`config_badge`] to.
+#[cfg(test)]
+fn config_badge_by_sets(unit_configs: &[String], full_configs: &[String]) -> Badge {
     let covered: BTreeSet<&str> = unit_configs.iter().map(String::as_str).collect();
     let isolated = |config: &str| config_features(config).contains("ss10");
     let non_isolated: Vec<&str> = full_configs
@@ -388,7 +545,7 @@ pub fn unit_scaffold(
     ink_deltas: &[(String, String)],
     roster: &Roster,
 ) -> PyValue {
-    let badge = config_badge(&unit.configs, &roster.window(&unit.codepoints));
+    let badge = badge_within(&unit.configs, &roster.window_configs(&unit.codepoints));
     let optional = |value: &Option<String>| PyValue::optional_str(value.as_deref());
     let entries = vec![
         ("id", PyValue::str(&unit.unit_id)),
@@ -466,12 +623,16 @@ pub fn cluster_id_from_repr(configs: &[String], class_id: &str, diffs_repr: &str
     key.push_str(", ");
     key.push_str(diffs_repr);
     key.push(')');
-    format!("c-{}", &sha1_hex(key.as_bytes())[..8])
+    let mut id = String::with_capacity(10);
+    id.push_str("c-");
+    push_lower_hex(&mut id, &sha1(key.as_bytes())[..4]);
+    id
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ink::sha1_hex;
 
     fn texts(items: &[&str]) -> Vec<String> {
         items.iter().map(|item| (*item).to_owned()).collect()
@@ -501,6 +662,55 @@ mod tests {
                 vec![("a", false)],
                 vec![("b", false)]
             ]
+        );
+    }
+
+    #[test]
+    fn the_masked_badge_search_finds_what_the_set_search_finds() {
+        let rosters = [
+            texts(&[
+                "default",
+                "ss03",
+                "ss04",
+                "ss05",
+                "ss03+ss05",
+                "ss07",
+                "ss10",
+            ]),
+            acceptance(),
+            texts(&[
+                "default",
+                "ss03",
+                "ss03",
+                "ss10+ss03",
+                "ss02+ss04+ss06",
+                "ss08",
+            ]),
+            texts(&["ss10"]),
+            Vec::new(),
+        ];
+        for full in &rosters {
+            let mut pool = full.clone();
+            pool.extend(texts(&["ss09", "ss10+ss05"]));
+            for subset in 0..1u32 << pool.len() {
+                let unit: Vec<String> = pool
+                    .iter()
+                    .enumerate()
+                    .filter(|(at, _)| subset & (1 << at) != 0)
+                    .map(|(_, config)| config.clone())
+                    .collect();
+                assert_eq!(
+                    config_badge(&unit, full),
+                    config_badge_by_sets(&unit, full),
+                    "{unit:?} in {full:?}"
+                );
+            }
+        }
+        let wide: Vec<String> = (0..66).map(|tag| format!("ss{tag:02}")).collect();
+        let unit = texts(&["ss03"]);
+        assert_eq!(
+            config_badge(&unit, &wide),
+            config_badge_by_sets(&unit, &wide)
         );
     }
 

@@ -160,6 +160,41 @@ impl Arena {
         written.map(|()| spans)
     }
 
+    /// Append deflated fragments that lie one after another in `packed`, each given by its deflated length and the length of its shard bytes, to one spill file in one write, and return each one's span, the spans [`Arena::append`] gives for the same fragments.
+    pub fn append_joined(
+        &self,
+        packed: &[u8],
+        lengths: impl IntoIterator<Item = (usize, usize)>,
+    ) -> std::result::Result<Vec<ArenaSpan>, String> {
+        let mut spill = self.take()?;
+        let written = spill
+            .file
+            .write_all_at(packed, spill.length)
+            .map_err(|failure| format!("cannot write the arena's spill file: {failure}"));
+        let mut spans = Vec::new();
+        if written.is_ok() {
+            let mut start = spill.length;
+            let (mut count, mut raw) = (0u64, 0u64);
+            for (packed_length, raw_length) in lengths {
+                spans.push(ArenaSpan {
+                    file: spill.index,
+                    start,
+                    length: packed_length as u64,
+                });
+                start += packed_length as u64;
+                count += 1;
+                raw += raw_length as u64;
+            }
+            spill.length += packed.len() as u64;
+            self.count.fetch_add(count, Ordering::Relaxed);
+            self.packed
+                .fetch_add(packed.len() as u64, Ordering::Relaxed);
+            self.raw.fetch_add(raw, Ordering::Relaxed);
+        }
+        self.free.lock().map_err(|_| poisoned())?.push(spill);
+        written.map(|()| spans)
+    }
+
     /// The deflated bytes at `span`.
     pub fn read(&self, span: ArenaSpan) -> std::result::Result<Vec<u8>, String> {
         let file = self
@@ -377,23 +412,16 @@ fn run_job(worker: &mut Worker<'_>, job: Job) -> std::result::Result<Answer, Str
                 .run_batch(units)
                 .map_err(|failure| format!("batch {batch}: {failure}"))?;
             let spans = arena
-                .append(
+                .append_joined(
+                    &answer.packed,
                     answer
                         .projections
                         .iter()
-                        .map(|projection| (projection.packed.as_slice(), projection.raw_length)),
+                        .map(|projection| (projection.packed_length, projection.raw_length)),
                 )
                 .map_err(|failure| format!("batch {batch}: {failure}"))?;
             Ok(Answer::Batch {
-                projections: answer
-                    .projections
-                    .into_iter()
-                    .map(|mut projection| {
-                        projection.packed = Vec::new();
-                        projection
-                    })
-                    .zip(spans)
-                    .collect(),
+                projections: answer.projections.into_iter().zip(spans).collect(),
                 errors: answer.contract_errors,
             })
         }
@@ -676,6 +704,42 @@ mod tests {
                 })
                 .is_err()
         );
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_joined_append_writes_and_counts_what_separate_appends_write() {
+        let directory = scratch("arena-joined");
+        let separate = Arena::new(&directory);
+        let joined = Arena::new(&directory);
+        let pieces = [(&b"abc"[..], 10), (&b""[..], 1), (&b"de"[..], 5)];
+        let expected = separate.append(pieces).expect("appended");
+        let spans = joined
+            .append_joined(b"abcde", pieces.map(|(packed, raw)| (packed.len(), raw)))
+            .expect("appended");
+        assert_eq!(spans, expected);
+        let more = joined.append_joined(b"fghi", [(4, 9)]).expect("appended");
+        assert_eq!(
+            more,
+            separate.append([(&b"fghi"[..], 9)]).expect("appended")
+        );
+        assert_eq!(joined.append_joined(b"", []).expect("appended"), []);
+        for span in spans.iter().chain(&more) {
+            assert_eq!(joined.read(*span), separate.read(*span));
+        }
+        assert_eq!(
+            (
+                joined.bytes(),
+                joined.raw(),
+                joined.count.load(Ordering::Relaxed)
+            ),
+            (
+                separate.bytes(),
+                separate.raw(),
+                separate.count.load(Ordering::Relaxed)
+            )
+        );
+        assert_eq!(joined.note(), separate.note());
         let _ = std::fs::remove_dir_all(&directory);
     }
 

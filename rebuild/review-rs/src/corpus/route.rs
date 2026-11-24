@@ -419,7 +419,7 @@ pub fn copy_forward(
         )?)
 }
 
-/// What [`route_classes`] gives the write: the classes in shard order with their routes, each unit's prediction, whether the previous sidecars are copied forward, the width the runs were cut at, and the runs, each its classes' places in shard order.
+/// What [`route_classes`] gives the write: the classes in shard order with their routes, each unit's prediction, whether the previous sidecars are copied forward, the width the runs were cut at, the runs, each its classes' places in shard order, and the most threads the write may take (`fit`, at least one), which the threads the runs leave over help with.
 #[derive(Clone, Debug)]
 pub struct Routed {
     pub classes: Vec<ClassToWrite>,
@@ -427,6 +427,7 @@ pub struct Routed {
     pub copy_forward: bool,
     pub width: usize,
     pub runs: Vec<Vec<usize>>,
+    pub fit: usize,
 }
 
 /// The write's decisions before it writes: the classes of `classes`, in manifest order, sorted into shard order (by `<id>.json`), each with its section, its units in the passes' rows sorted by id word, the previous corpus's parts for it, none when one of them is not a file under `out_dir`, and its route ([`route`]); whether the sidecars are copied forward ([`copy_forward`]) when the cache supplied `cached` units; and the runs, cut at the width `fit` narrows to ([`write_width`], [`write_runs`]).
@@ -504,6 +505,7 @@ pub fn route_classes(
         copy_forward,
         width,
         runs,
+        fit: usize::try_from(fit.max(1)).unwrap_or(usize::MAX),
     })
 }
 

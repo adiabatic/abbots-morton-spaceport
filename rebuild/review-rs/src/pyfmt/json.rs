@@ -3,8 +3,15 @@
 //! The writers cover every form the build writes: `json.dumps(value)` ([`dumps`]), with `sort_keys=True` ([`dumps_sorted`], the carry projection whose sha256 is a unit's content key, and `manifest_sha256`), with `indent=1` ([`dumps_indent`], `manifest.json` and the row-delta heads), with `ensure_ascii=False` ([`dumps_unicode`], the index and app lines), with `separators=(",", ":")` ([`dumps_compact`], `review-facts.json`), and a fragment's shard bytes, `json.dumps([fragment], indent=1, ensure_ascii=True)[1:-2]` ([`fragment_text`]). A tuple is written as a list, as `json` writes one. A dict key must be a `str`: one `json` would stringify (an int, a bool, None) is refused, as are bytes, a set and a record, which `json` refuses; there is no float to write.
 //!
 //! The reader ([`loads`] for a `str`, [`loads_bytes`] for `bytes`, and [`raw_decode`] for one value inside a `str`, as a shard part's walk reads its elements) reads what `json.loads` reads into the value it gives: an object as a dict whose repeated key keeps its first place and its last value, an array as a list, and an int as an int. It refuses what `json.loads` refuses, and what `json.loads` reads but the value model cannot hold: a float, `NaN` and `Infinity` among them, an int beyond 64 bits, a lone surrogate, escaped or in the bytes, and text `json.detect_encoding` takes for UTF-16 or UTF-32. Such a refusal names [`UNHELD`], so [`unheld`] tells it from one `json.loads` makes too: the reader reads on past a value it cannot hold and refuses it only when the rest of the text reads, so a text `json.loads` refuses anywhere is never taken for one it reads. [`Cursor`] walks a text's bytes forward without building a value, for a caller that reads a few fields of a document and leaves the rest to the reader.
+//!
+//! The writers write into a [`JsonSink`]: a `String`, or a digest that hashes the text as it is written. [`write_fragment_text`] appends a fragment's shard bytes to a buffer the caller keeps, and [`write_sorted_dict`] writes [`dumps_sorted`]'s text for a dict given as borrowed entries.
+//!
+//! The writers write into a [`JsonSink`]: a `String`, or a digest that hashes the text as it is written. [`write_fragment_text`] appends a fragment's shard bytes to a buffer the caller keeps, and [`write_sorted_dict`] writes [`dumps_sorted`]'s text for a dict given as borrowed entries.
 
-use super::{INT_MAX_STR_DIGITS, PyFmtError, PyValue, int_digits_exceeded};
+use super::{
+    DECIMAL_WIDTH, INT_MAX_STR_DIGITS, LOWER_HEX_DIGITS, PyFmtError, PyValue, decimal,
+    int_digits_exceeded,
+};
 
 /// `json.dumps(value)`: `", "` between items, `": "` after a key, ASCII, every dict in its insertion order.
 pub fn dumps(value: &PyValue) -> Result<String, PyFmtError> {
@@ -46,55 +53,156 @@ pub fn dumps_compact(value: &PyValue) -> Result<String, PyFmtError> {
 
 /// `json.dumps([value], indent=1, ensure_ascii=True)[1:-2]`, a fragment's shard bytes: the value one level deep in a one-element list, with the list's brackets and the newline before its `]` cut away, so the text starts with a newline and one space. Dict keys keep their insertion order.
 pub fn fragment_text(value: &PyValue) -> Result<String, PyFmtError> {
-    let encoder = Encoder::INDENTED;
     let mut out = String::new();
-    encoder.newline(&mut out, 1);
-    encoder.write(&mut out, value, 1)?;
+    write_fragment_text(&mut out, value)?;
     Ok(out)
+}
+
+/// Append [`fragment_text`]'s text for `value` to `out`. On a refusal `out` holds what was written before the refused value.
+pub fn write_fragment_text(out: &mut String, value: &PyValue) -> Result<(), PyFmtError> {
+    let encoder = Encoder::INDENTED;
+    encoder.newline(out, 1);
+    encoder.write(out, value, 1)
+}
+
+/// Write [`dumps_sorted`]'s text for a dict of `entries` (a dict holding those entries in that order) to `out`, with the same refusals.
+pub fn write_sorted_dict<W: JsonSink>(
+    out: &mut W,
+    entries: &[&(PyValue, PyValue)],
+) -> Result<(), PyFmtError> {
+    let encoder = Encoder {
+        sort_keys: true,
+        ..Encoder::INLINE
+    };
+    if entries.is_empty() {
+        out.push_text("{}");
+        return Ok(());
+    }
+    let mut keyed = Vec::with_capacity(entries.len());
+    for (key, item) in entries.iter().copied() {
+        keyed.push((dict_key(key)?, item));
+    }
+    keyed.sort_by(|left, right| left.0.cmp(right.0));
+    encoder.write_entries(out, &keyed, 0)
+}
+
+/// Where a JSON writer puts its text: a `String`, or a digest that hashes the bytes as they come.
+pub trait JsonSink {
+    /// Append `text`.
+    fn push_text(&mut self, text: &str);
+    /// Append one ASCII byte.
+    fn push_ascii(&mut self, byte: u8);
+}
+
+impl JsonSink for String {
+    fn push_text(&mut self, text: &str) {
+        self.push_str(text);
+    }
+
+    fn push_ascii(&mut self, byte: u8) {
+        self.push(char::from(byte));
+    }
+}
+
+/// The escape `json`'s ASCII encoder writes for an ASCII byte, or None for a byte it writes as itself: the two-character escapes, and `\u00xx` for every other C0 control and DEL.
+fn ascii_escape(byte: u8) -> Option<&'static str> {
+    const CONTROLS: [&str; 32] = [
+        "\\u0000", "\\u0001", "\\u0002", "\\u0003", "\\u0004", "\\u0005", "\\u0006", "\\u0007",
+        "\\b", "\\t", "\\n", "\\u000b", "\\f", "\\r", "\\u000e", "\\u000f", "\\u0010", "\\u0011",
+        "\\u0012", "\\u0013", "\\u0014", "\\u0015", "\\u0016", "\\u0017", "\\u0018", "\\u0019",
+        "\\u001a", "\\u001b", "\\u001c", "\\u001d", "\\u001e", "\\u001f",
+    ];
+    match byte {
+        b'"' => Some("\\\""),
+        b'\\' => Some("\\\\"),
+        0x7f => Some("\\u007f"),
+        0..=0x1f => Some(CONTROLS[usize::from(byte)]),
+        _ => None,
+    }
+}
+
+/// Append `\u` and one UTF-16 code unit as four lowercase hex digits, as `format!("\\u{unit:04x}")` writes it.
+fn push_unit_escape<W: JsonSink>(out: &mut W, unit: u16) {
+    let mut escape = *b"\\u0000";
+    for (slot, shift) in escape[2..].iter_mut().zip([12, 8, 4, 0]) {
+        *slot = LOWER_HEX_DIGITS[usize::from((unit >> shift) & 0xf)];
+    }
+    out.push_text(std::str::from_utf8(&escape).expect("an escape is ASCII"));
+}
+
+/// [`write_string`] into any [`JsonSink`]: each run of printable ASCII other than `"` and `\` is appended at once.
+fn push_ascii_string<W: JsonSink>(out: &mut W, text: &str) {
+    out.push_ascii(b'"');
+    let bytes = text.as_bytes();
+    let mut run = 0;
+    let mut at = 0;
+    while at < bytes.len() {
+        let byte = bytes[at];
+        if (b' '..=b'~').contains(&byte) && byte != b'"' && byte != b'\\' {
+            at += 1;
+            continue;
+        }
+        out.push_text(&text[run..at]);
+        if let Some(escape) = ascii_escape(byte) {
+            out.push_text(escape);
+            at += 1;
+        } else {
+            let letter = text[at..].chars().next().expect("a character starts here");
+            let mut units = [0u16; 2];
+            for &unit in letter.encode_utf16(&mut units).iter() {
+                push_unit_escape(out, unit);
+            }
+            at += letter.len_utf8();
+        }
+        run = at;
+    }
+    out.push_text(&text[run..]);
+    out.push_ascii(b'"');
+}
+
+/// [`write_unicode_string`] into any [`JsonSink`]: each run of characters written as themselves is appended at once.
+fn push_unicode_string<W: JsonSink>(out: &mut W, text: &str) {
+    out.push_ascii(b'"');
+    let bytes = text.as_bytes();
+    let mut run = 0;
+    for (at, &byte) in bytes.iter().enumerate() {
+        if byte >= 0x20 && byte != b'"' && byte != b'\\' {
+            continue;
+        }
+        out.push_text(&text[run..at]);
+        out.push_text(ascii_escape(byte).expect("a quote, a backslash or a C0 control"));
+        run = at + 1;
+    }
+    out.push_text(&text[run..]);
+    out.push_ascii(b'"');
 }
 
 /// Append one JSON string as `json`'s ASCII encoder writes it: `\"`, `\\`, `\n`, `\r`, `\t`, `\b` and `\f`; the printable ASCII characters as themselves; and every other character as `\uXXXX` in lowercase hex, beyond the BMP as a surrogate pair.
 pub fn write_string(out: &mut String, text: &str) {
-    out.push('"');
-    for letter in text.chars() {
-        match letter {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            ' '..='~' => out.push(letter),
-            _ => {
-                let mut units = [0u16; 2];
-                for unit in letter.encode_utf16(&mut units) {
-                    out.push_str(&format!("\\u{unit:04x}"));
-                }
-            }
-        }
-    }
-    out.push('"');
+    push_ascii_string(out, text);
 }
 
 /// Append one JSON string as `json` writes it with `ensure_ascii=False`: `\"`, `\\`, `\n`, `\r`, `\t`, `\b` and `\f`, every other C0 control as `\u00xx` in lowercase hex, and every other character, DEL and the non-ASCII ones among them, as itself.
 pub fn write_unicode_string(out: &mut String, text: &str) {
-    out.push('"');
-    for letter in text.chars() {
-        match letter {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            '\0'..='\u{1f}' => out.push_str(&format!("\\u{:04x}", u32::from(letter))),
-            _ => out.push(letter),
-        }
-    }
-    out.push('"');
+    push_unicode_string(out, text);
 }
+
+/// A dict key as the writers take it, refusing a key that is not a `str` as `json` does.
+fn dict_key(key: &PyValue) -> Result<&str, PyFmtError> {
+    match key {
+        PyValue::Str(text) => Ok(text.as_str()),
+        other => Err(PyFmtError(format!(
+            "a JSON object key must be a str, not {}",
+            other.kind()
+        ))),
+    }
+}
+
+/// The most entries a dict's sorted keys are held for on the stack while it is written.
+const STACK_ENTRIES: usize = 16;
+
+/// The spaces a newline's indent is written from, up to their length at a time.
+const SPACES: &str = "                                ";
 
 struct Encoder {
     indent: Option<usize>,
@@ -125,74 +233,86 @@ impl Encoder {
         Ok(out)
     }
 
-    fn newline(&self, out: &mut String, level: usize) {
+    fn newline<W: JsonSink>(&self, out: &mut W, level: usize) {
         if let Some(indent) = self.indent {
-            out.push('\n');
-            out.extend(std::iter::repeat_n(' ', indent * level));
+            out.push_ascii(b'\n');
+            let mut width = indent * level;
+            while width > 0 {
+                let piece = width.min(SPACES.len());
+                out.push_text(&SPACES[..piece]);
+                width -= piece;
+            }
         }
     }
 
-    fn string(&self, out: &mut String, text: &str) {
+    fn string<W: JsonSink>(&self, out: &mut W, text: &str) {
         if self.ensure_ascii {
-            write_string(out, text);
+            push_ascii_string(out, text);
         } else {
-            write_unicode_string(out, text);
+            push_unicode_string(out, text);
         }
     }
 
-    fn write(&self, out: &mut String, value: &PyValue, level: usize) -> Result<(), PyFmtError> {
+    fn write<W: JsonSink>(
+        &self,
+        out: &mut W,
+        value: &PyValue,
+        level: usize,
+    ) -> Result<(), PyFmtError> {
         match value {
-            PyValue::None => out.push_str("null"),
-            PyValue::Bool(true) => out.push_str("true"),
-            PyValue::Bool(false) => out.push_str("false"),
-            PyValue::Int(number) => out.push_str(&number.to_string()),
+            PyValue::None => out.push_text("null"),
+            PyValue::Bool(true) => out.push_text("true"),
+            PyValue::Bool(false) => out.push_text("false"),
+            PyValue::Int(number) => out.push_text(decimal(*number, &mut [0; DECIMAL_WIDTH])),
             PyValue::Str(text) => self.string(out, text),
             PyValue::Tuple(items) | PyValue::List(items) => {
                 if items.is_empty() {
-                    out.push_str("[]");
+                    out.push_text("[]");
                     return Ok(());
                 }
-                out.push('[');
+                out.push_ascii(b'[');
                 for (index, item) in items.iter().enumerate() {
                     if index > 0 {
-                        out.push_str(self.item_separator);
+                        out.push_text(self.item_separator);
                     }
                     self.newline(out, level + 1);
                     self.write(out, item, level + 1)?;
                 }
                 self.newline(out, level);
-                out.push(']');
+                out.push_ascii(b']');
             }
             PyValue::Dict(entries) => {
                 if entries.is_empty() {
-                    out.push_str("{}");
+                    out.push_text("{}");
                     return Ok(());
                 }
-                let mut keyed = entries
-                    .iter()
-                    .map(|(key, item)| match key {
-                        PyValue::Str(text) => Ok((text.as_str(), item)),
-                        other => Err(PyFmtError(format!(
-                            "a JSON object key must be a str, not {}",
-                            other.kind()
-                        ))),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                if self.sort_keys {
-                    keyed.sort_by(|left, right| left.0.cmp(right.0));
-                }
-                out.push('{');
-                for (index, (key, item)) in keyed.into_iter().enumerate() {
-                    if index > 0 {
-                        out.push_str(self.item_separator);
+                if !self.sort_keys {
+                    for (key, _) in entries {
+                        dict_key(key)?;
                     }
-                    self.newline(out, level + 1);
-                    self.string(out, key);
-                    out.push_str(self.key_separator);
-                    self.write(out, item, level + 1)?;
+                    out.push_ascii(b'{');
+                    for (index, (key, item)) in entries.iter().enumerate() {
+                        self.write_entry(out, index, dict_key(key)?, item, level)?;
+                    }
+                    self.newline(out, level);
+                    out.push_ascii(b'}');
+                } else if entries.len() <= STACK_ENTRIES {
+                    let mut keyed: [(&str, &PyValue); STACK_ENTRIES] =
+                        [("", &PyValue::None); STACK_ENTRIES];
+                    for (slot, (key, item)) in keyed.iter_mut().zip(entries) {
+                        *slot = (dict_key(key)?, item);
+                    }
+                    let keyed = &mut keyed[..entries.len()];
+                    keyed.sort_by(|left, right| left.0.cmp(right.0));
+                    self.write_entries(out, keyed, level)?;
+                } else {
+                    let mut keyed = Vec::with_capacity(entries.len());
+                    for (key, item) in entries {
+                        keyed.push((dict_key(key)?, item));
+                    }
+                    keyed.sort_by(|left, right| left.0.cmp(right.0));
+                    self.write_entries(out, &keyed, level)?;
                 }
-                self.newline(out, level);
-                out.push('}');
             }
             PyValue::Bytes(_) | PyValue::Set(_) | PyValue::Record(..) => {
                 return Err(PyFmtError(format!(
@@ -202,6 +322,40 @@ impl Encoder {
             }
         }
         Ok(())
+    }
+
+    /// A nonempty dict's entries, keyed by their `str` keys in the order given, inside its braces.
+    fn write_entries<W: JsonSink>(
+        &self,
+        out: &mut W,
+        keyed: &[(&str, &PyValue)],
+        level: usize,
+    ) -> Result<(), PyFmtError> {
+        out.push_ascii(b'{');
+        for (index, &(key, item)) in keyed.iter().enumerate() {
+            self.write_entry(out, index, key, item, level)?;
+        }
+        self.newline(out, level);
+        out.push_ascii(b'}');
+        Ok(())
+    }
+
+    /// The `index`th entry of a dict at `level`, after the separator that comes before every entry but the first.
+    fn write_entry<W: JsonSink>(
+        &self,
+        out: &mut W,
+        index: usize,
+        key: &str,
+        item: &PyValue,
+        level: usize,
+    ) -> Result<(), PyFmtError> {
+        if index > 0 {
+            out.push_text(self.item_separator);
+        }
+        self.newline(out, level + 1);
+        self.string(out, key);
+        out.push_text(self.key_separator);
+        self.write(out, item, level + 1)
     }
 }
 
@@ -1016,6 +1170,166 @@ mod tests {
             dumps_indent(&value).expect("json"),
             "{\n \"k\\u00e9\": [\n  -1,\n  \"\\u0001\\u007f\\ud83d\\ude00\"\n ],\n \"e\": {}\n}"
         );
+    }
+
+    /// `json.dumps(text)`'s string as the writer escaped it before the table: one `format!` per escaped code unit.
+    fn reference_ascii(text: &str) -> String {
+        let mut out = String::from("\"");
+        for letter in text.chars() {
+            match letter {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                '\u{8}' => out.push_str("\\b"),
+                '\u{c}' => out.push_str("\\f"),
+                ' '..='~' => out.push(letter),
+                _ => {
+                    let mut units = [0u16; 2];
+                    for unit in letter.encode_utf16(&mut units) {
+                        out.push_str(&format!("\\u{unit:04x}"));
+                    }
+                }
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    /// `json.dumps(text, ensure_ascii=False)`'s string as the writer escaped it before the table.
+    fn reference_unicode(text: &str) -> String {
+        let mut out = String::from("\"");
+        for letter in text.chars() {
+            match letter {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                '\u{8}' => out.push_str("\\b"),
+                '\u{c}' => out.push_str("\\f"),
+                '\0'..='\u{1f}' => out.push_str(&format!("\\u{:04x}", u32::from(letter))),
+                _ => out.push(letter),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    #[test]
+    fn every_escape_class_is_written_as_cpython_writes_it() {
+        let mut every_ascii = String::new();
+        for point in 0..0x80u8 {
+            every_ascii.push(char::from(point));
+        }
+        let mut written = String::new();
+        write_string(&mut written, &every_ascii);
+        assert_eq!(written, reference_ascii(&every_ascii));
+        assert!(written.contains(r#"\u0000\u0001"#) && written.contains(r#"\b\t\n\u000b\f\r"#));
+        assert!(written.contains(r##"\u001f !\"#$"##) && written.contains(r#"[\\]"#));
+        assert!(written.ends_with(r#"}~\u007f""#));
+        for (text, ascii, unicode) in [
+            ("", r#""""#, r#""""#),
+            ("plain", r#""plain""#, r#""plain""#),
+            ("\"\\", r#""\"\\""#, r#""\"\\""#),
+            (
+                "\u{1}\u{1f}\u{7f}",
+                r#""\u0001\u001f\u007f""#,
+                "\"\\u0001\\u001f\u{7f}\"",
+            ),
+            ("·Pea ·Tea", "\"\\u00b7Pea \\u00b7Tea\"", "\"·Pea ·Tea\""),
+            (
+                "\u{e650}\u{ffff}",
+                "\"\\ue650\\uffff\"",
+                "\"\u{e650}\u{ffff}\"",
+            ),
+            (
+                "a\u{1f600}b\u{10ffff}",
+                "\"a\\ud83d\\ude00b\\udbff\\udfff\"",
+                "\"a\u{1f600}b\u{10ffff}\"",
+            ),
+            ("\u{2019}\n", "\"\\u2019\\n\"", "\"\u{2019}\\n\""),
+        ] {
+            let mut out = String::new();
+            write_string(&mut out, text);
+            assert_eq!(out, ascii, "{text:?}");
+            assert_eq!(out, reference_ascii(text), "{text:?}");
+            let mut out = String::new();
+            write_unicode_string(&mut out, text);
+            assert_eq!(out, unicode, "{text:?}");
+            assert_eq!(out, reference_unicode(text), "{text:?}");
+        }
+        let mut every_unicode = every_ascii.clone();
+        every_unicode.push_str("\u{80}\u{a0}\u{7ff}\u{800}\u{d7ff}\u{e000}\u{fffd}\u{10000}");
+        let mut out = String::new();
+        write_unicode_string(&mut out, &every_unicode);
+        assert_eq!(out, reference_unicode(&every_unicode));
+        let mut out = String::new();
+        write_string(&mut out, &every_unicode);
+        assert_eq!(out, reference_ascii(&every_unicode));
+    }
+
+    #[test]
+    fn a_sorted_dict_written_from_borrowed_entries_is_dumps_sorted() {
+        let PyValue::Dict(entries) = sample() else {
+            panic!("a dict");
+        };
+        let borrowed: Vec<&(PyValue, PyValue)> = entries.iter().collect();
+        let mut out = String::new();
+        write_sorted_dict(&mut out, &borrowed).expect("json");
+        assert_eq!(out, dumps_sorted(&sample()).expect("json"));
+        let mut out = String::new();
+        write_sorted_dict(&mut out, &[]).expect("json");
+        assert_eq!(out, "{}");
+        let wide = PyValue::Dict(
+            (0..40)
+                .rev()
+                .map(|index| (text(&format!("k{index}")), PyValue::Int(index - 20)))
+                .chain([(text("k3"), PyValue::Bool(true))])
+                .collect(),
+        );
+        let narrow = PyValue::Dict(vec![(text("b"), wide.clone()), (text("a"), wide.clone())]);
+        let expected = |value: &PyValue| {
+            let PyValue::Dict(entries) = value else {
+                panic!("a dict");
+            };
+            let mut keyed: Vec<(String, &PyValue)> = entries
+                .iter()
+                .map(|(key, item)| match key {
+                    PyValue::Str(key) => (key.clone(), item),
+                    _ => panic!("a str key"),
+                })
+                .collect();
+            keyed.sort_by(|left, right| left.0.cmp(&right.0));
+            keyed
+                .iter()
+                .map(|(key, item)| format!("\"{key}\": {}", dumps(item).expect("json")))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        assert_eq!(
+            dumps_sorted(&wide).expect("json"),
+            format!("{{{}}}", expected(&wide))
+        );
+        assert!(
+            dumps_sorted(&narrow)
+                .expect("json")
+                .starts_with(&format!("{{\"a\": {{{}}}", expected(&wide)))
+        );
+        let mut indented = String::new();
+        write_fragment_text(&mut indented, &narrow).expect("json");
+        assert_eq!(indented, fragment_text(&narrow).expect("json"));
+        let deep = (0..40).fold(PyValue::Int(1), |inner, _| PyValue::List(vec![inner]));
+        let mut expected = "\n ".to_owned();
+        for level in 1..=40 {
+            expected.push_str(&format!("[\n{}", " ".repeat(level + 1)));
+        }
+        expected.push('1');
+        for level in (1..=40).rev() {
+            expected.push_str(&format!("\n{}]", " ".repeat(level)));
+        }
+        assert_eq!(fragment_text(&deep).expect("json"), expected);
     }
 
     #[test]

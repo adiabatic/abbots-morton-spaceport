@@ -10,8 +10,7 @@ use sha2::{Digest as _, Sha256};
 
 use crate::config_fold::ConfigFold;
 use crate::fontfacts::{FontFacts, ShapeId, Side};
-use crate::pyfmt::PyValue;
-use crate::pyfmt::repr::repr;
+use crate::pyfmt::{DECIMAL_WIDTH, PyValue, decimal, push_lower_hex};
 use crate::shape::{Features, ShapeError, ShapeResult, Shaper};
 use crate::wire::{Init, WireError};
 
@@ -102,18 +101,57 @@ impl Diff {
     }
 }
 
+/// Append `repr` of a tuple whose items `write_item` appends: `()` for none, `(a,)` for one, `", "` between items.
+fn write_tuple_repr<T>(out: &mut String, items: &[T], mut write_item: impl FnMut(&mut String, &T)) {
+    out.push('(');
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        write_item(out, item);
+    }
+    if items.len() == 1 {
+        out.push(',');
+    }
+    out.push(')');
+}
+
+/// Append `repr` of the diff as Python holds it ([`Diff::to_py`]), the text `repr(&diff.to_py())` gives.
+fn write_diff_repr(out: &mut String, diff: &Diff) {
+    let mut digits = [0; DECIMAL_WIDTH];
+    let mut cells = |out: &mut String, cells: &[Cell]| {
+        write_tuple_repr(out, cells, |out, &(column, row)| {
+            out.push('(');
+            out.push_str(decimal(column, &mut digits));
+            out.push_str(", ");
+            out.push_str(decimal(row, &mut digits));
+            out.push(')');
+        });
+    };
+    out.push('(');
+    cells(out, &diff.lost);
+    out.push_str(", ");
+    cells(out, &diff.gained);
+    out.push_str(", ");
+    out.push_str(decimal(diff.shift, &mut [0; DECIMAL_WIDTH]));
+    out.push(')');
+}
+
 /// `repr(diffs)` for a unit's diffs, the tuple a unit's diffs digest hashes.
 pub fn diffs_repr(diffs: &[Diff]) -> String {
-    repr(&PyValue::Tuple(diffs.iter().map(Diff::to_py).collect()))
-        .expect("a tuple of diffs has a repr")
+    let mut out = String::new();
+    write_tuple_repr(&mut out, diffs, write_diff_repr);
+    out
 }
 
 /// `ink.delta_digest(diff)`: `d-` and the first twelve hex digits of the sha1 of the diff's repr.
 pub fn delta_digest(diff: &Diff) -> String {
-    let text = repr(&diff.to_py()).expect("a diff has a repr");
-    let mut digest = sha1_hex(text.as_bytes());
-    digest.truncate(12);
-    format!("d-{digest}")
+    let mut text = String::new();
+    write_diff_repr(&mut text, diff);
+    let mut digest = String::with_capacity(14);
+    digest.push_str("d-");
+    push_lower_hex(&mut digest, &sha1(text.as_bytes())[..6]);
+    digest
 }
 
 /// One placed piece in run order ([`InkComparator::run_ink`]): its shape, its absolute x and y, and its shape's own-frame origin x.
@@ -201,8 +239,39 @@ impl<'f> InkComparator<'f> {
         text: &str,
         features: &Features,
     ) -> Result<Vec<Piece>> {
-        let (_result, pieces) = self.named_run(shaper, side, text, features)?;
-        Ok(pieces.into_iter().map(|named| named.piece).collect())
+        self.neutral_run(shaper, side, text, &features.kern_neutral())
+    }
+
+    /// `run_ink` under `neutral`, features that are already kern-neutral: `named_run`'s pieces, placed as it places them, without their glyphs.
+    fn neutral_run(
+        &self,
+        shaper: &mut Shaper,
+        side: Side,
+        text: &str,
+        neutral: &Features,
+    ) -> Result<Vec<Piece>> {
+        let result = shaper.shape(side, text, neutral)?;
+        let glyphs = self.facts.font(side);
+        let mut pieces = Vec::with_capacity(result.glyphs.len());
+        let mut pen_x = 0;
+        for (&glyph, &(x_offset, y_offset, x_advance)) in
+            result.glyphs.iter().zip(&result.positions)
+        {
+            let placement = glyphs
+                .glyph(glyph)
+                .expect("a shaped glyph id is in the font's glyph order")
+                .placement;
+            if let Some(shape) = placement.shape {
+                pieces.push(Piece {
+                    shape,
+                    x: pen_x + i64::from(x_offset) + placement.origin_x,
+                    y: i64::from(y_offset) + placement.origin_y,
+                    origin_x: placement.origin_x,
+                });
+            }
+            pen_x += i64::from(x_advance);
+        }
+        Ok(pieces)
     }
 
     /// `signature`: both sides' `run_ink` under one configuration, the rendered outcome the ink-duplicate merge groups by.
@@ -285,10 +354,20 @@ impl<'f> InkComparator<'f> {
 
     /// `config_diff`: `IDENTITY_DIFF` when both sides' placed pieces are equal, else the pixel-level delta of their pictures ([`picture_diff`]). A window with a piece that has no picture is refused, since its delta is the outline-level one.
     pub fn config_diff(&self, shaper: &mut Shaper, text: &str, config: &str) -> Result<Diff> {
-        let features = Features::for_config(Some(config));
-        let before = self.run_ink(shaper, self.before, text, &features)?;
-        let after = self.run_ink(shaper, self.after, text, &features)?;
-        self.diff_of_runs(&before, &after).ok_or_else(|| {
+        Ok(self.config_reading(shaper, text, config)?.0)
+    }
+
+    /// `config_diff`, and whether `pieces_identical` holds under the configuration, which is whether both sides' sorted placed pieces are equal, the test `config_diff` makes first.
+    fn config_reading(
+        &self,
+        shaper: &mut Shaper,
+        text: &str,
+        config: &str,
+    ) -> Result<(Diff, bool)> {
+        let neutral = Features::for_config(Some(config)).kern_neutral();
+        let before = self.neutral_run(shaper, self.before, text, &neutral)?;
+        let after = self.neutral_run(shaper, self.after, text, &neutral)?;
+        self.reading_of_runs(&before, &after).ok_or_else(|| {
             InkError(format!(
                 "the window {} needs the outline-level delta under {config}, since a piece it places has no pixel picture (`InkComparator._piece_diff`); only the Python engine builds it",
                 crate::pyfmt::repr::repr_str(text)
@@ -298,12 +377,17 @@ impl<'f> InkComparator<'f> {
 
     /// `config_diff` over two shaped runs: `IDENTITY_DIFF` when their sorted placed pieces are equal, the picture delta when every piece has a picture, and None otherwise.
     pub fn diff_of_runs(&self, before: &[Piece], after: &[Piece]) -> Option<Diff> {
+        self.reading_of_runs(before, after).map(|(diff, _)| diff)
+    }
+
+    /// [`InkComparator::diff_of_runs`], and whether the sorted placed pieces are equal.
+    fn reading_of_runs(&self, before: &[Piece], after: &[Piece]) -> Option<(Diff, bool)> {
         if sorted_placed(before) == sorted_placed(after) {
-            return Some(Diff::identity());
+            return Some((Diff::identity(), true));
         }
         let before = self.run_pictures(before)?;
         let after = self.run_pictures(after)?;
-        Some(picture_diff(&before, &after))
+        Some((picture_diff(&before, &after), false))
     }
 
     /// `_piece_cells`: the piece's shape's cells moved to its placement, none for a shape with no point, or None when the shape is not a grid picture or the placement is off the grid.
@@ -556,7 +640,7 @@ impl<'f> InkReader<'f> {
         &self.comparator
     }
 
-    /// Each configuration's diff, read once per distinct effective configuration (`ConfigFold.effective`) and given to every configuration that maps to it, and `ink_identical` over the distinct effective configurations.
+    /// Each configuration's diff, read once per distinct effective configuration (`ConfigFold.effective`) and given to every configuration that maps to it, and `ink_identical` over the distinct effective configurations. `ink_identical` shapes the runs each diff was read from again, so it is answered from the diffs' readings: whether each configuration's sorted placed pieces were equal.
     pub fn ink_readings(
         &self,
         shaper: &mut Shaper,
@@ -571,21 +655,25 @@ impl<'f> InkReader<'f> {
             }
         }
         let mut read: Vec<(&str, Diff)> = Vec::with_capacity(compared.len());
+        let mut identical = true;
         for config in &compared {
-            read.push((config, self.comparator.config_diff(shaper, text, config)?));
+            let (diff, same) = self.comparator.config_reading(shaper, text, config)?;
+            identical &= same;
+            read.push((config, diff));
         }
-        let diffs = effective
-            .iter()
-            .map(|config| {
-                read.iter()
-                    .find(|(held, _)| held == config)
-                    .expect("every effective configuration was compared")
-                    .1
-                    .clone()
-            })
-            .collect();
-        let compared: Vec<String> = compared.into_iter().map(str::to_string).collect();
-        let identical = self.comparator.ink_identical(shaper, text, &compared)?;
+        let mut diffs = Vec::with_capacity(effective.len());
+        for (position, config) in effective.iter().enumerate() {
+            let at = read
+                .iter()
+                .position(|(held, _)| held == config)
+                .expect("every effective configuration was compared");
+            let last_use = !effective[position + 1..].contains(config);
+            diffs.push(if last_use {
+                std::mem::replace(&mut read[at].1, Diff::identity())
+            } else {
+                read[at].1.clone()
+            });
+        }
         Ok((diffs, identical))
     }
 
@@ -631,15 +719,15 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
         0x1032_5476,
         0xC3D2_E1F0,
     ];
-    let mut message = Vec::with_capacity(data.len() + 72);
-    message.extend_from_slice(data);
-    message.push(0x80);
-    while message.len() % 64 != 56 {
-        message.push(0);
-    }
-    message.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_be_bytes());
+    let (blocks, rest) = data.as_chunks::<64>();
+    let mut tail = [0u8; 128];
+    tail[..rest.len()].copy_from_slice(rest);
+    tail[rest.len()] = 0x80;
+    let tail_length = if rest.len() < 56 { 64 } else { 128 };
+    tail[tail_length - 8..tail_length]
+        .copy_from_slice(&((data.len() as u64).wrapping_mul(8)).to_be_bytes());
     let mut schedule = [0u32; 80];
-    for block in message.as_chunks::<64>().0 {
+    for block in blocks.iter().chain(tail[..tail_length].as_chunks::<64>().0) {
         for (word, bytes) in schedule.iter_mut().zip(block.as_chunks::<4>().0) {
             *word = u32::from_be_bytes(*bytes);
         }
@@ -679,10 +767,9 @@ pub fn sha1(data: &[u8]) -> [u8; 20] {
 
 /// `hashlib.sha1(data).hexdigest()`.
 pub fn sha1_hex(data: &[u8]) -> String {
-    sha1(data)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let mut out = String::with_capacity(40);
+    push_lower_hex(&mut out, &sha1(data));
+    out
 }
 
 #[cfg(test)]
@@ -745,6 +832,101 @@ mod tests {
         );
         let digest = sha1_hex(b"(((0, 1),), (), -2)");
         assert_eq!(delta_digest(&diff), format!("d-{}", &digest[..12]));
+    }
+
+    #[test]
+    fn the_written_reprs_and_digests_are_the_repr_of_the_python_values() {
+        use crate::pyfmt::repr::repr;
+        let diffs = [
+            Diff::identity(),
+            Diff {
+                lost: vec![(0, 1)],
+                gained: vec![(-3, 12), (i64::MAX, i64::MIN)],
+                shift: -2,
+            },
+            Diff {
+                lost: vec![(5, -5), (6, 0), (7, 1)],
+                gained: vec![],
+                shift: 17,
+            },
+        ];
+        for count in 0..=diffs.len() {
+            let tuple = PyValue::Tuple(diffs[..count].iter().map(Diff::to_py).collect());
+            assert_eq!(diffs_repr(&diffs[..count]), repr(&tuple).expect("repr"));
+        }
+        for diff in &diffs {
+            let text = repr(&diff.to_py()).expect("repr");
+            assert_eq!(
+                delta_digest(diff),
+                format!("d-{}", &sha1_hex(text.as_bytes())[..12])
+            );
+        }
+    }
+
+    #[test]
+    fn sha1_pads_every_tail_length_as_the_padded_message_hashes() {
+        let data: Vec<u8> = (0..300u32).map(|value| (value * 31 % 251) as u8).collect();
+        for length in 0..data.len() {
+            assert_eq!(
+                sha1(&data[..length]),
+                reference_sha1(&data[..length]),
+                "{length}"
+            );
+        }
+    }
+
+    /// The sha1 digest over the whole padded message built in memory.
+    fn reference_sha1(data: &[u8]) -> [u8; 20] {
+        let mut state: [u32; 5] = [
+            0x6745_2301,
+            0xEFCD_AB89,
+            0x98BA_DCFE,
+            0x1032_5476,
+            0xC3D2_E1F0,
+        ];
+        let mut message = data.to_vec();
+        message.push(0x80);
+        while message.len() % 64 != 56 {
+            message.push(0);
+        }
+        message.extend_from_slice(&((data.len() as u64) * 8).to_be_bytes());
+        for block in message.chunks(64) {
+            let mut schedule = [0u32; 80];
+            for (index, bytes) in block.chunks(4).enumerate() {
+                schedule[index] = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            }
+            for index in 16..80 {
+                schedule[index] = (schedule[index - 3]
+                    ^ schedule[index - 8]
+                    ^ schedule[index - 14]
+                    ^ schedule[index - 16])
+                    .rotate_left(1);
+            }
+            let [mut a, mut b, mut c, mut d, mut e] = state;
+            for (index, word) in schedule.iter().enumerate() {
+                let (mix, constant) = match index {
+                    0..=19 => ((b & c) | (!b & d), 0x5A82_7999),
+                    20..=39 => (b ^ c ^ d, 0x6ED9_EBA1),
+                    40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1B_BCDC),
+                    _ => (b ^ c ^ d, 0xCA62_C1D6),
+                };
+                let next = a
+                    .rotate_left(5)
+                    .wrapping_add(mix)
+                    .wrapping_add(e)
+                    .wrapping_add(constant)
+                    .wrapping_add(*word);
+                (e, d, c, b, a) = (d, c, b.rotate_left(30), a, next);
+            }
+            for (held, add) in state.iter_mut().zip([a, b, c, d, e]) {
+                *held = held.wrapping_add(add);
+            }
+        }
+        let mut digest = [0u8; 20];
+        for (index, word) in state.iter().enumerate() {
+            digest[index * 4..index * 4 + 4].copy_from_slice(&word.to_be_bytes());
+        }
+        digest
     }
 
     fn hex(bytes: &[u8]) -> String {

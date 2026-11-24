@@ -39,6 +39,11 @@ impl Packer {
         let packed = self.primed.deflate(body).map_err(PackError)?;
         Ok((packed, body.len()))
     }
+
+    /// [`Packer::pack`]'s deflated bytes appended to `out`, and their length.
+    pub fn pack_into(&self, body: &[u8], out: &mut Vec<u8>) -> Result<usize, PackError> {
+        self.primed.deflate_into(body, out).map_err(PackError)
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +88,16 @@ mod tests {
             "the primed compressor does not move between packs"
         );
         assert_ne!(first.0, second.0);
+        let mut joined = b"held".to_vec();
+        assert_eq!(
+            packer.pack_into(b"first fragment", &mut joined),
+            Ok(first.0.len())
+        );
+        assert_eq!(
+            packer.pack_into(b"second fragment", &mut joined),
+            Ok(second.0.len())
+        );
+        assert_eq!(joined, [b"held".as_slice(), &first.0, &second.0].concat());
         let large: Vec<u8> = (0..200_000u32)
             .map(|value| (value * 7919 % 251) as u8)
             .collect();

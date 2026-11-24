@@ -204,7 +204,7 @@ impl Emitter {
         )
     }
 
-    /// The unit at `ordinal` read by the address the store holds for it (`source`). A recomputed fragment is read from `arena`, patched and checked by the scaffold check; a cached one whose patched fields all hold is taken as its stored bytes from `prior`, in a buffer the write hands back to `prior` ([`PriorFragmentReader::recycle`]), with its identity and config note from the columns; any other cached one is read from `prior` and patched. A fragment that does not read back as the unit and stamp its address carries stops the build with Python's `SystemExit` text, as does a scaffold check that fails.
+    /// The unit at `ordinal` read by the address the store holds for it (`source`). A recomputed fragment is read from `arena`, patched and checked by the scaffold check; a cached one whose patched fields all hold is taken as its stored bytes from `prior`, in a buffer the write hands back to its run's reader ([`PriorFragmentReader::recycle`]), which is `prior` where the run's thread made the emission, with its identity and config note from the columns; any other cached one is read from `prior` and patched. A fragment that does not read back as the unit and stamp its address carries stops the build with Python's `SystemExit` text, as does a scaffold check that fails.
     pub fn emission<'a>(
         &self,
         ordinal: usize,

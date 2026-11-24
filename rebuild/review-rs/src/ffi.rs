@@ -911,6 +911,13 @@ impl Deflater {
 
     /// `input` deflated alone through a copy of the primed compressor, finished, as one zlib stream.
     pub fn deflate(&self, input: &[u8]) -> Result<Vec<u8>, String> {
+        let mut out = Vec::new();
+        self.deflate_into(input, &mut out)?;
+        Ok(out)
+    }
+
+    /// [`Deflater::deflate`]'s stream appended to `out`, and its length. On a failure `out` may hold part of the stream past its old end.
+    pub fn deflate_into(&self, input: &[u8], out: &mut Vec<u8>) -> Result<usize, String> {
         let length = c_uint::try_from(input.len())
             .map_err(|_| "the input is too long to deflate".to_string())?;
         let copy = Stream::allocate();
@@ -925,7 +932,8 @@ impl Deflater {
             }
             let bound = usize::try_from(deflateBound(copy.raw(), c_ulong::from(length)))
                 .map_err(|_| "the deflated bound outruns memory".to_string())?;
-            let mut out: Vec<u8> = Vec::with_capacity(bound.max(64));
+            let start = out.len();
+            out.reserve(bound.max(64));
             let raw = copy.raw();
             (*raw).next_in = input.as_ptr();
             (*raw).avail_in = length;
@@ -937,8 +945,8 @@ impl Deflater {
                 let status = deflate(raw, Z_FINISH);
                 out.set_len(written + (offered - (*raw).avail_out) as usize);
                 match status {
-                    Z_STREAM_END => return Ok(out),
-                    Z_OK | Z_BUF_ERROR => out.reserve(out.capacity().max(64)),
+                    Z_STREAM_END => return Ok(out.len() - start),
+                    Z_OK | Z_BUF_ERROR => out.reserve((out.capacity() - start).max(64)),
                     _ => return Err(format!("zlib cannot deflate the input (status {status})")),
                 }
             }

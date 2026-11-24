@@ -2,10 +2,11 @@
 //!
 //! [`Fonts`] holds one HarfBuzz font per side of the worker, shared read-only by every thread, and refuses an init whose HarfBuzz version is not the one this engine links. A [`Shaper`] owns one thread's buffer and memo. Glyph names come from the font facts' glyph order, never from HarfBuzz.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 use std::rc::Rc;
+
+use ams_m1_kernel::hash::HashMap;
 
 use crate::ffi::{self, Buffer, Feature, Font};
 use crate::fontfacts::{FontFacts, FontGlyphs, Side};
@@ -118,6 +119,20 @@ impl Features {
         Some(entries)
     }
 
+    /// Whether the dict's memo key ([`Features::memo_key`]) is `key`, read without building the dict's own: a dict holds each tag once, so its sorted entries equal `key` exactly when it has as many entries and each of them is in `key`.
+    fn has_memo_key(&self, key: Option<&[(String, bool)]>) -> bool {
+        match key {
+            None => self.0.is_empty(),
+            Some(key) => {
+                self.0.len() == key.len()
+                    && self.0.iter().all(|(tag, on)| {
+                        key.iter()
+                            .any(|(held, held_on)| held == tag && held_on == on)
+                    })
+            }
+        }
+    }
+
     fn hb_features(&self) -> Result<Vec<Feature>> {
         self.0
             .iter()
@@ -215,15 +230,21 @@ fn init_font(init: &Init, side: Side) -> &str {
     }
 }
 
-type MemoKey = (Side, String, Option<Vec<(String, bool)>>);
+/// The shapes the memo holds for one side under one feature dict: the dict's memo key ([`Features::memo_key`]) and each text's result.
+struct MemoGroup {
+    side: Side,
+    key: Option<Vec<(String, bool)>>,
+    shapes: HashMap<String, Rc<ShapeResult>>,
+}
 
-/// One thread's shaper: its HarfBuzz buffer and its shape memo over the shared [`Fonts`].
+/// One thread's shaper: its HarfBuzz buffer, the code points it shapes from, and its shape memo over the shared [`Fonts`], one group per side and feature dict, each keyed by text.
 pub struct Shaper<'a> {
     fonts: &'a Fonts,
     facts: &'a FontFacts,
     buffer: Buffer,
     glyphs: Vec<ffi::Glyph>,
-    memo: HashMap<MemoKey, Rc<ShapeResult>>,
+    codepoints: Vec<u32>,
+    memo: Vec<MemoGroup>,
 }
 
 impl<'a> Shaper<'a> {
@@ -234,39 +255,59 @@ impl<'a> Shaper<'a> {
             facts,
             buffer: Buffer::new(),
             glyphs: Vec::new(),
-            memo: HashMap::new(),
+            codepoints: Vec::new(),
+            memo: Vec::new(),
         }
     }
 
-    /// The memo's result for `(side, text, features)` when it holds one, otherwise `Shaper.shape`'s, kept until [`Shaper::release`]. Two dicts with the same entries in another order share a result, as they share Python's key.
+    /// The memo's result for `(side, text, features)` when it holds one, otherwise `Shaper.shape`'s, kept until [`Shaper::release`]. Two dicts with the same entries in another order share a result, as they share Python's key. The memo is read through the borrowed text and dict, and a text's key is allocated only when its result is first kept.
     pub fn shape(
         &mut self,
         side: Side,
         text: &str,
         features: &Features,
     ) -> Result<Rc<ShapeResult>> {
-        let key = (side, text.to_string(), features.memo_key());
-        if let Some(result) = self.memo.get(&key) {
+        let group = match self
+            .memo
+            .iter()
+            .position(|group| group.side == side && features.has_memo_key(group.key.as_deref()))
+        {
+            Some(group) => group,
+            None => {
+                self.memo.push(MemoGroup {
+                    side,
+                    key: features.memo_key(),
+                    shapes: HashMap::default(),
+                });
+                self.memo.len() - 1
+            }
+        };
+        if let Some(result) = self.memo[group].shapes.get(text) {
             return Ok(Rc::clone(result));
         }
         let result = Rc::new(self.shape_once(side, text, features)?);
-        self.memo.insert(key, Rc::clone(&result));
+        self.memo[group]
+            .shapes
+            .insert(text.to_owned(), Rc::clone(&result));
         Ok(result)
     }
 
     /// Forget every shape held; the engine calls it at each batch's end, as `release_shape_memos` runs after each of the worker's.
     pub fn release(&mut self) {
-        self.memo.clear();
+        for group in &mut self.memo {
+            group.shapes.clear();
+        }
     }
 
     /// `Shaper.shape`: shape with no features when the dict is empty, and refuse a glyph with a nonzero `y_advance`, then clusters that decrease, as its two assertions do.
     fn shape_once(&mut self, side: Side, text: &str, features: &Features) -> Result<ShapeResult> {
-        let codepoints: Vec<u32> = text.chars().map(u32::from).collect();
+        self.codepoints.clear();
+        self.codepoints.extend(text.chars().map(u32::from));
         let hb_features = features.hb_features()?;
         self.buffer
             .shape(
                 self.fonts.font(side)?,
-                &codepoints,
+                &self.codepoints,
                 &hb_features,
                 &mut self.glyphs,
             )
@@ -362,6 +403,18 @@ mod tests {
         backward.set("ss10", true);
         assert_eq!(forward.memo_key(), backward.memo_key());
         assert_eq!(Features::new().memo_key(), None);
+        let key = forward.memo_key();
+        assert!(backward.has_memo_key(key.as_deref()));
+        assert!(Features::new().has_memo_key(None));
+        assert!(!forward.has_memo_key(None));
+        assert!(!Features::new().has_memo_key(key.as_deref()));
+        let mut flipped = backward.clone();
+        flipped.set("kern", true);
+        assert!(!flipped.has_memo_key(key.as_deref()));
+        let mut wider = backward.clone();
+        wider.set("ss03", true);
+        assert!(!wider.has_memo_key(key.as_deref()));
+        assert!(!Features::for_config(Some("ss10")).has_memo_key(key.as_deref()));
     }
 
     #[test]
