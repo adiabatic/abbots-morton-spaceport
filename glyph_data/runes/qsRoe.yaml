@@ -128,7 +128,6 @@ policy:
         family:
         - qsJay
         - qsYe
-        - qsIt
         - qsEat
         - qsEight
   - entry: baseline
@@ -149,7 +148,10 @@ policy:
     by: 1
     when:
       self: {exit: none}
-      left: {family: qsTea}
+      left:
+        family:
+        - qsTea
+        - qsIt
   - entry: x-height
     by: 1
     when:
@@ -173,6 +175,7 @@ policy:
         family:
         - qsPea
         - qsTea
+        - qsIt
   - entry: x-height
     by: 1
     when:

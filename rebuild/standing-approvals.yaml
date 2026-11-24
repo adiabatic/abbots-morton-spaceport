@@ -1733,7 +1733,7 @@ rules:
       except_left: []
   - id: it-roe-xheight-join-retargeted
     verdict: approve
-    note: "·It drops to the baseline to join ·Roe, where the old font joined the two at the x-height, and neither letter moves: ·Roe redraws around the lowered junction and holds its own advance. ·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on — the rune's own note, beside the pairing that forbids entering and leaving at the same height, both landed in “Declare ·I done and add ·Roe” — and these are the windows where ·Roe goes on to reach ·Oy, ·Ox, ·Awe, ·Eight or ·J’ai at the x-height, so its incoming junction has to come down. The ·It that meets it is the one qsIt's pairing table unlocks under ss04 alone, on “Let ss04 join ·It at the baseline on both sides with any neighbor”, which is why these windows diverge under that configuration and no other, and the extra column of ·Roe's entry is qsRoe's own extend record after ·It. It covers only the ·It the old font entered at the baseline and that settles into a cell keeping its picture, so an ·It that gains a pixel of exit as the junction drops is a window of its own. Every window that reached a review session approved the lowered join"
+    note: "·It drops to the baseline to join ·Roe, where the old font joined the two at the x-height, and neither letter moves: ·Roe redraws around the lowered junction in its own place.·Roe is one stroke between two tips on the left, so whichever tip receives the join the other is the one that carries on — the rune's own note, beside the pairing that forbids entering and leaving at the same height, both landed in “Declare ·I done and add ·Roe” — and these are the windows where ·Roe goes on to reach ·Oy, ·Ox, ·Awe, ·Eight or ·J’ai at the x-height, so its incoming junction has to come down. The ·It that meets it is the one qsIt's pairing table unlocks under ss04 alone, on “Let ss04 join ·It at the baseline on both sides with any neighbor”, which is why these windows diverge under that configuration and no other. ·Roe's entry is a column shorter than its bare form after an ·It it carries on from at the x-height, on qsRoe's own contract record, which answered “Shrink ·It·Roe when ·Roe connects to the next letter” (#94): ·Roe's own frame moves a column right as the junction drops, and everything after it comes two columns nearer. It covers only the ·It the old font entered at the baseline and that settles into a cell keeping its picture, so an ·It that gains a pixel of exit as the junction drops is a window of its own. Every window that reached a review session approved the lowered join"
     match:
       before:
         pivot: qsIt.en-y0.ex-y5
@@ -1745,13 +1745,14 @@ rules:
           - qsIt/sole/baseline/baseline/
           - qsIt/sole/baseline/baseline/en-ext-1
         follower_after_cells:
-          - qsRoe/sole/baseline/x-height/en-ext-1
-        shift: 0
+          - qsRoe/sole/baseline/x-height/en-con-1
+        shift: -2
         follower_shift: 0
+        follower_columns_removed: 1
       except_left: []
   - id: roe-oy-xheight-join-created
     verdict: approve
-    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason; the ·Roe whose entry contracts moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so those windows are not this one. Every window that reached a review session approved the join"
+    note: "·Roe joins ·Oy at the x-height where the old font left a break, ·Oy opens its loop on the left to receive it, and the pair holds its column: the open form is three columns narrower, so whatever follows comes that much nearer while ·Oy itself stands where it was. The open-on-the-left bitmap hangs off the only x-height entry ·Oy has, whose from-list has carried qsRoe since “Migrate the four worst families to the new rune-file format, conformance-verified”, so the redraw is the follower half of this join rather than a change of its own, and qsRoe's x-height exit has named qsOy on its toward-list since the letter landed in “Declare ·I done and add ·Roe”. The rule names the ·Roe that takes a baseline entry beside the one that takes none, since the letter draws the same closing arm either way, and the word-final ·Oy beside the one that goes on to a baseline exit, for the same reason. The ·Roe whose entry contracts moves its own frame, which a created join can only declare as columns its follower's joining form adds at its left edge, so the rule names that ·Roe only for the windows where the join into it drops to the baseline from an ·It and that lowered join declares the frame move (“Shrink ·It·Roe when ·Roe connects to the next letter”, #94); after ·Pea or ·Tea those windows are not this one. Every window that reached a review session approved the join"
     match:
       before:
         pivot: qsRoe
@@ -1762,6 +1763,7 @@ rules:
         pivot_cells:
           - qsRoe/sole/None/x-height/
           - qsRoe/sole/baseline/x-height/
+          - qsRoe/sole/baseline/x-height/en-con-1
           - qsRoe/sole/baseline/x-height/en-ext-1
         follower_after_cells:
           - qsOy/sole/x-height/None/
