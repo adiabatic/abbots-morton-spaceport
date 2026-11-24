@@ -409,3 +409,54 @@ def test_a_units_index_held_as_a_head_a_base_and_segments_reads_as_the_single_fi
         segment.write_bytes(bytes(damaged))
         with pytest.raises(unit_index.IndexUnreadable, match="sha256"):
             pf.corpus_digests(corpus, font, materialize)
+
+
+def test_the_audit_and_the_oracle_stores_read_as_their_materialized_forms(tmp_path):
+    """The audit's digest is its materialized form's, so a tree whose audit is a base and a segment reads as the single file a whole write gives over the same rows, and a tree with no audit reads null. Each oracle store's `materialized` digest is its materialized form's bytes, which a pass that moves only the pass ordinal and its ages moves, while its `records` digest, the records less their two ages and without the header, stays where it was until a record's verdict moves."""
+    from rebuild.pipeline import oracle, oracle_cache, row_delta
+
+    m1 = tmp_path / "m1"
+    m1.mkdir()
+    assert pf.audit_digest(m1, lambda: oracle) is None
+    assert pf.store_digests(m1, lambda: oracle_cache) == {}
+
+    def audit(rows: list[str]) -> bytes:
+        with oracle.AuditWriter(m1) as writer:
+            writer.feed("".join(f"{row}\n" for row in rows).encode())
+        return ("\n".join([oracle.ORACLE_AUDIT_HEADER, *rows]) + "\n").encode()
+
+    rows = [f"default\tE6{low:02X}\tcell\ta\tqsPea\tqsPea.half" for low in range(0x50, 0x58)]
+    audit(rows)
+    today = audit([rows[0].replace("\ta\t", "\tb\t"), *rows[2:]])
+    head = row_delta.read_head(m1, oracle.AUDIT_NAME)
+    assert head is not None and len(head.segments) == 1
+    assert pf.audit_digest(m1, lambda: oracle) == hashlib.sha256(today).hexdigest()
+    single = tmp_path / "single"
+    single.mkdir()
+    (single / oracle.AUDIT_NAME).write_bytes(today)
+    assert pf.audit_digest(single, lambda: oracle) == pf.audit_digest(m1, lambda: oracle)
+
+    stamp = oracle_cache.EnvironmentStamp(lines=("subset\tdigest",))
+
+    def stores(ordinal: int, moved: int | None = None) -> dict[str, dict[str, str]]:
+        writing = oracle_cache.StoreSet(m1, ("default",), {"default": stamp}, {})
+        with oracle_cache.RowWriter(None, stamp, "digest", ordinal, {}, whole=True) as writer:
+            for index in range(5):
+                cached = None if index != moved else oracle_cache.CachedRow(("cell",), 1, ("a",), (), ())
+                writer.append((0xE650, 0xE650 + index), cached, ordinal - index % 2)
+        assert writer.member is not None
+        writing.put("default", [(writer.rows, writer.member)], True, ordinal)
+        writing.finish()
+        assert oracle_cache.promote_stores(writing, ("default",)) == ["default"]
+        return pf.store_digests(m1, lambda: oracle_cache)
+
+    first, aged, moved = stores(3), stores(4), stores(5, moved=2)
+    materialized = b"".join(oracle_cache.materialized_store(m1, "default"))
+    assert moved["default"]["materialized"] == hashlib.sha256(materialized).hexdigest()
+    assert first["default"]["materialized"] != aged["default"]["materialized"]
+    assert first["default"]["records"] == aged["default"]["records"] != moved["default"]["records"]
+    lines = gzip.decompress(materialized).split(b"\n")
+    projected = b"".join(
+        (line if line.startswith(b"#rows\t") else line.rsplit(b"\t", 2)[0]) + b"\n" for line in lines[1:-1]
+    )
+    assert moved["default"]["records"] == hashlib.sha256(projected).hexdigest()

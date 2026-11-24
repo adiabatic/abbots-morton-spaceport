@@ -1,6 +1,5 @@
 """Tests for conform.py and the oracle stages that consume it: label normalization, the raw GSUB replay, the isolated overlay, alias and ledger matching, kern evaluation and the position comparison, the oracle's audit, row cache and row ranges, the conformance sweep's bookkeeping, and the memoized settle walk and its memo file, checked against settling the same texts without a memo. The conformance sweep at its full maximum length runs in run_m1 against the compiled M1 font. Settlement comes from the Rust crate, so these tests need a built kernel: the formation-guard sweep and the settle walk both call it."""
 
-import errno
 import gc
 import gzip
 import hashlib
@@ -18,6 +17,7 @@ import threading
 import weakref
 import zlib
 from array import array
+from concurrent.futures.process import BrokenProcessPool
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, replace
 from fnmatch import fnmatch
@@ -1192,8 +1192,18 @@ def _head_document(out: Path) -> dict:
     return document
 
 
+def _serial_audit(out: Path, per_config: Mapping[str, Sequence[str]]) -> None:
+    """One pass of the serial path's audit writer (`oracle.AuditWriter`) over `per_config`'s lines, in blocks of whole lines as `oracle._FedBlocks` cuts them."""
+    with oracle.AuditWriter(out) as writer:
+        fed = oracle._FedBlocks(writer)
+        for config_lines in per_config.values():
+            for line in config_lines:
+                fed.write(line + "\n")
+        fed.flush()
+
+
 class TestOracleAudit:
-    """`divergence-audit.tsv` is fingerprinted by its materialized form and later stages parse it from disk, so its bytes must not change: the head, its base and its segments merged by key must be the file today's writer writes over the same rows. Each row range ships its lines home in a shared memory segment, compressed a block at a time, and the parent's in-order writer feeds them to the audit's writer in configuration order and row order, whatever order the ranges land in. These tests check that the materialized audit equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks; that a first pass writes that file as its base; and that a pass over a standing audit writes only the rows that differ, or nothing. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete, and leaves the standing head and parts as they were."""
+    """`divergence-audit.tsv` is fingerprinted by its materialized form and later stages parse it from disk, so its bytes must not change: the head, its base and its segments merged by key must be the file today's writer writes over the same rows. Each row range ships its lines home in a shared memory segment, compressed a block at a time; once a configuration's last range lands, whatever order the ranges land in, the parent's in-order writer submits the configuration's section task, which compares its ranges' lines, in row order, with the standing audit's section, and the writer writes the part from the sections in configuration order. These tests check that the materialized audit equals the header and all rows joined with newlines, for every shape the audit can take, including an empty configuration and an empty audit, however the lines are cut into ranges and blocks; that a first pass writes that file as its base; and that a pass over a standing audit writes only the rows that differ, or nothing. They also check that a range that never lands, or lands short of the rows it counted, fails instead of producing a short audit that looks complete, and leaves the standing head and parts as they were."""
 
     @staticmethod
     def _blocks(lines: Sequence[str]) -> list[bytes]:
@@ -1519,11 +1529,10 @@ class TestOracleAudit:
         widest = max(per_config, key=lambda config: len(per_config[config]))
         assert len(self._blocks(per_config[widest])) > 2
 
-    def test_a_landed_range_waits_only_for_the_ranges_before_it(self, tmp_path):
-        """The parent holds a landed range's lines only until every range before it is written. The writer takes the segment's name off the result as it lands, so the result and its future keep none, and unlinks the segment as it maps it, so no name outlives the landing. It writes a range as soon as the ranges before it are written and holds nothing once every range has landed. Shared memory counts in no footprint while it waits, so the writer counts what it holds itself: the most it held at once is the waiting range's lines beside the larger of the two that landed after it."""
+    def test_a_landed_range_waits_unmapped_until_its_configuration_s_last_range_lands(self, tmp_path):
+        """The parent maps no range's audit lines. The writer takes the segment's name off the result as it lands, so the result and its future keep none, and the segment waits, unmapped, until its configuration's last range lands; then the configuration's section task maps every range's segment in row order and unlinks each name as it maps it, so no name outlives the task. Shared memory counts in no footprint while it waits, so the writer counts what it holds itself: the most it held at once is every range's lines, which the task of a `first` base ships back as they came for the writer to inflate as it writes the part, and it holds nothing once the audit is written."""
         lines = [f"default\t{index:04X}\tcell\tpea-half\tqsPea\tqsPea.half" for index in range(6)]
         ranges = self._cut("default", lines, 3)
-        landed = []
         sizes = {}
         with oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], configs=("default",)) as writer:
             for at in (2, 0, 1):
@@ -1533,13 +1542,260 @@ class TestOracleAudit:
                 sizes[at] = sum(result.audit_blocks.lengths)
                 writer.land(shard, result)
                 assert result.audit_blocks is None
+                if at != 1:
+                    assert not writer._sections
+                    shared_memory.SharedMemory(writer.ship_to(shard).audit, track=False).close()
+            for shard, _part in ranges:
                 with pytest.raises(FileNotFoundError):
                     shared_memory.SharedMemory(writer.ship_to(shard).audit, track=False)
-                landed.append(sorted(writer._waiting))
-        assert landed == [[2], [2], []]
-        assert writer.held_peak_bytes == sizes[2] + max(sizes[0], sizes[1])
-        joined = "\n".join([oracle.ORACLE_AUDIT_HEADER, *lines]) + "\n"
-        assert _audit_bytes(tmp_path) == joined.encode("utf-8")
+            assert list(writer._sections) == ["default"] and writer.in_flight() == []
+        joined = ("\n".join([oracle.ORACLE_AUDIT_HEADER, *lines]) + "\n").encode("utf-8")
+        assert writer.held_peak_bytes == sum(sizes.values())
+        assert writer._held == 0
+        assert _audit_bytes(tmp_path) == joined
+
+    @pytest.mark.parametrize("cuts", (1, 3))
+    def test_the_section_tasks_write_the_serial_writer_s_parts_on_every_route(
+        self, tmp_path, monkeypatch, cuts
+    ):
+        """The in-order writer runs one comparison a configuration (`oracle.audit_section_task`) and writes the part from their sections; the serial writer (`oracle.AuditWriter`) runs one comparison over the whole audit. Over the same rows the two must leave the same parts byte for byte and the same head but for the time its content moved, on every route: a `first` base, plain; a segment of changed rows, held as gzip members, over that plain base; a segment over a plain base and a plain segment change 31 left; a segment that tombstones every row of a configuration the pass does not compare, and one of a configuration only a segment holds; a fold, held as members, which drops the section of a configuration the pass does not compare; an `unusable` base, plain; and a segment over a tree's single file adopted by link, then another over it. Blocks of a few lines make each range ship several blocks and each section's compare refill its old stream several times."""
+        monkeypatch.setattr(oracle, "ORACLE_AUDIT_BLOCK", 64)
+
+        def lines(config: str, count: int, kind: str = "a", skip: int = 0) -> list[str]:
+            return [
+                f"{config}\tE650:{0xE600 + at:04X}\tcell\t{kind if at % 5 == 0 else 'a'}\tqsPea\tqsPea.half"
+                for at in range(count)
+                if at % 7 != skip
+            ]
+
+        states = [
+            {"default": lines("default", 30), "ss03": lines("ss03", 12), "ss10": lines("ss10", 6)},
+            {
+                "default": lines("default", 31, "b"),
+                "ss03": lines("ss03", 12),
+                "ss07": lines("ss07", 4),
+                "ss10": lines("ss10", 6, "b", skip=3),
+            },
+            {
+                "default": lines("default", 31, "b"),
+                "ss03": lines("ss03", 14, "c"),
+                "ss10": lines("ss10", 6, "b"),
+            },
+            {"default": lines("default", 31, "d"), "ss03": lines("ss03", 14, "c")},
+            {"default": lines("default", 29, "e"), "ss10": lines("ss10", 9, "e")},
+            {"default": lines("default", 29, "f"), "ss03": lines("ss03", 3), "ss10": lines("ss10", 9, "e")},
+        ]
+
+        def serial_pass(out: Path, per_config: Mapping[str, Sequence[str]]) -> None:
+            with oracle.AuditWriter(out) as writer:
+                fed = oracle._FedBlocks(writer)
+                for config_lines in per_config.values():
+                    for line in config_lines:
+                        fed.write(line + "\n")
+                fed.flush()
+
+        def same(serial: Path, fanned: Path, per_config: Mapping[str, Sequence[str]]) -> row_delta.Head:
+            parts = {name: data for name, data in _audit_files(serial).items() if not name.endswith(".head")}
+            assert {
+                name: data for name, data in _audit_files(fanned).items() if not name.endswith(".head")
+            } == parts
+            assert _head_document(fanned) == _head_document(serial)
+            assert _audit_bytes(fanned) == _audit_bytes(serial) == self._today(per_config)
+            head = row_delta.read_head(fanned, oracle.AUDIT_NAME)
+            assert head is not None
+            return head
+
+        def both(serial: Path, fanned: Path, per_config: Mapping[str, Sequence[str]]) -> row_delta.Head:
+            serial_pass(serial, per_config)
+            self._write(fanned, per_config, cuts)
+            return same(serial, fanned, per_config)
+
+        serial, fanned = tmp_path / "serial", tmp_path / "fanned"
+        head = both(serial, fanned, states[0])
+        assert head.base.members is None and head.segments == ()
+        head = both(serial, fanned, states[1])
+        assert [section for section, _ in audit_members(fanned, head.segments[0])] == [
+            "",
+            "default",
+            "ss07",
+            "ss10",
+        ]
+        for out in (serial, fanned):
+            plain_audit_segments(out, [1])
+        head = both(serial, fanned, states[2])
+        assert [part.members is not None for part in head.parts] == [False, False, True]
+        assert [section for section, _ in audit_members(fanned, head.segments[1])] == [
+            "",
+            "ss03",
+            "ss07",
+            "ss10",
+        ]
+        head = both(serial, fanned, states[3])
+        assert [section for section, _ in audit_members(fanned, head.segments[2])] == ["", "default", "ss10"]
+        assert b"-\tss10\t" in dict(audit_members(fanned, head.segments[2]))["ss10"]
+        with pytest.MonkeyPatch.context() as patched:
+            patched.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+            head = both(serial, fanned, states[4])
+        assert head.generation == 1 and head.segments == () and head.base.members is not None
+        assert [section for section, _ in audit_members(fanned, head.base)] == ["", "default", "ss10"]
+        for out in (serial, fanned):
+            base = out / head.base.name
+            damaged = bytearray(base.read_bytes())
+            damaged[-5] ^= 0x01
+            base.write_bytes(bytes(damaged))
+        head = both(serial, fanned, states[5])
+        assert head.generation == 2 and head.base.members is None
+        adopted_serial, adopted_fanned = tmp_path / "adopted-serial", tmp_path / "adopted-fanned"
+        for out in (adopted_serial, adopted_fanned):
+            out.mkdir()
+            (out / oracle.AUDIT_NAME).write_bytes(self._today(states[0]))
+            os.utime(out / oracle.AUDIT_NAME, ns=(1, 1))
+        head = both(adopted_serial, adopted_fanned, states[1])
+        assert head.base.members is None and len(head.segments) == 1
+        head = both(adopted_serial, adopted_fanned, states[3])
+        assert len(head.segments) == 2
+
+    def test_a_fold_counts_the_rows_of_a_configuration_the_plan_drops_as_the_serial_writer_does(
+        self, tmp_path, monkeypatch
+    ):
+        """On a pass whose fold is due and claimed, a configuration the plan no longer compares has rows only the standing audit holds. The serial writer drains them as tombstones, so its fold moves the head's content and its time even when no planned row changed; the in-order writer gives that configuration a section task with no ranges, which writes nothing into the fold's base and counts the rows as tombstones, so the two writers leave the same base and the same head, content and all."""
+        lines = {
+            config: [f"{config}\tE650:{0xE600 + at:04X}\tcell\ta\tqsPea\tqsPea.half" for at in range(12)]
+            for config in ("default", "ss03")
+        }
+        changed = {**lines, "default": [lines["default"][0].replace("\ta\t", "\tb\t"), *lines["default"][1:]]}
+        serial, fanned = tmp_path / "serial", tmp_path / "fanned"
+        for per_config in (lines, changed):
+            _serial_audit(serial, per_config)
+            self._write(fanned, per_config)
+        folding = row_delta.read_head(fanned, oracle.AUDIT_NAME)
+        assert folding is not None and len(folding.segments) == 1
+        dropped = {"default": changed["default"]}
+        monkeypatch.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+        _serial_audit(serial, dropped)
+        self._write(fanned, dropped)
+        for out in (serial, fanned):
+            head = row_delta.read_head(out, oracle.AUDIT_NAME)
+            assert head is not None and (head.generation, head.segments) == (1, ())
+            assert head.content == folding.content + 1
+            assert head.stamps[oracle.CONTENT_TIME_STAMP] > folding.stamps[oracle.CONTENT_TIME_STAMP]
+        assert _head_document(fanned) == _head_document(serial)
+        parts = {name: data for name, data in _audit_files(serial).items() if not name.endswith(".head")}
+        assert {
+            name: data for name, data in _audit_files(fanned).items() if not name.endswith(".head")
+        } == parts
+        assert _audit_bytes(fanned) == self._today(dropped)
+
+    def test_a_standing_member_part_out_of_the_audit_s_order_is_refused_as_the_serial_writer_refuses_it(
+        self, tmp_path, monkeypatch
+    ):
+        """A base held as gzip members whose member index lists its sections out of the audit's order, here `ss03`'s before `default`'s, with its size and sha256 recorded so it passes the plan's checks, is a standing audit out of order. The serial writer's compare meets the break and raises; the in-order writer, whose section tasks each read one section and would not meet it, refuses it from the member index before it submits any task (`oracle.part_sections`). Neither writes anything, and the standing head and parts stay as they were."""
+        lines = {
+            config: [f"{config}\tE650:{0xE600 + at:04X}\tcell\ta\tqsPea\tqsPea.half" for at in range(6)]
+            for config in ("default", "ss03")
+        }
+        changed = {**lines, "default": [lines["default"][0].replace("\ta\t", "\tb\t"), *lines["default"][1:]]}
+        built = tmp_path / "built"
+        monkeypatch.setattr(row_delta, "AUDIT_SEGMENT_CAP", 1)
+        for per_config in (lines, changed, changed):
+            self._write(built, per_config)
+        head = row_delta.read_head(built, oracle.AUDIT_NAME)
+        assert head is not None and head.base.members is not None and head.segments == ()
+        header, first, second = head.base.members
+        assert (first.section, second.section) == ("default", "ss03")
+        raw = (built / head.base.name).read_bytes()
+        pieces = [
+            raw[: header.length],
+            raw[header.length : header.length + first.length],
+            raw[header.length + first.length :],
+        ]
+        swapped = pieces[0] + pieces[2] + pieces[1]
+        (built / head.base.name).write_bytes(swapped)
+        base = replace(head.base, sha256=hashlib.sha256(swapped).hexdigest(), members=(header, second, first))
+        row_delta.commit(built, replace(head, base=base))
+        assert _audit_bytes(built).index(b"\nss03\t") < _audit_bytes(built).index(b"\ndefault\t")
+        for name, write in (("serial", _serial_audit), ("fanned", self._write)):
+            out = tmp_path / name
+            shutil.copytree(built, out)
+            files = _audit_files(out)
+            with pytest.raises(ValueError, match="out of the audit's order"):
+                write(out, changed)
+            assert _audit_files(out) == files
+
+    def test_a_part_s_sections_are_found_by_its_member_index_or_by_bisection(self, tmp_path):
+        """A section task reads only its configuration's section of each part: by the member index of a part held as gzip members, and by a bisection over the line starts of a plain one (`oracle.plain_sections`), which reads lines longer than its reads across several of them. Each section reads as the part's own lines for that configuration, a part with no such section reads as nothing, a plain part whose sections are out of the audit's order is refused, and a member whose bytes are damaged is refused as `row_delta.part_stream` refuses it, naming the part and the section."""
+        long = "x" * 9000
+        per_config = {
+            "default": [
+                f"default\tE6{low:02X}\tcell\ta\tqsPea\t{long if low % 4 == 0 else 'qsPea.half'}"
+                for low in range(0x50, 0x70)
+            ],
+            "ss03": ["ss03\tE650\tcell\ta\tqsPea\tqsPea.half"],
+            "ss04": [f"ss04\tE6{low:02X}\tcell\ta\tqsPea\t{long}" for low in range(0x50, 0x53)],
+            "ss10": [f"ss10\tE6{low:02X}\tcell\ta\tqsPea\tqsPea.half" for low in range(0x50, 0x60)],
+        }
+        self._write(tmp_path, per_config)
+        changed = {
+            config: [line.replace("\ta\t", "\tb\t") for line in config_lines]
+            for config, config_lines in per_config.items()
+        }
+        changed["ss03"] = []
+        self._write(tmp_path, changed)
+        head = row_delta.read_head(tmp_path, oracle.AUDIT_NAME)
+        assert head is not None and head.base.members is None and head.segments[0].members is not None
+        with row_delta.open_parts(tmp_path, head) as opened:
+            base, segment = opened.handles
+            assert [name for name, _start, _end in oracle.plain_sections(base, head.base, 0)] == [
+                b"default",
+                b"ss03",
+                b"ss04",
+                b"ss10",
+            ]
+            assert oracle.part_sections(base, head.base, 0) == [b"default", b"ss03", b"ss04", b"ss10"]
+            assert oracle.part_sections(segment, head.segments[0], 1) == [
+                b"default",
+                b"ss03",
+                b"ss04",
+                b"ss10",
+            ]
+            members = dict(audit_members(tmp_path, head.segments[0]))
+            for config, config_lines in per_config.items():
+                assert oracle.section_stream(base, head.base, config.encode(), 0).read() == "".join(
+                    f"{line}\n" for line in config_lines
+                ).encode("utf-8")
+                assert (
+                    oracle.section_stream(segment, head.segments[0], config.encode(), 1).read()
+                    == members[config]
+                )
+            for handle, part, field in ((base, head.base, 0), (segment, head.segments[0], 1)):
+                assert oracle.section_stream(handle, part, b"ss05", field).read() == b""
+            assert base.tell() == 0 and segment.tell() == 0
+        swapped = tmp_path / "swapped"
+        swapped.write_bytes(
+            (
+                oracle.ORACLE_AUDIT_HEADER
+                + "\n"
+                + per_config["ss03"][0]
+                + "\n"
+                + per_config["default"][0]
+                + "\n"
+            ).encode()
+        )
+        part = row_delta.Part(swapped.name, swapped.stat().st_size, "", 2, 0)
+        with (
+            open(swapped, "rb") as handle,
+            pytest.raises(
+                ValueError, match="out of the audit's order: a 'default' row ends its 'ss03' section"
+            ),
+        ):
+            oracle.plain_sections(handle, part, 0)
+        damaged = tmp_path / head.segments[0].name
+        data = bytearray(damaged.read_bytes())
+        offset = sum(member.length for member in head.segments[0].members[:3])
+        data[offset + 20] ^= 0xFF
+        damaged.write_bytes(bytes(data))
+        with open(damaged, "rb") as handle, pytest.raises(row_delta.HeadError, match="'ss04' section"):
+            oracle.section_stream(handle, head.segments[0], b"ss04", 1).read()
 
     def test_the_two_oracle_paths_write_the_same_file(self, spec, tmp_path, monkeypatch):
         """`--jobs 1` feeds the audit's writer as it goes, and the pool's ranges return their lines for the parent's in-order writer. Both must leave the same head, parts and materialized bytes, on a first pass, on a later pass over each one's own head that changes one row, removes one and adds one, which each writes as one segment whose materialized audit is the whole file over that pass's rows, and on a pass that folds; the segment and the folded base are held as gzip members, whose bytes and member index are the same on both paths (#618's change 36). The serial path walks its configurations in the audit's order whatever order it is handed them in. The two paths run here over the same hand-made subset tables: a pending alias makes every row diverge and an empty ledger leaves every divergence UNMATCHED, so every row reaches the file through each path. Each range settles through the parent's spec dump, handed to it as its parent hands it, and writes no `spec.json` of its own."""
@@ -1717,7 +1973,7 @@ class TestOracleAudit:
 
     @pytest.mark.parametrize("stop", ("between landings", "in a landing"))
     def test_a_fan_in_that_stops_partway_leaves_no_segment_behind(self, monkeypatch, tmp_path, stop):
-        """A pass can stop between two landings (a range raises, the pool breaks, SIGINT reaches the parent) or in one, when the disk fills as the writer writes the lines now due. By then the writer holds a landed range's lines that wait on an earlier range and a cut configuration's segment short of its last range, a range may have shipped bytes whose result the writer never took, and no absorb has mapped any range's settle memo segment. Shared memory outlives every process that maps it until it is unlinked, so the writer closes and unlinks all of it as the block unwinds, holds no mapping afterward, and stages nothing."""
+        """A pass can stop between two landings (a range raises, the pool breaks, SIGINT reaches the parent) or in one, when the pool the writer submits a configuration's section task to has broken. By then the writer holds a landed range's lines that wait for the configuration's last range and a cut configuration's segment short of its last range, a range may have shipped bytes whose result the writer never took, and no absorb has mapped any range's settle memo segment. Shared memory outlives every process that maps it until it is unlinked, so the writer closes and unlinks all of it as the block unwinds, holds no mapping afterward, and stages nothing."""
         stamp = oracle_cache.EnvironmentStamp(lines=("subset\tdigest",))
         cache = oracle.OracleRowCache({"default": stamp}, {}, write_dir=tmp_path / "scratch")
         ranges = self._cut(
@@ -1725,8 +1981,8 @@ class TestOracleAudit:
         )
         names: list[str] = []
 
-        def full_disk(block: bytes) -> None:
-            raise OSError(errno.ENOSPC, "No space left on device")
+        def broken(*args, **kwargs):
+            raise BrokenProcessPool("A process in the process pool was terminated abruptly")
 
         def shipped(writer, shard, part):
             result = self._result(writer, shard, part)
@@ -1737,7 +1993,7 @@ class TestOracleAudit:
 
         stores = oracle_cache.StoreSet(tmp_path, ("default",), {"default": stamp}, {})
         writer = oracle.InOrderWriter(tmp_path, [shard for shard, _ in ranges], cache, ("default",), stores)
-        failure = {"between landings": "the pool broke", "in a landing": "No space left"}[stop]
+        failure = {"between landings": "the pool broke", "in a landing": "terminated abruptly"}[stop]
         with pytest.raises((RuntimeError, OSError), match=failure):
             with writer:
                 for shard, _ in ranges:
@@ -1750,7 +2006,8 @@ class TestOracleAudit:
                 writer.land(*waiting[1])
                 assert writer._waiting and writer._segments
                 if stop == "in a landing":
-                    monkeypatch.setattr(writer._audit, "feed", full_disk)
+                    monkeypatch.setattr(writer.executor, "submit", broken)
+                    writer.land(*waiting[0])
                     writer.land(*shipped(writer, *ranges[0]))
                 raise RuntimeError("the pool broke")
         for name in names:
@@ -1760,7 +2017,7 @@ class TestOracleAudit:
         assert list(tmp_path.iterdir()) == []
 
     def test_a_pooled_fan_in_leaves_the_resource_tracker_nothing_to_clean_up(self, tmp_path):
-        """A range's segment is made in a spawned worker and unlinked in the process that maps it, the parent for its audit lines and a fresh absorb worker for its settle memo windows, and the resource tracker they all share unlinks, with a warning, whatever is still registered when the last process holding it exits. The worker registers the segment as it makes it, and the mapping process's attach and unlink register it again and unregister it, so a run that lands every range and absorbs its windows leaves the tracker nothing, and so does one that stops before landing any, because the writer's exit unlinks every segment it named, the settle memo segment no absorb mapped among them. The tracker exits with the run, so the run is a child process here, and its stderr must carry no warning."""
+        """A range's segment is made in a spawned worker and unlinked in the process that maps it, its configuration's section task for its audit lines and a fresh absorb worker for its settle memo windows, and a section task's segment is made in its worker and unlinked by the parent as it writes the part, and the resource tracker they all share unlinks, with a warning, whatever is still registered when the last process holding it exits. The worker registers the segment as it makes it, and the mapping process's attach and unlink register it again and unregister it, so a run that lands every range, compares its section in a spawned task and absorbs its windows leaves the tracker nothing, and so does one that stops before landing any, because the writer's exit unlinks every segment it named, the settle memo segment no absorb mapped among them. The tracker exits with the run, so the run is a child process here, and its stderr must carry no warning."""
         script = "\n".join(
             [
                 "import sys, zlib",
@@ -1772,19 +2029,22 @@ class TestOracleAudit:
                 'fresh = conform._fresh_memo([(("qsPea", "#EDGE", "#EDGE", "#EDGE", "#EDGE", "#EDGE"), ("settled", "", ""))])',
                 'memo = conform.SettleMemoFile(out / "settle-memo-default.bin", "stamp")',
                 'with oracle.InOrderWriter(out, shards, configs=("default",)) as writer:',
-                "    names = [writer.ship_to(shard).audit for shard in shards] + [writer.ship_to(shards[0]).memo]",
+                "    names = [writer.ship_to(shard).audit for shard in shards] + [writer.ship_to(shards[0]).memo, writer.section_name('default')]",
                 "    print(*names, flush=True)",
                 "    with run_m1._spawn_pool(2, len(shards), max_tasks_per_child=1) as pool:",
+                "        writer.executor = pool",
                 "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for line, name in zip(lines, names[:2])]]",
                 "        blocks = pool.submit(oracle.ship, list(fresh.blocks), names[2]).result()",
                 '        if mode == "land":',
                 "            counts = conform.FreshMemo((), fresh.rows, fresh.labels, fresh.records)",
                 "            absorbed, _seconds, _peak = pool.submit(run_m1_gates._absorb_memo, memo, None, [(blocks, counts)]).result()",
                 "            assert absorbed.written and absorbed.fresh == 1",
+                "            for shard, audit in zip(shards, shipped):",
+                '                writer.land(shard, oracle.OracleConfigResult("default", divergent_rows=1, audit_blocks=audit))',
+                "            section = writer.section_results()['default']",
+                "            assert section.output is not None and section.output.name == names[3] and section.rows == 2",
                 '    if mode == "stop":',
                 '        raise SystemExit("stopped before landing")',
-                "    for shard, audit in zip(shards, shipped):",
-                '        writer.land(shard, oracle.OracleConfigResult("default", divergent_rows=1, audit_blocks=audit))',
             ]
         )
         for mode, status in (("land", 0), ("stop", 1)):
@@ -1800,7 +2060,7 @@ class TestOracleAudit:
             assert run.returncode == status, run.stderr
             assert "resource_tracker" not in run.stderr
             names = run.stdout.splitlines()[0].split()
-            assert len(names) == 3
+            assert len(names) == 4
             for name in names:
                 with pytest.raises(FileNotFoundError):
                     shared_memory.SharedMemory(name, track=False)

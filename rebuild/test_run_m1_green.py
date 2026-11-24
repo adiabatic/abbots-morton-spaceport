@@ -971,7 +971,7 @@ class TestOracleFanIn:
         assert [path.name for path in tmp_path.iterdir()] == ["divergence-audit.tsv"]
 
     def test_the_fan_in_counts_the_ranges_as_they_finish(self, monkeypatch, tmp_path, capsys):
-        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected. Once every range has landed it prints one `[t] oracle_fan_in` line, whose `held_gb` and `memo_held_gb` the timings journal keeps, because what the fan-in held waited in shared memory, which no footprint counts, and keeps the line for a hand run's check line (`run_m1._build_phase_lines`)."""
+        """The oracle is the longest part of a pass that prints nothing else while it runs, so it prints a progress counter as each row range finishes, over the number of ranges submitted: one per configuration when the stamp counts no rows, more when it does. A count that stops short of the total is a future the fan-in never collected. Once the audit is committed it prints one `[t] oracle_fan_in` line, whose `held_gb` and `memo_held_gb` the timings journal keeps, because what the fan-in held waited in shared memory, which no footprint counts, beside `tail_seconds`, the time from the last range's landing to the commit, and keeps the line for a hand run's check line (`run_m1._build_phase_lines`)."""
         monkeypatch.setattr(run_m1, "_build_phase_lines", [])
         self._pool(monkeypatch, self._worker())
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
@@ -984,6 +984,7 @@ class TestOracleFanIn:
         ]
         fan_in = [entry for entry in ct.parse_inner_timings(printed) if entry["label"] == "oracle_fan_in"]
         assert len(fan_in) == 1 and fan_in[0]["held_gb"] == 0.0 and fan_in[0]["memo_held_gb"] == 0.0
+        assert fan_in[0]["tail_seconds"] >= 0.0
         assert ct.parse_inner_timings("\n".join(run_m1._build_phase_lines)) == fan_in
 
         seen: list = []
@@ -997,6 +998,28 @@ class TestOracleFanIn:
         assert [event.text for event in counters] == [
             f"{landed}/{len(planned)} shards" for landed in range(1, len(planned) + 1)
         ]
+
+    def test_a_pass_that_fails_after_its_last_landing_keeps_its_fan_in_line(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        """A pass whose ranges all land and whose fan-in then fails, here at a section task that raises, still prints its one `[t] oracle_fan_in` line with what the fan-in held, without `tail_seconds`, since no audit was committed, and keeps it for a hand run's check line; the standing audit stays as it was."""
+        monkeypatch.setattr(run_m1, "_build_phase_lines", [])
+        standing = tmp_path / "divergence-audit.tsv"
+        standing.write_bytes(b"the audit of the last green run\n")
+        self._pool(monkeypatch, self._worker())
+
+        def broken(*args, **kwargs):
+            raise RuntimeError("a section task fell over")
+
+        monkeypatch.setattr(oracle, "audit_section_task", broken)
+        with pytest.raises(RuntimeError, match="a section task fell over"):
+            run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6)
+        printed = capsys.readouterr().out
+        fan_in = [entry for entry in ct.parse_inner_timings(printed) if entry["label"] == "oracle_fan_in"]
+        assert len(fan_in) == 1 and "held_gb" in fan_in[0] and "tail_seconds" not in fan_in[0]
+        assert ct.parse_inner_timings("\n".join(run_m1._build_phase_lines)) == fan_in
+        assert standing.read_bytes() == b"the audit of the last green run\n"
+        assert self._files_left(tmp_path) == ["divergence-audit.tsv"]
 
     def test_a_cut_configurations_audit_follows_row_order_within_acceptance_order(
         self, monkeypatch, tmp_path, capsys
@@ -1168,8 +1191,10 @@ class TestOracleFanIn:
         ]
         assert order.index(("range", first[-1].label)) < absorb < order.index(("range", later[0].label))
 
-    def test_the_pool_record_reads_each_ranges_and_each_absorbs_peak_footprint(self, monkeypatch, tmp_path):
-        """The `oracle-shard` pool record has one reading per range, the peak footprint its worker sent home, and one per settle-memo absorb, labeled `<config> absorb`, its worker's peak footprint (`peak_rss.peak_footprint_self_bytes`): the readings the oracle-shard and oracle-absorb rows of `make job-costs` read."""
+    def test_the_pool_record_reads_each_ranges_each_absorbs_and_each_sections_peak_footprint(
+        self, monkeypatch, tmp_path
+    ):
+        """The `oracle-shard` pool record has one reading per range, the peak footprint its worker sent home, one per settle-memo absorb, labeled `<config> absorb`, and one per configuration's section of the audit, labeled `<config> audit`, each its worker's peak footprint (`peak_rss.peak_footprint_self_bytes`): the readings the oracle-shard and oracle-absorb rows of `make job-costs` read, the sections' among the oracle-shard row's."""
         worker = self._worker()
 
         def footprinted(*args, **kwargs):
@@ -1180,6 +1205,7 @@ class TestOracleFanIn:
         self._pool(monkeypatch, footprinted)
         memo_inputs = self._memos(monkeypatch, [])
         monkeypatch.setattr(run_m1_gates, "peak_footprint_self_bytes", lambda: 7_000)
+        monkeypatch.setattr(oracle, "peak_footprint_self_bytes", lambda: 9_000)
         run_m1_gates.run_oracle(out_dir=tmp_path, jobs=6, memo_inputs=memo_inputs)
         (record,) = ct.load_pool_records(ct.JOURNAL)
         assert record["unit"] == "oracle-shard"
@@ -1191,6 +1217,7 @@ class TestOracleFanIn:
                 for config in conform.SETTLEMENT_CONFIGS
                 if config in conform.ORACLE_CONFIGS
             },
+            **{f"{config} audit": 9_000 for config in conform.ORACLE_CONFIGS},
         }
 
     def test_the_serial_oracle_calls_memo_ready_before_its_first_walk(self, monkeypatch, tmp_path):

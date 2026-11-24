@@ -6,9 +6,9 @@ The rows the oracle classifies are produced in conform.py. `_compare_row` and `_
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
-run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, its store records, one gzip member, in another, and the windows it settled fresh, compressed (`conform.FreshMemo`), in a third (`ship`); its result names them. The parent's `InOrderWriter` feeds the audit's rows, in row order, to the audit's writer (`AuditWriter`), and hands each configuration's members, once its last range has returned, to the stores' writer (`oracle_cache.StoreSet`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's, which goes through the same two writers, because `_compare_config` addresses every row by its absolute index in the table: the store records, the scheduled re-derivation, and the verification samples all key on it.
+run_m1's parallel path splits the work into row ranges of one configuration's table (`OracleShard`, planned by `oracle_shard_plan` for the worker count). `oracle_config_worker` runs `_compare_config` over one range in its own process and ships the range's audit rows, compressed (`AuditBlocks`), home in a POSIX shared memory segment, its store records, one gzip member, in another, and the windows it settled fresh, compressed (`conform.FreshMemo`), in a third (`ship`); its result names them. The parent's `InOrderWriter` submits each configuration's section of the audit, once its last range has returned, to the same pool (`audit_section_task`), which compares the configuration's rows, in row order, with the standing audit's section through the compare the serial path's writer runs over the whole audit (`SectionCompare`, `AuditWriter`) and ships the section's bytes in this pass's part home, and the parent writes the part from the sections in the audit's order; it hands each configuration's members at the same moment to the stores' writer (`oracle_cache.StoreSet`), and `merge_config_shards` sums the ranges' counts. The output is the same as the serial path's because `_compare_config` addresses every row by its absolute index in the table, so the store records, the scheduled re-derivation, and the verification samples all key on it, and because the audit's compare is a merge by key that never pairs rows across two configurations' sections.
 
-The audit, `divergence-audit.tsv`, is held as a base and segments under a head (`rebuild/pipeline/row_delta.py`'s plain keyed merge): the base is the whole file, its header line and every row in the audit's order, and each pass that changes rows writes one segment of upserts and tombstones keyed by configuration and window, in the base's own order (`audit_key`). The audit's writer plans its route before any range starts (`AuditPlan`, `AuditRoute`), compares the pass's rows with the materialized audit in lockstep, and writes the rows that differ, or nothing and the head alone; a tree from before the segment format has its single file adopted by link as generation 0's base. A base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members, the header line alone and then one a configuration (`row_delta.MemberPart`), indexed by the head (`row_delta.Part.members`), so the corpus build inflates only the sections it reads. The materialized audit (`materialized_audit`) is the whole file over the live rows, byte for byte, its parts inflated, and the head records when its content last moved (`CONTENT_TIME_STAMP`), which the review corpus takes as its identity.
+The audit, `divergence-audit.tsv`, is held as a base and segments under a head (`rebuild/pipeline/row_delta.py`'s plain keyed merge): the base is the whole file, its header line and every row in the audit's order, and each pass that changes rows writes one segment of upserts and tombstones keyed by configuration and window, in the base's own order (`audit_key`). The audit's writer plans its route before any range starts (`AuditPlan`, `AuditRoute`), compares the pass's rows with the materialized audit in lockstep, over the whole audit on the serial path and a configuration's section at a time on the pooled one, and writes the rows that differ, or nothing and the head alone; a tree from before the segment format has its single file adopted by link as generation 0's base. A base stays the plain file it was adopted or first written as until its first fold; every segment and every base a fold writes is a run of gzip members, the header line alone and then one a configuration (`row_delta.MemberPart`), indexed by the head (`row_delta.Part.members`), so the corpus build and the pooled path's section tasks inflate only the sections they read, and a plain part's sections are found by bisection (`plain_sections`). The materialized audit (`materialized_audit`) is the whole file over the live rows, byte for byte, its parts inflated, and the head records when its content last moved (`CONTENT_TIME_STAMP`), which the review corpus takes as its identity.
 
 For the overlay configuration (ss10), no settlement table produces the new side. Its rows are walked by `conform.IsolatedOverlayWalk`, which returns every letter bare from the registry alone, and shaped by `shapers.IsolatedOverlayShaper`, which uses the copies' `hmtx` advances instead of HarfBuzz. Read-back's isolation check and the conformance sweep over the overlay are what make both valid. So the old font's ss10 rows are compared with an all-bare stream, and no settlement or shaping runs for them.
 
@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import functools
 import gc
+import gzip
 import hashlib
+import io
 import itertools
 import math
 import operator
@@ -30,7 +32,7 @@ import sys
 import threading
 import time
 import zlib
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import CancelledError, Executor, Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from multiprocessing import shared_memory
@@ -74,7 +76,7 @@ from rebuild.validation.rowmodel import Row, iter_rows
 ORACLE_ROW_CHUNK = 65536
 # How many unmatched rows a result keeps for `oracle_summary.json` to quote. Every unmatched row is written to the audit regardless.
 ORACLE_UNMATCHED_EXEMPLARS = 20
-# The audit bytes a range holds uncompressed before it compresses them as one block (`AuditBlocks`). It sets only the audit's compressed framing in transit, never the audit's bytes. Deflate's window is 32 KiB, so a block this size compresses nearly as well as the range's whole audit would. A smaller block costs less on both sides: a range grows its pending bytes by reallocation up to the block, once a block, and macOS's allocator keeps each round's freed buffers dirty, so the range pays for them several times over; and the parent inflates one block at a time, so the block sizes each buffer the parent inflates into (both measured in `var/keep/ram-inventory/v4/11a-overrun/`).
+# The audit bytes a range holds uncompressed before it compresses them as one block (`AuditBlocks`). It sets only the audit's compressed framing in transit, never the audit's bytes. Deflate's window is 32 KiB, so a block this size compresses nearly as well as the range's whole audit would. A smaller block costs less on both sides: a range grows its pending bytes by reallocation up to the block, once a block, and macOS's allocator keeps each round's freed buffers dirty, so the range pays for them several times over; and the configuration's section task inflates one block at a time, so the block sizes each buffer it inflates into (both measured in `var/keep/ram-inventory/v4/11a-overrun/`).
 ORACLE_AUDIT_BLOCK = 1 << 20
 # The time an overlay-configuration row costs relative to a settlement-configuration row, which `oracle_shard_plan` weights row counts by. The overlay's walk reads the registry and its shaper reads `hmtx`, so its worker takes about half the wall-clock time over the same rows (measured from the `[t] oracle ss10` and `[t] oracle default` lines in the cycle journal).
 OVERLAY_ROW_COST = 0.5
@@ -163,7 +165,7 @@ class BaselineReport:
 
 @dataclass(frozen=True)
 class ShipTo:
-    """The names of the three POSIX shared memory segments one row range ships its bytes home in: `audit` for its compressed audit lines, `store` for its store segment, and `memo` for the settle memo windows it settled fresh, compressed a block at a time (`conform.FreshMemo`), which the parent hands its configuration's absorb by name. The parent's `InOrderWriter` chooses them (`InOrderWriter.ship_to`), so it can unlink a segment a range made even when the range's result never reaches it, or no absorb maps it."""
+    """The names of the three POSIX shared memory segments one row range ships its bytes home in: `audit` for its compressed audit lines, `store` for its store segment, and `memo` for the settle memo windows it settled fresh, compressed a block at a time (`conform.FreshMemo`), which the parent hands its configuration's absorb by name. The parent's `InOrderWriter` chooses them (`InOrderWriter.ship_to`), so it can unlink a segment a range made even when the range's result never reaches it, or no section task or absorb maps it."""
 
     audit: str
     store: str
@@ -180,7 +182,7 @@ class Shipped:
 
 @dataclass
 class OracleConfigResult:
-    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` names the shared memory segment that holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so the audit has them all. `store_segment` names the one that holds the range's store records as one gzip member (`oracle_cache.RowWriter` with no path): a cut configuration's range's records alone, and an uncut configuration's whole file, its header and trailer around them; it is None when the range writes no store. `fresh_memo` holds the counts of the settle memo windows the range settled fresh (`conform.FreshMemo` with no blocks), or None when it settled none, and `memo_blocks` names the segment that holds their blocks; `run_m1_gates.run_oracle` takes both off the result as it lands and hands them, with the configuration's other ranges', to its absorb. Any of the segments is None when the range has no such bytes or its caller named no segments (`oracle_config_worker`'s `ship_to`), and the result carries only names, lengths and counts, never the bytes (`Shipped`). The parent's `InOrderWriter` takes the audit and store segments off the result as it lands, and a folded result carries none of them. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store records were written under, or None when no store was written; the stores' writer records it in the set head's header for the configuration and measures the ages column against it. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
+    """One configuration's oracle counts, or one row range's before `merge_config_shards` combines them, returned to the parent process by `oracle_config_worker`. Unmatched rows are kept as a count plus the first `ORACLE_UNMATCHED_EXEMPLARS` of them, and multi-matched rows as a count alone (`multi_matched_count`). `oracle_summary.json` needs only those, and every divergent row reaches the parent as its audit line instead: `audit_blocks` names the shared memory segment that holds every divergent row's line, a multi-matched row's with its matched ids joined by `+`, compressed a block at a time (`AuditBlocks`), so the audit has them all. `store_segment` names the one that holds the range's store records as one gzip member (`oracle_cache.RowWriter` with no path): a cut configuration's range's records alone, and an uncut configuration's whole file, its header and trailer around them; it is None when the range writes no store. `fresh_memo` holds the counts of the settle memo windows the range settled fresh (`conform.FreshMemo` with no blocks), or None when it settled none, and `memo_blocks` names the segment that holds their blocks; `run_m1_gates.run_oracle` takes both off the result as it lands and hands them, with the configuration's other ranges', to its absorb. Any of the segments is None when the range has no such bytes or its caller named no segments (`oracle_config_worker`'s `ship_to`), and the result carries only names, lengths and counts, never the bytes (`Shipped`). The parent's `InOrderWriter` takes the audit and store segments off the result as it lands, handing the audit segment's name to the configuration's section task, and a folded result carries none of them. `positions_served` counts the rows among `positions_compared` whose position verdict came from the store instead of from shaping. `pass_ordinal` is the ordinal the range's store records were written under, or None when no store was written; the stores' writer records it in the set head's header for the configuration and measures the ages column against it. `peak_footprint_bytes` is the worker's peak footprint (`peak_rss.peak_footprint_self_bytes`), recorded in the pool record that `make job-costs` reads."""
 
     config: str
     rows_compared: int = 0
@@ -996,18 +998,17 @@ class _OldRows:
         return found
 
 
-class AuditWriter:
-    """The audit's writer for one pass, the pooled path's (`InOrderWriter`) and the serial path's (`compare_against_baseline`) alike: it plans the route as it is made (`AuditPlan`), takes the pass's rows in the audit's order a block of whole lines at a time (`feed`), and on `commit` writes the head. Over a usable head (the segment and fold routes) it reads the old materialized audit in lockstep, the base and the segments merged by key through buffers (`row_delta.merge_plain_keyed`), never held whole: a block whose bytes equal the old stream's next bytes costs a memory compare; a block whose rows name the same keys as the old stream's next rows, as after a ledger edit that rewrites rows in place, has its changed rows upserted with a compare a line through C-level maps; and any other block drops to line level, where an equal line is passed over, a changed or new row is an upsert, and an old row the new stream lacks is a tombstone. The keys must strictly increase on both streams (`audit_key`): the line level takes every line's key, and a block the old stream holds byte for byte or key for key has the keys at its two ends taken on both streams, its first against the row before it and its last against its first, since within it the new stream's order is the old stream's, which the writer of those rows checked; a break raises `ValueError` naming the row, and nothing is committed. On the segment route it writes the upserts and tombstones as one plain keyed segment held as gzip members, a configuration a member (`row_delta.MemberPart`), opened at the first difference, so a pass that changes nothing writes no segment and commits a head that `row_delta.commit` leaves in place; on a base route it writes the whole file, its header line and every row, as the next generation's base, `first`, `unusable` or `fold`, a `first` or `unusable` base plain and with every key checked, and a `fold` base as gzip members. It compresses on the thread that feeds it, as each block arrives, and a member's bytes do not depend on how the rows were cut into blocks, so the serial path and the pooled one write the same parts. Parts are written under their final names (`row_delta.StreamedPart`, `row_delta.MemberPart`), which no head lists until `commit`, and `abandon` leaves nothing listed: a part already under its final name is deleted by the next plan (`row_delta.remove_unlisted`).
+class SectionCompare:
+    """The compare the audit's writers share: the pass's rows, taken in the audit's order a block of whole lines at a time (`feed`), against the standing rows they replace, read in lockstep from `old`, the old materialized rows through buffers (`_OldRows`), or None on a route that reads no standing audit, with what the route writes handed to `write`: the upserts and tombstones on the segment route and every row on a base route. A block whose bytes equal the old stream's next bytes costs a memory compare; a block whose rows name the same keys as the old stream's next rows, as after a ledger edit that rewrites rows in place, has its changed rows upserted with a compare a line through C-level maps; and any other block drops to line level, where an equal line is passed over, a changed or new row is an upsert, and an old row the new stream lacks is a tombstone. `drain` removes every old row the new stream did not reach. The keys must strictly increase on both streams (`audit_key`): the line level takes every line's key, and a block the old stream holds byte for byte or key for key has the keys at its two ends taken on both streams, its first against the row before it and its last against its first, since within it the new stream's order is the old stream's, which the writer of those rows checked; a break raises `ValueError` naming the row.
 
-    The head's content generation and its `CONTENT_TIME_STAMP` move when a segment, or a base whose rows differ from what the head served, is written, and stay on a head-alone commit and on a fold that changes no row (`Head.identity`). A base written because a head or a part did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). `commit` prints `[t] oracle_audit` with the rows streamed, the upserts and tombstones, the part's bytes on disk and inflated, its members (0 for a plain part) and the seconds spent compressing them, the segments after the commit, the compare's seconds and the most its old stream held at once.
+    The result is the key-ordered merge-join of two sorted streams, whatever the block boundaries, so a compare over the whole audit (`AuditWriter`) and one compare a configuration over that configuration's section of both streams (`audit_section_task`) reach the same decisions: sections never interleave in the audit's order, so cutting both streams at a section's ends cuts no run the merge-join would pair across it.
     """
 
-    def __init__(self, out_dir: Path) -> None:
-        self.out_dir = Path(out_dir)
-        self._plan = AuditPlan(self.out_dir)
-        self._route: AuditRoute | None = None
-        self._old: _OldRows | None = None
-        self._part: row_delta.StreamedPart | None = None
+    def __init__(self, old: _OldRows | None, write: Callable[[bytes], object], route: str) -> None:
+        self._old = old
+        self._write = write
+        self._writes_rows = route == BASE_ROUTE
+        self._writes_changes = route == SEGMENT_ROUTE
         self._last_new: tuple | None = None
         self._last_old: tuple[int, tuple] | None = None
         self.rows = 0
@@ -1015,31 +1016,10 @@ class AuditWriter:
         self.tombstones = 0
         self.seconds = 0.0
 
-    def _ready(self) -> AuditRoute:
-        if self._route is not None:
-            return self._route
-        route = self._route = self._plan.route()
-        prior = route.head
-        if route.opened is not None:
-            assert prior is not None
-            self._old = _OldRows(_materialized_rows(route.opened))
-        if route.route == SEGMENT_ROUTE:
-            assert prior is not None
-            number = len(prior.segments) + 1
-            self._part = row_delta.MemberPart(
-                self.out_dir,
-                row_delta.segment_name(AUDIT_NAME, prior.generation, number),
-                row_delta.segment_header(AUDIT_NAME, prior.generation, number, row_delta.MERGE_PLAIN_KEY),
-                field=1,
-            )
-        else:
-            name = row_delta.base_name(AUDIT_NAME, 0 if prior is None else prior.generation + 1)
-            self._part = (
-                row_delta.MemberPart(self.out_dir, name, _AUDIT_HEADER_LINE, field=0)
-                if route.reason == "fold"
-                else row_delta.StreamedPart(self.out_dir, name, _AUDIT_HEADER_LINE, gzipped=False)
-            )
-        return route
+    @property
+    def held_peak_bytes(self) -> int:
+        """The most the old stream held at once."""
+        return 0 if self._old is None else self._old.held_peak_bytes
 
     def _new_key(self, line: bytes) -> tuple:
         """The key of the pass's next row, refused unless it is above the last one taken."""
@@ -1078,16 +1058,12 @@ class AuditWriter:
         if not block:
             return
         started = time.perf_counter()
-        route = self._ready()
-        part = self._part
-        assert part is not None
         self.rows += block.count(b"\n")
-        writes_rows = route.route == BASE_ROUTE
         old = self._old
         if old is None:
             for line in _lines(block):
                 self._new_key(line)
-            part.write(block)
+            self._write(block)
             self.seconds += time.perf_counter() - started
             return
         position = old.consumed
@@ -1095,8 +1071,8 @@ class AuditWriter:
             last = block.rfind(b"\n", 0, len(block) - 1) + 1
             ends = (block[: block.index(b"\n") + 1], block[last:])
             self._span_ends(ends, ends, (position, position + last))
-            if writes_rows:
-                part.write(block)
+            if self._writes_rows:
+                self._write(block)
             self.seconds += time.perf_counter() - started
             return
         lines = _lines(block)
@@ -1113,14 +1089,14 @@ class AuditWriter:
                 self._upsert(lines[at])
             for line in standing:
                 old.advance(line)
-            if writes_rows:
-                part.write(block)
+            if self._writes_rows:
+                self._write(block)
             self.seconds += time.perf_counter() - started
             return
         for line in lines:
             at = self._new_key(line)
-            if writes_rows:
-                part.write(line)
+            if self._writes_rows:
+                self._write(line)
             if old.peek() == line:
                 self._old_key(line, at=at)
                 old.advance(line)
@@ -1145,73 +1121,151 @@ class AuditWriter:
 
     def _upsert(self, line: bytes) -> None:
         self.upserts += 1
-        assert self._route is not None and self._part is not None
-        if self._route.route == SEGMENT_ROUTE:
-            self._part.write(row_delta.UPSERT + b"\t" + line)
+        if self._writes_changes:
+            self._write(row_delta.UPSERT + b"\t" + line)
 
     def _remove(self, line: bytes) -> None:
         self.tombstones += 1
-        assert self._route is not None and self._part is not None
-        if self._route.route == SEGMENT_ROUTE:
-            self._part.write(_tombstone(line))
+        if self._writes_changes:
+            self._write(_tombstone(line))
 
-    def commit(self) -> row_delta.Head:
-        """Remove every old row the new stream did not reach, write the part, and commit the head (`row_delta.commit`), which then deletes every part it does not list; then delete the single file a tree from before the segment format held."""
+    def drain(self) -> None:
+        """Remove every old row the new stream did not reach."""
         started = time.perf_counter()
-        route = self._ready()
-        part_writer = self._part
-        assert part_writer is not None
         old = self._old
         if old is not None:
             while (standing := old.peek()) is not None:
                 self._old_key(standing)
                 self._remove(standing)
                 old.advance(standing)
+        self.seconds += time.perf_counter() - started
+
+
+def _audit_head(route: AuditRoute, part: row_delta.Part | None, changed: bool) -> row_delta.Head:
+    """The head a pass commits over `route`, having written `part` (None for a segment route that wrote none) and changed rows or not: on the segment route the standing head with the segment, its stamps' content time moved, or the standing head alone; on a base route the next generation's head over the base, its content generation and time moved unless a fold changed no row."""
+    prior = route.head
+    now = time.time_ns()
+    if route.route == SEGMENT_ROUTE:
+        assert prior is not None
+        return (
+            prior
+            if part is None
+            else row_delta.with_segment(prior, part, {**prior.stamps, CONTENT_TIME_STAMP: now})
+        )
+    assert part is not None
+    moved = route.reason != "fold" or changed or prior is None
+    generation = 0 if prior is None else prior.generation + 1
+    content = 0 if prior is None else prior.content + (1 if moved else 0)
+    stamps = {
+        CONTENT_TIME_STAMP: (now if moved or prior is None else prior.stamps.get(CONTENT_TIME_STAMP, now))
+    }
+    return row_delta.Head(AUDIT_NAME, generation, content, stamps, part, (), row_delta.MERGE_PLAIN_KEY)
+
+
+def _commit_audit(out_dir: Path, route: AuditRoute, head: row_delta.Head) -> None:
+    """Close the route's parts, count an unusable route's base as `rewritten whole`, commit `head` (`row_delta.commit`), which then deletes every part it does not list, and delete the single file a tree from before the segment format held."""
+    route.close()
+    if route.reason == "unusable":
+        output_sink.note_rewritten(AUDIT_NAME)
+    row_delta.commit(out_dir, head)
+    (out_dir / AUDIT_NAME).unlink(missing_ok=True)
+
+
+def _audit_timing(
+    seconds: float,
+    counts: tuple[int, int, int],
+    route: AuditRoute,
+    part: row_delta.Part | None,
+    compressing: float,
+    head: row_delta.Head,
+    held: int,
+) -> None:
+    """Print `[t] oracle_audit`: the compare's seconds, the rows streamed, the upserts and tombstones, the part's bytes on disk and inflated, its members (0 for a plain part) and the seconds spent compressing them, the segments after the commit and the most an old stream held at once."""
+    rows, upserts, tombstones = counts
+    size = inflated = members = 0
+    if part is not None:
+        size = inflated = part.size
+        if part.members is not None:
+            inflated, members = sum(member.inflated for member in part.members), len(part.members)
+    console.timing(
+        "oracle_audit",
+        seconds,
+        f"rows={rows} upserts={upserts} tombstones={tombstones} "
+        f"wrote={'nothing' if part is None else route.route} part_bytes={size} inflated_bytes={inflated} "
+        f"members={members} compress_seconds={compressing:.2f} "
+        f"segments={len(head.segments)} held_mb={held / 1e6:.1f}",
+    )
+
+
+class AuditWriter:
+    """The serial path's audit writer (`compare_against_baseline`), and the reference the pooled path's per-configuration tasks are held to (`audit_section_task`): it plans the route as it is made (`AuditPlan`), takes the pass's rows in the audit's order a block of whole lines at a time (`feed`) through one compare over the whole audit (`SectionCompare`), and on `commit` writes the head. Over a usable head (the segment and fold routes) the compare reads the old materialized audit in lockstep, the base and the segments merged by key through buffers (`row_delta.merge_plain_keyed`), never held whole; a key that breaks the order raises `ValueError` naming the row, and nothing is committed. On the segment route it writes the upserts and tombstones as one plain keyed segment held as gzip members, a configuration a member (`row_delta.MemberPart`), opened at the first difference, so a pass that changes nothing writes no segment and commits a head that `row_delta.commit` leaves in place; on a base route it writes the whole file, its header line and every row, as the next generation's base, `first`, `unusable` or `fold`, a `first` or `unusable` base plain and with every key checked, and a `fold` base as gzip members. It compresses on the thread that feeds it, as each block arrives, and a member's bytes do not depend on how the rows were cut into blocks. Parts are written under their final names (`row_delta.StreamedPart`, `row_delta.MemberPart`), which no head lists until `commit`, and `abandon` leaves nothing listed: a part already under its final name is deleted by the next plan (`row_delta.remove_unlisted`).
+
+    The head's content generation and its `CONTENT_TIME_STAMP` move when a segment, or a base whose rows differ from what the head served, is written, and stay on a head-alone commit and on a fold that changes no row (`Head.identity`, `_audit_head`). A base written because a head or a part did not read is counted as `rewritten whole` (`output_sink.note_rewritten`). `commit` prints `[t] oracle_audit` (`_audit_timing`).
+    """
+
+    def __init__(self, out_dir: Path) -> None:
+        self.out_dir = Path(out_dir)
+        self._plan = AuditPlan(self.out_dir)
+        self._route: AuditRoute | None = None
+        self._part: row_delta.StreamedPart | None = None
+        self._compare: SectionCompare | None = None
+        self.seconds = 0.0
+
+    def _ready(self) -> SectionCompare:
+        if self._compare is not None:
+            return self._compare
+        route = self._route = self._plan.route()
+        prior = route.head
+        old = None
+        if route.opened is not None:
+            assert prior is not None
+            old = _OldRows(_materialized_rows(route.opened))
+        if route.route == SEGMENT_ROUTE:
+            assert prior is not None
+            number = len(prior.segments) + 1
+            self._part = row_delta.MemberPart(
+                self.out_dir,
+                row_delta.segment_name(AUDIT_NAME, prior.generation, number),
+                row_delta.segment_header(AUDIT_NAME, prior.generation, number, row_delta.MERGE_PLAIN_KEY),
+                field=1,
+            )
+        else:
+            name = row_delta.base_name(AUDIT_NAME, 0 if prior is None else prior.generation + 1)
+            self._part = (
+                row_delta.MemberPart(self.out_dir, name, _AUDIT_HEADER_LINE, field=0)
+                if route.reason == "fold"
+                else row_delta.StreamedPart(self.out_dir, name, _AUDIT_HEADER_LINE, gzipped=False)
+            )
+        self._compare = SectionCompare(old, self._part.write, route.route)
+        return self._compare
+
+    def feed(self, block: bytes) -> None:
+        """Take the next block of the pass's rows, whole lines in the audit's order."""
+        if block:
+            self._ready().feed(block)
+
+    def commit(self) -> row_delta.Head:
+        """Remove every old row the new stream did not reach, write the part, and commit the head (`_commit_audit`)."""
+        compare = self._ready()
+        route, part_writer = self._route, self._part
+        assert route is not None and part_writer is not None
+        compare.drain()
+        started = time.perf_counter()
         if route.route == BASE_ROUTE and not part_writer.opened:
             part_writer.write(b"")
         part = part_writer.close()
-        self.seconds += time.perf_counter() - started
-        prior = route.head
-        changed = bool(self.upserts or self.tombstones)
-        now = time.time_ns()
-        if route.route == SEGMENT_ROUTE:
-            assert prior is not None
-            head = (
-                prior
-                if part is None
-                else row_delta.with_segment(prior, part, {**prior.stamps, CONTENT_TIME_STAMP: now})
-            )
-        else:
-            assert part is not None
-            moved = route.reason != "fold" or changed or prior is None
-            generation = 0 if prior is None else prior.generation + 1
-            content = 0 if prior is None else prior.content + (1 if moved else 0)
-            stamps = {
-                CONTENT_TIME_STAMP: (
-                    now if moved or prior is None else prior.stamps.get(CONTENT_TIME_STAMP, now)
-                )
-            }
-            head = row_delta.Head(
-                AUDIT_NAME, generation, content, stamps, part, (), row_delta.MERGE_PLAIN_KEY
-            )
-        route.close()
-        if route.reason == "unusable":
-            output_sink.note_rewritten(AUDIT_NAME)
-        row_delta.commit(self.out_dir, head)
-        (self.out_dir / AUDIT_NAME).unlink(missing_ok=True)
-        size = inflated = members = 0
-        if part is not None:
-            size = inflated = part.size
-            if part.members is not None:
-                inflated, members = sum(member.inflated for member in part.members), len(part.members)
+        self.seconds += compare.seconds + time.perf_counter() - started
+        head = _audit_head(route, part, bool(compare.upserts or compare.tombstones))
+        _commit_audit(self.out_dir, route, head)
         compressing = part_writer.seconds if isinstance(part_writer, row_delta.MemberPart) else 0.0
-        console.timing(
-            "oracle_audit",
+        _audit_timing(
             self.seconds,
-            f"rows={self.rows} upserts={self.upserts} tombstones={self.tombstones} "
-            f"wrote={'nothing' if part is None else route.route} part_bytes={size} inflated_bytes={inflated} "
-            f"members={members} compress_seconds={compressing:.2f} "
-            f"segments={len(head.segments)} held_mb={(0 if old is None else old.held_peak_bytes) / 1e6:.1f}",
+            (compare.rows, compare.upserts, compare.tombstones),
+            route,
+            part,
+            compressing,
+            head,
+            compare.held_peak_bytes,
         )
         return head
 
@@ -1266,7 +1320,7 @@ class AuditSink(Protocol):
 
 
 class _FedBlocks:
-    """The serial path's audit sink: lines gathered into blocks of `ORACLE_AUDIT_BLOCK` bytes and fed to the audit's writer whole, so the serial path feeds the compare as the pooled path's fan-in does."""
+    """The serial path's audit sink: lines gathered into blocks of `ORACLE_AUDIT_BLOCK` bytes and fed to the audit's writer whole, so the serial path feeds the compare as the pooled path's section tasks do."""
 
     def __init__(self, writer: AuditWriter) -> None:
         self._writer = writer
@@ -1285,7 +1339,7 @@ class _FedBlocks:
 
 
 class AuditBlocks:
-    """One row range's audit lines, held in memory until the range ships them home (`ship`). They are compressed with zlib at level 1 a block at a time, each block a whole zlib stream that ends at a line's end once `ORACLE_AUDIT_BLOCK` bytes have gathered, so the range holds at most one block uncompressed and the parent inflates one block at a time (`InOrderWriter`). The bytes are the lines' UTF-8, as the serial path feeds them to the audit's writer."""
+    """One row range's audit lines, held in memory until the range ships them home (`ship`). They are compressed with zlib at level 1 a block at a time, each block a whole zlib stream that ends at a line's end once `ORACLE_AUDIT_BLOCK` bytes have gathered, so the range holds at most one block uncompressed and its configuration's section task inflates one block at a time (`audit_section_task`). The bytes are the lines' UTF-8, as the serial path feeds them to the audit's writer."""
 
     def __init__(self) -> None:
         self.blocks: list[bytes] = []
@@ -1309,7 +1363,7 @@ class AuditBlocks:
 
 
 def ship(pieces: list[bytes], name: str) -> Shipped | None:
-    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`_Mapped`: the parent's `InOrderWriter.land`, or a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`InOrderWriter.__exit__`, `run_m1_gates._SweepSegments`)."""
+    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`_Mapped`: a configuration's section task, `audit_section_task`, for the ranges' audit lines; the parent's `InOrderWriter`, for a range's store members as it lands and a section's bytes as it writes the part; or a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`InOrderWriter.__exit__`, `run_m1_gates._SweepSegments`)."""
     lengths = tuple(len(piece) for piece in pieces)
     if not sum(lengths):
         return None
@@ -1345,11 +1399,17 @@ def _segment_names(token: str, position: int) -> ShipTo:
     return ShipTo(f"{stem}a", f"{stem}s", f"{stem}m")
 
 
+def _section_name(token: str, slot: int) -> str:
+    """The name of the segment the section task in `slot` ships its configuration's bytes of the part home in (`audit_section_task`)."""
+    return f"oracle-{token}-x{slot}"
+
+
 def _unlink_recorded_segments(scratch: Path) -> None:
-    """Unlink every shared memory segment a dead run's writer named, from the token and range count it recorded in that run's scratch directory (`InOrderWriter`, `SEGMENT_RECORD`). A segment already gone, or a record that cannot be read, leaves nothing to do, and nothing here raises."""
+    """Unlink every shared memory segment a dead run's writer named, from the token, range count and section count it recorded in that run's scratch directory (`InOrderWriter`, `SEGMENT_RECORD`). A segment already gone, or a record that cannot be read, leaves nothing to do, and nothing here raises."""
     try:
-        token, count = (scratch / SEGMENT_RECORD).read_text().split()
+        token, count, *sections = (scratch / SEGMENT_RECORD).read_text().split()
         positions = range(int(count))
+        slots = range(int(sections[0]) if sections else 0)
     except OSError, ValueError:
         return
     for position in positions:
@@ -1357,10 +1417,13 @@ def _unlink_recorded_segments(scratch: Path) -> None:
         for name in (names.audit, names.store, names.memo):
             with suppress(OSError, ValueError):
                 _unlink_if_made(name, track=False)
+    for slot in slots:
+        with suppress(OSError, ValueError):
+            _unlink_if_made(_section_name(token, slot), track=False)
 
 
 class _Mapped:
-    """A shipped segment mapped and unlinked at once, so that its name never outlives the mapping, with its pieces as views: by the parent's in-order writer, or by a settle memo absorb's worker. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment mapped here leaves the tracker nothing to clean up. Its pages enter the mapping process's footprint as it reads them and leave at `close`."""
+    """A shipped segment mapped and unlinked at once, so that its name never outlives the mapping, with its pieces as views: by a section task, by the parent's in-order writer, or by a settle memo absorb's worker. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment mapped here leaves the tracker nothing to clean up. Its pages enter the mapping process's footprint as it reads them and leave at `close`."""
 
     def __init__(self, shipped: Shipped) -> None:
         self._segment = shared_memory.SharedMemory(shipped.name)
@@ -1380,12 +1443,359 @@ class _Mapped:
         self.closed = True
 
 
+def _section_order(name: bytes) -> tuple[int, bytes]:
+    """A section's place in the audit's order, from its configuration's name as the part holds it: the first two fields of `audit_key`."""
+    return (_AUDIT_RANKS.get(name, len(_AUDIT_RANKS)), name)
+
+
+def _field_of(line: bytes, field: int) -> bytes:
+    """The field at `field` of a line, the section a line of a part belongs to: a base row's first field, a segment line's second, after its `+` or `-`."""
+    return line.rstrip(b"\n").split(b"\t", field + 1)[field]
+
+
+class _FileLines:
+    """Whole lines of an open part read by position (`os.pread`), which leaves the handle where it was, for a bisection over its line starts."""
+
+    _READ = 1 << 12
+
+    def __init__(self, descriptor: int, size: int) -> None:
+        self._descriptor = descriptor
+        self._size = size
+
+    def line_at(self, start: int) -> bytes:
+        """The whole line that starts at `start`, with its newline, or the rest of the part when it has none."""
+        pieces: list[bytes] = []
+        at = start
+        while at < self._size:
+            piece = os.pread(self._descriptor, min(self._READ, self._size - at), at)
+            if not piece:
+                break
+            end = piece.find(b"\n")
+            if end >= 0:
+                pieces.append(piece[: end + 1])
+                break
+            pieces.append(piece)
+            at += len(piece)
+        return b"".join(pieces)
+
+    def line_start(self, low: int, middle: int) -> int:
+        """The start of the line that holds byte `middle`, no lower than `low`, a line start: one past the last newline in `[low, middle)`, or `low`."""
+        end = middle
+        while end > low:
+            begin = max(low, end - self._READ)
+            found = os.pread(self._descriptor, end - begin, begin).rfind(b"\n")
+            if found >= 0:
+                return begin + found + 1
+            end = begin
+        return low
+
+
+def plain_sections(handle: BinaryIO, part: row_delta.Part, field: int) -> list[tuple[bytes, int, int]]:
+    """Each section of a plain audit part, in file order, as its configuration's name and the span of its lines, found without reading the part through: past the header line, the first line names a section, and a bisection over line starts by `os.pread` (`_FileLines`) finds the first line whose section comes after it in the audit's order (`_section_order`), which starts the next. `field` is where a line names its section, 0 for a base and 1 for a segment. A section that does not come after the one before it, or whose last line is not its own, raises `ValueError`, since a part out of the audit's order has no sections to cut."""
+    lines = _FileLines(handle.fileno(), part.size)
+    start = len(lines.line_at(0))
+    sections: list[tuple[bytes, int, int]] = []
+    while start < part.size:
+        line = lines.line_at(start)
+        name = _field_of(line, field)
+        order = _section_order(name)
+        if sections and order <= _section_order(sections[-1][0]):
+            raise ValueError(
+                f"{part.name} is out of the audit's order at its {name.decode('utf-8', 'replace')!r} section"
+            )
+        low, high = start + len(line), part.size
+        while low < high:
+            at = lines.line_start(low, (low + high) // 2)
+            found = lines.line_at(at)
+            if _section_order(_field_of(found, field)) <= order:
+                low = at + len(found)
+            else:
+                high = at
+        closing = _field_of(lines.line_at(lines.line_start(start, low - 1)), field)
+        if closing != name:
+            raise ValueError(
+                f"{part.name} is out of the audit's order: a {closing.decode('utf-8', 'replace')!r} row ends its {name.decode('utf-8', 'replace')!r} section"
+            )
+        sections.append((name, start, low))
+        start = low
+    return sections
+
+
+def part_sections(handle: BinaryIO, part: row_delta.Part, field: int) -> list[bytes]:
+    """The configurations an audit part holds a section of, in file order: its member index's sections for a part held as gzip members, and `plain_sections` for a plain one. A section that does not come after the one before it in the audit's order (`_section_order`) raises `ValueError`, from the index as `plain_sections` raises it from the lines, since a section task reads each section alone and would not see the order break that the serial writer's compare refuses."""
+    if part.members is None:
+        return [name for name, _start, _end in plain_sections(handle, part, field)]
+    sections = [member.section.encode("utf-8") for member in part.members[1:]]
+    for before, after in itertools.pairwise(sections):
+        if _section_order(after) <= _section_order(before):
+            raise ValueError(
+                f"{part.name} is out of the audit's order at its {after.decode('utf-8', 'replace')!r} section"
+            )
+    return sections
+
+
+class _Span(io.RawIOBase):
+    """The bytes `[start, end)` of an open part, read by position (`os.preadv`) into the caller's buffer, which leaves the handle where it was: one section of a plain part."""
+
+    def __init__(self, descriptor: int, name: str, start: int, end: int) -> None:
+        super().__init__()
+        self._descriptor = descriptor
+        self._name = name
+        self._at = start
+        self._end = end
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        view = memoryview(buffer).cast("B")
+        count = min(len(view), self._end - self._at)
+        if count <= 0:
+            return 0
+        read = os.preadv(self._descriptor, [view[:count]], self._at)
+        if not read:
+            raise row_delta.HeadError(f"{self._name} ends at byte {self._at}, inside a section")
+        self._at += read
+        return read
+
+
+class _SectionInflating(row_delta._Inflating):
+    """The raw stream of one gzip member of a part held as members, inflated from its offset and checked as `row_delta.part_stream` checks every member: one that does not inflate, whose gzip stream ends before its recorded length or runs past it, or that inflates to another length than the index records raises `row_delta.HeadError` naming the part and the section."""
+
+    def __init__(self, descriptor: int, part: row_delta.Part, member: row_delta.Member, offset: int) -> None:
+        super().__init__(descriptor, replace(part, members=(member,)))
+        self._offset = offset
+
+
+def section_stream(handle: BinaryIO, part: row_delta.Part, section: bytes, field: int) -> BinaryIO:
+    """One configuration's section of an open audit part, inflated, with no header line, as a buffered stream read by position, so the handle stays where it was: for a part held as gzip members the section's member (`_SectionInflating`), found from the member index, and for a plain part its span of lines (`plain_sections`, `_Span`). A part with no such section gives an empty stream."""
+    if part.members is not None:
+        offset = 0
+        for member in part.members:
+            if member.section.encode("utf-8") == section:
+                return cast(
+                    BinaryIO,
+                    io.BufferedReader(
+                        _SectionInflating(handle.fileno(), part, member, offset), row_delta.INFLATE_READ_BYTES
+                    ),
+                )
+            offset += member.length
+        return io.BytesIO()
+    for name, start, end in plain_sections(handle, part, field):
+        if name == section:
+            return cast(BinaryIO, io.BufferedReader(_Span(handle.fileno(), part.name, start, end), 1 << 20))
+    return io.BytesIO()
+
+
+def _section_rows(opened: row_delta.OpenParts, section: bytes) -> Iterator[bytes]:
+    """The materialized rows of one configuration's section of an open audit head, as runs of bytes: its section of the base merged by key with its section of each segment (`row_delta.merge_plain_keyed`), each read through `section_stream`. A section is one configuration's run of rows in the audit's order, so these are the rows `_materialized_rows` yields between the section's ends."""
+    head = opened.head
+    base = section_stream(opened.handles[0], head.base, section, 0)
+    segments = [
+        row_delta._keyed_rows(section_stream(handle, part, section, 1), head.output, number)
+        for number, (handle, part) in enumerate(zip(opened.handles[1:], head.segments), start=1)
+    ]
+    yield from row_delta.merge_plain_keyed(base, segments, audit_key, audit_key)
+
+
+class _Ends:
+    """A byte stream of whole lines passed through as it is read, keeping its first and last lines, for the check that a section's rows are all its configuration's (`_check_section`)."""
+
+    def __init__(self, chunks: Iterable[bytes]) -> None:
+        self._chunks = chunks
+        self.first: bytes | None = None
+        self.last: bytes | None = None
+
+    def __iter__(self) -> Iterator[bytes]:
+        head = tail = b""
+        for chunk in self._chunks:
+            if not chunk:
+                continue
+            if self.first is None:
+                head += chunk
+                if (cut := head.find(b"\n")) >= 0:
+                    self.first, head = head[: cut + 1], b""
+            at = chunk.rfind(b"\n", 0, len(chunk) - 1)
+            tail = chunk[at + 1 :] if at >= 0 else (chunk if tail.endswith(b"\n") else tail + chunk)
+            yield chunk
+        self.last = tail or None
+
+
+def _check_section(config: str, ends: tuple[bytes | None, bytes | None], what: str) -> None:
+    """Refuse a stream of rows in the audit's order whose first or last row is not `config`'s, which, since the order sorts by configuration first, finds any row of another configuration between them."""
+    for line in ends:
+        if line is not None and _field_of(line, 0) != config.encode():
+            raise ValueError(
+                f"{what} for {config} hold a row of another configuration: {line.rstrip().decode('utf-8', 'replace')[:160]!r}"
+            )
+
+
+class _SectionMember:
+    """One section's lines as one gzip member in memory, opened at its first line, so a section with none makes no member, and written by one `gzip.GzipFile` at level 1 with mtime 0 and no file name, as `row_delta.MemberPart` writes each of its members, so its bytes are that part's member for the same lines. `rows` and `inflated` count the lines and their bytes, and `seconds` the time spent compressing."""
+
+    def __init__(self) -> None:
+        self._buffer = io.BytesIO()
+        self._stream: gzip.GzipFile | None = None
+        self.rows = 0
+        self.inflated = 0
+        self.seconds = 0.0
+
+    def write(self, data: bytes) -> None:
+        started = time.perf_counter()
+        if self._stream is None:
+            self._stream = gzip.GzipFile(
+                filename="", fileobj=self._buffer, mode="wb", mtime=0, compresslevel=1
+            )
+        self._stream.write(data)
+        self.rows += data.count(b"\n")
+        self.inflated += len(data)
+        self.seconds += time.perf_counter() - started
+
+    def discard(self) -> None:
+        """Close the member's stream and its buffer without shipping it, for a task that stops partway, so no stream is left to flush into a closed buffer when it is collected."""
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            with suppress(Exception):
+                stream.close()
+        self._buffer.close()
+
+    def ship(self, name: str) -> Shipped | None:
+        """Close the member and copy it into the shared memory segment `name` (`ship`), or make none when the section had no line."""
+        if self._stream is None:
+            return None
+        started = time.perf_counter()
+        self._stream.close()
+        self.seconds += time.perf_counter() - started
+        view = self._buffer.getbuffer()
+        try:
+            return ship([cast(bytes, view)], name)
+        finally:
+            view.release()
+            self._buffer.close()
+
+
+@dataclass(frozen=True)
+class SectionResult:
+    """What one configuration's section of the audit came to (`audit_section_task`): the pass's rows the compare took, its upserts and tombstones, and the section's bytes in this pass's part, in the shared memory segment `output` names, or None when the part holds none of it: one gzip member, which `member` describes for the part's member index, or, on a `first` or `unusable` base, the section's plain lines as the ranges' compressed blocks, a piece a block, which the parent inflates as it writes them. `part_rows` and `part_bytes` count the lines in the part and their inflated bytes. `seconds` is the compare's, `compress_seconds` the member's, `held_peak_bytes` the most its old stream held at once, `wall_seconds` the task's, and `peak_footprint_bytes` its process's peak footprint (`peak_rss.peak_footprint_self_bytes`), which the pool record takes as `<config> audit`."""
+
+    config: str
+    rows: int
+    upserts: int
+    tombstones: int
+    output: Shipped | None
+    member: row_delta.Member | None
+    part_rows: int
+    part_bytes: int
+    seconds: float
+    compress_seconds: float
+    held_peak_bytes: int
+    wall_seconds: float
+    peak_footprint_bytes: int
+
+
+def audit_section_task(
+    out_dir: Path,
+    config: str,
+    route: str,
+    reason: str,
+    head: row_delta.Head | None,
+    blocks: Sequence[Shipped | None],
+    ship_name: str,
+) -> SectionResult:
+    """Compare one configuration's section of the audit, in a fresh pool process (`InOrderWriter`): the lines its row ranges shipped home, compressed a block at a time (`AuditBlocks`), mapped from their shared memory segments in range order and each name unlinked as it is mapped (`_Mapped`), against the standing audit's section, its base's and each segment's merged by key (`_section_rows`, over `head`'s parts, which this process opens itself; None on a route that reads no standing audit), through the compare the serial writer runs over the whole audit (`SectionCompare`). The new rows' and the standing rows' first and last lines must be `config`'s (`_check_section`). The section's bytes in the part go home in the shared memory segment `ship_name`: on the segment route its upserts and tombstones and on a fold every row, each as one gzip member (`_SectionMember`), which `row_delta.MemberPart` would write for the same lines; and on a `first` or `unusable` base every row, plain, which are exactly the ranges' lines, so the task ships the ranges' compressed blocks as they came, one piece a block, and the parent inflates them as it writes the part, as the serial writer inflates them as it feeds them, so neither holds a section's plain lines. With no blocks it tombstones every standing row of a configuration the plan does not compare. Returns what the section came to (`SectionResult`)."""
+    started = time.perf_counter()
+    mapped: list[_Mapped] = []
+    member = _SectionMember()
+    try:
+        for shipped in blocks:
+            if shipped is not None:
+                mapped.append(_Mapped(shipped))
+        pieces = [piece for segment in mapped for piece in segment.pieces]
+        with ExitStack() as stack:
+            ends: _Ends | None = None
+            old: _OldRows | None = None
+            if head is not None:
+                opened = stack.enter_context(row_delta.open_parts(Path(out_dir), head))
+                ends = _Ends(_section_rows(opened, config.encode()))
+                old = _OldRows(ends)
+            plain = route == BASE_ROUTE and reason != "fold"
+            size = 0
+
+            def counted(data: bytes) -> None:
+                nonlocal size
+                size += len(data)
+
+            compare = SectionCompare(old, counted if plain else member.write, route)
+            first: bytes | None = None
+            last: bytes | None = None
+            for piece in pieces:
+                lines = zlib.decompress(piece)
+                if lines:
+                    if first is None:
+                        first = lines[: lines.index(b"\n") + 1]
+                    last = lines[lines.rfind(b"\n", 0, len(lines) - 1) + 1 :]
+                compare.feed(lines)
+            compare.drain()
+            _check_section(config, (first, last), "the pass's audit rows")
+            if ends is not None:
+                _check_section(config, (ends.first, ends.last), "the standing audit's rows")
+        if plain:
+            output = ship(cast(list[bytes], list(pieces)), ship_name)
+            part_rows, part_bytes, index = compare.rows, size, None
+        else:
+            output = member.ship(ship_name)
+            part_rows, part_bytes = member.rows, member.inflated
+            index = None if output is None else row_delta.Member(config, sum(output.lengths), member.inflated)
+        del pieces
+    except BaseException:
+        member.discard()
+        raise
+    finally:
+        for segment in mapped:
+            segment.close()
+    return SectionResult(
+        config,
+        compare.rows,
+        compare.upserts,
+        compare.tombstones,
+        output,
+        index,
+        part_rows,
+        part_bytes,
+        compare.seconds,
+        member.seconds,
+        compare.held_peak_bytes,
+        time.perf_counter() - started,
+        peak_footprint_self_bytes(),
+    )
+
+
+def _header_member(header: bytes) -> bytes:
+    """The header line's gzip member as `row_delta.MemberPart` writes it: level 1, mtime 0, no file name."""
+    buffer = io.BytesIO()
+    with gzip.GzipFile(filename="", fileobj=buffer, mode="wb", mtime=0, compresslevel=1) as stream:
+        stream.write(header)
+    return buffer.getvalue()
+
+
+class _InlineExecutor(Executor):
+    """An executor that runs each task as it is submitted, in this process, and returns its finished future: the in-order writer's when its caller hands it no pool, as the tests that drive a fan-in by hand do."""
+
+    def submit(self, fn, /, *args, **kwargs) -> Future:
+        future: Future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except BaseException as error:
+            future.set_exception(error)
+        return future
+
+
 class InOrderWriter:
-    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes the audit once, in `configs` order and in row order within each configuration, from the lines each range ships home (`OracleConfigResult.audit_blocks`), through the audit's writer (`AuditWriter`), which compares them in lockstep with the standing audit and writes only the rows that differ; and it hands each configuration's store records, the members its ranges ship, to the store set's writer (`oracle_cache.StoreSet`) when its last range lands. A range ships its bytes in the POSIX shared memory segments the writer names for it (`ship_to`, `ship`), and its result carries only their names and lengths. The writer names each range's settle memo segment too, which it never maps: `run_m1_gates.run_oracle` hands it to the configuration's absorb, whose worker maps it. `land` takes each range's result as its future resolves, in any order, takes the names off the result, so neither it nor its future keeps them, and maps each segment and unlinks its name at once. A range's lines are fed to the audit's writer, inflated a block at a time from the mapping, with every later range's that has already landed, once every range before it is written, and each range's mapping is closed once its lines are fed. The writer therefore holds a landed range's compressed lines only until the ranges before it are written: at most the whole audit compressed, when the first range lands last. `oracle_shard_plan` starts the heaviest ranges first, so the small ranges its cuts leave at a configuration's ends start and land last, and much of the audit can wait for one of them. It holds a configuration's members only until its last range lands and the store set's writer, on a thread of its own (`stores`), has compared or written them, so at worst it holds every configuration's members at once, which are the compressed stores the pass writes.
+    """The pooled oracle's fan-in, in `run_m1`'s parent: it writes the audit once, as the serial writer (`AuditWriter`) writes it over the same rows, from one comparison a configuration run on the oracle's pool, and it hands each configuration's store records, the members its ranges ship, to the store set's writer (`oracle_cache.StoreSet`) when its last range lands. A range ships its bytes in the POSIX shared memory segments the writer names for it (`ship_to`, `ship`), and its result carries only their names and lengths. `land` takes each range's result as its future resolves, in any order, and takes the names off the result, so neither it nor its future keeps them. The audit's lines wait unmapped in their segments until the configuration's last range lands; then `land` submits the configuration's section task (`audit_section_task`) to `executor`, the oracle's pool, with the route the plan chose (`AuditPlan`, joined at the first submission) and the configuration's range segments in row order, and the task maps them, compares them with the standing audit's section and ships the section's bytes in the part home in a segment the writer names for the configuration (`section_name`). A configuration none of whose rows the plan compares but which the standing audit holds a section of gets a task with no ranges on the segment route, which tombstones every row of it; the plan's first submission finds those sections (`part_sections`), or the exit when nothing was submitted, which then runs them in this process. `in_flight` lists the section tasks not yet finished, which `run_m1_gates.run_oracle` counts against the pool's width as it does its absorbs. The writer maps each store segment as its range lands, and holds a configuration's members only until its last range lands and the store set's writer, on a thread of its own (`stores`), has compared or written them, so at worst it holds every configuration's members at once, which are the compressed stores the pass writes. The writer names each range's settle memo segment too, which it never maps: `run_m1_gates.run_oracle` hands it to the configuration's absorb, whose worker maps it.
 
-    What it holds sits in shared memory, which no process's footprint counts while it waits: a range closes its mapping once it has copied its bytes in, and the writer's mapping touches a page only as the writer reads it, so a segment's pages count in the parent's footprint only from the inflate or the compare that reads them to the close that follows (`Shipped`). The peak footprint a bare run records under `run_m1.PARENT_POOL_UNIT`, which the run-m1-parent row of `make job-costs` reports, therefore leaves out what waits. So the writer counts it itself: `held_peak_bytes` is the most it held mapped at once, and `landing_seconds` the time `land` took over every range; `run_m1_gates.run_oracle` prints both on its `[t] oracle_fan_in` line.
+    What it holds sits in shared memory, which no process's footprint counts while it waits: a range closes its mapping once it has copied its bytes in, a range's audit segment waits unmapped until its configuration's task maps it, and the writer's mapping of a store segment touches a page only as the store set's writer reads it (`Shipped`). The peak footprint a bare run records under `run_m1.PARENT_POOL_UNIT`, which the run-m1-parent row of `make job-costs` reports, therefore leaves out what waits. So the writer counts it itself: `held_peak_bytes` is the most it held in shared memory at once, a landed range's audit lines until its configuration's task has finished, a store segment until the store set's writer has read it, and a section's bytes from its task's end until they are written into the part; `landing_seconds` is the time `land` took over every range, and `committed_at` the moment the audit was committed and the stores finished; `run_m1_gates.run_oracle` prints them on its `[t] oracle_fan_in` line.
 
-    The audit's head is committed only when the block exits normally and two checks pass, so a partial audit never replaces the standing one: every planned range must have landed, and the lines fed must equal the landed ranges' own `divergent_rows` total; either failure raises ValueError, and nothing is committed (`AuditWriter.abandon`). The stores are written only when `stores` is given and `row_cache` writes them: a configuration one of whose ranges returned no member, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), hands the store set's writer nothing, so `oracle_cache.promote_stores` commits no head. The store set's writer's own errors stop the block before the audit commits. On every exit, normal or not, the writer waits for the store set's writer, closes each mapping it still holds and unlinks every segment it named for a range that is still there, a settle memo segment no absorb mapped among them, so a run that fails or is interrupted while this block unwinds leaves no segment behind, and a run that maps every segment leaves the resource tracker nothing to warn about. A landing maps its range's store member only after feeding the lines now due, so a landing whose write fails (a full disk) leaves that member under its name for the exit to unlink, not in a mapping nothing holds. The writer records its token and range count in the run's scratch directory as it enters (`SEGMENT_RECORD`) and deletes the record once its exit has unlinked every name, so after a SIGKILL of the whole process group, which skips the exit, the next oracle run over the same `out_dir` unlinks the segments the dead run left (`discard_oracle_audit_scratch`).
+    The audit's head is committed only when the block exits normally and three checks pass, so a partial audit never replaces the standing one: every planned range must have landed, every section task must have returned, and the lines the tasks took must equal the landed ranges' own `divergent_rows` total; a failure raises, and nothing is committed (`AuditPlan.settled`, `AuditRoute.discard`). Then the writer writes the part from the sections, in the audit's order, under the head's next part name: the header line, or the header line's gzip member, then each section's bytes as its task shipped them, mapped and unlinked one at a time (`_write_sections`), so the part, its size and sha256, its rows and its member index are the ones `AuditWriter` writes. On the segment route a pass whose sections hold nothing writes no part and commits the head alone. The commit follows `AuditWriter`'s content rule (`_audit_head`, `_commit_audit`), and `[t] oracle_audit` reports the tasks' compare and compress seconds summed and the most any section's old stream held. The stores are written only when `stores` is given and `row_cache` writes them: a configuration one of whose ranges returned no member, or whose ranges disagree on the pass ordinal (which `merge_config_shards` refuses), hands the store set's writer nothing, so `oracle_cache.promote_stores` commits no head. The store set's writer's own errors stop the block before the audit commits. On every exit, normal or not, the writer waits for the store set's writer and every section task it submitted, cancelling those not started when the exit is not normal, closes each mapping it still holds and unlinks every segment it named that is still there, a range's, a section's, and a settle memo segment no absorb mapped, so a run that fails or is interrupted while this block unwinds leaves no segment behind, and a run that maps every segment leaves the resource tracker nothing to warn about. The writer records its token, its range count and its section count in the run's scratch directory as it enters, and again as it names a section the plan did not (`SEGMENT_RECORD`), and deletes the record once its exit has unlinked every name, so after a SIGKILL of the whole process group, which skips the exit, the next oracle run over the same `out_dir` unlinks the segments the dead run left (`discard_oracle_audit_scratch`).
     """
 
     def __init__(
@@ -1395,33 +1805,44 @@ class InOrderWriter:
         row_cache: OracleRowCache | None = None,
         configs: Sequence[str] = ORACLE_CONFIGS,
         stores: oracle_cache.StoreSet | None = None,
+        executor: Executor | None = None,
     ) -> None:
         self._out_dir = Path(out_dir)
         self._order = sorted(shards, key=lambda shard: (configs.index(shard.config), shard.first_row))
         self._positions = {shard: position for position, shard in enumerate(self._order)}
+        self._by_config: dict[str, list[int]] = {}
+        for position, shard in enumerate(self._order):
+            self._by_config.setdefault(shard.config, []).append(position)
+        self._slots = {config: slot for slot, config in enumerate(self._by_config)}
+        self.executor: Executor = _InlineExecutor() if executor is None else executor
         self._row_cache = row_cache
         self.stores = stores if row_cache is not None and row_cache.write_dir is not None else None
         self._token = secrets.token_hex(6)
-        self._waiting: dict[int, _Mapped | None] = {}
-        self._written = 0
-        self._rows = 0
+        self._landed: dict[int, Shipped | None] = {}
         self._counted = 0
         self._segments: dict[str, dict[int, tuple[int, _Mapped | None, int | None]]] = {}
         self._handed: list[tuple[Future, list[_Mapped | None]]] = []
+        self._sections: dict[str, Future] = {}
+        self._waiting: dict[str, int] = {}
+        self._unwritten: dict[str, int] = {}
+        self._reaped: set[str] = set()
+        self._discovered = False
         self._lock = threading.Lock()
         self._held = 0
         self.held_peak_bytes = 0
         self.landing_seconds = 0.0
-        self._audit: AuditWriter | None = None
+        self.committed_at: float | None = None
+        self._plan: AuditPlan | None = None
+        self._route: AuditRoute | None = None
         self._storing: ThreadPoolExecutor | None = None
 
     def __enter__(self) -> "InOrderWriter":
         scratch = oracle_audit_scratch(self._out_dir)
         scratch.mkdir(parents=True, exist_ok=True)
         self._record = scratch / SEGMENT_RECORD
-        self._record.write_text(f"{self._token} {len(self._order)}\n")
+        self._write_record()
         try:
-            self._audit = AuditWriter(self._out_dir)
+            self._plan = AuditPlan(self._out_dir)
         except BaseException:
             self._record.unlink(missing_ok=True)
             with suppress(OSError):
@@ -1431,73 +1852,90 @@ class InOrderWriter:
             self._storing = ThreadPoolExecutor(max_workers=1, thread_name_prefix="oracle-stores")
         return self
 
+    def _write_record(self) -> None:
+        self._record.write_text(f"{self._token} {len(self._order)} {len(self._slots)}\n")
+
     def __exit__(self, exc_type, exc, traceback) -> None:
-        audit = self._audit
-        assert audit is not None
         if exc_type is not None:
             try:
                 self._release(cancel=True)
             finally:
-                audit.abandon()
-                if self.stores is not None:
-                    self.stores.abandon()
+                self._abandon()
             return
         try:
             missing = [
-                shard.label
-                for position, shard in enumerate(self._order)
-                if position >= self._written and position not in self._waiting
+                shard.label for position, shard in enumerate(self._order) if position not in self._landed
             ]
-            failures = self._release(cancel=bool(missing))
             if missing:
                 raise ValueError(
                     f"the oracle has no audit rows from {', '.join(missing)} — divergence-audit.tsv is untouched"
                 )
-            if self._rows != self._counted:
+            route = self._joined_route()
+            if not self._discovered:
+                self._discover(route, inline=True)
+            results = {config: future.result() for config, future in self._sections.items()}
+            failures = self._join_stores()
+            rows = sum(result.rows for result in results.values())
+            if rows != self._counted:
                 raise ValueError(
-                    f"the oracle's ranges returned {self._rows} audit rows where they counted {self._counted} divergent — divergence-audit.tsv is untouched"
+                    f"the oracle's ranges returned {rows} audit rows where they counted {self._counted} divergent — divergence-audit.tsv is untouched"
                 )
             if failures:
                 raise failures[0]
-            audit.commit()
+            self._commit(route, results)
         except BaseException:
-            audit.abandon()
-            if self.stores is not None:
-                self.stores.abandon()
+            try:
+                self._release(cancel=True)
+            finally:
+                self._abandon()
             raise
+        self._release(cancel=False)
         if self.stores is not None:
             self.stores.finish()
+        self.committed_at = time.perf_counter()
+
+    def _abandon(self) -> None:
+        assert self._plan is not None
+        (self._route or self._plan.settled()).discard()
+        if self.stores is not None:
+            self.stores.abandon()
 
     def ship_to(self, shard: OracleShard) -> ShipTo:
         """Return the names of the segments `shard` ships its bytes home in (`ShipTo`): the writer's own random token and the range's place in the audit's order, so two writers' names never meet and each range's are its own, in fewer than the 31 bytes macOS allows a segment's name."""
         return _segment_names(self._token, self._positions[shard])
 
+    def section_name(self, config: str) -> str:
+        """The name of the segment `config`'s section task ships the section's bytes home in."""
+        return _section_name(self._token, self._slots[config])
+
+    def in_flight(self) -> list[Future]:
+        """The section tasks submitted and not yet finished, each of which holds one slot of the pool's width."""
+        self._reap()
+        return [future for future in self._sections.values() if not future.done()]
+
+    def section_results(self) -> dict[str, SectionResult]:
+        """Every section task's result, waiting for each, in the order they were submitted; a task's error is raised."""
+        return {config: future.result() for config, future in self._sections.items()}
+
     def land(self, shard: OracleShard, result: OracleConfigResult) -> None:
-        """Take one range's result: feed its lines and every waiting range's that now follows in order to the audit's writer, and hand its configuration's members to the store set's writer when this is the last of its ranges to land."""
+        """Take one range's result: keep its audit segment's name for its configuration's section task, submitting that task when this is the last of the configuration's ranges to land, and hand the configuration's members to the store set's writer at the same moment."""
         started = time.perf_counter()
         self._land(shard, result)
         self.landing_seconds += time.perf_counter() - started
 
     def _land(self, shard: OracleShard, result: OracleConfigResult) -> None:
         position = self._positions.get(shard)
-        if position is None or position < self._written or position in self._waiting:
+        if position is None or position in self._landed:
             raise ValueError(f"the oracle's fan-in is not waiting for {shard.label}")
         blocks, result.audit_blocks = result.audit_blocks, None
         segment, result.store_segment = result.store_segment, None
         self._counted += result.divergent_rows
-        self._waiting[position] = self._map(blocks)
-        audit = self._audit
-        assert audit is not None
-        while self._written in self._waiting:
-            mapped = self._waiting.pop(self._written)
-            try:
-                for block in () if mapped is None else mapped.pieces:
-                    lines = zlib.decompress(block)
-                    self._rows += lines.count(b"\n")
-                    audit.feed(lines)
-            finally:
-                self._close(mapped)
-            self._written += 1
+        self._landed[position] = blocks
+        self._waiting[shard.config] = self._waiting.get(shard.config, 0) + _shipped_size(blocks)
+        self._hold(_shipped_size(blocks))
+        positions = self._by_config[shard.config]
+        if all(at in self._landed for at in positions):
+            self._submit(shard.config, [self._landed[at] for at in positions])
         member = self._map(segment)
         stores = self.stores
         if stores is None or self._storing is None:
@@ -1523,6 +1961,144 @@ class InOrderWriter:
         future = self._storing.submit(self._store, shard.config, members, shard.of == 1, ordinal, mappings)
         self._handed.append((future, mappings))
 
+    def _joined_route(self) -> AuditRoute:
+        if self._route is None:
+            assert self._plan is not None
+            self._route = self._plan.route()
+        return self._route
+
+    def _submit(self, config: str, blocks: list[Shipped | None]) -> None:
+        route = self._joined_route()
+        if not self._discovered:
+            self._discover(route, inline=False)
+        self._sections[config] = self.executor.submit(
+            audit_section_task,
+            self._out_dir,
+            config,
+            route.route,
+            route.reason,
+            None if route.opened is None else route.head,
+            blocks,
+            self.section_name(config),
+        )
+
+    def _discover(self, route: AuditRoute, inline: bool) -> None:
+        """Check the order of the standing audit's sections in every part (`part_sections`), which raises for a part out of the audit's order, and submit a task with no ranges for each configuration the standing audit holds a section of and the plan does not compare: on the segment route it writes a tombstone for every row of it, and on a fold, whose base holds only the pass's rows, it writes nothing and counts those rows as tombstones, so the fold moves the head's content as the serial writer's does. A route that reads no standing audit needs neither. `inline` runs the tasks in this process, for an exit whose pool may have shut down."""
+        self._discovered = True
+        if route.opened is None:
+            return
+        head = route.opened.head
+        standing = {
+            name.decode("utf-8")
+            for number, (handle, part) in enumerate(zip(route.opened.handles, head.parts))
+            for name in part_sections(handle, part, 0 if number == 0 else 1)
+        }
+        unplanned = sorted(standing - set(self._slots), key=_audit_config_order)
+        if not unplanned:
+            return
+        for config in unplanned:
+            self._slots[config] = len(self._slots)
+        self._write_record()
+        executor = _InlineExecutor() if inline else self.executor
+        for config in unplanned:
+            self._sections[config] = executor.submit(
+                audit_section_task,
+                self._out_dir,
+                config,
+                route.route,
+                route.reason,
+                head,
+                [],
+                self.section_name(config),
+            )
+
+    def _reap(self) -> None:
+        """Count each finished section task's ranges as no longer held and its shipped section as held."""
+        for config, future in self._sections.items():
+            if config in self._reaped or not future.done():
+                continue
+            self._reaped.add(config)
+            self._hold(-self._waiting.pop(config, 0))
+            if not future.cancelled() and future.exception() is None:
+                self._unwritten[config] = _shipped_size(future.result().output)
+                self._hold(self._unwritten[config])
+
+    def _commit(self, route: AuditRoute, results: Mapping[str, SectionResult]) -> None:
+        """Write the part from the sections and commit the head, as `AuditWriter.commit` does over the same rows."""
+        self._reap()
+        started = time.perf_counter()
+        ordered = sorted(results.values(), key=lambda result: _audit_config_order(result.config))
+        prior = route.head
+        if route.route == SEGMENT_ROUTE:
+            assert prior is not None
+            number = len(prior.segments) + 1
+            name = row_delta.segment_name(AUDIT_NAME, prior.generation, number)
+            header = row_delta.segment_header(AUDIT_NAME, prior.generation, number, row_delta.MERGE_PLAIN_KEY)
+        else:
+            name = row_delta.base_name(AUDIT_NAME, 0 if prior is None else prior.generation + 1)
+            header = _AUDIT_HEADER_LINE
+        written = [result for result in ordered if result.output is not None]
+        part = (
+            None
+            if route.route == SEGMENT_ROUTE and not written
+            else self._write_sections(
+                name, header, route.route == SEGMENT_ROUTE or route.reason == "fold", written
+            )
+        )
+        upserts = sum(result.upserts for result in ordered)
+        tombstones = sum(result.tombstones for result in ordered)
+        head = _audit_head(route, part, bool(upserts or tombstones))
+        _commit_audit(self._out_dir, route, head)
+        _audit_timing(
+            sum(result.seconds for result in ordered) + time.perf_counter() - started,
+            (sum(result.rows for result in ordered), upserts, tombstones),
+            route,
+            part,
+            sum(result.compress_seconds for result in ordered),
+            head,
+            max((result.held_peak_bytes for result in ordered), default=0),
+        )
+
+    def _write_sections(
+        self, name: str, header: bytes, members: bool, sections: Sequence[SectionResult]
+    ) -> row_delta.Part:
+        """Write the part `name` under its final name, which no head lists until the commit: `header`, as its own gzip member when the part is held as `members`, then each section's bytes in order, each segment mapped and unlinked as it is reached (`_Mapped`) and closed once written, all through one hashing count (`row_delta._Counting`), and return its `Part`. A plain part's sections come as the ranges' compressed blocks, each inflated as it is written, and must inflate to the bytes their tasks counted."""
+        index: list[row_delta.Member] = []
+        with output_sink.replacing(self._out_dir / name) as handle:
+            counting = row_delta._Counting(handle)
+            if members:
+                leading = _header_member(header)
+                index.append(row_delta.Member("", len(leading), len(header)))
+                counting.write(leading)
+            else:
+                counting.write(header)
+            for section in sections:
+                assert section.output is not None
+                mapped = _Mapped(section.output)
+                try:
+                    written = 0
+                    for piece in mapped.pieces:
+                        data = piece if members else zlib.decompress(piece)
+                        counting.write(data)
+                        written += len(data)
+                    if not members and written != section.part_bytes:
+                        raise ValueError(
+                            f"{section.config}'s audit rows inflated to {written} bytes where its task counted {section.part_bytes}"
+                        )
+                finally:
+                    mapped.close()
+                    self._hold(-self._unwritten.pop(section.config))
+                if section.member is not None:
+                    index.append(section.member)
+        return row_delta.Part(
+            name,
+            counting.size,
+            counting.hexdigest(),
+            sum(section.part_rows for section in sections),
+            sum(section.part_bytes for section in sections),
+            members=tuple(index) if members else None,
+        )
+
     def _store(
         self,
         config: str,
@@ -1539,23 +2115,25 @@ class InOrderWriter:
             for mapped in mappings:
                 self._close(mapped)
 
+    def _hold(self, size: int) -> None:
+        with self._lock:
+            self._held += size
+            self.held_peak_bytes = max(self.held_peak_bytes, self._held)
+
     def _map(self, shipped: Shipped | None) -> _Mapped | None:
         if shipped is None:
             return None
         mapped = _Mapped(shipped)
-        with self._lock:
-            self._held += mapped.size
-            self.held_peak_bytes = max(self.held_peak_bytes, self._held)
+        self._hold(mapped.size)
         return mapped
 
     def _close(self, mapped: _Mapped | None) -> None:
         if mapped is not None and not mapped.closed:
             mapped.close()
-            with self._lock:
-                self._held -= mapped.size
+            self._hold(-mapped.size)
 
-    def _release(self, cancel: bool) -> list[BaseException]:
-        """Wait for the store set's writer to finish what it was handed, or with `cancel` for what it has begun, cancelling the rest, close every mapping still held (a range's lines waiting on an earlier range, a configuration's members short of its last range, members whose store job never ran), then unlink every segment named for one of the writer's ranges that is still there: one a range made whose result the writer never took, or a settle memo segment no absorb mapped. Once every name is unlinked it deletes the record of them (`SEGMENT_RECORD`). It returns the store jobs' errors."""
+    def _join_stores(self, cancel: bool = False) -> list[BaseException]:
+        """Wait for the store set's writer to finish what it was handed, or with `cancel` for what it has begun, cancelling the rest, closing the members of every store job that never ran, and return the store jobs' errors."""
         failures: list[BaseException] = []
         if self._storing is not None:
             self._storing.shutdown(wait=True, cancel_futures=cancel)
@@ -1566,11 +2144,17 @@ class InOrderWriter:
             elif (error := future.exception()) is not None:
                 failures.append(error)
         self._handed = []
-        held = [
-            *self._waiting.values(),
-            *(mapped for ranges in self._segments.values() for _rows, mapped, _ordinal in ranges.values()),
-        ]
-        self._waiting = {}
+        return failures
+
+    def _release(self, cancel: bool) -> None:
+        """Wait for the store set's writer (`_join_stores`) and for every section task, with `cancel` cancelling those not started, close every mapping still held (a configuration's members short of its last range, members whose store job never ran), then unlink every segment named for one of the writer's ranges or sections that is still there: one a range made whose result the writer never took or whose task never mapped it, a section no commit wrote, or a settle memo segment no absorb mapped. Once every name is unlinked it deletes the record of them (`SEGMENT_RECORD`)."""
+        self._join_stores(cancel)
+        for future in self._sections.values():
+            if cancel:
+                future.cancel()
+            with suppress(CancelledError):
+                future.exception()
+        held = [mapped for ranges in self._segments.values() for _rows, mapped, _ordinal in ranges.values()]
         self._segments = {}
         for mapped in held:
             self._close(mapped)
@@ -1579,10 +2163,18 @@ class InOrderWriter:
             _unlink_if_made(names.audit)
             _unlink_if_made(names.store)
             _unlink_if_made(names.memo)
+        for slot in range(len(self._slots)):
+            _unlink_if_made(_section_name(self._token, slot))
+        self._reap()
+        self._hold(-sum(self._waiting.values()) - sum(self._unwritten.values()))
+        self._waiting, self._unwritten = {}, {}
         self._record.unlink(missing_ok=True)
         with suppress(OSError):
             self._record.parent.rmdir()
-        return failures
+
+
+def _shipped_size(shipped: Shipped | None) -> int:
+    return 0 if shipped is None else sum(shipped.lengths)
 
 
 def _oracle_audit_owner_is_running(pid: str) -> bool:

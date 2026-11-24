@@ -824,6 +824,29 @@ class _OracleMemos:
                 self._held -= self._shipped[config]
 
 
+@dataclass
+class _FanInLine:
+    """`[t] oracle_fan_in`, printed as the pooled oracle's in-order writer exits, once every range has landed, whether the writer committed or raised: the parent's landing seconds, `held_gb` and `memo_held_gb`, and, once the audit is committed, `tail_seconds`, the time from the last landing to the commit and the stores' finish. A pass that fails after its last landing keeps the line without `tail_seconds`, and one that fails before it prints none. The line joins `run_m1._build_phase_lines`."""
+
+    writer: oracle.InOrderWriter | None = None
+    memos: _OracleMemos | None = None
+    landed_at: float | None = None
+
+    def __enter__(self) -> "_FanInLine":
+        return self
+
+    def __exit__(self, *exception: object) -> None:
+        writer, memos = self.writer, self.memos
+        if writer is None or memos is None or self.landed_at is None:
+            return
+        tokens = (
+            f"held_gb={format_gb(writer.held_peak_bytes)} memo_held_gb={format_gb(memos.held_peak_bytes)}"
+        )
+        if writer.committed_at is not None:
+            tokens += f" tail_seconds={writer.committed_at - self.landed_at:.2f}"
+        run_m1._build_phase_lines.append(console.timing("oracle_fan_in", writer.landing_seconds, tokens))
+
+
 ORACLE_LOCK_NAME = "oracle.lock"
 
 
@@ -873,7 +896,7 @@ def run_oracle(
     memo_inputs: oracle_cache.SettleMemoInputs | None = None,
     memo_ready: Callable[[], float | None] | None = None,
 ) -> dict:
-    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. The pool runs one task a process (`max_tasks_per_child=1`), so every range and every absorb starts fresh and reads its own peak, and the parent submits ranges, in plan order, only while the ranges and absorbs it has out number fewer than the pool's width, so an absorb never waits behind a range, and every range reads the spec dump this process writes once (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). Each range ships its audit lines, compressed, home in a POSIX shared memory segment the parent's in-order writer names for it, its store records, one member, in another, and a range that settled windows fresh ships them, compressed, in a third (`oracle.ship`); its result carries their names and the fresh windows' counts. The audit's route and the stores' routes are planned before the first range is submitted (`oracle.AuditPlan`, made as the in-order writer is entered, and `oracle_cache.StoreSet`, made here), each head read, the pass's fold claimed where one is due and a tree's single files adopted by link, their parts' sha256 checks on threads, which the first write of each joins, printing `[t] oracle_audit_plan` and `[t] oracle_stores_plan`. The parent feeds the audit's rows, in row order, as the ranges land, to the audit's writer, which compares them with the standing audit and writes only the rows that differ, and hands each configuration's members, once its last range has landed, to the stores' writer, which on a thread of its own compares them with the standing records and writes only the records that differ beside the ages column (`oracle.InOrderWriter`, whose docstring states what the parent holds meanwhile and where, `oracle.AuditWriter`, `oracle_cache.StoreSet`), and merges the ranges' tallies (`oracle.merge_config_shards`), all in row order, so the summary, the materialized audit and every materialized store match an unsplit run. `[t] oracle_audit` and `[t] oracle_stores` report what each wrote. Each configuration's settle memo route is planned on a thread as the pool starts (`_PlannedRoutes`, `conform.plan_settle_memos`, printed as `[t] settle_memo_plan` once the first absorb waits for it), its fold claim among them, before any absorb is submitted. As soon as all of a configuration's ranges have landed and `memo_ready` has returned, it submits that configuration's absorb, with its route, to the same pool, which runs it in a fresh process in the next slot free, ahead of the ranges not yet submitted (`_OracleMemos`, `_absorb_memo`): the absorb maps the ranges' shared memory segments in range order and writes their fresh windows as one segment of the shared memo, or on a fold as the next generation's base, and commits its head (`conform.absorb_settle_memo`). A configuration none of whose ranges settled anything fresh gets no absorb. The absorbs stay inside the oracle's width, each in a range's slot, and each one's peak goes into the pool record as `<config> absorb` beside the ranges'; `[t] settle_memo_absorb <config>` reports each that wrote a part, with its path, row counts and what it wrote (`conform.MemoAbsorb.tokens`). The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the submission of the first ranges, one a slot: the cache keys, the shard plan, the guard sweep and those submissions. `[t] oracle_fan_in` follows the last range's landing with the time the parent spent landing ranges (`oracle.InOrderWriter.landing_seconds`), as `held_gb`, the most the writer held in shared memory at once (`oracle.InOrderWriter.held_peak_bytes`), and as `memo_held_gb`, the most the ranges' settle memo segments held at once while they waited for their absorbs (`_OracleMemos.held_peak_bytes`). Both count in no process's footprint while they wait, so the parent's peak footprint leaves them out; `cycle_timings.parse_inner_timings` keeps both from a cycle's run_m1 step, and the line joins `run_m1._build_phase_lines`, so a hand run's check line carries it too.
+    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. The pool runs one task a process (`max_tasks_per_child=1`), so every range, every absorb and every section task starts fresh and reads its own peak, and the parent submits ranges, in plan order, only while the ranges, absorbs and section tasks it has out number fewer than the pool's width, so neither an absorb nor a section task waits behind a range, and every range reads the spec dump this process writes once (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). Each range ships its audit lines, compressed, home in a POSIX shared memory segment the parent's in-order writer names for it, its store records, one member, in another, and a range that settled windows fresh ships them, compressed, in a third (`oracle.ship`); its result carries their names and the fresh windows' counts. The audit's route and the stores' routes are planned before the first range is submitted (`oracle.AuditPlan`, made as the in-order writer is entered, and `oracle_cache.StoreSet`, made here), each head read, the pass's fold claimed where one is due and a tree's single files adopted by link, their parts' sha256 checks on threads, which the first write of each joins, printing `[t] oracle_audit_plan` and `[t] oracle_stores_plan`. Once a configuration's last range has landed, the parent submits its section of the audit to the same pool, which runs it in a fresh process in the next slot free, as it does an absorb: the task maps the configuration's ranges' audit segments in row order, compares their rows with the standing audit's section through the compare the serial writer runs over the whole audit, and ships the section's bytes in this pass's part home in shared memory (`oracle.audit_section_task`, `oracle.SectionCompare`); the parent writes the part from the sections in the audit's order and commits the head as the serial writer does. At the same moment it hands the configuration's members to the stores' writer, which on a thread of its own compares them with the standing records and writes only the records that differ beside the ages column (`oracle.InOrderWriter`, whose docstring states what the parent holds meanwhile and where, `oracle_cache.StoreSet`), and the parent merges the ranges' tallies (`oracle.merge_config_shards`), all in row order, so the summary, the materialized audit and every materialized store match an unsplit run. `[t] oracle_audit` and `[t] oracle_stores` report what each wrote. Each configuration's settle memo route is planned on a thread as the pool starts (`_PlannedRoutes`, `conform.plan_settle_memos`, printed as `[t] settle_memo_plan` once the first absorb waits for it), its fold claim among them, before any absorb is submitted. As soon as all of a configuration's ranges have landed and `memo_ready` has returned, it submits that configuration's absorb, with its route, to the same pool, which runs it in a fresh process in the next slot free, ahead of the ranges not yet submitted (`_OracleMemos`, `_absorb_memo`): the absorb maps the ranges' shared memory segments in range order and writes their fresh windows as one segment of the shared memo, or on a fold as the next generation's base, and commits its head (`conform.absorb_settle_memo`). A configuration none of whose ranges settled anything fresh gets no absorb. The absorbs and the section tasks stay inside the oracle's width, each in a range's slot, and each one's peak goes into the pool record beside the ranges', an absorb's as `<config> absorb` and a section task's as `<config> audit`; `[t] settle_memo_absorb <config>` reports each that wrote a part, with its path, row counts and what it wrote (`conform.MemoAbsorb.tokens`). The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the submission of the first ranges, one a slot: the cache keys, the shard plan, the guard sweep and those submissions. `[t] oracle_fan_in` follows the audit's commit, or a failure after the last range's landing (`_FanInLine`), with the time the parent spent landing ranges (`oracle.InOrderWriter.landing_seconds`), as `held_gb`, the most the writer held in shared memory at once (`oracle.InOrderWriter.held_peak_bytes`), as `memo_held_gb`, the most the ranges' settle memo segments held at once while they waited for their absorbs (`_OracleMemos.held_peak_bytes`), and, once the audit is committed, as `tail_seconds`, the time from the last range's landing to the audit's commit and the stores' finish (`oracle.InOrderWriter.committed_at`), the part of the oracle that runs after every range has finished. What the first two count sits in no process's footprint while it waits, so the parent's peak footprint leaves it out; `cycle_timings.parse_inner_timings` keeps all three from a cycle's run_m1 step, and the line joins `run_m1._build_phase_lines`, so a hand run's check line carries it too.
 
     `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memos this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, the overlay configuration has no memo, since its worker settles nothing, and this pass leaves an M1-only configuration's memo (`conform.M1_ONLY_CONFIGS`) to the other passes, since the oracle never compares it. `memo_ready`, when given, is called before this pass writes to a shared settle memo. On the pooled path it runs on a thread of its own while the ranges land, and no absorb is submitted until it has returned, because ranges write no settle memo part and the absorbs are the pass's only writes to the memos; when it raises, its error stops the pass as a range's does, and no absorb runs. On the `--jobs 1` path it is called before the first walk, because those walks write their own segments as they go, each planning its own route (`conform._SettledWindowWalk.save_memo`). It returns the seconds it blocked, or None. `[t] witness_memo_wait` reports the part of the wait that held this pass's writes back: on the pooled path the time from the last range's landing to its return, printed only when it returns after that landing, since until then the ranges, not the wait, hold the absorbs back; on the `--jobs 1` path the whole wait, printed only when it blocked. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage, which reads the files and writes none, has returned. That lets the pool start after the string replay alone while the witness stage still runs, and it holds every write this pass makes until the stage has read the memos, so the stage reads each memo as the replay left it and its counts do not depend on when this pass's absorbs land.
 
@@ -881,11 +904,11 @@ def run_oracle(
 
     Failing to compute those keys does not fail the gate. `alias_family_digests` rejects an alias head with no rune digest behind it, and the alias map is a hand-edited file that one typo can make unreadable. So a key that cannot be computed leaves this pass with no cache: every row is derived, no store is written, and the gate runs as it does without a cache.
 
-    Every part is written under its final name, which no head lists until its commit, so a killed run leaves only parts the next plan deletes (`row_delta.remove_unlisted`), and its pid-named scratch directory holds only the names of its shared memory segments, which `discard_oracle_audit_scratch` uses. The audit's head commits only after the in-order writer has accepted the audit, and the stores' set head only after that, because a store describing an audit that was never written is worse than no store. A configuration one of whose ranges returned no member hands the stores' writer nothing, so no set head commits, the all-or-nothing rule `promote_stores` follows. The in-order writer unlinks every shared memory segment it named as it exits, a range's settle memo segment no absorb mapped among them, and a failure cancels the tasks still queued and waits for the ranges and absorbs already running before the writer exits, so a run that fails or is stopped while this function unwinds (a range that raises, a `SystemExit`, SIGINT to the process group) leaves none, and the resource tracker prints nothing. A configuration absorbed before a failure elsewhere holds only rows its own finished ranges settled. A run whose parent dies without unwinding, as at SIGTERM's default action or a SIGKILL of the parent alone, leaves the segments it had not mapped to that tracker, which every process of the pool shares and which ignores SIGINT and SIGTERM: it unlinks them, with a warning, once the parent and every worker have exited. A SIGKILL of the whole process group kills the tracker too, so the segments of the ranges that had shipped and not yet landed stay in the kernel until the next oracle run over the same `out_dir` unlinks them by the names the writer recorded in the dead run's scratch directory (`oracle.discard_oracle_audit_scratch`).
+    Every part is written under its final name, which no head lists until its commit, so a killed run leaves only parts the next plan deletes (`row_delta.remove_unlisted`), and its pid-named scratch directory holds only the names of its shared memory segments, which `discard_oracle_audit_scratch` uses. The audit's head commits only after the in-order writer has accepted the audit, and the stores' set head only after that, because a store describing an audit that was never written is worse than no store. A configuration one of whose ranges returned no member hands the stores' writer nothing, so no set head commits, the all-or-nothing rule `promote_stores` follows. The in-order writer unlinks every shared memory segment it named as it exits, a range's settle memo segment no absorb mapped and a section no commit wrote among them, and a failure cancels the tasks still queued and waits for the ranges, absorbs and section tasks already running before the writer exits, so a run that fails or is stopped while this function unwinds (a range that raises, a `SystemExit`, SIGINT to the process group) leaves none, and the resource tracker prints nothing. A configuration absorbed before a failure elsewhere holds only rows its own finished ranges settled. A run whose parent dies without unwinding, as at SIGTERM's default action or a SIGKILL of the parent alone, leaves the segments it had not mapped to that tracker, which every process of the pool shares and which ignores SIGINT and SIGTERM: it unlinks them, with a warning, once the parent and every worker have exited. A SIGKILL of the whole process group kills the tracker too, so the segments of the ranges and section tasks that had shipped and not yet been mapped stay in the kernel until the next oracle run over the same `out_dir` unlinks them by the names the writer recorded in the dead run's scratch directory (`oracle.discard_oracle_audit_scratch`).
 
     The whole run holds the oracle's lock over `out_dir` (`oracle_lock`), so a second oracle over the same tables waits for this one before it plans anything.
 
-    Every range's peak footprint is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
+    Every range's peak footprint is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), and every section task's, labeled `<config> audit`, both of which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
     """
     with oracle_lock(out_dir):
         return _run_oracle(out_dir, spec, jobs, write_cache, fresh_cache, memo_inputs, memo_ready)
@@ -988,16 +1011,25 @@ def _run_oracle(
             }
             width = min(jobs, len(shards))
             routes = _PlannedRoutes(settle_memos)
-            with oracle.InOrderWriter(out_dir, shards, row_cache, stores=stores) as in_order, closing(routes):
+            with (
+                _FanInLine() as fan_in,
+                oracle.InOrderWriter(out_dir, shards, row_cache, stores=stores) as in_order,
+                closing(routes),
+            ):
                 with run_m1._spawn_pool(jobs, len(shards), max_tasks_per_child=1) as pool:
+                    in_order.executor = pool
                     memos = _OracleMemos(
                         pool, spec, settle_memos, shards, ready=memo_ready is None, routes=routes
                     )
+                    fan_in.writer, fan_in.memos = in_order, memos
                     queued = deque(shards)
                     running: dict[Future, oracle.OracleShard] = {}
 
                     def top_up() -> None:
-                        while queued and len(running) + len(memos.in_flight()) < width:
+                        while (
+                            queued
+                            and len(running) + len(memos.in_flight()) + len(in_order.in_flight()) < width
+                        ):
                             shard = queued.popleft()
                             future = pool.submit(
                                 oracle.oracle_config_worker,
@@ -1030,7 +1062,12 @@ def _run_oracle(
                             ready = _in_thread(memo_ready)
                         done = 0
                         while running or queued or ready is not None:
-                            waiting = [*running, *memos.in_flight(), *([] if ready is None else [ready])]
+                            waiting = [
+                                *running,
+                                *memos.in_flight(),
+                                *in_order.in_flight(),
+                                *([] if ready is None else [ready]),
+                            ]
                             finished, _pending = wait(waiting, return_when=FIRST_COMPLETED)
                             for future in finished:
                                 if future is ready:
@@ -1050,14 +1087,7 @@ def _run_oracle(
                                 done += 1
                                 console.progress(done, len(shards), "shards")
                                 if done == len(shards):
-                                    landed_at = time.perf_counter()
-                                    run_m1._build_phase_lines.append(
-                                        console.timing(
-                                            "oracle_fan_in",
-                                            in_order.landing_seconds,
-                                            f"held_gb={format_gb(in_order.held_peak_bytes)} memo_held_gb={format_gb(memos.held_peak_bytes)}",
-                                        )
-                                    )
+                                    fan_in.landed_at = landed_at = time.perf_counter()
                             top_up()
                         absorbed = []
                         worker_peaks = {
@@ -1073,6 +1103,8 @@ def _run_oracle(
                             if absorb.written:
                                 absorbed.append(config)
                                 console.timing(f"settle_memo_absorb {config}", seconds, absorb.tokens())
+                        for config, section in in_order.section_results().items():
+                            worker_peaks[f"{config} audit"] = section.peak_footprint_bytes
                     except BaseException:
                         pool.shutdown(wait=True, cancel_futures=True)
                         raise

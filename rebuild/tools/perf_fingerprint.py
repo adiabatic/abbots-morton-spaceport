@@ -4,7 +4,7 @@ Run it with the tree under test's own interpreter and code, never the harness's:
 
   uv run --directory <tree> python -P <main>/rebuild/tools/perf_fingerprint.py --root <tree> --out <file>
 
-`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, `rebuild.review.accepted` and, for a corpus read in its materialized form, `rebuild.review.build` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
+`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, `rebuild.review.accepted`, for a corpus read in its materialized form `rebuild.review.build`, and, for an audit or stores under `rebuild/out/m1`, `rebuild.pipeline.oracle` and `rebuild.pipeline.oracle_cache` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
 
 The output is one `ams-perf-fingerprint/1` document:
 
@@ -16,6 +16,8 @@ The output is one `ams-perf-fingerprint/1` document:
 - `accepted`: the raw digest of the accepted list beside the store, `rebuild/accepted-units.txt`, null when there is none. Every reader of the store reads the units the list names as accepted and no pass writes it, so a pass that did shows up here and not in `verdicts`.
 - `complaints`: the complaint list as canonical JSON without the keys `COMPLAINT_STAMPS` names and without any `at` inside `groups`.
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
+- `audit`: the digest of the divergence audit's materialized form (`oracle.materialized_audit` from the tree, its head's parts inflated and merged into the whole file over the live rows), null for a tree with neither a head nor the single file. A pass that changes no audit row leaves it where it was.
+- `oracle_stores`: for each configuration the oracle stores' set head lists, or each `oracle-rows-<config>.tsv.gz` a tree from before the segment format holds, two digests of its materialized store (`oracle_cache.materialized_store` from the tree): `materialized`, the bytes, and `records`, the records' inflated lines each cut before its two trailing ages, the header line left out and the trailer kept. Every pass that writes the stores moves its pass ordinal, which the header carries and the ages are counted from, and moves the ages of the rows it re-derives on schedule, so `materialized` differs across any two passes that wrote the stores; `records` differs only where a record's verdicts or settled digest moved, or where a record was added or removed.
 
 The corpus's units index, held as a head, a base and segments (`units-index.ndjson.gz.head`, #618's change 32), is read in its materialized form whatever the store holds (decision 48): through the tree's own reader (`unit_index.materialized_index`, or `build.MaterializedCorpus.index_lines` where the corpus is read in its materialized form), its base and segments merged by key with each record's place put back from the manifest, every part checked against its head's size and sha256, and digested under the key `units-index.ndjson.gz` as the single file a build before the segment format wrote, its header line its head's stamps without the keys `SIDECAR_STAMPS` names. Its head, base and segment files are left out of the `corpus` block, so a corpus whose index is a head, base and segments fingerprints as the single file with the same content.
 
@@ -34,6 +36,7 @@ import importlib
 import json
 import re
 import sys
+import zlib
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
@@ -76,6 +79,12 @@ AUTOSAVE = Path("verdicts-autosave.json")
 ACCEPTED = Path("rebuild/accepted-units.txt")
 COMPLAINTS = Path("tmp/complaints-data.json")
 FACTS_PINS = Path("rebuild/review-facts-pins.json")
+# The audit's single file and its head, and the oracle stores' set head, single files and trailer line (`oracle.AUDIT_NAME`, `oracle_cache.SET_HEAD_NAME`, `oracle_cache.store_path`, `oracle_cache.ROW_COUNT_TRAILER`), restated because the script imports nothing of the tree under test before `--root` is on its path, and nothing of the oracle unless a tree holds one.
+AUDIT = "divergence-audit.tsv"
+AUDIT_HEAD = f"{AUDIT}.head"
+STORE_SET_HEAD = "oracle-rows.head"
+STORE_FILE = re.compile(r"oracle-rows-(.+)\.tsv\.gz")
+STORE_TRAILER = b"#rows\t"
 _CHUNK = 1 << 22
 
 
@@ -386,6 +395,70 @@ def table_digests(m1: Path, table: ModuleType) -> dict[str, str]:
     return digests
 
 
+def audit_digest(m1: Path, oracle: Callable[[], ModuleType] | None = None) -> str | None:
+    """Return the digest of the divergence audit's materialized form under `m1`, through the tree's `oracle.materialized_audit` (`tree_oracle` by default), or None when `m1` holds neither its head nor its single file."""
+    if not (m1 / AUDIT_HEAD).is_file() and not (m1 / AUDIT).is_file():
+        return None
+    digest = hashlib.sha256()
+    for chunk in (oracle or tree_oracle)().materialized_audit(m1):
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _inflated(chunks: Iterable[bytes]) -> Iterator[bytes]:
+    """The decompressed bytes of a run of gzip members given as raw chunks, member after member."""
+    inflater = zlib.decompressobj(31)
+    for chunk in chunks:
+        while chunk:
+            yield inflater.decompress(chunk)
+            if not inflater.eof:
+                break
+            chunk = inflater.unused_data
+            inflater = zlib.decompressobj(31)
+    yield inflater.flush()
+
+
+def store_record_digests(chunks: Iterable[bytes]) -> dict[str, str]:
+    """Return the `materialized` and `records` digests of one configuration's materialized store given as its raw bytes (the module docstring)."""
+    raw, records = hashlib.sha256(), hashlib.sha256()
+
+    def counted() -> Iterator[bytes]:
+        for chunk in chunks:
+            raw.update(chunk)
+            yield chunk
+
+    tail = b""
+    header = True
+    for data in _inflated(counted()):
+        lines = (tail + data).split(b"\n")
+        tail = lines.pop()
+        if header and lines:
+            lines.pop(0)
+            header = False
+        for line in lines:
+            records.update((line if line.startswith(STORE_TRAILER) else line.rsplit(b"\t", 2)[0]) + b"\n")
+    records.update(tail)
+    return {"materialized": raw.hexdigest(), "records": records.hexdigest()}
+
+
+def store_digests(
+    m1: Path, oracle_cache: Callable[[], ModuleType] | None = None
+) -> dict[str, dict[str, str]]:
+    """Return `store_record_digests` of each configuration's materialized store under `m1`, through the tree's `oracle_cache.materialized_store` (`tree_oracle_cache` by default): every configuration the stores' set head lists, or, with no set head, every single store file a tree from before the segment format holds. A tree with neither returns no configuration."""
+    if (m1 / STORE_SET_HEAD).is_file():
+        configs = sorted(json.loads((m1 / STORE_SET_HEAD).read_bytes())["configs"])
+    else:
+        configs = sorted(
+            match.group(1)
+            for path in m1.glob("oracle-rows-*.tsv.gz")
+            if (match := STORE_FILE.fullmatch(path.name))
+        )
+    if not configs:
+        return {}
+    module = (oracle_cache or tree_oracle_cache)()
+    return {config: store_record_digests(module.materialized_store(m1, config)) for config in configs}
+
+
 def fingerprint_tree(
     root: Path,
     *,
@@ -398,6 +471,8 @@ def fingerprint_tree(
     return {
         "format": FORMAT,
         "tables": table_digests(root / M1, table),
+        "audit": audit_digest(root / M1),
+        "oracle_stores": store_digests(root / M1),
         "fonts": {rel: font_digest(root / rel) if (root / rel).is_file() else None for rel in FONTS},
         "corpus": corpus,
         "verdicts": store_digest(root / AUTOSAVE),
@@ -414,6 +489,16 @@ def tree_modules(root: Path) -> tuple[ModuleType, ModuleType]:
     return importlib.import_module("rebuild.pipeline.table"), importlib.import_module(
         "rebuild.pipeline.fingerprint"
     )
+
+
+def tree_oracle() -> ModuleType:
+    """Return the tree's `rebuild.pipeline.oracle`, imported as `tree_materialize` imports the build, from the tree first on `sys.path` only when an audit needs it."""
+    return importlib.import_module("rebuild.pipeline.oracle")
+
+
+def tree_oracle_cache() -> ModuleType:
+    """Return the tree's `rebuild.pipeline.oracle_cache`, imported from the tree first on `sys.path` only when the stores need it."""
+    return importlib.import_module("rebuild.pipeline.oracle_cache")
 
 
 def tree_accepted() -> ModuleType | None:

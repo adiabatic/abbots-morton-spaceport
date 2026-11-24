@@ -159,16 +159,17 @@ def test_check_trips_on_a_land_or_replay_peak_above_its_constant(tmp_path, capsy
 
 
 def test_the_oracle_rows_split_its_pool_records_between_ranges_and_absorbs():
-    """The oracle's pool record carries its ranges' readings and its settle-memo absorbs' (`<config> absorb`) together. The oracle-shard row reads the ranges, which its width divides by, and the oracle-absorb row reads the absorbs, which it prices apart."""
+    """The oracle's pool record carries its ranges' readings, its sections' of the audit (`<config> audit`) and its settle-memo absorbs' (`<config> absorb`) together. The oracle-shard row reads the ranges and the sections, each of which runs in a slot of the width it divides by, and the oracle-absorb row reads the absorbs, which it prices apart."""
     record = _pool("oracle-shard", [], reading="footprint")
     record["worker_peak_rss_bytes"] = {
         "default 1/2": 500_000_000,
         "default absorb": 650_000_000,
+        "default audit": 210_000_000,
         "ss10": 330_000_000,
     }
     ranges, _, _, _ = cb.observations(_unit("oracle-shard"), [record], {}, host=HOST, recent=20)
     absorbs, _, _, _ = cb.observations(_unit("oracle-absorb"), [record], {}, host=HOST, recent=20)
-    assert sorted(item.peak_bytes for item in ranges) == [330_000_000, 500_000_000]
+    assert sorted(item.peak_bytes for item in ranges) == [210_000_000, 330_000_000, 500_000_000]
     assert [item.peak_bytes for item in absorbs] == [650_000_000]
 
 
