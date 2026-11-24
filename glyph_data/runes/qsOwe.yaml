@@ -63,6 +63,7 @@ stances:
             - qsNo
             - qsLow
             - qsIt
+            - qsAt
             - qsI
             - qsAh
             - qsUtter

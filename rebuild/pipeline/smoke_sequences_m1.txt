@@ -3062,7 +3062,7 @@ E672 E67C                # ·Et before ·Owe (break)
 E67C E672                # ·Owe's x-height exit into ·Et
 E673 E67C                # ·Eight before ·Owe (break)
 E67C E673                # ·Owe's x-height exit into ·Eight
-E674 E67C                # ·At before ·Owe (break)
+E674 E67C                # ·At's x-height exit into ·Owe
 E67C E674                # ·Owe before ·At (break)
 E675 E67C                # ·I's x-height exit into ·Owe
 E67C E675                # ·Owe before ·I (break)

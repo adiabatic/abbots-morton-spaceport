@@ -60,6 +60,7 @@ stances:
             - qsEight
             - qsAwe
             - qsOx
+            - qsOwe
             - qsFoot
       cells: []
       unlocks: []
@@ -114,6 +115,10 @@ policy:
     by: 3
     when:
       right: {family: qsMay}
+  - exit: x-height
+    by: 1
+    when:
+      right: {family: qsOwe}
   contract: []
   resolve: []
   groups: {}
