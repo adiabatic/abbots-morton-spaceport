@@ -130,6 +130,7 @@ policy:
         - qsCheer
         - qsRoe
         - qsIt
+        - qsEt
         - qsOwe
   - exit: x-height
     by: 2
