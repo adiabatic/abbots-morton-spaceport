@@ -82,7 +82,7 @@ pub const TABLE_MEMO_CEILINGS: MemoCeilings =
 pub const TABLE_TRACE_CEILING: TraceCeiling = TraceCeiling::new(1 << 25, Eviction::Clear, true)
     .expect("a power of two of at least eight buckets a shard");
 
-/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's memos. The shared memos are consulted in the order given, each through a cache of `snapshot_cache_blocks` decoded blocks the engine keeps for it ([`crate::memo::StoreReader`]), [`SNAPSHOT_CACHE_BLOCKS`] unless the caller sets another. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, packed under `snapshot_packing` ([`crate::memo::SnapshotEntries`]), at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] and `trace_ceiling` [`TABLE_TRACE_CEILING`] unless the caller sets others, which changes no product. The trace ceiling holds the engine's trace memo only when `keep_memo` is not set, so the memo another enumeration reads keeps every window.
+/// What one enumeration may read before settling a window itself, whether it returns its own memo ([`crate::memo`]), and the ceilings on its engine's memos. The shared memos are consulted in the order given, each through a cache of `snapshot_cache_blocks` decoded blocks the engine keeps for it ([`crate::memo::StoreReader`]), [`SNAPSHOT_CACHE_BLOCKS`] unless the caller sets another. `keep_memo` is set for the configuration other enumerations will read; it returns the snapshot to the caller, packed under `snapshot_packing` ([`crate::memo::SnapshotEntries`]), at the cost of holding it through the drain and the sort. Without it, the enumeration releases its memo at the release point ([`enumerate_for_tables`]). `publish_verdicts` names the unlocking-rune sets of the enumerations that will read that snapshot, each once; when it names any, the enumeration also captures the liveness verdicts its probes compute into the snapshot, published for each set, for those enumerations to be served them ([`crate::liveness`]). It costs a capture per probe, so it is left empty wherever no enumeration reads the snapshot. The two fields also decide whether the engine journals what each evaluation read: only a delta's exclusion over the kept snapshot and a published verdict read a read set, so an enumeration with neither journals none ([`Engine::set_read_journal`]). `memo_ceilings` is [`TABLE_MEMO_CEILINGS`] and `trace_ceiling` [`TABLE_TRACE_CEILING`] unless the caller sets others, which changes no product. The trace ceiling holds the engine's trace memo only when `keep_memo` is not set, so the memo another enumeration reads keeps every window.
 #[derive(Debug)]
 pub struct MemoAccess {
     pub shared_memos: Vec<SharedMemo>,
@@ -1074,6 +1074,8 @@ fn enumerate_from_seeds<'i>(
         },
     );
     engine.attach_shared_memos(access.shared_memos, access.snapshot_cache_blocks);
+    // Only a delta reading this memo or a published verdict reads a read set, so an engine with neither journals none.
+    engine.set_read_journal(access.keep_memo || !access.publish_verdicts.is_empty());
     if !access.publish_verdicts.is_empty() {
         engine.publish_verdicts(access.publish_verdicts);
     }
@@ -3837,6 +3839,42 @@ mod tests {
             emit_transitions(&index, &scratch),
             emit_transitions(&index, &unfiltered),
             "without the exclusion the shared memo answers qsMay's windows as default settles them"
+        );
+    }
+
+    /// An enumeration journals what its evaluations read only where something reads the read sets: a memo kept for a delta, or verdicts published for one. A from-scratch enumeration has neither, so its engine interns the empty read set alone and its cache stats report `reads len=1`, while the same configuration enumerated with its memo kept records the reads its entries made, and both write the same product.
+    #[test]
+    fn only_an_enumeration_whose_memo_or_verdicts_are_read_journals_its_reads() {
+        let index = fixtures::mini();
+        let modes = EnumerationModes::default();
+        let run = |access: MemoAccess| {
+            let mut stats: Vec<String> = Vec::new();
+            let product =
+                enumerate_from_seeds(&index, &[], modes, contract_seeds, Some(&mut stats), access)
+                    .expect("default closes")
+                    .product;
+            let reads = stats
+                .iter()
+                .find_map(|line| line.strip_prefix("[c] default reads len="))
+                .and_then(|rest| rest.split(' ').next())
+                .expect("the cache stats report the reads pool")
+                .parse::<usize>()
+                .expect("as a count");
+            (product, reads)
+        };
+        let (scratch, scratch_reads) = run(MemoAccess::default());
+        let (kept, kept_reads) = run(MemoAccess {
+            keep_memo: true,
+            ..MemoAccess::default()
+        });
+        assert_eq!(scratch_reads, 1, "the empty set alone");
+        assert!(
+            kept_reads > 1,
+            "a kept memo's entries record what they read: {kept_reads}"
+        );
+        assert_eq!(
+            emit_transitions(&index, &scratch),
+            emit_transitions(&index, &kept)
         );
     }
 

@@ -1052,7 +1052,7 @@ pub(crate) struct ServedVerdict {
     delta: DeltaId,
 }
 
-/// What one closed capture returns: the ids of the pointers the evaluation fired, in first-fired order, and of the set of runes and classes it read, both interned in the engine's pools.
+/// What one closed capture returns: the ids of the pointers the evaluation fired, in first-fired order, and of the set of runes and classes it read, both interned in the engine's pools. The read set is the empty set's id in an engine that journals no reads ([`Engine::set_read_journal`]).
 struct Captured {
     delta: DeltaId,
     reads: ReadsId,
@@ -1300,10 +1300,12 @@ pub struct Engine<'i> {
     pointer_texts: HashMap<Pointer, String>,
     /// The table every memoized fired delta is stored in, whichever memo journaled it. The trace, candidate, prospect and closure memos all hold [`DeltaId`]s into it, so a delta journaled by several memos is held once. It belongs to the engine because the closure and prospect memos store entries in every mode. Outside trace-memo mode nothing is journaled and there is no trace memo, and those two memos store the empty delta here, so the pool never grows past that one delta (issue #167). [`Engine::release_memos`] resets the pool with every memo that indexes it, so no id outlives its table.
     deltas: DeltaPool,
-    /// The table every memoized read set is stored in (issue #184): the runes and classes an evaluation read from the spec, journaled by the index's accessors while the capture was open ([`crate::index`]), so a memo entry records which runes and classes its result depends on. Released with the delta pool, and detached into a snapshot with it.
+    /// The table every memoized read set is stored in (issue #184): the runes and classes an evaluation read from the spec, journaled by the index's accessors while the capture was open ([`crate::index`]), so a memo entry records which runes and classes its result depends on. Released with the delta pool, and detached into a snapshot with it. An engine that journals no reads ([`Engine::set_read_journal`]) holds the empty set alone.
     reads: ReadsPool,
-    /// Where the read journal stood when each open capture began, one per open capture beside [`Engine::capture_starts`].
+    /// Where the read journal stood when each open capture began, one per open capture beside [`Engine::capture_starts`], while the engine journals reads.
     read_starts: Vec<usize>,
+    /// Whether a capture journals what its evaluation read ([`Engine::set_read_journal`]). On by default; the table fixpoint turns it off for an engine whose memo no other engine reads and which publishes no verdicts, since nothing reads its read sets, and every memo entry then records the empty set.
+    read_journal: bool,
     /// Each small memo stores its fired delta beside its verdict, as an id into [`Engine::deltas`], instead of in a second map on the same key: the delta is only read with its verdict, and a second table would pay for the key and its hash-table slack twice.
     closure_cache: HashMap<ClosureKey, (bool, DeltaId, ReadsId)>,
     candidates_cache: CandidatesMemo,
@@ -1379,6 +1381,7 @@ impl<'i> Engine<'i> {
             deltas: DeltaPool::default(),
             reads: ReadsPool::default(),
             read_starts: Vec::new(),
+            read_journal: true,
             closure_cache: HashMap::default(),
             candidates_cache: CandidatesMemo::default(),
             prospect_cache: HashMap::default(),
@@ -1464,11 +1467,15 @@ impl<'i> Engine<'i> {
         &self.shared_memo_stores
     }
 
-    /// Detach this engine's trace memo: the entries packed under `packing` ([`crate::memo::SnapshotEntries`]), with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted into their own tables. The candidate, closure and prospect memos are released before the packing, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is drained one shard at a time into an array, each shard's table freed once its entries have moved; the array is sorted in place and coded block by block, and dropped once the blocks are coded. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo, and the packing's refusal for a key it cannot code. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
+    /// Detach this engine's trace memo: the entries packed under `packing` ([`crate::memo::SnapshotEntries`]), with the tables their ids index and every fired delta and read set the engine stored, and the liveness verdicts it published, compacted into their own tables. The candidate, closure and prospect memos are released before the packing, as [`Engine::release_memos`] releases them, because they index the delta table that leaves with the snapshot. The live trace map is drained one shard at a time into an array, each shard's table freed once its entries have moved; the array is sorted in place and coded block by block, and dropped once the blocks are coded. The engine stops publishing verdicts here, since a verdict captured later could read windows the snapshot lacks. Returns `None` for an engine without a trace memo, and the packing's refusal for a key it cannot code. Panics on an engine that journals no reads ([`Engine::set_read_journal`]), because every entry would carry the empty read set, which a reader's exclusion admits whatever the evaluation read. The shared memos are not included: a snapshot holds only what this engine settled, and a caller that wants the union reads the shared memos beside it.
     pub fn take_memo(&mut self, packing: SnapshotPacking) -> Result<Option<MemoSnapshot>, String> {
         let Some(memo) = self.trace_cache.take() else {
             return Ok(None);
         };
+        assert!(
+            self.read_journal,
+            "a snapshot's reader refuses entries by what they read, which only an engine that journals reads records"
+        );
         let deltas = std::mem::take(&mut self.deltas);
         let reads = std::mem::take(&mut self.reads);
         self.trace_cache = Some(TraceMemo::within(self.trace_ceiling));
@@ -1584,7 +1591,7 @@ impl<'i> Engine<'i> {
         Some(self.deltas.get(entry.delta))
     }
 
-    /// The runes and classes this engine read while settling one window, as the set its capture journaled, or `None` when this engine's memo does not hold the window: it was never traced through this engine, or a memo held to a [`TraceCeiling`] forgot it or never stored it.
+    /// The runes and classes this engine read while settling one window, as the set its capture journaled, or `None` when this engine's memo does not hold the window: it was never traced through this engine, or a memo held to a [`TraceCeiling`] forgot it or never stored it. An engine that journals no reads ([`Engine::set_read_journal`]) returns the empty set for every window it holds.
     pub fn trace_reads(
         &self,
         left: &LeftContext,
@@ -1720,39 +1727,52 @@ impl<'i> Engine<'i> {
             .as_ref()
             .expect("captures only open in trace-memo mode");
         self.capture_starts.push(log.len());
-        self.read_starts.push(crate::index::journal_len());
-        crate::index::journal_arm(true);
+        if self.read_journal {
+            self.read_starts.push(crate::index::journal_len());
+            crate::index::journal_arm(true);
+        }
     }
 
-    /// Close the innermost capture and return what fired inside it, deduplicated keeping each pointer's first firing, with the set of runes and classes read inside it, both interned. A capture made of one recorded delta or read set returns its id without expanding it. When an enclosing capture stays open, the closed capture's slice of both journals is replaced by the two ids, which the enclosing capture expands to the same pointers in the same first-fired order and the same reads. When the outermost capture closes, both journals are emptied, so neither grows past one top-level evaluation.
+    /// Close the innermost capture and return what fired inside it, deduplicated keeping each pointer's first firing, with the set of runes and classes read inside it, both interned. A capture made of one recorded delta or read set returns its id without expanding it. When an enclosing capture stays open, the closed capture's slice of both journals is replaced by the two ids, which the enclosing capture expands to the same pointers in the same first-fired order and the same reads. When the outermost capture closes, both journals are emptied, so neither grows past one top-level evaluation. An engine that journals no reads ([`Engine::set_read_journal`]) takes no slice of the read journal, which its captures never switch on, and returns the empty set's id as the read set.
     fn end_capture(&mut self) -> Captured {
         let start = self
             .capture_starts
             .pop()
             .expect("every end_capture closes a begin_capture");
-        let read_start = self
-            .read_starts
-            .pop()
-            .expect("every end_capture closes a begin_capture");
+        let read_start = self.read_journal.then(|| {
+            self.read_starts
+                .pop()
+                .expect("every end_capture closes a begin_capture")
+        });
         let log = self
             .fired_log
             .as_mut()
             .expect("captures only open in trace-memo mode");
         let logged = &log[start..];
         let delta = close_delta(logged, &mut self.deltas, &mut self.capture_scratch);
-        let reads = close_reads(
-            logged,
-            read_start,
-            &mut self.reads,
-            &mut self.capture_scratch,
-        );
+        let reads = match read_start {
+            Some(read_start) => close_reads(
+                logged,
+                read_start,
+                &mut self.reads,
+                &mut self.capture_scratch,
+            ),
+            None => match self.reads.empty {
+                Some(empty) => empty,
+                None => self.reads.intern(&[]),
+            },
+        };
         if self.capture_starts.is_empty() {
             log.clear();
-            crate::index::journal_clear();
-            crate::index::journal_arm(false);
+            if read_start.is_some() {
+                crate::index::journal_clear();
+                crate::index::journal_arm(false);
+            }
         } else {
             log.truncate(start);
-            crate::index::journal_truncate(read_start);
+            if let Some(read_start) = read_start {
+                crate::index::journal_truncate(read_start);
+            }
             if !self.deltas.names_nothing(delta) {
                 log.push(Logged::Delta(delta));
             }
@@ -1772,14 +1792,16 @@ impl<'i> Engine<'i> {
                 .as_mut()
                 .expect("captures only open in trace-memo mode")
                 .clear();
-            crate::index::journal_clear();
-            crate::index::journal_arm(false);
+            if self.read_journal {
+                crate::index::journal_clear();
+                crate::index::journal_arm(false);
+            }
         }
     }
 
     // --- published liveness verdicts -----------------------------------------------
 
-    /// Capture every liveness verdict this engine's probes compute from here on, for the snapshot [`Engine::take_memo`] returns, published for each of `groups`: the unlocking-rune sets of the deltas that will read it, each named once. The table build sets this on `default` when some delta reads its memo ([`crate::liveness`]). Only a trace-memo engine journals, so only it can publish; setting it on any other engine panics, and so do more than thirty-two groups.
+    /// Capture every liveness verdict this engine's probes compute from here on, for the snapshot [`Engine::take_memo`] returns, published for each of `groups`: the unlocking-rune sets of the deltas that will read it, each named once. The table build sets this on `default` when some delta reads its memo ([`crate::liveness`]). Only a trace-memo engine journals, so only it can publish; setting it on any other engine panics, and so do more than thirty-two groups and an engine that journals no reads ([`Engine::set_read_journal`]), since [`Engine::end_verdict`] reads what each ask read.
     pub fn publish_verdicts(&mut self, groups: Vec<HashSet<Sym>>) {
         assert!(
             self.trace_cache.is_some(),
@@ -1788,6 +1810,10 @@ impl<'i> Engine<'i> {
         assert!(
             groups.len() <= 32,
             "a verdict's groups fit one word of bits"
+        );
+        assert!(
+            self.read_journal,
+            "a published verdict reads what its asks read, which only an engine that journals reads records"
         );
         let index = self.index;
         let mut marks: Vec<u32> = Vec::new();
@@ -3488,6 +3514,15 @@ impl<'i> Engine<'i> {
     /// Set whether and how the fourth-slot prospect probe groups its sweep. An engine starts at [`GroupedSweeps::Off`], and the table fixpoint sets it from its memo access.
     pub fn set_grouped_sweeps(&mut self, grouped: GroupedSweeps) {
         self.grouped_sweeps = grouped;
+    }
+
+    /// Set whether a capture journals the runes and classes its evaluation read. Only another engine's exclusion ([`crate::memo::Exclusion::admits_reads`]) and a published verdict ([`Engine::end_verdict`]) read a read set, so the table fixpoint turns it off for an engine whose memo is not kept for a delta and which publishes no verdicts. The fired deltas are journaled either way. Set before the first capture opens.
+    pub fn set_read_journal(&mut self, on: bool) {
+        assert!(
+            self.capture_starts.is_empty(),
+            "the read journal is set before any capture opens"
+        );
+        self.read_journal = on;
     }
 
     /// The `--cache-stats` line for the grouped sweeps, when they are on.
@@ -7196,6 +7231,102 @@ mod tests {
             .expect("the fixture settles");
         let replayed = engine.end_capture().reads;
         assert_eq!(engine.reads.get(replayed), reads.as_slice());
+    }
+
+    /// An engine that journals no reads settles a window, misses and hits alike, to the trace a journaling engine settles it to, and its captures close the same delta ids over the same pointers, since a read set never enters a delta. Its captures leave the index's read journal off, so while one is open neither the journal nor the fired log holds a read, and every entry and every closed capture holds the empty read set, the only set its pool holds.
+    #[test]
+    fn an_engine_that_journals_no_reads_closes_the_same_deltas_and_the_empty_read_set() {
+        let index = firing_spec();
+        let modes = EngineModes {
+            trace_memo: true,
+            ..EngineModes::default()
+        };
+        let ss03 = fixtures::sym(&index, "ss03");
+        let left = settled_left(&index, "qsTea", "plain", Some("baseline"));
+        let token = letter_token(&index, "qsPea");
+        let slots = Slots::pair(letter_token(&index, "qsTea"), EDGE);
+        let run = |engine: &mut Engine<'_>| {
+            engine.begin_capture();
+            let missed = engine
+                .transition_trace(&left, token, slots)
+                .expect("the fixture settles");
+            let open_reads = crate::index::journal_view(|journal| journal.len())
+                + engine.fired_log.as_ref().map_or(0, |log| {
+                    log.iter()
+                        .filter(|item| matches!(item, Logged::Reads(_)))
+                        .count()
+                });
+            let first = engine.end_capture();
+            engine.begin_capture();
+            let hit = engine
+                .transition_trace(&left, token, slots)
+                .expect("the fixture settles");
+            let again = engine.end_capture();
+            assert_eq!(missed, hit, "a hit returns the trace its miss settled");
+            let stored = engine
+                .trace_reads(&left, token, slots)
+                .expect("the window was traced")
+                .to_vec();
+            (missed, open_reads, first, again, stored)
+        };
+        let mut journaling = Engine::with_modes(&index, [ss03], modes);
+        let mut silent = Engine::with_modes(&index, [ss03], modes);
+        silent.set_read_journal(false);
+        let (trace, open, first, again, stored) = run(&mut journaling);
+        let (silent_trace, silent_open, silent_first, silent_again, silent_stored) =
+            run(&mut silent);
+        assert!(
+            open > 0 && !stored.is_empty() && !journaling.reads.names_nothing(first.reads),
+            "the journaling engine records reads"
+        );
+        assert_eq!(silent_trace, trace);
+        assert_eq!(
+            (silent_first.delta, silent_again.delta),
+            (first.delta, again.delta)
+        );
+        assert_eq!(
+            silent.deltas.get(silent_first.delta),
+            journaling.deltas.get(first.delta)
+        );
+        assert_eq!(silent_open, 0, "no capture switches the journal on");
+        assert!(silent_stored.is_empty());
+        assert!(silent.reads.names_nothing(silent_first.reads));
+        assert!(silent.reads.names_nothing(silent_again.reads));
+        assert_eq!(silent.reads.len(), 1, "the empty set alone");
+    }
+
+    /// A snapshot's reader refuses an entry by what its evaluation read, so an engine that journals no reads, whose every entry would carry the empty set, refuses to detach its memo as a snapshot.
+    #[test]
+    #[should_panic(expected = "a snapshot's reader refuses entries by what they read")]
+    fn an_engine_that_journals_no_reads_detaches_no_snapshot() {
+        let index = alphabet();
+        let mut engine = Engine::with_modes(
+            &index,
+            no_features(),
+            EngineModes {
+                trace_memo: true,
+                ..EngineModes::default()
+            },
+        );
+        engine.set_read_journal(false);
+        let _ = engine.take_memo(SnapshotPacking::default());
+    }
+
+    /// A published verdict reads what each of its probe's asks read, so an engine that journals no reads refuses to publish verdicts.
+    #[test]
+    #[should_panic(expected = "a published verdict reads what its asks read")]
+    fn an_engine_that_journals_no_reads_publishes_no_verdicts() {
+        let index = alphabet();
+        let mut engine = Engine::with_modes(
+            &index,
+            no_features(),
+            EngineModes {
+                trace_memo: true,
+                ..EngineModes::default()
+            },
+        );
+        engine.set_read_journal(false);
+        engine.publish_verdicts(Vec::new());
     }
 
     #[test]
