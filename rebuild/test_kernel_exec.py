@@ -36,7 +36,7 @@ from rebuild.pipeline import (
     spec_load,
 )
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.model import CellId, ResolvedSpec, Settled
+from rebuild.pipeline.model import KERNEL_FIELD, CellId, ResolvedSpec, Settled
 from rebuild.pipeline.settle import (
     EDGE,
     NAMER_DOT,
@@ -1775,9 +1775,12 @@ class TestTheStructureStamp:
 
     def test_the_structure_moves_with_the_dumped_registry_the_rune_order_and_the_semantics(self, monkeypatch):
         """The registry and the order of the runes reach the crate through the dump, and the mode set through its command line, so each moves the structure stamp."""
-        assert [entry.name for entry in fields(ResolvedSpec)] == ["runes", "registry"], (
+        assert [entry.name for entry in fields(ResolvedSpec) if entry.metadata.get(KERNEL_FIELD, True)] == [
+            "runes",
+            "registry",
+        ], (
             "the structure stamp hashes the spec dump as its runes and its registry, so a new top-level ResolvedSpec field "
-            "reaches the crate unhashed until run_m1.memo_structure_stamp hashes it"
+            "the dump carries reaches the crate unhashed until run_m1.memo_structure_stamp hashes it"
         )
         base = run_m1.memo_structure_stamp(SPEC)
         heights = SPEC.registry.heights

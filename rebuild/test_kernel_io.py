@@ -241,7 +241,7 @@ class TestAnOutgrownCodecFailsLoudly:
 
 
 class TestFieldsOutsideTheKernel:
-    """A field whose metadata sets `model.KERNEL_FIELD` to False (`Rune.kern`) is the codec's one exception: the dump leaves it out, and a parsed dump gives it its default."""
+    """A field whose metadata sets `model.KERNEL_FIELD` to False is the one kind of field the codec skips: the dump leaves it out, and a parsed dump gives it its default."""
 
     def test_a_field_marked_outside_the_kernel_is_left_out_of_the_dump_and_defaulted_on_the_way_back(self):
         @dataclasses.dataclass(frozen=True)
@@ -263,6 +263,12 @@ class TestFieldsOutsideTheKernel:
         )
         assert kernel_io.spec_json(kerned) == kernel_io.spec_json(spec)
         assert "kern" not in json.loads(kernel_io.spec_json(kerned))["runes"][rune.name]
+
+    def test_a_specs_narrowing_never_reaches_the_dump(self, spec):
+        """A narrowed alphabet's spec dumps as the same runes unmarked would, so the mark moves no byte the crate reads and no stamp over the dump, and a spec read back from a dump is never marked."""
+        marked = dataclasses.replace(spec, narrowed=True)
+        assert kernel_io.spec_json(marked) == kernel_io.spec_json(spec)
+        assert not kernel_io.spec_of(kernel_io.spec_json(marked)).narrowed
 
 
 class TestRefusals:

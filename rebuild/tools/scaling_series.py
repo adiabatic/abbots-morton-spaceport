@@ -35,11 +35,12 @@ def series_sizes(order: list[str]) -> list[int]:
 
 
 def sub_spec(spec: ResolvedSpec, order: list[str], size: int) -> ResolvedSpec:
-    """Return the first `size` runes of `order` as a spec of their own, in the original spec's rune order, without any ligature whose components are not all among them."""
+    """Return the first `size` runes of `order` as a spec of their own, in the original spec's rune order, without any ligature whose components are not all among them. The cut carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, as `spec_load.narrowed`'s result does, so a cut's font build (`scaling_sweep`'s `AMS_SCALING_FONTS`) runs the kern stage as the fault kit's small alphabets do, and the whole alphabet's cut runs it as the live build does."""
     candidates = set(order[:size])
     keep: set[str] = set()
     for name in candidates:
         sequence = spec.runes[name].sequence
         if not sequence or set(sequence) <= candidates:
             keep.add(name)
-    return dataclasses.replace(spec, runes={name: rune for name, rune in spec.runes.items() if name in keep})
+    runes = {name: rune for name, rune in spec.runes.items() if name in keep}
+    return dataclasses.replace(spec, runes=runes, narrowed=spec.narrowed or len(runes) < len(spec.runes))

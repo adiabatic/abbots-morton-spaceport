@@ -50,7 +50,7 @@ A record never names a boundary. A space, a text edge, and the namer dot are not
 
 **Ligatures.** A ligature stance that declares `outgoing.stance` takes the kern records of the component stance it maps to, those naming that stance and those naming none. Records with `entry` or `bitmap` stay with the component, as incoming behavior and bound drawings do under design § Preserved outgoing strokes. Every record in the ligature's own `kern` block outranks every inherited one. A ligature that opts out with `outgoing: {exception: …}` inherits nothing.
 
-**Stale records.** A record that matches no reachable break is the error `E-KERN-UNMATCHED`. The old font's stale prefix kerns nothing and reports nothing.
+**Stale records.** A record that matches no reachable break is the error `E-KERN-UNMATCHED`. A build on a narrowed alphabet (`model.ResolvedSpec.narrowed`) reports none, since a narrowed alphabet can lack what brings a record's pair to a break; the whole alphabet's build reports them. The old font's stale prefix kerns nothing and reports nothing.
 
 ## 3. Facing pairs
 

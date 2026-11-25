@@ -18,7 +18,7 @@
 
 **Ligature inheritance.** A ligature stance in its `KernBlock.inherits` (the stances `outgoing.stance` maps, explicitly or by default) takes the kern records of the trailing component that name that component stance or no stance and set neither `entry` nor `bitmap`. They apply to the ligature stance's own leading cells and keep their `right`. Every record of the ligature's own block outranks every inherited one: inherited records are consulted at a break only when no own record matches it. A stance that opts out with `outgoing: {exception: …}` inherits nothing. The trailing component's own block is the one read, so a ligature does not pass on what it inherits.
 
-**Errors.** A record that matches no break is `E-KERN-UNMATCHED`, unless none of the runes its `right` can name is in the spec, which only a narrowed alphabet (`spec_load.narrowed`) produces. Both errors are collected and raised together as one `KernError`. A facing pair whose member cell pairs resolve to different values is `E-KERN-NARROWER`, raised as a `KernError` of its own once those two are clear: a record that tells apart cells sharing one facing edge is narrower than a facing pair, which KERN-PLAN §3 rules out.
+**Errors.** A record that matches no break is `E-KERN-UNMATCHED`, unless none of the runes its `right` can name is in the spec (`_Matcher.nameable`), or the spec is narrowed. A spec holding the whole store holds every family a record can name, so on it the first exemption covers only a record whose `class` has no member among its families, or no member at all when it names none. On a narrowed spec (`model.ResolvedSpec.narrowed`) the stage reports no record unmatched: a small alphabet can lack a cell a record names, or the letters that bring two named cells to one break, and the whole alphabet's build is the one that reports a stale record. `spec_load.load_spec` builds every spec with `narrowed` false, and a full-alphabet build runs on the spec it builds, so a full-alphabet build never takes that exemption. `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE` are collected and raised together as one `KernError`. A facing pair whose member cell pairs resolve to different values is `E-KERN-NARROWER`, raised as a `KernError` of its own once those two are clear: a record that tells apart cells sharing one facing edge is narrower than a facing pair, which KERN-PLAN §3 rules out. The stage raises `E-KERN-INCOMPARABLE` and `E-KERN-NARROWER` on a narrowed spec as on any other.
 
 **`kern.tsv`** has a comment line, a column line, then one row per facing pair: the leading rune, the leading side's name, the following rune, the following side's name, `by` (0 when no record matches), the deciding record's provenance (empty when none, with ` (inherited)` after a record a ligature inherits, and comma-separated when one value comes from several records), the configurations that reach the pair (settlement configurations in table order, then the overlay), and which of the two sides is `mixed` (`leading`, `following`, both joined by a comma, or empty). Rows are sorted by the leading rune in code-point order with each ligature after its lead (`rune_order_key`), then the leading side's name, the following rune and the following side's name. The file is written only when its bytes change (`output_sink.write_output`).
 
@@ -463,7 +463,7 @@ def resolve(
     glyphs: Mapping[CellId, GlyphRecord],
     ss10_copies: Mapping[str, str] | None = None,
 ) -> KernResolution:
-    """Resolve the spec's kern records over the breaks of `tables` (the join rows' breaks and the pairs a ZWNJ separates) and the overlay's pairs of `ss10_copies`, as the module docstring says, and return the sides and facing pairs. Raises `KernError` with every `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE` found, or with every `E-KERN-NARROWER` once those are clear, and `KernInternalError` when an invariant fails."""
+    """Resolve the spec's kern records over the breaks of `tables` (the join rows' breaks and the pairs a ZWNJ separates) and the overlay's pairs of `ss10_copies`, as the module docstring says, and return the sides and facing pairs. Raises `KernError` with every `E-KERN-UNMATCHED` (none on a narrowed spec, as the module docstring's **Errors.** paragraph says) and `E-KERN-INCOMPARABLE` found, or with every `E-KERN-NARROWER` once those are clear, and `KernInternalError` when an invariant fails."""
     records_by_cell = dict(glyphs)
     cells_by_label = {record.name: cell for cell, record in glyphs.items()}
     breaks = check_join_rows(tables, cells_by_label)
@@ -531,7 +531,7 @@ class _Value:
 def _resolve_breaks(
     spec: ResolvedSpec, ordered: Sequence[CellPair], breaks: Mapping[CellPair, list[str]]
 ) -> tuple[dict[CellPair, _Value], list[tuple[str, str]]]:
-    """Match every record against every break and resolve each break's value. Returns the values and the errors found, `E-KERN-INCOMPARABLE` first, each kind in a stable order."""
+    """Match every record against every break and resolve each break's value. Returns the values and the errors found, `E-KERN-INCOMPARABLE` first, each kind in a stable order, and no `E-KERN-UNMATCHED` on a narrowed spec."""
     matcher = _Matcher(spec)
     order = {record: position for position, record in enumerate(_all_records(spec))}
     matches: dict[KernRecord, set[CellPair]] = {record: set() for record in order}
@@ -601,7 +601,7 @@ def _resolve_breaks(
 
     issues = [("E-KERN-INCOMPARABLE", message) for message in incomparable.values()]
     for record in order:
-        if matches[record] or not (matcher.nameable(record) & matcher.runes):
+        if spec.narrowed or matches[record] or not (matcher.nameable(record) & matcher.runes):
             continue
         through = _inheritors(spec, record)
         reach = (

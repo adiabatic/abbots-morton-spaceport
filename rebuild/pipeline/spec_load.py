@@ -4,7 +4,7 @@ A rune's `kern:` block becomes its `Rune.kern` (`model.KernBlock`), which the ke
 
 Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under rebuild/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 
-The alphabet switch, `AMS_M1_RUNES` (`M1_RUNES_ENV`), narrows `load_default_spec` to a small alphabet for the fault kit (`narrowed`). Everything that reads the alphabet reads it from the spec, `baseline_subset.M1_ALPHABET` included, every stamp over a build carries the switch's token while it is set (`alphabet_token`), and the entry points that write the live tree refuse it outside the kit (`small_alphabet_refusal`).
+The alphabet switch, `AMS_M1_RUNES` (`M1_RUNES_ENV`), narrows `load_default_spec` to a small alphabet for the fault kit (`narrowed`). Everything that reads the alphabet reads it from the spec, `baseline_subset.M1_ALPHABET` included, every stamp over a build carries the switch's token while it is set (`alphabet_token`), and the entry points that write the live tree refuse it outside the kit (`small_alphabet_refusal`). A spec the switch narrows to fewer runes than the store holds carries `model.ResolvedSpec.narrowed`, which the kern stage reads and no dump or stamp does, so the kern stage leaves stale records to the whole alphabet's build (`rebuild/pipeline/kern.py`'s **Errors.** paragraph).
 """
 
 from __future__ import annotations
@@ -1945,7 +1945,7 @@ def alphabet_lines() -> list[str]:
 
 
 def narrowed(spec: ResolvedSpec, names: Iterable[str]) -> ResolvedSpec:
-    """Return `spec` holding only the runes `names` lists, in its own rune order, with its registry, predicate classes and every rune's resolved records as the whole store left them, which is `scaling_series.sub_spec`'s rule. A ligature is kept only when it is named, and naming one is refused unless every component it names is named too, as is naming no rune or a rune the store does not hold, so the alphabet a build runs on is exactly the one named."""
+    """Return `spec` holding only the runes `names` lists, in its own rune order, with its registry, predicate classes and every rune's resolved records as the whole store left them, which is `scaling_series.sub_spec`'s rule. A ligature is kept only when it is named, and naming one is refused unless every component it names is named too, as is naming no rune or a rune the store does not hold, so the alphabet a build runs on is exactly the one named. The result carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, so naming every rune of the store gives a spec the kern stage treats as the whole alphabet."""
     wanted = frozenset(names)
     if not wanted:
         raise SpecError(M1_RUNES_ENV, "", "names no runes")
@@ -1959,7 +1959,8 @@ def narrowed(spec: ResolvedSpec, names: Iterable[str]) -> ResolvedSpec:
         raise SpecError(
             M1_RUNES_ENV, "", f"names ligatures without every component they name: {', '.join(stranded)}"
         )
-    return replace(spec, runes={name: rune for name, rune in spec.runes.items() if name in wanted})
+    runes = {name: rune for name, rune in spec.runes.items() if name in wanted}
+    return replace(spec, runes=runes, narrowed=spec.narrowed or len(runes) < len(spec.runes))
 
 
 def small_alphabet_refusal(what: str) -> str | None:

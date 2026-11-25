@@ -434,11 +434,79 @@ class TestUnmatched:
         (message,) = unmatched(spec, {"default": [joined, (IT, NO_LOOP, "break")]})
         assert "qsIt.yaml:kern[0]" in message and "{right: {family: qsTea}, by: -1}" in message
 
-    def test_a_record_naming_only_runes_a_narrowed_alphabet_drops_is_not_unmatched(self, tmp_path):
-        spec = spec_load.narrowed(
-            load(tmp_path, {"qsIt": [{"right": {"family": "qsTea"}, "by": -1}]}), ["qsIt", "qsNo"]
+    # ·Day is a rune the narrowed alphabet drops, and ·Tea one it keeps whose half stance meets no break, as fault-kit row 01's alphabet keeps ·Pea but never settles a half ·Pea exiting at the x-height.
+    STALE_ON_A_SMALL_ALPHABET = {
+        "qsIt": [{"right": {"family": "qsDay"}, "by": -1}],
+        "qsNo": [
+            {
+                "stance": "flipped",
+                "right": {"family": "qsTea", "stance": "half", "exit": "x-height"},
+                "by": -2,
+            }
+        ],
+    }
+    SMALL_ALPHABET_BREAKS = ((IT, NO_LOOP), (NO_FLIPPED, TEA_FULL))
+
+    def test_a_narrowed_alphabet_reports_no_record_unmatched(self, tmp_path):
+        spec = spec_load.narrowed(load(tmp_path, self.STALE_ON_A_SMALL_ALPHABET), ["qsIt", "qsNo", "qsTea"])
+        assert spec.narrowed
+        assert values(resolve(spec, breaks(*self.SMALL_ALPHABET_BREAKS))) == {
+            ("qsIt", "qsNo"): 0,
+            ("qsNo", "qsTea"): 0,
+        }
+
+    def test_the_whole_alphabet_reports_the_same_records_unmatched(self, tmp_path):
+        spec = load(tmp_path, self.STALE_ON_A_SMALL_ALPHABET)
+        assert not spec.narrowed
+        messages = unmatched(spec, breaks(*self.SMALL_ALPHABET_BREAKS))
+        assert len(messages) == 2
+        assert any("qsIt.yaml:kern[0]" in message for message in messages)
+        assert any(
+            "qsNo.yaml:kern[0] {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -2}"
+            in message
+            for message in messages
         )
-        assert values(resolve(spec, breaks((IT, NO_LOOP)))) == {("qsIt", "qsNo"): 0}
+
+    def test_a_narrowed_alphabet_still_refuses_incomparable_records(self, tmp_path):
+        """The third record names ·Tea, which the narrowed alphabet keeps, and matches no break: the narrowed spec reports the two incomparable records and not it, and the same spec unmarked reports all three."""
+        spec = spec_load.narrowed(
+            load(
+                tmp_path,
+                {
+                    "qsIt": [
+                        {"right": {"family": ["qsTea", "qsNo"]}, "by": -1},
+                        {"right": {"family": ["qsTea", "qsIt"]}, "by": -2},
+                        {"right": {"family": "qsTea", "stance": "half"}, "by": -1},
+                    ]
+                },
+            ),
+            ["qsIt", "qsNo", "qsTea"],
+        )
+        rows = breaks((IT, TEA_FULL), (IT, NO_LOOP), (IT, IT))
+        with pytest.raises(kern.KernError) as caught:
+            resolve(spec, rows)
+        assert [code for code, _message in caught.value.issues] == ["E-KERN-INCOMPARABLE"]
+        with pytest.raises(kern.KernError) as caught:
+            resolve(dataclasses.replace(spec, narrowed=False), rows)
+        assert [code for code, _message in caught.value.issues] == ["E-KERN-INCOMPARABLE", "E-KERN-UNMATCHED"]
+        assert "qsIt.yaml:kern[2]" in caught.value.issues[1][1]
+
+    def test_a_record_whose_class_holds_none_of_its_families_is_not_unmatched_on_the_whole_alphabet(
+        self, tmp_path
+    ):
+        """On a spec holding the whole store, every family a record names is a rune of the spec, so a record whose `right` names no rune of the spec is one whose `class` has no member among its families. Such a record matches no break and is not reported unmatched (`_Matcher.nameable`)."""
+        registry = REGISTRY.replace(
+            "  can-enter-at-baseline: {can_enter_at: baseline}\n",
+            "  can-enter-at-baseline: {can_enter_at: baseline}\n  can-enter-at-x-height: {can_enter_at: x-height}\n",
+        )
+        spec = load(
+            tmp_path,
+            {"qsIt": [{"right": {"family": "qsTea", "class": "can-enter-at-x-height"}, "by": -1}]},
+            registry_text=registry,
+        )
+        assert not spec.narrowed
+        assert "qsTea" not in spec.registry.predicate_classes["can-enter-at-x-height"]
+        assert values(resolve(spec, breaks((IT, TEA_FULL)))) == {("qsIt", "qsTea"): 0}
 
 
 class TestLigatureInheritance:
