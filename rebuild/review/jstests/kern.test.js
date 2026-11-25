@@ -16,6 +16,7 @@ import {
   entryCarried,
   isCarried,
   marksOf,
+  nextAfterMark,
   nextCarried,
   closestInk,
   decidersOf,
@@ -422,6 +423,18 @@ test('the jump keys find the next and the previous pair of letters with a carrie
   assert.deepEqual(nextCarried(model, values, at, 1), at);
   const none = indexValues({ ...payload, carried: { pairs: [], reviewed: [] } });
   assert.equal(nextCarried(model, none, at, 1), null);
+});
+
+test('the mark key moves to the next carried-over facing pair, reading the pairs it marked as reviewed', () => {
+  const at = { row: rune('qsNo'), col: rune('qsTea') };
+  const index = noTea.pairs.indexOf(flippedHalf);
+  const flippedKey = 'qsNo[flipped]|qsTea[half exit=x-height]';
+  assert.deepEqual(nextAfterMark(model, values, { row: 0, col: 0 }, 0, ['qsNo[loop]|qsTea[full]']), { cursor: at, facing: index });
+  assert.deepEqual(nextAfterMark(model, values, at, index, []), { cursor: at, facing: index });
+  assert.ok(index > 0);
+  assert.deepEqual(nextAfterMark(model, values, at, index - 1, []), { cursor: at, facing: index });
+  assert.equal(nextAfterMark(model, values, at, index, [flippedKey]), null);
+  assert.equal(nextAfterMark(model, values, { row: 0, col: 0 }, 0, [flippedKey]), null);
 });
 
 test('a mark reaches the carried-over facing pairs of its scope, and takes the mark off when every one has it', () => {

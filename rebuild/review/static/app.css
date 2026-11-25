@@ -2038,7 +2038,8 @@ body.kern-view {
     border: 1px solid var(--hairline);
     background: var(--card);
 
-    &:focus-visible {
+    /* :focus, not :focus-visible: the grid and the detail panel each have keys of their own, so the outline shows which one the keys act in however it got focus, a click or a script included. */
+    &:focus {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
@@ -2126,7 +2127,8 @@ body.kern-view {
     border: 1px solid var(--hairline);
     background: var(--card);
 
-    &:focus-visible {
+    /* :focus for the reason .kern-grid gives. */
+    &:focus {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
@@ -2253,10 +2255,19 @@ body.kern-view {
       font: inherit;
     }
 
+    kbd {
+      font-size: 10px;
+    }
+
     .kern-scope-toggle {
       display: flex;
       flex-wrap: wrap;
       gap: 0.25rem;
+
+      /* The key that switches between the two buttons, shown after them. */
+      > kbd {
+        align-self: center;
+      }
 
       button[aria-pressed="true"] {
         border-color: var(--accent);

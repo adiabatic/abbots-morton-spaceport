@@ -506,6 +506,18 @@ export function nextCarried(model, values, cursor, step) {
   return null;
 }
 
+// Where the mark key moves the selection once it marks the facing-pair keys `marked` reviewed: the next facing pair after `facing` in the same pair of letters that is still carried over, or else the first such facing pair of the next pair of letters that has one, in reading order and wrapping round; null when none is left. It reads `marked` as reviewed already, since the mark's reply has not come back yet.
+export function nextAfterMark(model, values, cursor, facing, marked) {
+  const after = { ...values, reviewed: new Set([...values.reviewed, ...marked]) };
+  const here = runePairAt(model, cursor.row, cursor.col);
+  const later = here ? here.pairs.findIndex((id, index) => index > facing && isCarried(model, after, id)) : -1;
+  if (later >= 0) return { cursor, facing: later };
+  const next = nextCarried(model, after, cursor, 1);
+  if (!next) return null;
+  const entry = runePairAt(model, next.row, next.col);
+  return { cursor: next, facing: entry.pairs.findIndex((id) => isCarried(model, after, id)) };
+}
+
 // The facing pairs a mark of `scope` reaches that the import set, and whether every one of them is marked reviewed already, so the mark key takes them off.
 export function marksOf(model, values, scope, entry) {
   const keys = scope.scope === SCOPE_FACING ? [`${scope.lead}|${scope.follow}`] : entry.pairs.map((id) => model.pairKeys[id]);
