@@ -5,7 +5,7 @@
   - `live`: every facing pair a `kern:` record decides, resolved now from the rune files on disk over the tables under `rebuild/out/m1` (`kern.resolve`), each with its value and its deciding records, or the error the stage raises over them, in which case the view shows the built values.
   - `built`: every facing pair whose value in the built font is not 0, from the `kern-classes.json` beside `M1.otf`, which read-back vouches for, so the view marks a value the built font does not have yet.
   - `runes`: each rune file's `kern:` block, the raw text from its `kern:` line to the end of the file, that text's sha256 (an edit's `base`), why the editor cannot write it back (`refusal`, `kern_writer.parse_block`) or null, and its records with their key paths, values, flow form (`kern.describe`), `why`, the line the file holds them on (null when the block is not one record per line), the two side names whose scope the record is (`kern_writer.record_sides`, null for a record with a class, a family list or an `except`), and whether a key narrows it below the two letters (`narrow`).
-  - `carried` (`carried`): the facing pairs `rebuild/tools/import_kerning.py` set, from its `var/kern/imported.json`, each with its value and the record that sets it; the ones the author has marked reviewed, from `var/kern/reviewed.json`, as `lead|follow` keys; the imported or marked keys whose sides the current build no longer has (`stale`); and why the marks cannot be read, when they cannot. The view counts a pair carried over and unreviewed while it is listed, unmarked, and still has the imported value.
+  - `carried` (`carried`): the facing pairs the import of the old font's kerning set, from `var/kern/imported.json`, each with its value and the record that sets it; the ones the author has marked reviewed, from `var/kern/reviewed.json`, as `lead|follow` keys; the imported or marked keys whose sides the current build no longer has (`stale`); and why the marks cannot be read, when they cannot. The view counts a pair carried over and unreviewed while it is listed, unmarked, and still has the imported value.
   - `apart` (`apart`): the facing pairs the author has marked as kerned apart from their relatives on purpose, from `var/kern/apart.json`, as `lead|follow` keys; the marked keys that name no facing pair of the current build (`stale`); and why the marks cannot be read, when they cannot. The view finds a facing pair's relatives itself, from the inventory's drawings (`static/kern.js`), and leaves a marked pair out of every comparison with them.
   - `journal` (`kern_writer.Journal.summary`): the journal file's `id`, which changes when the file is deleted or replaced and its `seq`s start over, its last `seq`, how many requests wait for a running pass to end (`pending`), and the newest requests dropped when one ended, with why.
   - The staleness the view reports: `tables` (the tables' stamp and whether it is the one the sources on disk give, `run_m1.tables_inputs`, recomputed at most every `TABLES_TTL_S` seconds), `inventory` (whether the file is there, its stamp, and whether that stamp names these tables and the Manual pages on disk), and `pass` (the pid holding the cycle's pass lock, while a pass runs; the server's own short holds are not one).
@@ -52,7 +52,7 @@ from rebuild.review import kern_writer, store_lock
 
 VALUES_FORMAT = "ams-kern-values/1"
 REVIEWED_FORMAT = "ams-kern-reviewed/1"
-IMPORTED_NAME = "imported.json"  # written by rebuild/tools/import_kerning.py
+IMPORTED_NAME = "imported.json"  # the facing pairs the import of the old font's kerning set
 REVIEWED_NAME = "reviewed.json"
 APART_FORMAT = "ams-kern-apart/1"
 APART_NAME = "apart.json"
@@ -683,7 +683,7 @@ class KernRoutes:
     # The carried-over marks.
 
     def _imported(self) -> list[dict]:
-        """Return the facing pairs `rebuild/tools/import_kerning.py` set, as its `imported.json` lists them, or none."""
+        """Return the facing pairs the import of the old font's kerning set, as `imported.json` lists them, or none."""
         try:
             document = json.loads(self.imported_path.read_text(encoding="utf-8"))
         except OSError, ValueError:
@@ -1003,7 +1003,7 @@ class KernRoutes:
         return self.check(context, {rune: new_text})
 
     def check(self, context: _Context, texts: Mapping[str, str]) -> tuple[ResolvedSpec, kern.KernResolution]:
-        """Check the runes directory with each rune file of `texts` replaced by the text given for it, as the next build would: the spec loader over a temporary copy, `kern.resolve`, the kern lookup's plan (`emit_gpos.kern_plan`), and the contact check at the kerned offset over every member break whose value moves. A copy in which a file of `texts` was not replaced is refused, so the check is always of the files to be written. Raises `Refused` with the build's messages. The editor checks one file this way, and `rebuild/tools/import_kerning.py` all it writes."""
+        """Check the runes directory with each rune file of `texts` replaced by the text given for it, as the next build would: the spec loader over a temporary copy, `kern.resolve`, the kern lookup's plan (`emit_gpos.kern_plan`), and the contact check at the kerned offset over every member break whose value moves. A copy in which a file of `texts` was not replaced is refused, so the check is always of the files to be written. Raises `Refused` with the build's messages. The editor checks one file this way."""
         real_prefix = file_label(self.runes_dir)
         with tempfile.TemporaryDirectory(prefix="kern-edit-") as scratch:
             copy_dir = Path(scratch) / self.runes_dir.name

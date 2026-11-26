@@ -1,10 +1,14 @@
-"""POSIX shared memory segments that a pool worker hands its parent, or the settle memo absorb its parent starts, instead of putting the bytes on its pickled result: `ship` copies the bytes into a new segment and returns what names it (`Shipped`), `Mapped` maps and unlinks a shipped segment at once, and `unlink_if_made` unlinks a segment its maker may have left behind. The pooled conformance sweep's units ship their fresh settle memo windows this way (`run_m1_gates._conformance_unit`, `run_m1_gates._absorb_memo`), as the oracle's row ranges ship their audit lines, store records and fresh windows (rebuild/pipeline/oracle.py)."""
+"""POSIX shared memory segments that a pool worker hands its parent, or the settle memo absorb its parent starts, instead of putting the bytes on its pickled result: `ship` copies the bytes into a new segment and returns what names it (`Shipped`), `Mapped` maps and unlinks a shipped segment at once, and `unlink_if_made` unlinks a segment its maker may have left behind. The pooled conformance sweep's units ship their fresh settle memo windows this way (`run_m1_gates._conformance_unit`, `run_m1_gates._absorb_memo`), and a sweep records its segments' names in a scratch directory of its own (`SEGMENT_RECORD`), which the next sweep over the same directory reads to unlink what a dead one left once its owner is no longer running (`owner_is_running`)."""
 
 from __future__ import annotations
 
 import itertools
+import os
 from dataclasses import dataclass
 from multiprocessing import shared_memory
+
+# The file in a pool's scratch directory that records the token and count its segments are named from (`run_m1_gates._SweepSegments`).
+SEGMENT_RECORD = "segment-names"
 
 
 @dataclass(frozen=True)
@@ -16,7 +20,7 @@ class Shipped:
 
 
 def ship(pieces: list[bytes], name: str) -> Shipped | None:
-    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`Mapped`: a settle memo absorb's worker, `run_m1_gates._absorb_memo`, or, for the oracle, a configuration's section task, `oracle.audit_section_task`, for the ranges' audit lines; its store task, `oracle.store_section_task`, for their store members; and the parent's `oracle.InOrderWriter`, for a section's bytes as it writes the part and a store's ages as it takes them), and the parent unlinks any segment it named and nobody mapped as it exits (`run_m1_gates._SweepSegments`, `oracle.InOrderWriter.__exit__`)."""
+    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`Mapped`, in a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`run_m1_gates._SweepSegments`)."""
     lengths = tuple(len(piece) for piece in pieces)
     if not sum(lengths):
         return None
@@ -45,7 +49,7 @@ def unlink_if_made(name: str, track: bool = True) -> None:
 
 
 class Mapped:
-    """A shipped segment mapped and unlinked at once, so that its name never outlives the mapping, with its pieces as views: by a settle memo absorb's worker, or by one of the oracle's section tasks or its parent's in-order writer. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment mapped here leaves the tracker nothing to clean up. Its pages enter the mapping process's footprint as it reads them and leave at `close`."""
+    """A shipped segment mapped and unlinked at once, so that its name never outlives the mapping, with its pieces as views, by a settle memo absorb's worker. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment mapped here leaves the tracker nothing to clean up. Its pages enter the mapping process's footprint as it reads them and leave at `close`."""
 
     def __init__(self, shipped: Shipped) -> None:
         self._segment = shared_memory.SharedMemory(shipped.name)
@@ -63,3 +67,16 @@ class Mapped:
         self.pieces = []
         self._segment.close()
         self.closed = True
+
+
+def owner_is_running(pid: str) -> bool:
+    """Return whether the process whose pid names a scratch directory is still running. A name that is not a positive integer counts as not running. A pid this process may not signal, or one too large to be a pid, counts as running, so the cleanup leaves the directory in place instead of raising."""
+    if not pid.isdigit() or int(pid) < 1:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except OSError, OverflowError:
+        return True
+    return True

@@ -19,7 +19,6 @@ from rebuild.pipeline import (
     kernel_exec,
     readback,
     run_m1,
-    shapers,
 )
 from rebuild.pipeline.model import KernBlock, KernFollower, KernRecord, VariationSelector
 from rebuild.tools import cycle_timings as ct
@@ -49,7 +48,7 @@ def built(tmp_path_factory):
 
 
 class TestOverlayCase:
-    """The conformance sweep's overlay case on the real mini font. Under ss10, HarfBuzz shapes every text up to `OVERLAY_MAX_LENGTH` as per-letter copies at zero offset with their `hmtx` advances, with nothing formed and nothing attached. `IsolatedOverlayShaper` returns the same result without shaping, which is what justifies the oracle's use of it."""
+    """The conformance sweep's overlay case on the real mini font. Under ss10, HarfBuzz shapes every text up to `OVERLAY_MAX_LENGTH` as per-letter copies at zero offset with their `hmtx` advances, with nothing formed and nothing attached."""
 
     def test_the_overlay_case_passes_on_the_mini_font(self, built):
         spec = fixtures.mini_spec()
@@ -69,30 +68,6 @@ class TestOverlayCase:
         assert result.exemplars == []
         alphabet = len(conform.spec_alphabet(spec))
         assert result.sequences == alphabet + alphabet**2
-
-    def test_the_synthetic_shaper_answers_what_harfbuzz_answers(self, built):
-        import itertools
-
-        spec = fixtures.mini_spec()
-        font_path, _plan, _cursive, _copies = built
-        real = conform.Shaper(font_path)
-        synthetic = shapers.IsolatedOverlayShaper(font_path, spec)
-        features = conform.features_for_config("ss10")
-        alphabet = conform.spec_alphabet(spec)
-        texts = [
-            "".join(combo) for length in (1, 2, 3) for combo in itertools.product(alphabet, repeat=length)
-        ]
-        for text in texts:
-            shaped = real.shape(text, features)
-            expected = synthetic.shape(text, features)
-            assert conform.normalize_actual(text, shaped) == conform.normalize_actual(text, expected), text
-            assert [(g["x_advance"], g["x_offset"], g["y_offset"]) for g in shaped] == [
-                (g["x_advance"], 0, 0) for g in expected
-            ], text
-            assert synthetic.positions(text, features) == [(0, 0, g["x_advance"]) for g in expected], text
-            assert real.positions(text, features) == [
-                (g["x_offset"], g["y_offset"], g["x_advance"]) for g in shaped
-            ], text
 
 
 def _feature_record(font, table_tag, feature_tag):
@@ -974,11 +949,8 @@ class TestTheKernLookup:
         }
         assert "kern-side" in sweep(missing).divergences_by_kind
 
-    def test_the_kern_lookup_moves_the_font_but_no_glyph_digest(self, kerned):
+    def test_the_kern_lookup_moves_the_font_content_digest(self, kerned):
         plain, kerned_font = kerned.fonts["plain"], kerned.fonts["kerned"]
-        assert fingerprint.after_font_glyph_digests(plain) == fingerprint.after_font_glyph_digests(
-            kerned_font
-        )
         assert fingerprint.font_content_digest(plain) != fingerprint.font_content_digest(kerned_font)
 
 

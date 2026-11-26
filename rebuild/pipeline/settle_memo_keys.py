@@ -3,8 +3,6 @@
 A memo entry is one settled window, and by the window locality rule (`doc/rebuild-design.md` §10) its settlement depends on the rune files its six slots name, their `spec_load.rune_closure`, and the inputs that state the cross-rune structure. So there are two keys. The stamp (`settle_memo_stamp`) covers everything that can change a settlement without changing a named family's key: the walk's code closure (`SETTLE_MEMO_CODE_PATHS` and the crate, `settle_memo_code_paths`), the non-rune data (`stamped_data_paths`), the resolved spec structure and the capability-feature set, the engine's settlement flags and the configuration's feature set. The family keys (`settle_family_keys`) cover each family's prose-insensitive rune digest and the digests of the runes in its closure. A family present in only one of the recorded and current key maps counts as moved (`moved_families`).
 
 An entry's reach is read from its window's labels: the six slots' families, the rune a formed ligature label names, and every ligature rune whose components all appear among them. `StaleMask.bit_of` maps one label to its bit. The memo is a base and segments under a head (`row_delta`'s probe merge), and the head records the stamp and family keys each part was settled under, so a reader builds one `StaleMask` a part, over `moved_families` between that part's recorded keys and the current ones: a row a segment added in one pass and a family key moved in the next is masked whether or not that pass asked its window again, and the next absorb names it in its segment's dead bitmap (`conform._MemoStore`, `conform.absorb_settle_memo`). `SettleMemoInputs` is the disk-derived half of both keys, read before the spec is loaded, as `run_m1.tables_inputs` is. The settlements are then at least as new as the content the keys name, so a rune edited during a run ends up under a key the next pass reports as moved, whichever side of the load the edit happened on.
-
-The oracle row cache (rebuild/pipeline/oracle_cache.py) keys its rows with the same primitives: its row stamp hashes the same code closure and data paths, and its family keys add the alias map's entries to `reach_lines`.
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from rebuild.pipeline import fingerprint, kernel_exec, spec_load
 from rebuild.pipeline.fingerprint import EnvironmentStamp
 from rebuild.pipeline.model import ResolvedSpec
 
-# The modules the settle memo's walk (`conform._SettledWindowWalk`) imports, directly or transitively: the walk and its settlement, the stream vocabulary (`labels`), the crate driver, the spec loader, the fingerprints the keys are computed from, and this module. rebuild/test_settle_memo_code_closure.py walks the import graph from conform.py on every contracts run and fails when a reachable module outside its stop-set is missing here or a listed module is unreachable. conform.py also holds the oracle's row comparison (`_compare_row`), so the oracle row cache, its record types, the shapers and the row model are listed because conform.py imports them; `output_sink` is listed because conform.py writes its summary through it, and `row_delta` because `table` reads the windows outputs through it. The witness stage's rule replay is in witness.py, which imports conform.py and emit_gsub.py, so emit_gsub.py is outside this closure and an emitter edit keeps the memo. The walk's stop-set is rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the rebuild/tools modules the walk imports are not listed, and none of them can change a settlement: `kernel_exec` imports `memory_budget` to size its fan-out and `peak_rss` to read its peaks, and the streams are byte-identical at any width; `fingerprint` imports `site_fonts.font_paths`, which feeds only Stage B's `fonts` component, and `lock_digest.lock_digest`, which no settlement reads. The tables stamp and the run_m1 skip key leave them out too.
+# The modules the settle memo's walk (`conform._SettledWindowWalk`) imports, directly or transitively: the walk and its settlement, the stream vocabulary (`labels`), the crate driver, the spec loader, the fingerprints the keys are computed from, and this module. rebuild/test_settle_memo_code_closure.py walks the import graph from conform.py on every contracts run and fails when a reachable module outside its stop-set is missing here or a listed module is unreachable. The shapers are listed because conform.py imports them for the conformance sweep, `output_sink` because conform.py writes its summary through it, and `row_delta` because `table` reads the windows outputs through it. The witness stage's rule replay is in witness.py, which imports conform.py and emit_gsub.py, so emit_gsub.py is outside this closure and an emitter edit keeps the memo. The walk's stop-set is rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the rebuild/tools modules the walk imports are not listed, and none of them can change a settlement: `kernel_exec` imports `memory_budget` to size its fan-out and `peak_rss` to read its peaks, and the streams are byte-identical at any width; `fingerprint` imports `site_fonts.font_paths`, which feeds only Stage B's `fonts` component, and `lock_digest.lock_digest`, which no settlement reads. The tables stamp and the run_m1 skip key leave them out too.
 SETTLE_MEMO_CODE_PATHS = (
     "rebuild/pipeline/conform.py",
     "rebuild/pipeline/fingerprint.py",
@@ -27,16 +25,13 @@ SETTLE_MEMO_CODE_PATHS = (
     "rebuild/pipeline/kernel_io.py",
     "rebuild/pipeline/labels.py",
     "rebuild/pipeline/model.py",
-    "rebuild/pipeline/oracle_cache.py",
     "rebuild/pipeline/output_sink.py",
-    "rebuild/pipeline/position_record.py",
     "rebuild/pipeline/row_delta.py",
     "rebuild/pipeline/settle.py",
     "rebuild/pipeline/settle_memo_keys.py",
     "rebuild/pipeline/shapers.py",
     "rebuild/pipeline/spec_load.py",
     "rebuild/pipeline/table.py",
-    "rebuild/validation/rowmodel.py",
 )
 
 
@@ -52,19 +47,10 @@ def settle_memo_code_paths(repo_root: Path) -> list[Path]:
 
 
 def stamped_data_paths(repo_root: Path) -> list[Path]:
-    """Return the data inputs the settle memo's stamp hashes, each as `fingerprint.data_path_lines` hashes it, so a schema hover or a comment in a data file does not move it. They are `fingerprint.data_paths` without the rune files, which the family keys cover, and without the alias map, the divergence ledger and the kern sidecar, which no settlement reads. The contact allow-list is not in `fingerprint.data_paths`, so it needs no exclusion here."""
+    """Return the data inputs the settle memo's stamp hashes, each as `fingerprint.data_path_lines` hashes it, so a schema hover or a comment in a data file does not move it: `fingerprint.data_paths` without the rune files, which the family keys cover. The contact allow-list, which no settlement reads, is not in `fingerprint.data_paths`."""
     root = Path(repo_root)
     runes = set(fingerprint.rune_paths(root))
-    excluded = {
-        root / "glyph_data" / "senior_quikscript_kerning.yaml",
-        root / "rebuild" / "m1-aliases.yaml",
-        root / "rebuild" / "m1-divergences.yaml",
-    }
-    return [
-        path
-        for path in fingerprint.data_paths(root)
-        if path.is_file() and path not in runes and path not in excluded
-    ]
+    return [path for path in fingerprint.data_paths(root) if path.is_file() and path not in runes]
 
 
 def reach_lines(name: str, digests: Mapping[str, str], closure: Mapping[str, frozenset[str]]) -> list[str]:

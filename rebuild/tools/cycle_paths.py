@@ -33,7 +33,6 @@ FOLD_CLAIM_NAME = "fold-claim.json"
 M1_SUMMARY_FILES = {
     "pipeline": M1_OUT / "pipeline_summary.json",
     "manual_pins": M1_OUT / "manual_pins_summary.json",
-    "oracle": M1_OUT / "oracle_summary.json",
 }
 CONFORM_SUMMARY = M1_OUT / "conform_summary.json"
 

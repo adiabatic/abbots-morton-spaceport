@@ -355,10 +355,10 @@ def test_execution_numbers_follow_concurrent_starts_and_match_logs_and_summary(t
 def test_an_alias_reports_under_the_plan_row_it_stands_for(capsys):
     cycle_console = _cycle_console(aliases={"run_m1:gates-only": "run_m1"})
     cycle_console.step_start("run_m1:gates-only", ["true"], "")
-    cycle_console.child_line("run_m1:gates-only", console.STDOUT, "[warn] oracle cache reused")
+    cycle_console.child_line("run_m1:gates-only", console.STDOUT, "[warn] settle memo reused")
     out = capsys.readouterr().out
     assert "---- step 1  run_m1  step" in out
-    assert _bodies(out, "run_m1") == ["warn oracle cache reused"]
+    assert _bodies(out, "run_m1") == ["warn settle memo reused"]
 
 
 def test_every_surfaced_line_carries_the_step_and_both_clocks(capsys):
@@ -393,9 +393,9 @@ def test_an_unpaired_timing_is_log_only(capsys, tmp_path):
 def test_a_phase_closes_once_and_the_second_timing_is_log_only(capsys):
     cycle_console = _cycle_console()
     cycle_console.step_start("run_m1", ["true"], "")
-    cycle_console.child_line("run_m1", console.STDOUT, "[phase] oracle")
-    cycle_console.child_line("run_m1", console.STDOUT, "[t] oracle 1.0s")
-    cycle_console.child_line("run_m1", console.STDOUT, "[t] oracle 1.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] rule_witnesses")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] rule_witnesses 1.0s")
+    cycle_console.child_line("run_m1", console.STDOUT, "[t] rule_witnesses 1.0s")
     assert len(_bodies(capsys.readouterr().out, "run_m1")) == 2
 
 
@@ -456,7 +456,7 @@ def test_a_counter_stored_under_an_opening_phase_is_dropped_with_it(capsys):
     cycle_console = _cycle_console(clock, heartbeat_seconds=60)
     cycle_console.step_start("run_m1", ["true"], "")
     cycle_console.child_line("run_m1", console.STDOUT, "[progress] 3/6 configurations")
-    cycle_console.child_line("run_m1", console.STDOUT, "[phase] oracle")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] rule_witnesses")
     capsys.readouterr()
     clock.advance(61)
     cycle_console._heartbeat_tick()
@@ -476,10 +476,10 @@ def test_the_closing_line_carries_the_outcome_the_detail_and_the_peak(capsys):
     cycle_console = _cycle_console()
     cycle_console.step_start("run_m1", ["true"], "")
     cycle_console.step_end(
-        "run_m1", _Result(elapsed=1988.0, peak_rss_bytes=19_600_000_000), "ok", "7 unmatched"
+        "run_m1", _Result(elapsed=1988.0, peak_rss_bytes=19_600_000_000), "ok", "pins pass"
     )
     assert _surfaced(capsys.readouterr().out) == [
-        "  run_m1        step  33m08s  cycle    0.0s  ok  7 unmatched  rss 19.6G"
+        "  run_m1        step  33m08s  cycle    0.0s  ok  pins pass  rss 19.6G"
     ]
 
 
@@ -536,14 +536,14 @@ def test_a_substep_logs_and_surfaces_under_its_parent(capsys, tmp_path):
     cycle_console = _cycle_console(log_dir=tmp_path / "run")
     cycle_console.step_start("job-costs", ["true"], "", verbatim=True)
     cycle_console.substep("job-costs", "job-costs-diff")
-    cycle_console.child_line("job-costs-diff", console.STDOUT, "-ORACLE_SHARD_BYTES = 1")
+    cycle_console.child_line("job-costs-diff", console.STDOUT, "-REPLAY_PEAK_BYTES = 1")
     cycle_console.child_line("job-costs-diff", console.STDOUT, "")
     cycle_console.child_line("job-costs-diff", console.STDERR, "[warn] a constant moved")
     out = capsys.readouterr().out
-    assert out.splitlines()[-3:-1] == ["-ORACLE_SHARD_BYTES = 1", ""]
+    assert out.splitlines()[-3:-1] == ["-REPLAY_PEAK_BYTES = 1", ""]
     assert _bodies(out, "job-costs") == ["warn a constant moved"]
     log = (tmp_path / "run" / "01-job-costs.log").read_text().splitlines()
-    assert log == ["-ORACLE_SHARD_BYTES = 1", "", "stderr| [warn] a constant moved"]
+    assert log == ["-REPLAY_PEAK_BYTES = 1", "", "stderr| [warn] a constant moved"]
 
 
 def test_a_substep_that_spawns_after_its_parent_closed_leaves_nothing_open(capsys, tmp_path):
@@ -608,7 +608,7 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
     cycle_console.step_end("run_m1", None, "ok")
     rows = [
         console.SummaryRow(1, "snapshot", "ok", "15,903 units", 0.4),
-        console.SummaryRow(2, "run_m1", "ok", "7 unmatched", 1988.0),
+        console.SummaryRow(2, "run_m1", "ok", "pins pass", 1988.0),
         console.SummaryRow(3, "corpus-build", "skipped", "", None),
     ]
     cycle_console.summary(
@@ -631,16 +631,16 @@ def test_the_summary_shows_each_steps_written_window_and_marks_an_overlapped_one
     cycle_console.summary(
         [
             console.SummaryRow(
-                1, "run_m1", "ok", "7 unmatched", 1988.0, written=31_000_000_000, overlapped=True
+                1, "run_m1", "ok", "pins pass", 1988.0, written=31_000_000_000, overlapped=True
             ),
             console.SummaryRow(2, "gate:js", "ok", "", 3.0, written=512),
             console.SummaryRow(3, "corpus-build", "skipped", "", None),
         ]
     )
     lines = capsys.readouterr().out.splitlines()
-    assert "  #  step          outcome  detail         time  written" in lines
-    assert "  1  run_m1        ok       7 unmatched  33m08s  31.0 GB+" in lines
-    assert "  2  gate:js       ok                      3.0s    512 B" in lines
+    assert "  #  step          outcome  detail       time  written" in lines
+    assert "  1  run_m1        ok       pins pass  33m08s  31.0 GB+" in lines
+    assert "  2  gate:js       ok                    3.0s    512 B" in lines
     assert "  -  corpus-build  skipped" in lines
     assert lines[lines.index("  -  corpus-build  skipped") + 1] == console.WRITTEN_LEGEND
 
@@ -879,11 +879,11 @@ def test_two_phases_open_at_once_close_by_their_own_timing_lines_in_either_order
 def test_a_counter_from_one_branch_carries_its_own_unit_and_is_dropped_when_either_branch_closes_a_phase(
     capsys,
 ):
-    """The packers count `packed configurations` and the oracle counts `shards`, so a surfaced counter's unit shows which branch it came from. A counter stored while two phases are open is dropped when either closes, as `test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it` checks for one phase."""
+    """A counter carries its own unit, `packed configurations` for the packers, so a surfaced counter's unit shows which branch it came from. A counter stored while two phases are open is dropped when either closes, as `test_a_counter_never_surfaces_under_a_phase_that_did_not_count_it` checks for one phase."""
     clock = _Clock()
     cycle_console = _cycle_console(clock, heartbeat_seconds=60)
     cycle_console.step_start("run_m1", ["true"], "")
-    cycle_console.child_line("run_m1", console.STDOUT, "[phase] run_oracle")
+    cycle_console.child_line("run_m1", console.STDOUT, "[phase] run_manual_pin_gate")
     cycle_console.child_line("run_m1", console.STDOUT, "[phase] emitted_order")
     cycle_console.child_line("run_m1", console.STDOUT, "[progress] 3/5 packed configurations")
     capsys.readouterr()

@@ -1,4 +1,4 @@
-"""HarfBuzz shaping for the validation suite. Each Shaper holds one hb.Font, the TTFont glyph order of the same file for full glyph names (HarfBuzz's glyph_to_string truncates names to 63 bytes), and one reused buffer."""
+"""HarfBuzz shaping for the `data-expect` checker and the review corpus. Each Shaper holds one hb.Font, the TTFont glyph order of the same file for full glyph names (HarfBuzz's glyph_to_string truncates names to 63 bytes), and one reused buffer."""
 
 from __future__ import annotations
 
@@ -7,12 +7,6 @@ from pathlib import Path
 
 import uharfbuzz as hb
 from fontTools.ttLib import TTFont
-
-from .classify import JunctionClassifier
-from .rowmodel import Row
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-SENIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
 
 
 @dataclass(frozen=True)
@@ -23,7 +17,7 @@ class ShapeResult:
 
 
 class Shaper:
-    def __init__(self, font_path: Path | str = SENIOR_FONT) -> None:
+    def __init__(self, font_path: Path | str) -> None:
         blob = hb.Blob.from_file_path(str(font_path))
         self._font = hb.Font(hb.Face(blob))
         self._glyph_order = TTFont(str(font_path)).getGlyphOrder()
@@ -73,29 +67,3 @@ def first_glyph_covering(clusters: tuple[int, ...], position: int) -> int:
     while first > 0 and clusters[first - 1] == value:
         first -= 1
     return first
-
-
-def junctions_for(result: ShapeResult, length: int, classifier: JunctionClassifier) -> tuple[str, ...]:
-    junctions: list[str] = []
-    for k in range(length - 1):
-        left = last_glyph_covering(result.clusters, k)
-        right_last = last_glyph_covering(result.clusters, k + 1)
-        if left == right_last:
-            junctions.append("lig")
-            continue
-        right = first_glyph_covering(result.clusters, k + 1)
-        junctions.append(classifier.classify(result.names[left], result.names[right]))
-    return tuple(junctions)
-
-
-def row_for(
-    shaper: Shaper, classifier: JunctionClassifier, text: str, features: dict[str, bool] | None = None
-) -> Row:
-    result = shaper.shape(text, features)
-    return Row(
-        codepoints=tuple(ord(c) for c in text),
-        glyphs=result.names,
-        clusters=result.clusters,
-        junctions=junctions_for(result, len(text), classifier),
-        positions=result.positions,
-    )

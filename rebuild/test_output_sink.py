@@ -154,13 +154,13 @@ def test_the_counts_reach_the_file_only_while_the_cycle_names_one(tmp_path, monk
         "changed_bytes": 9,
         "kept_bytes": 3,
     }
-    output_sink.note_rewritten("divergence-audit.tsv")
-    output_sink.note_rewritten("divergence-audit.tsv")
-    assert counts.read_text().splitlines()[-1] == "rewritten\tdivergence-audit.tsv"
+    output_sink.note_rewritten("settlement-default.tsv")
+    output_sink.note_rewritten("settlement-default.tsv")
+    assert counts.read_text().splitlines()[-1] == "rewritten\tsettlement-default.tsv"
     assert cycle_timings.sum_output_counts(counts) == {
         "files": 2,
         "bytes": 14,
         "changed_bytes": 9,
         "kept_bytes": 3,
-        "rewritten": ["divergence-audit.tsv"],
+        "rewritten": ["settlement-default.tsv"],
     }

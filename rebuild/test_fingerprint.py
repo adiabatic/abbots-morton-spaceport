@@ -1,4 +1,4 @@
-"""Tests for rebuild/pipeline/fingerprint.py: the streamed file digest and the sweep that checks no rebuild/ module hashes a file read whole, the path hashes (content sensitivity, order independence, missing files), the baselines component, the Stage A record, the prose-insensitive rune, ledger, code, lock, and font digests, and the gate closures that hash code raw.
+"""Tests for rebuild/pipeline/fingerprint.py: the streamed file digest and the sweep that checks no rebuild/ module hashes a file read whole, the path hashes (content sensitivity, order independence, missing files), the Stage A record, the prose-insensitive rune, allow-list, code, lock, and font digests, and the gate closures that hash code raw.
 
 `file_sha256` streams a file so that hashing it never holds the whole file in memory. That helps only if every hash in rebuild/ goes through it, so the read-whole sweep checks this in code; a list of callers in a docstring would go stale unnoticed. Modules that cannot import fingerprint copy the streamed read inline, and a test here checks that each copy returns the same value as `file_sha256`.
 """
@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.baseline import model
 from rebuild.pipeline import fingerprint, row_delta
 from rebuild.tools import artifact_cycle
 
@@ -32,28 +31,21 @@ def _fake_repo(tmp_path):
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\n")
     (root / "glyph_data" / "runes" / "qsBay.yaml").write_text("family: qsBay\n")
     (root / "glyph_data" / "punctuation.yaml").write_text("dots: []\n")
-    (root / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n")
     (root / "rebuild" / "script.yaml").write_text("alphabet: []\n")
     (root / "rebuild" / "schema" / "rune.schema.json").write_text("{}\n")
     (root / "rebuild" / "m1-contact-allow.yaml").write_text("[]\n")
-    (root / "rebuild" / "m1-aliases.yaml").write_text("[]\n")
-    (root / "rebuild" / "m1-divergences.yaml").write_text("[]\n")
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 1\n")
     (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 1\n")
-    (root / "rebuild" / "pipeline" / "oracle.py").write_text("ORACLE = 1\n")
-    (root / "rebuild" / "pipeline" / "oracle_positions.py").write_text("POSITIONS = 1\n")
     (root / "rebuild" / "kernel-rs" / "Cargo.toml").write_text("[package]\nname = 'kernel'\n")
     (root / "rebuild" / "kernel-rs" / "Cargo.lock").write_text("lock\n")
     (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = true;\n")
     (root / "rebuild" / "validation").mkdir(parents=True)
-    (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 1\n")
+    (root / "rebuild" / "validation" / "shaping.py").write_text("SHAPER = 1\n")
     (root / "rebuild" / "review" / "build.py").write_text("BUILD = 1\n")
     (root / "rebuild" / "review" / "serve.py").write_text("SERVE = 1\n")
     (root / "rebuild" / "review" / "static" / "app.js").write_text("export const app = 1;\n")
     (root / "tools" / "build_font.py").write_text("BUILD_FONT = 1\n")
     (root / "tools" / "glyph_compiler.py").write_text("GLYPH_COMPILER = 1\n")
-    (root / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"x" * 64)
-    (root / "rebuild" / "out" / "digests.tsv").write_text("default\tabc123\n")
     (root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf").write_bytes(b"senior-font")
     (root / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf").write_bytes(b"junior-font")
     return root
@@ -165,7 +157,6 @@ def test_the_inline_streamed_reads_answer_what_the_helper_does(tmp_path):
     sample.write_bytes(bytes(range(256)) * 4096)
     expected = fingerprint.file_sha256(sample)
     assert artifact_cycle._sha256_path(sample) == expected
-    assert model.font_sha256(sample) == expected
     assert row_delta.file_sha256(sample) == expected
 
 
@@ -188,22 +179,6 @@ def test_hash_paths_skips_missing_files(tmp_path):
     paths = fingerprint.data_paths(root)
     with_ghost = paths + [root / "glyph_data" / "runes" / "qsGhost.yaml"]
     assert fingerprint.hash_paths(root, with_ghost) == fingerprint.hash_paths(root, paths)
-
-
-def test_baselines_value_tracks_size_not_mtime(tmp_path):
-    root = _fake_repo(tmp_path)
-    before = fingerprint.baselines_value(root)
-    (root / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"x" * 64)
-    assert fingerprint.baselines_value(root) == before
-    (root / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"x" * 65)
-    assert fingerprint.baselines_value(root) != before
-
-
-def test_baselines_value_tracks_digests_content(tmp_path):
-    root = _fake_repo(tmp_path)
-    before = fingerprint.baselines_value(root)
-    (root / "rebuild" / "out" / "digests.tsv").write_text("default\tdef456\n")
-    assert fingerprint.baselines_value(root) != before
 
 
 def test_review_code_excludes_the_non_build_modules(tmp_path):
@@ -257,37 +232,6 @@ def test_data_lines_carry_one_label_per_file_and_hash_to_data_value(tmp_path):
     assert fingerprint.data_value(root) == hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
-def test_table_data_lines_drop_exactly_the_comparison_side_inputs(tmp_path):
-    """`table_data_lines` is `data_lines` without the labels in `NON_TABLE_DATA_LABELS`."""
-    root = _fake_repo(tmp_path)
-    labels = {line.split("\t", 1)[0] for line in fingerprint.data_lines(root)}
-    table_labels = {line.split("\t", 1)[0] for line in fingerprint.table_data_lines(root)}
-    assert labels - table_labels == set(fingerprint.NON_TABLE_DATA_LABELS)
-    assert (
-        fingerprint.table_data_value(root)
-        == hashlib.sha256("\n".join(fingerprint.table_data_lines(root)).encode()).hexdigest()
-    )
-
-
-def test_a_comparison_side_data_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """Editing an input in `NON_TABLE_DATA_LABELS` moves `data_value` and the run_m1 skip key but not `tables_value`. The oracle reads the alias map and the divergence ledger to name and classify divergences, and only `oracle_positions.KernEvaluator` reads the kern sidecar (the font compile never opens it), so an enumeration built before the edit still matches its sources and `--gates-only` can re-run the comparison over it. The run_m1 key still moves, so the gates still re-run.
-
-    The edit is structural because the divergence ledger's hash ignores prose, so a comment-only edit to it would move nothing.
-    """
-    root = _fake_repo(tmp_path)
-    assert "glyph_data/senior_quikscript_kerning.yaml" in fingerprint.NON_TABLE_DATA_LABELS
-    for label in fingerprint.NON_TABLE_DATA_LABELS:
-        before = (
-            fingerprint.data_value(root),
-            fingerprint.tables_value(root),
-            artifact_cycle.run_m1_skip_fingerprint(root),
-        )
-        (root / label).write_text("# edited\n- {id: added}\n")
-        assert fingerprint.data_value(root) != before[0]
-        assert fingerprint.tables_value(root) == before[1]
-        assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
-
-
 ALLOW_LIST = textwrap.dedent("""\
     # Reviewed accepted signatures for the off-anchor-contact gate.
     - signature: contact:qsOy.sole.ex-y0:qsIt.sole.en-y0:y1
@@ -305,7 +249,7 @@ def _allow_after(root, text):
 
 
 def test_blessing_a_contact_signature_moves_the_run_key_alone(tmp_path):
-    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without dropping the oracle row cache, whose stamp (`settle_memo_keys.stamped_data_paths`) is built from `data_paths`."""
+    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without moving the settle memo's stamp (`settle_memo_keys.stamped_data_paths`), which is built from `data_paths`."""
     root = _fake_repo(tmp_path)
     before = _allow_after(root, ALLOW_LIST)
     assert root / fingerprint.CONTACT_ALLOW_LABEL not in fingerprint.data_paths(root)
@@ -343,70 +287,6 @@ def test_contact_allow_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
     assert fingerprint.contact_allow_digest(path) not in (parsed, broken_digest)
 
 
-LEDGER = textwrap.dedent("""\
-    # The M1 divergence ledger: one entry per reviewed divergence class.
-    - id: split-by-space-or-zwnj
-      title: "Split by a space or ZWNJ"
-      summary: "A space or ZWNJ ends the word, so each piece draws as it does alone."
-      status: by-design
-      no_verdict: true
-      match: {predicate: boundary_window, configs: all}
-      exemplars:
-        - {config: default, codepoints: "0020:E650", baseline: "space|qsPea", new: "space|qsPea.half"}
-      why: |
-        A window holding a run-splitting boundary never needs its own verdict.
-    - id: join-height-after-zwnj
-      title: "Join height after a ZWNJ"
-      summary: "After a ZWNJ, a letter joins the next one at the height it uses after a space."
-      status: approved
-      match: {predicate: zwnj_word_initial_junction_moved, configs: all}
-      exemplars:
-        - {config: default, codepoints: "E67A:E665", baseline: "qsUtter|qsMay.en-y5", new: "qsUtter|qsMay.en-y0"}
-      note: "No unit reaches this class."
-      why: |
-        The old shadow stance joined at the x-height where word-initial settlement lands at the baseline.
-    """)
-
-
-REWORDED_CLASS = LEDGER.replace("never needs its own verdict", "wants no verdict of its own")
-REWORDED_COPY = (
-    ("title", LEDGER.replace('"Join height after a ZWNJ"', '"Height of the join after a ZWNJ"')),
-    ("summary", LEDGER.replace("so each piece draws", "so every piece draws")),
-    ("note", LEDGER.replace("No unit reaches this class.", "This class reaches no unit.")),
-)
-
-
-def _ledger_digest(path, text):
-    path.write_text(text)
-    return fingerprint.divergence_ledger_digest(path)
-
-
-def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path):
-    """Every ledger field except the prose (`LEDGER_PROSE_KEYS`) moves the digest: changing a class's status, its `no_verdict` flag, or an exemplar, or adding a class. Rewording a `why`, `title`, `summary` or `note`, editing a comment, or reformatting moves nothing. A malformed ledger digests to its raw bytes, so two broken drafts get different values."""
-    path = tmp_path / "m1-divergences.yaml"
-    parsed = _ledger_digest(path, LEDGER)
-    assert fingerprint.LEDGER_PROSE_KEYS == ("why", "title", "summary", "note")
-    assert _ledger_digest(path, REWORDED_CLASS) == parsed
-    for key, reworded in REWORDED_COPY:
-        assert _ledger_digest(path, reworded) == parsed, key
-    assert _ledger_digest(path, LEDGER.replace("# The M1", "# Retitled: the M1")) == parsed
-    reflowed = LEDGER.replace(
-        "match: {predicate: junction_moved, configs: all}",
-        "match:\n    predicate: junction_moved\n    configs: all",
-    )
-    assert _ledger_digest(path, reflowed) == parsed
-    assert _ledger_digest(path, LEDGER.replace("no_verdict: true", "no_verdict: false")) != parsed
-    assert _ledger_digest(path, LEDGER.replace("status: approved", "status: per-unit")) != parsed
-    assert (
-        _ledger_digest(path, LEDGER.replace('new: "space|qsPea.half"', 'new: "space|qsPea.full"')) != parsed
-    )
-    assert _ledger_digest(path, LEDGER + "- id: added\n  status: by-design\n") != parsed
-    broken = "- id: split-by-space-or-zwnj\n  match: {predicate: unclosed\n"
-    broken_digest = _ledger_digest(path, broken)
-    assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
-    assert _ledger_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
-
-
 def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path):
     root = _fake_repo(tmp_path)
     before = fingerprint.tables_value(root)
@@ -432,7 +312,7 @@ KERNED_RUNE = textwrap.dedent("""\
 
 
 def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_path):
-    """A rune's `kern:` block reaches no table, settlement or oracle row, so `rune_file_digest` leaves it out and every key built from it stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_m1 skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The rebuild suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
+    """A rune's `kern:` block reaches no table or settlement, so `rune_file_digest` leaves it out and every key built from it stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_m1 skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The rebuild suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
     root = _fake_repo(tmp_path)
     rune = root / "glyph_data" / "runes" / "qsPea.yaml"
     rune.write_text(KERNED_RUNE)
@@ -518,33 +398,23 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
     assert keys() == edited
 
 
-def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs rebuild/pipeline/ and rebuild/validation/ (less `VALIDATION_UNBUILT_MODULES`), and `COMPARISON_CODE_MODULES` is the only subtraction `table_code_paths` makes, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
+def test_a_comparison_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
+    """Editing rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the gates over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs rebuild/pipeline/ and rebuild/validation/, and `COMPARISON_CODE_MODULES` is the only subtraction `table_code_paths` makes, so each file is checked by path. conform.py and the crate stay in the tables' stamp."""
     root = _fake_repo(tmp_path)
-    for name in ("oracle.py", "oracle_positions.py"):
-        assert root / "rebuild" / "pipeline" / name not in fingerprint.table_code_paths(root)
-        assert root / "rebuild" / "pipeline" / name in fingerprint.pipeline_code_paths(root)
+    shaping = root / "rebuild" / "validation" / "shaping.py"
+    assert shaping not in fingerprint.table_code_paths(root)
+    assert shaping in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "pipeline" / "conform.py" in fingerprint.table_code_paths(root)
-    assert root / "rebuild" / "validation" / "shaping.py" not in fingerprint.table_code_paths(root)
-    assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.table_code_paths(root)
     before = (
         _components(root)["pipeline_code"],
         fingerprint.tables_value(root),
         artifact_cycle.run_m1_skip_fingerprint(root),
     )
-    (root / "rebuild" / "pipeline" / "oracle.py").write_text("ORACLE = 2\n")
+    shaping.write_text("SHAPER = 2\n")
     assert _components(root)["pipeline_code"] != before[0]
     assert fingerprint.tables_value(root) == before[1]
     assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
-    moved_classifier = (
-        _components(root)["pipeline_code"],
-        artifact_cycle.run_m1_skip_fingerprint(root),
-    )
-    (root / "rebuild" / "pipeline" / "oracle_positions.py").write_text("POSITIONS = 2\n")
-    assert _components(root)["pipeline_code"] != moved_classifier[0]
-    assert fingerprint.tables_value(root) == before[1]
-    assert artifact_cycle.run_m1_skip_fingerprint(root) != moved_classifier[1]
     (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 2\n")
     assert fingerprint.tables_value(root) != before[1]
 
@@ -675,45 +545,6 @@ def test_data_value_ignores_every_why_but_not_why_presence(tmp_path):
     assert _data_after(root, PROSE_RUNE.replace(", why: two verticals render thick}", "}")) != before
 
 
-def _ledger_components(root, text):
-    (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text(text)
-    return _components(root)
-
-
-def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_path):
-    """The ledger's `data_lines` entry uses `divergence_ledger_digest`, and the ledger is in `NON_TABLE_DATA_LABELS`. `_data_digest` picks the digest by label, so this also checks that the ledger's path in `data_paths` matches `DIVERGENCE_LEDGER_LABEL`; a mismatch would hash the ledger raw."""
-    root = _fake_repo(tmp_path)
-    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
-    ledger.write_text(LEDGER)
-    digests = dict(line.split("\t", 1) for line in fingerprint.data_lines(root))
-    assert digests[fingerprint.DIVERGENCE_LEDGER_LABEL] == fingerprint.divergence_ledger_digest(ledger)
-    assert fingerprint.DIVERGENCE_LEDGER_LABEL in fingerprint.NON_TABLE_DATA_LABELS
-
-
-def test_wording_a_divergence_class_moves_no_component(tmp_path):
-    """Rewording a class's `why`, `title`, `summary` or `note` moves nothing: `divergence_ledger_digest` leaves the prose out of `data`, so `tables_value` and the run_m1 skip key, which is built from `data_lines`, stay too."""
-    root = _fake_repo(tmp_path)
-    before = _ledger_components(root, LEDGER)
-    before_tables = fingerprint.tables_value(root)
-    before_run = artifact_cycle.run_m1_skip_fingerprint(root)
-    for key, reworded in (("why", REWORDED_CLASS), *REWORDED_COPY):
-        assert _ledger_components(root, reworded) == before, key
-        assert fingerprint.tables_value(root) == before_tables, key
-        assert artifact_cycle.run_m1_skip_fingerprint(root) == before_run, key
-
-
-def test_retriaging_a_divergence_class_moves_the_data_component_and_not_the_tables_stamp(tmp_path):
-    """Flipping `no_verdict` changes which units the corpus asks for a verdict on and which rows the audit counts as adjudicated, so it moves `data` and the run_m1 skip key. The ledger is in `NON_TABLE_DATA_LABELS`, so `tables_value` stays, and the cycle re-runs the comparison over the tables and font on disk."""
-    root = _fake_repo(tmp_path)
-    before = _ledger_components(root, LEDGER)
-    before_tables = fingerprint.tables_value(root)
-    before_run = artifact_cycle.run_m1_skip_fingerprint(root)
-    after = _ledger_components(root, LEDGER.replace("no_verdict: true", "no_verdict: false"))
-    assert after["data"] != before["data"]
-    assert fingerprint.tables_value(root) == before_tables
-    assert artifact_cycle.run_m1_skip_fingerprint(root) != before_run
-
-
 def test_data_value_tracks_semantic_edits(tmp_path):
     root = _fake_repo(tmp_path)
     before = _data_after(root, PROSE_RUNE)
@@ -739,13 +570,10 @@ SCHEMA = textwrap.dedent("""\
       "$defs": {"stance": {"type": "object", "title": "Stance", "description": "One stance.", "minProperties": 0}}
     }
     """)
-KERN = "# Senior kerning.\n---\nleft: [qsPea]\nvalue: -1\n---\nleft: [qsBay]\nvalue: 1\n"
 DATA_FILES = {
     "rebuild/schema/rune.schema.json": SCHEMA,
     "rebuild/script.yaml": "heights: {baseline: 0, x-height: 5}\n",
-    "glyph_data/punctuation.yaml": "glyphs:\n  exclam.prop:\n    y_offset: -1\n",
-    "rebuild/m1-aliases.yaml": "space: boundary\nqsPea: {rune: qsPea, stance: full}\n",
-    "glyph_data/senior_quikscript_kerning.yaml": KERN,
+    "glyph_data/punctuation.yaml": "glyphs:\n  exclam.prop:\n    y_offset: -1\n  colon.prop:\n    y_offset: 0\n",
 }
 
 
@@ -755,7 +583,7 @@ def _write_data(root, files):
 
 
 def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
-    """Rewording a schema's `title` or `description` wherever a schema sits (the root, under `properties`, inside `anyOf`, under `$defs`), or the comments and formatting of a YAML data input, leaves `data_value`, `tables_value` and the run_m1 skip key unchanged. The kern sidecar holds one document per rule, so this also checks that it parses as a stream and does not fall back to its bytes. Dropping the annotations is sound only while the shared adapter declares them as annotations and the standard validator's keyword dispatch does not evaluate them."""
+    """Rewording a schema's `title` or `description` wherever a schema sits (the root, under `properties`, inside `anyOf`, under `$defs`), or the comments and formatting of a YAML data input, leaves `data_value`, `tables_value` and the run_m1 skip key unchanged. Dropping the annotations is sound only while the shared adapter declares them as annotations and the standard validator's keyword dispatch does not evaluate them."""
     from rebuild.pipeline import spec_load
 
     annotations = set(fingerprint.SCHEMA_ANNOTATIONS)
@@ -785,11 +613,7 @@ def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
             .replace('"title": "Stance"', '"title": "A stance"')
             .replace('"minItems": 1', '"minItems":   1'),
             "rebuild/script.yaml": "# Registries only.\nheights: {baseline: 0,   x-height: 5}  # in pixels\n",
-            "glyph_data/punctuation.yaml": "glyphs:\n  exclam.prop:  # ! U+0021\n    y_offset: -1\n",
-            "rebuild/m1-aliases.yaml": "# Hand-written.\nspace: boundary\n\nqsPea:\n  rune: qsPea\n  stance: full\n",
-            "glyph_data/senior_quikscript_kerning.yaml": KERN.replace(
-                "---\nleft: [qsBay]", "# The second rule.\n---\nleft: [qsBay]"
-            ),
+            "glyph_data/punctuation.yaml": "# Hand-written.\nglyphs:\n  exclam.prop:  # ! U+0021\n    y_offset: -1\n\n  colon.prop: {y_offset: 0}\n",
         },
     )
     assert (
@@ -810,21 +634,16 @@ def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
             '"minProperties": 0, "type": "object", "title": "Stance", "description": "One stance."',
         ),
         ("rebuild/script.yaml", "x-height: 5", "x-height: 4"),
+        ("glyph_data/punctuation.yaml", "y_offset: -1", "y_offset: -2"),
         (
-            "rebuild/m1-aliases.yaml",
-            "space: boundary\nqsPea: {rune: qsPea, stance: full}\n",
-            "qsPea: {rune: qsPea, stance: full}\nspace: boundary\n",
-        ),
-        ("glyph_data/senior_quikscript_kerning.yaml", "value: -1", "value: -2"),
-        (
-            "glyph_data/senior_quikscript_kerning.yaml",
-            "left: [qsPea]\nvalue: -1\n---\nleft: [qsBay]\nvalue: 1",
-            "left: [qsBay]\nvalue: 1\n---\nleft: [qsPea]\nvalue: -1",
+            "glyph_data/punctuation.yaml",
+            "  exclam.prop:\n    y_offset: -1\n  colon.prop:\n    y_offset: 0\n",
+            "  colon.prop:\n    y_offset: 0\n  exclam.prop:\n    y_offset: -1\n",
         ),
     ],
 )
 def test_a_keyword_a_value_or_an_order_moves_the_data_value(tmp_path, label, old, new):
-    """The data projections drop annotations, comments and formatting and nothing else: a changed or renamed schema keyword, a changed YAML value, and a reorder of keys or of the kern sidecar's documents each move `data_value`. Order is kept because no reader has been shown not to depend on it."""
+    """The data projections drop annotations, comments and formatting and nothing else: a changed or renamed schema keyword, a changed YAML value, and a reorder of keys each move `data_value`. Order is kept because no reader has been shown not to depend on it."""
     root = _fake_repo(tmp_path)
     _write_data(root, DATA_FILES)
     before = fingerprint.data_value(root)
@@ -1347,7 +1166,7 @@ def test_a_units_per_em_edit_moves_the_font_content_digest_through_the_cff_font_
 
 
 def test_font_content_digest_falls_back_to_the_raw_bytes_for_a_file_that_is_no_sfnt(tmp_path):
-    """A fake font, an empty file, and a truncated real font each digest to their raw bytes instead of raising or sharing a value. rebuild/test_baseline_subset.py's fake site font depends on this."""
+    """A fake font, an empty file, and a truncated real font each digest to their raw bytes instead of raising or sharing a value."""
     fake = tmp_path / "fake.otf"
     fake.write_bytes(b"not really an otf")
     empty = tmp_path / "empty.otf"

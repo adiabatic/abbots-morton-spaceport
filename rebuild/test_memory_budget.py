@@ -9,12 +9,10 @@ Three constants here are recorded measurements, kept as literals so that re-meas
 Nothing here reads a live build artifact. The audit guard in `rebuild/conftest.py` fails any contracts test that reads `rebuild/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
 """
 
-import argparse
 import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 
@@ -86,25 +84,6 @@ def _loaded_conftest(pytestconfig: pytest.Config, path: Path) -> ModuleType:
     plugin = pytestconfig.pluginmanager.get_plugin(str(path))
     assert isinstance(plugin, ModuleType), f"pytest has not loaded {path} as a plugin"
     return plugin
-
-
-class _ParserBuilt(Exception):
-    """Raised by the spy in `_parser_built_by` to stop a tool's `main` as soon as its parser is complete, before it does any work."""
-
-
-def _parser_built_by(main: Callable[[list[str]], object]) -> argparse.ArgumentParser:
-    """Return the parser a tool's `main` builds, by running `main` until it calls `parse_args`. The test reads the parser the tool ships, not a copy assembled here. This is used instead of hoisting a `build_parser()` out of the two tools it serves, because both files are hashed into build stamps: `rebuild/pipeline/run_m1_gates.py` is in `fingerprint.pipeline_code_paths` and `rebuild/review/build.py` in `fingerprint.review_code_paths`. A one-line hoist in either would make a stamped artifact stale and force its rebuild, and would prove nothing more about the default than reading it here does. Tools whose files no stamp covers expose a `build_parser()` instead."""
-    captured: list[argparse.ArgumentParser] = []
-
-    def spy(parser: argparse.ArgumentParser, args=None, namespace=None) -> None:
-        captured.append(parser)
-        raise _ParserBuilt
-
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(argparse.ArgumentParser, "parse_args", spy)
-        with pytest.raises(_ParserBuilt):
-            main([])
-    return captured[-1]
 
 
 class TestTheWidthsAlreadyOnRecord:
@@ -209,44 +188,6 @@ class TestWhatDashNAutoResolvesTo:
         monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", width)
         monkeypatch.setattr(memory_budget, "usable_cores", lambda: pytest.fail("override probed cores"))
         assert root_hook.pytest_xdist_auto_num_workers(pytestconfig) == max(1, int(width))
-
-
-class TestTheHandRunDefaults:
-    """The widths a hand run gets when it names none, each asserted against the function that derives it and never against a number, because the answer depends on the machine. A merge or refactor that drops a `default=` would put a width back to a serial 1 with no test failing and no visible regression until someone timed a hand run. The autouse fixture clears the memory and xdist overrides, so both sides of each equality are computed from the same machine inside the test."""
-
-    def test_the_extraction_fans_out_to_the_width_its_own_module_resolved(self):
-        """`SHARD_WORKERS_DEFAULT` is resolved once at import. The first equality checks that the CLI passes that constant through instead of a literal; the second checks that the constant still equals `usable_cores()`, which catches a revert to a checked-in width that the first equality would miss, since both of its sides change together. `_shard_workers_default`'s docstring says why this width is a core count and not a memory division."""
-        from rebuild.baseline import cli, extract
-
-        parsed = cli.build_parser().parse_args(["extract", "--all"])
-        assert parsed.workers == extract.SHARD_WORKERS_DEFAULT == memory_budget.usable_cores()
-
-    def test_the_shard_width_narrows_inside_a_cpu_quota_the_way_every_width_here_does(self):
-        """The shard width is `usable_cores`, so it narrows inside a cgroup CPU quota. `_shard_workers_default` takes the filesystem root to read the quota under, so the test points it at the checked-in sample trees instead of a container."""
-        from rebuild.baseline import extract
-
-        host = os.process_cpu_count() or os.cpu_count() or 1
-        assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v2") == min(host, 2)
-        assert extract._shard_workers_default(cgroup_root=SAMPLES / "container-v1") == min(host, 2)
-        assert extract._shard_workers_default(cgroup_root=SAMPLES / "no-such-machine") == host
-
-    def test_the_m1_driver_sweeps_at_the_budget_the_artifact_cycle_would_pass(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """run_m1's `--jobs` is the width of the post-build sweeps. A run that names none takes `sweep_job_budget()`, the width the artifact cycle passes, so a hand run splits the oracle's tables into row ranges at the cycle's width. That width is the cores clamped by the memory division over `ORACLE_SHARD_BYTES`, after the settle-memo absorbs' excess over it (`ORACLE_ABSORB_BYTES`), with nothing subtracted for a co-resident pool. The parser's default is None, because `--conform-only` resolves an unstated width to the conformance sweep's budget (`conform_job_budget`) instead, so the test reads the width where `main` passes it to `run_gates_only`. The conformance sweep's budget is patched to differ from the oracle's, because on a machine where the two are equal a run given the conformance sweep's default would pass unnoticed. `--gates-only` with `--conform-only` still takes the oracle's width, because the gates-only branch runs first and runs no conformance sweep."""
-        import rebuild.tools.artifact_cycle as ac
-        from rebuild.pipeline import run_m1_gates
-
-        assert _parser_built_by(run_m1_gates.main).parse_args([]).jobs is None
-        sweep = ac.sweep_job_budget()
-        monkeypatch.setattr(ac, "conform_job_budget", lambda **_: sweep + 1)
-        handed: list[int] = []
-        monkeypatch.setattr(
-            run_m1_gates, "run_gates_only", lambda *, out_dir, jobs, fresh_cache: handed.append(jobs)
-        )
-        run_m1_gates.main(["--gates-only"])
-        run_m1_gates.main(["--gates-only", "--conform-only"])
-        assert handed == [sweep, sweep]
 
 
 class TestTheFloorAtOne:

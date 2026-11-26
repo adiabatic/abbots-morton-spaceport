@@ -66,13 +66,10 @@ def _land_ok(report, *, spawn, emit, registry, plan):
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     """Make this module see the live review corpus and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever corpus and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
-    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The land, the build-lane step that needs a real store beside it, is stubbed as the other build-lane stages are in each test; a test of it sets the real function back (`REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
+    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The land, the build-lane step that needs a real store beside it, is stubbed as the other build-lane stages are in each test; a test of it sets the real function back (`REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
-    from rebuild.pipeline import fingerprint
 
     real_sweep_lines = ac.deep_sweep_skip_lines
-    real_baselines = fingerprint.baselines_value
-    real_subsets = ac._subset_tables
     real_sha = ac._sha256_path
     real_contracts_closure = ac.contracts_closure
     monkeypatch.setattr(
@@ -97,18 +94,8 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         ac,
-        "_subset_tables",
-        lambda root: [] if root == REPO_ROOT else real_subsets(root),
-    )
-    monkeypatch.setattr(
-        ac,
         "deep_sweep_skip_lines",
         lambda root=ac.ROOT: None if root == ac.ROOT else real_sweep_lines(root),
-    )
-    monkeypatch.setattr(
-        fingerprint,
-        "baselines_value",
-        lambda root: "contracts-lane" if root == REPO_ROOT else real_baselines(root),
     )
     real_imports = ac.tables_imports_digest
     monkeypatch.setattr(
@@ -142,7 +129,6 @@ def _pass_summaries():
     return {
         "pipeline": {"defect_errors": []},
         "manual_pins": {"pass": True, "disagreements": [], "pins_in_scope": 143, "replayed": 143},
-        "oracle": {"unmatched": 8423, "multi_matched": 0},
     }
 
 
@@ -153,7 +139,7 @@ def _write_pass_summaries(files):
 
 def test_gate_passes_on_clean_summaries():
     s = _pass_summaries()
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"])
     assert result.check == "run_m1"
     assert result.outcome == "green"
     assert result.status == "green"
@@ -165,7 +151,7 @@ def test_gate_passes_on_clean_summaries():
 def test_gate_fails_on_defect_errors():
     s = _pass_summaries()
     s["pipeline"]["defect_errors"] = ["E-ANCHOR convention:foo: bad"]
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"])
     assert not result.ok
     assert result.outcome == "red"
     assert result.status == "FAILED"
@@ -176,7 +162,7 @@ def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
     """A Manual-pin summary with nothing in scope has `pass` true, because `pass` is `not disagreements`. The gate uses run_m1_gates's `manual_pin_gate_failure`, which also checks the scope, so the gate fails."""
     s = _pass_summaries()
     s["manual_pins"] = {"pass": True, "disagreements": [], "pins_in_scope": 0, "replayed": 0}
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"])
     assert not result.ok
     assert any("no pins in scope" in reason for reason in result.failures)
 
@@ -184,32 +170,9 @@ def test_gate_fails_on_a_manual_pin_gate_with_nothing_in_scope():
 def test_gate_fails_on_manual_pins():
     s = _pass_summaries()
     s["manual_pins"] = {"pass": False, "disagreements": ["one", "two"]}
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
+    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"])
     assert not result.ok
     assert any("Manual-pin" in reason for reason in result.failures)
-
-
-def test_gate_fails_on_multi_matched():
-    s = _pass_summaries()
-    s["oracle"] = {"unmatched": 8423, "multi_matched": 2}
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not result.ok
-    assert any("multi_matched" in reason for reason in result.failures)
-
-
-def test_gate_unmatched_alone_is_not_a_failure():
-    s = _pass_summaries()
-    s["oracle"] = {"unmatched": 999999, "multi_matched": 0}
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert result.ok
-
-
-def test_the_gate_carries_no_oracle_counts():
-    """The result carries the outcome only. Callers read the oracle counts from the oracle summary they already hold."""
-    s = _pass_summaries()
-    result = ac.evaluate_run_m1_gate(s["pipeline"], s["manual_pins"], s["oracle"])
-    assert not hasattr(result, "unmatched")
-    assert not hasattr(result, "multi_matched")
 
 
 def test_conform_gate_passes_on_clean_summary():
@@ -235,7 +198,7 @@ def test_conform_gate_fails_on_missing_summary():
 
 
 def test_conform_gate_names_no_failed_ids():
-    """A divergence names a window, not a test, so the result lists no failed ids. The audit written beside the summary lists the windows."""
+    """A divergence names a window, not a test, so the result lists no failed ids. The summary's exemplars name the first of the windows."""
     assert ac.evaluate_conform_gate({"divergences": 3, "pass": False}).failed_ids == []
     assert ac.evaluate_conform_gate(None).failed_ids == []
 
@@ -545,11 +508,11 @@ def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
 
 
 def test_a_fresh_pass_has_run_m1_build_its_tables_with_the_crate():
-    """Under `--fresh`, run_m1's build argv ends with `--fresh-tables` beside `--fresh-oracle-cache`, so the pass runs the crate's table build where the table-reuse record would let it re-stamp the tables on disk; a build planned without `--fresh` carries neither."""
+    """Under `--fresh`, run_m1's build argv ends with `--fresh-tables`, so the pass runs the crate's table build where the table-reuse record would let it re-stamp the tables on disk; a build planned without `--fresh` does not carry it."""
     fresh = {step.name: step for step in _plan(fresh=True).steps}["run_m1"].argv
     built = {step.name: step for step in _plan().steps}["run_m1"].argv
-    assert fresh is not None and fresh[-2:] == ["--fresh-oracle-cache", "--fresh-tables"]
-    assert built is not None and "--fresh-tables" not in built and "--fresh-oracle-cache" not in built
+    assert fresh is not None and fresh[-1] == "--fresh-tables"
+    assert built is not None and "--fresh-tables" not in built
 
 
 def test_the_plan_block_leads_with_its_arithmetic_and_puts_the_paths_after_the_rows():
@@ -634,7 +597,7 @@ def _step(name="x", rc=0, stdout="", stderr=""):
 
 
 def _run_m1_green():
-    """Return the result `_do_run_m1` returns for a passing build. A stubbed stage returns this and sets the oracle counts on the report itself, as the real stage does."""
+    """Return the result `_do_run_m1` returns for a passing build. A stubbed stage returns this and sets the pin result on the report itself, as the real stage does."""
     return ct.CheckResult(check="run_m1", outcome="green", status="green", failures=[], failed_ids=[])
 
 
@@ -666,8 +629,6 @@ def _conform_result(status="green", failures=()):
 
 
 def _pass_run_m1(report, *, spawn, emit, registry, **_):
-    report.unmatched = 1
-    report.multi_matched = 0
     report.pins_pass = True
     return _run_m1_green()
 
@@ -1053,8 +1014,6 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     ev_contracts = threading.Event()
 
     def fake_run_m1(report, *, spawn, emit, registry, **_):
-        report.unmatched = 7777
-        report.multi_matched = 0
         report.pins_pass = True
         return _run_m1_green()
 
@@ -1104,7 +1063,6 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.corpus_units == 15903
     assert report.corpus_rows == 81894
     assert report.corpus_batches == 16
-    assert report.unmatched == 7777
     assert report.gate_js == "green"
     assert report.gate_make_test == "green"
     assert report.gate_contracts == "green (annotated)"
@@ -1177,7 +1135,6 @@ def test_the_gates_only_rerun_banners_under_the_plans_run_m1_row(tmp_path, capsy
     log_dir = tmp_path / "logs"
     registry = ac._ChildRegistry()
     report = ac.CycleReport()
-    report.unmatched = 12
     report.pins_pass = True
     with console.CycleConsole(
         steps=[step.name for step in plan.steps], log_dir=log_dir, aliases=ac.STEP_ALIASES
@@ -1193,7 +1150,7 @@ def test_the_gates_only_rerun_banners_under_the_plans_run_m1_row(tmp_path, capsy
     out = capsys.readouterr().out
     assert "step 1  run_m1  step" in out
     assert ac.RUN_M1_GATES_ONLY_STEP not in out
-    assert "ok  12 unmatched, pins pass" in out
+    assert "ok  pins pass" in out
     assert (log_dir / "01-run_m1.log").read_text() == "rerunning the gates\n"
 
 
@@ -1716,68 +1673,10 @@ def test_a_step_environment_is_an_overlay_and_not_a_replacement():
     assert "AMS_PROBE_WIDTH" not in os.environ
 
 
-def test_sweep_job_budget_is_the_cores_under_the_oracle_shards_memory_clamp():
-    """The oracle's unit is a row range, so its width is the usable cores unless the machine's memory divided by `ORACLE_SHARD_BYTES` gives fewer. The test checks both bounds over stated machines: a large one where the cores limit the width, and a small one where the division does and the floor at one applies."""
-    from rebuild.tools import memory_budget
-
-    roomy = 1_000_000_000_000
-    assert ac.sweep_job_budget(12, total_bytes=roomy) == 12
-    assert ac.sweep_job_budget(3, total_bytes=roomy) == 3
-    assert ac.sweep_job_budget(1, total_bytes=roomy) == 1
-    reserve = memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GIB)
-    fits = (MACHINE_32_GIB - reserve - ac._oracle_absorb_excess_bytes()) // ac.ORACLE_SHARD_BYTES
-    assert 1 < fits < 64
-    assert ac.sweep_job_budget(64, total_bytes=MACHINE_32_GIB) == fits
-    assert ac.sweep_job_budget(64, total_bytes=ac.ORACLE_SHARD_BYTES) == 1
-    assert f"at {format_gb(ac.ORACLE_SHARD_BYTES)} GB each" in ac.sweep_job_derivation(
-        64, total_bytes=MACHINE_32_GIB
-    )
-    assert "capped at 64" in ac.sweep_job_derivation(64, total_bytes=roomy)
-
-
-def test_the_oracle_width_prices_one_absorb_per_settlement_configuration(monkeypatch):
-    """The settle-memo absorbs run on the oracle's pool, each in a range's slot once its configuration's ranges have landed, one per settlement configuration the oracle compares, and as many as all of them can run at once whatever the width, so the width takes their excess over the range slots they run in off the machine's memory before it divides by `ORACLE_SHARD_BYTES`, and nothing when an absorb fits in a range's slot. An M1-only configuration gets no absorb, because the oracle never compares it."""
-    from rebuild.pipeline.conform import M1_ONLY_CONFIGS, SETTLEMENT_CONFIGS
-    from rebuild.tools import memory_budget
-
-    monkeypatch.setattr(ac, "ORACLE_ABSORB_BYTES", ac.ORACLE_SHARD_BYTES)
-    assert ac._oracle_absorb_excess_bytes() == 0
-    monkeypatch.setattr(ac, "ORACLE_ABSORB_BYTES", ac.ORACLE_SHARD_BYTES + 1_000_000_000)
-    excess = len([config for config in SETTLEMENT_CONFIGS if config not in M1_ONLY_CONFIGS]) * 1_000_000_000
-    assert ac._oracle_absorb_excess_bytes() == excess
-    reserve = memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GIB)
-    fits = (MACHINE_32_GIB - reserve - excess) // ac.ORACLE_SHARD_BYTES
-    assert ac.sweep_job_budget(64, total_bytes=MACHINE_32_GIB) == fits
-    assert f"less {format_gb(excess)} GB co-resident" in ac.sweep_job_derivation(
-        64, total_bytes=MACHINE_32_GIB
-    )
-
-
-def test_both_fleet_machines_run_the_oracle_at_the_cores():
-    """On both fleet machines (`doc/fleet.md`) the oracle runs at the cores: the eighteen-core 48 GiB machine at eighteen and the twelve-core one at twelve, with the division never limiting the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked. A change to `ORACLE_SHARD_BYTES` that narrows either machine below its cores, or puts it at the edge of the division, fails here. The suite does not catch a constant that is too low: only the oracle-shard row of `make job-costs` (the cycle's job-costs step) compares it with the workers that ran."""
-    from rebuild.tools import memory_budget
-
-    for ncores in (18, 12):
-        assert ac.sweep_job_budget(ncores, total_bytes=MACHINE_48_GIB) == ncores
-        assert ac.sweep_job_derivation(ncores, total_bytes=MACHINE_48_GIB).startswith(f"{ncores} at ")
-        assert (
-            memory_budget.how_many_fit(
-                ac.ORACLE_SHARD_BYTES,
-                coresident_bytes=ac._oracle_absorb_excess_bytes(),
-                total_bytes=MACHINE_48_GIB,
-            )
-            > ncores
-        )
-
-
-def test_the_plan_prints_the_sweep_width_with_its_derivation():
+def test_the_plan_passes_a_width_to_the_conformance_sweep_and_none_to_run_m1():
     plan = _plan(ncores=10, total_bytes=MACHINE_48_GIB)
-    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB) == 10
-    text = _plan_text(plan)
-    assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}  (the oracle's row-range workers, " in text
-    assert ac.sweep_job_derivation(10, total_bytes=MACHINE_48_GIB) in text
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
+    assert "--jobs" not in _argv(by_name["run_m1"])
     assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
 
 
@@ -1928,14 +1827,12 @@ class TestTheConformSweepWidth:
         assert ac.conform_job_budget(**dict(narrow, total_bytes=15_000_000_000)) < configs
 
     def test_a_conform_sweep_width_of_one_is_stated_on_the_argv(self, monkeypatch):
-        """A machine where the pooled conformance sweep does not fit beside the corpus build floors at one, the serial conformance sweep, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget. The oracle's width is a separate budget and stays above one."""
+        """A machine where the pooled conformance sweep does not fit beside the corpus build floors at one, the serial conformance sweep, and the argv states that width like any other; without it run_m1 would use its own default, a width this plan did not budget."""
         monkeypatch.setattr(ac, "CONFORM_SWEEP_UNIT_BYTES", 10**12)
         plan = _plan(ncores=12)
         by_name = {step.name: step for step in plan.steps}
         assert plan.conform_jobs == 1
         assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", "1"]
-        assert plan.sweep_jobs > 1
-        assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_conform_sweep_width_with_its_derivation(self):
         """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the corpus build when it runs, plus gate:make-test's pool under the overlap policy. For a pass whose corpus build does not run, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep."""
@@ -2007,7 +1904,7 @@ def test_the_land_holds_less_than_the_build_lane_step_before_it():
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep and gate:make-test budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below `len(ACCEPTANCE_CONFIGS)`, so the oracle and the conformance sweep return the allowance, and a gated cycle gives gate:make-test the gate lane's share of it (`memory_budget.split_cores`). Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
+    """A CPU quota is invisible to `os.cpu_count()`, so the conformance-sweep and gate:make-test budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below `len(ACCEPTANCE_CONFIGS)`, so the conformance sweep returns the allowance, and a gated cycle gives gate:make-test the gate lane's share of it (`memory_budget.split_cores`). Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2018,10 +1915,12 @@ def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_
     monkeypatch.setattr(memory_budget, "usable_cores", functools.partial(probe, root))
     _build_lane, gate_lane = memory_budget.split_cores(allowed)
     assert allowed == min(host, 2) < len(ACCEPTANCE_CONFIGS)
-    assert ac.sweep_job_budget(total_bytes=1_000_000_000_000) == allowed
     assert ac.make_test_pool_width() == gate_lane
     assert ac.conform_job_budget(skip_gates=True, skip_corpus=True, total_bytes=1_000_000_000_000) == allowed
-    assert ac.sweep_job_budget(12, total_bytes=1_000_000_000_000) == 12
+    assert (
+        ac.conform_job_budget(skip_gates=True, skip_corpus=True, ncores=12, total_bytes=1_000_000_000_000)
+        == 12
+    )
 
 
 def test_make_test_pool_width_is_the_gate_lanes_share_of_the_cores():
@@ -2042,7 +1941,7 @@ def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_r
     for shape in ({}, {"skip_run_m1": True}, {"skip_corpus": True}):
         plan = _plan(**machine, **shape)
         assert (plan.make_test_workers, plan.gates_queue) == (9, False)
-    assert "Lane make-test                   : starts when run_m1's three JSONs pass" in _plan_text(
+    assert "Lane make-test                   : starts when run_m1's two JSONs pass" in _plan_text(
         _plan(**machine)
     )
     assert "; -n 9 (the gate lane's 9 of 18 cores" in _plan_text(_plan(**machine))
@@ -2266,7 +2165,7 @@ def test_dry_run_renders_concurrency():
     text = _plan_text(plan)
     assert "pool policy: overlap" in text
     assert "Lane t0   [from t=0, background]  : gate:js\n" in text
-    assert "Lane make-test                   : starts when run_m1's three JSONs pass" in text
+    assert "Lane make-test                   : starts when run_m1's two JSONs pass" in text
     assert "Lane build" in text
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
@@ -2282,8 +2181,6 @@ def test_dry_run_renders_concurrency():
     assert "pool policy: queue" in queued
     assert "QUEUED behind gate:make-test (queue policy — one heavy pool at a time)" in queued
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in queued
-    assert f"run_m1 sweeps --jobs             : {plan.sweep_jobs}" in text
-    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=MACHINE_44_GB)
     assert "run_m1 --kernel-threads          : " in text
     assert (
         f"run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling" in text
@@ -2300,32 +2197,13 @@ def test_dry_run_renders_concurrency():
     assert "corpus-build --jobs" not in text
 
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
-
-
-def test_dry_run_skip_gates_appends_jobs_budgets():
-    plan = ac.build_plan(
-        skip_gates=True,
-        first_run=False,
-        short_id="abc1234",
-        ncores=12,
-        total_bytes=MACHINE_44_GB,
-    )
-    by_name = {step.name: step for step in plan.steps}
-    assert plan.sweep_jobs == ac.sweep_job_budget(12, total_bytes=MACHINE_44_GB)
-    assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
-    assert f"run_m1 sweeps --jobs {plan.sweep_jobs}" in _plan_text(plan)
-
-    default_plan = ac.build_plan(
-        skip_gates=False,
-        first_run=False,
-        short_id="abc1234",
-        ncores=12,
-        total_bytes=MACHINE_44_GB,
-    )
-    default_by_name = {step.name: step for step in default_plan.steps}
-    assert _argv(default_by_name["run_m1"])[5:7] == ["--jobs", str(default_plan.sweep_jobs)]
-    assert default_plan.sweep_jobs == plan.sweep_jobs
+    assert _argv(by_name["run_m1"])[1:6] == [
+        "run",
+        "python",
+        "-m",
+        "rebuild.pipeline.run_m1",
+        "--kernel-threads",
+    ]
 
 
 def test_review_out_staging_plan(monkeypatch, tmp_path):
@@ -2492,7 +2370,6 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "kernel_threads": plan.kernel_threads,
         "scratch_beside_default": plan.scratch_beside_default,
         "replay_threads": plan.replay_threads,
-        "sweep_jobs": plan.sweep_jobs,
         "make_test_workers": plan.make_test_workers,
         "contracts_workers": plan.contracts_workers,
         "conform_jobs": plan.conform_jobs,
@@ -2550,9 +2427,8 @@ def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_w
 
 
 def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_skips():
-    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1. The gates-only rerun still runs the oracle at the sweep width, so that width stays."""
+    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1."""
     widths = (
-        "sweep_jobs",
         "make_test_workers",
         "contracts_workers",
         "conform_jobs",
@@ -2583,10 +2459,6 @@ def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_
     proved = _green_report()
     proved.conform_proven = True
     assert ac.cycle_summary_payload(proved, [], _plan(), "ok")["plan"]["conform_jobs"] is None
-    rerun = _plan(rerun_gates_only=True)
-    assert (
-        ac.cycle_summary_payload(_green_report(), [], rerun, "ok")["plan"]["sweep_jobs"] == rerun.sweep_jobs
-    )
 
 
 def test_write_cycle_summary_reads_module_attr_at_call_time(monkeypatch, tmp_path):
@@ -2774,14 +2646,14 @@ def test_make_test_exempt_classification():
 
 
 def test_make_tests_rebuild_files_are_the_pin_checker_the_root_conftest_imports():
-    """`MAKE_TEST_REBUILD_FILES` is the font suite's pin checker: the root conftest's import closure under rebuild/validation/ and the module that names the fonts it checks. A rebuild/validation module the conftest reaches that the list misses could change what the suite asserts while its key holds; a module it does not reach, the old-font replay among them, stays exempt."""
+    """`MAKE_TEST_REBUILD_FILES` is the font suite's pin checker: the root conftest's import closure under rebuild/validation/ and the module that names the fonts it checks. A rebuild/validation module the conftest reaches that the list misses could change what the suite asserts while its key holds; a rebuild module it does not reach stays exempt."""
     closure = ac.contracts.ImportGraph(REPO_ROOT).closure("conftest.py")
     checker = {rel for rel in closure if rel.startswith("rebuild/validation/")} | {
         "rebuild/tools/suite_fonts.py"
     }
     assert set(ac.MAKE_TEST_REBUILD_FILES) == checker
     assert "rebuild/tools/suite_fonts.py" in closure
-    assert ac.make_test_exempt("rebuild/validation/pins.py")
+    assert ac.make_test_exempt("rebuild/pipeline/settle.py")
 
 
 def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(tmp_path, monkeypatch):
@@ -2793,7 +2665,7 @@ def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(
     files = {
         "rebuild/pipeline/build_family.py": "from rebuild.pipeline import surface\n",
         "rebuild/pipeline/surface.py": "SURFACE = 1\n",
-        "rebuild/pipeline/oracle.py": "ORACLE = 1\n",
+        "rebuild/pipeline/settle.py": "SETTLE = 1\n",
         "rebuild/tools/build_fonts.py": "BUILD_FONTS = 1\n",
         "rebuild/script.yaml": "heights: {baseline: 0}\n",
         "glyph_data/runes/qsMay.yaml": "rune: qsMay\n",
@@ -2817,7 +2689,7 @@ def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(
         "junior_code rebuild/tools/build_fonts.py",
     }
     assert "junior_data glyph_data/runes/qsMay.yaml" in base
-    (root / "rebuild/pipeline/oracle.py").write_text("ORACLE = 2\n")
+    (root / "rebuild/pipeline/settle.py").write_text("SETTLE = 2\n")
     assert lines() == base
     (root / "rebuild/pipeline/surface.py").write_text("SURFACE = 2\n")
     moved = lines()
@@ -3426,7 +3298,7 @@ def test_green_record_roundtrip(tmp_path):
     assert ac.read_green_record(path) is None
 
 
-def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
+def test_run_m1_skip_fingerprint_moves_with_runes_the_lock_and_the_crate(tmp_path):
     (tmp_path / "glyph_data" / "runes").mkdir(parents=True)
     (tmp_path / "rebuild" / "out" / "m1").mkdir(parents=True)
     (tmp_path / "rebuild" / "kernel-rs" / "src").mkdir(parents=True)
@@ -3438,12 +3310,9 @@ def test_run_m1_skip_fingerprint_moves_with_runes_and_subsets(tmp_path):
     (tmp_path / "glyph_data" / "runes" / "qsX.yaml").write_text("a: 2\n")
     second = ac.run_m1_skip_fingerprint(tmp_path)
     assert second != first
-    (tmp_path / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
-    third = ac.run_m1_skip_fingerprint(tmp_path)
-    assert third != second
     (tmp_path / "uv.lock").write_text("lock-2")
     fourth = ac.run_m1_skip_fingerprint(tmp_path)
-    assert fourth != third
+    assert fourth != second
     (tmp_path / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("guard-2\n")
     assert ac.run_m1_skip_fingerprint(tmp_path) != fourth
 
@@ -3466,7 +3335,7 @@ def test_conform_skip_fingerprint_includes_max_length_and_the_behavior_classes(t
 
 
 def _fake_run_m1_root(tmp_path):
-    """Build a repo skeleton with one file of each kind the run_m1 skip key reads: each data input, the contact allow-list, the baselines and their subsets, the table-side and comparison-side pipeline code, the crate, and uv.lock. It also writes a behavior-class sidecar, the compile code and M1.otf for the conform key. The files are real so the tests see the labels the real readers produce."""
+    """Build a repo skeleton with one file of each kind the run_m1 skip key reads: each data input, the contact allow-list, the table-side and comparison-side pipeline code, the crate, and uv.lock. It also writes a behavior-class sidecar, the compile code and M1.otf for the conform key. The files are real so the tests see the labels the real readers produce."""
     for rel in (
         "glyph_data/runes",
         "rebuild/schema",
@@ -3488,14 +3357,8 @@ def _fake_run_m1_root(tmp_path):
         ("rebuild/script.yaml", "script: 1\n"),
         ("glyph_data/punctuation.yaml", "punctuation: 1\n"),
         ("glyph_data/latin_letters.yaml", "glyphs: {a: {bitmap: ['#']}}\n"),
-        ("rebuild/m1-aliases.yaml", "qsX: X\n"),
-        (
-            "rebuild/m1-divergences.yaml",
-            "- id: x\n  status: by-design\n  title: X\n  summary: One.\n  why: one\n",
-        ),
-        ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: junction-1\n  why: blessed once\n"),
-        ("rebuild/pipeline/oracle.py", "verdict = 1\n"),
+        ("rebuild/pipeline/manual_pins.py", "pins = 1\n"),
         ("rebuild/pipeline/settle.py", "settle = 1\n"),
         ("rebuild/validation/shaper.py", "shape = 1\n"),
         ("rebuild/kernel-rs/Cargo.toml", "[package]\n"),
@@ -3504,8 +3367,6 @@ def _fake_run_m1_root(tmp_path):
         ("uv.lock", "lock-1\n"),
     ):
         (tmp_path / rel).write_text(text)
-    (tmp_path / "rebuild" / "out" / "baseline-default.tsv.gz").write_bytes(b"rows")
-    (tmp_path / "rebuild" / "out" / "m1" / "baseline-default.subset.tsv.gz").write_bytes(b"rows")
     (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(b"OTTO")
     return tmp_path
 
@@ -3514,18 +3375,13 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
     """`comparison_side_label` decides which inputs may change while a cycle reuses the enumeration and font on disk, so a label wrongly on it would let a pass rerun the gates against artifacts that no longer match their sources. uv.lock is left off although the tables' stamp does not cover it, because it pins fontTools and uharfbuzz, and a bump there can change the font the rerun would rely on."""
     from rebuild.pipeline import fingerprint
 
-    for label in fingerprint.NON_TABLE_DATA_LABELS:
-        assert ac.comparison_side_label(label)
     assert ac.comparison_side_label(fingerprint.CONTACT_ALLOW_LABEL)
-    assert ac.comparison_side_label("baselines")
-    assert ac.comparison_side_label("baseline-default.subset.tsv.gz")
     assert all(ac.comparison_side_label(label) for label in fingerprint.COMPARISON_CODE_MODULES)
     assert not ac.comparison_side_label("uv.lock")
     assert not ac.comparison_side_label("glyph_data/runes/qsPea.yaml")
     assert not ac.comparison_side_label("rebuild/script.yaml")
     assert not ac.comparison_side_label("rebuild/pipeline/settle.py")
     assert not ac.comparison_side_label("rebuild/kernel-rs/src/lib.rs")
-    assert not ac.comparison_side_label("baseline-default.tsv.gz")
 
 
 def test_every_run_m1_label_is_stamped_the_toolchain_kern_or_comparison_side(tmp_path):
@@ -3533,7 +3389,7 @@ def test_every_run_m1_label_is_stamped_the_toolchain_kern_or_comparison_side(tmp
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
-    stamped = {line.split("\t", 1)[0] for line in fingerprint.table_data_lines(root)}
+    stamped = {line.split("\t", 1)[0] for line in fingerprint.data_lines(root)}
     stamped |= {
         line.split("\t", 1)[0] for line in fingerprint.path_lines(root, fingerprint.table_code_paths(root))
     }
@@ -3577,39 +3433,14 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
     assert ac.run_m1_skip_fingerprint(root) != before
 
 
-def test_the_divergence_ledger_line_ignores_prose(tmp_path):
-    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why`, `title` or `summary` must not, because no classifier reads them, so a reword costs no gates-only rerun."""
-    from rebuild.pipeline import fingerprint
-
-    root = _fake_run_m1_root(tmp_path)
-    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
-    before = ac.run_m1_skip_fingerprint(root)
-    ledger.write_text(
-        "# a header nobody classifies by\n- id: x\n  status: by-design\n  title: X, retitled\n  summary: One, said again.\n  why: one, at greater length\n"
-    )
-    assert ac.run_m1_skip_fingerprint(root) == before
-    ledger.write_text(
-        "- id: x\n  status: approved\n  title: X, retitled\n  summary: One, said again.\n  why: one, at greater length\n"
-    )
-    assert ac.run_m1_skip_fingerprint(root) != before
-
-
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
-    """The run_m1 key and the conform key cover different inputs. The conformance sweep shapes the compiled font and re-settles the windows beside it. It reads no ledger, allow-list, kern sidecar, baseline or oracle code, so editing any of those changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the maximum length each change it."""
+    """The run_m1 key and the conform key cover different inputs. The conformance sweep shapes the compiled font and re-settles the windows beside it. It reads no allow-list or Manual-pin code, so editing either changes the run_m1 key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_m1 covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the maximum length each change it."""
     root = _fake_run_m1_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_m1_skip_fingerprint(root)
     for rel, text in (
-        (
-            "rebuild/m1-divergences.yaml",
-            "- id: y\n  status: by-design\n  title: X\n  summary: One.\n  why: one\n",
-        ),
-        ("rebuild/m1-aliases.yaml", "qsX: Y\n"),
-        ("glyph_data/senior_quikscript_kerning.yaml", "pairs: {qsX_qsY: -1}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: junction-2\n"),
-        ("rebuild/pipeline/oracle.py", "verdict = 2\n"),
-        ("rebuild/out/baseline-default.tsv.gz", "many more baseline rows\n"),
-        ("rebuild/out/m1/baseline-default.subset.tsv.gz", "many more subset rows\n"),
+        ("rebuild/pipeline/manual_pins.py", "pins = 2\n"),
         ("glyph_data/runes/qsX.yaml", "rune: qsX\nstances: {}\n"),
         ("rebuild/pipeline/settle.py", "settle = 2\n"),
         ("rebuild/kernel-rs/src/lib.rs", "fn settle() { loop {} }\n"),
@@ -3645,9 +3476,9 @@ def test_gates_only_rerun_licenses_only_a_diff_the_tables_stamp_cannot_see():
     """`gates_only_rerun` returns None in three cases, each meaning no gates-only rerun is planned: there is no usable green record, nothing moved (the plain skip handles that), or a build-side input moved and the tables must be rebuilt. The test also checks `moved_input_labels`, because the annotated labels the note prints, such as `name (changed)`, would match no `comparison_side_label` entry, and the rerun would silently never be planned."""
     stored = {
         "glyph_data/runes/qsX.yaml": "r1",
-        "rebuild/m1-divergences.yaml": "d1",
-        "rebuild/pipeline/oracle.py": "o1",
-        "rebuild/pipeline/oracle_positions.py": "p1",
+        "rebuild/m1-contact-allow.yaml": "c1",
+        "rebuild/pipeline/manual_pins.py": "m1",
+        "rebuild/validation/expect.py": "e1",
         "uv.lock": "l1",
     }
     record = {"files": dict(stored)}
@@ -3655,27 +3486,24 @@ def test_gates_only_rerun_licenses_only_a_diff_the_tables_stamp_cannot_see():
     assert ac.gates_only_rerun(None, dict(stored)) is None
     assert ac.gates_only_rerun({"fingerprint": "fp"}, dict(stored)) is None
 
-    ledger = {**stored, "rebuild/m1-divergences.yaml": "d2", "rebuild/pipeline/oracle.py": "o2"}
-    assert ac.gates_only_rerun(record, ledger) == [
-        "rebuild/m1-divergences.yaml",
-        "rebuild/pipeline/oracle.py",
+    blessed = {**stored, "rebuild/m1-contact-allow.yaml": "c2", "rebuild/pipeline/manual_pins.py": "m2"}
+    assert ac.gates_only_rerun(record, blessed) == [
+        "rebuild/m1-contact-allow.yaml",
+        "rebuild/pipeline/manual_pins.py",
     ]
-    assert ac.moved_input_labels(record, ledger) == [
-        "rebuild/m1-divergences.yaml",
-        "rebuild/pipeline/oracle.py",
+    assert ac.moved_input_labels(record, blessed) == [
+        "rebuild/m1-contact-allow.yaml",
+        "rebuild/pipeline/manual_pins.py",
     ]
-    assert ac.moved_inputs_note(record, ledger) == (
-        "rebuild/m1-divergences.yaml (changed), rebuild/pipeline/oracle.py (changed)"
+    assert ac.moved_inputs_note(record, blessed) == (
+        "rebuild/m1-contact-allow.yaml (changed), rebuild/pipeline/manual_pins.py (changed)"
     )
-    assert ac.gates_only_rerun(record, {**stored, "rebuild/pipeline/oracle_positions.py": "p2"}) == [
-        "rebuild/pipeline/oracle_positions.py"
+    assert ac.gates_only_rerun(record, {**stored, "rebuild/validation/expect.py": "e2"}) == [
+        "rebuild/validation/expect.py"
     ]
 
-    assert ac.gates_only_rerun(record, {**stored, "baseline-default.subset.tsv.gz": "s1"}) == [
-        "baseline-default.subset.tsv.gz"
-    ]
-    dropped = {name: value for name, value in stored.items() if name != "rebuild/m1-divergences.yaml"}
-    assert ac.gates_only_rerun(record, dropped) == ["rebuild/m1-divergences.yaml"]
+    dropped = {name: value for name, value in stored.items() if name != "rebuild/m1-contact-allow.yaml"}
+    assert ac.gates_only_rerun(record, dropped) == ["rebuild/m1-contact-allow.yaml"]
 
     assert ac.gates_only_rerun(record, {**stored, "uv.lock": "l2"}) is None
     assert ac.gates_only_rerun(record, {**stored, "glyph_data/runes/qsX.yaml": "r2"}) is None
@@ -3868,7 +3696,7 @@ def test_moved_inputs_note_names_changed_new_and_gone():
 
 
 def test_m1_artifacts_present(tmp_path):
-    """The plain skip's predicate needs every gate summary, every artifact the corpus build reads, the kern inventory, which only a build writes, and every settlement configuration's windows head and head file, so a missing gate summary alone fails it, and so does a missing inventory, and so does a missing head, the audit's among them, which names the audit's parts: a single audit file of a tree from before the segment format is not enough. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
+    """The plain skip's predicate needs every gate summary, every artifact the corpus build reads, the kern inventory, which only a build writes, and every settlement configuration's windows head and head file, so a missing gate summary alone fails it, and so does a missing inventory, and so does a missing head. A gates-only rerun is planned on `m1_gates_only_base_present` instead."""
     from rebuild.pipeline import conform
 
     m1 = tmp_path / "rebuild" / "out" / "m1"
@@ -3880,23 +3708,19 @@ def test_m1_artifacts_present(tmp_path):
     ]
     assert len(ac.m1_table_head_names()) == 2 * len(conform.SETTLEMENT_CONFIGS)
     assert "windows-default.tsv.gz.head" in names and "windows-default.head.json.gz" in names
-    assert "divergence-audit.tsv.head" in names and "divergence-audit.tsv" not in names
     assert not ac.m1_artifacts_present(tmp_path)
     for name in names:
         (m1 / name).write_text("{}")
     assert ac.m1_artifacts_present(tmp_path)
-    (m1 / "oracle_summary.json").unlink()
+    (m1 / "manual_pins_summary.json").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
-    (m1 / "oracle_summary.json").write_text("{}")
+    (m1 / "manual_pins_summary.json").write_text("{}")
     (m1 / "M1.otf").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
     (m1 / "M1.otf").write_text("{}")
     (m1 / "kern-inventory.json").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
     (m1 / "kern-inventory.json").write_text("{}")
-    (m1 / "divergence-audit.tsv.head").rename(m1 / "divergence-audit.tsv")
-    assert not ac.m1_artifacts_present(tmp_path)
-    (m1 / "divergence-audit.tsv").rename(m1 / "divergence-audit.tsv.head")
     (m1 / "windows-ss04.tsv.gz.head").unlink()
     assert not ac.m1_artifacts_present(tmp_path)
 
@@ -3964,25 +3788,6 @@ def test_contracts_fingerprint_ignores_prose_in_runes(tmp_path):
     rune.write_text("rune: qsX\nductus:\n  sole: |\n    A different stroke.\n")
     assert ac.contracts_fingerprint(tmp_path) == before
     rune.write_text("rune: qsY\nductus:\n  sole: |\n    A different stroke.\n")
-    assert ac.contracts_fingerprint(tmp_path) != before
-
-
-def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
-    """The closure includes the divergence ledger with a prose-insensitive hash like a rune's. Tests across the suite read class ids and fields from the divergence ledger, never a `why`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class still changes the key."""
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "rebuild").mkdir()
-    ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
-    ledger.write_text("- id: junction-moved\n  status: by-design\n  no_verdict: true\n  why: one\n")
-    before = ac.contracts_fingerprint(tmp_path)
-
-    ledger.write_text(
-        "# a header nobody classifies by\n- id: junction-moved\n  status: by-design\n  no_verdict: true\n  why: two, at greater length\n"
-    )
-    assert ac.contracts_fingerprint(tmp_path) == before
-
-    ledger.write_text(
-        "- id: junction-moved\n  status: by-design\n  no_verdict: false\n  why: two, at greater length\n"
-    )
     assert ac.contracts_fingerprint(tmp_path) != before
 
 
@@ -4306,34 +4111,6 @@ def test_a_refuse_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_pa
     assert _upstream_keys(root) == upstream
 
 
-def test_a_ledger_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_path):
-    """The table-diff corpus reads nothing of the divergence ledger, and the oracle reads none of a class's `why`, `title` and `summary`, so rewording them leaves the corpus skippable and the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
-    from rebuild.pipeline import fingerprint
-
-    root = _fake_run_m1_root(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".gitignore").write_text("rebuild/out/\n")
-    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
-    corpus = _stamped_corpus(root)
-    assert ac.corpus_build_skippable(root, corpus)
-    upstream = _upstream_keys(root)
-    assert all(value is not None for value in upstream.values())
-
-    ledger.write_text(
-        "- id: x\n  status: by-design\n  title: X, retitled\n  summary: One, said again.\n  why: one, said at greater length\n"
-    )
-    assert ac.corpus_build_skippable(root, corpus)
-    assert _upstream_keys(root) == upstream
-
-    ledger.write_text(
-        "- id: x\n  status: approved\n  title: X, retitled\n  summary: One, said again.\n  why: one, said at greater length\n"
-    )
-    reclassified = _upstream_keys(root)
-    assert reclassified["run_m1"] != upstream["run_m1"]
-    assert reclassified["stage_a"] != upstream["stage_a"]
-    assert reclassified["contracts"] != upstream["contracts"]
-
-
 def test_dry_run_plan_skip_run_m1_and_corpus_lands_nothing():
     """A pass with nothing to rebuild skips run_m1 and the corpus build, lands nothing, and still runs the gates its records do not answer for."""
     plan = _plan(
@@ -4536,17 +4313,17 @@ def test_main_forces_the_rebuild_suite_under_fresh(tmp_path, monkeypatch, capsys
 
 
 def _full_build_step(out: str):
-    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. `--jobs` appears before `--kernel-threads` only when the sweep width is above one, the count of deltas started beside `default` and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-oracle-cache --fresh-tables` appears only under `--fresh`."""
+    """Return the match for the rendered run_m1 step of a plan that builds, so the negative cases can show a build was planned instead of the gates-only argv. The count of deltas started beside `default` and then `--replay-threads` always follow `--kernel-threads`, and `--fresh-tables` appears only under `--fresh`."""
     return re.search(
         r"^ +\$ uv run python -m rebuild\.pipeline\.run_m1"
-        r"( --jobs \d+)? --kernel-threads \d+ --scratch-beside-default \d+"
-        r" --replay-threads \d+( --fresh-oracle-cache --fresh-tables)?$",
+        r" --kernel-threads \d+ --scratch-beside-default \d+"
+        r" --replay-threads \d+( --fresh-tables)?$",
         _step_lines(out, "run_m1"),
         re.MULTILINE,
     )
 
 
-def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.yaml"):
+def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml"):
     """Set up a repo whose last green M1 build differs from the current inputs only in `moved`, with the build a gates-only rerun reads on disk (`m1_gates_only_base_present`). The tests that use it each change one of these conditions and read the chosen mode from the plan."""
     _unsettled_repo(tmp_path, monkeypatch)
     ac.record_green(cycle_paths.RUN_M1_GREEN, "green-key", files={moved: "before", "uv.lock": "lock-1"})
@@ -4555,12 +4332,12 @@ def _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-divergences.
 
 
 def test_main_reruns_the_gates_when_only_comparison_side_inputs_moved(tmp_path, monkeypatch, capsys):
-    """When only a ledger changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration's stamp still matches the runes, and `run_m1 --gates-only` re-runs the gates over the tables and font on disk. The rerun rests on the prior green, since a failed run never vouches for the artifacts it left, and the stamp is only a necessary condition for the tables and M1.otf on disk to be the green build's (`run_m1_gates.run_gates_only` names the gaps). The fixture's root has no rebuild/out/m1, so every file the rerun only writes is missing (manual_pins_summary.json, oracle_summary.json, the audit and the Stage A record), a superset of what a red rerun leaves missing, and the plan rests only on what the rerun reads (`m1_gates_only_base_present`). No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
+    """When only the contact allow-list changed, the pass re-runs the gates instead of rebuilding. The tables' stamp does not cover the changed file, so the enumeration's stamp still matches the runes, and `run_m1 --gates-only` re-runs the gates over the tables and font on disk. The rerun rests on the prior green, since a failed run never vouches for the artifacts it left, and the stamp is only a necessary condition for the tables and M1.otf on disk to be the green build's (`run_m1_gates.run_gates_only` names the gaps). The fixture's root has no rebuild/out/m1, so every file the rerun only writes is missing (manual_pins_summary.json and the Stage A record), a superset of what a red rerun leaves missing, and the plan rests only on what the rerun reads (`m1_gates_only_base_present`). No `--kernel-threads` or `--replay-threads` is passed, because this mode enumerates and replays nothing."""
     _comparison_side_drift(tmp_path, monkeypatch)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     row = _step_lines(out, "run_m1")
-    assert "rebuild/m1-divergences.yaml" in row
+    assert "rebuild/m1-contact-allow.yaml" in row
     assert re.search(
         r"^ +run +run_m1 +only comparison-side inputs moved[^\n]*the tables and font are reused[^\n]*\n"
         r" +\$ uv run python -m rebuild\.pipeline\.run_m1 --gates-only",
@@ -4587,8 +4364,8 @@ def test_a_plan_that_skips_run_m1_never_also_reruns_its_gates():
 def test_main_skips_the_corpus_on_a_gates_only_rerun_only_when_stage_a_already_stands(
     tmp_path, monkeypatch, capsys
 ):
-    """On a gates-only rerun the corpus build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass writes back is the one already on disk and the corpus cannot change. A divergence-ledger edit moves Stage A's data component, so the record on disk is stale until the pass writes it back. The skip can trust the record because a run writes it only once its gates pass, after deleting the old one before it rewrites anything."""
-    _comparison_side_drift(tmp_path, monkeypatch, moved="rebuild/m1-contact-allow.yaml")
+    """On a gates-only rerun the corpus build is skipped only when `m1_stage_a_current` says the Stage A record on disk matches the live sources. A contact allow-list edit is outside every Stage A component, so the record the gates-only pass writes back is the one already on disk and the corpus cannot change. The skip can trust the record because a run writes it only once its gates pass, after deleting the old one before it rewrites anything."""
+    _comparison_side_drift(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: True)
     assert ac.main(["--dry-run"]) == 0
@@ -4614,21 +4391,14 @@ def test_main_rebuilds_m1_and_the_corpus_when_the_stage_a_record_does_not_stand(
     ac.record_green(cycle_paths.RUN_M1_GREEN, "key")
     monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {})
     monkeypatch.setattr(ac, "corpus_build_skippable", lambda root=None: True)
-    monkeypatch.setattr(
-        fingerprint, "stage_a", lambda root: {"data": "d", "baselines": "b", "pipeline_code": "p"}
-    )
+    monkeypatch.setattr(fingerprint, "stage_a", lambda root: {"data": "d", "pipeline_code": "p"})
     m1 = tmp_path / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True, exist_ok=True)
-    for name in [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + [
-        "M1.otf",
-        "divergence-audit.tsv",
-    ]:
+    for name in [path.name for path in cycle_paths.M1_SUMMARY_FILES.values()] + ["M1.otf"]:
         (m1 / name).write_text("{}")
     if record == "outgrown":
         (m1 / fingerprint.STAGE_A_FILENAME).write_text(
-            json.dumps(
-                {"format": fingerprint.FORMAT, "data": "edited", "baselines": "b", "pipeline_code": "p"}
-            )
+            json.dumps({"format": fingerprint.FORMAT, "data": "edited", "pipeline_code": "p"})
         )
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
@@ -4641,17 +4411,13 @@ def test_m1_stage_a_current_compares_the_record_against_the_live_sources(tmp_pat
 
     out = tmp_path / "rebuild" / "out" / "m1"
     out.mkdir(parents=True)
-    monkeypatch.setattr(
-        fingerprint, "stage_a", lambda root: {"data": "d", "baselines": "b", "pipeline_code": "p"}
-    )
+    monkeypatch.setattr(fingerprint, "stage_a", lambda root: {"data": "d", "pipeline_code": "p"})
     assert ac.m1_stage_a_current(tmp_path) is False
     (out / fingerprint.STAGE_A_FILENAME).write_text(
-        json.dumps({"format": fingerprint.FORMAT, "data": "d", "baselines": "b", "pipeline_code": "p"})
+        json.dumps({"format": fingerprint.FORMAT, "data": "d", "pipeline_code": "p"})
     )
     assert ac.m1_stage_a_current(tmp_path) is True
-    monkeypatch.setattr(
-        fingerprint, "stage_a", lambda root: {"data": "moved", "baselines": "b", "pipeline_code": "p"}
-    )
+    monkeypatch.setattr(fingerprint, "stage_a", lambda root: {"data": "moved", "pipeline_code": "p"})
     assert ac.m1_stage_a_current(tmp_path) is False
 
 
@@ -4661,7 +4427,7 @@ def test_main_rebuilds_when_run_m1_gates_only_would_refuse_the_build_on_disk(tmp
     monkeypatch.setattr(ac, "m1_gates_only_base_present", lambda: False)
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
-    assert "inputs moved since its last green: rebuild/m1-divergences.yaml (changed)" in _step_lines(
+    assert "inputs moved since its last green: rebuild/m1-contact-allow.yaml (changed)" in _step_lines(
         out, "run_m1"
     )
     assert _full_build_step(out) is not None
@@ -4681,7 +4447,7 @@ def test_main_rebuilds_when_anything_build_side_moved(tmp_path, monkeypatch, cap
 def test_main_plans_a_kern_only_rebuild_only_over_a_stage_a_record_that_stands(
     tmp_path, monkeypatch, capsys, stage_a
 ):
-    """Only a kern line moved since the last green, and the build a gates-only rerun reads is on disk. A kern-only rebuild keeps the Manual-pin and oracle summaries and the audit it finds, so it is planned only when the Stage A record matches the sources, which shows a passing run over these inputs wrote them. After a gates-only rerun that went red at the oracle (its ledger edit since reverted), the summaries on disk are that red run's and the record is gone; after a gates-only pass whose green and record were declined, the audit may describe other sources. Either way the pass rebuilds, instead of re-evaluating a stale red summary on every later pass until `--fresh`."""
+    """Only a kern line moved since the last green, and the build a gates-only rerun reads is on disk. A kern-only rebuild keeps the Manual-pin summary it finds, so it is planned only when the Stage A record matches the sources, which shows a passing run over these inputs wrote it. After a gates-only rerun that went red at the pin gate (its edit since reverted), the summaries on disk are that red run's and the record is gone; after a gates-only pass whose green and record were declined, the summary may describe other sources. Either way the pass rebuilds, instead of re-evaluating a stale red summary on every later pass until `--fresh`."""
     _comparison_side_drift(tmp_path, monkeypatch, moved="glyph_data/runes/qsNo.yaml#kern")
     monkeypatch.setattr(ac, "m1_stage_a_current", lambda root=None: stage_a == "current")
     assert ac.main(["--dry-run"]) == 0
@@ -4797,7 +4563,6 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
     files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
-    files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     ac.record_green(green, "fp-live")
@@ -4821,7 +4586,7 @@ def test_do_run_m1_skip_reads_recorded_summaries(monkeypatch, tmp_path):
         fingerprint="fp-live",
     )
     assert gate is not None and gate.ok
-    assert report.unmatched == 7
+    assert report.pins_pass
     assert files["pipeline"].exists()
     assert green.read_bytes() == original
 
@@ -4833,12 +4598,11 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d1"})
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-contact-allow.yaml": "d1"})
 
     def write_summaries(*a, **k):
         files["pipeline"].write_text(json.dumps({"defect_errors": []}))
         files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
-        files["oracle"].write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
         return _step("run_m1", 0)
 
     report = ac.CycleReport()
@@ -4871,15 +4635,15 @@ def test_do_run_m1_records_green_only_when_fingerprint_stable(monkeypatch, tmp_p
 
 
 def test_do_run_m1_gates_only_spares_the_summary_that_pass_rewrites(monkeypatch, tmp_path):
-    """On a gates-only rerun the pass keeps pipeline_summary.json and clears the other two summaries. `--gates-only` rewrites that summary's defect fields in place and exits without one, so clearing it would break the pass. The two gate summaries are the child's own output and are cleared as on a full build, so a child that dies mid-pass cannot leave the last pass's results to be read as this one's. After the spawn the rerun follows the full build's path, including the green record."""
+    """On a gates-only rerun the pass keeps pipeline_summary.json and clears the Manual-pin summary. `--gates-only` rewrites that summary's defect fields in place and exits without one, so clearing it would break the pass. The Manual-pin summary is the child's own output and is cleared as on a full build, so a child that dies mid-pass cannot leave the last pass's results to be read as this one's. After the spawn the rerun follows the full build's path, including the green record."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-contact-allow.yaml": "d2"})
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
-    ac.record_green(green, "fp-prior", files={"rebuild/m1-divergences.yaml": "d1"})
+    ac.record_green(green, "fp-prior", files={"rebuild/m1-contact-allow.yaml": "d1"})
     for path in files.values():
         path.write_text(json.dumps({"stale": True}))
     files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4212}))
@@ -4890,7 +4654,6 @@ def test_do_run_m1_gates_only_spares_the_summary_that_pass_rewrites(monkeypatch,
         spawned.append(name)
         survivors.extend(sorted(key for key, path in files.items() if path.exists()))
         files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
-        files["oracle"].write_text(json.dumps({"unmatched": 3, "multi_matched": 0}))
         return _step("run_m1", 0)
 
     report = ac.CycleReport()
@@ -4907,16 +4670,16 @@ def test_do_run_m1_gates_only_spares_the_summary_that_pass_rewrites(monkeypatch,
     assert survivors == ["pipeline"]
     assert spawned == [ac.RUN_M1_GATES_ONLY_STEP] != ["run_m1"]
     assert gate is not None and gate.ok
-    assert report.unmatched == 3
+    assert report.pins_pass
     assert json.loads(files["pipeline"].read_text())["gsub_rule_count"] == 4212
     record = ac.read_green_record(green)
     assert record is not None
     assert record["fingerprint"] == "fp-live"
-    assert record["files"] == {"rebuild/m1-divergences.yaml": "d2"}
+    assert record["files"] == {"rebuild/m1-contact-allow.yaml": "d2"}
 
 
 def _kern_only_world(monkeypatch, tmp_path):
-    """A rebuild/out/m1 under `tmp_path` holding a passing build's three summaries, a green over the prior kern line, and the live key and files with that kern line moved; the tables' stamp and the Stage A record match. Returns the summary paths and the green record's path."""
+    """A rebuild/out/m1 under `tmp_path` holding a passing build's two summaries, a green over the prior kern line, and the live key and files with that kern line moved; the tables' stamp and the Stage A record match. Returns the summary paths and the green record's path."""
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
@@ -4928,7 +4691,6 @@ def _kern_only_world(monkeypatch, tmp_path):
     ac.record_green(green, "fp-prior", files={"glyph_data/runes/qsNo.yaml#kern": "k1"})
     files["pipeline"].write_text(json.dumps({"defect_errors": [], "gsub_rule_count": 4211}))
     files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
-    files["oracle"].write_text(json.dumps({"unmatched": 3, "multi_matched": 0}))
     return files, green
 
 
@@ -4947,7 +4709,7 @@ def _run_kern_only_child(spawn):
 
 
 def test_do_run_m1_kern_only_deletes_no_summary_and_records_the_green_its_child_earns(monkeypatch, tmp_path):
-    """A kern-only child publishes its pipeline_summary.json only once read-back has passed (`run_m1._publish_kern_only`), so the pass deletes no summary before the spawn, and the Manual-pin and oracle summaries stand. It spawns as `RUN_M1_KERN_ONLY_STEP`, and its green is recorded when only kern lines moved since the prior green."""
+    """A kern-only child publishes its pipeline_summary.json only once read-back has passed (`run_m1._publish_kern_only`), so the pass deletes no summary before the spawn, and the Manual-pin summary stands. It spawns as `RUN_M1_KERN_ONLY_STEP`, and its green is recorded when only kern lines moved since the prior green."""
     files, green = _kern_only_world(monkeypatch, tmp_path)
     survivors: list[str] = []
     spawned: list[str] = []
@@ -4959,7 +4721,7 @@ def test_do_run_m1_kern_only_deletes_no_summary_and_records_the_green_its_child_
         return _step("run_m1", 0)
 
     gate = _run_kern_only_child(kern_only)
-    assert survivors == ["manual_pins", "oracle", "pipeline"]
+    assert survivors == ["manual_pins", "pipeline"]
     assert spawned == [ac.RUN_M1_KERN_ONLY_STEP]
     assert gate is not None and gate.ok
     record = ac.read_green_record(green)
@@ -5079,7 +4841,6 @@ def test_do_run_m1_red_deletes_matching_green(monkeypatch, tmp_path):
     def write_red(*a, **k):
         files["pipeline"].write_text(json.dumps({"defect_errors": ["boom"]}))
         files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
-        files["oracle"].write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
         return _step("run_m1", 0)
 
     report = ac.CycleReport()
@@ -5122,10 +4883,10 @@ def test_do_run_m1_nonzero_exit_overrides_passing_summaries(monkeypatch, tmp_pat
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: "fp-live")
-    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-contact-allow.yaml": "d2"})
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
     key = "fp-unrelated" if prior == "unrelated" else "fp-live"
-    ac.record_green(green, key, files={"rebuild/m1-divergences.yaml": "d1"})
+    ac.record_green(green, key, files={"rebuild/m1-contact-allow.yaml": "d1"})
     original = green.read_bytes()
     _write_pass_summaries(files)
     timings = CycleTimings(tmp_path / "timings.ndjson")
@@ -5168,9 +4929,9 @@ def test_do_run_m1_missing_summaries_clear_only_matching_green(monkeypatch, tmp_
     files["pipeline"].write_text(json.dumps({"defect_errors": ["E-CONTACT stale"]}))
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
-    ac.record_green(green, key, files={"rebuild/m1-divergences.yaml": "d1"})
+    ac.record_green(green, key, files={"rebuild/m1-contact-allow.yaml": "d1"})
     original = green.read_bytes()
-    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-divergences.yaml": "d2"})
+    monkeypatch.setattr(ac, "run_m1_skip_files", lambda root=None: {"rebuild/m1-contact-allow.yaml": "d2"})
     monkeypatch.setattr(ac, "m1_tables_stamped", lambda: True)
     monkeypatch.setattr(ac, "run_m1_skip_fingerprint", lambda root=None: pytest.fail("red recomputed inputs"))
 
@@ -5214,8 +4975,8 @@ def test_do_run_m1_gates_only_records_only_an_eligible_stable_rerun(monkeypatch,
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     green = tmp_path / "run-m1-green.json"
     monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", green)
-    prior_files = {"rebuild/m1-divergences.yaml": "d1", "glyph_data/runes/qsPea.yaml": "r1"}
-    current = {**prior_files, "rebuild/m1-divergences.yaml": "d2"}
+    prior_files = {"rebuild/m1-contact-allow.yaml": "d1", "glyph_data/runes/qsPea.yaml": "r1"}
+    current = {**prior_files, "rebuild/m1-contact-allow.yaml": "d2"}
     if condition == "build-side":
         current["glyph_data/runes/qsPea.yaml"] = "r2"
     elif condition == "unchanged":
@@ -5402,9 +5163,9 @@ def test_the_summary_says_what_the_pass_wrote_and_when_it_went_over_its_ceiling(
         "  write ceiling    : OVER, 9.0 GB against the full-replay class's 5.0 GB (make cycle-timings ARGS='--writes')",
     ]
     rewritten = {**own, "outputs": {"files": 1, "bytes": 9, "changed_bytes": 9, "kept_bytes": 0}}
-    rewritten["outputs"]["rewritten"] = ["divergence-audit.tsv"]
+    rewritten["outputs"]["rewritten"] = ["settlement-default.tsv"]
     assert ac.written_lines(PassWrites(rewritten, "narrowed", None))[1:] == [
-        "  rewritten whole: divergence-audit.tsv"
+        "  rewritten whole: settlement-default.tsv"
     ]
     assert ac.written_lines(PassWrites(None, "nothing", None)) == [
         "  written          : not measured (the write meter's first or last reading failed; see the [warn] line)"
@@ -5425,7 +5186,6 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
     """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a corpus build whose child died. The informational job-costs step is the exception: it gates nothing and reports its failure in its own detail."""
     plan = _plan()
     report = ac.CycleReport()
-    report.unmatched = 5
     report.pins_pass = False
     report.run_m1_failed = True
     report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
@@ -5434,13 +5194,13 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].outcome == "FAILED"
-    assert rows["run_m1"].detail == "5 unmatched, PINS FAILED"
+    assert rows["run_m1"].detail == "PINS FAILED"
     assert rows["corpus-build"].outcome == "FAILED"
     assert rows["job-costs"].outcome == "ok"
 
 
 def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path):
-    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the corpus build opens a manifest), so the closing line is written by the stage that reads them."""
+    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads two summaries, the corpus build opens a manifest), so the closing line is written by the stage that reads them."""
     corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
@@ -5456,7 +5216,7 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
     assert ac._run_cycle(plan, report, cycle_console, ac._ChildRegistry(), spawn=spawn) == 0
 
     closing = [line for line in capsys.readouterr().out.splitlines() if "  cycle " in line]
-    assert any(line.endswith("ok  8,423 unmatched, pins pass  rss 19.6G") for line in closing), closing
+    assert any(line.endswith("ok  pins pass  rss 19.6G") for line in closing), closing
     assert any("ok  15,903 units, 81,894 rows  rss 1.0G" in line for line in closing), closing
 
 
@@ -5480,7 +5240,7 @@ def test_do_job_costs_diffs_the_constants_when_the_check_trips():
     calls: list[str] = []
     seen: dict[str, list[str]] = {}
     tripped = "CONFORM_SWEEP_UNIT_BYTES at 0.90 GB (max 0.66 GB × 1.25, rounded up to a multiple of 0.10 GB); width here at 0.90 GB: 8 at 0.90 GB each"
-    used = "ORACLE_SHARD_BYTES at 1.00 GB (max 0.76 GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at 1.00 GB: 43 at 1.00 GB each"
+    used = "DELTA_PEAK_BYTES at 1.00 GB (max 0.76 GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at 1.00 GB: 43 at 1.00 GB each"
 
     def spawn(name, argv, *, emit, registry, stream):
         calls.append(name)
@@ -5513,7 +5273,7 @@ def test_do_job_costs_diffs_the_constants_when_the_check_trips():
     assert report.job_costs_status.endswith(
         f" — proposal: {tripped} — DELTA_PEAK_BYTES and TABLE_BUILD_PEAK_BYTES have already moved in the working tree"
     )
-    assert "ORACLE_SHARD_BYTES" not in report.job_costs_status
+    assert "DELTA_PEAK_BYTES at 1.00 GB" not in report.job_costs_status
     assert report.job_costs_ok is False
 
 
@@ -6450,8 +6210,6 @@ def test_a_stop_after_retention_finished_leaves_it_ok_in_the_interrupted_table(m
 
 def _spawning_run_m1(report, *, spawn, emit, registry, **_):
     spawn("run_m1", ["uv", "run", "fake-m1"], emit=emit, registry=registry, stream=True)
-    report.unmatched = 1
-    report.multi_matched = 0
     report.pins_pass = True
     return _run_m1_green()
 
@@ -7030,7 +6788,6 @@ def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
     monkeypatch.setattr(cycle_paths, "M1_SUMMARY_FILES", files)
     files["pipeline"].write_text(json.dumps({"defect_errors": []}))
     files["manual_pins"].write_text(json.dumps({"pass": True, "pins_in_scope": 143, "replayed": 143}))
-    files["oracle"].write_text(json.dumps({"unmatched": 7, "multi_matched": 0}))
     timings = CycleTimings(tmp_path / "timings.ndjson")
 
     report = ac.CycleReport()
@@ -7048,7 +6805,7 @@ def test_do_run_m1_files_a_check_line_on_the_skip_path(monkeypatch, tmp_path):
     (line,) = ct.load_checks(timings.path)
     assert (line["check"], line["outcome"], line["status"]) == ("run_m1", "green", "green")
     assert line["run"] == timings.run_id
-    assert (report.unmatched, report.multi_matched) == (7, 0)
+    assert report.pins_pass
 
 
 def test_do_run_m1_records_a_red_when_no_summaries_were_written(monkeypatch, tmp_path):
@@ -7078,7 +6835,7 @@ def test_do_run_m1_records_a_red_when_no_summaries_were_written(monkeypatch, tmp
 
 @pytest.mark.parametrize("stopped_at", ["defects", "pins", "after-the-pins", "killed-mid-write"])
 def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_path, capsys, stopped_at):
-    """A full build exits at the defect gate before the Manual-pin gate writes its summary, and at the pin gate before the oracle writes its own, so the summaries it wrote name the gate that failed, and the cycle files the red under that gate's failure rather than as a run that did not complete. Every child first rewrites a passing string replay record, as a real build whose replay returned before it stopped does. A build that stopped after a passing pin gate and a passing replay names no gate, and one killed while it wrote a summary leaves one that does not parse; neither child prints a `[check]` line here, so both keep the missing-summaries reason."""
+    """A full build exits at the defect gate before the Manual-pin gate writes its summary, so the summary it wrote names the gate that failed, and the cycle files the red under that gate's failure rather than as a run that did not complete; a red pin gate is read from the two summaries it leaves. Every child first rewrites a passing string replay record, as a real build whose replay returned before it stopped does. A build that stopped after a passing pin gate and a passing replay leaves both summaries passing, so the cycle files its nonzero exit, and one killed while it wrote a summary leaves one that does not parse and keeps the missing-summaries reason; neither child prints a `[check]` line here."""
     from rebuild.pipeline import run_m1
 
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
@@ -7124,7 +6881,7 @@ def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_pat
     assert not green.exists()
     (line,) = ct.load_checks(timings.path)
     out = capsys.readouterr().out
-    if stopped_at in ("after-the-pins", "killed-mid-write"):
+    if stopped_at == "killed-mid-write":
         assert gate is None
         assert (line["outcome"], line["status"]) == ("red", "FAILED (no summaries)")
         assert line["failures"] == ac._run_m1_reasons(None)
@@ -7133,13 +6890,14 @@ def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_pat
     expected = {
         "defects": ["1 defect-gate error(s): E-CONTACT qsAh~qsBay: ink collision"],
         "pins": ["Manual-pin gate failed (1 disagreements)"],
+        "after-the-pins": ["run_m1 gate: exited 1 despite passing summaries"],
     }[stopped_at]
     assert gate is not None and not gate.ok
     assert gate.failures == expected == ac._run_m1_reasons(gate)
     assert (line["check"], line["outcome"], line["status"], line["failures"]) == (
         "run_m1",
         "red",
-        "FAILED",
+        "FAILED (exit 1)" if stopped_at == "after-the-pins" else "FAILED",
         expected,
     )
     assert "did not complete" not in out
@@ -7147,7 +6905,7 @@ def test_do_run_m1_names_the_gate_that_stopped_a_full_build(monkeypatch, tmp_pat
 
 @pytest.mark.parametrize("replay", ["failed", "passed", "raised", "truncated"])
 def test_do_run_m1_files_a_failed_string_replay_as_the_child_reports_it(monkeypatch, tmp_path, replay):
-    """A string replay that found the tables incomplete stops a full build before the oracle writes its summary, and the child reports it in place of the defect gate's failure, so the cycle files the red under the child's message from the replay's record, not under the defect gate, while a record whose walk passed leaves the defect gate the summaries name. A replay that returns always rewrites its record, so a record left unmoved means the replay raised or the child was killed before it returned, and one a failed or interrupted write left empty does not parse. Neither says what the child reported, and this child prints no `[check]` line, as one killed before it reported prints none, so the cycle keeps the missing-summaries reason rather than blame the defect gate."""
+    """A string replay that found the tables incomplete fails a full build at the join after the Manual-pin gate, and the child reports it in place of the defect gate's failure, so the cycle files the red under the child's message from the replay's record, not under the defect gate, while a record whose walk passed leaves the defect gate the summaries name. A replay that returns always rewrites its record, so a record left unmoved means the replay raised or the child was killed before it returned, and one a failed or interrupted write left empty does not parse. Neither says what the child reported, and this child prints no `[check]` line, as one killed before it reported prints none, so the cycle keeps the missing-summaries reason rather than blame the defect gate."""
     from rebuild.pipeline import run_m1
 
     files = {name: tmp_path / f"{name}.json" for name in cycle_paths.M1_SUMMARY_FILES}
@@ -7255,7 +7013,7 @@ def test_do_run_m1_files_an_unreadable_summary_as_a_red_that_names_it(monkeypatc
 
     def leave_summaries():
         _write_pass_summaries(files)
-        files["oracle"].write_text('{"unmatched": 7, "multi')
+        files["manual_pins"].write_text('{"pass": true, "pins_in')
 
     leave_summaries()
 
@@ -7277,7 +7035,7 @@ def test_do_run_m1_files_an_unreadable_summary_as_a_red_that_names_it(monkeypatc
         timings=timings,
     )
 
-    expected = [f"run_m1 gate: {files['oracle']} is unreadable or not a JSON object"]
+    expected = [f"run_m1 gate: {files['manual_pins']} is unreadable or not a JSON object"]
     assert gate is not None and gate.failures == expected == ac._run_m1_reasons(gate)
     (line,) = ct.load_checks(timings.path)
     assert (line["outcome"], line["status"], line["failures"]) == (

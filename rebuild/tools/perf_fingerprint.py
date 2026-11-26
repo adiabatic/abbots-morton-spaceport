@@ -4,16 +4,14 @@ Run it with the tree under test's own interpreter and code, never the harness's:
 
   uv run --directory <tree> python -P <main>/rebuild/tools/perf_fingerprint.py --root <tree> --out <file>
 
-`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, and, for an audit or stores under `rebuild/out/m1`, `rebuild.pipeline.oracle` and `rebuild.pipeline.oracle_cache` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
+`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table` and `rebuild.pipeline.fingerprint` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
 
-The output is one `ams-perf-fingerprint/2` document:
+The output is one `ams-perf-fingerprint/3` document:
 
 - `tables`: for each configuration with a windows head under `rebuild/out/m1` (`windows-<config>.tsv.gz.head`), and for a tree from before the segment format each `windows-<config>.tsv.gz` present, `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the tree's own readers, so a missing configuration shows up as a difference. A configuration with a head is read in its materialized form (`table.materialized_table_digest`): its head file checked against its head, every part's size and sha256 checked against it too, and the base and segments merged into the whole payload, each row line hashed as it streams, so no configuration's rows are held; a tree whose `table` has no such reader builds the rows one configuration at a time (`table.read_materialized_windows`). The digest recomputed from those rows must equal the crate's own, which the head records (`table.TABLE_DIGEST_STAMP`), and the script exits nonzero naming the configuration when it does not, so a fault in the merge cannot hide behind a digest the crate reported of itself.
 - `fonts`: `fingerprint.font_content_digest` of `rebuild/out/m1/M1.otf`, the corpus's `fonts/{before,after}.otf` and the six site fonts, null for a font that is missing.
 - `corpus`: one digest per file under `rebuild/out/review/`, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` is digested as canonical JSON without the keys `MANIFEST_STAMPS` names and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
 - `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, without the keys `STORE_STAMPS` names and without any record's `at`, which records when a verdict was made (`store_digest`).
-- `audit`: the digest of the divergence audit's materialized form (`oracle.materialized_audit` from the tree, its head's parts inflated and merged into the whole file over the live rows), null for a tree with neither a head nor the single file. A pass that changes no audit row leaves it where it was.
-- `oracle_stores`: for each configuration the oracle stores' set head lists, or each `oracle-rows-<config>.tsv.gz` a tree from before the segment format holds, two digests of its materialized store (`oracle_cache.materialized_store` from the tree): `materialized`, the bytes, and `records`, the records' inflated lines each cut before its two trailing ages, the header line left out and the trailer kept. Every pass that writes the stores moves its pass ordinal, which the header carries and the ages are counted from, and moves the ages of the rows it re-derives on schedule, so `materialized` differs across any two passes that wrote the stores; `records` differs only where a record's verdicts or settled digest moved, or where a record was added or removed.
 
 Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp, and a tree whose windows rows are held as a base and segments fingerprints as its folded form and as the single file a build before the segment format wrote.
 """
@@ -25,14 +23,12 @@ import gzip
 import hashlib
 import importlib
 import json
-import re
 import sys
-import zlib
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from types import ModuleType
 
-FORMAT = "ams-perf-fingerprint/2"
+FORMAT = "ams-perf-fingerprint/3"
 MANIFEST_STAMPS = ("generated_at", "repo_head", "inputs_fingerprint")
 SIDECAR_STAMPS = ("manifest_sha256", "generated_at")
 STORE_STAMPS = ("manifest_generated_at", "exported_at")
@@ -50,12 +46,6 @@ FONTS = (
 M1 = Path("rebuild/out/m1")
 REVIEW = Path("rebuild/out/review")
 AUTOSAVE = Path("verdicts-autosave.json")
-# The audit's single file and its head, and the oracle stores' set head, single files and trailer line (`oracle.AUDIT_NAME`, `oracle_cache.SET_HEAD_NAME`, `oracle_cache.store_path`, `oracle_cache.ROW_COUNT_TRAILER`), restated because the script imports nothing of the tree under test before `--root` is on its path, and nothing of the oracle unless a tree holds one.
-AUDIT = "divergence-audit.tsv"
-AUDIT_HEAD = f"{AUDIT}.head"
-STORE_SET_HEAD = "oracle-rows.head"
-STORE_FILE = re.compile(r"oracle-rows-(.+)\.tsv\.gz")
-STORE_TRAILER = b"#rows\t"
 _CHUNK = 1 << 22
 
 
@@ -201,76 +191,10 @@ def table_digests(m1: Path, table: ModuleType) -> dict[str, str]:
     return digests
 
 
-def audit_digest(m1: Path, oracle: Callable[[], ModuleType] | None = None) -> str | None:
-    """Return the digest of the divergence audit's materialized form under `m1`, through the tree's `oracle.materialized_audit` (`tree_oracle` by default), or None when `m1` holds neither its head nor its single file."""
-    if not (m1 / AUDIT_HEAD).is_file() and not (m1 / AUDIT).is_file():
-        return None
-    digest = hashlib.sha256()
-    for chunk in (oracle or tree_oracle)().materialized_audit(m1):
-        digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _inflated(chunks: Iterable[bytes]) -> Iterator[bytes]:
-    """The decompressed bytes of a run of gzip members given as raw chunks, member after member."""
-    inflater = zlib.decompressobj(31)
-    for chunk in chunks:
-        while chunk:
-            yield inflater.decompress(chunk)
-            if not inflater.eof:
-                break
-            chunk = inflater.unused_data
-            inflater = zlib.decompressobj(31)
-    yield inflater.flush()
-
-
-def store_record_digests(chunks: Iterable[bytes]) -> dict[str, str]:
-    """Return the `materialized` and `records` digests of one configuration's materialized store given as its raw bytes (the module docstring)."""
-    raw, records = hashlib.sha256(), hashlib.sha256()
-
-    def counted() -> Iterator[bytes]:
-        for chunk in chunks:
-            raw.update(chunk)
-            yield chunk
-
-    tail = b""
-    header = True
-    for data in _inflated(counted()):
-        lines = (tail + data).split(b"\n")
-        tail = lines.pop()
-        if header and lines:
-            lines.pop(0)
-            header = False
-        for line in lines:
-            records.update((line if line.startswith(STORE_TRAILER) else line.rsplit(b"\t", 2)[0]) + b"\n")
-    records.update(tail)
-    return {"materialized": raw.hexdigest(), "records": records.hexdigest()}
-
-
-def store_digests(
-    m1: Path, oracle_cache: Callable[[], ModuleType] | None = None
-) -> dict[str, dict[str, str]]:
-    """Return `store_record_digests` of each configuration's materialized store under `m1`, through the tree's `oracle_cache.materialized_store` (`tree_oracle_cache` by default): every configuration the stores' set head lists, or, with no set head, every single store file a tree from before the segment format holds. A tree with neither returns no configuration."""
-    if (m1 / STORE_SET_HEAD).is_file():
-        configs = sorted(json.loads((m1 / STORE_SET_HEAD).read_bytes())["configs"])
-    else:
-        configs = sorted(
-            match.group(1)
-            for path in m1.glob("oracle-rows-*.tsv.gz")
-            if (match := STORE_FILE.fullmatch(path.name))
-        )
-    if not configs:
-        return {}
-    module = (oracle_cache or tree_oracle_cache)()
-    return {config: store_record_digests(module.materialized_store(m1, config)) for config in configs}
-
-
 def fingerprint_tree(root: Path, *, table: ModuleType, font_digest: Callable[[Path], str]) -> dict:
     return {
         "format": FORMAT,
         "tables": table_digests(root / M1, table),
-        "audit": audit_digest(root / M1),
-        "oracle_stores": store_digests(root / M1),
         "fonts": {rel: font_digest(root / rel) if (root / rel).is_file() else None for rel in FONTS},
         "corpus": corpus_digests(root / REVIEW, font_digest),
         "verdicts": store_digest(root / AUTOSAVE),
@@ -283,16 +207,6 @@ def tree_modules(root: Path) -> tuple[ModuleType, ModuleType]:
     return importlib.import_module("rebuild.pipeline.table"), importlib.import_module(
         "rebuild.pipeline.fingerprint"
     )
-
-
-def tree_oracle() -> ModuleType:
-    """Return the tree's `rebuild.pipeline.oracle`, imported from the tree first on `sys.path` only when an audit needs it."""
-    return importlib.import_module("rebuild.pipeline.oracle")
-
-
-def tree_oracle_cache() -> ModuleType:
-    """Return the tree's `rebuild.pipeline.oracle_cache`, imported from the tree first on `sys.path` only when the stores need it."""
-    return importlib.import_module("rebuild.pipeline.oracle_cache")
 
 
 def main(argv: list[str] | None = None) -> int:

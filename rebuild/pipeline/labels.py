@@ -1,4 +1,4 @@
-"""Labels shared by the modules that read a settled stream: the spec's alphabet, a configuration's feature set, a formed stream's labels after the configuration's marker renaming, the boundary glyph names, and the alias map from the old font's glyph names to cells.
+"""Labels shared by the modules that read a settled stream: the spec's alphabet, a configuration's feature set, a formed stream's labels after the configuration's marker renaming, and the boundary glyph names.
 
 This module imports only `model` and `settle` from the repository. That lets the review corpus build use these labels without importing the conformance sweep. `rebuild/test_review_code_closure.py` checks the import list.
 """
@@ -6,12 +6,9 @@ This module imports only `model` and `settle` from the repository. That lets the
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-
-import yaml
 
 from rebuild.pipeline import settle
-from rebuild.pipeline.model import CellId, ResolvedSpec, marker_glyph_name, relevant_marker_features
+from rebuild.pipeline.model import ResolvedSpec, marker_glyph_name, relevant_marker_features
 
 BOUNDARY_GLYPH_NAMES = {"space", "uni200C", "periodcentered", "periodcentered.lowered"}
 _BOUNDARY_KIND_LABELS = {"space": "space", "zwnj": "uni200C", "namer-dot": "periodcentered"}
@@ -51,21 +48,3 @@ def formed_labels(spec: ResolvedSpec, formed: list[settle.RightToken], features:
             label = f"{label}.noentry"
         labels.append(sys.intern(label))
     return labels
-
-
-def load_alias_map(path: Path) -> dict[str, CellId | str]:
-    """Reads `rebuild/m1-aliases.yaml`, which maps each old compiled glyph name to CellId fields or to one of the strings "boundary", "ignore", or "pending". A "pending" entry acknowledges a name that has no alias yet: the completeness check accepts it, but the comparison still treats the name as unaliased."""
-    raw = yaml.safe_load(Path(path).read_text()) or {}
-    aliases: dict[str, CellId | str] = {}
-    for old_name, value in raw.items():
-        if isinstance(value, str):
-            aliases[old_name] = value
-            continue
-        aliases[old_name] = CellId(
-            rune=value["rune"],
-            stance=value["stance"],
-            entry=value.get("entry"),
-            exit=value.get("exit"),
-            adjustments=tuple(value.get("adjustments", ())),
-        )
-    return aliases

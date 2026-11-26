@@ -1,4 +1,4 @@
-"""Tests for the review corpus's letter names and notation: the letter table against doc/glyph-names.md, the caption notation and its tokens, the numeric character references, the order of the content-derived unit ids, and the subset tables' reader over the frozen mini bundle, so no test reads the live corpus."""
+"""Tests for the review corpus's letter names and notation: the letter table against doc/glyph-names.md, the caption notation and its tokens, the numeric character references, and the order of the content-derived unit ids."""
 
 import random
 import re
@@ -6,10 +6,8 @@ from pathlib import Path
 
 from rebuild.review.enrich import LETTERS, letter_display, notation, notation_tokens, text_entities
 from rebuild.review.unit_ids import BASE58_ALPHABET, unit_id_for
-from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 
 
 def test_letter_table_matches_glyph_names_doc():
@@ -53,15 +51,3 @@ def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
     assert [int.from_bytes(unit_id.encode(), "big") for unit_id in ids] == sorted(
         int.from_bytes(unit_id.encode(), "big") for unit_id in ids
     )
-
-
-def test_subset_tables_iterate():
-    """`iter_rows` reads a subset table's windows: the windows it yields over the bundle's default slice include every window the bundle's audit names. A subset table has a row for every window the configuration renders, divergent or not, so the slice is a superset of the audit's windows. The test checks containment instead of a row count, because a row count would describe this bundle and not the reader."""
-    windows = {
-        row.split("\t")[1] for row in (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()[1:]
-    }
-    yielded = {
-        ":".join(f"{value:04X}" for value in row.codepoints)
-        for row in iter_rows(MINI / "baseline-default.subset.tsv.gz")
-    }
-    assert windows <= yielded

@@ -4,7 +4,7 @@
 
 What the checker reads, and from where:
 
-- **A junction** from the font's GPOS `curs` lookups and HarfBuzz's clusters (`shaping.junctions_for`, `classify.JunctionClassifier`): two characters in one cluster are a ligature, and two glyphs are joined at each height where the left has an exit and the right an entry in that height's lookup.
+- **A junction** from the font's GPOS `curs` lookups and HarfBuzz's clusters (`CheckFont.junctions`, `classify.JunctionClassifier`): two characters in one cluster are a ligature, and two glyphs are joined at each height where the left has an exit and the right an entry in that height's lookup.
 - **A token's glyph** is the first glyph of the cluster that covers the token's first character (`shaping.first_glyph_covering`), so a variation selector's leftover glyph or a mark in that cluster does not stand in for the letter, and neither shifts the tokens after it.
 - **A glyph's base, stance, entry and exit heights, adjustments and copy** from its name, which is a cell label (`rebuild/pipeline/settle.py` `cell_label`) or the name of a raw cmap glyph or one of its copies (`parse_glyph_name`).
 - **A trait, a bound bitmap, and whether the glyph draws the isolated cell** from the glyph-facts sidecar (`read_glyph_facts`) the build writes beside the font when it mints the cells (`rebuild/pipeline/glyph_facts.py`).
@@ -198,7 +198,7 @@ class CheckFont:
         return self.shaper.shape(text, dict(features) if features else None)
 
     def junctions(self, result: ShapeResult, length: int) -> tuple[str, ...]:
-        """Return the junction between each pair of adjacent characters, as `shaping.junctions_for` gives it: `lig` inside one glyph, and otherwise the joined heights (`y0+y5`) or `break`. A font with no cursive lookups has no joins, so every junction between two glyphs is a break."""
+        """Return the junction between each pair of adjacent characters: `lig` inside one glyph, and otherwise the joined heights (`y0+y5`) or `break`. A font with no cursive lookups has no joins, so every junction between two glyphs is a break."""
         junctions: list[str] = []
         for k in range(length - 1):
             left = last_glyph_covering(result.clusters, k)

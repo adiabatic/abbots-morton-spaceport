@@ -32,9 +32,9 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 ## 3 — probe
 
-`uv run python rebuild/tools/probe.py E6XX:E6XX E6XX:E6XX …` takes every window in one call, renders every acceptance config, and prints one block per window in argument order. Before the edit, capture the pair and the neighbors that must not change in one invocation, written to a file. After the edit, run the same invocation and diff:
+`uv run python rebuild/tools/probe.py E6XX:E6XX E6XX:E6XX …` takes every window in one call and prints one block per window in argument order: for every acceptance config, the settled `cells` line and the `junctions` line. Before the edit, capture the pair and the neighbors that must not change in one invocation, written to a file. After the edit, run the same invocation and diff:
 
-- The pair itself: the adjusted cell gains or drops `en-ext-N` / `ex-ext-N` / `en-con-N` / `ex-con-N`, and the junction height is unchanged. When the contraction is made by dropping an extend of N, the cell loses `ex-ext-N` / `en-ext-N` and does not gain a contract token.
+- The pair itself: in the `cells` line, the adjusted cell gains or drops `en-ext-N` / `ex-ext-N` / `en-con-N` / `ex-con-N`, and the `junctions` line is unchanged. When the contraction is made by dropping an extend of N, the cell loses `ex-ext-N` / `en-ext-N` and does not gain a contract token.
 - A neighbor that must not change, on each side (a different left into Y, a different right out of X), stays byte-identical to the pre-edit probe.
 - If you changed a shared list, probe another family still on it. Its output must not change.
 
@@ -42,6 +42,6 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 Follow just-verdicted-now-what's steps 4–5, which end with the cycle pass, the commit, and telling the user where the landed corpus is served. `make test` skips itself (`glyph_data/runes/` is exempt). Don't rebuild the review corpus by hand; step 4's pass does.
 
-UNMATCHED rows are expected while the migration is in progress and do not fail the gate; `run_m1` exits with its gate's result. Green means defects 0/0, Manual pins clean, and `multi_matched` 0. New unmatched exemplars for this pair (`+en-con-1`, `+ex-ext-N`, position-mismatch) are the designed divergence. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `rebuild/m1-contact-allow.yaml` in the pattern of that file's existing signatures. When a cell variant already has one (the `qsGay.sole.en-y0.en-con-1` dangle from ·No), reuse that signature instead of copying it.
+`run_m1` exits with its gate's result. Green means defects 0/0 and Manual pins clean. The review diff shows the pair's change as a unit for the author's verdict. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `rebuild/m1-contact-allow.yaml` in the pattern of that file's existing signatures. When a cell variant already has one (the `qsGay.sole.en-y0.en-con-1` dangle from ·No), reuse that signature instead of copying it.
 
 The commit message names the letters and how the join looks (`Contract ·Key ~b~ ·Gay by a pixel`, `Extend ·Gay ~x~ ·J'ai by another pixel`).

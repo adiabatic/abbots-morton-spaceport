@@ -12,9 +12,9 @@ A small hand-written table-diff corpus that the Python contract tests and the re
 
 ## `mini/` — the frozen mini-M1 bundle
 
-A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, how its windows are chosen, why all of it is regenerated together, and how `pin.json` pins the spec its rows settled under. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` and `_adopt_reviewer_class_ids` adapt a pinned schema and a pinned ledger to the current loader.
+A second fixture of a different kind: a slice of real build output, frozen so that tests of the build machinery need no live `rebuild/out/`. The module docstring of `mini/regenerate.py` says what the bundle holds, how its windows are chosen, why all of it is regenerated together, and how `pin.json` pins the spec its rows settled under. The docstrings in `mini/pin.py` say how `materialize` writes that spec out of git and how `_preserve_authored_outgoing` adapts a pinned schema to the current loader.
 
-Every test that needs real build output reads the bundle instead of the live `rebuild/out/`, so it runs at full xdist width. The readers are tests that read its frozen audit rows and tables, and tests that need a real font, or a font and a spec that match each other. Each one reaches the bundle through the `mini_bundle` fixture in `rebuild/conftest.py` or through its own path to `rebuild/review/fixtures/mini/`, so this search lists every test module that reads it:
+Every test that needs real build output reads the bundle instead of the live `rebuild/out/`, so it runs at full xdist width. The readers are tests that read its frozen tables, and tests that need a real font, or a font and a spec that match each other. Each one reaches the bundle through the `mini_bundle` fixture in `rebuild/conftest.py` or through its own path to `rebuild/review/fixtures/mini/`, so this search lists every test module that reads it:
 
 ```zsh
 git grep -l -E '/ "mini"|fixtures/mini|mini_bundle' -- 'rebuild/test_*.py'

@@ -152,23 +152,12 @@ def test_the_stamp_carries_the_configuration_and_its_features(repo):
     }
 
 
-def test_the_stamp_folds_neither_the_rune_files_nor_an_input_no_settlement_reads(repo):
-    """The rune files are covered per family, and an input no settlement reads can change without making any memo entry stale, so stamping it would drop the whole memo for nothing. Each such input is checked to be a data input that `stamped_data_paths` actually excludes, not merely a path the stamp does not reach."""
+def test_the_stamp_folds_no_rune_file(repo):
+    """The rune files are covered per family, so the stamp leaves them out: `stamped_data_paths` holds the script and no rune file, and a rune edit leaves the stamp's lines as they were."""
     spec = fixtures.mini_spec()
     base = _stamp(repo, spec)
-    (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
-    (repo / "rebuild" / "m1-aliases.yaml").write_text("space: boundary\n", encoding="utf-8")
-    (repo / "rebuild" / "m1-divergences.yaml").write_text("[]\n", encoding="utf-8")
     stamped = set(settle_memo_keys.stamped_data_paths(repo))
     assert _script(repo) in stamped
-    for name in (
-        "glyph_data/senior_quikscript_kerning.yaml",
-        "rebuild/m1-aliases.yaml",
-        "rebuild/m1-divergences.yaml",
-    ):
-        path = repo / name
-        assert path in fingerprint.data_paths(repo), f"{name} is no longer a data input at all"
-        assert path not in stamped
     assert not stamped & set(fingerprint.rune_paths(repo))
     _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
     assert _stamp(repo, spec).lines == base.lines

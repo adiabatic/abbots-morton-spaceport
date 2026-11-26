@@ -23,7 +23,7 @@ def _unit(name):
     return next(unit for unit in cb.UNITS if unit.name == name)
 
 
-def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_000_000, reading=None):
+def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_000_000):
     record = {
         "format": "ams-cycle-timings/1",
         "kind": "pool",
@@ -34,8 +34,6 @@ def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_0
         "controller_peak_rss_bytes": controller,
         "worker_peak_rss_bytes": {f"gw{index}": peak for index, peak in enumerate(peaks)},
     }
-    if reading is not None:
-        record["worker_reading"] = reading
     return record
 
 
@@ -88,7 +86,7 @@ def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
 
 def test_a_pool_record_supplies_one_observation_per_worker():
     record = _pool("font-suite", [1_000_000, 2_000_000, 3_000_000])
-    observed, dropped, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
+    observed, dropped, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000, 2_000_000, 3_000_000]
     assert {item.source for item in observed} == {"pool"}
     assert dropped == 0
@@ -96,20 +94,20 @@ def test_a_pool_record_supplies_one_observation_per_worker():
 
 def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
     record = _pool("font-suite", [1_000_000], controller=9_000_000)
-    observed, _, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [1_000_000]
 
 
 def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
-    """The conformance sweep and the oracle both fan out from run_m1 over the acceptance configurations, but a conformance-sweep worker and an oracle range worker hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
+    """The conformance sweep and the string replay both fan out from run_m1, but a conformance-sweep worker and a replay walk hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
     sweep = _pool("conform-sweep", [390_000_000, 920_000_000])
-    observed, _, _, _ = cb.observations(_unit("conform-sweep"), [sweep], {}, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("conform-sweep"), [sweep], {}, host=HOST, recent=20)
     assert [item.peak_bytes for item in observed] == [390_000_000, 920_000_000]
     assert {item.source for item in observed} == {"pool"}
-    oracle, _, _, _ = cb.observations(_unit("oracle-shard"), [sweep], {}, host=HOST, recent=20)
-    assert oracle == []
-    shard = _pool("oracle-shard", [560_000_000])
-    crossed, _, _, _ = cb.observations(_unit("conform-sweep"), [shard], {}, host=HOST, recent=20)
+    walks, _, _ = cb.observations(_unit("replay-walk"), [sweep], {}, host=HOST, recent=20)
+    assert walks == []
+    walk = _pool("replay-walk", [560_000_000])
+    crossed, _, _ = cb.observations(_unit("conform-sweep"), [walk], {}, host=HOST, recent=20)
     assert crossed == []
 
 
@@ -117,14 +115,14 @@ def test_the_conform_sweep_row_also_reads_the_journals_conform_belt_records(tmp_
     """Older journal lines name the conformance sweep's pool `conform-belt`. `load_pool_records` reads them under the current name, so the conform-sweep row keeps its measured history."""
     path = _journal(tmp_path, [_pool("conform-belt", [390_000_000]), _pool("conform-sweep", [420_000_000])])
     pools = cb.load_pool_records(path)
-    observed, _, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
     assert sorted(item.peak_bytes for item in observed) == [390_000_000, 420_000_000]
 
 
 def test_a_conform_step_peak_is_never_read_as_a_sweep_worker():
     """`reap_peak_rss_bytes` takes the max over gate:conform's process tree, so the step peak measures one process, not the pool. No row reads it."""
     steps = {"r1": [_step("gate:conform", 3_000_000_000)]}
-    observed, _, _, _ = cb.observations(_unit("conform-sweep"), [], steps, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("conform-sweep"), [], steps, host=HOST, recent=20)
     assert observed == []
     assert all("gate:conform" not in unit.step_names for unit in cb.UNITS)
 
@@ -159,48 +157,6 @@ def test_check_trips_on_a_build_lane_or_replay_peak_above_its_constant(tmp_path,
     assert _main(at, "--host", HOST, "--check") == 0
 
 
-def test_the_oracle_rows_split_its_pool_records_between_ranges_and_absorbs():
-    """The oracle's pool record carries its ranges' readings, its sections' of the audit (`<config> audit`) and its settle-memo absorbs' (`<config> absorb`) together. The oracle-shard row reads the ranges and the sections, each of which runs in a slot of the width it divides by, and the oracle-absorb row reads the absorbs, which it prices apart."""
-    record = _pool("oracle-shard", [], reading="footprint")
-    record["worker_peak_rss_bytes"] = {
-        "default 1/2": 500_000_000,
-        "default absorb": 650_000_000,
-        "default audit": 210_000_000,
-        "ss10": 330_000_000,
-    }
-    ranges, _, _, _ = cb.observations(_unit("oracle-shard"), [record], {}, host=HOST, recent=20)
-    absorbs, _, _, _ = cb.observations(_unit("oracle-absorb"), [record], {}, host=HOST, recent=20)
-    assert sorted(item.peak_bytes for item in ranges) == [210_000_000, 330_000_000, 500_000_000]
-    assert [item.peak_bytes for item in absorbs] == [650_000_000]
-
-
-def test_a_footprint_row_sets_aside_the_records_of_resident_peaks(tmp_path, capsys):
-    """The oracle-shard row reads peak footprints, and the `oracle-shard` records under its constant can also hold resident peaks, whose `worker_reading` is `resident` or, in an older record, missing. Only the `footprint` records count, set aside before the recency bound, so a resident peak over the constant neither trips the check nor takes a footprint's place in the window, and the report counts the records it set aside. A row left with none is unverified on this host."""
-    constant = CONSTANTS["oracle-shard"]
-    footprint = _pool("oracle-shard", [constant // 2], at="2026-08-01T12:00:00Z", reading="footprint")
-    resident = [
-        _pool("oracle-shard", [constant * 2], at="2026-08-02T12:00:00Z"),
-        _pool("oracle-shard", [constant * 2], at="2026-08-03T12:00:00Z", reading="resident"),
-    ]
-    observed, _, _, set_aside = cb.observations(
-        _unit("oracle-shard"), [footprint, *resident], {}, host=HOST, recent=1
-    )
-    assert [item.peak_bytes for item in observed] == [constant // 2]
-    assert set_aside == 2
-    code, out = _run(capsys, _journal(tmp_path, [footprint, *resident]), "--check")
-    assert code == 0
-    assert (
-        "  reading   : only the pool records whose worker readings are `footprint` count; 2 records naming another line or none set aside"
-        in _block(out, "oracle-shard")
-    )
-    code, out = _run(capsys, _journal(tmp_path, resident), "--check")
-    assert code == 0
-    assert (
-        "  UNVERIFIED HERE: no record from this host for this unit has worker readings that are `footprint`,"
-        in _block(out, "oracle-shard")
-    )
-
-
 def test_the_kernel_build_row_reads_every_record_since_its_constants_commit(tmp_path, capsys):
     """The kernel-build row proposes no value, so it keeps a high reading however many newer runs follow it, where the recency bound ages one out of every other row."""
     over = CONSTANTS["kernel-build"] * 2
@@ -222,26 +178,6 @@ def test_the_sweep_cap_reads_the_acceptance_configurations_the_pipeline_defines(
     assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
 
 
-def test_the_oracle_rows_count_only_the_settlement_configurations_the_oracle_compares(tmp_path):
-    """The oracle runs one settle-memo absorb per settlement configuration it compares, so `_oracle_settlement_config_count` leaves out the configurations `M1_ONLY_CONFIGS` names, while the kernel-build row's `_settlement_config_count` keeps them. The pipeline's own count matches `conform.ORACLE_CONFIGS`, and a source with no `M1_ONLY_CONFIGS` raises rather than state a wrong width."""
-    from rebuild.pipeline import conform
-
-    source = tmp_path / "conform.py"
-    source.write_text(
-        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nM1_ONLY_CONFIGS = ("c",)\n',
-        encoding="utf-8",
-    )
-    assert cb._oracle_settlement_config_count(source) == 2
-    assert cb._settlement_config_count(source) == 3
-    assert cb._oracle_settlement_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(
-        [config for config in conform.SETTLEMENT_CONFIGS if config in conform.ORACLE_CONFIGS]
-    )
-    unmarked = tmp_path / "unmarked.py"
-    unmarked.write_text('SETTLEMENT_CONFIGS = ("a", "b", "c")\n', encoding="utf-8")
-    with pytest.raises(RuntimeError, match="defines no M1_ONLY_CONFIGS"):
-        cb._oracle_settlement_config_count(unmarked)
-
-
 def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footprint_lines(tmp_path, capsys):
     """A run_m1 step whose `[t] kernel_build_tables` line carries the build's peak footprint reads the higher of that and its step peak, so a footprint over the constant trips the check while the resident line fits, and the report prints both lines of the highest reading. A record without a footprint reads its resident line alone."""
     constant = CONSTANTS["kernel-build"]
@@ -252,7 +188,7 @@ def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footpr
         f"[t] kernel_build_tables 200.0s width=5 runes=45 {rss_token(resident)} {footprint_token(footprint)}"
     )
     plain = _step("run_m1", resident, run="r2")
-    observed, _, _, _ = cb.observations(
+    observed, _, _ = cb.observations(
         _unit("kernel-build"), [], {"r1": [compressed], "r2": [plain]}, host=HOST, recent=20
     )
     assert [(item.peak_bytes, item.resident_bytes, item.footprint_bytes) for item in observed] == [
@@ -270,7 +206,7 @@ def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footpr
 
 def test_a_named_step_peak_supplies_an_observation():
     steps = {"r1": [_step("run_m1", 9_000_000_000)]}
-    observed, _, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
+    observed, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
     assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:run_m1")]
 
 
@@ -406,7 +342,7 @@ def test_the_full_history_run_reads_past_the_constants_commit(tmp_path, capsys):
 def test_a_record_with_no_stamp_is_kept_under_the_measurement_cutoff():
     record = _step("run_m1", 1)
     del record["finished_at"]
-    observed, _, older, _ = cb.observations(
+    observed, _, older = cb.observations(
         _unit("kernel-build"), [], {"r1": [record]}, host=HOST, recent=20, since="2026-09-05T00:00:00Z"
     )
     assert [item.peak_bytes for item in observed] == [1]
@@ -580,8 +516,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
-        f"{cb.CORPUS_BUILD_NAME} = 10_000_000_000\n"
-        f"{cb.ORACLE_SHARD_NAME} = {CONSTANTS['oracle-absorb']}\n{cb.ORACLE_ABSORB_NAME} = 3_000_000_000\n",
+        f"{cb.CORPUS_BUILD_NAME} = 10_000_000_000\n",
         encoding="utf-8",
     )
     (tree / "rebuild" / "pipeline").mkdir(parents=True)
@@ -593,7 +528,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         encoding="utf-8",
     )
     (tree / cb.CONFORM_SOURCE).write_text(
-        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nCOSMETIC_CONFIGS = ()\nM1_ONLY_CONFIGS = ()\n',
+        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nCOSMETIC_CONFIGS = ()\n',
         encoding="utf-8",
     )
     rows = cb.build_rows(
@@ -628,21 +563,6 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         "less 10.00 GB co-resident, capped at 11 beside the corpus build's one process (CORPUS_BUILD_BYTES)"
         in beside
     )
-    oracle_block = out.split("\noracle-shard  ")[1].split("\n\n")[0]
-    oracle_fit = memory_budget.describe_fit(
-        CONSTANTS["oracle-shard"],
-        coresident_bytes=3 * (3_000_000_000 - CONSTANTS["oracle-shard"]),
-        cap=12,
-        total_bytes=48_000_000_000,
-    )
-    assert (
-        f"the oracle runs {oracle_fit}; the 3 settle-memo absorbs, one per settlement configuration the oracle compares, each in a range's slot as soon as its configuration's ranges have landed"
-        in oracle_block
-    )
-    absorb_block = out.split("\noracle-absorb  ")[1].split("\n\n")[0]
-    roomy = memory_budget.describe_fit(CONSTANTS["oracle-absorb"], cap=12, total_bytes=48_000_000_000)
-    assert "fit in the range slots they run in, so nothing comes off for them" in absorb_block
-    assert f"and the oracle runs {roomy} (ORACLE_SHARD_BYTES divided in)" in absorb_block
     replay = memory_budget.describe_fit(CONSTANTS["replay-walk"], cap=3, total_bytes=48_000_000_000)
     assert f"a bare run_m1 walks {replay}, nothing co-resident" in out
     deep = memory_budget.describe_fit(CONSTANTS["deep-replay-walk"], cap=12, total_bytes=48_000_000_000)
@@ -719,8 +639,6 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
         "font-suite": (1.0, 100_000_000),
         "kernel-build": (None, None),
         "replay-walk": (1.25, 100_000_000),
-        "oracle-shard": (1.25, 100_000_000),
-        "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),
         "land": (1.25, 100_000_000),
         "corpus-build": (1.25, 100_000_000),
@@ -730,25 +648,25 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
 
 def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overrun(tmp_path, capsys):
     """A peak at the constant fits it, so `--check` passes, but the constant's rule would set it higher from that peak: the row proposes the raised value, marked as headroom used. A peak whose product with the headroom still fits proposes nothing. No peak proposes a value at or below the constant."""
-    unit = _unit("oracle-shard")
+    unit = _unit("replay-walk")
     assert unit.headroom is not None and unit.quantum is not None
-    constant = CONSTANTS["oracle-shard"]
-    used = _journal(tmp_path, [_pool("oracle-shard", [constant], reading="footprint")])
+    constant = CONSTANTS["replay-walk"]
+    used = _journal(tmp_path, [_pool("replay-walk", [constant])])
     code, out = _run(capsys, used, "--check")
     assert code == 0
-    proposal = _proposal(_block(out, "oracle-shard"))
+    proposal = _proposal(_block(out, "replay-walk"))
     raised = cb.proposed_constant(constant, unit.headroom, unit.quantum)
     assert raised > constant
     assert proposal.startswith(
-        f"  proposal  : ORACLE_SHARD_BYTES at {cb.format_gb(raised)} GB (max {cb.format_gb(constant)} GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at {cb.format_gb(raised)} GB: "
+        f"  proposal  : REPLAY_PEAK_BYTES at {cb.format_gb(raised)} GB (max {cb.format_gb(constant)} GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at {cb.format_gb(raised)} GB: "
     )
     assert "though one has used its headroom" in out
-    roomy = _journal(tmp_path, [_pool("oracle-shard", [constant * 4 // 5], reading="footprint")])
+    roomy = _journal(tmp_path, [_pool("replay-walk", [constant * 4 // 5])])
     _, out = _run(capsys, roomy)
     assert "proposal" not in out
     for fraction in (0.5, 0.8, 0.81, 1.0, 1.3):
         rows = cb.build_rows(
-            [_pool("oracle-shard", [int(constant * fraction)], reading="footprint")],
+            [_pool("replay-walk", [int(constant * fraction)])],
             {},
             constants=CONSTANTS,
             host=HOST,
@@ -756,7 +674,7 @@ def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overru
             tolerance=0.0,
             constant_commit_times={},
         )
-        row = next(row for row in rows if row.unit.name == "oracle-shard")
+        row = next(row for row in rows if row.unit.name == "replay-walk")
         assert row.proposal is None or row.proposal > constant
 
 
@@ -774,7 +692,7 @@ def test_the_kernel_build_row_proposes_no_value_and_names_the_constants_to_re_me
 
 def test_a_fleet_survey_states_the_proposals_width_on_each_host_in_the_window(tmp_path, capsys):
     """Under `--host all` the proposal repeats the width clause for each host with a reading in the window, from the cores and memory that host's newest run record states, and says so when no run record states them."""
-    constant = CONSTANTS["oracle-shard"]
+    constant = CONSTANTS["replay-walk"]
     third = "third.local"
     path = _journal(
         tmp_path,
@@ -782,13 +700,13 @@ def test_a_fleet_survey_states_the_proposals_width_on_each_host_in_the_window(tm
             _run_record(HOST, cores=8, total=16_000_000_000, at="2026-08-01T00:00:00Z"),
             _run_record(HOST, cores=10, total=34_359_738_368, at="2026-08-02T00:00:00Z"),
             _run_record(OTHER, cores=18, total=51_539_607_552),
-            _pool("oracle-shard", [constant], reading="footprint"),
-            _pool("oracle-shard", [constant // 2], host=OTHER, reading="footprint"),
-            _pool("oracle-shard", [constant // 2], host=third, reading="footprint"),
+            _pool("replay-walk", [constant]),
+            _pool("replay-walk", [constant // 2], host=OTHER),
+            _pool("replay-walk", [constant // 2], host=third),
         ],
     )
     assert _main(path, "--host", "all") == 0
-    lines = _block(capsys.readouterr().out, "oracle-shard").splitlines()
+    lines = _block(capsys.readouterr().out, "replay-walk").splitlines()
     at = next(line for line in lines if line.startswith("  proposal  : ")).split(" at ")[1].split(" (")[0]
     assert f"  on {HOST} (10 cores, 34.36 GB) at {at}: " in "\n".join(lines)
     assert f"  on {OTHER} (18 cores, 51.54 GB) at {at}: " in "\n".join(lines)
@@ -806,7 +724,7 @@ def test_the_cycle_quotes_the_proposal_of_a_tripped_row_and_never_of_one_that_on
         tmp_path,
         [
             _pool("conform-sweep", [CONSTANTS["conform-sweep"] * 2]),
-            _pool("oracle-shard", [CONSTANTS["oracle-shard"]], reading="footprint"),
+            _pool("replay-walk", [CONSTANTS["replay-walk"]]),
         ],
     )
     code, out = _run(capsys, path, "--check")

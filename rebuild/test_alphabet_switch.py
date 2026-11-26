@@ -13,7 +13,6 @@ import pytest
 
 from rebuild.pipeline import (
     alphabet,
-    baseline_subset,
     fingerprint,
     fixtures,
     kernel_exec,
@@ -76,15 +75,14 @@ def test_the_switch_refuses_an_alphabet_other_than_the_one_it_names(whole_spec, 
 
 
 def test_m1_alphabet_is_the_narrowed_spec_s_alphabet_when_imported_under_the_switch():
-    """A fresh process under the switch imports `M1_ALPHABET` as the narrowed spec's alphabet, the boundary tokens beside the named letters' code points, and both the name the review build imports and `filter_table`'s default argument are that set."""
+    """A fresh process under the switch imports `M1_ALPHABET` as the narrowed spec's alphabet, the boundary tokens beside the named letters' code points, and the name the review build imports is that set."""
     probe = (
         "import json\n"
-        "from rebuild.pipeline import alphabet, baseline_subset, manual_pins, spec_load\n"
+        "from rebuild.pipeline import alphabet, manual_pins, spec_load\n"
         "from rebuild.review import build\n"
         "print(json.dumps({\n"
         "    'alphabet': sorted(alphabet.M1_ALPHABET),\n"
         "    'migrated': sorted(manual_pins.migrated_alphabet(spec_load.load_default_spec())),\n"
-        "    'default': baseline_subset.filter_table.__defaults__[0] is alphabet.M1_ALPHABET,\n"
         "    'imported': build.M1_ALPHABET is alphabet.M1_ALPHABET,\n"
         "}))\n"
     )
@@ -100,7 +98,7 @@ def test_m1_alphabet_is_the_narrowed_spec_s_alphabet_when_imported_under_the_swi
     seen = json.loads(result.stdout)
     assert seen["alphabet"] == [0x0020, 0x00B7, 0x200C, 0xE652, 0xE653, 0xE67A]
     assert seen["migrated"] == seen["alphabet"]
-    assert seen["default"] and seen["imported"]
+    assert seen["imported"]
     assert alphabet.M1_ALPHABET > frozenset(seen["alphabet"])
 
 
@@ -132,11 +130,10 @@ def test_the_alphabet_token_joins_every_stamp_only_while_the_switch_is_set(monke
     monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
     whole = _stamps(tmp_path, "whole")
     assert whole["tables"] == "T+simulated-prospect"
-    assert whole["skip_value"] == "032c8de293443828f0227d0f951de648a2e63462d76c67934a7481c8f71eea99"
+    assert whole["skip_value"] == "4ee1818f96d356343ac7ba1fc0128cd1c9bf7521e971fbf68848a082f8b2fd20"
     assert whole["stage_a"] == (
         '{\n  "format": "stage-a-format",\n'
         '  "data": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",\n'
-        '  "baselines": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",\n'
         '  "pipeline_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"\n}\n'
     )
     assert whole["settle"].value == "d7de3032c782a2627fa15f96f74c16b4ffbe0e254072278fb1d63466bbc092c1"
@@ -185,7 +182,6 @@ def _refuse_to_run(*args, **kwargs):
     [
         "the artifact cycle",
         "run_m1",
-        "the subset refilter",
         "the review build",
         "the land",
     ],
@@ -201,13 +197,10 @@ def test_each_entry_point_that_writes_the_live_tree_refuses_the_switch(monkeypat
     monkeypatch.setattr(gc, "disable", _refuse_to_run)
     monkeypatch.setattr(build, "build_table_diff", _refuse_to_run)
     monkeypatch.setattr(landing, "land", _refuse_to_run)
-    monkeypatch.setattr(baseline_subset, "check_font_provenance", _refuse_to_run)
-    monkeypatch.setattr(baseline_subset, "refresh", _refuse_to_run)
     scratch = [str(tmp_path / name) for name in ("autosave.json", "run", "corpus")]
     run = {
         "the artifact cycle": lambda: artifact_cycle.main(["--review-out", str(tmp_path / "corpus")]),
         "run_m1": run_m1.cli,
-        "the subset refilter": baseline_subset.main,
         "the review build": lambda: build.main(["--out", str(tmp_path / "corpus")]),
         "the land": lambda: landing.main(
             [

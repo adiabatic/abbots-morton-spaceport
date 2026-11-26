@@ -54,7 +54,7 @@ class TestForbiddenPaths:
         "relative",
         [
             "rebuild/out/m1/M1.otf",
-            "rebuild/out/m1/divergence-audit.tsv",
+            "rebuild/out/m1/settlement-default.tsv",
             "rebuild/out/review/manifest.json",
             "rebuild/out",
             "tmp/review-triage.yaml",
@@ -76,7 +76,7 @@ class TestForbiddenPaths:
             "rebuild/review/fixtures/manifest.json",
             "rebuild/review/jstests/state.test.js",
             "rebuild/review/build.py",
-            "rebuild/m1-divergences.yaml",
+            "rebuild/m1-contact-allow.yaml",
             "rebuild/review-snapshot.json",
             "glyph_data/quikscript.yaml",
             "glyph_data/runes/qsPea.yaml",

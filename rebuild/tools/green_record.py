@@ -70,7 +70,7 @@ def settle_green(
 
 
 def _sha256_path(path: Path) -> str:
-    """Return a file's SHA-256, or "absent" when it cannot be read. It streams the file because the oracle's subset tables and M1.otf are large and are hashed into keys more than once per pass. It duplicates `fingerprint.file_sha256` because this module imports nothing from rebuild.pipeline."""
+    """Return a file's SHA-256, or "absent" when it cannot be read. It streams the file because M1.otf and the build's other outputs are large and are hashed into keys more than once per pass. It duplicates `fingerprint.file_sha256` because this module imports nothing from rebuild.pipeline."""
     try:
         with open(path, "rb") as handle:
             return hashlib.file_digest(handle, "sha256").hexdigest()

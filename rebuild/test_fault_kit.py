@@ -453,11 +453,9 @@ def test_the_tree_is_the_work_tree_and_a_refresh_clones_only_what_moved(tmp_path
     (source / "edited.txt").write_text("after\n")
     (source / "deleted.txt").unlink()
     (source / "new.txt").write_text("untracked\n")
-    (source / "site").mkdir()
-    (source / "site" / "Senior.otf").write_bytes(b"font")
     out = source / "rebuild" / "out"
     out.mkdir(parents=True)
-    (out / "baseline-default.tsv.gz").write_bytes(b"rows")
+    (out / "settlement-default.tsv").write_bytes(b"rows")
     (out / "cycle-timings.ndjson").write_text("{}\n")
     release = source / fault_kit.CRATE_RELEASE
     release.mkdir(parents=True)
@@ -469,9 +467,8 @@ def test_the_tree_is_the_work_tree_and_a_refresh_clones_only_what_moved(tmp_path
     assert (_git(root, "rev-parse", "HEAD"), _git(root, "rev-parse", "HEAD^")) == (commit, head)
     assert _git(root, "ls-files").split() == [".gitignore", "edited.txt", "kept.txt", "new.txt"]
     assert (root / "edited.txt").read_text() == "after\n"
-    assert (root / "site" / "Senior.otf").read_bytes() == b"font"
     assert (root / fault_kit.CRATE_RELEASE / "ams-m1-kernel").read_bytes() == b"binary"
-    assert [path.name for path in (store / "seed" / "out").iterdir()] == ["baseline-default.tsv.gz"]
+    assert list((store / "seed" / "out").iterdir()) == []
 
     kept = (root / "kept.txt").stat().st_mtime_ns
     edited = (root / "edited.txt").stat().st_mtime_ns

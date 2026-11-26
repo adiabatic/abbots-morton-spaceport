@@ -303,7 +303,7 @@ def test_the_code_digest_moves_with_a_protocol_served_or_freshness_module_only(t
     watched += [
         tmp_path / "pipeline" / "kern.py",
         tmp_path / "pipeline" / "spec_load.py",
-        tmp_path / "validation" / "rowmodel.py",
+        tmp_path / "validation" / "shaping.py",
     ]
     others = [review / "build.py", tmp_path / "tools" / "artifact_cycle.py"]
     for path in (*watched, *others):

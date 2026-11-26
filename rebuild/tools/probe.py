@@ -1,52 +1,22 @@
-"""Print codepoint windows' old-font baseline (glyphs and junctions, every configuration) beside the rebuild's settlement.
-Usage: uv run python rebuild/tools/probe.py E653:E666:E652 [E652:E67A ...] [--no-baseline]
+"""Print the rebuild's settlement of codepoint windows in every configuration: each window's settled cells and the junctions between them.
+Usage: uv run python rebuild/tools/probe.py E653:E666:E652 [E652:E67A ...]
 
-Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone. `--no-baseline` skips reading the baseline tables and omits each configuration's two OLD lines; an M1-only configuration (`conform.M1_ONLY_CONFIGS`) has no baseline table and never prints them.
+Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone.
 """
 
-import gzip
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from rebuild.pipeline.conform import M1_ONLY_CONFIGS
 from rebuild.pipeline.explain import explain_many
 from rebuild.pipeline.labels import features_for_config
-from rebuild.pipeline.run_m1 import OUT_DIR
 from rebuild.pipeline.spec_load import load_default_spec
 
 CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss07", "ss08", "ss10"]
-USAGE = "usage: uv run python rebuild/tools/probe.py [--no-baseline] E6XX:E6XX [E6XX:E6XX:E6XX ...]"
-NOT_IN_SUBSET = "(not in subset)"
-
-
-def _scan_rows(lines: Iterable[str], wanted: frozenset[str]) -> dict[str, list[str]]:
-    """Return the first row for each wanted key, skipping comment lines and lines with fewer than four fields, and stop reading once every key is found."""
-    found: dict[str, list[str]] = {}
-    for line in lines:
-        if line.startswith("#"):
-            continue
-        parts = line.rstrip("\n").split("\t")
-        if len(parts) < 4:
-            continue
-        if parts[0] in wanted and parts[0] not in found:
-            found[parts[0]] = parts
-            if len(found) == len(wanted):
-                break
-    return found
-
-
-def baseline_rows(cfg: str, windows: Iterable[str]) -> dict[str, list[str]]:
-    """Return the subset-table rows for the wanted windows under one configuration, keyed by window. `rebuild/pipeline/baseline_subset.filter_table` keeps the baseline table's row order, which is the (length, codepoints) order of `rebuild/baseline/alphabet.enumerate_basis`. A two- or three-codepoint window is therefore near the front and the scan stops early, while a key late among the four-codepoint rows, or one missing from the subset, costs a full pass. `enumerate_basis` yields each window once, so the first row found for a key is the only one. An empty wanted set returns {} without opening a table."""
-    wanted = frozenset(windows)
-    if not wanted:
-        return {}
-    p = OUT_DIR / f"baseline-{cfg}.subset.tsv.gz"
-    with gzip.open(p, "rt") as f:
-        return _scan_rows(f, wanted)
+USAGE = "usage: uv run python rebuild/tools/probe.py E6XX:E6XX [E6XX:E6XX:E6XX ...]"
 
 
 def parse_window(entry: str) -> list[int] | None:
@@ -58,8 +28,8 @@ def parse_window(entry: str) -> list[int] | None:
         return None
 
 
-def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str, list[str]] | None]) -> None:
-    """Print one window's block: the header, then per configuration the baseline glyphs and junctions and the settled cells and junctions. `baselines[cfg]` is None when the baseline was not read, and the block then carries no OLD lines."""
+def render_window(spec, window_key: str, reports) -> None:
+    """Print one window's block: the header, then per configuration the settled cells and junctions."""
     print(f"=== window {window_key} ===")
     for cfg, report in zip(CONFIGS, reports):
         settled = report.settled
@@ -79,19 +49,13 @@ def render_window(spec, window_key: str, reports, baselines: dict[str, dict[str,
                     else (f"y{sm}" if isinstance(sm, int) else f"y{spec.registry.y_of(sm)}")
                 )
         print(f"\n[{cfg}]")
-        sub = baselines[cfg]
-        if sub is not None:
-            b = sub.get(window_key)
-            print(f"  OLD glyphs: {b[1] if b else NOT_IN_SUBSET}")
-            print(f"  OLD junctions : {b[3] if b else ''}")
-        print(f"  NEW cells : {' | '.join(cells)}")
-        print(f"  NEW junctions : {','.join(junctions)}")
+        print(f"  cells : {' | '.join(cells)}")
+        print(f"  junctions : {','.join(junctions)}")
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    read_baseline = "--no-baseline" not in arguments
-    entries = [a.upper() for a in arguments if a != "--no-baseline"]
+    entries = [a.upper() for a in arguments]
     windows: list[tuple[str, list[int]]] = []
     for entry in entries:
         codepoints = parse_window(entry)
@@ -106,14 +70,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     spec = load_default_spec()
     features = [features_for_config(config) for config in CONFIGS]
     reports = explain_many(spec, [(cps, active) for _key, cps in windows for active in features])
-    keys = frozenset(key for key, _cps in windows)
-    baselines: dict[str, dict[str, list[str]] | None] = {
-        cfg: baseline_rows(cfg, keys) if read_baseline and cfg not in M1_ONLY_CONFIGS else None
-        for cfg in CONFIGS
-    }
     for index, (key, _cps) in enumerate(windows):
         start = index * len(CONFIGS)
-        render_window(spec, key, reports[start : start + len(CONFIGS)], baselines)
+        render_window(spec, key, reports[start : start + len(CONFIGS)])
 
 
 if __name__ == "__main__":

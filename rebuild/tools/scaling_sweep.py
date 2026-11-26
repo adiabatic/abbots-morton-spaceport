@@ -10,7 +10,7 @@ The report gives the consecutive-pair exponents against runes, then a least-squa
 
 Positional arguments are the rune counts to cut alphabets at, which need not be sizes of the series, and default to `scaling_series.series_sizes`. `AMS_SCALING_DUMP=<dir>` keeps each size's spec dump, the artifacts its child wrote, and, under `AMS_SCALING_FONTS`, its font build's out dir (`font-rN`) instead of deleting them with a temporary directory; `kernel_all_configs.py --spec <dir>/spec-rN.json` then times the enumeration at that size, in every settlement configuration or in the ones `--configs` names. `AMS_SCALING_BINARY=<path>` measures that binary as it is instead of building the crate, which is how a build at another revision is measured. `AMS_DEEP_CLASSES=0`, `AMS_SIMULATED_PROSPECT=0` and `AMS_FOLLOWER_PREFER_SLOTS=0` reach the child through `kernel_exec.mode_flags()`, and each row's `modes` names the flags passed, or `default modes` when none were.
 
-Each row prints as its size finishes. `rebuild/scaling-series.txt` is the checked-in record of the last run, the rows and the report as printed, and the add-a-new-letter checklist refreshes it after every migration batch. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-series.txt`.
+Each row prints as its size finishes. `rebuild/scaling-series.txt` is the checked-in record of the last run, the rows and the report as printed. Run from the repo root: `uv run python -m rebuild.tools.scaling_sweep [k ...] | tee rebuild/scaling-series.txt`.
 """
 
 from __future__ import annotations

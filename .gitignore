@@ -28,7 +28,7 @@ tmp/
 # Kept output: cycle build logs, review-corpus snapshots, hand-kept archives, the verdict orphans and the kerning view's journal
 /var/
 
-# Rebuild output: baseline extraction, the M1 build, the review corpus, green records, and the cycle-timings journal
+# Rebuild output: the M1 build, the review corpus, green records, and the cycle-timings journal
 rebuild/out/
 
 # Claude Code local state

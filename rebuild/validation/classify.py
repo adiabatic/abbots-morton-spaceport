@@ -1,4 +1,7 @@
-"""Junction classification per rebuild/baseline/README.md (Junction classification): follow the built font's GPOS `curs` feature to its per-height cursive lookups, and classify a pair of adjacent output glyphs by whether the left glyph has an exit and the right glyph an entry in the same lookup."""
+"""Junction classification of a shaped run: follow the built font's GPOS `curs` feature to its per-height cursive lookups, and classify a pair of adjacent output glyphs by whether the left glyph has an exit and the right glyph an entry in the same lookup.
+
+`JunctionClassifier` collects the lookups the `curs` feature references, so no lookup index is hardcoded, and records each one's glyphs with an ExitAnchor and glyphs with an EntryAnchor. It refuses a font whose `curs` lookups are not cursive-attachment lookups (LookupType 3), whose lookup holds anchors at more than one Y or at a Y that is not a whole pixel (font units ÷ `PIXEL_SIZE`), whose two lookups share a height, or that has other than four such lookups. A pair is joined at each height whose lookup holds the left glyph's ExitAnchor and the right glyph's EntryAnchor, and is a `break` when no lookup pairs them. The caller decides which pairs are output junctions: two glyphs of one cluster are a ligature's inside, not a junction.
+"""
 
 from __future__ import annotations
 

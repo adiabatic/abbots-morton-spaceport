@@ -24,8 +24,8 @@ def _fake_build(root: Path) -> None:
         (m1 / name).write_bytes(f"senior {style}".encode())
     (m1 / glyph_facts.FILE_NAME).write_text('{"format": "ams-glyph-facts/1", "glyphs": {}}\n')
     (root / "rebuild" / "script.yaml").write_text("heights: {baseline: 0}\n")
-    (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text("classes: []\n")
-    fingerprint.write_stage_a(m1, {"data": "d", "baselines": "b", "pipeline_code": "p"})
+    (root / fingerprint.CONTACT_ALLOW_LABEL).write_text("[]\n")
+    fingerprint.write_stage_a(m1, {"data": "d", "pipeline_code": "p"})
     record_green(cycle_paths.RUN_M1_GREEN, run_m1_skip_fingerprint(root), files=run_m1_skip_files(root))
 
 
@@ -58,7 +58,7 @@ class TestTheSenior:
     def test_a_moved_comparison_side_input_leaves_it_current(self, tmp_path):
         root = tmp_path / "root"
         _fake_build(root)
-        (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text("classes: [{id: moved}]\n")
+        (root / fingerprint.CONTACT_ALLOW_LABEL).write_text("- signature: moved\n")
         assert build_fonts.senior_staleness(root) is None
 
     def test_a_moved_build_input_refuses_before_anything_is_written_and_names_the_build_command(

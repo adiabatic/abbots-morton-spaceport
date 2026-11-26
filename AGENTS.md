@@ -25,9 +25,9 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Ask clarifying questions when there are multiple valid ways to do something.
 - Never write a `why:` in `glyph_data/runes/qs*.yaml`.
   - There, `why:` is the user's rationale in the user's voice, and its durable home: other files may point at a `why:` but never re-narrate it.
-  - The rule is scoped exactly that narrowly: the `why:` fields in `rebuild/m1-contact-allow.yaml` and `rebuild/m1-divergences.yaml` are agent-written.
+  - The rule is scoped exactly that narrowly: the `why:` fields in `rebuild/m1-contact-allow.yaml` are agent-written.
     - Draft them yourself in the pattern of the surrounding entries; "Human-reviewed" there means the user decides whether the entry belongs, not who drafts the sentence.
-  - Both ledgers' hashes ignore prose, so rewording a `why:` re-runs no gate.
+  - The allow-list's hash ignores prose, so rewording a `why:` re-runs no gate.
 - When a request names a letter ("after ·Pea") and the family has several variants (half/full, alt, `en-y6`, `ex-y0`, …), don't default to a bare `{family: qsX}` selector: enumerate the variants from `glyph_data/quikscript.yaml` and ask which subset is meant.
 - A change to a letter's entry does not reach the ligatures that begin with it: a ligature rune (`glyph_data/runes/qsX_qsY.yaml`) keeps its own entry-side records, and right-facing selectors (`toward:`, `when.right`, `then:`) name each ligature explicitly (`doc/rebuild-design.md` §3.4). Decide for each such ligature whether the change belongs on it too.
   - Make the same change to the ligature without asking when it enters with the letter's own stroke at that height (·Day+Utter.half begins with ·Day.half's foot hook) and it carries a matching record or already appears beside the letter in the selector being changed. Name the ligature in the summary and the commit message.

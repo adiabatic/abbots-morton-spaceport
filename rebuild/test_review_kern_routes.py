@@ -1030,7 +1030,7 @@ def test_a_refusal_is_kept_only_when_it_is_the_parser_s_verdict(monkeypatch):
 
 
 def import_pairs(tree: Tree, *entries: tuple[str, str, int]) -> None:
-    """Write an `imported.json` as rebuild/tools/import_kerning.py does, for the facing pairs given."""
+    """Write an `imported.json` listing the facing pairs given, in the shape `KernRoutes` reads."""
     path = tree.routes.imported_path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(

@@ -25,7 +25,7 @@ An in-flight batch keeps at most one scratch progress file. It may hold only:
 - the verification recipe
 - the resume commands
 
-It does not list the batch’s commits, because the commit that creates the file marks where the batch starts in `git log`. It does not collect per-change verification detail (row or window counts, per-configuration diffs, gate-pass tallies), because that detail belongs in the commit that made the change. When the batch closes, move any pointer to remaining work into `WHATNEXT.md` and delete the file. A check that waits on a later letter's migration (a join with an unmigrated partner, an old record that names a migrated letter, a `from:` member to re-verify) is not remaining work and gets no pointer anywhere: that migration's pair evidence and the oracle surface whatever comes out wrong, and the author patches it then.
+It does not list the batch’s commits, because the commit that creates the file marks where the batch starts in `git log`. It does not collect per-change verification detail (row or window counts, per-configuration diffs, gate-pass tallies), because that detail belongs in the commit that made the change. When the batch closes, move any pointer to remaining work into `WHATNEXT.md` and delete the file.
 
 ## Counts and drifting state
 
@@ -35,11 +35,11 @@ A count in prose names the artifact that reports it, not the number. The rebuild
 - `rebuild/out/review/manifest.json` for corpus totals
 - `make verdict-ready` for whether a review session can start
 
-Prefer a qualitative description (“the sweep is exact”, “the unmatched rows wait on verdicts and do not fail the gate”) to a figure. Definitional numbers are not counts and may stay: Tall/Deep/Short as 9/9/6 rows, the depth-4 chain cap, the dev-server ports, a hash that must stay byte-identical, and a fixed fact about the old font. Write a commit-stamped filename with its placeholder, such as `verdicts-carried-<sha>.json`, not with the current cycle’s hash.
+Prefer a qualitative description (“the sweep is exact”, “a pending pin is counted and does not fail the gate”) to a figure. Definitional numbers are not counts and may stay: Tall/Deep/Short as 9/9/6 rows, the depth-4 chain cap, the dev-server ports, a hash that must stay byte-identical, and a fixed fact about the old font. Write a commit-stamped filename with its placeholder, such as `verdicts-carried-<sha>.json`, not with the current cycle’s hash.
 
 ## Executable authorities
 
-When a fact is recorded both in prose and in something executable, the executable version is binding and the prose says so. Examples are a field list a validator enforces (`build.check_manifest`), a gate’s list of exempt paths (`make_test_exempt`), a keyboard map the frontend binds (`keyboard.js`), and a class list a ledger holds (`rebuild/m1-divergences.yaml`). Restating one of these in a note creates a second copy that nothing checks and that goes out of date. Name the authority and describe the shape instead.
+When a fact is recorded both in prose and in something executable, the executable version is binding and the prose says so. Examples are a field list a validator enforces (`build.check_manifest`), a gate’s list of exempt paths (`make_test_exempt`), a keyboard map the frontend binds (`keyboard.js`), and the signatures an allow-list holds (`rebuild/m1-contact-allow.yaml`). Restating one of these in a note creates a second copy that nothing checks and that goes out of date. Name the authority and describe the shape instead.
 
 ## Reconnaissance and evidence
 

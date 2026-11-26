@@ -2,19 +2,19 @@
 
 `ink_identical` (the sorted placed pieces are equal) reproduces the worked readings: the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is off, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and two comparators give the same result. `config_diff` (the cells only one font paints over the whole window, with the shifted tail pulled back) ignores a tuck that leaves the union of painted cells unchanged. When one glyph stops painting a pixel that a neighbor still paints, the delta is the empty sentinel if nothing else changed. Beside a real change, the tuck leaves that change's digest as it is, so the window shares a key with its tuck-free siblings. The same change at a junction the neighbor no longer reaches stays in the delta as the hole it leaves.
 
-Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
+Nothing here reads the live corpus. The windows are every window of two to four slots over four letters and the three boundaries (`mini_windows`), shaped in the frozen mini bundle's font, because every claim here is about the comparator. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
 
 Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and the cluster id a Queue card groups by is made from its digests.
 
 And, on inputs this file builds itself, two pixel-level readings the picture comparison uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
 """
 
+import itertools
 from pathlib import Path
 
 import pytest
 
 from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
-from rebuild.review.audit import parse_codepoints
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     InkComparator,
@@ -36,21 +36,25 @@ def comparator():
     return InkComparator(BEFORE_FONT, MINI_FONT)
 
 
+# ·Pea, ·Tea, ·Day and ·Roe, and the space, ZWNJ and namer-dot boundaries.
+WINDOW_LETTERS = (0xE650, 0xE652, 0xE653, 0xE668)
+WINDOW_BOUNDARIES = (0x0020, 0x200C, 0x00B7)
+
+
 @pytest.fixture(scope="module")
 def mini_windows() -> list[tuple[str, tuple[str, ...]]]:
-    """Return the frozen bundle's audit windows in audit order, each as its text with the configurations its rows name, in rank order: every window over the `LETTERS` and `BOUNDARIES` of rebuild/review/fixtures/mini/regenerate.py, plus its `EXAMPLE_WINDOWS`."""
-    lines = (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()
-    assert tuple(lines[0].split("\t")[:2]) == ("config", "codepoints")
-    configs: dict[str, set[str]] = {}
-    for line in lines[1:]:
-        config, window = line.split("\t")[:2]
-        configs.setdefault(window, set()).add(config)
+    """Return every window of two to four slots over `WINDOW_LETTERS` and `WINDOW_BOUNDARIES` that holds a letter, in a fixed order, each as its text with two configurations to compare it under: `default` and one other acceptance configuration, taken in turn."""
+    others = [config for config in ACCEPTANCE_CONFIGS if config != "default"]
+    alphabet = WINDOW_LETTERS + WINDOW_BOUNDARIES
+    windows = [
+        window
+        for length in (2, 3, 4)
+        for window in itertools.product(alphabet, repeat=length)
+        if any(value in WINDOW_LETTERS for value in window)
+    ]
     return [
-        (
-            "".join(chr(value) for value in parse_codepoints(window)),
-            tuple(sorted(found, key=ACCEPTANCE_CONFIGS.index)),
-        )
-        for window, found in configs.items()
+        ("".join(chr(value) for value in window), ("default", others[index % len(others)]))
+        for index, window in enumerate(windows)
     ]
 
 

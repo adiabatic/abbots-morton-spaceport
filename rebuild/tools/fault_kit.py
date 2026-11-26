@@ -4,7 +4,7 @@ The manifest, `rebuild/perf/faults.yaml` (format `ams-fault-kit/1`), is the auth
 
 Selection. `--rows all` selects every row, and a comma-separated id list selects those rows. `--rows auto` reads `--changed`, one repo-relative path per line (both sides of a rename), and selects a row when a changed path is a file its patch modifies, its own patch file, the manifest or this module (the last two select every row), or a path one of its gates covers, reached or not: the gate's `files`, the import closure of its `modules` (`contracts_closure.ImportGraph` walked on the root, kept to the `.py` files under `rebuild/` and `tools/`, so a candidate's new imports count), and, for a `crate` gate, the crate's `Cargo.toml`, `Cargo.lock` and `src/`. An empty `--changed` selects nothing. A gate the change touches that no selected step reaches is reported under `unreached` with the selected rows that carry it; under `all`, an id list, or a change to a row's own patch, its patched files, the manifest or this module, every gate of the rows so selected counts as touched.
 
-The tree. A run works in `TREE_PATH` and keeps its controls in `STORE_PATH`, both under this checkout's `var/perf/`. `prepare_tree` makes the tree from this checkout at the start of every run, before anything else reads it: every file git does not ignore, as the work tree holds it, cloned with `cp -c` when it moved since the last run (`SYNC_RECORD` holds what each clone came from) and stamped with the time of the clone, so cargo and the bytecode caches rebuild whatever a clone changed; the site fonts (`SITE_FONTS`), which the baseline tables name; the crate's `target/release/` once, so the first build there starts warm; and a git repository that borrows this checkout's objects (`objects/info/alternates`), its HEAD detached at this checkout's HEAD when the work tree matches it and otherwise at a commit of the work tree on top of it, so the tree under test is the work tree, uncommitted changes included. It removes whatever else git would not ignore, and refuses a directory there that holds anything but no repository, since it would clean it. Before it starts, it deletes the lock files a git command killed partway leaves in the tree's `.git`, and `_leave_as_found` does too (`clear_git_locks`). The seed, `<store>/seed`, clones the baseline tables the oracle compares against (`SEED_INPUTS`) out of this checkout's `rebuild/out`, and every control starts from it, so every control build is cold. A run holds `<tree>.lock` beside the tree (`var/perf/kit.lock`, `store_lock.hold_flock`) from before it refreshes the tree until it has left the tree as found, and refuses with exit 2 when another run holds it, since two runs would clone over, reset and replace each other's tree and snapshots.
+The tree. A run works in `TREE_PATH` and keeps its controls in `STORE_PATH`, both under this checkout's `var/perf/`. `prepare_tree` makes the tree from this checkout at the start of every run, before anything else reads it: every file git does not ignore, as the work tree holds it, cloned with `cp -c` when it moved since the last run (`SYNC_RECORD` holds what each clone came from) and stamped with the time of the clone, so cargo and the bytecode caches rebuild whatever a clone changed; the crate's `target/release/` once, so the first build there starts warm; and a git repository that borrows this checkout's objects (`objects/info/alternates`), its HEAD detached at this checkout's HEAD when the work tree matches it and otherwise at a commit of the work tree on top of it, so the tree under test is the work tree, uncommitted changes included. It removes whatever else git would not ignore, and refuses a directory there that holds anything but no repository, since it would clean it. Before it starts, it deletes the lock files a git command killed partway leaves in the tree's `.git`, and `_leave_as_found` does too (`clear_git_locks`). The seed, `<store>/seed`, is an empty `rebuild/out`, and every control starts from it, so every control build is cold. A run holds `<tree>.lock` beside the tree (`var/perf/kit.lock`, `store_lock.hold_flock`) from before it refreshes the tree until it has left the tree as found, and refuses with exit 2 when another run holds it, since two runs would clone over, reset and replace each other's tree and snapshots.
 
 The store's slots (the seed and each snapshot) are whole or absent. A slot is built under its `PARTIAL_SUFFIX` name, its `out` filled first and its marker written last, then renamed into place; a slot is deleted by renaming it to its `RETIRED_SUFFIX` name first (`retire_slot`). So a run that a signal or the meter gate stops partway leaves no marker beside a partial `out`, only a name the next run's `prune_store` removes.
 
@@ -79,8 +79,6 @@ TREE_PATH = "var/perf/kit"
 STORE_PATH = "var/perf/kit-controls"
 SEED = "seed"
 SYNC_RECORD = "fault-kit-sync.json"
-SITE_FONTS = "site/*.otf"
-SEED_INPUTS = ("baseline-*.tsv.gz", "digests.tsv", "baseline-font-content-digests.json")
 CRATE_RELEASE = f"{KERNEL_PREFIX}target/release"
 SWITCH_FILE = "rebuild/pipeline/spec_load.py"
 TREE_IDENTITY = (
@@ -674,11 +672,9 @@ def _read_marker(slot: Path) -> dict[str, Any] | None:
 
 
 def source_files(source: Path) -> list[str]:
-    """The source-relative files the tree takes from `source`: every file git does not ignore that the work tree holds, and the site fonts."""
+    """The source-relative files the tree takes from `source`: every file git does not ignore that the work tree holds."""
     listed = git(source, "ls-files", "-z", "--cached", "--others", "--exclude-standard").stdout.split("\0")
-    files = {path for path in listed if path and (source / path).is_file()}
-    files |= {path.relative_to(source).as_posix() for path in source.glob(SITE_FONTS) if path.is_file()}
-    return sorted(files)
+    return sorted(path for path in listed if path and (source / path).is_file())
 
 
 def prepare_tree(source: Path, root: Path, store: Path) -> str:
@@ -729,26 +725,18 @@ def prepare_tree(source: Path, root: Path, store: Path) -> str:
         commit = git(root, *TREE_IDENTITY, "commit-tree", work, "-p", head, "-m", message).stdout.strip()
     git(root, "update-ref", "--no-deref", "HEAD", commit)
 
-    def seed_inputs(out: Path) -> None:
-        out.mkdir()
-        for pattern in SEED_INPUTS:
-            for path in sorted((source / "rebuild" / "out").glob(pattern)):
-                if path.is_file():
-                    _clone_file(path, out / path.name)
-
-    build_slot(store / SEED, {"format": FORMAT, "source": str(source)}, seed_inputs)
+    build_slot(store / SEED, {"format": FORMAT, "source": str(source)}, lambda out: out.mkdir())
     return commit
 
 
 def control_key(
     root: Path, alphabet: Sequence[str], argvs: Sequence[Sequence[str]], effects: Sequence[str], seed: Path
 ) -> str:
-    """The key an alphabet's kept control is reused under: the root's git tree, the alphabet, the control argvs, the effect files, and the path, size and mtime of each seed file and of each site font in the root, which the baseline tables' provenance check reads."""
+    """The key an alphabet's kept control is reused under: the root's git tree, the alphabet, the control argvs, the effect files, and the path, size and mtime of each seed file."""
     out = seed / "out"
     listing = sorted(
         [path.relative_to(out).as_posix(), *_stat_key(path)] for path in out.rglob("*") if path.is_file()
     )
-    fonts = sorted([path.relative_to(root).as_posix(), *_stat_key(path)] for path in root.glob(SITE_FONTS))
     payload = {
         "format": FORMAT,
         "tree": git(root, "rev-parse", "HEAD^{tree}").stdout.strip(),
@@ -756,7 +744,6 @@ def control_key(
         "argvs": [list(argv) for argv in argvs],
         "effects": list(effects),
         "seed": listing,
-        "fonts": fonts,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 

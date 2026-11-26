@@ -1,11 +1,11 @@
-"""Tests for how `rebuild/tools/scratch_build.py` handles `--configs` and the out dir: which configurations reach the table build and the oracle, what the JSON line reports, and the two errors raised before the spec is loaded. Every later stage is stubbed; `rebuild/test_kernel_exec.py` tests a narrowed build against the crate."""
+"""Tests for how `rebuild/tools/scratch_build.py` handles `--configs` and the out dir: which configurations reach the table build, what the JSON line reports, and the two errors raised before the spec is loaded. Every later stage is stubbed; `rebuild/test_kernel_exec.py` tests a narrowed build against the crate."""
 
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, kern, oracle, readback, run_m1
+from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, kern, readback, run_m1
 from rebuild.tools import scratch_build
 
 
@@ -13,19 +13,10 @@ class Reached(Exception):
     """Raised by a stubbed stage that a rejected invocation must not reach."""
 
 
-def test_the_unnarrowed_request_is_the_settlement_set_and_the_oracle_set():
-    """With no `--configs`, the build gets the settlement configurations and the oracle gets `conform.ORACLE_CONFIGS`, so the oracle still checks the ss10 overlay and skips the M1-only ss08, which has no baseline table."""
-    build, oracle = scratch_build.request_configs("")
-    assert build == list(conform.SETTLEMENT_CONFIGS)
-    assert oracle == list(conform.ORACLE_CONFIGS)
-    assert "ss10" in oracle and "ss10" not in build
-    assert "ss08" in build and "ss08" not in oracle
-
-
-def test_a_named_set_narrows_the_build_and_the_oracle_alike_in_the_order_named():
-    assert scratch_build.request_configs("ss03,default") == (["ss03", "default"], ["ss03", "default"])
-    assert scratch_build.request_configs("default") == (["default"], ["default"])
-    assert scratch_build.request_configs("ss08") == (["ss08"], [])
+def test_the_unnarrowed_request_is_the_settlement_set_and_a_named_set_keeps_its_order():
+    assert scratch_build.request_configs("") == list(conform.SETTLEMENT_CONFIGS)
+    assert scratch_build.request_configs("ss03,default") == ["ss03", "default"]
+    assert scratch_build.request_configs("ss08") == ["ss08"]
 
 
 def test_an_unknown_configuration_is_refused_before_anything_is_resolved(monkeypatch, tmp_path):
@@ -62,26 +53,22 @@ def test_every_build_is_refused_under_the_live_table_directory(monkeypatch, tmp_
 
 
 @pytest.mark.parametrize(
-    "narrowing, build, walked",
+    "narrowing, build",
     [
-        ([], list(conform.SETTLEMENT_CONFIGS), list(conform.ORACLE_CONFIGS)),
-        (["--configs", "default"], ["default"], ["default"]),
-        (["--configs", "default,ss08"], ["default", "ss08"], ["default"]),
+        ([], list(conform.SETTLEMENT_CONFIGS)),
+        (["--configs", "default"], ["default"]),
+        (["--configs", "default,ss08"], ["default", "ss08"]),
     ],
 )
-def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_reports_them(
-    monkeypatch, tmp_path, capsys, narrowing, build, walked
+def test_the_build_takes_the_configurations_the_request_names_and_the_line_reports_them(
+    monkeypatch, tmp_path, capsys, narrowing, build
 ):
-    """The lists `request_configs` returns are the ones passed to the table build and the oracle, and the JSON line reports both. If a narrowed run let the oracle use its own default, the oracle would compare every configuration against a font built for one. If a plain run reported only the build list, the line would omit the ss10 rows its row count includes. A built M1-only configuration is reported as skipped, so its absence from the row count does not read as a clean comparison."""
+    """The list `request_configs` returns is the one passed to the table build, and the JSON line reports it beside the defect gate's errors."""
     seen = {}
 
     def build_tables(spec, out_dir, *, configs, **rest):
         seen["build"] = list(configs)
         return {}, {}
-
-    def compare_against_baseline(*args, configs=None, **rest):
-        seen["oracle"] = configs
-        return SimpleNamespace(rows_compared=0, divergent_rows=0, unmatched_count=0, multi_matched_count=0)
 
     monkeypatch.setattr(scratch_build, "M1_OUT", tmp_path / "m1")
     monkeypatch.setattr(scratch_build, "load_spec", lambda *args: SimpleNamespace())
@@ -98,11 +85,7 @@ def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_repo
     monkeypatch.setattr(kern, "run_stage", lambda *args, **rest: None)
     monkeypatch.setattr(kern, "write_classes", lambda *args, **rest: None)
     monkeypatch.setattr(emit_gpos, "kern_plan", lambda *args, **rest: None)
-    monkeypatch.setattr(oracle, "compare_against_baseline", compare_against_baseline)
     scratch_build.main(["glyph_data/runes", str(tmp_path / "out"), *narrowing])
-    assert seen == {"build": build, "oracle": walked}
+    assert seen == {"build": build}
     line = json.loads(capsys.readouterr().out)
-    assert line["configs"] == build
-    assert line["oracle_configs"] == walked
-    assert line["oracle_skipped"] == [config for config in build if config in conform.M1_ONLY_CONFIGS]
-    assert ("ss08" in line["oracle_skipped"]) == ("ss08" in build)
+    assert line == {"configs": build, "defect_errors": []}

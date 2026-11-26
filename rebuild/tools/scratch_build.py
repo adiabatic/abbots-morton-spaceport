@@ -1,13 +1,13 @@
-"""Build the M1 pipeline from any runes directory into any out dir and run the oracle, so candidate policy records can be build-tested without touching glyph_data/runes/ or the shared rebuild/out/m1/ artifacts.
+"""Build the M1 pipeline from any runes directory into any out dir and run the defect gates, so candidate policy records can be build-tested without touching glyph_data/runes/ or the shared rebuild/out/m1/ artifacts.
 
 Usage:
     uv run python rebuild/tools/scratch_build.py <runes_dir> <out_dir> [--configs a,b]
 
-`--configs` narrows the table build to that list, in the order given, and the oracle to the same list less the M1-only configurations (`conform.M1_ONLY_CONFIGS`), which have no baseline table (`request_configs`). Its names are the settlement configurations `rebuild.tools.kernel_all_configs.configs_from` accepts, checked before the spec is resolved and dumped. Without it, the build covers the settlement set and the oracle covers `conform.ORACLE_CONFIGS`, so a plain run also checks the ss10 overlay. A narrowed run does not, because it can name only settlement configurations. A run whose search reads only `default`'s rows can pass `--configs default` and pay for one configuration's enumeration and one oracle walk. A narrowed build writes the same window enumerations and join tables as the whole set, but its settlement tables can differ, because the whole set's fold takes in the windows each configuration keeps live that another's rules would answer wrongly in the shipped order (`rebuild/kernel-rs/src/crossconfig.rs`), and a narrowed build has fewer configurations to take them from. A set that does not include `default` enumerates every member from scratch and saves much less.
+`--configs` narrows the table build to that list, in the order given (`request_configs`). Its names are the settlement configurations `rebuild.tools.kernel_all_configs.configs_from` accepts, checked before the spec is resolved and dumped. Without it, the build covers the settlement set. A run whose search reads only `default`'s rows can pass `--configs default` and pay for one configuration's enumeration. A narrowed build writes the same window enumerations and join tables as the whole set, but its settlement tables can differ, because the whole set's fold takes in the windows each configuration keeps live that another's rules would answer wrongly in the shipped order (`rebuild/kernel-rs/src/crossconfig.rs`), and a narrowed build has fewer configurations to take them from. A set that does not include `default` enumerates every member from scratch and saves much less.
 
-The out dir may not resolve under rebuild/out/m1 (`scratch_out_dir`), whether or not the run is narrowed. A narrowed build there would rewrite the settlement and join files of the configurations it names and leave the others as the last whole build wrote them, because the crate deletes nothing. The directory's readers (`rebuild/review/tablediff.py` reads it as one build) cannot tell that mixed set from a whole one. A whole-set build there would rewrite every table, `M1.otf` and `divergence-audit.tsv` from the candidate's runes but leave the stamped window enumerations, because it passes no inputs stamp. The artifact cycle's run_m1 skip key hashes the repo's inputs and only checks that those files exist, so the next pass would build the review corpus over the candidate's font and audit.
+The out dir may not resolve under rebuild/out/m1 (`scratch_out_dir`), whether or not the run is narrowed. A narrowed build there would rewrite the settlement and join files of the configurations it names and leave the others as the last whole build wrote them, because the crate deletes nothing. The directory's readers (`rebuild/review/tablediff.py` reads it as one build) cannot tell that mixed set from a whole one. A whole-set build there would rewrite every table and `M1.otf` from the candidate's runes but leave the stamped window enumerations, because it passes no inputs stamp. The artifact cycle's run_m1 skip key hashes the repo's inputs and only checks that those files exist, so the next pass would build the review corpus over the candidate's font.
 
-Prints a JSON line with the configurations built (`configs`), the configurations the oracle walked (`oracle_configs`, which a plain run's ss10 overlay makes the longer list), the built configurations the oracle skipped because they are M1-only (`oracle_skipped`), the defect gate's errors, the oracle's `rows_compared`, `divergent_rows`, `unmatched` and `multi_matched`, and the path of the audit's head (`oracle.materialized_audit` reads the audit it describes). It follows `rebuild.pipeline.run_m1.run()` and `rebuild.pipeline.run_m1_gates.run_oracle()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates or the oracle, which `rebuild/tools/scaling_sweep.py` runs on each alphabet size of its series under `AMS_SCALING_FONTS=1`.
+Prints a JSON line with the configurations built (`configs`) and the defect gate's errors (`defect_errors`). It follows `rebuild.pipeline.run_m1.run()`, read-back included, with the spec as a parameter. `build_font` is the build and read-back without the defect gates, which `rebuild/tools/scaling_sweep.py` runs on each alphabet size of its series under `AMS_SCALING_FONTS=1`.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, kern, oracle, readback, row_delta
+from rebuild.pipeline import compile_font, conform, emit_gpos, emit_gsub, kern, readback
 from rebuild.pipeline import run_m1
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.pipeline.spec_load import (
@@ -34,12 +34,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 M1_OUT = REPO_ROOT / "rebuild" / "out" / "m1"
 
 
-def request_configs(requested: str) -> tuple[list[str], list[str]]:
-    """Return the configurations for the build and the oracle, as `(build, oracle)`. An empty request gives the settlement set for the build and `conform.ORACLE_CONFIGS`, which includes the ss10 overlay, for the oracle. A named request gives that list for the build, in the order named, and the same list less `conform.M1_ONLY_CONFIGS` for the oracle."""
+def request_configs(requested: str) -> list[str]:
+    """Return the configurations for the build. An empty request gives the settlement set, and a named request that list, in the order named."""
     if not requested:
-        return list(conform.SETTLEMENT_CONFIGS), list(conform.ORACLE_CONFIGS)
-    tokens = configs_from(requested)
-    return list(tokens), [config for config in tokens if config not in conform.M1_ONLY_CONFIGS]
+        return list(conform.SETTLEMENT_CONFIGS)
+    return list(configs_from(requested))
 
 
 def scratch_out_dir(requested: str) -> Path:
@@ -47,7 +46,7 @@ def scratch_out_dir(requested: str) -> Path:
     out_dir = Path(requested).resolve()
     if out_dir == M1_OUT or M1_OUT in out_dir.parents:
         raise SystemExit(
-            f"refusing out_dir {out_dir}: a scratch build under {M1_OUT} rewrites the live settlement and join files, M1.otf and divergence-audit.tsv from the candidate's runes and leaves the stamped window enumerations standing, and the artifact cycle's run_m1 skip key cannot see that, so the next pass would build the review corpus over the candidate's font and audit"
+            f"refusing out_dir {out_dir}: a scratch build under {M1_OUT} rewrites the live settlement and join files and M1.otf from the candidate's runes and leaves the stamped window enumerations standing, and the artifact cycle's run_m1 skip key cannot see that, so the next pass would build the review corpus over the candidate's font"
         )
     return out_dir
 
@@ -63,7 +62,7 @@ class FontBuild:
 
 
 def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> FontBuild:
-    """Build `spec`'s tables for `build_configs` into `out_dir`, resolve the kern records (`kern.run_stage`, which writes `kern.tsv` there), compile `M1.otf` there with its kern lookup and without the full font's non-Quikscript glyphs and features (`compile_font.build_font` with no `FontSources`), which no Quikscript text the oracle shapes reaches, read it back, and write `readback_summary.json` and `kern-classes.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence, and what the kern stage raises."""
+    """Build `spec`'s tables for `build_configs` into `out_dir`, resolve the kern records (`kern.run_stage`, which writes `kern.tsv` there), compile `M1.otf` there with its kern lookup and without the full font's non-Quikscript glyphs and features (`compile_font.build_font` with no `FontSources`), which no Quikscript text reaches, read it back, and write `readback_summary.json` and `kern-classes.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence, and what the kern stage raises."""
     out_dir.mkdir(parents=True, exist_ok=True)
     tables, _digests = run_m1.build_tables(spec, out_dir, configs=build_configs)
 
@@ -94,39 +93,14 @@ def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> F
     return FontBuild(tables=tables, cell_glyphs=cell_glyphs, readback=readback_report, kerned=kerned)
 
 
-def build_and_oracle(
-    runes_dir: Path, out_dir: Path, build_configs: list[str], oracle_configs: list[str]
-) -> dict:
+def build_and_check(runes_dir: Path, out_dir: Path, build_configs: list[str]) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
-    # The baseline (old-font) subset tables are independent of the rune edits under test, so seed them from the real out dir.
-    for gz in M1_OUT.glob("baseline-*.subset.tsv.gz"):
-        target = out_dir / gz.name
-        if not target.exists():
-            target.write_bytes(gz.read_bytes())
     spec = load_spec(runes_dir, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
     built = build_font(spec, out_dir, build_configs)
     defect_report = run_m1._run_defect_gates(spec, built.tables, built.cell_glyphs, built.kerned)
-
-    report = oracle.compare_against_baseline(
-        spec,
-        out_dir,
-        REPO_ROOT / "rebuild" / "m1-aliases.yaml",
-        REPO_ROOT / "rebuild" / "m1-divergences.yaml",
-        configs=oracle_configs,
-        out_dir=out_dir,
-        font_path=out_dir / "M1.otf",
-        kern_sidecar_path=REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml",
-    )
     return {
         "configs": build_configs,
-        "oracle_configs": oracle_configs,
-        "oracle_skipped": [config for config in build_configs if config in conform.M1_ONLY_CONFIGS],
         "defect_errors": [f"{d.code} {d.signature}: {d.message}" for d in defect_report.errors],
-        "rows_compared": report.rows_compared,
-        "divergent_rows": report.divergent_rows,
-        "unmatched": report.unmatched_count,
-        "multi_matched": report.multi_matched_count,
-        "audit": str(row_delta.head_path(out_dir, oracle.AUDIT_NAME)),
     }
 
 
@@ -137,13 +111,13 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument(
         "--configs",
         default="",
-        help=f"comma-separated settlement configurations to build and oracle, from {', '.join(conform.SETTLEMENT_CONFIGS)}; the default builds the settlement set and oracles the acceptance set; a set that does not name default enumerates from scratch and saves far less than `default` alone",
+        help=f"comma-separated settlement configurations to build, from {', '.join(conform.SETTLEMENT_CONFIGS)}; the default builds the settlement set; a set that does not name default enumerates from scratch and saves far less than `default` alone",
     )
     args = ap.parse_args(argv)
-    build_configs, oracle_configs = request_configs(args.configs)
+    build_configs = request_configs(args.configs)
     out_dir = scratch_out_dir(args.out_dir)
     runes_dir = Path(args.runes_dir).resolve()
-    print(json.dumps(build_and_oracle(runes_dir, out_dir, build_configs, oracle_configs)))
+    print(json.dumps(build_and_check(runes_dir, out_dir, build_configs)))
 
 
 if __name__ == "__main__":

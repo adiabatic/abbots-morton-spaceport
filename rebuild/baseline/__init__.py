@@ -1,1 +1,0 @@
-"""Baseline extraction for the rebuild (doc/rebuild-design.md section 13.1): shape every input string up to length 4 through the built Senior Sans font as a black box, and write each string's outcome to a diff-stable table under rebuild/out/. rebuild/baseline/README.md specifies the tables, the extraction, and its validation."""

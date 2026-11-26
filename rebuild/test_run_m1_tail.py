@@ -1,4 +1,4 @@
-"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing, which reads each payload through a pipe while the crate writes it, writes its part, and commits its windows head after the crate's clean exit, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The oracle starts once the replay has returned, but writes the settle memo only once the witness stage, which reads it and writes none of it, has returned. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
+"""Tests for the end of `run_m1.run`: the table-only branch (the string replay, the witness stage, the shipped-order walks) running beside the glyph chain, the window packing, which reads each payload through a pipe while the crate writes it, writes its part, and commits its windows head after the crate's clean exit, and the join that decides the gate. The build reports the first failure in serial order, whatever the glyph chain made of the tables. The witness stage runs after the replay that fills the settle memo it loads. The Manual-pin gate runs on the calling thread while the branch is still running, and the branch's first failure decides the build even when every summary on disk passes. Every stage that runs the crate, spawns a process or compiles a font is stubbed with a barrier or a recorder; the packing tests build the mini fixture's real tables, because the packer is what they test."""
 
 import dataclasses
 import functools
@@ -318,7 +318,7 @@ class TestTheGlyphChainCollect:
     def test_one_collect_follows_the_glyph_chain_and_records_the_level_it_leaves(
         self, monkeypatch, tmp_path, capsys
     ):
-        """`run` collects the glyph chain's cyclic garbage once, on the calling thread, after the chain has returned and before `run` returns, and its `[t] glyph_chain_collect` line carries the resident set the collect leaves, the level the oracle's pool starts beside."""
+        """`run` collects the glyph chain's cyclic garbage once, on the calling thread, after the chain has returned and before `run` returns, and its `[t] glyph_chain_collect` line carries the resident set the collect leaves, the level the process carries for the rest of the run."""
         events: list = []
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events)
@@ -423,69 +423,57 @@ class TestTheFirstRed:
         _summary, gates = _run(tmp_path)
         try:
             with pytest.raises(SystemExit, match="tables incomplete"):
-                gates.wait_for_replay()
-            with pytest.raises(SystemExit, match="tables incomplete"):
-                gates.wait_for_memo()
-            with pytest.raises(SystemExit, match="tables incomplete"):
                 gates.join()
         finally:
             gates.close()
 
-    def test_a_red_witness_stage_is_raised_before_the_oracle_writes_a_memo(self, monkeypatch, tmp_path):
+    def test_a_red_witness_stage_is_raised_at_the_join(self, monkeypatch, tmp_path):
         events: list = []
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events, witnesses=RED_WITNESSES)
         _summary, gates = _run(tmp_path)
         try:
             with pytest.raises(conform.WitnessError):
-                gates.wait_for_memo()
+                gates.join()
         finally:
             gates.close()
 
-    def test_the_replay_wait_returns_while_the_witness_stage_is_still_running(self, monkeypatch, tmp_path):
-        """`wait_for_replay` returns while the witness stage is still blocked, and `wait_for_memo` returns only once that stage has returned."""
-        events: list = []
-        release = threading.Event()
-        _stub_chain(monkeypatch, events)
-        _stub_gates(monkeypatch, events, on_witnesses=lambda: release.wait(timeout=20))
-        _summary, gates = _run(tmp_path)
-        try:
-            gates.wait_for_replay()
-            assert "replay:done" in events and "witnesses:done" not in events
-            release.set()
-            gates.wait_for_memo()
-            assert "witnesses:done" in events
-            gates.join()
-        finally:
-            release.set()
-            gates.close()
-
-    def test_a_red_walk_waits_for_the_join(self, monkeypatch, tmp_path):
-        """A shipped-order failure is raised at `join`, not at `wait_for_memo`, which raises only failures of the replay and the witness stage."""
+    def test_a_red_walk_is_raised_at_the_join(self, monkeypatch, tmp_path):
+        """A shipped-order failure is the branch's first red once the replay and the witness stage pass, and `join` raises it."""
         events: list = []
         _stub_chain(monkeypatch, events)
         _stub_gates(monkeypatch, events, emitted=RED_EMITTED)
         _summary, gates = _run(tmp_path)
         try:
-            gates.wait_for_memo()
             assert gates.first_red() is not None
             with pytest.raises(SystemExit, match="shipped settlement order"):
                 gates.join()
         finally:
             gates.close()
 
+    def test_a_branch_that_dies_before_its_stages_raises_its_error_at_the_join(self, monkeypatch, tmp_path):
+        """If the branch raises before any stage, for example because its pool cannot start a walker thread, `join` raises the branch's error instead of blocking forever."""
+        events: list = []
+        _stub_chain(monkeypatch, events)
+        _stub_gates(monkeypatch, events)
 
-def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None, **gates):
-    """Stubs what `run_m1.full_run` calls around `run` (the Stage A capture and the pre-gate guards, which read files under rebuild/out, the keys, the spec, the pin gate, and the oracle), points `run_m1.OUT_DIR`, where the Stage A record is deleted and written, at `tmp_path`, and leaves `run` real, writing under `tmp_path`, and the ledger guard real, compiling the checked-in ledger. The oracle stub records its start, calls `on_oracle`, then the `memo_ready` it was passed (where the real oracle waits before its first memo write), recording the seconds it returns in `events` as `("memo_wait", seconds)`, then `after_memo`, and records its end."""
+        def dying_branch(*args, **rest):
+            raise RuntimeError("can't start new thread")
+
+        monkeypatch.setattr(run_m1, "_run_table_gates", dying_branch)
+        _summary, gates = _run(tmp_path)
+        try:
+            with pytest.raises(RuntimeError, match="can't start new thread"):
+                gates.join()
+        finally:
+            gates.close()
+
+
+def _stub_main(monkeypatch, tmp_path, events, **gates):
+    """Stubs what `run_m1.full_run` calls around `run` (the Stage A capture, which reads files under rebuild/out, the keys, the spec, and the pin gate), points `run_m1.OUT_DIR`, where the Stage A record is deleted and written, at `tmp_path`, and leaves `run` real, writing under `tmp_path`."""
     real_run = run_m1.run
     monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
-    monkeypatch.setattr(
-        run_m1.fingerprint, "stage_a", lambda root: {"data": "d", "baselines": "b", "pipeline_code": "p"}
-    )
-    monkeypatch.setattr(run_m1_gates.oracle, "unaliased_subset_names", lambda subset_dir, alias_path: {})
-    monkeypatch.setattr(
-        run_m1_gates.baseline_subset, "ensure_fresh", lambda repo_root, before_refilter: False
-    )
+    monkeypatch.setattr(run_m1.fingerprint, "stage_a", lambda root: {"data": "d", "pipeline_code": "p"})
     monkeypatch.setattr(run_m1, "tables_inputs", lambda: STAMP)
     monkeypatch.setattr(run_m1, "settle_memo_inputs", lambda: None)
     monkeypatch.setattr(run_m1, "load_default_spec", lambda: SPEC)
@@ -498,73 +486,28 @@ def _stub_main(monkeypatch, tmp_path, events, *, on_oracle=None, after_memo=None
         "run_manual_pin_gate",
         lambda spec: {"pass": True, "disagreements": [], "pins_in_scope": 3, "replayed": 3},
     )
-
-    def run_oracle(spec, jobs, memo_ready=None, **rest):
-        events.append("oracle:start")
-        if on_oracle is not None:
-            on_oracle()
-        if memo_ready is not None:
-            events.append(("memo_wait", memo_ready()))
-        if after_memo is not None:
-            after_memo()
-        events.append("oracle")
-        return {"unmatched": 0, "multi_matched": 0}
-
-    monkeypatch.setattr(run_m1_gates, "run_oracle", run_oracle)
     _stub_chain(monkeypatch, events)
     _stub_gates(monkeypatch, events, **gates)
 
 
 class TestMain:
-    def test_the_oracle_starts_behind_the_replay_and_writes_behind_the_witness_stage(
-        self, monkeypatch, tmp_path
-    ):
-        """The oracle starts once the replay has returned, while the witness stage runs, and the `memo_ready` it is passed (which `run_oracle` calls before its first settle memo write) returns only once the witness stage has returned. So the stage reads each settle memo file before any oracle write, as the replay left it. The witness stub waits until the oracle has started, so an oracle that waited for the witness stage fails the wait instead of hanging. The real stage writes nothing the oracle could see, so the stub then writes the file through `conform.absorb_settle_memo` as its last act, a mark of its end, and the oracle stub checks that the file is readable as soon as its wait returns. The wait returns the seconds it blocked, which the oracle reports, and prints nothing itself."""
-        events: list = []
-        memo = conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", "stamp")
-        oracle_started = threading.Event()
-        standing: list[bool] = []
-
-        def witness():
-            assert oracle_started.wait(timeout=20), "the oracle waited for the witness stage"
-            time.sleep(0.3)
-            assert conform.absorb_settle_memo(memo, SPEC, [conform._fresh_memo([])]).written
-
-        _stub_main(
-            monkeypatch,
-            tmp_path,
-            events,
-            on_witnesses=witness,
-            on_oracle=oracle_started.set,
-            after_memo=lambda: standing.append(conform.settle_memo_standing(memo)),
-        )
-        run_m1_gates.main([])
-        assert events.index("replay:done") < events.index("oracle:start") < events.index("witnesses:done")
-        assert events.index("witnesses:done") < events.index("oracle")
-        assert standing == [True]
-        (waited,) = [event[1] for event in events if isinstance(event, tuple) and event[0] == "memo_wait"]
-        assert waited is not None and waited > 0
-
-    def test_a_red_witness_stage_stops_the_oracle_at_its_memo_wait(self, monkeypatch, tmp_path):
-        """A witness-stage failure is raised in the oracle at its memo wait, before the oracle writes a memo or a summary, and it is the error the build reports."""
+    def test_a_red_witness_stage_is_the_builds_error(self, monkeypatch, tmp_path):
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, witnesses=RED_WITNESSES)
         with pytest.raises(SystemExit, match="certificate does not fire"):
             run_m1_gates.main([])
-        assert "oracle" not in events
 
-    def test_a_red_walk_under_a_green_chain_and_oracle_is_the_builds_error(self, monkeypatch, tmp_path):
+    def test_a_red_walk_under_a_green_chain_and_pin_gate_is_the_builds_error(self, monkeypatch, tmp_path):
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, emitted=RED_EMITTED)
         with pytest.raises(SystemExit, match="shipped settlement order"):
             run_m1_gates.main([])
-        assert "oracle" in events
 
     @pytest.mark.parametrize("cycle_owned", [True, False])
     def test_a_late_red_walk_cannot_leave_a_standalone_green(self, monkeypatch, tmp_path, cycle_owned):
-        """The emitted-order stage waits until the oracle writes a passing summary. Its failure then decides the CLI result even though all three summaries pass; a standalone run invalidates its green, while a cycle child leaves the same record for its parent to invalidate."""
+        """The emitted-order stage waits until the Manual-pin gate writes a passing summary. Its failure then decides the CLI result even though both summaries pass; a standalone run invalidates its green, while a cycle child leaves the same record for its parent to invalidate."""
         events: list = []
-        oracle_written = threading.Event()
+        pins_written = threading.Event()
         store = tmp_path / "run-m1-green.json"
         monkeypatch.setattr(cycle_paths, "RUN_M1_GREEN", store)
         ac.record_green(store, "fp-tail")
@@ -573,24 +516,14 @@ class TestMain:
             monkeypatch.setenv(ct.CYCLE_RUN_ENV, "cafef00d1234")
 
         def emitted():
-            assert oracle_written.wait(timeout=20), "the emitted-order stage did not reach the oracle"
+            assert pins_written.wait(timeout=20), "the emitted-order stage did not reach the pin gate"
 
-        def write_oracle():
-            (tmp_path / "oracle_summary.json").write_text(json.dumps({"unmatched": 0, "multi_matched": 0}))
-            oracle_written.set()
-
-        _stub_main(
-            monkeypatch,
-            tmp_path,
-            events,
-            emitted=RED_EMITTED,
-            on_emitted=emitted,
-            after_memo=write_oracle,
-        )
+        _stub_main(monkeypatch, tmp_path, events, emitted=RED_EMITTED, on_emitted=emitted)
 
         def pin_gate(spec):
             summary = {"pass": True, "disagreements": [], "pins_in_scope": 3, "replayed": 3}
             (tmp_path / "manual_pins_summary.json").write_text(json.dumps(summary))
+            pins_written.set()
             return summary
 
         monkeypatch.setattr(run_m1_gates, "run_manual_pin_gate", pin_gate)
@@ -598,13 +531,12 @@ class TestMain:
             with pytest.raises(SystemExit, match="shipped settlement order"):
                 run_m1_gates.main([])
         finally:
-            oracle_written.set()
+            pins_written.set()
         summaries = [
             json.loads((tmp_path / name).read_text())
-            for name in ("pipeline_summary.json", "manual_pins_summary.json", "oracle_summary.json")
+            for name in ("pipeline_summary.json", "manual_pins_summary.json")
         ]
         assert ac.evaluate_run_m1_gate(*summaries).ok
-        assert "oracle" in events
         if cycle_owned:
             assert store.read_bytes() == before
             assert ct.load_checks(ct.JOURNAL) == []
@@ -635,12 +567,11 @@ class TestMain:
         else:
             assert settled == []
 
-    def test_a_red_replay_is_raised_ahead_of_the_oracle(self, monkeypatch, tmp_path):
+    def test_a_red_replay_is_the_builds_error(self, monkeypatch, tmp_path):
         events: list = []
         _stub_main(monkeypatch, tmp_path, events, replay=RED_REPLAY)
         with pytest.raises(SystemExit, match="tables incomplete"):
             run_m1_gates.main([])
-        assert "oracle:start" not in events
 
     def test_a_red_replay_beats_a_defect_error(self, monkeypatch, tmp_path):
         events: list = []
@@ -649,7 +580,6 @@ class TestMain:
         monkeypatch.setattr(run_m1, "_run_defect_gates", lambda spec, tables, glyphs: broken)
         with pytest.raises(SystemExit, match="tables incomplete"):
             run_m1_gates.main([])
-        assert "oracle:start" not in events
 
 
 def _gated_pack(monkeypatch, release):
@@ -823,7 +753,7 @@ class TestThePacking:
         run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
         assert all(len(table_module.windows_head(tmp_path, config).segments) == 1 for config in CONFIGS)
-        assert row_delta.claim_fold("divergence-audit.tsv")
+        assert row_delta.claim_fold("settle-memo-default.bin")
         before = _windows_bytes(tmp_path)
         if failure == "a reader fails":
             real = run_m1._stage_head_file
@@ -861,7 +791,7 @@ class TestThePacking:
         narrow = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
         run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
-        assert row_delta.claim_fold("divergence-audit.tsv")
+        assert row_delta.claim_fold("settle-memo-default.bin")
         if route == "base":
             base = tmp_path / table_module.windows_head(tmp_path, "default").base.name
             raw = bytearray(base.read_bytes())
@@ -1054,7 +984,7 @@ class TestThePacking:
                     head.output, 0, head.content, head.stamps, head.base, tuple(segments), head.merge
                 ),
             )
-        assert row_delta.claim_fold("divergence-audit.tsv")
+        assert row_delta.claim_fold("settle-memo-default.bin")
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         try:
             resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard))
@@ -1238,25 +1168,3 @@ class TestTheTailWidth:
             gates.close()
         assert widths == {"packing": run_m1._core_bound_threads(len(CONFIGS))}
         assert calls == [{"ready"}]
-
-
-class TestTheMemoWait:
-    @pytest.mark.parametrize("wait", ["wait_for_replay", "wait_for_memo"])
-    def test_a_branch_that_dies_before_its_chain_does_not_hang_the_wait(self, monkeypatch, tmp_path, wait):
-        """`wait_for_replay` waits on the event the branch sets after the string replay, and `wait_for_memo` on the one it sets after the witness stage. If the branch raises before either stage, for example because its pool cannot start a walker thread, both events are set when its future completes, and either wait raises the branch's error instead of blocking forever."""
-        events: list = []
-        _stub_chain(monkeypatch, events)
-        _stub_gates(monkeypatch, events)
-
-        def dying_branch(*args, **rest):
-            raise RuntimeError("can't start new thread")
-
-        monkeypatch.setattr(run_m1, "_run_table_gates", dying_branch)
-        _summary, gates = _run(tmp_path)
-        try:
-            with pytest.raises(RuntimeError, match="can't start new thread"):
-                getattr(gates, wait)()
-            with pytest.raises(RuntimeError, match="can't start new thread"):
-                gates.join()
-        finally:
-            gates.close()

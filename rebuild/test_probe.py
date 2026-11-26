@@ -1,7 +1,5 @@
-"""Tests for rebuild/tools/probe.py, which settles windows through `explain_many` (the Rust-backed batch path the explain CLI and the review corpus use) and reads baseline rows by scanning the subset table only as far as the last wanted window."""
+"""Tests for rebuild/tools/probe.py, which settles windows through `explain_many` (the Rust-backed batch path the explain CLI and the review corpus use) and prints each window's settlement in every configuration."""
 
-import gzip
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,8 +7,6 @@ import pytest
 from rebuild.pipeline import fixtures
 from rebuild.pipeline.model import CellId, Settled
 from rebuild.tools import probe
-
-MINI = Path(__file__).resolve().parent / "review" / "fixtures" / "mini"
 
 SETTLED = (
     Settled(
@@ -40,13 +36,8 @@ def _settled_naming_the_request(codepoints, features):
     )
 
 
-def _baseline_naming_the_window(config, windows):
-    """Return a baseline row for every wanted window whose glyphs field names the window and the configuration, so a block that shows another window's or another configuration's row prints different text."""
-    return {w: [w, f"old-{w}-{config}", "0", "y0"] for w in windows}
-
-
 def _stub_settlement(monkeypatch, configs, settle=_settled_naming_the_request):
-    """Replace the probe's `explain_many` with one that records its calls and returns `settle(codepoints, features)` for each request, load the mini spec, set `CONFIGS`, and make every baseline lookup empty."""
+    """Replace the probe's `explain_many` with one that records its calls and returns `settle(codepoints, features)` for each request, load the mini spec, and set `CONFIGS`."""
     spec = fixtures.mini_spec()
     calls = []
 
@@ -56,7 +47,6 @@ def _stub_settlement(monkeypatch, configs, settle=_settled_naming_the_request):
 
     monkeypatch.setattr(probe, "CONFIGS", configs)
     monkeypatch.setattr(probe, "load_default_spec", lambda: spec)
-    monkeypatch.setattr(probe, "baseline_rows", lambda _config, _windows: {})
     monkeypatch.setattr(probe, "explain_many", explain_many)
     return spec, calls
 
@@ -70,49 +60,8 @@ def test_probe_routes_its_configs_through_explain_many(monkeypatch, capsys):
     assert calls[0][1] == [([0xE665, 0xE670], frozenset())]
     output = capsys.readouterr().out
     assert "=== window E665:E670 ===" in output
-    assert "NEW cells : qsMay.loop/en=None/ex=x-height/ | qsIt.sole/en=x-height/ex=None/" in output
-    assert "NEW junctions : y5" in output
-
-
-def test_the_baseline_scan_stops_at_the_last_window_it_wants():
-    """The scan should stop after the last wanted row, so the test checks how far the line generator advanced as well as the result: with two wanted keys early in a synthetic table, the generator never yields the row after the second."""
-    table = ["# header\n"] + [f"K{i}\tg{i}\t0\ty{i}\n" for i in range(20)]
-    yielded = []
-
-    def lines():
-        for line in table:
-            yielded.append(line)
-            yield line
-
-    found = probe._scan_rows(lines(), frozenset({"K2", "K5"}))
-    assert found == {"K2": ["K2", "g2", "0", "y2"], "K5": ["K5", "g5", "0", "y5"]}
-    assert yielded[-1] == "K5\tg5\t0\ty5\n"
-    assert len(yielded) == 7
-
-
-def test_the_baseline_scan_returns_what_a_whole_table_dict_holds(monkeypatch):
-    """On the mini bundle's default table, one call asking for the first data key, the last key, and an absent key returns the same rows as a whole-table dict for the two present keys. The expected dict is built from the same file, so the test still passes after the bundle is regenerated."""
-    monkeypatch.setattr(probe, "OUT_DIR", MINI)
-    whole = {}
-    with gzip.open(MINI / "baseline-default.subset.tsv.gz", "rt") as f:
-        for line in f:
-            if line.startswith("#"):
-                continue
-            parts = line.rstrip("\n").split("\t")
-            if len(parts) < 4:
-                continue
-            whole[parts[0]] = parts
-    keys = list(whole)
-    wanted = {keys[0], keys[-1], "0000:0000"}
-    scan = probe.baseline_rows("default", wanted)
-    assert scan == {k: whole[k] for k in wanted if k in whole}
-    assert set(scan) == {keys[0], keys[-1]}
-
-
-def test_no_wanted_window_opens_no_table(monkeypatch, tmp_path):
-    """An empty wanted set returns an empty dict without opening a table, so a directory with no table raises nothing."""
-    monkeypatch.setattr(probe, "OUT_DIR", tmp_path)
-    assert probe.baseline_rows("default", set()) == {}
+    assert "  cells : qsMay.loop/en=None/ex=x-height/ | qsIt.sole/en=x-height/ex=None/" in output
+    assert "  junctions : y5" in output
 
 
 def test_every_window_and_configuration_goes_into_one_explain_many_call(monkeypatch):
@@ -129,42 +78,32 @@ def test_every_window_and_configuration_goes_into_one_explain_many_call(monkeypa
     ]
 
 
-def test_each_block_carries_its_own_windows_settlement_and_baseline(monkeypatch, capsys):
-    """Checks the full multi-window output as text: window blocks in argument order, configurations in `CONFIGS` order within each block, and each line showing the settlement and baseline row for its own window and configuration. The stubs name the window and configuration in every line, so a block built from another window's reports or baseline key prints different text."""
+def test_each_block_carries_its_own_windows_settlement(monkeypatch, capsys):
+    """Checks the full multi-window output as text: window blocks in argument order, configurations in `CONFIGS` order within each block, and each line showing the settlement for its own window and configuration. The stub names the window and configuration in every line, so a block built from another window's reports prints different text."""
     _stub_settlement(monkeypatch, ["default", "ss03"])
     monkeypatch.setattr(probe, "features_for_config", lambda config: frozenset({config}))
-    monkeypatch.setattr(probe, "baseline_rows", _baseline_naming_the_window)
     probe.main(["E665:E670", "E652:E67A:E650"])
     assert capsys.readouterr().out == (
         "=== window E665:E670 ===\n"
         "\n[default]\n"
-        "  OLD glyphs: old-E665:E670-default\n"
-        "  OLD junctions : y0\n"
-        "  NEW cells : cpE665.default/en=None/ex=None/ | cpE670.default/en=None/ex=None/\n"
-        "  NEW junctions : y5\n"
+        "  cells : cpE665.default/en=None/ex=None/ | cpE670.default/en=None/ex=None/\n"
+        "  junctions : y5\n"
         "\n[ss03]\n"
-        "  OLD glyphs: old-E665:E670-ss03\n"
-        "  OLD junctions : y0\n"
-        "  NEW cells : cpE665.ss03/en=None/ex=None/ | cpE670.ss03/en=None/ex=None/\n"
-        "  NEW junctions : y5\n"
+        "  cells : cpE665.ss03/en=None/ex=None/ | cpE670.ss03/en=None/ex=None/\n"
+        "  junctions : y5\n"
         "=== window E652:E67A:E650 ===\n"
         "\n[default]\n"
-        "  OLD glyphs: old-E652:E67A:E650-default\n"
-        "  OLD junctions : y0\n"
-        "  NEW cells : cpE652.default/en=None/ex=None/ | cpE67A.default/en=None/ex=None/ | cpE650.default/en=None/ex=None/\n"
-        "  NEW junctions : y5,y5\n"
+        "  cells : cpE652.default/en=None/ex=None/ | cpE67A.default/en=None/ex=None/ | cpE650.default/en=None/ex=None/\n"
+        "  junctions : y5,y5\n"
         "\n[ss03]\n"
-        "  OLD glyphs: old-E652:E67A:E650-ss03\n"
-        "  OLD junctions : y0\n"
-        "  NEW cells : cpE652.ss03/en=None/ex=None/ | cpE67A.ss03/en=None/ex=None/ | cpE650.ss03/en=None/ex=None/\n"
-        "  NEW junctions : y5,y5\n"
+        "  cells : cpE652.ss03/en=None/ex=None/ | cpE67A.ss03/en=None/ex=None/ | cpE650.ss03/en=None/ex=None/\n"
+        "  junctions : y5,y5\n"
     )
 
 
 def test_the_multi_window_run_is_the_single_window_runs_concatenated(monkeypatch, capsys):
     """The skills diff probe output from before and after a rune edit, so a run over several windows must print the single-window runs joined in argument order. The stubs name their window, so the two single-window outputs differ and a block taken from the wrong window's reports would not match."""
     _stub_settlement(monkeypatch, ["default", "ss03"])
-    monkeypatch.setattr(probe, "baseline_rows", _baseline_naming_the_window)
     probe.main(["E665:E670"])
     first = capsys.readouterr().out
     probe.main(["E652:E67A:E650"])
@@ -177,44 +116,7 @@ def test_the_multi_window_run_is_the_single_window_runs_concatenated(monkeypatch
     assert "\n[ss03]\n" in first
 
 
-def test_a_window_absent_from_the_subset_reads_as_not_in_subset(monkeypatch, capsys):
-    """A baseline table that holds no row for the window prints the not-in-subset marker and an empty junctions line."""
-    _stub_settlement(monkeypatch, ["default"])
-    probe.main(["E665:E670"])
-    output = capsys.readouterr().out
-    assert "  OLD glyphs: (not in subset)\n  OLD junctions : \n" in output
-
-
-def test_a_present_window_prints_its_baseline_row(monkeypatch, capsys):
-    """A baseline row for the window fills the glyphs slot from its second field and the junctions slot from its fourth."""
-    _stub_settlement(monkeypatch, ["default"])
-    monkeypatch.setattr(
-        probe,
-        "baseline_rows",
-        lambda _config, _windows: {"E665:E670": ["E665:E670", "qsMay|qsIt", "0,1", "y5"]},
-    )
-    probe.main(["E665:E670"])
-    output = capsys.readouterr().out
-    assert "  OLD glyphs: qsMay|qsIt\n  OLD junctions : y5\n" in output
-
-
-def test_no_baseline_never_reads_a_subset_table(monkeypatch, capsys):
-    """`--no-baseline` leaves the OLD lines out, so no line looks like a missing baseline row, and never reads a table."""
-    _stub_settlement(monkeypatch, ["default"])
-
-    def refuse(_config, _windows):
-        raise AssertionError("baseline table read under --no-baseline")
-
-    monkeypatch.setattr(probe, "baseline_rows", refuse)
-    probe.main(["--no-baseline", "E665:E670"])
-    output = capsys.readouterr().out
-    assert "=== window E665:E670 ===" in output
-    assert "\n[default]\n  NEW cells : " in output
-    assert "OLD" not in output
-    assert "NEW junctions : y5" in output
-
-
-@pytest.mark.parametrize("argv", [[], ["--no-baseline"], ["E665:zz"], ["E665:"], ["qsMay"]])
+@pytest.mark.parametrize("argv", [[], ["E665:zz"], ["E665:"], ["qsMay"]])
 def test_an_empty_or_malformed_window_list_prints_the_usage_and_exits_2(monkeypatch, capsys, argv):
     """With no window, or an entry that is not a colon-joined hex window, the probe prints the usage line and exits with status 2 before loading anything."""
     _spec, calls = _stub_settlement(monkeypatch, ["default"])

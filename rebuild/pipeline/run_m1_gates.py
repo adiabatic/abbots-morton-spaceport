@@ -1,47 +1,37 @@
-"""The M1 driver's gate half, the code the table build and the font compile never run: the gates that check the tables and the M1.otf a build has written under rebuild/out/m1, the guards that check the oracle's baselines, aliases and ledger before those gates run, and the command line `uv run python -m rebuild.pipeline.run_m1` hands to `main`.
+"""The M1 driver's gate half, the code the table build and the font compile never run: the gates that check the tables and the M1.otf a build has written under rebuild/out/m1, and the command line `uv run python -m rebuild.pipeline.run_m1` hands to `main`.
 
-It holds the pre-gate guards (`_run_pregate_guards`), the Manual-pin gate (`run_manual_pin_gate`), the baseline oracle and its row-cache helpers (`run_oracle`), the conformance sweep, serial or pooled (`run_font_conformance`), the units the pooled sweep, `make conform-deep` and the deep replay run in (`sweep_units`), the `--gates-only` rerun (`run_gates_only`), the check line and green settlement each invocation leaves when it finishes, stops at a gate, refuses or, as a bare run or a `--gates-only` pass, raises (`_record_cli_check`, `_settle_green`, `_exit_red` for a refusal or a stop before the run_m1 gate is evaluated, and `_recording_failure` for an exception raised past the run's own handlers; a child of the artifact cycle prints its check line for the cycle instead), and the Stage A record a build or a `--gates-only` pass deletes immediately before its first write under rebuild/out/m1 and writes back only once its gates pass (`_retract_stage_a`, `_settle_stage_a`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
+It holds the Manual-pin gate (`run_manual_pin_gate`), the conformance sweep, serial or pooled (`run_font_conformance`), the units the pooled sweep, `make conform-deep` and the deep replay run in (`sweep_units`), the `--gates-only` rerun (`run_gates_only`), the check line and green settlement each invocation leaves when it finishes, stops at a gate, refuses or, as a bare run or a `--gates-only` pass, raises (`_record_cli_check`, `_settle_green`, `_exit_red` for a refusal or a stop before the run_m1 gate is evaluated, and `_recording_failure` for an exception raised past the run's own handlers; a child of the artifact cycle prints its check line for the cycle instead), and the Stage A record a build or a `--gates-only` pass deletes immediately before its first write under rebuild/out/m1 and writes back only once its gates pass (`_retract_stage_a`, `_settle_stage_a`). `main` parses the command line and runs `--gates-only` and `--conform-only` itself. A bare run goes to `run_m1.full_run`, which builds the tables and the font and then calls these gates.
 
-`fingerprint.COMPARISON_CODE_MODULES` names this module, so it is in `pipeline_code_paths` and the run_m1 skip key but not in the tables' stamp (`fingerprint.table_code_paths`): an edit here re-runs the gates over the tables and font on disk instead of forcing a full build, and rebuild/test_build_code_closure.py checks that the build never reaches it. It reaches the build's own helpers through the `run_m1` module object at call time rather than importing their names, so a test that patches one on `run_m1` patches what this module calls. The `out_dir` defaults, the three YAML paths (`ALIAS_YAML`, `DIVERGENCES_YAML`, `KERN_SIDECAR_YAML`) and `load_default_spec` are bound when this module is imported, so a test patches those on this module or passes `out_dir`. `run_m1.full_run` loads the spec through `run_m1.load_default_spec`, so a test that drives the full run patches that binding instead.
+`fingerprint.COMPARISON_CODE_MODULES` names this module, so it is in `pipeline_code_paths` and the run_m1 skip key but not in the tables' stamp (`fingerprint.table_code_paths`): an edit here re-runs the gates over the tables and font on disk instead of forcing a full build, and rebuild/test_build_code_closure.py checks that the build never reaches it. It reaches the build's own helpers through the `run_m1` module object at call time rather than importing their names, so a test that patches one on `run_m1` patches what this module calls. The `out_dir` defaults and `load_default_spec` are bound when this module is imported, so a test patches those on this module or passes `out_dir`. `run_m1.full_run` loads the spec through `run_m1.load_default_spec`, so a test that drives the full run patches that binding instead.
 """
 
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import secrets
 import shutil
 import sys
-import threading
 import time
 import zlib
-from collections import deque
-from concurrent.futures import FIRST_COMPLETED, Executor, Future, ThreadPoolExecutor, wait
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Iterator, Mapping, NoReturn, Sequence, cast
 
-import yaml
-
 from rebuild.pipeline import (
-    baseline_subset,
     conform,
     fingerprint,
     glyph_facts,
     kernel_exec,
     manual_pins,
-    oracle,
-    oracle_cache,
     output_sink,
     run_m1,
-    settle_memo_keys,
     shared_segments,
 )
 from rebuild.pipeline import table as table_module
-from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.model import CellId, GlyphRecord, ResolvedSpec
 from rebuild.pipeline.settle import FormationGuard
 from rebuild.pipeline.spec_load import load_default_spec
@@ -64,10 +54,6 @@ from rebuild.tools.peak_rss import (
     rss_token,
 )
 
-ALIAS_YAML = run_m1.REPO_ROOT / "rebuild" / "m1-aliases.yaml"
-DIVERGENCES_YAML = run_m1.REPO_ROOT / "rebuild" / "m1-divergences.yaml"
-KERN_SIDECAR_YAML = run_m1.REPO_ROOT / "glyph_data" / "senior_quikscript_kerning.yaml"
-
 
 def run_font_conformance(
     out_dir: Path = run_m1.OUT_DIR,
@@ -79,7 +65,7 @@ def run_font_conformance(
 
     Above `jobs` 1 the sweep runs in units (`_pooled_conformance`): the ss10 overlay whole and each settlement configuration once per symbol of the alphabet (`sweep_units`), one spawn process each. The serial path sweeps each configuration whole inside `conform.run_conformance`, and both write the same summary. The pooled path computes the `doc/rebuild-design.md` §5.7 formation-guard verdicts (`kernel_exec.guard_sweep`) once for the whole run and passes them with each submission. A spawned worker inherits nothing, so each would otherwise build the crate and sweep the spec itself.
 
-    At the per-edit maximum length, each settlement configuration's walks share its settle memo with the string replay that fills it and with the oracle's walk over the same texts, through a memo under `out_dir` keyed per family as the oracle row cache is (`conform.settle_memo_files`, from `run_m1.settle_memo_inputs` taken before the spec loads), a base and segments under a head. The replay fills it, each later phase loads it and writes a segment of what it added, and a rune edit invalidates only the entries whose windows name an edited family. This sweep also prunes the rows no text reaches, naming them in its segment's dead bitmaps: the serial path in its walk's save, the pooled path in the parent over the units' reaches (`_pooled_conformance`). A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep and oracle workers more to decode than they save.
+    At the per-edit maximum length, each settlement configuration's walks share its settle memo with the string replay that fills it and the witness stage that reads it, through a memo under `out_dir` keyed per family (`conform.settle_memo_files`, from `run_m1.settle_memo_inputs` taken before the spec loads), a base and segments under a head. The replay fills it, each later phase loads it and writes a segment of what it added, and a rune edit invalidates only the entries whose windows name an edited family. This sweep also prunes the rows no text reaches, naming them in its segment's dead bitmaps: the serial path in its walk's save, the pooled path in the parent over the units' reaches (`_pooled_conformance`). A deeper sweep shares nothing: its memo is a multiple of the conformance sweep's, and a file that size would cost the next conformance-sweep workers more to decode than they save.
 
     A pooled conformance sweep at `conform.SWEEP_MAX_LENGTH` writes one `conform-sweep` pool record (`cycle_timings.record_pool`), which `make job-costs` reports: one observation per configuration, its units' highest peak footprint (`_conformance_unit`), and one per settle-memo absorb that ran, labeled `<config> absorb`. The serial path starts no pool, and a hand sweep past `conform.SWEEP_MAX_LENGTH` has a different unit peak, so neither records one.
     """
@@ -162,153 +148,6 @@ def manual_pin_gate_failure(summary: Mapping) -> str | None:
     if replayed != in_scope:
         return f"Manual-pin gate replayed {replayed} of {in_scope} pins in scope"
     return None
-
-
-def _promote_oracle_row_cache(
-    spec: ResolvedSpec,
-    out_dir: Path,
-    stores: oracle_cache.StoreSet | None,
-    keys: Mapping[str, str],
-    stamps: Mapping[str, oracle_cache.EnvironmentStamp],
-    position_keys: Mapping[str, str] | None = None,
-    position_stamp: oracle_cache.EnvironmentStamp | None = None,
-) -> None:
-    """Commit this run's stores, the set head over the parts its stores' writer wrote (`oracle_cache.promote_stores`, all configurations or none), but only if every key recomputed from the sources now matches what the run used: the row keys and stamps from the rune tree, and the position keys and stamp from the font and the kern sidecar. If the inputs changed during the run, its verdicts describe nothing on disk, and a store recorded under the wrong digest would be served as current indefinitely instead of failing once. So on any change no head is committed and a warning names the change, which costs the next pass an uncached oracle and nothing else; the parts the run wrote stay unlisted, and the next plan deletes them. An alias map edited during the run into a form `alias_family_digests` rejects, or a font that cannot be digested again, is handled the same way."""
-    try:
-        keys_now, stamps_now = oracle_row_cache_keys(spec, out_dir)
-        position_keys_now, position_stamp_now = oracle_position_keys(keys_now, out_dir)
-    except (OSError, ValueError, yaml.YAMLError) as error:
-        console.warn(f"oracle row cache: not written — its inputs would not re-read ({error})")
-        return
-    moved = oracle_cache.moved_note(dict(keys), keys_now)
-    if moved is None:
-        for config in conform.ORACLE_CONFIGS:
-            moved = oracle_cache.moved_note(stamps[config].labels, stamps_now[config].labels)
-            if moved is not None:
-                moved = f"{config} {moved}"
-                break
-    if moved is None and position_keys is not None:
-        moved = oracle_cache.moved_note(dict(position_keys), position_keys_now or {})
-        if moved is None and position_stamp is not None:
-            moved = oracle_cache.moved_note(
-                position_stamp.labels, position_stamp_now.labels if position_stamp_now else {}
-            )
-        if moved is not None:
-            moved = f"positions {moved}"
-    if moved is not None:
-        console.warn(
-            f"oracle row cache: not written — its inputs moved while the oracle ran ({moved}), so nothing it derived describes what is on disk"
-        )
-        return
-    promoted = oracle_cache.promote_stores(stores, conform.ORACLE_CONFIGS)
-    if promoted:
-        console.say(f"oracle row cache: written for {', '.join(promoted)}")
-    else:
-        console.warn("oracle row cache: not written — a configuration staged no store")
-
-
-def oracle_row_cache_keys(
-    spec: ResolvedSpec, out_dir: Path
-) -> tuple[dict[str, str], dict[str, oracle_cache.EnvironmentStamp]]:
-    """Return the oracle row cache's two keys from one read of their sources: a digest per rune family, and a whole-store stamp per configuration the oracle compares (`conform.ORACLE_CONFIGS`). They are computed once before the run and again at promotion, which is how the run detects that what it would record differs from what it built from."""
-    keys = oracle_cache.family_keys(run_m1.REPO_ROOT, spec, ALIAS_YAML)
-    stamps = {
-        config: oracle_cache.environment_stamp(
-            run_m1.REPO_ROOT,
-            spec,
-            config,
-            features_for_config(config),
-            out_dir / f"baseline-{config}.subset.tsv.gz",
-            ALIAS_YAML,
-            keys.keys(),
-        )
-        for config in conform.ORACLE_CONFIGS
-    }
-    return keys, stamps
-
-
-def oracle_position_keys(
-    keys: Mapping[str, str], out_dir: Path
-) -> tuple[dict[str, str], oracle_cache.EnvironmentStamp] | tuple[None, None]:
-    """Return the position store's two keys, computed from the font the oracle is about to shape against and the kern sidecar it reads: `oracle_cache.position_keys` over the row keys already computed. With no compiled font under `out_dir` there is nothing to shape, and it returns `(None, None)`, which records every position as unshaped and serves none."""
-    font = Path(out_dir) / "M1.otf"
-    if not font.is_file():
-        return None, None
-    return oracle_cache.position_keys(run_m1.REPO_ROOT, keys, font, KERN_SIDECAR_YAML)
-
-
-def _report_oracle_cache(
-    spec: ResolvedSpec,
-    out_dir: Path,
-    keys: Mapping[str, str],
-    stamps: Mapping[str, oracle_cache.EnvironmentStamp],
-    position_keys: Mapping[str, str] | None = None,
-    position_stamp: oracle_cache.EnvironmentStamp | None = None,
-) -> None:
-    """Print, before the fan-out, which stored verdicts will and will not be served. The hit rate is bimodal, and a whole-store drop looks like a bug unless the line that caused it is named. A changed stamp line (a pipeline module, a predicate class gaining a member, the settlement mode flags `kernel_exec.settlement_flags` returns) re-derives every row of every configuration; unless the line is one of `oracle_cache.POSITION_ROW_STAMP_LABELS` or `oracle_cache.position_stale_mask` makes every position stale (the position stamp moved too, a moved family is one the registry cannot place, or there is no font), each position whose settled cells did not change is still served, and otherwise the store is dropped, the same test `oracle_cache.load_store` makes. A changed family key re-derives only the rows that can reach that family, the usual result of a rune edit. The position store is reported on its own line: a changed position stamp line (the position comparison's code closure, the kern sidecar, the font's helpers) re-shapes every row while the row verdicts are still served, and a changed position key re-shapes only the rows that reach that family, the usual result of a glyph edit."""
-    recorded = oracle_cache.read_header(oracle_cache.store_path(out_dir, conform.ORACLE_CONFIGS[0]))
-    if recorded is None:
-        console.say("oracle row cache: no store on disk — this pass derives every row and writes one")
-        return
-    stamp = stamps[conform.ORACLE_CONFIGS[0]]
-    stored_lines = {
-        label: digest
-        for label, _, digest in (str(line).partition("\t") for line in recorded.get("environment") or ())
-    }
-    moved_stamp = oracle_cache.moved_note(stored_lines, stamp.labels)
-    stored_position_lines = {
-        label: digest
-        for label, _, digest in (
-            str(line).partition("\t") for line in recorded.get("position_environment") or ()
-        )
-    }
-    moved_position_stamp = (
-        None
-        if position_stamp is None
-        else oracle_cache.moved_note(stored_position_lines, position_stamp.labels)
-    )
-    stored_keys = {str(name): str(value) for name, value in (recorded.get("family_keys") or {}).items()}
-    if moved_stamp is not None:
-        if any(
-            stored_lines.get(label) != stamp.labels.get(label)
-            for label in oracle_cache.POSITION_ROW_STAMP_LABELS
-        ):
-            console.warn(f"oracle row cache: dropped — the stamp moved at {moved_stamp}")
-            return
-        positions_outlive = not oracle_cache.position_stale_mask(
-            spec,
-            settle_memo_keys.moved_families(stored_keys, dict(keys)),
-            recorded,
-            position_stamp,
-            position_keys,
-        ).everything
-        console.warn(
-            f"oracle row cache: re-deriving every row — the stamp moved at {moved_stamp}; each position whose settled cells did not change is still served"
-            if positions_outlive
-            else f"oracle row cache: dropped — the stamp moved at {moved_stamp}, and no stored position can be served"
-        )
-    else:
-        moved_keys = oracle_cache.moved_note(stored_keys, dict(keys))
-        if moved_keys is None:
-            console.say("oracle row cache: the stamp and every family key still stand")
-        else:
-            console.warn(f"oracle row cache: re-deriving the rows that reach {moved_keys}")
-    if position_keys is None or position_stamp is None:
-        console.say("oracle position store: no font to shape against — every position is shaped")
-        return
-    if moved_position_stamp is not None:
-        console.warn(
-            f"oracle position store: re-shaping every row — the position stamp moved at {moved_position_stamp}"
-        )
-        return
-    stored_position_keys = {
-        str(name): str(value) for name, value in (recorded.get("position_keys") or {}).items()
-    }
-    moved_position_keys = oracle_cache.moved_note(stored_position_keys, dict(position_keys))
-    if moved_position_keys is None:
-        console.say("oracle position store: the position stamp and every glyph key still stand")
-    else:
-        console.warn(f"oracle position store: re-shaping the rows that reach {moved_position_keys}")
 
 
 @dataclass(frozen=True)
@@ -433,7 +272,7 @@ def _absorb_memo(
     sweep: conform.SweepPrune | None = None,
     route: conform.SettleMemoRoute | None = None,
 ) -> tuple[conform.MemoAbsorb, float, int]:
-    """Absorb one configuration's fresh settle memo windows into its memo (`conform.absorb_settle_memo`) in a fresh pool process, on the route the parent planned before it submitted any absorb (`conform.plan_settle_memos`): the oracle's ranges' in range order, or the conformance sweep's units' in unit-slot order with the units' prune (`sweep`). The absorb writes its part, a segment or a base, under its final name and commits its configuration's head itself, one writer a configuration at a time, and refuses to write once the memo on disk is not the one its route was planned against. Each part is the shared memory segment a range or a unit shipped its blocks in, and its counts; this maps every one at once and unlinks its name (`shared_segments.Mapped`), hands the absorb the mapped pieces, and closes each mapping once the absorb has read it, or as this returns. Return what the absorb did, its seconds, and this process's peak footprint (`peak_rss.peak_footprint_self_bytes`), which goes into the pool record as `<config> absorb`: the pool runs one task a process, so the reading is the absorb's own. The absorb calls no crate."""
+    """Absorb one configuration's fresh settle memo windows into its memo (`conform.absorb_settle_memo`) in a fresh pool process, on the route the parent planned before it submitted any absorb (`conform.plan_settle_memos`): the conformance sweep's units' in unit-slot order with the units' prune (`sweep`). The absorb writes its part, a segment or a base, under its final name and commits its configuration's head itself, one writer a configuration at a time, and refuses to write once the memo on disk is not the one its route was planned against. Each part is the shared memory segment a unit shipped its blocks in, and its counts; this maps every one at once and unlinks its name (`shared_segments.Mapped`), hands the absorb the mapped pieces, and closes each mapping once the absorb has read it, or as this returns. Return what the absorb did, its seconds, and this process's peak footprint (`peak_rss.peak_footprint_self_bytes`), which goes into the pool record as `<config> absorb`: the pool runs one task a process, so the reading is the absorb's own. The absorb calls no crate."""
     started = time.perf_counter()
     mapped: list[shared_segments.Mapped] = []
     try:
@@ -453,7 +292,7 @@ def _absorb_memo(
 
 
 class _PlannedRoutes:
-    """The settle memo routes one fan-out's absorbs take, planned on a thread of its own as the fan-out starts (`conform.plan_settle_memos`), so that reading every configuration's head and hashing its parts overlaps the first ranges or units instead of holding them back. The first absorb's submission waits for the plan, and every absorb then gets its configuration's route, decided, its fold claim among them, before any absorb writes. `[t] settle_memo_plan` (`conform.SettleMemoPlan.report`) prints once, when the first absorb's submission takes the plan or, for a fan-out that submits none, when `close` does. `close` waits for the plan and deletes what it made for each configuration no absorb committed (`conform.SettleMemoPlan.discard`)."""
+    """The settle memo routes one fan-out's absorbs take, planned on a thread of its own as the fan-out starts (`conform.plan_settle_memos`), so that reading every configuration's head and hashing its parts overlaps the first units instead of holding them back. The first absorb's submission waits for the plan, and every absorb then gets its configuration's route, decided, its fold claim among them, before any absorb writes. `[t] settle_memo_plan` (`conform.SettleMemoPlan.report`) prints once, when the first absorb's submission takes the plan or, for a fan-out that submits none, when `close` does. `close` waits for the plan and deletes what it made for each configuration no absorb committed (`conform.SettleMemoPlan.discard`)."""
 
     def __init__(self, memos: Mapping[str, conform.SettleMemoFile]) -> None:
         self._planner = ThreadPoolExecutor(max_workers=1, thread_name_prefix="settle-memo-plan")
@@ -545,10 +384,10 @@ def discard_sweep_scratch(out_dir: Path) -> None:
     """Unlink the shared memory segments a dead pooled conformance sweep over `out_dir` named for its units, from the token and unit count its `_SweepSegments` recorded, and delete its scratch directory. A SIGKILL of the sweep's whole process group kills its resource tracker too and skips every exit, and macOS lists no POSIX shared memory, so those names are the only way to find what it left. A directory whose pid is still running belongs to another sweep and is kept, and nothing here raises."""
     with suppress(OSError):
         for path in Path(out_dir).glob(f"{SWEEP_SCRATCH_PREFIX}*"):
-            if oracle._oracle_audit_owner_is_running(path.name.rpartition(".")[2]):
+            if shared_segments.owner_is_running(path.name.rpartition(".")[2]):
                 continue
             try:
-                token, count = (path / oracle.SEGMENT_RECORD).read_text().split()
+                token, count = (path / shared_segments.SEGMENT_RECORD).read_text().split()
                 names = _sweep_segment_names(token, int(count))
             except OSError, ValueError:
                 names = []
@@ -559,7 +398,7 @@ def discard_sweep_scratch(out_dir: Path) -> None:
 
 
 class _SweepSegments:
-    """The names of the POSIX shared memory segments the pooled conformance sweep's units ship their fresh settle memo windows in, one a unit slot (`name`), under a random token of this sweep's own. As it enters it unlinks what a dead sweep over the same `out_dir` left (`discard_sweep_scratch`) and records its token and unit count in a scratch directory of its own under `out_dir`, beside the oracle's (`oracle.SEGMENT_RECORD`). As it exits, normally or not, it unlinks every name still there, a segment a unit made whose configuration's absorb never mapped it, and deletes the record, so a sweep that fails or is interrupted while this block unwinds leaves no segment behind, and one SIGKILLed with its process group leaves them to the next sweep's entry."""
+    """The names of the POSIX shared memory segments the pooled conformance sweep's units ship their fresh settle memo windows in, one a unit slot (`name`), under a random token of this sweep's own. As it enters it unlinks what a dead sweep over the same `out_dir` left (`discard_sweep_scratch`) and records its token and unit count in a scratch directory of its own under `out_dir` (`shared_segments.SEGMENT_RECORD`). As it exits, normally or not, it unlinks every name still there, a segment a unit made whose configuration's absorb never mapped it, and deletes the record, so a sweep that fails or is interrupted while this block unwinds leaves no segment behind, and one SIGKILLed with its process group leaves them to the next sweep's entry."""
 
     def __init__(self, out_dir: Path, units: int) -> None:
         self._out_dir = Path(out_dir)
@@ -570,7 +409,7 @@ class _SweepSegments:
     def __enter__(self) -> "_SweepSegments":
         discard_sweep_scratch(self._out_dir)
         self._scratch.mkdir(parents=True, exist_ok=True)
-        (self._scratch / oracle.SEGMENT_RECORD).write_text(f"{self._token} {len(self._names)}\n")
+        (self._scratch / shared_segments.SEGMENT_RECORD).write_text(f"{self._token} {len(self._names)}\n")
         return self
 
     def __exit__(self, *exception: object) -> None:
@@ -730,455 +569,8 @@ def _pooled_conformance(
     )
 
 
-def _in_thread(call: Callable[[], object]) -> Future:
-    """Run `call` on a daemon thread and return a future of the moment it returned (`time.perf_counter`), or of its error, so a fan-in can wait on it beside its pool's futures and a run that stops never waits for it."""
-    future: Future = Future()
-
-    def run() -> None:
-        if not future.set_running_or_notify_cancel():
-            return
-        try:
-            call()
-            future.set_result(time.perf_counter())
-        except BaseException as error:
-            future.set_exception(error)
-
-    threading.Thread(target=run, name="memo-ready", daemon=True).start()
-    return future
-
-
-class _OracleMemos:
-    """The pooled oracle's settle memo fan-in in `run_m1`'s parent: each settlement configuration's ranges' fresh windows as they land (`land`, which takes them off the result), in range order, until all of the configuration's ranges have landed and `memo_ready` has returned (`ready`), and then its absorb, submitted to a fresh process of the pool (`_absorb_memo`) with the route the plan gave its configuration (`_PlannedRoutes`) if any range settled a window fresh. `held_peak_bytes` is the most bytes the ranges' segments held at once while they waited, from a range's landing until its configuration's absorb finished, which, like what the in-order writer holds, counts in no process's footprint while it waits."""
-
-    def __init__(
-        self,
-        pool: Executor,
-        spec: ResolvedSpec,
-        memos: Mapping[str, conform.SettleMemoFile],
-        shards: Sequence[oracle.OracleShard],
-        ready: bool,
-        routes: _PlannedRoutes,
-    ) -> None:
-        self._pool = pool
-        self._spec = spec
-        self._memos = memos
-        self._routes = routes
-        self._remaining = {config: 0 for config in memos}
-        for shard in shards:
-            if shard.config in memos:
-                self._remaining[shard.config] += 1
-        self._parts: dict[str, dict[int, tuple[shared_segments.Shipped | None, conform.FreshMemo]]] = {
-            config: {} for config in memos
-        }
-        self._shipped = {config: 0 for config in memos}
-        self._ready = ready
-        self.absorbs: dict[Future, str] = {}
-        self._finished: set[Future] = set()
-        self._held = 0
-        self.held_peak_bytes = 0
-
-    def land(self, shard: oracle.OracleShard, result: oracle.OracleConfigResult) -> None:
-        """Take one range's fresh windows off its result, and submit its configuration's absorb if this was its last range and `memo_ready` has returned."""
-        self._reap()
-        fresh, result.fresh_memo = result.fresh_memo, None
-        shipped, result.memo_blocks = result.memo_blocks, None
-        config = shard.config
-        if config not in self._memos:
-            return
-        if fresh is not None:
-            self._parts[config][shard.first_row] = (shipped, fresh)
-            self._shipped[config] += _shipped_bytes(shipped)
-            self._held += _shipped_bytes(shipped)
-            self.held_peak_bytes = max(self.held_peak_bytes, self._held)
-        self._remaining[config] -= 1
-        if self._ready:
-            self._submit(config)
-
-    def ready(self) -> None:
-        """`memo_ready` has returned: submit the absorb of every configuration whose ranges have all landed."""
-        self._ready = True
-        for config in self._memos:
-            self._submit(config)
-
-    def in_flight(self) -> list[Future]:
-        """The absorbs submitted and not yet finished, each of which holds one slot of the pool's width."""
-        self._reap()
-        return [future for future in self.absorbs if future not in self._finished]
-
-    def _submit(self, config: str) -> None:
-        if self._remaining[config] or config in self.absorbs.values():
-            return
-        parts = self._parts[config]
-        if parts:
-            future = self._pool.submit(
-                _absorb_memo,
-                self._memos[config],
-                self._spec,
-                [parts[row] for row in sorted(parts)],
-                None,
-                self._routes.route(config),
-            )
-            self.absorbs[future] = config
-
-    def _reap(self) -> None:
-        for future, config in self.absorbs.items():
-            if future not in self._finished and future.done():
-                self._finished.add(future)
-                self._held -= self._shipped[config]
-
-
-@dataclass
-class _FanInLine:
-    """`[t] oracle_fan_in`, printed as the pooled oracle's in-order writer exits, once every range has landed, whether the writer committed or raised: the parent's landing seconds, `held_gb` and `memo_held_gb`, and, once the audit is committed, `tail_seconds`, the time from the last landing to the commit and the stores' finish. A pass that fails after its last landing keeps the line without `tail_seconds`, and one that fails before it prints none. The line joins `run_m1._build_phase_lines`."""
-
-    writer: oracle.InOrderWriter | None = None
-    memos: _OracleMemos | None = None
-    landed_at: float | None = None
-
-    def __enter__(self) -> "_FanInLine":
-        return self
-
-    def __exit__(self, *exception: object) -> None:
-        writer, memos = self.writer, self.memos
-        if writer is None or memos is None or self.landed_at is None:
-            return
-        tokens = (
-            f"held_gb={format_gb(writer.held_peak_bytes)} memo_held_gb={format_gb(memos.held_peak_bytes)}"
-        )
-        if writer.committed_at is not None:
-            tokens += f" tail_seconds={writer.committed_at - self.landed_at:.2f}"
-        run_m1._build_phase_lines.append(console.timing("oracle_fan_in", writer.landing_seconds, tokens))
-
-
-ORACLE_LOCK_NAME = "oracle.lock"
-
-
-@contextmanager
-def oracle_lock(out_dir: Path) -> Iterator[None]:
-    """Hold the oracle's lock over `out_dir`, an exclusive `flock` on `ORACLE_LOCK_NAME` there whose file holds this process's pid, for a whole `run_oracle`. The audit's, the stores' and the settle memos' writers each plan by deleting the staging files and the unlisted parts of their output that they find, and then write parts under their final names, which two writers of one output would delete or replace under each other, so a second oracle over the same `out_dir`, such as a hand `--gates-only` pass beside a cycle's run_m1, prints the holder's pid once and waits for it. The holder deletes the file as it lets go of the lock, and a holder that finds the name gone, or naming another file, once it holds the lock takes it again, so no lock file outlives a run that ends; the kernel lets go of a killed holder's lock, and the next holder takes over its file."""
-    path = Path(out_dir) / ORACLE_LOCK_NAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    announced = False
-    while True:
-        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                if not announced:
-                    holder = os.pread(descriptor, 32, 0).decode("utf-8", "replace").strip() or "unknown"
-                    console.say(f"oracle: waiting for the oracle of pid {holder} over {out_dir} to finish")
-                    announced = True
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
-            held = os.fstat(descriptor)
-            try:
-                named = os.stat(path)
-            except FileNotFoundError:
-                named = None
-        except BaseException:
-            os.close(descriptor)
-            raise
-        if named is not None and (named.st_dev, named.st_ino) == (held.st_dev, held.st_ino):
-            break
-        os.close(descriptor)
-    try:
-        os.ftruncate(descriptor, 0)
-        os.pwrite(descriptor, f"{os.getpid()}\n".encode(), 0)
-        yield
-    finally:
-        path.unlink(missing_ok=True)
-        os.close(descriptor)
-
-
-def run_oracle(
-    out_dir: Path = run_m1.OUT_DIR,
-    spec: ResolvedSpec | None = None,
-    jobs: int = 1,
-    write_cache: bool = True,
-    fresh_cache: bool = False,
-    memo_inputs: settle_memo_keys.SettleMemoInputs | None = None,
-    memo_ready: Callable[[], float | None] | None = None,
-) -> dict:
-    """Run the baseline oracle (`rebuild/M1-PLAN.md` §6) over the subset tables, reading the row cache before the first row and writing it after the last. Above `--jobs 1` the unit of work is a row range of one configuration's table: `oracle.oracle_shard_plan` splits every table (by the row counts the subset stamp records, `baseline_subset.subset_row_counts`; a table the stamp does not count stays one range) so that each of `jobs` workers gets an equal share of the whole, and `run_m1._spawn_pool` starts up to `jobs` workers, one per range at most. The pool runs one task a process (`max_tasks_per_child=1`), so every range, absorb, section task and store task starts fresh and reads its own peak, and the parent submits ranges, in plan order, only while the ranges and other tasks it has out number fewer than the pool's width, so no absorb, section task or store task waits behind a range, and every range reads the spec dump this process writes once (`kernel_exec._spec_dump`, `kernel_exec.adopt_spec_dump`). Each range ships its audit lines, compressed, home in a POSIX shared memory segment the parent's in-order writer names for it, its store records, one member, in another, and a range that settled windows fresh ships them, compressed, in a third (`shared_segments.ship`); its result carries their names and the fresh windows' counts. The audit's route and the stores' routes are planned before the first range is submitted (`oracle.AuditPlan`, made as the in-order writer is entered, and `oracle_cache.StoreSet`, made here), each head read, the pass's fold claimed where one is due and a tree's single files adopted by link, their parts' sha256 checks on threads, which the first write of each joins, printing `[t] oracle_audit_plan` and `[t] oracle_stores_plan`. Once a configuration's last range has landed, the parent submits its section of the audit to the same pool, which runs it in a fresh process in the next slot free, as it does an absorb: the task maps the configuration's ranges' audit segments in row order, compares their rows with the standing audit's section through the compare the serial writer runs over the whole audit, and ships the section's bytes in this pass's part home in shared memory (`oracle.audit_section_task`, `oracle.SectionCompare`); the parent writes the part from the sections in the audit's order and commits the head as the serial writer does. At the same moment it submits the configuration's store task to the same pool, which maps the ranges' store members, compares them with the standing records and writes only the records that differ, or the configuration's base on a base route, through the code the serial path's stores' writer runs, and ships the configuration's ages home for the parent's stores' writer, which writes the ages column (`oracle.store_section_task`, `oracle_cache.write_store`, `oracle.InOrderWriter`, whose docstring states what the parent holds meanwhile and where, `oracle_cache.StoreSet`), and the parent merges the ranges' tallies (`oracle.merge_config_shards`), all in row order, so the summary, the materialized audit and every materialized store match an unsplit run. `[t] oracle_audit` and `[t] oracle_stores` report what each wrote. Each configuration's settle memo route is planned on a thread as the pool starts (`_PlannedRoutes`, `conform.plan_settle_memos`, printed as `[t] settle_memo_plan` once the first absorb waits for it), its fold claim among them, before any absorb is submitted. As soon as all of a configuration's ranges have landed and `memo_ready` has returned, it submits that configuration's absorb, with its route, to the same pool, which runs it in a fresh process in the next slot free, ahead of the ranges not yet submitted (`_OracleMemos`, `_absorb_memo`): the absorb maps the ranges' shared memory segments in range order and writes their fresh windows as one segment of the shared memo, or on a fold as the next generation's base, and commits its head (`conform.absorb_settle_memo`). A configuration none of whose ranges settled anything fresh gets no absorb. The absorbs, the section tasks and the store tasks stay inside the oracle's width, each in a range's slot, and each one's peak goes into the pool record beside the ranges', an absorb's as `<config> absorb`, a section task's as `<config> audit` and a store task's as `<config> stores`; `[t] settle_memo_absorb <config>` reports each that wrote a part, with its path, row counts and what it wrote (`conform.MemoAbsorb.tokens`). The crate's formation-guard verdicts are computed once here and passed with every submission, as in the conformance sweep's fan-out. `[t] oracle_setup` times this process's work before the pool takes over, from entry to the submission of the first ranges, one a slot: the cache keys, the shard plan, the guard sweep and those submissions. `[t] oracle_fan_in` follows the audit's commit, or a failure after the last range's landing (`_FanInLine`), with the time the parent spent landing ranges (`oracle.InOrderWriter.landing_seconds`), as `held_gb`, the most the writer held in shared memory at once (`oracle.InOrderWriter.held_peak_bytes`), as `memo_held_gb`, the most the ranges' settle memo segments held at once while they waited for their absorbs (`_OracleMemos.held_peak_bytes`), and, once the audit is committed, as `tail_seconds`, the time from the last range's landing to the audit's commit and the stores' finish (`oracle.InOrderWriter.committed_at`), the part of the oracle that runs after every range has finished. What the first two count sits in no process's footprint while it waits, so the parent's peak footprint leaves it out; `cycle_timings.parse_inner_timings` keeps all three from a cycle's run_m1 step, and the line joins `run_m1._build_phase_lines`, so a hand run's check line carries it too.
-
-    `memo_inputs` is `run_m1.settle_memo_inputs` as the caller took it before loading `spec`, and names the settle memos this pass shares with the conformance sweep (`conform.settle_memo_files`). The oracle's rows are the conformance sweep's texts, so a settlement configuration whose file the replay or the conformance sweep already wrote under these keys settles nothing here, and one neither has reached yet writes the file the conformance sweep will load. A caller with no inputs shares nothing, the overlay configuration has no memo, since its worker settles nothing, and this pass leaves an M1-only configuration's memo (`conform.M1_ONLY_CONFIGS`) to the other passes, since the oracle never compares it. `memo_ready`, when given, is called before this pass writes to a shared settle memo. On the pooled path it runs on a thread of its own while the ranges land, and no absorb is submitted until it has returned, because ranges write no settle memo part and the absorbs are the pass's only writes to the memos; when it raises, its error stops the pass as a range's does, and no absorb runs. On the `--jobs 1` path it is called before the first walk, because those walks write their own segments as they go, each planning its own route (`conform._SettledWindowWalk.save_memo`). It returns the seconds it blocked, or None. `[t] witness_memo_wait` reports the part of the wait that held this pass's writes back: on the pooled path the time from the last range's landing to its return, printed only when it returns after that landing, since until then the ranges, not the wait, hold the absorbs back; on the `--jobs 1` path the whole wait, printed only when it blocked. `run_m1.full_run` passes `run_m1.TableGates.wait_for_memo`, which returns once the witness stage, which reads the files and writes none, has returned. That lets the pool start after the string replay alone while the witness stage still runs, and it holds every write this pass makes until the stage has read the memos, so the stage reads each memo as the replay left it and its counts do not depend on when this pass's absorbs land.
-
-    The cache keys are computed once here (the row keys from the rune tree, the position keys from the compiled font and the kern sidecar) and passed to the workers, then computed again at promotion, where a store is written only if no stamp and no key changed while the run used them. The second computation is needed because `fingerprint.rune_digests` reads the rune files from disk, a full run takes minutes, and a long run is usually detached while editing continues. Without it, a rune edited mid-run would be recorded under a digest the stored verdicts were never built from, and later passes would serve pre-edit verdicts as current indefinitely. `_settle_green`'s recompute-before-recording and `artifact_cycle`'s green keys follow the same rule for the same reason.
-
-    Failing to compute those keys does not fail the gate. `alias_family_digests` rejects an alias head with no rune digest behind it, and the alias map is a hand-edited file that one typo can make unreadable. So a key that cannot be computed leaves this pass with no cache: every row is derived, no store is written, and the gate runs as it does without a cache.
-
-    Every part is written under its final name, which no head lists until its commit, so a killed run leaves only parts the next plan deletes (`row_delta.remove_unlisted`), and its pid-named scratch directory holds only the names of its shared memory segments, which `discard_oracle_audit_scratch` uses. The audit's head commits only after the in-order writer has accepted the audit, and the stores' set head only after that, because a store describing an audit that was never written is worse than no store. A configuration one of whose ranges returned no member hands the stores' writer nothing, so no set head commits, the all-or-nothing rule `promote_stores` follows. The in-order writer unlinks every shared memory segment it named as it exits, a range's settle memo segment no absorb mapped, a section no commit wrote and a store's ages no commit took among them, and a failure cancels the tasks still queued and waits for the ranges, absorbs, section tasks and store tasks already running before the writer exits, so a run that fails or is stopped while this function unwinds (a range that raises, a `SystemExit`, SIGINT to the process group) leaves none, and the resource tracker prints nothing. A configuration absorbed before a failure elsewhere holds only rows its own finished ranges settled. A run whose parent dies without unwinding, as at SIGTERM's default action or a SIGKILL of the parent alone, leaves the segments it had not mapped to that tracker, which every process of the pool shares and which ignores SIGINT and SIGTERM: it unlinks them, with a warning, once the parent and every worker have exited. A SIGKILL of the whole process group kills the tracker too, so the segments of the ranges and tasks that had shipped and not yet been mapped stay in the kernel until the next oracle run over the same `out_dir` unlinks them by the names the writer recorded in the dead run's scratch directory (`oracle.discard_oracle_audit_scratch`).
-
-    The whole run holds the oracle's lock over `out_dir` (`oracle_lock`), so a second oracle over the same tables waits for this one before it plans anything.
-
-    Every range's peak footprint is recorded as one observation of the `oracle-shard` pool (`cycle_timings.record_pool`), every section task's, labeled `<config> audit`, and every store task's, labeled `<config> stores`, all of which `make job-costs` compares against `artifact_cycle.ORACLE_SHARD_BYTES`, and every absorb's, labeled `<config> absorb`, which it compares against `artifact_cycle.ORACLE_ABSORB_BYTES`.
-    """
-    with oracle_lock(out_dir):
-        return _run_oracle(out_dir, spec, jobs, write_cache, fresh_cache, memo_inputs, memo_ready)
-
-
-def check_window_scopes(spec: ResolvedSpec) -> list[str]:
-    """Return why each `baseline_subset.WINDOW_SCOPED_CONFIGS` configuration the oracle compares could settle a window outside its scope differently from its reference, or nothing. Its sub-table holds only the windows inside the scope, so the oracle compares it nowhere else, and that is sound only while the configuration settles every other window as its reference does: `baseline_subset` checks the old font's side, and this the spec's, by the deep sweep's plan-time check (`conform.unconfined_feature_records`, `conform.renamed_runes`): every record gated on one of the configuration's features must restrict a slot to a rune its features rename, and every renamed rune's letters must be in the scope."""
-    problems: list[str] = []
-    for config, (reference, letters) in baseline_subset.WINDOW_SCOPED_CONFIGS.items():
-        if config not in conform.ORACLE_CONFIGS:
-            continue
-        if reference != "default":
-            problems.append(
-                f"{config}: its reference is {reference}, and the plan-time check proves only against default"
-            )
-            continue
-        unconfined = conform.unconfined_feature_records(spec, config)
-        if unconfined:
-            problems.append(
-                f"{config}: records gated on its features restrict no slot to a rune they rename: {', '.join(unconfined)}"
-            )
-        outside = sorted(
-            f"U+{ord(letter):04X}"
-            for letter in conform.trigger_letters(spec, conform.renamed_runes(spec, config))
-            if ord(letter) not in letters
-        )
-        if outside:
-            problems.append(
-                f"{config}: its features rename runes spelled with {', '.join(outside)}, outside its scope"
-            )
-    return problems
-
-
-def _run_oracle(
-    out_dir: Path,
-    spec: ResolvedSpec | None,
-    jobs: int,
-    write_cache: bool,
-    fresh_cache: bool,
-    memo_inputs: settle_memo_keys.SettleMemoInputs | None,
-    memo_ready: Callable[[], float | None] | None,
-) -> dict:
-    setup_started = time.perf_counter()
-    if spec is None:
-        spec = load_default_spec()
-    scope_problems = check_window_scopes(spec)
-    if scope_problems:
-        raise RuntimeError(
-            "a window-scoped configuration's sub-table would hide a change the spec can make outside its scope:\n  "
-            + "\n  ".join(scope_problems)
-        )
-    oracle.discard_oracle_audit_scratch(out_dir)
-    if fresh_cache and write_cache:
-        oracle_cache.discard_stores(out_dir, conform.ORACLE_CONFIGS)
-    keys: dict[str, str] | None = None
-    stamps: dict[str, oracle_cache.EnvironmentStamp] | None = None
-    position_keys: dict[str, str] | None = None
-    position_stamp: oracle_cache.EnvironmentStamp | None = None
-    row_cache: oracle.OracleRowCache | None = None
-    try:
-        keys, stamps = oracle_row_cache_keys(spec, out_dir)
-        position_keys, position_stamp = oracle_position_keys(keys, out_dir)
-    except (OSError, ValueError, yaml.YAMLError) as error:
-        console.warn(
-            f"oracle row cache: unavailable for this pass — its keys would not cut ({error}); every row is derived and no store is written"
-        )
-        keys = stamps = None
-    else:
-        if fresh_cache:
-            console.say("oracle row cache: distrusted for this pass — every row is derived")
-        else:
-            _report_oracle_cache(spec, out_dir, keys, stamps, position_keys, position_stamp)
-        row_cache = oracle.OracleRowCache(
-            environment=stamps,
-            family_keys=keys,
-            read_dir=None if fresh_cache else out_dir,
-            write_dir=out_dir if write_cache else None,
-            rotation=0 if write_cache else int(time.time()),
-            position_environment=position_stamp,
-            position_keys=position_keys,
-        )
-    settle_memos = {
-        config: memo
-        for config, memo in conform.settle_memo_files(out_dir, spec, memo_inputs).items()
-        if config in conform.ORACLE_CONFIGS
-    }
-    stores: oracle_cache.StoreSet | None = None
-    try:
-        if row_cache is not None and write_cache and keys is not None and stamps is not None:
-            stores = oracle_cache.StoreSet(
-                out_dir, conform.ORACLE_CONFIGS, stamps, keys, position_stamp, position_keys
-            )
-        if jobs > 1:
-            shards = oracle.oracle_shard_plan(jobs, baseline_subset.subset_row_counts(out_dir))
-            kernel_exec.ensure_built()
-            guard_verdicts = kernel_exec.guard_sweep(spec)
-            spec_path = kernel_exec._spec_dump(spec)
-            landed: dict[str, list[tuple[oracle.OracleShard, oracle.OracleConfigResult]]] = {
-                config: [] for config in conform.ORACLE_CONFIGS
-            }
-            width = min(jobs, len(shards))
-            routes = _PlannedRoutes(settle_memos)
-            with (
-                _FanInLine() as fan_in,
-                oracle.InOrderWriter(out_dir, shards, row_cache, stores=stores) as in_order,
-                closing(routes),
-            ):
-                with run_m1._spawn_pool(jobs, len(shards), max_tasks_per_child=1) as pool:
-                    in_order.executor = pool
-                    memos = _OracleMemos(
-                        pool, spec, settle_memos, shards, ready=memo_ready is None, routes=routes
-                    )
-                    fan_in.writer, fan_in.memos = in_order, memos
-                    queued = deque(shards)
-                    running: dict[Future, oracle.OracleShard] = {}
-
-                    def top_up() -> None:
-                        while (
-                            queued
-                            and len(running) + len(memos.in_flight()) + len(in_order.in_flight()) < width
-                        ):
-                            shard = queued.popleft()
-                            future = pool.submit(
-                                oracle.oracle_config_worker,
-                                spec,
-                                out_dir,
-                                ALIAS_YAML,
-                                DIVERGENCES_YAML,
-                                shard.config,
-                                out_dir / "M1.otf",
-                                KERN_SIDECAR_YAML,
-                                row_cache=row_cache,
-                                settle_memo=(
-                                    None
-                                    if shard.config not in settle_memos
-                                    else replace(settle_memos[shard.config], returns_fresh=True)
-                                ),
-                                guard_verdicts=guard_verdicts,
-                                shard=shard,
-                                ship_to=in_order.ship_to(shard),
-                                spec_path=spec_path,
-                            )
-                            running[future] = shard
-
-                    ready: Future | None = None
-                    landed_at: float | None = None
-                    try:
-                        top_up()
-                        console.timing("oracle_setup", time.perf_counter() - setup_started)
-                        if memo_ready is not None:
-                            ready = _in_thread(memo_ready)
-                        done = 0
-                        while running or queued or ready is not None:
-                            waiting = [
-                                *running,
-                                *memos.in_flight(),
-                                *in_order.in_flight(),
-                                *([] if ready is None else [ready]),
-                            ]
-                            finished, _pending = wait(waiting, return_when=FIRST_COMPLETED)
-                            for future in finished:
-                                if future is ready:
-                                    ready = None
-                                    ready_at = future.result()
-                                    memos.ready()
-                                    if landed_at is not None and ready_at > landed_at:
-                                        console.timing("witness_memo_wait", ready_at - landed_at)
-                                    continue
-                                shard = running.pop(future, None)
-                                if shard is None:
-                                    continue
-                                result = future.result()
-                                memos.land(shard, result)
-                                in_order.land(shard, result)
-                                landed[result.config].append((shard, result))
-                                done += 1
-                                console.progress(done, len(shards), "shards")
-                                if done == len(shards):
-                                    fan_in.landed_at = landed_at = time.perf_counter()
-                            top_up()
-                        absorbed = []
-                        worker_peaks = {
-                            shard.label: result.peak_footprint_bytes
-                            for pairs in landed.values()
-                            for shard, result in pairs
-                        }
-                        for future, config in sorted(
-                            memos.absorbs.items(), key=lambda pair: conform.SETTLEMENT_CONFIGS.index(pair[1])
-                        ):
-                            absorb, seconds, peak = future.result()
-                            worker_peaks[f"{config} absorb"] = peak
-                            if absorb.written:
-                                absorbed.append(config)
-                                console.timing(f"settle_memo_absorb {config}", seconds, absorb.tokens())
-                        for config, section in in_order.section_results().items():
-                            worker_peaks[f"{config} audit"] = section.peak_footprint_bytes
-                        for config, stored in in_order.store_results().items():
-                            worker_peaks[f"{config} stores"] = stored.peak_footprint_bytes
-                    except BaseException:
-                        pool.shutdown(wait=True, cancel_futures=True)
-                        raise
-                if absorbed:
-                    console.say(f"settle memo: absorbed the ranges' fresh windows for {', '.join(absorbed)}")
-                record_pool(
-                    "oracle-shard",
-                    width=width,
-                    worker_peaks=worker_peaks,
-                    controller_peak_bytes=peak_rss_self_bytes(),
-                    worker_reading="footprint",
-                )
-                in_row_order = {
-                    config: [
-                        result
-                        for _shard, result in sorted(landed[config], key=lambda pair: pair[0].first_row)
-                    ]
-                    for config in conform.ORACLE_CONFIGS
-                }
-                ordered = [
-                    oracle.merge_config_shards(in_row_order[config]) for config in conform.ORACLE_CONFIGS
-                ]
-                report = oracle.merge_oracle_results(ordered)
-        else:
-            if memo_ready is not None:
-                waited = memo_ready()
-                if waited is not None:
-                    console.timing("witness_memo_wait", waited)
-            report = oracle.compare_against_baseline(
-                spec,
-                out_dir,
-                ALIAS_YAML,
-                DIVERGENCES_YAML,
-                out_dir=out_dir,
-                font_path=out_dir / "M1.otf",
-                kern_sidecar_path=KERN_SIDECAR_YAML,
-                row_cache=row_cache,
-                settle_memos=settle_memos,
-                stores=stores,
-            )
-        if stores is not None and keys is not None and stamps is not None:
-            _promote_oracle_row_cache(spec, out_dir, stores, keys, stamps, position_keys, position_stamp)
-    finally:
-        if stores is not None:
-            stores.abandon()
-        oracle.discard_oracle_audit_scratch(out_dir)
-    summary = {
-        "rows_compared": report.rows_compared,
-        "divergent_rows": report.divergent_rows,
-        "positions_compared": report.positions_compared,
-        "positions_excluded": report.positions_excluded,
-        "positions_served": report.positions_served,
-        "counts_by_entry": dict(sorted(report.counts_by_entry.items())),
-        "unmatched": report.unmatched_count,
-        "multi_matched": report.multi_matched_count,
-        "notes": report.notes,
-    }
-    for row in report.unmatched_exemplars[: oracle.ORACLE_UNMATCHED_EXEMPLARS]:
-        summary.setdefault("unmatched_exemplars", []).append(
-            f"{row.config} {row.codepoints} {'|'.join(row.baseline_glyphs)} -> {'|'.join(row.new_cells)} {row.divergence_tags}"
-        )
-    output_sink.write_output(
-        out_dir / "oracle_summary.json", json.dumps(summary, indent=2) + "\n", keep_if_equal=True
-    )
-    return summary
-
-
 def _record_cli_check(result: CheckResult, started: float) -> None:
-    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records its result under its own run id, so this function prints the result on one `console.CHECK` line instead, which the cycle files when the summaries the child left do not say why it stopped (`artifact_cycle._reported_red`), keeping one journal line per invocation. When this invocation built tables or ran the pooled oracle, the line carries the build's phase lines and the oracle's fan-in line (`run_m1._build_phase_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
+    """Record this invocation's check result in the timings journal, unless the artifact cycle is recording it. The result is recorded before the final `SystemExit`, so the exit cannot change it. `CYCLE_RUN_ENV` in the environment means the artifact cycle started this run and records its result under its own run id, so this function prints the result on one `console.CHECK` line instead, which the cycle files when the summaries the child left do not say why it stopped (`artifact_cycle._reported_red`), keeping one journal line per invocation. When this invocation built tables, the line carries the build's phase lines (`run_m1._build_phase_lines`) as `inner`, parsed as the cycle parses a run_m1 step's output, so a build run by hand can be paired with another as a cycle's can."""
     if CYCLE_RUN_ENV in os.environ:
         reported = {
             "check": result.check,
@@ -1225,49 +617,12 @@ def _exit_red(
 
 @contextmanager
 def _recording_failure(started: float) -> Iterator[None]:
-    """Record an exception a bare run or a `--gates-only` pass raises past its own handlers as a FAILED red naming the exception's type and message (`_record_red`), then let it propagate with its traceback, which names where it was raised. `main` runs both under it, so such a run that fails leaves a check line unless it is interrupted or killed, whatever it failed on: a contact allow-list or a rune that does not load, or a ledger or alias map the pre-gate guards accept and the oracle cannot use. A SystemExit passes through untouched, because the run records its line before each exit it takes."""
+    """Record an exception a bare run or a `--gates-only` pass raises past its own handlers as a FAILED red naming the exception's type and message (`_record_red`), then let it propagate with its traceback, which names where it was raised. `main` runs both under it, so such a run that fails leaves a check line unless it is interrupted or killed, whatever it failed on: a contact allow-list or a rune that does not load, say. A SystemExit passes through untouched, because the run records its line before each exit it takes."""
     try:
         yield
     except Exception as error:
         _record_red(f"{type(error).__name__}: {error}", started, status="FAILED")
         raise
-
-
-def _run_pregate_guards(out_dir: Path = run_m1.OUT_DIR) -> None:
-    """Run the checks that come before any gate, on both the build path and the `--gates-only` path, before either builds a table. They check that every source baseline table was shaped by the site font on disk (`baseline_subset.ensure_fresh` compares each header's font_sha256 with the font that header names on every call, because `make all` rewrites that font without changing the stamp key), refilter the subset baselines when they no longer match the sources on disk, check that every old glyph name in those subsets has an alias in an alias map that loads (`oracle.load_aliases`, which refuses a file that does not parse and an entry `labels.load_alias_map` cannot read), and load the divergence ledger (`oracle.load_ledger`), which refuses a file that does not parse, a document that is not a list, and the entries `oracle.compile_ledger` refuses. Each protects the oracle, not the build: rows shaped by another font, or an unaliased name, make every oracle number wrong without any error, and a ledger the oracle cannot compile would otherwise stop the pass only when the oracle loads it, after the build or the defect and Manual-pin gates have run. So a pass that re-runs the oracle over a build it did not make runs them as the building pass does. The ss06, ss07 and ss06+ss07 identity check runs inside the refilter, since only a refilter can change its result. A configuration that fails it is never stamped fresh, so its error is raised here on every run until it is fixed. The refilter is the only one of these checks that writes under rebuild/out/m1, so `ensure_fresh` deletes the Stage A record under `out_dir` (`_retract_stage_a`) just before it refilters, and a refusal over subset tables that were already fresh leaves the record as it was, like every artifact the record vouches for. The `[t] baseline_subset` line says whether the refilter ran, `refreshed=true` or `refreshed=false`, and the timings journal keeps it (`cycle_timings.BASELINE_SUBSET_TOKENS`). A refusal here settles run_m1's green red and records its check line before it exits (`_exit_red`, timed from the guards' start; a cycle's child prints the line for the cycle instead). A ledger or alias map these checks accept can still hold a shape the oracle cannot use, which stops the oracle with an exception that `main` records red (`_recording_failure`)."""
-    began = time.perf_counter()
-    console.phase("baseline_subset")
-    start = time.perf_counter()
-    try:
-        refiltered = baseline_subset.ensure_fresh(
-            run_m1.REPO_ROOT, before_refilter=lambda: _retract_stage_a(out_dir)
-        )
-    except (baseline_subset.SubsetIdentityError, baseline_subset.BaselineProvenanceError) as error:
-        _exit_red(str(error), began)
-    print(
-        f"[t] baseline_subset {time.perf_counter() - start:.1f}s refreshed={'true' if refiltered else 'false'}",
-        flush=True,
-    )
-    console.phase("alias_completeness")
-    start = time.perf_counter()
-    try:
-        missing_aliases = oracle.unaliased_subset_names(run_m1.OUT_DIR, ALIAS_YAML)
-    except SystemExit as refusal:
-        _exit_red(str(refusal), began)
-    print(f"[t] alias_completeness {time.perf_counter() - start:.1f}s", flush=True)
-    if missing_aliases:
-        listing = "\n".join(f"  {name} ({', '.join(configs)})" for name, configs in missing_aliases.items())
-        _exit_red(
-            f"rebuild/m1-aliases.yaml is missing {len(missing_aliases)} old glyph names that appear in subset baseline rows — every oracle number would be quietly wrong, so author each entry (or map it to the literal `pending` to run anyway with those rows unaliased):\n{listing}",
-            began,
-        )
-    console.phase("divergence_ledger")
-    start = time.perf_counter()
-    try:
-        oracle.load_ledger(DIVERGENCES_YAML)
-    except SystemExit as refusal:
-        _exit_red(str(refusal), began)
-    print(f"[t] divergence_ledger {time.perf_counter() - start:.1f}s", flush=True)
 
 
 @dataclass(frozen=True)
@@ -1279,7 +634,7 @@ class GatesOnlyBase:
 
 
 def gates_only_base(out_dir: Path, inputs: str) -> GatesOnlyBase | str:
-    """Return the build under `out_dir` that a `--gates-only` pass reads, or the reason the pass refuses it. The pass reads five things: the table heads stamped with `inputs` (`run_m1.serialized_tables`, through each configuration's head file), M1.otf, the glyph-facts sidecar beside it, which the pin gate reads (`glyph_facts.FILE_NAME`), a pipeline_summary.json that parses to an object, and every configuration's join table. `run_gates_only` exits with the returned reason, and the artifact cycle plans a gates-only rerun only when this returns a build (`artifact_cycle.m1_gates_only_base_present`), so the cycle never plans a rerun the pass would refuse over the build on disk, which it would otherwise plan again on every pass until `--fresh`. The pre-gate guards (`_run_pregate_guards`) run before this check and can still stop a planned pass, but they stop a full build the same way, so they are no reason to plan one instead. It leaves out manual_pins_summary.json, oracle_summary.json, divergence-audit.tsv and the Stage A record, because the pass writes them. Nor does it read the table-only branch's results (the string replay, the rule witnesses and the shipped-order walks), which the pass does not rerun: the pass records a green only over a prior green, which shows that branch passed over a build of the same build-side inputs its key names, and the stamp shows the tables on disk were stamped from those inputs. The build is deterministic, so those can be the tables that branch passed even when the full build that wrote them went red in that branch, and the two checks are necessary conditions for that, not sufficient ones (`run_gates_only` names the gaps). What they show rests on the prior green, never on the red build: a failed run never vouches for the artifacts it left. The cycle deletes pipeline_summary.json before it spawns a full build, and the build writes that file only after the compile and the read-back, so a build the cycle spawned that stopped earlier has no summary and is refused here."""
+    """Return the build under `out_dir` that a `--gates-only` pass reads, or the reason the pass refuses it. The pass reads five things: the table heads stamped with `inputs` (`run_m1.serialized_tables`, through each configuration's head file), M1.otf, the glyph-facts sidecar beside it, which the pin gate reads (`glyph_facts.FILE_NAME`), a pipeline_summary.json that parses to an object, and every configuration's join table. `run_gates_only` exits with the returned reason, and the artifact cycle plans a gates-only rerun only when this returns a build (`artifact_cycle.m1_gates_only_base_present`), so the cycle never plans a rerun the pass would refuse over the build on disk, which it would otherwise plan again on every pass until `--fresh`. It leaves out manual_pins_summary.json and the Stage A record, because the pass writes them. Nor does it read the table-only branch's results (the string replay, the rule witnesses and the shipped-order walks), which the pass does not rerun: the pass records a green only over a prior green, which shows that branch passed over a build of the same build-side inputs its key names, and the stamp shows the tables on disk were stamped from those inputs. The build is deterministic, so those can be the tables that branch passed even when the full build that wrote them went red in that branch, and the two checks are necessary conditions for that, not sufficient ones (`run_gates_only` names the gaps). What they show rests on the prior green, never on the red build: a failed run never vouches for the artifacts it left. The cycle deletes pipeline_summary.json before it spawns a full build, and the build writes that file only after the compile and the read-back, so a build the cycle spawned that stopped earlier has no summary and is refused here."""
     serialized = run_m1.serialized_tables(out_dir, inputs)
     if serialized is None:
         return f"the stamped window enumerations under {out_dir} are missing, unreadable, or were built from other sources than the ones on disk — run `uv run python -m rebuild.pipeline.run_m1` (or a cycle pass) first; --gates-only re-runs the gates over a build, it does not make one"
@@ -1305,14 +660,12 @@ def gates_only_base(out_dir: Path, inputs: str) -> GatesOnlyBase | str:
     return GatesOnlyBase(tables=tables, pipeline_summary=pipeline_summary)
 
 
-def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: bool = False) -> None:
-    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate, the Manual-pin replay and the oracle, over the tables and the M1.otf already on disk. It captures the Stage A values before it reads any input and deletes the Stage A record immediately before its first write (`_retract_stage_a`), which is the pre-gate refilter when the subset tables are stale and the defect fields otherwise, so a refusal before then leaves the record and the build as it found them. It rewrites the defect fields of `pipeline_summary.json`, the gate summaries and the audit (`divergence-audit.tsv`, a segment of the rows that differ through its in-order writer, and no store), writes the record back only once its gates pass over a prior green it stands on (`_settle_stage_a`; a later paragraph says when), and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, not the build that wrote the M1.otf beside them. A stamp that matches the runes on disk is a necessary condition for the green this pass may record; that green also needs a prior green over the same build-side inputs (`artifact_cycle.gates_only_rerun`), because a failed run never vouches for the artifacts it left, and the build is deterministic, so the passing build need not be the one that stamped the tables. Even both together do not show that the tables or M1.otf on disk are a passing build's (the next paragraph names the gaps). A mismatch stops with an error instead of sweeping a stale binary. That refusal and the others over the build on disk are `gates_only_base`, the same check the artifact cycle makes before it plans a gates-only rerun. Each refusal, and a stop inside the oracle, records a red check line and clears a green over the same content (`_exit_red`), as a red gate does. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the divergence ledger, the alias map, the kern sidecar, the contact allow-list the defect gate reads, and the code `fingerprint.COMPARISON_CODE_MODULES` names, which is outside the stamp's code half.
+def run_gates_only(out_dir: Path = run_m1.OUT_DIR) -> None:
+    """Re-run everything a full run does after the table build except the stages that produce artifacts: the defect gate and the Manual-pin replay, over the tables and the M1.otf already on disk. It captures the Stage A values before it reads any input and deletes the Stage A record immediately before its first write (`_retract_stage_a`), the defect fields, so a refusal before then leaves the record and the build as it found them. It rewrites the defect fields of `pipeline_summary.json` and the Manual-pin summary, writes the record back only once its gates pass over a prior green it stands on (`_settle_stage_a`; a later paragraph says when), and compiles nothing. The rerun depends on the stamp the build left on its serialized enumerations. The stamp names the sources those tables came from, not the build that wrote the M1.otf beside them. A stamp that matches the runes on disk is a necessary condition for the green this pass may record; that green also needs a prior green over the same build-side inputs (`artifact_cycle.gates_only_rerun`), because a failed run never vouches for the artifacts it left, and the build is deterministic, so the passing build need not be the one that stamped the tables. Even both together do not show that the tables or M1.otf on disk are a passing build's (the next paragraph names the gaps). A mismatch stops with an error instead of sweeping a stale binary. That refusal and the others over the build on disk are `gates_only_base`, the same check the artifact cycle makes before it plans a gates-only rerun. Each refusal records a red check line and clears a green over the same content (`_exit_red`), as a red gate does. Because the stamp names only what the build reads, every comparison-side edit passes it and is re-checked here: the contact allow-list the defect gate reads, and the code `fingerprint.COMPARISON_CODE_MODULES` names (the pin gate and its checker), which is outside the stamp's code half. That saves a build for a contact allow-list bless and for an edit to the pin gate's code.
 
     It may record run_m1's green under two conditions: a prior green record exists, and every input that changed since it is comparison-side (`artifact_cycle.gates_only_rerun`). The prior green shows that a completed build over every build-side input its key names passed, the stamp check shows that each enumeration's head carries the stamp of the current sources and semantics tokens, and this pass re-checks the gates the changed inputs feed. With all three it records a green over the new inputs, so the next cycle skips run_m1. The two checks are necessary conditions for the tables and M1.otf on disk to be the green build's, not sufficient ones: a build that stops without settling the green (an interrupt or a kill) can leave artifacts that pass both. The green's key (`artifact_cycle.run_m1_skip_lines`) leaves out the semantics tokens the stamp includes, so a pass run under other semantics than the green build's accepts tables a hand build stamped under those semantics. The stamp check reads only each enumeration's head, and `run_m1.build_tables` packs each enumeration into a staged name (`run_m1._take_windows`) that it renames over the enumeration only after the crate's clean exit, so a pack a killed build cut short after its head is left only in the staged file, which the check never reads. Neither the stamp nor the Stage A record covers the font's bytes, nothing else this pass or the cycle checks ties them to a passing build, and a hand build stamps its tables before `compile_font` writes the font, so a hand build interrupted between the two leaves whatever M1.otf an earlier build wrote, which can be one a red build over other build-side inputs left. In each case a green this pass records vouches for artifacts no passing build wrote. Of the runs behind the pass, only the prior green vouches for the build it stands on: a failed run never vouches for the artifacts it left, even one that went red only at a comparison gate over current tables (`artifact_cycle.gates_only_rerun` says why). Otherwise the pass still runs, still records its check line, and prints which input kept it from recording a green. A check line reports only how one invocation came out, while a green record lets a later pass skip work.
 
     It writes the Stage A record back (through `_settle_stage_a`, which declines when a Stage A input has moved since the pass began) only when its gates pass, the prior green has per-file lines, and no build-side input has moved since that green, whether or not this pass records a green. Otherwise a pass that reached its first write leaves no record, which would vouch for tables and a font that no green build over these build-side inputs passed (`artifact_cycle.m1_stage_a_current` says what the cycle trusts the record for).
-
-    It opens the oracle row cache read-only (`write_cache=False`). A ledger edit serves every row and position verdict, and an alias edit re-derives only the rows that reach the families it names, so the re-check is fast; a store this pass wrote would be one no build produced. Because no store is written, nothing this pass re-derives is kept, so it skips the scheduled re-derivation and serves every row its keys allow except those a writing pass recorded at `UNCOVERED_AGE` (`oracle_cache.RowStore`); writing passes keep the scheduled re-derivation, so no verdict stands `oracle_cache.MAX_RECORD_AGE` of them. The store's pass ordinal does not advance either, so the verification sample, which is drawn against it, rotates on the clock instead. Otherwise repeated re-checks would verify the same rows every time. `--fresh-oracle-cache` here skips reading the stores instead of deleting them, since deleting a build input is also a write.
     """
     from rebuild.tools.artifact_cycle import (
         _defect_gate_failure,
@@ -1331,9 +684,7 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
 
     started = time.perf_counter()
     stage = fingerprint.stage_a(run_m1.REPO_ROOT)
-    _run_pregate_guards(out_dir)
     inputs = run_m1.tables_inputs()
-    memo_inputs = run_m1.settle_memo_inputs()
     summary_path = out_dir / "pipeline_summary.json"
     base = gates_only_base(out_dir, inputs)
     if isinstance(base, str):
@@ -1373,26 +724,13 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
         _record_cli_check(_failed_check("run_m1", pin_failure), started)
         raise SystemExit(f"{pin_failure}; see manual_pins_summary.json")
 
-    console.phase("run_oracle")
-    start = time.perf_counter()
-    try:
-        oracle_summary = run_oracle(
-            out_dir=out_dir,
-            spec=spec,
-            jobs=jobs,
-            write_cache=False,
-            fresh_cache=fresh_cache,
-            memo_inputs=memo_inputs,
-        )
-    except SystemExit as stop:
-        _exit_red(str(stop), started, status="FAILED", key=before)
-    print(f"[t] run_oracle {time.perf_counter() - start:.1f}s", flush=True)
-    print(json.dumps(oracle_summary, indent=2))
-    gate = evaluate_run_m1_gate(pipeline_summary, pin_gate, oracle_summary)
+    gate = evaluate_run_m1_gate(pipeline_summary, pin_gate)
     _record_cli_check(gate, started)
     if not gate.ok:
         _settle_green(RUN_M1_GREEN, before, False, run_m1_key, "run_m1")
-        raise SystemExit("; ".join(gate.failures) + "; see oracle_summary.json and divergence-audit.tsv")
+        raise SystemExit(
+            "; ".join(gate.failures) + "; see pipeline_summary.json and manual_pins_summary.json"
+        )
     labels = moved_input_labels(record, current) or []
     offenders = [label for label in labels if not comparison_side_label(label)]
     if record is not None and isinstance(record.get("files"), dict) and not offenders:
@@ -1419,7 +757,7 @@ def run_gates_only(out_dir: Path = run_m1.OUT_DIR, jobs: int = 1, fresh_cache: b
 
 
 def _retract_stage_a(out_dir: Path) -> None:
-    """Delete the Stage A record under `out_dir`. Each run_m1 path captures the record's values (`fingerprint.stage_a`) before it reads an input, and calls this immediately before its first write under `out_dir`: the pre-gate guards' subset refilter when the subset tables are stale (`_run_pregate_guards` hands it to `baseline_subset.ensure_fresh`), and otherwise the table build (`run_m1.run`) on a build and the defect fields of pipeline_summary.json on a `--gates-only` pass. A build then writes the tables, M1.otf, the summaries and the audit; a `--gates-only` pass writes the gate summaries and the audit. The corpus build copies the record into its manifest, and the artifact cycle trusts a matching record beside the audit, the subset tables and M1.otf (`artifact_cycle.m1_stage_a_current`). So a run that writes under `out_dir` and then stops, fails a gate or raises before `_settle_stage_a` leaves no record to vouch for what it left: a corpus built over it carries null Stage A values, which `make verdict-ready` refuses, and the next cycle skips neither run_m1 nor the corpus build. A run that a check refuses, or that fails, before its first write (a pre-gate guard over fresh subset tables, `gates_only_base`, a rune that does not load) has changed nothing the record vouches for, so it leaves the record as well: deleting it would keep the next cycle from skipping run_m1 and the corpus build once the edit is fixed or reverted, though no artifact changed. A `--kern-only` pass never deletes it: it runs only over a record that matches the sources, and replaces nothing the record vouches for but the font's `kern` lookup, which the corpus does not read (`run_m1.kern_only_run`)."""
+    """Delete the Stage A record under `out_dir`. Each run_m1 path captures the record's values (`fingerprint.stage_a`) before it reads an input, and calls this immediately before its first write under `out_dir`: the table build (`run_m1.run`) on a build and the defect fields of pipeline_summary.json on a `--gates-only` pass. A build then writes the tables, M1.otf and the summaries; a `--gates-only` pass writes the gate summaries. The artifact cycle trusts a matching record beside the summaries and M1.otf (`artifact_cycle.m1_stage_a_current`). So a run that writes under `out_dir` and then stops, fails a gate or raises before `_settle_stage_a` leaves no record to vouch for what it left: a corpus built over it carries null Stage A values, which `make verdict-ready` refuses, and the next cycle skips neither run_m1 nor the corpus build. A run that a check refuses, or that fails, before its first write (`gates_only_base`, a rune that does not load) has changed nothing the record vouches for, so it leaves the record as well: deleting it would keep the next cycle from skipping run_m1 and the corpus build once the edit is fixed or reverted, though no artifact changed. A `--kern-only` pass never deletes it: it runs only over a record that matches the sources, and replaces nothing the record vouches for but the font's `kern` lookup, which the corpus does not read (`run_m1.kern_only_run`)."""
     (Path(out_dir) / fingerprint.STAGE_A_FILENAME).unlink(missing_ok=True)
 
 
@@ -1459,16 +797,15 @@ def _settle_green(
 
 
 def main(argv: list[str] | None = None) -> None:
-    from rebuild.tools.artifact_cycle import conform_job_budget, conform_job_derivation, sweep_job_budget
+    from rebuild.tools.artifact_cycle import conform_job_budget, conform_job_derivation
 
-    sweep_jobs = sweep_job_budget()
     conform_jobs = conform_job_budget(skip_gates=True, skip_corpus=True)
     parser = argparse.ArgumentParser(description="Run the M1 integration pipeline and its Phase-2 gates.")
     parser.add_argument(
         "--jobs",
         type=int,
         default=None,
-        help=f"worker budget for the oracle and the conformance sweep: the oracle cuts every configuration's table into row ranges and runs this many at once, while the conformance sweep runs this many of its units at once, one process each (the ss10 overlay whole and each settlement configuration once per final symbol), and no more than there are units. Each default is a budget the artifact cycle derives from the machine rather than a checked-in width: a bare run takes the oracle's `sweep_job_budget()`, the width the cycle hands run_m1 — {sweep_jobs} on this machine, the cores under the memory clamp that budget's own docstring argues from `ORACLE_SHARD_BYTES` and `ORACLE_ABSORB_BYTES` — and --conform-only takes the conformance sweep's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
+        help=f"worker budget for --conform-only: the conformance sweep runs this many of its units at once, one process each (the ss10 overlay whole and each settlement configuration once per final symbol), and no more than there are units. The default is a budget the artifact cycle derives from the machine rather than a checked-in width, the conformance sweep's own `conform_job_budget()` with the build lane idle, since a hand sweep shares the machine with no corpus build and no make-test pool — on this machine {conform_job_derivation(skip_gates=True, skip_corpus=True)}. `--jobs 1` is serial. The table build's own width is --kernel-threads.",
     )
     parser.add_argument(
         "--conform-only",
@@ -1478,17 +815,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--gates-only",
         action="store_true",
-        help="re-run the defect gate, the Manual-pin gate and the oracle against the M1.otf and tables already on disk, rewriting the defect fields of pipeline_summary.json, the gate summaries and divergence-audit.tsv, and writing the Stage A record, which it deletes just before its first write, only once those gates pass over a prior green build of the same build-side inputs; refuses when those tables were built from other sources than the ones on disk, and records run_m1's green when everything that moved since the last green build is comparison-side",
+        help="re-run the defect gate and the Manual-pin gate against the M1.otf and tables already on disk, rewriting the defect fields of pipeline_summary.json and the Manual-pin summary, and writing the Stage A record, which it deletes just before its first write, only once those gates pass over a prior green build of the same build-side inputs; refuses when those tables were built from other sources than the ones on disk, and records run_m1's green when everything that moved since the last green build is comparison-side",
     )
     parser.add_argument(
         "--kern-only",
         action="store_true",
-        help="recompile the font over the tables already on disk after an edit that moved only runes' kern blocks: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back, keeping the prior green build's Manual-pin and oracle summaries; refuses as --gates-only does, and records run_m1's green when everything that moved since the last green build is a kern block",
-    )
-    parser.add_argument(
-        "--fresh-oracle-cache",
-        action="store_true",
-        help="derive every row rather than serving any from the oracle's per-row verdict stores, and write fresh ones over them; under --gates-only, which may not write a build input, it declines to read the stores and leaves them where they are",
+        help="recompile the font over the tables already on disk after an edit that moved only runes' kern blocks: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back, keeping the prior green build's Manual-pin summary; refuses as --gates-only does, and records run_m1's green when everything that moved since the last green build is a kern block",
     )
     parser.add_argument(
         "--fresh-tables",
@@ -1532,15 +864,14 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.scratch_beside_default is not None and args.scratch_beside_default < 0:
         parser.error("--scratch-beside-default must be zero or more")
-    conform_default = args.conform_only and not args.gates_only
-    stated = args.jobs if args.jobs is not None else conform_jobs if conform_default else sweep_jobs
+    stated = args.jobs if args.jobs is not None else conform_jobs
     jobs = stated if stated > 1 else 1
     started = time.perf_counter()
     run_m1._build_phase_lines.clear()
 
     if args.gates_only:
         with _recording_failure(started):
-            run_gates_only(out_dir=run_m1.OUT_DIR, jobs=jobs, fresh_cache=args.fresh_oracle_cache)
+            run_gates_only(out_dir=run_m1.OUT_DIR)
         return
 
     if args.kern_only:
@@ -1589,12 +920,10 @@ def main(argv: list[str] | None = None) -> None:
 
     with _recording_failure(started):
         run_m1.full_run(
-            jobs=jobs,
             started=started,
             kernel_threads=args.kernel_threads,
             replay_threads=args.replay_threads,
             scratch_beside_default=args.scratch_beside_default,
-            fresh_oracle_cache=args.fresh_oracle_cache,
             fresh_tables=args.fresh_tables,
         )
 
