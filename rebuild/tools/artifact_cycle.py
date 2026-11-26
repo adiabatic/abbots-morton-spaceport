@@ -1,12 +1,12 @@
 """Run the commit-time artifact cycle in one command.
 
-The cycle recompiles M1.otf and checks it, rebuilds the review corpus beside the served one, runs the verdict update over it into the pass's prepared store, lands the corpus and the store together, and refreshes the review-facts pins from the corpus's review-facts sidecar, naming what moved in their invariant block since the last accepted review facts. The checked-in pins are those facts, so committing the rewritten file accepts new ones. It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure.
+The cycle recompiles M1.otf and checks it, builds the table-diff review corpus beside the served one (`rebuild.review.build --mode table-diff`: the accepted snapshot of the build, which the tracked rebuild/review-snapshot.json names and var/keep/review-snapshot/ holds, against rebuild/out/m1), and lands it, carrying the verdict store onto it by unit id (`rebuild.review.landing`). It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure, and a green pass that is not a staging pass ends with the readiness checklist, above which a `review diff` line counts the corpus's unaccepted changes since the snapshot (`readiness_block`, `verdict_ready.diff_summary_line`). The diff is a row and a line, never a red gate: a pass whose corpus holds unaccepted changes ends green and READY, and `make review-accept ARGS=--apply` accepts them.
 
 The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
-The job-costs step never fails the pass, for the same reason the review-facts pins are not a gate: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
+The job-costs step never fails the pass: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
 
-The verdict update is one step run by one child process, rebuild.tools.verdict_update. It carries prior verdicts forward onto the fresh manifest, fusing the carry into its first merge into the store, so no carried file is written (--no-merge opts out of the merges and writes the carried file), runs duplicate-fill, standing-fill from the rules in rebuild/standing-approvals.yaml, and duplicate-fill again, merges each fill as it is written, and clusters the open complaints. The carry and the land each refuse a pass that would orphan more than `landing.ORPHAN_SHARE_LIMIT` of the prior verdicts, and --allow-orphans passes both their override. The verdict update reads the build's per-unit index sidecar, and its one process holds one copy of it. On macOS the cycle runs that process with the allocator's large cache off (`kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT`, overlaid by `_do_verdict_update`), as it runs the corpus build, so the buffers and projections each phase frees go back to the system as they are freed instead of staying in the process's footprint. Each of the verdict update's steps opens with a `[phase] <step>` line and closes with `[t] <step>`. The cycle console pairs the two into one line per step, and the cycle-timings journal reads the step's cost from the `[t]` line. The `[verdict-update] complete:` and `[verdict-update] failed:` lines are results, not phases: `verdict_update_sections` starts a section at each `[phase]` line and closes it at either `[verdict-update]` line.
+The corpus seed, the verdict update and the review facts are in no plan. Their step functions and keys (`_do_corpus_seed`, `_do_verdict_update` with `verdict_update_skip_fingerprint` and the scrapers it uses, `_do_review_facts`), and the `Plan` and `CycleReport` fields only they read, stay in this module until the verdict machinery and the m1-audit corpus leave the tree (rebuild/CUTOVER-PLAN.md stage 4).
 
 A pass refuses before it parses its command line while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`), so a shell that leaks it cannot build a small alphabet into the live tree.
 
@@ -16,9 +16,9 @@ The pass reads the write meter (`rebuild.tools.write_meter`) as it starts, once 
 
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. run_m1's CLI prints the result on a `[check]` line instead (`console.CHECK`), which this driver files when the summaries a run_m1 or gate:conform child left do not say why it stopped (`_reported_red`). Each check invocation gets one line.
 
-gate:js depends on no build artifact, so it starts at t=0 in a small thread pool while the build steps run in sequence in the main thread, all but the corpus build's tail: once the build has closed its review-facts phase, it writes only its unit store and joins its ink-signature store's write, and nothing before the land reads either store, so the driver runs store-snapshot and the verdict update beside that write and joins the build before the land (`_do_corpus_build`, `_HeldCorpusBuild`). gate:make-test checks the `data-expect` pins against the rebuilt Senior its session copies from the build run_m1 leaves (rebuild/tools/build_fonts.py), so it is submitted to that pool once the run_m1 gate passes, and not run when the gate fails. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes too, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's processes at `corpus_job_budget`'s width, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build's units pool has finished, so that pool finds the gate lane idle, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
+gate:js depends on no build artifact, so it starts at t=0 in a small thread pool while the build steps run in sequence in the main thread. The corpus build runs on a thread of its own (`_HeldCorpusBuild`), which the driver joins before the land. gate:make-test checks the `data-expect` pins against the rebuilt Senior its session copies from the build run_m1 leaves (rebuild/tools/build_fonts.py), so it is submitted to that pool once the run_m1 gate passes, and not run when the gate fails. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes too, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's processes at `corpus_job_budget`'s width, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build prints the line that closes its units phase (`CORPUS_UNITS_LINE`), or until the build returns when it prints none, as the table-diff build does, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
 
-While a gated pass's build lane runs (run_m1, then the corpus build, then the verdict update, which starts beside the corpus build's store write), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle, the corpus build's ink-signature shaping and the standing fill's refill pool, are capped at every core on every pass rather than at a lane's share. The last two share the cores with gate:make-test's pool while both run, which costs contention time rather than memory, and the refill pool subtracts gate:make-test's bytes; the oracle runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it.
+While a gated pass's build lane runs (run_m1, then the corpus build, then the land), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle, the corpus build's ink-signature shaping and the standing fill's refill pool, are capped at every core on every pass rather than at a lane's share. The last two share the cores with gate:make-test's pool while both run, which costs contention time rather than memory, and the refill pool subtracts gate:make-test's bytes; the oracle runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it. The table-diff build takes no width and runs in one Python process, so the widths that book the corpus build book the review crate's build (`CORPUS_BUILD_RS_PROCESS_BYTES` and its threads), which holds more, until the crate leaves the tree with the m1-audit corpus.
 
 `--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. A pass that runs gate:make-test and neither run_m1 nor the corpus build queues them so under either policy (`gates_queue`). Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets, less what the settle-memo absorbs hold beyond it (ORACLE_ABSORB_BYTES); the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build (`corpus_job_budget`) gets the build lane's share less its main thread, with gate:make-test's memory off the machine when that gate runs, and every core less its main thread for its units pool when the gate lane is idle as that pool starts. Under the overlap policy, on a pass that runs gate:make-test beside the build lane, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool, which already holds the gate lane, so beside a corpus build at its lane share the suite falls to its floor of one worker and the sweep to its floor of one process per acceptance configuration on every machine. When the gates queue, neither subtracts gate:make-test's pool, which has finished by the time they start. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
 
@@ -30,21 +30,14 @@ The cycle runs no cross-language check, because the kernel crate is the only eng
 
 gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/, whose session builds the rebuilt fonts it checks the pins against). The Makefile itself is represented by what `make -n all` and `make -n test` print, and the rebuilt fonts by what they are built from (`make_test_font_lines`), so a pass whose run_m1 writes the Senior decides the skip only after run_m1 (`Plan.make_test_undecided`). Re-running the gate over an unchanged closure would repeat the whole font suite (`make cycle-timings ARGS='--by-step'` reports what a run costs) and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the corpus build only when that predicate says the gate runs.
 
-The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master (named `autosave` when it is the live store, otherwise by its path and bytes), the live store's records, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
-
-The key is taken right after the land, over the store the land wrote or left in place (`landing.LANDED_NAME`), and only when the land laid no save made during the pass over the prepared store: a verdict the fills never saw then changes the next plan's key, so the next pass runs the fills again, and a save made after the land changes the live store the next plan hashes. The record is written later, after the complaint list step has also succeeded. Each duplicate pass fills every blank in each unanimously judged duplicate group; the scalar groups are disjoint, so a duplicate fill cannot seed another group. Standing-fill runs once and can seed a blank duplicate sibling, which the final duplicate pass fills. The prepared store has one writer, so this fixed schedule needs no further duplicate pass. The completion line reports successful fills and merges and, when enabled, complaints; it does not claim every proposed verdict was accepted, because a newer tombstone can win a merge. The green requires both that completion line and a successful child.
-
-The verdict-update skip also requires the corpus build to skip, which is what makes the stamp known before the pass runs. A flag that names a carry output disables the skip, since skipping would write nothing to that output.
-
 Every other heavy stage skips on the same principle: a content fingerprint over the stage's input closure, and a green record written only after that content passed.
 
 - run_m1 skips on rebuild/out/run-m1-green.json (the Stage A fingerprint components plus each rune's kern line, the contact allow-list, the oracle's subset tables and uv.lock's dependency pins) while the Stage A record beside its artifacts matches the sources on disk (`m1_stage_a_current`), and re-evaluates its gate from the summary JSONs on disk.
 - gate:conform skips on conform-green.json, keyed on what the conformance sweep tests for, not on run_m1's closure: the emitted lookup's behavior classes, the font-compilation code and its tools/ closure, the uharfbuzz version, and the sweep's maximum length (`conform_skip_fingerprint`). A rune edit that creates no new rule shape leaves that key unchanged, because the crate's string replay inside run_m1 has already checked the new tables against the engine over every string.
 - The rebuild suite skips on rebuild-contracts-green.json, keyed by `contracts_fingerprint` over its closure: the repo files under rebuild/ and glyph_data/, the harness files in REBUILD_GATE_HARNESS_PATHS, conftest.py, pyproject.toml, uv.lock by its dependency pins, and the site fonts without their head and name tables. The closure contains no build artifact, so the suite can skip whether or not run_m1 rebuilt: an M1 rebuild writes only under rebuild/out, which the closure does not include. The record also stores each test's input closure, so a pass whose inputs changed runs only the tests the diff reaches and those it cannot rule out, and a skip also requires the extra paths the recorded closures name to keep their bytes (`contracts_closure.prepare_run`); rebuild.tools.contracts_closure owns that selection and the run lifecycle. rebuild.tools.rebuild_gate (`make test-rebuild`) writes the same record, so interactive and cycle greens share it.
-- corpus-build skips when the manifest's recorded inputs fingerprint equals the one a build would stamp now. A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the autosave stays aligned. When the live corpus does not match but a corpus built beside it does (a complete rebuild/out/review.next a stopped pass left, the last cycle summary's `plan.review_out`, or var/staged-review), the land swaps that directory in with its stores instead of a rebuild (`promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the swap keeps the `generated_at` a rebuild could reset.
-- The review-facts step has no key and never skips: it reads the corpus build's review-facts.json sidecar and regenerates one small checked-in file in milliseconds, writing it only when its bytes change.
+- corpus-build skips when the served corpus is a table-diff corpus whose recorded inputs fingerprint equals the one a build would stamp now and whose after font is rebuild/out/m1/M1.otf byte for byte (`corpus_build_skippable`). A rebuild would then reproduce its content byte for byte, but `generated_at` is the latest input mtime, floored, so a rebuild after an mtime-only change (a checkout, a touch) could restamp it; skipping keeps the stamp, so the store stays aligned. When the live corpus does not match but a corpus built beside it does (a complete rebuild/out/review.next a stopped pass left, the last cycle summary's `plan.review_out`, or var/staged-review), the land swaps that directory in instead of a rebuild (`promotable_corpus` checks the preconditions). Every stamp inside a corpus depends only on content relative to its manifest, and the swap keeps the `generated_at` a rebuild could reset.
 
-The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun or a kern-only rebuild when the Stage A record on disk already matches the sources on disk (`m1_stage_a_current`). A kern-only rebuild writes a new M1.otf, which differs from the corpus's copy only in its `kern` lookup; the corpus shapes and renders with `kern` off and compares the two fonts without it (`fingerprint.after_font_current`), so the corpus stays as it is. A run writes that record only once its gates pass, so a matching record sits beside the audit that a passing run over these Stage A inputs wrote and the subset tables that run checked fresh, and the rerun reproduces both byte for byte and writes back the same record (`m1_stage_a_current` says why, and names the two gaps where it does not): the corpus reads nothing the pass changes. That happens on a contact-allow bless, since the allow-list is in no Stage A component.
+The corpus skip applies only on passes where run_m1 skipped, and on a gates-only rerun when the Stage A record on disk already matches the sources on disk (`m1_stage_a_current`). A run writes that record only once its gates pass, so a matching record sits beside the tables and font a passing run over these Stage A inputs wrote, and the rerun reproduces them and writes back the same record (`m1_stage_a_current` says why, and names the two gaps where it does not): the corpus reads nothing the pass changes. That happens on a contact-allow bless, since the allow-list is in no Stage A component. A kern-only rebuild writes a new M1.otf and kern.tsv, which the corpus's after font and kerning units show, so it always rebuilds the corpus.
 
 Conform's skip is decided after run_m1 finishes, from the key the artifacts it left carry. A mode that leaves the emitted lookup's shapes, the compile code and the shaper at the last green key skips the sweep, whether run_m1 skipped, reran only its gates, or rebuilt, and the skip is recorded as proved because a matching green covers this exact content. Computing the key only after run_m1 has finished also means an M1 rebuild cannot invalidate it during the cycle. The preflight can decide it before the pass only in the mode where run_m1 skipped, so nothing will change; that is the mode --dry-run can predict. On a gates-only rerun or a rebuild the printed plan shows the conform lane as undecided (`run?`), because only a finished run_m1 knows what the artifacts are, so a plan that shows the sweep may end in a pass that skips it.
 
@@ -54,17 +47,15 @@ Between the run_m1 skip and a full rebuild there is a third mode, the gates-only
 
 A fourth mode is the kern-only rebuild. When the diff against the run_m1 green is confined to runes' kern lines and the font's non-Quikscript data (`font_only_label`: a rune's `kern` block is in the run_m1 skip key through `fingerprint.kern_lines` and in no other key, and the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map through `fingerprint.font_data_lines`), rebuild/out/m1 holds the build a gates-only rerun would read, and its Stage A record matches the sources on disk (`m1_stage_a_current`), the cycle spawns `run_m1 --kern-only`. It runs the glyph chain alone over the tables on disk (`run_m1.kern_only_run`): the kern stage, the defect gates at the kerned offsets, the GSUB and GPOS emission, the compile and read-back. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle read nothing a kern block or a Latin glyph feeds, so their summaries stand, and the pass records a green over the new inputs as a gates-only rerun does (`kern_only_rebuild`). The matching Stage A record is what shows those summaries are a passing run's over these inputs, so without it the cycle rebuilds. The child carries that record forward and publishes its files only once read-back passes, so a kern-only child that fails leaves the prior build, its summaries and the record in place, and the next pass plans a kern-only rebuild again.
 
-The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild moves the byte ranges the tab reads, appending changed fragments to overflow parts, folding classes and rewriting the sidecars' addresses, and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass seeds rebuild/out/review.next with a copy-on-write clone of the served corpus (`corpus-seed`, `landing.clone_tree`), builds there (`--out`), links the live store's file into its scratch directory under the store's lock as the snapshot and the prepared store (`store-snapshot`), and runs the verdict update against the prepared store (`--autosave`, `--prepared-from`), which it holds in memory from its first merge and writes once, in the layout the land writes, when a merge changed it, journaling nothing, since the land journals the store it lands; it fuses the carry into its first merge, so a merging pass writes no carried file, and writes both fill files beside the prepared store (`--duplicate-out`, `--standing-out`), so a merging pass leaves none of them at the repository root. Every writer of the store and of those two names replaces its file by rename, so no write reaches the live store through a link. The land (`rebuild.review.landing`) then swaps the new corpus in and puts the prepared store in place in one short section under the store's lock, laying the saves made during the pass over the prepared store, renaming the prepared store into place as its result when no save landed during the pass, or leaves the store in place when the verdict update changed nothing and those saves give back the store as it stands (`landing`'s module docstring says when), and runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
+The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites the shards the tab reads by byte range and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass builds the table-diff corpus at rebuild/out/review.next, which it empties first, links the live store's file into its scratch directory under the store's lock as the snapshot (`store-snapshot`), and the land (`rebuild.review.landing`, run without a prepared store and with `--allow-orphans`) then swaps the corpus in and, when the stamp moves, carries the snapshot onto it by unit id (`landing.carry_snapshot`) in one short section under the store's lock: a verdict whose unit the new corpus still has, its content unchanged and so its id, stays, a skip is dropped, the rest go to var/verdict-orphans/, which no pass refuses over, and the saves made during the pass are laid over the result. The land runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
 The standing daemon does not run beside a pass. Once the preflight has settled the review server, a pass that is not a dry run stops a daemon that answers at the default socket before its first step and prints one line saying so (`stop_standing_daemon`, #618's decision 8); with none answering it prints nothing. No width the pass computes leaves room for the corpus a daemon holds, and no step asks it.
 
-A pass whose corpus did not change but whose store did has its own mode, the direct merge. The carry there maps every unit id to itself and keeps each record's `at`, which the merge compares strictly, so the carry is skipped and the master is merged straight in; the master is the one input the store's own hash cannot see. That pass lands the store alone. The direct merge needs a master that is an ams-review-verdicts/1 document stamped for the served corpus, as the merge requires of every input. A master that is not such a document, or that is stamped for another corpus (which a pass stopped between the corpus build and the carry leaves behind), takes the full carry instead. The carry source's resolution says whether an auto-resolved master is an ams-review-verdicts/1 document stamped for the served corpus, and `master_stamped_for_corpus` says it for a --verdicts one. When the master resolved to the live store, the verdict update carries or merges the snapshot in its place. The store can be created, replaced or removed between the plan and the snapshot, so the plan never reads it to decide what becomes of the snapshot: it hands the verdict update the snapshot's path (`--store-snapshot`), and the verdict update decides from the file the snapshot step left. A full carry on a pass that lands carries any other master beside the snapshot when the snapshot step found a store, so the store's own verdicts are carried too, and the master alone when it found none; a staging pass, and a --no-merge pass that skips the corpus build, take no snapshot and carry the master alone. A direct merge merges the master into the prepared store, and the merge keeps a store's verdicts only when the store is stamped for the served corpus. When the snapshot is stamped for an older corpus (one `merge_verdicts --restore-as-of` put back from before the served stamp, or one copied from a checkout on an older corpus) or is not an ams-review-verdicts/1 document as the merge reads it (`verdict_store.parse_autosave_payload`), so that the merge would set its store aside (`verdict_update.merge_sets_store_aside`), the verdict update carries the snapshot alone onto the served corpus by unit id and then merges any other master into the result as a direct merge does: a strictly newer `at` wins a unit, so the store's record keeps a tie, the master's skips land, and the store's skips, which that merge keeps as tombstones at the skip's `at` (`verdict_update.skip_clears`), keep out a master record no newer than the skip. The merge also keeps the clears of an ams-review-verdicts/1 snapshot stamped for an older corpus, which keep out a master record no newer than the clear, and keeps none of the clears of a snapshot that is not such a document. Like every carry, that carry drops the store's skips and its verdicts on units the corpus does not have, and it refuses a snapshot that is not a readable verdicts file, naming it (`carry_verdicts.resolve_prior`). An ams-review-verdicts/1 snapshot stamped for the served corpus takes the master straight in, and so does a missing one when the master is another file; when the master is the store and its snapshot is missing, the merge refuses the missing master, naming it. An ams-review-verdicts/1 store stamped for a newer corpus is not carried: the direct merge refuses it, and the verdict update fails. A snapshot that is not such a document is carried whatever stamp it names.
-
 An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
 
-A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, and the stamp changes with it. Both the verdict-update skip and the direct merge are off, because both assume the corpus did not change, and here the store's verdicts must be carried onto the promoted units by id, so the verdict update reads the staged corpus before the land.
+A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, the stamp changes with it, and the land carries the store onto it by unit id.
 
 Retention holds the store's lock only for the tail of the journal appended since it read it, the deletions, and the journal's replacement (`run_retention`), and the server answers a save made in that window with the same retryable 503 it gives during a land.
 
@@ -72,7 +63,7 @@ Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it
 
 A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest complete base event older than JOURNAL_HISTORY_DAYS, keeping at least that many days of --restore-as-of history; a journal that already starts there, or holds no such base, is left as it is. Build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
-Run as: uv run python rebuild/tools/artifact_cycle.py. The carry source is resolved from the autosave and the verdicts-*.json exports; pass --verdicts to name one.
+Run as: uv run python rebuild/tools/artifact_cycle.py.
 """
 
 from __future__ import annotations
@@ -973,29 +964,27 @@ def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
 def corpus_build_skippable(
     root: Path = ROOT, review_out: Path | None = None, ignore: tuple[str, ...] = ()
 ) -> bool:
-    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the autosave stays aligned. True only when the manifest's recorded inputs fingerprint equals the one a build would stamp now (Stage A as run_m1 recorded it, Stage B recomputed) and every shard the manifest names is present. `generated_at` is derived from mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content. Skipping keeps the existing stamp, and with it the manifest's alignment with the autosave.
+    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`rebuild.review.build --mode table-diff`), so True only for a corpus of that mode whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of rebuild/out/m1, which a build copies, `snapshot.tables_stamp`), every shard the manifest names present, rebuild/out/m1/M1.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`). An m1-audit corpus never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
 
-    The outputs the manifest does not name, the per-unit index, both app sidecars and the unit store, must each be stamped for the manifest beside them, not merely present. They are written after the manifest and outside it, the unit store after the rest, so a build interrupted between the two, or a manifest rewritten by something that does not rewrite them, leaves every shard present and files that describe a corpus that no longer exists. A skip on shard existence alone would then serve that corpus indefinitely, and a skip on the sidecars alone would keep a corpus whose deflated fragments (#618's change 35) only a current store can place, which no reader of fragments could read. `corpus_complete` checks the stamps through `app_index.outputs_not_current`, the check `make verdict-ready`'s freshness check makes too, so a skip means a rebuild would reproduce this corpus's content in full.
+    The after font is compared whole and not by `fingerprint.kern_blind_font_digest`, because the corpus's kerning units show its `kern` lookup and its kern bucket reads rebuild/out/m1/kern.tsv, which a kern edit rewrites with the font; the `font_inputs` component hashes the runes' kern blocks too. So a kern-only rebuild rebuilds the corpus.
 
-    The after font is compared with the file on disk because no fingerprint component covers it: the key hashes the font's inputs and the two site fonts, never rebuild/out/m1/M1.otf itself, so a run_m1 that finished after this corpus was built changes nothing the comparison above sees, while the corpus still ships the previous build's font. The build asserts at copy time that the font it ships is the font it hashed at load, so the manifest's after-font sha describes fonts/after.otf. The skip compares that copy with the current M1.otf by `fingerprint.kern_blind_font_digest`, after checking that the copy still has the sha the manifest records: the corpus shapes and renders with `kern` off, so a font that differs only in its `kern` lookup gives it the same units, and a kern edit leaves the corpus as it is.
-
-    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split `status._freshness_check` uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a corpus built beside it, and the pass's land swaps that directory in when it matches. A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
+    `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split the readiness check's freshness row uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a corpus built beside it, and the pass's land swaps that directory in when it matches. A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
     """
     from rebuild.pipeline import fingerprint
+    from rebuild.review import status
 
     corpus = review_out if review_out is not None else REVIEW_OUT
     try:
         manifest = json.loads((corpus / "manifest.json").read_text())
     except OSError, ValueError:
         return False
+    if not isinstance(manifest, dict) or manifest.get("mode") != "table-diff":
+        return False
     recorded = manifest.get("inputs_fingerprint")
     if not isinstance(recorded, dict):
         return False
-    stage_a = fingerprint.read_stage_a(root / "rebuild" / "out" / "m1")
-    if stage_a is None:
-        return False
-    before_font, junior_font = fingerprint.font_paths(root)
-    expected = {**stage_a, **fingerprint.stage_b(root, before_font, junior_font)}
+    m1_out = root / "rebuild" / "out" / "m1"
+    expected = status.table_diff_inputs(root, m1_out=m1_out)
     ignored = set(ignore) & set(recorded) & set(expected)
     if {key: value for key, value in recorded.items() if key not in ignored} != {
         key: value for key, value in expected.items() if key not in ignored
@@ -1013,9 +1002,10 @@ def corpus_build_skippable(
         return False
     if not isinstance(after_sha, str):
         return False
-    if not fingerprint.after_font_current(
-        corpus / "fonts" / "after.otf", after_sha, root / "rebuild" / "out" / "m1" / "M1.otf"
-    ):
+    try:
+        if fingerprint.file_sha256(m1_out / "M1.otf") != after_sha:
+            return False
+    except OSError:
         return False
     return corpus_complete(corpus)
 
@@ -1035,7 +1025,7 @@ def next_corpus_dir(live: Path | None = None) -> Path:
 
 
 def corpus_complete(corpus: Path) -> bool:
-    """Return whether the corpus at `corpus` is one a build finished: its manifest parses, and the files a build writes after it, its per-unit index, both app sidecars and, last, its unit store, are stamped for that manifest (`app_index.outputs_not_current`, the one check of a finished corpus, which `status`'s freshness check takes too; with the comparison with today's inputs, these are the checks `corpus_build_skippable` makes). A build stopped after its sidecars and before its store leaves a corpus whose deflated fragments (#618's change 35) no reader of fragments can place, so it is not complete."""
+    """Return whether the corpus at `corpus` is one a build finished: its manifest parses, and the files a build writes after it, its per-unit index, both app sidecars and, for an m1-audit corpus, last, its unit store, are stamped for that manifest (`app_index.outputs_not_current`, the one check of a finished corpus, which `status`'s freshness check takes too; with the comparison with today's inputs, these are the checks `corpus_build_skippable` makes)."""
     try:
         manifest = json.loads((corpus / "manifest.json").read_text())
     except OSError, ValueError:
@@ -1046,7 +1036,7 @@ def corpus_complete(corpus: Path) -> bool:
 
 
 def recover_next_corpus(live: Path | None = None, *, delete: bool = True) -> str | None:
-    """Keep a `review.next` an earlier pass left only when it is complete (`corpus_complete`), and delete anything else there: a build that died leaves a partial tree, which must not seed or be promoted. A complete one stays, to be promoted when it reproduces this pass's inputs (`promotable_corpus`) or to seed the build when a rune moved since it was built, so the units it already built are cache hits. The `.discard` trees a land's delete did not finish (`landing.discard_paths`) are deleted too. `delete=False` is the dry run's form, which deletes nothing. Returns the line to print, or None when there is no `review.next`."""
+    """Keep a `review.next` an earlier pass left only when it is complete (`corpus_complete`), and delete anything else there: a build that died leaves a partial tree, which must not seed or be promoted. A complete one stays, to be promoted when it reproduces this pass's inputs (`promotable_corpus`); otherwise the pass's corpus build deletes it before it builds there (`_run_cycle`), since the table-diff build starts from an empty directory. The `.discard` trees a land's delete did not finish (`landing.discard_paths`) are deleted too. `delete=False` is the dry run's form, which deletes nothing. Returns the line to print, or None when there is no `review.next`."""
     if delete:
         for discard in landing.discard_paths(live if live is not None else REVIEW_OUT):
             shutil.rmtree(discard, ignore_errors=True)
@@ -1064,7 +1054,7 @@ def recover_next_corpus(live: Path | None = None, *, delete: bool = True) -> str
 def promotable_corpus(
     root: Path = ROOT, summary_path: Path | None = None, live: Path | None = None
 ) -> Path | None:
-    """Return the corpus built beside the live one that a live pass can land instead of rebuilding, or None. Candidates are checked in order: `review.next` beside the live corpus (`next_corpus_dir`), which a pass stopped after its build leaves complete; the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), which a staging pass (`--review-out`) wrote as a whole corpus (shards, sidecars, unit store and signature store) where the live pass never reads; then `var/staged-review` under `root`, the conventional staging directory. Every staging path derives from `root`, so a scratch repo never reads the live staged corpus. The caller asks only on a pass whose run_m1 skipped or reproduced its Stage A, because the check compares against the Stage A run_m1 recorded on disk, so a corpus built before a rune edit is never landed over it.
+    """Return the corpus built beside the live one that a live pass can land instead of rebuilding, or None. Candidates are checked in order: `review.next` beside the live corpus (`next_corpus_dir`), which a pass stopped after its build leaves complete; the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), which a staging pass (`--review-out`) wrote as a whole corpus (shards and sidecars) where the live pass never reads; then `var/staged-review` under `root`, the conventional staging directory. Every staging path derives from `root`, so a scratch repo never reads the live staged corpus. The caller asks only on a pass whose run_m1 skipped or reproduced its Stage A, because the check compares against the Stage A run_m1 recorded on disk, so a corpus built before a rune edit is never landed over it.
 
     A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (the land swaps the two trees, which cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font, the three stamped sidecars and the unit store), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict update. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
@@ -1294,13 +1284,10 @@ STEP_DESCRIPTIONS = {
     "run_m1": "Builds the M1 tables for every settlement configuration in the Rust kernel (the ss10 overlay settles nothing and gets none), mints the glyphs, emits GSUB and GPOS, compiles the font, and reads it back. Then runs the defect gates, the Manual-pin gate, and the oracle over what it built.",
     "run_m1:gates-only": "Reruns the defect gates, the Manual-pin gate, and the oracle over the tables and font already on disk, rebuilding nothing. Taken when only comparison-side inputs moved since the last green build.",
     "run_m1:kern-only": "Recompiles the font over the tables already on disk after a kern edit or an edit to the font's non-Quikscript data: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back. Taken when only runes' kern blocks or the font data moved since the last green build, which no table, settlement or oracle row reads.",
-    "corpus-seed": "Clones the served corpus to rebuild/out/review.next, copy-on-write, so the build beside it starts from the served corpus's shards and stores without writing a byte the open tab reads. A complete review.next a stopped pass left is kept as the seed instead.",
-    "corpus-build": "Rebuilds the review corpus: every unit the tables reach is drafted, enriched, and checked, with cached units re-verified by content key. Writes the shards, manifest, and review-facts sidecar that the app and the verdict update read, into rebuild/out/review.next beside the served corpus (in place only on a first run), then its unit store, while store-snapshot and the verdict update run beside it; the land waits for it.",
+    "corpus-build": "Builds the table-diff corpus: the accepted snapshot of the build (rebuild/review-snapshot.json names it, var/keep/review-snapshot/ holds it) against rebuild/out/m1, each unit one visible change, into rebuild/out/review.next beside the served corpus (in place only on a first run).",
     "assets-refresh": "Overwrites each served copy of the review app's JS, CSS, and HTML whose bytes changed, leaving the others in place, and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
-    "store-snapshot": "Links the live verdict store's file into this pass's scratch directory under the store's lock, as the snapshot the land compares against and the store the verdict update prepares, which every writer replaces by rename rather than writing through. Under the lock it first catches the store up with the journal in a short child, which streams the store once to compare it with the journal's events since its last write, the last land's own event among them, and writes it only when the review server has journaled saves it has not written; the review server keeps saving into the live store.",
-    "verdict-update": "Carries the verdicts master onto the new corpus by unit id, merges it into the pass's prepared store, a link to the store's file, and runs duplicate-fill, standing-fill, and duplicate-fill again, merging each fill, holding the prepared store in memory throughout and writing it once after the last merge, by rename, when a merge changed it. Ends by writing the complaint list of what still needs a human.",
-    "land": "Moves the new corpus and the prepared store into place together, under the verdict store's lock, in one child that a stop signal does not interrupt: verdicts saved during the pass are laid over the prepared store, the corpus is swapped in with one rename, and the change is journaled. When the verdict update changed nothing and the saves made during the pass give back the store as it stands, the store is left in place and nothing is journaled, and only the corpus moves. The open tabs then move onto it.",
-    "review-facts": "Regenerates rebuild/review-facts-pins.json from the review-facts sidecar the corpus build emitted, writing the file only when its bytes change, names what moved in its invariant block against the last accepted review facts (diffing that block alone when it did), and holds the ledger's declarations against the classes the corpus reached. Committing the rewritten pins is how the review facts are accepted.",
+    "store-snapshot": "Links the live verdict store's file into this pass's scratch directory under the store's lock, as the snapshot the land carries onto the new corpus by unit id and compares the saves made during the pass against, which every writer replaces by rename rather than writing through. Under the lock it first catches the store up with its journal in a short child, which streams the store once to compare it with the journal's events since its last write, the last land's own event among them, and writes it only when the review server has journaled saves it has not written; the review server keeps saving into the live store.",
+    "land": "Moves the new corpus into place and carries the verdict store onto it by unit id, under the verdict store's lock, in one child that a stop signal does not interrupt: a verdict whose unit the new corpus still has stays, a skip is dropped, the rest go to var/verdict-orphans/, verdicts saved during the pass are laid over the result, the corpus is swapped in with one rename, and the change is journaled. The open tabs then move onto it.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts, up to the pass's maximum length (`CONFORM_MAX_LENGTH_DEFAULT` unless `--conform-max-length` sets it), and checks it against a fresh re-settlement window by window, the split-buffer check included; the ss10 overlay runs its own short-text case (`conform.OVERLAY_MAX_LENGTH`) against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
@@ -1321,7 +1308,7 @@ SUBSTEP_PARENTS = {"invariant-diff": "review-facts", "job-costs-diff": "job-cost
 
 @dataclass
 class Step:
-    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the corpus-seed, store-snapshot and retention steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
+    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the store-snapshot and retention steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
     The review-facts step's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
@@ -1336,13 +1323,13 @@ class Step:
 
 @dataclass
 class Plan:
-    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the verdict update reads, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus or a store (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `legacy_server` says the listening server predates the land protocol, so it writes the store and the journal without the store's lock and retention leaves both alone while it listens. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped."""
+    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `legacy_server` says the listening server predates the land protocol, so it writes the store and the journal without the store's lock and retention leaves both alone while it listens. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped. `carry_out`, `verdicts`, `do_merge`, the `verdict_update_*` fields, `standing_fill_jobs` and its reason, `seed_kept` and `complaints_note` keep their defaults: only the step functions of the steps no plan holds read them (the corpus seed, the verdict update and the review facts, `_do_corpus_seed`, `_do_verdict_update`, `_do_review_facts`), which go with the verdict machinery and the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4)."""
 
     short_id: str
     first_run: bool
-    carry_out: Path | None
-    verdicts: Path | None
     skip_gates: bool
+    carry_out: Path | None = None
+    verdicts: Path | None = None
     do_merge: bool = False
     skip_conform: bool = False
     skip_make_test: bool = False
@@ -1425,7 +1412,7 @@ class Plan:
         return None
 
     def describe(self, name: str) -> str:
-        """Return the named step's banner text, for the steps that run in this process and never reach `_run_step` (corpus-seed, store-snapshot and retention)."""
+        """Return the named step's banner text, for the steps that run in this process and never reach `_run_step` (store-snapshot and retention)."""
         step = self.step(name)
         return "" if step is None else step.describe
 
@@ -2119,13 +2106,9 @@ def standing_fill_derivation(
 
 def build_plan(
     *,
-    verdicts: Path | None,
-    no_carry: bool,
-    carry_out: Path | None,
     skip_gates: bool,
     first_run: bool,
     short_id: str,
-    no_merge: bool = False,
     skip_conform: bool = False,
     skip_make_test: bool = False,
     make_test_note: str = "",
@@ -2151,27 +2134,13 @@ def build_plan(
     contracts_run: contracts.ContractsRun | None = None,
     conform_note: str = "",
     conform_proven: bool = False,
-    skip_verdict_update: bool = False,
-    verdict_update_note: str = "",
-    direct_merge: bool = False,
     record_greens: bool = False,
     keep_history: bool = False,
     recipe_serves: bool = False,
     scratch_dir: Path | None = None,
-    seed_kept: bool = False,
-    allow_orphans: bool = False,
 ) -> Plan:
-    do_carry = not no_carry and not first_run and not skip_verdict_update and not direct_merge
-    if skip_verdict_update:
-        verdict_update_step_note = f"SKIPPED ({verdict_update_note})"
-    elif first_run:
-        verdict_update_step_note = "SKIPPED (first run)"
-    elif not do_carry and not direct_merge:
-        verdict_update_step_note = "SKIPPED (--no-carry)"
-    else:
-        verdict_update_step_note = ""
-    verdict_update_runs = not verdict_update_step_note
-
+    """Resolve the pass's plan: run_m1 as a skip, a full build, a gates-only rerun or a kern-only rebuild, the table-diff corpus build into `review.next` beside the served corpus (in place on a first run, into `review_out` on a staging pass), the land that swaps it in and carries the verdict store onto it by unit id, the four gates, the job-costs check and retention. The pool widths it computes for the build lane's crate steps size the gates' pools beside the build lane."""
+    verdict_update_runs = False
     no_make_test = skip_gates or skip_make_test
     build_lane_runs = not (skip_run_m1 and skip_corpus)
     make_test_workers = make_test_pool_width(build_lane_runs=build_lane_runs, ncores=ncores)
@@ -2218,25 +2187,6 @@ def build_plan(
         "the ink-signature phase's shaping, cores-bound since each of its threads holds one comparator and no memory constant sizes it; "
         + signature_job_derivation(ncores=ncores)
     )
-    fill_jobs = standing_fill_jobs(
-        skip_gates=skip_gates,
-        skip_make_test=skip_make_test,
-        build_lane_runs=build_lane_runs,
-        ncores=ncores,
-        total_bytes=total_bytes,
-    )
-    fill_reason = (
-        "the standing fill's refill pool on a memo-drop pass, beside the verdict update's process; "
-        + (
-            standing_fill_derivation(
-                skip_gates=skip_gates,
-                skip_make_test=skip_make_test,
-                build_lane_runs=build_lane_runs,
-                ncores=ncores,
-                total_bytes=total_bytes,
-            )
-        )
-    )
     contracts_workers = contracts_pool_width(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
@@ -2280,20 +2230,9 @@ def build_plan(
     make_test_beside_conform = not (no_make_test or gates_queue(pool_policy, build_lane_runs=build_lane_runs))
     if conform_beside == "corpus-build":
         conform_head = f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {_corpus_build_processes(corpus_jobs)}"
-    elif conform_beside == "verdict-update":
-        fill_workers = f"{fill_jobs} refill worker" + ("" if fill_jobs == 1 else "s")
-        conform_head = (
-            "CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, "
-            + (
-                "the corpus build not running this pass, so beside "
-                if skip_corpus
-                else f"the verdict-update step outweighing the corpus build, so beside {_corpus_build_lead()} writing its unit store, "
-            )
-            + f"the verdict update's process and its {fill_workers}"
-        )
     else:
         conform_head = (
-            "CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, neither the corpus build nor the verdict-update step running this pass, so "
+            "CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the corpus build not running this pass, so "
             + (
                 "only gate:make-test's pool co-resident"
                 if make_test_beside_conform
@@ -2321,7 +2260,6 @@ def build_plan(
     replay_threads = replay_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=total_bytes)
     replay_reason = replay_threads_derivation(skip_make_test=True, ncores=ncores, total_bytes=total_bytes)
     corpus_dir = review_out if review_out is not None else REVIEW_OUT
-    do_merge = (do_carry or direct_merge) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
     live_pass = review_out is None and not first_run
     next_corpus: Path | None = None
@@ -2329,28 +2267,17 @@ def build_plan(
         next_corpus = promote_corpus
     elif live_pass and not skip_corpus:
         next_corpus = next_corpus_dir()
-    do_land = live_pass and (next_corpus is not None or do_merge)
+    do_land = live_pass and next_corpus is not None
     land_dir: Path | None = None
     if do_land:
         land_dir = scratch_dir if scratch_dir is not None else cycle_paths.CYCLE_VAR / short_id
         scratch_dir = land_dir
     update_corpus = review_out if review_out is not None else (next_corpus or REVIEW_OUT)
-    master_is_store = verdicts is not None and Path(verdicts).resolve() == AUTOSAVE.resolve()
-    may_carry_store = verdict_update_runs and direct_merge and do_merge
-    resolved_carry_out: Path | None = None
-    if do_carry or may_carry_store:
-        if carry_out is not None:
-            resolved_carry_out = carry_out
-        elif not do_merge:
-            resolved_carry_out = ROOT / f"verdicts-carried-{short_id}.json"
 
     plan = Plan(
         short_id=short_id,
         first_run=first_run,
-        carry_out=resolved_carry_out,
-        verdicts=verdicts,
         skip_gates=skip_gates,
-        do_merge=do_merge,
         skip_conform=skip_conform,
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,
@@ -2370,10 +2297,6 @@ def build_plan(
         contracts_run=contracts_run,
         conform_note=conform_note,
         conform_proven=conform_proven,
-        skip_verdict_update=skip_verdict_update,
-        verdict_update_note=verdict_update_note,
-        verdict_update_direct_merge=direct_merge,
-        verdict_update_fuses_carry=(do_carry or may_carry_store) and do_merge and resolved_carry_out is None,
         record_greens=record_greens,
         retention=do_retention,
         recipe_serves=recipe_serves,
@@ -2386,8 +2309,6 @@ def build_plan(
         contracts_after_units=contracts_after_units,
         signature_jobs=signature_jobs,
         signature_reason=signature_reason,
-        standing_fill_jobs=fill_jobs,
-        standing_fill_reason=fill_reason,
         sweep_jobs=sweep_jobs,
         sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
@@ -2406,7 +2327,6 @@ def build_plan(
         corpus_dir=corpus_dir,
         update_corpus=update_corpus,
         next_corpus=next_corpus,
-        seed_kept=seed_kept,
         land=do_land,
         scratch_dir=scratch_dir,
     )
@@ -2462,13 +2382,6 @@ def build_plan(
             run_m1_argv += ["--fresh-oracle-cache", "--fresh-tables"]
         plan.steps.append(Step("run_m1", run_m1_argv, run_m1_note, lane="build"))
 
-    if live_pass and not skip_corpus:
-        seed_note = (
-            f"keeps {next_corpus}, the complete corpus an earlier pass built beside the served one, as the build's seed"
-            if seed_kept
-            else f"clones rebuild/out/review to {next_corpus}, copy-on-write, as the build's seed"
-        )
-        plan.steps.append(Step("corpus-seed", None, seed_note, lane="build"))
     if skip_corpus:
         plan.steps.append(Step("corpus-build", None, f"SKIPPED ({corpus_note})", lane="build", skipped=True))
         if refresh_assets:
@@ -2481,122 +2394,23 @@ def build_plan(
                 )
             )
     else:
-        corpus_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
+        corpus_argv = ["uv", "run", "python", "-m", "rebuild.review.build", "--mode", "table-diff"]
         if not first_run or review_out is not None:
             corpus_argv += ["--out", str(update_corpus)]
-        if corpus_gates_idle_jobs is not None:
-            corpus_argv += [
-                "--gates-idle-jobs",
-                str(corpus_gates_idle_jobs),
-                "--gates-idle-marker",
-                str(gates_idle_marker),
-            ]
-        corpus_argv += ["--jobs", str(corpus_jobs), "--signature-jobs", str(signature_jobs)]
-        if fresh:
-            corpus_argv += ["--recompute-all-units"]
-        plan.steps.append(Step("corpus-build", corpus_argv, lane="build"))
+        corpus_note_text = f"the accepted snapshot against rebuild/out/m1, into {update_corpus}" + (
+            ", which it empties first" if next_corpus is not None else ""
+        )
+        plan.steps.append(Step("corpus-build", corpus_argv, corpus_note_text, lane="build"))
 
-    if review_out is not None:
-        plan.complaints_note = "staging: reads the live autosave"
-    elif first_run:
-        plan.complaints_note = "first run: no verdicts to cluster"
-    elif skip_verdict_update:
-        plan.complaints_note = verdict_update_note
-
-    snapshot = land_dir / landing.SNAPSHOT_NAME if land_dir is not None else None
-    prepared = land_dir / landing.PREPARED_NAME if land_dir is not None and do_merge else None
-    if do_land:
+    if land_dir is not None:
         plan.steps.append(
             Step(
                 "store-snapshot",
                 None,
-                f"links the live store's file to {snapshot} under the store's lock, the point the land compares the saves made during the pass against"
-                + ("; the verdict update prepares the store from a second link to it" if do_merge else ""),
+                f"links the live store's file to {land_dir / landing.SNAPSHOT_NAME} under the store's lock once the corpus build has finished, the store the land carries onto the new corpus and the point it compares the saves made during the pass against",
                 lane="build",
             )
         )
-    if verdict_update_step_note:
-        plan.steps.append(Step("verdict-update", None, verdict_update_step_note, lane="build", skipped=True))
-    else:
-        verdict_update_argv = [
-            "uv",
-            "run",
-            "python",
-            "-m",
-            "rebuild.tools.verdict_update",
-            "--corpus",
-            str(update_corpus),
-        ]
-        master_input = snapshot if snapshot is not None and master_is_store else verdicts
-        if do_carry:
-            verdict_update_argv += ["--verdicts", str(master_input)]
-            if snapshot is not None and not master_is_store:
-                verdict_update_argv += ["--store-snapshot", str(snapshot)]
-        else:
-            verdict_update_argv += ["--merge-master", str(master_input)]
-            if may_carry_store:
-                assert snapshot is not None
-                verdict_update_argv += ["--store-snapshot", str(snapshot)]
-        if resolved_carry_out is not None:
-            verdict_update_argv += ["--carry-out", str(resolved_carry_out)]
-        if prepared is not None:
-            assert snapshot is not None
-            verdict_update_argv += [
-                "--autosave",
-                str(prepared),
-                "--prepared-from",
-                str(snapshot),
-                "--duplicate-out",
-                str(prepared.parent / DUPLICATE_FILL_NAME),
-                "--standing-out",
-                str(prepared.parent / STANDING_FILL_NAME),
-            ]
-        verdict_update_argv += ["--accepted", str(accepted.path_for(AUTOSAVE))]
-        if do_merge and update_corpus.parent != REVIEW_OUT.parent:
-            from rebuild.tools.standing_verdicts import MEMO_NAME
-
-            verdict_update_argv += ["--standing-memo", str(REVIEW_OUT.parent / MEMO_NAME)]
-        if not do_merge:
-            verdict_update_argv += ["--no-merge"]
-        if plan.complaints_note:
-            verdict_update_argv += ["--no-complaints"]
-        if fresh:
-            verdict_update_argv += ["--fresh-standing-memo"]
-        verdict_update_argv += ["--standing-fill-jobs", str(fill_jobs)]
-        if allow_orphans and (do_carry or may_carry_store):
-            verdict_update_argv += ["--allow-orphans"]
-        if do_carry and not do_merge:
-            note = (
-                "carry only (staging: the live autosave is never written)"
-                if review_out is not None
-                else "carry only (--no-merge)"
-            )
-        elif direct_merge:
-            note = "the corpus did not move, so the carry is the identity — merging the master straight in"
-            if may_carry_store:
-                store_carry = (
-                    "carrying it onto the served corpus by unit id instead"
-                    if master_is_store
-                    else "carrying it onto the served corpus by unit id first and merging the master into the result"
-                )
-                note += (
-                    f", or, when the store's snapshot, which the verdict update reads, is stamped for an older corpus or is not an ams-review-verdicts/1 document, {store_carry}, "
-                    "with the snapshot's skips kept as tombstones (the carry refuses a snapshot it cannot read, and the merge refuses an "
-                    "ams-review-verdicts/1 snapshot stamped for a newer corpus, either of which fails the verdict update)"
-                )
-            note += ", then duplicate fill, standing fill, duplicate fill, with each fill merged, and the complaint list"
-        else:
-            carry = "carry"
-            if snapshot is not None and not master_is_store:
-                carry += (
-                    " (the master, and the store's snapshot beside it if the snapshot step finds a store)"
-                )
-            note = f"{carry} -> merge -> duplicate fill -> standing fill -> duplicate fill -> complaint list, with each fill merged, in one process"
-        if prepared is not None:
-            note += f", into {prepared}, a link to the store's file that the update holds in memory and writes once after its last merge when a merge changed it, journaling nothing; the land renames it into place when no save landed during the pass, writes its result otherwise, and leaves the store in place when the update changed nothing"
-        plan.steps.append(Step("verdict-update", verdict_update_argv, note, lane="build"))
-
-    if land_dir is not None:
         land_argv = [
             "uv",
             "run",
@@ -2612,55 +2426,11 @@ def build_plan(
             "--corpus",
             str(next_corpus or REVIEW_OUT),
         ]
-        if prepared is not None:
-            land_argv += ["--prepared", str(prepared)]
         if next_corpus is not None:
             land_argv += ["--staged", str(next_corpus), "--live", str(REVIEW_OUT), "--keep-discard"]
-        land_argv += ["--scan-state", str(journal_scan_path())]
-        if allow_orphans:
-            land_argv += ["--allow-orphans"]
-        if next_corpus is None:
-            land_note = "puts the prepared store in place under the verdict store's lock, with the saves made during the pass laid over it, and journals the change; when the verdict update changed nothing and those saves give back the store as it stands, it leaves the store in place and journals nothing"
-        else:
-            store_part = (
-                "the prepared store"
-                if do_merge
-                else "an empty store stamped for it that keeps the override section (the old one is stashed, as this pass carries nothing), or the live store itself when the corpus keeps its stamp"
-            )
-            land_note = f"swaps {next_corpus} in for rebuild/out/review and puts {store_part} in place with it, under the verdict store's lock, with the saves made during the pass laid over it, and journals the change"
-            if do_merge:
-                land_note += "; when the verdict update changed nothing, the corpus keeps its stamp and those saves give back the store as it stands, it swaps only the corpus, leaving the store in place and journaling nothing"
-            land_note += "; the review server keeps running"
+        land_argv += ["--scan-state", str(journal_scan_path()), "--allow-orphans"]
+        land_note = f"swaps {next_corpus} in for rebuild/out/review and, when the stamp moves, carries the verdict store onto it by unit id under the verdict store's lock, with the saves made during the pass laid over it: a verdict whose unit the new corpus still has stays, a skip is dropped, and the rest go to var/verdict-orphans/; the review server keeps running"
         plan.steps.append(Step("land", land_argv, land_note, lane="build"))
-
-    if review_out is not None:
-        plan.steps.append(
-            Step(
-                "review-facts",
-                None,
-                "SKIPPED (staging: the checked-in pins track the live corpus)",
-                lane="build",
-                skipped=True,
-            )
-        )
-    else:
-        plan.steps.append(
-            Step(
-                "review-facts",
-                [
-                    "uv",
-                    "run",
-                    "python",
-                    "-m",
-                    "rebuild.review.facts",
-                    "--update",
-                    "--corpus",
-                    str(REVIEW_OUT),
-                ],
-                "then names what moved in the invariant block against the index copy, diffing that block alone — the pins are the last accepted review facts; commit them to accept these",
-                lane="build",
-            )
-        )
 
     if skip_gates:
         plan.steps.append(Step("gates", None, "SKIPPED (--skip-gates)", skipped=True))
@@ -2724,7 +2494,7 @@ def build_plan(
         Step(
             "job-costs",
             ["uv", "run", "python", "-m", "rebuild.tools.calibrate_budgets", "--check"],
-            "the checked-in per-unit peaks against what this machine measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-measured constant is the acceptance, exactly as the review-facts pins work",
+            "the checked-in per-unit peaks against what this machine measured, once the gates have joined and this pass's own pool records are in the journal — a file read; committing a re-measured constant is the acceptance",
         )
     )
 
@@ -3041,7 +2811,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         return [
             "",
             "  Concurrency (--skip-gates):",
-            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {_no_fanout(plan) or plan.kernel_threads} and --replay-threads {_no_fanout(plan) or plan.replay_threads}, corpus-build --jobs {plan.corpus_jobs} ({plan.corpus_reason}), corpus-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
+            f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {_no_fanout(plan) or plan.kernel_threads} and --replay-threads {_no_fanout(plan) or plan.replay_threads}",
         ]
     make_test_lane = (
         f"SKIPPED ({plan.make_test_note})"
@@ -3053,16 +2823,11 @@ def _render_concurrency(plan: Plan) -> list[str]:
         submit += " (held until the corpus build's units pool finishes" + (
             " if gate:conform is re-skipped after run_m1)" if plan.conform_undecided() else ")"
         )
-    store_write = (
-        ""
-        if plan.skip_corpus
-        else "; corpus-build returns at its review-facts phase and writes its unit store beside store-snapshot and verdict-update, joined before land"
-    )
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         "    Lane t0   [from t=0, background]  : gate:js",
-        f"    Lane build[main thread]          : run_m1 -> {submit} -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts{store_write}",
+        f"    Lane build[main thread]          : run_m1 -> {submit} -> corpus-build -> store-snapshot -> land",
         f"    Lane make-test                   : {make_test_lane}",
     ]
     if plan.skip_conform:
@@ -3139,15 +2904,6 @@ def _render_concurrency(plan: Plan) -> list[str]:
         lines.append(
             f"    run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling, {plan.replay_reason})"
         )
-    lines.append(f"    corpus-build --jobs              : {plan.corpus_jobs}  ({plan.corpus_reason})")
-    if plan.corpus_gates_idle_jobs is not None:
-        lines.append(
-            f"    corpus-build --gates-idle-jobs   : {plan.corpus_gates_idle_jobs}  ({plan.corpus_gates_idle_reason})"
-        )
-    lines.append(f"    corpus-build --signature-jobs    : {plan.signature_jobs}  ({plan.signature_reason})")
-    lines.append(
-        f"    verdict-update --standing-fill-jobs : {plan.standing_fill_jobs}  ({plan.standing_fill_reason})"
-    )
     return lines
 
 
@@ -3188,13 +2944,7 @@ def render_plan(plan: Plan) -> list[str]:
     rows = plan_rows(plan)
     lines.extend(["", console.counts_line(rows), *console.plan_lines(rows), ""])
     lines.append(f"  first run    : {plan.first_run}")
-    lines.append(f"  verdicts     : {plan.verdicts if plan.verdicts is not None else '(none)'}")
-    carry_output = "(no carry)" if plan.carry_out is None else str(plan.carry_out)
-    if plan.carry_out is not None and plan.verdict_update_direct_merge:
-        carry_output += " (written only if the verdict update carries the store's snapshot)"
-    elif plan.verdict_update_fuses_carry:
-        carry_output = "(none written: the verdict update fuses its carry into its first merge)"
-    lines.append(f"  carry output : {carry_output}")
+    lines.append(f"  corpus       : {plan.update_corpus}")
     if plan.review_out is not None:
         lines.append(
             f"  staging      : corpus writes redirected to {plan.review_out}; the live corpus at rebuild/out/review is never written."
@@ -3827,7 +3577,7 @@ def _do_corpus_seed(report: CycleReport, *, emit: console.CycleConsole, plan: Pl
 
 
 def _do_store_snapshot(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Link the live store's file into the pass's scratch directory as the snapshot and the store the verdict update prepares (`landing.snapshot`), holding the store's lock for the links, under which the store is first caught up with its journal in a short child (`_catch_up_in_child`)."""
+    """Link the live store's file into the pass's scratch directory as the snapshot the land carries onto the new corpus and compares the saves made during the pass against (`landing.snapshot`), holding the store's lock for the links, under which the store is first caught up with its journal in a short child (`_catch_up_in_child`)."""
     assert plan.scratch_dir is not None
     scratch = plan.scratch_dir
 
@@ -4819,8 +4569,9 @@ def _run_cycle(
             return _finish(report, failures, plan, timings, emit)
 
         served_before = _served_generated_at() if plan.review_out is None else None
-        if plan.includes("corpus-seed") and not _do_corpus_seed(report, emit=emit, plan=plan):
-            return stop_here("corpus seed failed")
+        if plan.runs("corpus-build") and plan.next_corpus is not None and plan.promote_corpus is None:
+            # The table-diff build starts from an empty directory, so a `review.next` an earlier pass left (`recover_next_corpus`) that this pass does not promote goes before it.
+            shutil.rmtree(plan.next_corpus, ignore_errors=True)
 
         if plan.runs("assets-refresh") and not _do_assets_refresh(
             report, spawn=spawn, emit=emit, registry=registry, plan=plan
@@ -4856,72 +4607,20 @@ def _run_cycle(
         if not built:
             return stop_here("corpus rebuild failed")
 
-        if plan.includes("store-snapshot") and not _do_store_snapshot(report, emit=emit, plan=plan):
-            return stop_here("store snapshot failed")
-
-        verdict_update_failures: list[str] = []
-        if plan.skip_verdict_update:
-            _skip_verdict_update(report, plan, emit)
-        elif plan.runs("verdict-update"):
-            verdict_update_failures = _do_verdict_update(
-                report, spawn=spawn, emit=emit, registry=registry, plan=plan
-            )
-            failures.extend(verdict_update_failures)
-        # The corpus build has written its unit store beside the steps above (`_HeldCorpusBuild`). The join sits outside the land's branch, so a pass that does not land waits for the store too, and a store write that failed stops the pass before the land as a failed build always has.
+        # The corpus build's child is joined here, on a pass that does not land too, so a build that failed after the line `_do_corpus_build` returns at stops the pass before the land.
         if not corpus_child.join(emit, report):
             return stop_here("corpus rebuild failed")
+        if plan.includes("store-snapshot") and not _do_store_snapshot(report, emit=emit, plan=plan):
+            return stop_here("store snapshot failed")
         landed: dict | None = None
         if plan.runs("land"):
-            if verdict_update_failures:
-                report.land_status = "not run (the verdict update failed)"
-                emit.step_not_run("land", "the verdict update failed, so nothing moves")
-            else:
-                landed = _do_land(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-                if landed is None:
-                    failures.append("land failed")
+            landed = _do_land(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
+            if landed is None:
+                failures.append("land failed")
         if plan.review_out is None and plan.broadcast and _served_generated_at() != served_before:
             _broadcast_review_reload(emit, "land" if plan.runs("land") else "corpus-build", "corpus")
             served_before = _served_generated_at()
         _delete_discard(landed)
-        verdict_update_key: str | None = None
-        if (
-            plan.runs("verdict-update")
-            and not verdict_update_failures
-            and plan.do_merge
-            and _verdict_update_completed(report)
-            and landed is not None
-            and not landed.get("overlaid")
-            and plan.scratch_dir is not None
-        ):
-            try:
-                verdict_update_key = verdict_update_skip_fingerprint(
-                    ROOT, REVIEW_OUT, plan.verdicts, store=plan.scratch_dir / landing.LANDED_NAME
-                )
-            except StoreReadFailed as failed:
-                failures.append(f"the verdict update's key: {failed}")
-        if plan.complaints_note:
-            report.complaints_status = f"skipped ({plan.complaints_note})"
-        if plan.review_out is not None:
-            report.facts_status = "skipped (staging: the checked-in pins track the live corpus)"
-            report.ledger_coverage = "skipped (staging)"
-            emit.step_skipped("review-facts", "staging: the checked-in pins track the live corpus")
-        elif plan.next_corpus is not None and landed is None:
-            report.facts_status = (
-                "not run (the new corpus did not land, so the pins keep the served corpus's review facts)"
-            )
-            report.ledger_coverage = "not computed (the new corpus did not land)"
-            emit.step_not_run(
-                "review-facts", "the new corpus did not land, so the served corpus's review facts stand"
-            )
-        else:
-            _do_review_facts(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-        if (
-            verdict_update_key
-            and report.complaints_ok is True
-            and plan.record_greens
-            and plan.review_out is None
-        ):
-            record_verdict_update_green(verdict_update_key)
 
         _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
         _record_conform_green(report, plan, conform_key, emit)
@@ -5167,37 +4866,16 @@ def summary_rows(report: CycleReport, plan: Plan, *, retention_ran: bool) -> lis
     return rows
 
 
-def summary_cycle_lines(report: CycleReport, plan: Plan, retention_lines: list[str]) -> list[str]:
-    """Return the summary lines below the table: output paths, the verdict update's per-step status, the deep sweep and deep replay status, and what retention pruned.
-
-    The lines scraped from the verdict update's output (by `_do_verdict_update`, with `_standing_fill_news` for the standing fill) are indented under the carry and verdict-update lines, so the summary shows what each carry, fill, and merge wrote and how the human queue changed.
-    """
-
-    def show(value: object) -> str:
-        return "—" if value is None else str(value)
-
-    def news(lines: list[str]) -> list[str]:
-        return [f"      {line}" for line in lines]
-
+def summary_cycle_lines(
+    report: CycleReport, plan: Plan, retention_lines: list[str], diff_line: str | None = None
+) -> list[str]:
+    """Return the summary lines below the table: the table-diff corpus's unaccepted changes (`diff_line`, `verdict_ready.diff_summary_line`, which a green pass's `readiness_block` gives), the job-costs status, what the pass wrote, the deep sweep and deep replay status, the output paths, and what retention pruned."""
     deep_status, deep_note = _deep_sweep_report()
     replay_status, replay_note = _deep_replay_report()
-    carry_out = show(report.carry_out)
-    if report.carry_out is not None and plan.in_scratch(report.carry_out):
-        carry_out += " (in the pass's scratch directory, which the pass deletes when it ends)"
-    lines = [
-        f"  carry output     : {carry_out}",
-        *news(report.carry_lines),
-        f"  verdict update   : merge {report.merge_status}; duplicate-fill {report.duplicate_fill_status}; duplicate-merge {report.duplicate_merge_status}; standing-fill {report.standing_fill_status}; standing-merge {report.standing_merge_status}",
-        *news(
-            report.merge_lines
-            + report.duplicate_fill_lines
-            + report.duplicate_merge_lines
-            + report.standing_fill_lines
-            + report.standing_merge_lines
-        ),
-        f"  complaint groups : {report.complaints_status}",
-        f"  review facts     : {report.facts_status}",
-        f"  ledger coverage  : {report.ledger_coverage}",
+    lines = []
+    if diff_line is not None:
+        lines.append(f"  review diff      : {diff_line.removeprefix('review diff: ')}")
+    lines += [
         f"  job costs        : {report.job_costs_status}",
         *written_lines(report.written),
         f"  deep sweep       : {deep_status} ({deep_note})",
@@ -5331,47 +5009,23 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "corpus_rows": report.corpus_rows,
         "corpus_batches": report.corpus_batches,
         "assets_status": report.assets_status,
-        "seed_status": report.seed_status,
-        "snapshot_status": report.snapshot_status,
         "land_status": report.land_status,
         "land": report.land,
-        "duplicate_groups": report.duplicate_groups,
-        "carry_out": (
-            None if report.carry_out is None or plan.in_scratch(report.carry_out) else str(report.carry_out)
-        ),
-        "carry_lines": list(report.carry_lines),
         "carry": report.carry_counts,
-        "merge_status": report.merge_status,
-        "merge_lines": list(report.merge_lines),
-        "duplicate_fill_status": report.duplicate_fill_status,
-        "duplicate_fill_lines": list(report.duplicate_fill_lines),
-        "duplicate_merge_status": report.duplicate_merge_status,
-        "duplicate_merge_lines": list(report.duplicate_merge_lines),
-        "standing_fill_status": report.standing_fill_status,
-        "standing_fill_lines": list(report.standing_fill_lines),
-        "standing_merge_status": report.standing_merge_status,
-        "standing_merge_lines": list(report.standing_merge_lines),
-        "facts_status": report.facts_status,
-        "ledger_coverage": report.ledger_coverage,
-        "ledger_coverage_sets": report.ledger_coverage_sets,
         "job_costs_status": report.job_costs_status,
         "job_costs_ok": report.job_costs_ok,
-        "complaints_status": report.complaints_status,
         "log_dir": _as_str(plan.log_dir),
         "interrupted": report.interrupted,
         "plan": {
-            "verdicts": _as_str(plan.verdicts),
-            "carry_out": _as_str(plan.carry_out),
-            "do_merge": plan.do_merge,
             "conform_max_length": plan.conform_max_length,
             "kernel_threads": None if _no_fanout(plan) else plan.kernel_threads,
             "scratch_beside_default": None if _no_fanout(plan) else plan.scratch_beside_default,
             "replay_threads": None if _no_fanout(plan) else plan.replay_threads,
             "sweep_jobs": plan.sweep_jobs if plan.runs("run_m1") else None,
-            "corpus_jobs": plan.corpus_jobs if plan.runs("corpus-build") else None,
-            "corpus_gates_idle_jobs": plan.corpus_gates_idle_jobs if plan.runs("corpus-build") else None,
-            "signature_jobs": plan.signature_jobs if plan.runs("corpus-build") else None,
-            "standing_fill_jobs": plan.standing_fill_jobs if plan.runs("verdict-update") else None,
+            "corpus_jobs": None,
+            "corpus_gates_idle_jobs": None,
+            "signature_jobs": None,
+            "standing_fill_jobs": None,
             "make_test_workers": plan.make_test_workers if plan.runs("gate:make-test") else None,
             "contracts_workers": (
                 plan.contracts_workers
@@ -5396,7 +5050,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "land": plan.land,
             "skip_contracts": report.contracts_proven
             or (plan.skip_contracts and report.gate_contracts_green is None),
-            "skip_verdict_update": plan.skip_verdict_update,
             "review_out": _as_str(plan.review_out),
             "first_run": plan.first_run,
             "short_id": plan.short_id,
@@ -5603,7 +5256,7 @@ def _retention_detail(removed: list[str], intact: list[str], journal_state: str)
 
 
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass. Once the journal's first event is `journal.CLOSE_OUT_DUE_DAYS` days old, the report ends with a line that warns of the compaction ahead and names `make close-out` (`journal.close_out_due`)."""
+    """Prune build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass. The land stashes the store on every stamp move, so the stash sweep keeps the stashes from piling up between accepts."""
 
     def rel(path: Path) -> str:
         try:
@@ -5620,9 +5273,6 @@ def run_retention(plan: Plan) -> RetentionResult:
     journal_path = ROOT / journal.JOURNAL_NAME
 
     def reported(journal_state: str) -> RetentionResult:
-        due = journal.close_out_due(journal_path)
-        if due is not None:
-            lines.append(f"  close-out : {due}")
         return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
 
     dropped_logs = prune_build_logs(cycle_paths.BUILD_LOGS_ROOT, cycle_paths.BUILD_LOGS_KEEP)
@@ -5784,23 +5434,7 @@ def main(argv: list[str] | None = None) -> int:
     if refusal is not None:
         raise SystemExit(refusal)
     parser = argparse.ArgumentParser(
-        description="Drive the commit-time artifact cycle: run_m1, corpus rebuild, carry, review-facts pins, gates."
-    )
-    parser.add_argument(
-        "--verdicts",
-        type=Path,
-        help="prior verdicts master to carry forward (default: auto-resolve the best candidate among the autosave and the verdicts-*.json files at the repo root)",
-    )
-    parser.add_argument("--no-carry", action="store_true", help="skip the verdict carry-forward step")
-    parser.add_argument(
-        "--no-merge",
-        action="store_true",
-        help="carry only, merging neither the carry nor the fills into the store; a pass that moves the corpus still lands it, with an empty store stamped for it that keeps the store's override section (its verdicts on accepted units since the close-out) in place of verdicts-autosave.json, which is kept as verdicts-autosave-<old stamp>.json; a corpus that moves but keeps its stamp keeps the store as it is",
-    )
-    parser.add_argument(
-        "--carry-out",
-        type=Path,
-        help="carried-forward output path, which the verdict update writes and its first merge reads (default: on a pass that merges, none, since the verdict update fuses the carry into its first merge and writes no carried file; on a --no-merge or staging pass, whose product it is, verdicts-carried-<short hash>.json at the repo root)",
+        description="Drive the commit-time artifact cycle: run_m1, the table-diff corpus build and its land, gates."
     )
     parser.add_argument(
         "--skip-gates",
@@ -5839,17 +5473,12 @@ def main(argv: list[str] | None = None) -> int:
         "--review-out",
         type=Path,
         default=None,
-        help="staging pass: redirect the corpus write to this dir, carry the verdicts onto it without writing the store, and land nothing; the next live pass lands this dir in place of rebuild/out/review, instead of rebuilding, when it still reproduces the inputs byte for byte (promotable_corpus)",
+        help="staging pass: redirect the corpus write to this dir and land nothing; the next live pass lands this dir in place of rebuild/out/review, instead of rebuilding, when it still reproduces the inputs byte for byte (promotable_corpus)",
     )
     parser.add_argument(
         "--keep-history",
         action="store_true",
         help="skip the green-finish retention pass (stashes and the journal's pre-window history stay on disk)",
-    )
-    parser.add_argument(
-        "--allow-orphans",
-        action="store_true",
-        help=f"let the carry and the land go ahead when more than {landing.ORPHAN_SHARE_LIMIT:.0%}% of the prior verdicts name no unit on the new corpus, as after an edit that redraws many windows; when a change to the carry projection moved the units' content ids wholesale, re-key the verdicts instead (rebuild/tools/rekey_verdicts.py)",
     )
     parser.add_argument(
         "--yes",
@@ -5884,7 +5513,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). Then every pass but a dry run and a staging pass takes the verdict store's lock once (`catch_up_store`), which writes into the store the saves the review server journaled and has not written, before the plan first reads the store; a catch-up that cannot write stops the pass with exit 1 (`StoreReadFailed`). A store that does not pair with the accepted list, or a malformed list, stops the pass with exit 1 at the carry source's resolution (`accepted.Refused`), before any step runs, and so does a store read's child that answers nothing at plan time (`StoreReadFailed`), for the carry source, the verdict update's key or the master's stamp. Once the plan is made, a pass that is not a dry run stops a standing daemon that answers at the default socket before its first step (`stop_standing_daemon`)."""
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). Then every pass but a dry run and a staging pass takes the verdict store's lock once (`catch_up_store`), which writes into the store the saves the review server journaled and has not written, so the land reads a store holding every save; a catch-up that cannot write stops the pass with exit 1 (`StoreReadFailed`). Once the plan is made, a pass that is not a dry run stops a standing daemon that answers at the default socket before its first step (`stop_standing_daemon`)."""
     try:
         landed = recover_land(dry_run=args.dry_run) if recover else None
     except (landing.LandUnrecoverable, StoreReadFailed) as refused:
@@ -5969,7 +5598,8 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             skip_make_test = True
             make_test_note = "closure unchanged since its last green run; --force-make-test overrides"
 
-    if skip_run_m1 or ((rerun_gates_only or rerun_kern_only) and m1_stage_a_current(ROOT)):
+    # A kern-only rebuild rewrites M1.otf and kern.tsv, which the table-diff corpus's after font and kerning units show, so only a pass whose run_m1 writes no font may skip the corpus build.
+    if skip_run_m1 or (rerun_gates_only and m1_stage_a_current(ROOT)):
         if args.review_out is None and not first_run:
             if corpus_build_skippable(ROOT):
                 skip_corpus = True
@@ -6003,71 +5633,12 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         if line is not None:
             announce(line)
 
-    master_aligned: bool | None = None
-    if not args.no_carry and args.verdicts is None and not first_run:
-        try:
-            resolved = resolve_carry_source()
-        except (accepted.Refused, StoreReadFailed) as refused:
-            print(f"ERROR: {refused}. The pass stops before it starts.")
-            return 1
-        if resolved is None:
-            args.no_carry = True
-            announce(
-                "No carryable verdicts found (neither the autosave nor any verdicts-*.json at the repo root holds an effective verdict); proceeding without carry. Pass --verdicts to name a master explicitly."
-            )
-        else:
-            announce(describe_carry_source(resolved, ROOT, promoting=promote_from is not None))
-            args.verdicts = resolved["path"]
-            master_aligned = resolved["aligned"]
-
-    skip_verdict_update = False
-    direct_merge = False
-    verdict_update_note = ""
-    if (
-        skip_corpus
-        and promote_from is None
-        and not args.fresh
-        and not first_run
-        and args.review_out is None
-        and not args.no_carry
-        and not args.no_merge
-        and args.carry_out is None
-    ):
-        try:
-            verdict_update_key = verdict_update_skip_fingerprint(ROOT, REVIEW_OUT, args.verdicts)
-        except StoreReadFailed as failed:
-            print(f"ERROR: {failed}. The pass stops before it starts.")
-            return 1
-        record = read_green_record(cycle_paths.VERDICT_UPDATE_GREEN)
-        if (
-            verdict_update_key is not None
-            and record is not None
-            and record["fingerprint"] == verdict_update_key
-        ):
-            skip_verdict_update = True
-            verdict_update_note = VERDICT_UPDATE_SKIP_NOTE
-        elif verdict_update_key is not None and args.verdicts is not None:
-            if master_aligned is None:
-                try:
-                    master_aligned = master_stamped_for_corpus(args.verdicts, REVIEW_OUT)
-                except StoreReadFailed as failed:
-                    print(f"ERROR: {failed}. The pass stops before it starts.")
-                    return 1
-                if not master_aligned:
-                    announce(DIRECT_MERGE_DECLINED_NOTE)
-            # A master that is an ams-review-verdicts/1 document stamped for the served corpus needs no carry: every unit id maps to itself, and the carry keeps each record's `at`, so the merge (which takes only a strictly newer `at`) would drop any note the carry changes. Merging the master directly into the store gives the same result. A store the merge would set aside is the exception: the verdict update carries its snapshot first (`verdict_update.merge_sets_store_aside`), so its verdicts are kept, and the carry refuses a snapshot it cannot read, naming it, so the verdict update fails.
-            direct_merge = master_aligned
-
     short_id = resolve_short_id()
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     plan = build_plan(
-        verdicts=args.verdicts,
-        no_carry=args.no_carry,
-        carry_out=args.carry_out,
         skip_gates=args.skip_gates,
         first_run=first_run,
         short_id=short_id,
-        no_merge=args.no_merge,
         skip_conform=args.skip_conform or auto_skip_conform,
         skip_make_test=skip_make_test,
         make_test_note=make_test_note,
@@ -6091,15 +5662,10 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         contracts_run=contracts_run,
         conform_note=conform_note,
         conform_proven=auto_skip_conform,
-        skip_verdict_update=skip_verdict_update,
-        verdict_update_note=verdict_update_note,
-        direct_merge=direct_merge,
         record_greens=not args.dry_run,
         keep_history=args.keep_history,
         recipe_serves=args.stop_server,
         scratch_dir=cycle_paths.CYCLE_VAR / f"{stamp}-{short_id}" if args.review_out is None else None,
-        seed_kept=corpus_complete(next_corpus_dir()),
-        allow_orphans=args.allow_orphans,
     )
 
     if args.dry_run:
@@ -6123,7 +5689,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             args,
             can_keep_running=server_can_keep_running(
                 skip_corpus=skip_corpus,
-                writes_store=plan.do_merge,
+                writes_store=False,
                 promotes_corpus=plan.promote_corpus is not None,
             ),
             probe=probe,
@@ -6135,7 +5701,9 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             print(stopped)
 
         if first_run:
-            print("First-run mode: no existing corpus at rebuild/out/review — skipping the carry.")
+            print(
+                "First-run mode: no existing corpus at rebuild/out/review — the corpus is built in place and lands no store."
+            )
 
         report = CycleReport()
         from rebuild.tools import write_meter
@@ -6161,10 +5729,10 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 shutil.rmtree(plan.scratch_dir, ignore_errors=True)
 
 
-def readiness_block(plan: Plan) -> list[str]:
-    """Return the checklist `make verdict-ready` prints, so a green pass ends with it. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A staging pass returns nothing, since its corpus is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The rebuild suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
+def readiness_block(plan: Plan) -> tuple[list[str], str | None]:
+    """Return the checklist `make verdict-ready` prints, so a green pass ends with it, and the summary's line counting the table-diff corpus's unaccepted changes (`verdict_ready.diff_summary_line`), None for another corpus. It reads the cycle summary, so it must run after `_emit_cycle_summary`. A staging pass returns neither, since its corpus is not the served one. When `--stop-server` is passed (as `make review-cycle` does), the server row is left out, because the recipe starts the server after the pass, or reports that it left it stopped. The diff is a row and a line, never a red gate: a pass whose corpus holds unaccepted changes ends green and READY. The rebuild suite switches this off with `cycle_paths.READINESS_ENABLED`, because it reads the live corpus."""
     if plan.review_out is not None:
-        return []
+        return [], None
     from rebuild.tools import verdict_ready
 
     try:
@@ -6177,8 +5745,8 @@ def readiness_block(plan: Plan) -> list[str]:
             cycle_summary_path=cycle_paths.CYCLE_SUMMARY,
         )
     except Exception as exc:
-        return [f"readiness: the checklist could not be computed ({exc!r})"]
-    return verdict_ready.checklist(result, ready)
+        return [f"readiness: the checklist could not be computed ({exc!r})"], None
+    return verdict_ready.checklist(result, ready), verdict_ready.diff_summary_line(result)
 
 
 def _finish(
@@ -6188,7 +5756,7 @@ def _finish(
     timings: CycleTimings | None = None,
     emit: console.CycleConsole | None = None,
 ) -> int:
-    """Finish the pass and return its exit status: run retention on a green pass, write the cycle summary, then print the summary block, ending with the readiness checklist on a green pass. Retention runs before the table is printed so its row has an outcome and detail. The rebuild suite sets `cycle_paths.RETENTION_ENABLED` False so a test that reaches a green finish does not prune the live repo; retention then counts as run with no lines. `cycle_paths.READINESS_ENABLED` switches the checklist off the same way."""
+    """Finish the pass and return its exit status: run retention on a green pass, write the cycle summary, then print the summary block, with the table-diff corpus's diff line and ending with the readiness checklist on a green pass (`readiness_block`). Retention runs before the table is printed so its row has an outcome and detail. The rebuild suite sets `cycle_paths.RETENTION_ENABLED` False so a test that reaches a green finish does not prune the live repo; retention then counts as run with no lines. `cycle_paths.READINESS_ENABLED` switches the checklist off the same way."""
     cycle_console = console.CycleConsole() if emit is None else emit
     retention_lines: list[str] = []
     retention_ran = False
@@ -6206,10 +5774,13 @@ def _finish(
         report.retention_outcome = "ok" if retention_ran else "FAILED"
         cycle_console.step_end("retention", None, report.retention_outcome, report.retention_detail)
     _emit_cycle_summary(report, failures, plan, "failed" if failures else "ok", timings)
-    readiness = [] if failures or not cycle_paths.READINESS_ENABLED else readiness_block(plan)
+    readiness, diff_line = (
+        ([], None) if failures or not cycle_paths.READINESS_ENABLED else readiness_block(plan)
+    )
     cycle_console.summary(
         summary_rows(report, plan, retention_ran=retention_ran),
-        summary_cycle_lines(report, plan, retention_lines) + (["", *readiness] if readiness else []),
+        summary_cycle_lines(report, plan, retention_lines, diff_line)
+        + (["", *readiness] if readiness else []),
         console.VERDICT_FAILED if failures else console.VERDICT_OK,
         failures,
     )

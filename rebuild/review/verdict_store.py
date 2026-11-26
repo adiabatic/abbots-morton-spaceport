@@ -4,7 +4,7 @@ The file is one ams-review-verdicts/1 document holding every verdict on the corp
 
 A set may carry `base_at`, the `at` of the record the tab last saw the server hold for that unit (null when it saw none). A clear is a unit id (the form older tabs send) or `{unit, base_at, at}`, where `at` is when the tab cleared it. The store keeps a tombstone for each cleared unit (unit → the clear's `at`), in memory and as a top-level `cleared` list in the file, which readers that use only `verdicts` ignore; a set removes its unit's tombstone.
 
-The store reads a unit through the accepted list beside it (`accepted_path_for`; `rebuild.review.accepted` gives the list, the rule and the override section): an unlisted unit's record, else blank, and for a listed unit its override, a record or a tombstone, which blanks it, else the accepted record a close-out folded into the list, dated the close-out's `closed_at` (`accepted.verdict_of`). Every rule below reads a unit's verdict that way, so a set or clear on an accepted unit with no override meets the accepted record. Every set, clear and undo on a listed unit is applied to the store's override section (`accepted.Overrides`, the file's `overrides`) and never to its own records and tombstones, which name only unlisted units. A clear of a listed unit, and a stale skip rule 2 drops on one, leaves an override tombstone, which blanks it, and a set equal to the unit's accepted record (`Accepted.matches`: its verdict and an empty note) dated the close-out's `closed_at`, which is what a tab's undo back to the accepted record sends, removes the unit's override instead of being stored, so the unit reads as the list names it again; the journal records that as a clear line with a null `at`. Any other set on an accepted unit, the accepted mark picked again with an empty note among them, is stored as an override dated by the tab, so every other tab adopts it as newer than what it holds. A reply reports a unit's verdict as `reported` reads it, an accepted record flagged `accepted: true`. The full GET hands a tab the store's own records and tombstones and its override section as one list of each, as the journal records them, since a tab knows no section. The file's top-level `accepted` field names the list the store pairs with, and a list the store cannot read (`accepted-malformed`) or a store that does not pair with the list (`accepted-mismatch`, `accepted.pair`) is refused as a store holding a malformed record is, below.
+The store reads a unit through the accepted list beside it (`accepted_path_for`; `rebuild.review.accepted` gives the list, the rule and the override section), and reads none while the corpus served beside it is a table-diff corpus, a store constructed with no list named asking again at each reload: an unlisted unit's record, else blank, and for a listed unit its override, a record or a tombstone, which blanks it, else the accepted record a close-out folded into the list, dated the close-out's `closed_at` (`accepted.verdict_of`). Every rule below reads a unit's verdict that way, so a set or clear on an accepted unit with no override meets the accepted record. Every set, clear and undo on a listed unit is applied to the store's override section (`accepted.Overrides`, the file's `overrides`) and never to its own records and tombstones, which name only unlisted units. A clear of a listed unit, and a stale skip rule 2 drops on one, leaves an override tombstone, which blanks it, and a set equal to the unit's accepted record (`Accepted.matches`: its verdict and an empty note) dated the close-out's `closed_at`, which is what a tab's undo back to the accepted record sends, removes the unit's override instead of being stored, so the unit reads as the list names it again; the journal records that as a clear line with a null `at`. Any other set on an accepted unit, the accepted mark picked again with an empty note among them, is stored as an override dated by the tab, so every other tab adopts it as newer than what it holds. A reply reports a unit's verdict as `reported` reads it, an accepted record flagged `accepted: true`. The full GET hands a tab the store's own records and tombstones and its override section as one list of each, as the journal records them, since a tab knows no section. The file's top-level `accepted` field names the list the store pairs with, and a list the store cannot read (`accepted-malformed`) or a store that does not pair with the list (`accepted-mismatch`, `accepted.pair`) is refused as a store holding a malformed record is, below.
 
 Which stamp a delta carries decides how it is applied. The served corpus (`ServedCorpus`, the served manifest's stamp and human unit ids) is what the caller says the server is serving.
 
@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
 from bisect import bisect_left, insort
@@ -365,10 +366,30 @@ def _chunks(pieces: Iterable[str]) -> Iterator[bytes]:
         yield "".join(held).encode()
 
 
-def accepted_path_for(store: Path) -> Path | None:
-    """Return the accepted list beside the store at `store` (`accepted.path_for`), which for the live store is the tracked rebuild/accepted-units.txt, or None for a store under any other name, which reads no list. The review server's store and the readiness check take the list this way when no caller names one; the tools that run on a store under another name, the cycle's prepared store among them, take `--accepted`."""
+SERVED_CORPUS = Path("rebuild") / "out" / "review"
+TABLE_DIFF_MODE = "table-diff"
+_MODE = re.compile(rb'^\{\s*"format":\s*"[^"]*",\s*"mode":\s*"([^"]*)"')
+
+
+def corpus_mode(corpus: Path) -> str | None:
+    """Return the `mode` the manifest of the corpus at `corpus` names, read from its first `accepted.HEAD_BYTES` bytes, where both builds write it as the member after `format`, or None when there is no manifest or its head names none."""
+    try:
+        with (Path(corpus) / "manifest.json").open("rb") as handle:
+            head = handle.read(accepted.HEAD_BYTES)
+    except OSError:
+        return None
+    match = _MODE.match(head)
+    return match.group(1).decode("utf-8", "replace") if match is not None else None
+
+
+def accepted_path_for(store: Path, corpus: Path | None = None) -> Path | None:
+    """Return the accepted list a reader of the store at `store` reads: the list beside it (`accepted.path_for`), which for the live store is the tracked rebuild/accepted-units.txt, or None for a store under any other name, which reads no list, and None too while the corpus the store is for is a table-diff corpus (`corpus_mode`), whose units no close-out folds and whose store lasts from one accept to the next (rebuild/CUTOVER-PLAN.md stage 4). That corpus is `corpus`, by default the one served beside the store (`SERVED_CORPUS` under its directory). The review server's store, the readiness check, the land and every holder of the store's lock take the list this way when no caller names one; the tools that run on a store under another name, the cycle's prepared store among them, take `--accepted`."""
     store = Path(store)
-    return accepted.path_for(store) if store.name == accepted.AUTOSAVE_NAME else None
+    if store.name != accepted.AUTOSAVE_NAME:
+        return None
+    if corpus_mode(corpus if corpus is not None else store.parent / SERVED_CORPUS) == TABLE_DIFF_MODE:
+        return None
+    return accepted.path_for(store)
 
 
 def _stat_signature(stat: os.stat_result) -> tuple[int, int, int]:
@@ -401,6 +422,7 @@ class VerdictStore:
         self.path = Path(path)
         self.journal_path = Path(journal_path) if journal_path is not None else None
         self.orphans_dir = Path(orphans_dir) if orphans_dir is not None else orphans_dir_for(self.path)
+        self._list_follows_corpus = accepted_path is None
         self.accepted_path = (
             Path(accepted_path) if accepted_path is not None else accepted_path_for(self.path)
         )
@@ -431,9 +453,20 @@ class VerdictStore:
         """The store's own records and tombstones and its override section read with the accepted list through `accepted.verdict_of`, as every reader of the store reads a unit."""
         return View(self.records, self.cleared, self.accepted, self.overrides)
 
+    def _list_path(self) -> Path | None:
+        """Return the list the store reads now: the one the caller named, or with none named `accepted_path_for` asked again, so the store stops reading the list once the corpus served beside it is a table-diff corpus."""
+        return accepted_path_for(self.path) if self._list_follows_corpus else self.accepted_path
+
     def _read_accepted(self) -> None:
-        """Read the accepted list again when its file's signature moved since the last read, keeping a malformed one's refusal (`accepted.Malformed`) for `reload` to raise. The signature is taken before the read, so a list renamed into place during the read is read again on the next refresh."""
+        """Read the accepted list again when its file's signature moved since the last read, or the store reads another list or none (`_list_path`), keeping a malformed one's refusal (`accepted.Malformed`) for `reload` to raise. The signature is taken before the read, so a list renamed into place during the read is read again on the next refresh."""
+        path = self._list_path()
+        if path != self.accepted_path:
+            self.accepted_path = path
+            self._accepted_read = False
         if self.accepted_path is None:
+            self.accepted = Accepted.empty(accepted.RELATIVE_PATH)
+            self._accepted_signature = None
+            self._accepted_error = None
             return
         signature = file_signature(self.accepted_path)
         if self._accepted_read and signature == self._accepted_signature:
@@ -540,9 +573,10 @@ class VerdictStore:
         return held
 
     def _moved(self) -> tuple[bool, bool]:
-        """Return whether the store's file and the accepted list's moved since the store last read or wrote them."""
-        listed = (
-            self.accepted_path is not None and file_signature(self.accepted_path) != self._accepted_signature
+        """Return whether the store's file and the accepted list's moved since the store last read or wrote them, the list counting as moved when the store reads another list or none (`_list_path`)."""
+        path = self._list_path()
+        listed = path != self.accepted_path or (
+            path is not None and file_signature(path) != self._accepted_signature
         )
         return file_signature(self.path) != self._signature, listed
 

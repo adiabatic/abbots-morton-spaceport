@@ -525,8 +525,10 @@ def test_node_check_passes_on_every_shipped_script():
         assert result.returncode == 0, f"{script.name}: {result.stderr}"
 
 
-def _seed_refreshable_corpus(corpus: Path, inputs_fingerprint: dict, root: Path) -> dict:
-    """Build a corpus holding only the files `_check_output_files` requires, and the unit store `corpus_build_skippable` requires: an empty manifest, the per-unit index, both app sidecars and the store stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the M1.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
+def _seed_refreshable_corpus(
+    corpus: Path, inputs_fingerprint: dict, root: Path, mode: str | None = None
+) -> dict:
+    """Build a corpus holding only the files `_check_output_files` requires, and the unit store an m1-audit corpus requires: an empty manifest, of `mode` when one is given, the per-unit index, both app sidecars and the store stamped for that manifest, and the copied after font, whose bytes match both the sha the manifest records and the M1.otf under `root`. `refresh_assets` writes index.html itself from the static tree it copies. The font record names no `source`, so the check compares the copy with the manifest only and resolves no path inside the fixture tree."""
     corpus.mkdir(parents=True, exist_ok=True)
     font_bytes = b"OTTO-fixture"
     (root / "rebuild" / "out" / "m1").mkdir(parents=True, exist_ok=True)
@@ -534,6 +536,7 @@ def _seed_refreshable_corpus(corpus: Path, inputs_fingerprint: dict, root: Path)
     (corpus / "fonts").mkdir(parents=True, exist_ok=True)
     (corpus / "fonts" / "after.otf").write_bytes(font_bytes)
     manifest = {
+        **({"format": review_build.MANIFEST_FORMAT, "mode": mode} if mode is not None else {}),
         "generated_at": "2026-01-01T00:00:00Z",
         "repo_head": "0" * 40,
         "inputs_fingerprint": dict(inputs_fingerprint),
@@ -556,19 +559,18 @@ def _fake_static_tree(root: Path) -> Path:
 
 
 def test_refresh_assets_restamps_only_the_static_component(tmp_path):
-    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. The index, both sidecars and the unit store stay current, because the manifest's identity excludes this component. A corpus that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
+    """Checks everything an assets refresh does: it copies the app shell onto the corpus, rewrites the `static` fingerprint component in place, and changes nothing else. `generated_at` stays, so an open review session keeps its verdict store. The index, both sidecars and the unit store stay current, because the manifest's identity excludes this component. A table-diff corpus, the one the cycle builds, that `corpus_build_skippable` reported as stale before the refresh reports as current after it, so the next pass skips the build."""
+    from rebuild.review import status
     from rebuild.tools.artifact_cycle import corpus_build_skippable
 
     root = tmp_path / "repo"
     static = _fake_static_tree(root)
     m1 = root / "rebuild" / "out" / "m1"
     m1.mkdir(parents=True)
-    stage_a = {"data": "d", "baselines": "b", "pipeline_code": "p"}
-    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
-    before_font, junior_font = fingerprint.font_paths(root)
-    stage_b = fingerprint.stage_b(root, before_font, junior_font)
     corpus = root / "rebuild" / "out" / "review"
-    before = _seed_refreshable_corpus(corpus, {**stage_a, **stage_b, "static": "OLD"}, root)
+    before = _seed_refreshable_corpus(
+        corpus, {**status.table_diff_inputs(root, m1_out=m1), "static": "OLD"}, root, mode="table-diff"
+    )
     assert not corpus_build_skippable(root, corpus)
 
     copied = review_build.refresh_assets(corpus, root)

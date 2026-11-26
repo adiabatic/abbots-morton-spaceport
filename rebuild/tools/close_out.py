@@ -1,4 +1,4 @@
-"""Fold the verdict store's accepted verdicts into the accepted list, `rebuild/accepted-units.txt`, and start the store and its journal again from what is left. `make close-out` runs it as a dry run and `make close-out ARGS=--apply` writes. It runs by hand, from the close-out procedure, with the review server stopped, and never in the artifact cycle.
+"""Fold the verdict store's accepted verdicts into the accepted list, `rebuild/accepted-units.txt`, and start the store and its journal again from what is left. `make close-out` runs it as a dry run and `make close-out ARGS=--apply` writes. It runs by hand, from the close-out procedure, with the review server stopped, and never in the artifact cycle. It refuses every form while the served corpus is a table-diff corpus (`TABLE_DIFF_REFUSAL`).
 
 The fold reads the store, the list beside it (`rebuild.review.accepted`, whose docstring gives the list's format and the one rule every reader of the store answers through) and the served corpus's human unit ids. It reads the store's own records and tombstones and its override section, the records and tombstones on listed ids (`accepted.Overrides`), as one store (`accepted.joined`), and consumes the section, the one writer that does. The new list holds each listed id that is a human unit of the served corpus and holds no override, and each human unit whose record, its own or its override, is approve, either or identical (`accepted.ACCEPTING_VERDICTS`), with that record's mark, so a reject, neither, skip or tombstone on a listed id takes it out. Its `closed_at` is the later of the current time, the largest `at` among the records it folds and the previous list's `closed_at`, cut to whole seconds, so it bounds the `at` of every record the list stands for. The new store, stamped for the served corpus even when it holds nothing, keeps the store's reject, neither and skip records and its tombstones on the corpus's human units, overrides among them, as its own records and tombstones, none of whose units the new list names, so it holds no override section, and its `accepted` field names the new list. The notes of the folded records go, kept only in the archive.
 
@@ -51,7 +51,9 @@ from rebuild.review.landing import intent_path_for as land_intent_path_for  # no
 from rebuild.review.store_lock import LockBusy, holder  # noqa: E402
 from rebuild.review.verdict_store import (  # noqa: E402
     EXPORT_FORMAT,
+    TABLE_DIFF_MODE,
     MalformedStore,
+    corpus_mode,
     note_of,
     orphans_dir_for,
     read_store_document,
@@ -83,6 +85,10 @@ _FOLDED_AT = re.compile(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?Z")
 
 class Refused(RuntimeError):
     """A refusal of the close-out or its undo; the message names the cause and the remedy, and nothing was written."""
+
+
+# The close-out folds an m1-audit corpus's verdicts into the accepted list, and a table-diff corpus's store, which reads no list (`verdict_store.accepted_path_for`), lasts from one accept to the next, so the close-out retires with the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4).
+TABLE_DIFF_REFUSAL = "the served corpus is a table-diff corpus, whose store no close-out folds: `make review-accept ARGS=--apply` accepts its changes, and the close-out retires with the m1-audit corpus"
 
 
 def intent_path_for(store: Path) -> Path:
@@ -819,7 +825,10 @@ def run(
     readiness: Callable[[], tuple[dict, bool]] | None = None,
     serving: Callable[[Path], bool] = serves,
 ) -> int:
-    """Run the close-out of `store` against the served corpus at `corpus`: the dry run, or with `apply` the close-out, or with `undo` its undo. `now` gives the current time, `readiness` `make verdict-ready`'s answer without the server row, and `serving` whether a review server may write the store."""
+    """Run the close-out of `store` against the served corpus at `corpus`: the dry run, or with `apply` the close-out, or with `undo` its undo. `now` gives the current time, `readiness` `make verdict-ready`'s answer without the server row, and `serving` whether a review server may write the store. Every form refuses, writing nothing, while `corpus` is a table-diff corpus (`TABLE_DIFF_REFUSAL`)."""
+    if corpus_mode(corpus) == TABLE_DIFF_MODE:
+        print(f"ERROR: {TABLE_DIFF_REFUSAL}. Nothing was written.")
+        return 1
     if readiness is None:
         readiness = functools.partial(
             verdict_ready.readiness,

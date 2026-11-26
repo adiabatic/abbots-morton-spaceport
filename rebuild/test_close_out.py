@@ -265,6 +265,33 @@ def test_each_refusal_names_its_cause_in_the_dry_run_and_the_apply_and_writes_no
     assert _files(tmp_path) == before
 
 
+def test_every_form_refuses_on_a_table_diff_corpus_and_writes_nothing(tmp_path, capsys):
+    """A table-diff corpus's store reads no accepted list and lasts from one accept to the next, so the dry run, the apply and the undo each refuse on one with one line saying the close-out retires with the m1-audit corpus, and leave every file as it was."""
+    store = _checkout(tmp_path, _folds()[1]["before"])
+    corpus = tmp_path / "table-diff"
+    corpus.mkdir()
+    (corpus / "manifest.json").write_text(
+        json.dumps({"format": "ams-review-manifest/2", "mode": "table-diff", "generated_at": STAMP}, indent=1)
+    )
+    before = _files(tmp_path)
+    for options in ({}, {"apply": True}, {"undo": True}):
+        assert (
+            close_out.run(
+                store=store,
+                corpus=corpus,
+                now=lambda: CLOSED_AT,
+                readiness=lambda: pytest.fail("asked for readiness"),
+                serving=lambda _store: pytest.fail("asked about the server"),
+                **options,
+            )
+            == 1
+        )
+        out = capsys.readouterr().out
+        assert out == f"ERROR: {close_out.TABLE_DIFF_REFUSAL}. Nothing was written.\n"
+    assert "retires with the m1-audit corpus" in close_out.TABLE_DIFF_REFUSAL
+    assert _files(tmp_path) == before
+
+
 def test_the_close_out_time_is_now_or_the_latest_folded_time_cut_to_whole_seconds():
     """A time later than now is cut to whole seconds, which sorts at or after it as readers compare stamps, and one the cut cannot bound is refused."""
     assert close_out.closed_at_for([], CLOSED_AT) == CLOSED_AT

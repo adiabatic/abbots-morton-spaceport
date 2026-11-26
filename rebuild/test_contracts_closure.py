@@ -815,9 +815,6 @@ def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
     monkeypatch.setattr(ac, "contracts_fingerprint", lambda root: "new")
     monkeypatch.setattr(cc, "current_files", lambda root, roster, record: dict(roster))
     plan = ac.build_plan(
-        verdicts=None,
-        no_carry=True,
-        carry_out=None,
         skip_gates=False,
         first_run=False,
         short_id="abc",

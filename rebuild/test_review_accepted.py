@@ -277,6 +277,59 @@ def test_the_app_field_lists_the_accepted_units_on_the_served_corpus(tmp_path):
     }
 
 
+def _served_manifest(root: Path, mode: str, stamp: str, ids: list[str]) -> None:
+    served = root / verdict_store.SERVED_CORPUS
+    served.mkdir(parents=True, exist_ok=True)
+    manifest = {"format": "ams-review-manifest/2", "mode": mode, "generated_at": stamp, "human_unit_ids": ids}
+    (served / "manifest.json").write_text(json.dumps(manifest, indent=1))
+
+
+def test_a_store_beside_a_table_diff_corpus_reads_no_list_and_follows_the_served_corpus(tmp_path):
+    """The live store reads the accepted list beside it only while the corpus served beside it is an m1-audit corpus (`verdict_store.accepted_path_for`, by the manifest's `mode`): beside a table-diff corpus the review server's store reads none, so a save writes no `accepted` field, the full GET's field names no list, and no listed unit counts. A store constructed with no list named asks again at each reload, so when a land swaps a table-diff corpus in for an m1-audit one the store it reloads stops reading the list, and a store named another way, or given a list, reads as before."""
+    root = tmp_path
+    store = root / accepted.AUTOSAVE_NAME
+    list_path = accepted.path_for(store)
+    list_path.parent.mkdir(parents=True)
+    listed = "u-" + "1" * 11
+    list_path.write_bytes(accepted.render("2026-11-01T00:00:00Z", {listed: "approve"}))
+    assert verdict_store.corpus_mode(root / verdict_store.SERVED_CORPUS) is None
+    assert verdict_store.accepted_path_for(store) == list_path
+
+    _served_manifest(root, "m1-audit", "A", [listed])
+    assert verdict_store.corpus_mode(root / verdict_store.SERVED_CORPUS) == "m1-audit"
+    server = VerdictStore(store, root / journal.JOURNAL_NAME)
+    assert server.accepted.sha256 is not None and listed in server.accepted.verdicts
+    assert server.stamp_empty_store("A") is not None
+    assert json.loads(store.read_text())["accepted"] == server.accepted.field()
+
+    _served_manifest(root, verdict_store.TABLE_DIFF_MODE, "B", ["u-new"])
+    assert verdict_store.accepted_path_for(store) is None
+    assert verdict_store.accepted_path_for(store, root / verdict_store.SERVED_CORPUS) is None
+    store.write_bytes(landing.document_bytes(landing.Store("B")))
+    assert server.refresh_if_changed()
+    assert server.refusal is None and server.stamp == "B"
+    assert server.accepted.sha256 is None and not server.accepted.verdicts
+    body = {
+        "format": DELTA_FORMAT,
+        "manifest_generated_at": "B",
+        "sets": [{"unit": "u-new", "verdict": "approve", "note": "", "at": "2026-11-26T00:00:00Z"}],
+        "clears": [],
+    }
+    status_code, reply = server.receive(json.dumps(body).encode(), ServedCorpus("B", frozenset({"u-new"})))
+    assert status_code == 200, reply
+    server.write()
+    written = json.loads(store.read_text())
+    assert "accepted" not in written and [record["unit"] for record in written["verdicts"]] == ["u-new"]
+    field = json.loads(b"".join(server.payload_chunks(token=True, within=frozenset({"u-new"}))))["accepted"]
+    assert field == {"sha256": None, "closed_at": None, "approve": [], "either": [], "identical": []}
+
+    fresh = root / "fresh"
+    fresh.mkdir()
+    assert VerdictStore(fresh / accepted.AUTOSAVE_NAME).stamp_empty_store("B") is None
+    assert verdict_store.accepted_path_for(root / "other.json") is None
+    assert VerdictStore(store, accepted_path=list_path).accepted.sha256 is not None
+
+
 def test_the_merge_and_the_carry_keep_out_only_an_equal_or_stale_record_on_an_accepted_unit(tmp_path):
     _scenario, view = _view(tmp_path)
     held = view.accepted
@@ -913,15 +966,6 @@ class _Model:
             elif at is not None and record["at"] >= at:
                 del self.state[unit]
 
-    def emptied(self, members: frozenset[str]) -> None:
-        """The store a land with no prepared store starts from on a move onto a corpus whose human units are `members`, as a --no-merge or --no-carry pass lands it: a listed unit keeps its override, a skip becoming a tombstone at its `at`, and an unlisted unit keeps only a tombstone on `members`."""
-        for unit, held in list(self.state.items()):
-            if unit in self.listed:
-                if held[0] == "record" and held[1] == "skip":
-                    self.state[unit] = ("tombstone", held[3])
-            elif held[0] != "tombstone" or unit not in members:
-                del self.state[unit]
-
     def fills(self, groups: list[list[str]]) -> list[dict]:
         """The duplicate fill's proposals: in each group whose judged members agree, each blank member takes the newest judged member's verdict, note and `at`, the first in corpus order on a tie, except a member with a tombstone when that `at` is `closed_at`."""
         proposals = []
@@ -1136,7 +1180,7 @@ class _Moment:
 
 @pytest.mark.parametrize("seed", range(12))
 def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(seed, tmp_path, monkeypatch):
-    """Random sequences over a store beside a list, each step driving a real writer in process. The review server boots on no store and stamps an empty one (`stamp_empty_store`), and takes saves, clears and undos on its stamp, from a stale tab on another corpus (rule 2) and replayed from an outbox; a page of the review app (`_Page`, in node) boots from its full GET, records, clears, undoes, edits a note and approves a duplicate group, and sends its delta, or has its save fail and the reader Import its unsaved files, and sometimes Exports and Imports that. A merge takes an Import or a carried file the cycle left at the root; a duplicate fill is merged in; the complaint list's defer file for a group is Imported. Cycle passes run the steps `artifact_cycle.build_plan` gives them: a carried pass (the verdict update's carry of the store and sometimes an Export onto a new corpus, its merges, both duplicate fills and the standing fill, and the land that swaps the corpus in), a store-only pass that merges a master and lands on the served corpus, and a --no-merge or --no-carry pass that moves the corpus and lands no prepared store; a land is sometimes killed at one of its writes and finished by `landing.finish_interrupted_land`. The server moves the store onto a new corpus (rule 3). A close-out, sometimes killed at one of its writes and finished or dropped by the next one, and its undo; a restore, previewed and applied, of a moment the journal holds under the current list, re-keyed through the kept id map for a moment from before the re-key, followed, when it puts the store on an older corpus, by a store-only pass that carries that store onto the served corpus or by a save that moves it there; retention's stash prune and a journal compaction at a moment's `at`; the store deleted, with or without its journal, and stamped empty at boot or merged into; the store left unreadable and then written over by a save, a merge or a --no-carry pass's land. One re-key, whose map comes from every old id or from the served corpus and whose new corpus holds every unit or some of them under --allow-unmatched, sometimes undone and applied again, followed by its carried pass; after it, an Import still on old ids and a second re-key, which refuses when an old id lands beside a listed id or a record on its new id (`listed_collisions`). Every new corpus holds all eight units or a random subset, so units leave the corpus and come back. The server journals each save first and writes the store on idle, so the store file lags its saves until a writer that takes the store's lock catches it up or a tool that reads it without the lock waits for the idle write. After every step each unit, listed or not, under either generation of ids, answers through `accepted.view_of` over the store as the next holder of its lock reads it (`_caught_up_copy`) and through the server's view as `_Model` says: a listed unit its last override, a record or a blank for a tombstone, or its accepted mark when it has none, and an unlisted unit its last record or blank, as each writer's stated rule leaves them; the list is the one the close-outs, their undos and the re-keys leave; the store's own records and tombstones name no listed unit; and the store, a restore's preview and the journal's replay hold exactly the records and tombstones `_Model` holds, the journal except after a save written over an unreadable store, whose journal keeps what that store held until the two agree again. The seed fixes the whole sequence, so a failure names its seed, its step and the steps before it."""
+    """Random sequences over a store beside a list, each step driving a real writer in process. The review server boots on no store and stamps an empty one (`stamp_empty_store`), and takes saves, clears and undos on its stamp, from a stale tab on another corpus (rule 2) and replayed from an outbox; a page of the review app (`_Page`, in node) boots from its full GET, records, clears, undoes, edits a note and approves a duplicate group, and sends its delta, or has its save fail and the reader Import its unsaved files, and sometimes Exports and Imports that. A merge takes an Import; a duplicate fill is merged in; the complaint list's defer file for a group is Imported. Passes run the verdict update and the land from their command lines: a carried pass (the verdict update's carry of the store and sometimes an Export onto a new corpus, its merges, both duplicate fills and the standing fill, and the land of its prepared store that swaps the corpus in), a store-only pass that merges a master and lands on the served corpus, and a pass as `artifact_cycle.build_plan` plans it, with no verdict update, whose land moves the corpus and carries the store onto it by unit id; a land is sometimes killed at one of its writes and finished by `landing.finish_interrupted_land`. The server moves the store onto a new corpus (rule 3). A close-out, sometimes killed at one of its writes and finished or dropped by the next one, and its undo; a restore, previewed and applied, of a moment the journal holds under the current list, re-keyed through the kept id map for a moment from before the re-key, followed, when it puts the store on an older corpus, by a store-only pass that carries that store onto the served corpus or by a save that moves it there; retention's stash prune and a journal compaction at a moment's `at`; the store deleted, with or without its journal, and stamped empty at boot or merged into; the store left unreadable and then written over by a save, a merge or the land of a pass the artifact cycle plans. One re-key, whose map comes from every old id or from the served corpus and whose new corpus holds every unit or some of them under --allow-unmatched, sometimes undone and applied again, followed by its carried pass; after it, an Import still on old ids and a second re-key, which refuses when an old id lands beside a listed id or a record on its new id (`listed_collisions`). Every new corpus holds all eight units or a random subset, so units leave the corpus and come back. The server journals each save first and writes the store on idle, so the store file lags its saves until a writer that takes the store's lock catches it up or a tool that reads it without the lock waits for the idle write. After every step each unit, listed or not, under either generation of ids, answers through `accepted.view_of` over the store as the next holder of its lock reads it (`_caught_up_copy`) and through the server's view as `_Model` says: a listed unit its last override, a record or a blank for a tombstone, or its accepted mark when it has none, and an unlisted unit its last record or blank, as each writer's stated rule leaves them; the list is the one the close-outs, their undos and the re-keys leave; the store's own records and tombstones name no listed unit; and the store, a restore's preview and the journal's replay hold exactly the records and tombstones `_Model` holds, the journal except after a save written over an unreadable store, whose journal keeps what that store held until the two agree again. The seed fixes the whole sequence, so a failure names its seed, its step and the steps before it."""
     rng = random.Random(seed)
     clock = itertools.count(1)
     issued: list[str] = []
@@ -1406,18 +1450,9 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
         )
 
     def merge() -> str:
-        """A merge of an Import, or of a carried file a --no-merge pass left at the root stamped for the store's corpus."""
-        carried = [
-            path
-            for path in sorted(root.glob("verdicts-carried-*.json"))
-            if json.loads(path.read_text())["manifest_generated_at"] == run.current
-        ]
-        if carried and rng.random() < 0.4:
-            path = rng.choice(carried)
-            held = accepted.records_of(json.loads(path.read_text()))
-        else:
-            held = records()
-            path = verdicts_file(inputs / f"merge-{next(serials)}.json", run.current, held)
+        """A merge of an Import stamped for the store's corpus."""
+        held = records()
+        path = verdicts_file(inputs / f"merge-{next(serials)}.json", run.current, held)
         ran(lambda: run_merge(path))
         for record in held:
             run.model.merge(record)
@@ -1465,13 +1500,11 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
             run.model.merge(record)
         return f"defer {sorted(blank)}"
 
-    def planned(run_dir: Path, **flags) -> dict[str, list[str] | None]:
-        """The argv of each step `artifact_cycle.build_plan` plans for a pass whose scratch directory is `run_dir`, with `flags` naming its master and its form."""
+    def planned(run_dir: Path, *, promote_corpus: Path) -> dict[str, list[str] | None]:
+        """The argv of each step `artifact_cycle.build_plan` plans for a pass whose scratch directory is `run_dir` and that swaps in the corpus at `promote_corpus`: a land with no prepared store, which carries the store onto that corpus by unit id."""
         with monkeypatch.context() as patch:
             patch.setattr(ac, "ROOT", root)
             plan = ac.build_plan(
-                no_carry=flags.pop("no_carry", False),
-                carry_out=None,
                 skip_gates=True,
                 first_run=False,
                 short_id=run_dir.name,
@@ -1479,15 +1512,51 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
                 skip_corpus=True,
                 skip_contracts=True,
                 scratch_dir=run_dir,
-                allow_orphans=True,
+                promote_corpus=promote_corpus,
                 ncores=4,
                 total_bytes=16 << 30,
-                **flags,
             )
         return {step.name: step.argv for step in plan.steps}
 
+    def prepared_pass(
+        run_dir: Path, *, verdicts: Path, promote_corpus: Path | None = None, direct_merge: bool = False
+    ) -> dict[str, list[str] | None]:
+        """The argv of the verdict update and of the land of its prepared store, for a pass whose scratch directory is `run_dir`: the verdict update carries `verdicts` beside the store's snapshot onto the corpus at `promote_corpus`, or with `direct_merge` merges it straight into the store on the served corpus, into the prepared store beside the snapshot, and the land puts that store in place, swapping `promote_corpus` in when given. The artifact cycle plans no verdict update; the update and the land are run here as their own command lines take them."""
+        snapshot = run_dir / landing.SNAPSHOT_NAME
+        prepared = run_dir / landing.PREPARED_NAME
+        corpus = promote_corpus if promote_corpus is not None else served
+        update_argv = ["uv", "run", "python", "-m", "rebuild.tools.verdict_update", "--corpus", str(corpus)]
+        if direct_merge:
+            update_argv += ["--merge-master", str(verdicts), "--store-snapshot", str(snapshot)]
+        elif verdicts == store:
+            update_argv += ["--verdicts", str(snapshot)]
+        else:
+            update_argv += ["--verdicts", str(verdicts), "--store-snapshot", str(snapshot)]
+        update_argv += [
+            "--autosave",
+            str(prepared),
+            "--prepared-from",
+            str(snapshot),
+            "--duplicate-out",
+            str(run_dir / vu.DUPLICATE_FILL_NAME),
+            "--standing-out",
+            str(run_dir / vu.STANDING_FILL_NAME),
+            "--accepted",
+            str(list_path),
+            "--standing-fill-jobs",
+            "1",
+            "--allow-orphans",
+        ]
+        land_argv = ["uv", "run", "python", "-m", "rebuild.review.landing"]
+        land_argv += ["--autosave", str(store), "--journal", str(journal_path), "--run-dir", str(run_dir)]
+        land_argv += ["--corpus", str(corpus), "--prepared", str(prepared)]
+        if promote_corpus is not None:
+            land_argv += ["--staged", str(promote_corpus), "--live", str(served), "--keep-discard"]
+        land_argv += ["--scan-state", str(ac.journal_scan_path()), "--allow-orphans"]
+        return {"verdict-update": update_argv, "land": land_argv}
+
     def update(steps: dict[str, list[str] | None]) -> None:
-        argv = steps["verdict-update"]
+        argv = steps.get("verdict-update")
         if argv is not None:
             ran(lambda: vu.main(argv[5:]))
 
@@ -1535,7 +1604,7 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
                 held = records()
                 flags["verdicts"] = verdicts_file(run_dir / "export.json", rng.choice(list(corpora)), held)
             prepared.carried(members(target), held)
-        steps = planned(run_dir, **flags)
+        steps = prepared_pass(run_dir, **flags)
         update(steps)
         prepared.fill(groups(target), twice=True, standing=(members(target), target))
         during = [] if store_only and moving else [act() for _ in range(rng.choice((0, 1, 1, 2)))]
@@ -1549,18 +1618,18 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
         return done + (f", its land killed at {killed} and finished" if killed else "")
 
     def bare_pass(*, unreadable: bool = False) -> str:
-        """A pass that moves the corpus and merges nothing into the store, a --no-merge one, whose carry leaves its file at the root, or a --no-carry one: the snapshot, saves made meanwhile, and a land with no prepared store. Over an `unreadable` store it is a --no-carry pass with no save meanwhile."""
+        """A pass that moves the corpus as the artifact cycle plans it, with no verdict update: the snapshot, saves made meanwhile, and a land with no prepared store, which carries the store onto the new corpus by unit id. Over an `unreadable` store no save is made meanwhile."""
         run_dir = tmp_path / "passes" / str(next(serials))
         landing.snapshot(store, run_dir)
         before = run.model.copy()
         target = build()
         promote = served.with_name(f"review.{run_dir.name}")
         shutil.copytree(corpora[target][0], promote)
-        form = "no_carry" if unreadable or rng.random() < 0.5 else "no_merge"
-        steps = planned(run_dir, verdicts=store, promote_corpus=promote, **{form: True})
-        update(steps)
+        form = "cycle"
+        steps = planned(run_dir, promote_corpus=promote)
+        assert "verdict-update" not in steps, steps
         prepared = before.copy()
-        prepared.emptied(members(target))
+        prepared.moved(members(target))
         during = [] if unreadable else [act() for _ in range(rng.choice((0, 1, 1, 2)))]
         killed = land(steps["land"], staged=True, dying=not unreadable)
         if killed == "exchange_dirs":
@@ -1709,7 +1778,7 @@ def test_no_writer_drops_an_override_on_a_listed_unit_until_the_next_close_out(s
         return f"store lost, merged into {held}"
 
     def unreadable() -> str:
-        """The store left unreadable, as by a write cut short, and then written over by a save, which journals its delta over what the journal holds, by a merge, which stashes it, or by a --no-carry pass's land."""
+        """The store left unreadable, as by a write cut short, and then written over by a save, which journals its delta over what the journal holds, by a merge, which stashes it, or by the land of a pass the artifact cycle plans."""
         store.write_bytes(b'{"format": "ams-review-verdicts/1", "verdicts": [\n')
         run.model.state = {}
         previous.clear()

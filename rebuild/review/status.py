@@ -2,7 +2,7 @@
 
 The checks follow the manifest's `mode`. An m1-audit corpus is checked against `fingerprint.COMPONENTS` and its after font outside the `kern` lookup, and names the fullest verdicts file. A table-diff corpus (rebuild/REVIEW-PLAN.md §2.3) is checked against `fingerprint.TABLE_DIFF_COMPONENTS` and its after font byte for byte (`_table_diff_freshness_check`), adds the `snapshot` check, which fails when no snapshot is current or the current one is not the one the tracked pointer names (`_snapshot_check`), and the `diff` check, which never fails and counts the unaccepted changes by what each needs (`_diff_check`), and names no fullest verdicts file, since its units are new to every store.
 
-An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it.
+An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it. A table-diff corpus's store reads no list (`verdict_store.accepted_path_for`).
 
 Two kinds of state are kept between calls. `_MEMO`, in the process, is keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat. The store record, `var/cycle/store-record.json` under the directory that holds the verdicts files (`store_record_path`), is kept between processes and keyed on each verdicts file's SHA-256 and on the code of its readers (`store_record_code`). For each of the `STORE_RECORD_KEEP` files it filled last, it holds two fields that fill independently: `digest`, the file's records digest (`records_digest`), which the verdict update's key reads (`artifact_cycle.verdicts_records_digest`), and `carry`, what the carry source and the fullest-verdicts pick read of the file (`_Carried`). A pass over an unchanged store then reads and hashes it instead of parsing it. A reader hashes the bytes it would parse, read once, and records a field only once it has computed the field from those bytes, never on a failed or refused read. The verdict-store check parses the store on every call, since the blank count needs its records, and records the carry field from that parse.
 """
@@ -569,17 +569,22 @@ def _freshness_check(
     }
 
 
-def table_diff_inputs(repo_root, snapshot_home=None) -> dict:
-    """Return the table-diff components the sources and the current snapshot give now (`fingerprint.table_diff_values`): the record of the snapshot `current` names under `snapshot_home`, by default `var/keep/review-snapshot` under `repo_root`, and the tables' stamp the sources give (`run_m1.tables_inputs`). The two modules are imported here, at the call, so a server serving an m1-audit corpus never loads them."""
-    from rebuild.pipeline import run_m1
+def table_diff_inputs(repo_root, snapshot_home=None, m1_out=None) -> dict:
+    """Return the table-diff components the sources and the current snapshot give now (`fingerprint.table_diff_values`): the record of the snapshot `current` names under `snapshot_home`, by default `var/keep/review-snapshot` under `repo_root`, and the tables' stamp the sources give (`run_m1.tables_inputs`), or with `m1_out` the stamp the windows heads of the build there carry (`snapshot.tables_stamp`), which is what a build over it would copy, the artifact cycle's question when it decides whether to skip the corpus build. The two modules are imported here, at the call, so a server serving an m1-audit corpus never loads them."""
     from rebuild.review import snapshot
 
     home = Path(snapshot_home) if snapshot_home is not None else Path(repo_root) / SNAPSHOT_HOME
     directory = snapshot.current(home)
+    if m1_out is not None:
+        tables = snapshot.tables_stamp(Path(m1_out))
+    else:
+        from rebuild.pipeline import run_m1
+
+        tables = run_m1.tables_inputs()
     return fingerprint.table_diff_values(
         Path(repo_root),
         directory / snapshot.RECORD_NAME if directory is not None else None,
-        run_m1.tables_inputs(),
+        tables,
     )
 
 
@@ -1008,7 +1013,7 @@ def compute_status(
     pointer_path=None,
     snapshot_home=None,
 ) -> dict:
-    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), with `listed`, the accepted list it paired with, and None to read `autosave_path` and the list at `accepted_path`, by default the one beside it (`verdict_store.accepted_path_for`), and pair them. The store's accepted units count among its effective verdicts and leave the blanks. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused.
+    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), with `listed`, the accepted list it paired with, and None to read `autosave_path` and the list at `accepted_path`, by default the one beside it, or none for a table-diff corpus at `review_dir` (`verdict_store.accepted_path_for`), and pair them. The store's accepted units count among its effective verdicts and leave the blanks. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused.
 
     A table-diff corpus is checked by its own rows (the module docstring): `recompute_table_diff` gives its components now, `table_diff_inputs` by default; `pointer_path` is the tracked pointer, by default `rebuild/review-snapshot.json` under `repo_root`; and `snapshot_home` holds the snapshots, by default `var/keep/review-snapshot` under it. The result's `corpus` names the mode.
     """
@@ -1056,7 +1061,9 @@ def compute_status(
         autosave,
         listed=listed if autosave is not None else None,
         listed_path=(
-            Path(accepted_path) if accepted_path is not None else accepted_path_for(Path(autosave_path))
+            Path(accepted_path)
+            if accepted_path is not None
+            else accepted_path_for(Path(autosave_path), review_dir)
         ),
         human_ids_of=human_ids_of,
     )

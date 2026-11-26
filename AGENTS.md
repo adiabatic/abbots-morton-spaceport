@@ -37,7 +37,8 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Say what you mean: mannered prose substitutes metaphor and flourish for direct statement ("a dial worth turning" for "a parameter worth varying"), makes the reader work harder, and drags in connotations the writer did not choose. When a literal phrase is available, use it.
 - After any glyph or code change, run `make test`. `doc/testing.md` maps every gate to the change it answers for.
   - `make test-rebuild` gates anything under `rebuild/` and `make kernel-gate` a kernel-semantics change. No rebuild test reads a live artifact; the build checks its own tables (the rule certificates among them), so run the M1 build after a rune or pipeline edit.
-  - Once a rune edit's M1 build is green, run `make artifact-cycle` without being asked, so the review corpus already shows the edit when the user returns to reviewing. Present the `rebuild/review-facts-pins.json` diff it prints with the rest of the change.
+  - Once a rune edit's M1 build is green, run `make artifact-cycle` without being asked, so the review app's Queue already shows the edit when the user returns to reviewing. Present the cycle's `review diff:` line and the units it counts with the rest of the change.
+  - Accept those units with `make review-accept ARGS=--apply` only when the user says so, and commit the `rebuild/review-snapshot.json` it rewrites with the edit it accepts.
 - Codex's sandbox fails one contracts-lane probe test by blocking `sysctl`; rerun it outside the sandbox and never weaken it (`doc/testing.md` names it).
 - Detach any pass that includes the heavy gates (the rebuild suite and the conform sweep, so any `make artifact-cycle` or `make review-cycle` pass) from the shell's lifetime and watch `var/build-logs/latest/`; `doc/running-long-steps.md` has the recipe, the hung-run traps, and how to stop a pass whole.
 - `tmp/` is scratch and may be wiped between change sets; `var/` (gitignored too) holds what outlives a run: the cycle's build logs and hand-kept archives under `var/keep/`. Anything that must survive a `tmp/` wipe goes under `var/`.
@@ -132,7 +133,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - When the user asks whether everything is ready to verdict, run `make verdict-ready` — never reason it out from the git log. The app’s banner shows the same status.
 - `make review-cycle` is the hands-off loop: the artifact cycle, then serve (`SERVE=0` or `SERVE=bg` for a caller that must terminate). `make artifact-cycle` is the same verification without the serve, the form for commit time.
   - `doc/review-cycle.md` is the runbook: what a pass skips, which hashes ignore prose, how the server stays up through a pass, the verdict store and journal, retention, logs, and timings.
-  - Every non-staging pass rewrites `rebuild/review-facts-pins.json` and prints its diff; committing that diff accepts the review facts, so read the `invariant` block before committing.
+  - The cycle builds and serves the table-diff corpus: the accepted snapshot `rebuild/review-snapshot.json` names against the working tree's build. A green pass ends with a `review diff:` line counting the unaccepted changes, which never fails the pass; `make review-accept ARGS=--apply` accepts them once none is blank or rejected.
 
 ## YAML files
 

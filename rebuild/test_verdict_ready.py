@@ -1720,3 +1720,32 @@ def test_a_table_diff_corpus_is_stale_on_a_moved_component_or_after_font_byte_fo
     (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
     result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
     assert "after font is not the M1 font on disk" in result["checks"]["freshness"]["detail"]
+
+
+def test_a_table_diff_corpus_reads_its_store_with_no_accepted_list(tmp_path):
+    """A table-diff corpus's store reads no accepted list (`verdict_store.accepted_path_for`), so a store that holds verdicts and names no list passes the verdict-store row beside the tracked list, and none of the list's units counts among its effective verdicts or leaves the blanks, while the same store beside an m1-audit corpus does not pair with that list."""
+    setup_table_diff(tmp_path, records=[verdict("u-1")])
+    list_path = tmp_path / accepted.RELATIVE_PATH
+    list_path.write_bytes(
+        accepted.render("2026-11-01T00:00:00Z", {"u-" + "2" * 11: "approve", "u-" + "3" * 11: "either"})
+    )
+    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    row = result["checks"]["verdict_store"]
+    assert row["level"] == "ok", row
+    assert row["detail"] == "The autosave is aligned with this corpus and holds 1 effective verdicts."
+    assert result["checks"]["blanks"]["count"] == 2
+    assert ready is True
+
+    manifest_path = tmp_path / "rebuild" / "out" / "review" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["mode"] = "m1-audit"
+    _write(manifest_path, manifest)
+    refused = status._verdict_store_check(
+        tmp_path / "verdicts-autosave.json",
+        STAMP,
+        "make artifact-cycle",
+        None,
+        None,
+        listed_path=status.accepted_path_for(tmp_path / "verdicts-autosave.json"),
+    )[0]
+    assert refused["level"] == "fail" and "names no accepted list" in refused["detail"]
