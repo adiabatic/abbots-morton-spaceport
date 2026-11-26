@@ -438,7 +438,7 @@ class KernRoutes:
         self.repo_root = Path(repo_root)
         self.m1_out = Path(m1_out)
         self.runes_dir = Path(runes_dir) if runes_dir is not None else self.repo_root / "glyph_data" / "runes"
-        self.registry = self.repo_root / "rebuild" / "script.yaml"
+        self.registry = self.repo_root / "glyph_data" / "script.yaml"
         self.schema_dir = self.repo_root / "rebuild" / "schema"
         self.pass_lock = self.repo_root / "var" / "cycle" / "pass.lock"
         self.allow_path = self.repo_root / "rebuild" / "m1-contact-allow.yaml"

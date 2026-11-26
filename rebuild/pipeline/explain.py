@@ -199,7 +199,7 @@ def _load_spec() -> tuple[ResolvedSpec, str | None]:
 
         repo = Path(__file__).resolve().parents[2]
         spec = spec_load.load_spec(
-            repo / "glyph_data" / "runes", repo / "rebuild" / "script.yaml", repo / "rebuild" / "schema"
+            repo / "glyph_data" / "runes", repo / "glyph_data" / "script.yaml", repo / "rebuild" / "schema"
         )
         return spec, None
     except Exception as error:  # noqa: BLE001 — the fixtures fallback is deliberate

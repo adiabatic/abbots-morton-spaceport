@@ -51,7 +51,7 @@ from rebuild.pipeline.settle import cell_label
 
 KERN_TSV = "kern.tsv"
 KERN_CLASSES_JSON = "kern-classes.json"
-# The registry's name for the ZWNJ boundary token (rebuild/script.yaml), which `labels` turns into the `uni200C` label the crate's ZWNJ cells are found by.
+# The registry's name for the ZWNJ boundary token (glyph_data/script.yaml), which `labels` turns into the `uni200C` label the crate's ZWNJ cells are found by.
 ZWNJ_TOKEN = "zwnj"
 KERN_CLASSES_FORMAT = "ams-m1-kern-classes/2"
 TSV_COMMENT = "# kern table: one row per facing pair (rebuild/KERN-PLAN.md section 3)"

@@ -136,11 +136,10 @@ class TestJuniorsFeatures:
 
 
 def test_mono_and_junior_build_from_a_root_that_holds_only_their_inputs(tmp_path):
-    """The build reads the glyph files, the rune files, the registry, the schemas and the glyph-name map under the root it is given, beside the Departure Mono font `tools/build_font.py` bundles into Mono: a root holding copies of those inputs builds the same fonts, byte for byte."""
+    """The build reads the glyph files, the rune files and the registry (all under glyph_data/), the schemas and the glyph-name map under the root it is given, beside the Departure Mono font `tools/build_font.py` bundles into Mono: a root holding copies of those inputs builds the same fonts, byte for byte."""
     root = tmp_path / "root"
     shutil.copytree(REPO_ROOT / "glyph_data", root / "glyph_data")
     shutil.copytree(REPO_ROOT / "rebuild" / "schema", root / "rebuild" / "schema")
-    shutil.copy(REPO_ROOT / "rebuild" / "script.yaml", root / "rebuild" / "script.yaml")
     shutil.copy(REPO_ROOT / "postscript_glyph_names.yaml", root / "postscript_glyph_names.yaml")
     copied = build_family.build_mono_and_junior(tmp_path / "copied", root=root)
     live = build_family.build_mono_and_junior(tmp_path / "live")

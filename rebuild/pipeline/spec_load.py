@@ -59,7 +59,7 @@ from rebuild.pipeline.model import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 DEFAULT_RUNES_DIR = REPO_ROOT / "glyph_data" / "runes"
-DEFAULT_REGISTRY_PATH = REPO_ROOT / "rebuild" / "script.yaml"
+DEFAULT_REGISTRY_PATH = REPO_ROOT / "glyph_data" / "script.yaml"
 DEFAULT_SCHEMA_DIR = REPO_ROOT / "rebuild" / "schema"
 M1_RUNES_ENV = "AMS_M1_RUNES"
 CYCLE_RUN_ENV = "AMS_CYCLE_RUN"

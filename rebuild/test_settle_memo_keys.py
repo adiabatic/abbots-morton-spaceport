@@ -21,7 +21,7 @@ OY = 0xE679
 
 
 def _script(root: Path) -> Path:
-    return root / "rebuild" / "script.yaml"
+    return root / "glyph_data" / "script.yaml"
 
 
 def _rewrite_script(root: Path, edit=None) -> None:

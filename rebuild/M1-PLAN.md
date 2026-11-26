@@ -14,7 +14,7 @@ Rules for M1 work:
 
 **Rune files: `glyph_data/runes/`**, the address §2 gives them. The old pipeline finds YAML only through the non-recursive `path.glob("*.yaml")` in `tools/build_font.py`’s `load_glyph_data`, so the old font build never reads files in `glyph_data/runes/`. Each migrated family has one file named for its rune; a ligature’s file is named for its sequence (`qsTea_qsOy.yaml`).
 
-**Registry: `rebuild/script.yaml`, a recorded deviation from §2 until cutover.** A `glyph_data/script.yaml` would break the old build: `load_glyph_data` reads any document without one of its `_STRUCTURAL_KEYS` as a Senior kerning rule, and `generate_kern_fea` then fails with a `KeyError` on it. The registry stays under `rebuild/` and moves to `glyph_data/script.yaml` at cutover. `spec_load.load_spec` takes the registry path as an argument, so the move changes `spec_load.DEFAULT_REGISTRY_PATH` and the few other places that name the path (`git grep '"script.yaml"'` lists them).
+**Registry: `glyph_data/script.yaml`**, the address §2 gives it. It holds no glyph records, and `tools/build_font.py`'s `load_glyph_data` refuses a document whose top-level keys are not a glyph file's, so the font compile's list of glyph files (`fingerprint.font_data_paths`) and `load_glyph_data`'s directory load (`NON_GLYPH_FILE_NAMES`) leave it out by name. `spec_load.load_spec` takes the registry path as an argument, and `spec_load.DEFAULT_REGISTRY_PATH` names it.
 
 **Schemas: `rebuild/schema/rune.schema.json` and `rebuild/schema/script.schema.json`** (JSON Schema 2020-12). `spec_load` validates every rune file and the registry against them at load time through `jsonschema` (§4 of this plan). `.vscode/settings.json` maps both schemas to their files for editor validation.
 
@@ -155,7 +155,7 @@ policy:
 
 Scope a `from:` or `toward:` list from what the old font shapes, never from reading FEA. The old font joins a bare pair by GPOS cursive attachment alone whenever both bare glyphs carry anchors at the same height. No calt rule fires, so an FEA grep reports the pair as having no interaction, and a scope written from that reading drops real joins in both directions.
 
-### `rebuild/script.yaml` contents
+### `glyph_data/script.yaml` contents
 
 Registries only, never policy (§2). The file is the authority; its shape:
 
@@ -477,4 +477,4 @@ This follows the ductus conventions in `AGENTS.md`. The canonical ductus is at t
 
 ## 9. The milestone’s record
 
-There is no closing report. The milestone’s record is the commit history plus the runes’ `why:` fields. The durable design facts are in this plan, each in the section it concerns: the `rebuild/script.yaml` location deviation (§1), the module contracts as built and the semantics-coverage record (§5), the acceptance checks (§6), and the ductus drafting protocol (§8). The unused-record and waiting-on-unmigrated lists are in `rebuild/out/m1/pipeline_summary.json`.
+There is no closing report. The milestone’s record is the commit history plus the runes’ `why:` fields. The durable design facts are in this plan, each in the section it concerns: the locations (§1), the module contracts as built and the semantics-coverage record (§5), the acceptance checks (§6), and the ductus drafting protocol (§8). The unused-record and waiting-on-unmigrated lists are in `rebuild/out/m1/pipeline_summary.json`.

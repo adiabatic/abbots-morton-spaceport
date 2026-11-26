@@ -23,7 +23,8 @@ def _fake_build(root: Path) -> None:
     for style, name in build_fonts.SENIOR_SOURCES.items():
         (m1 / name).write_bytes(f"senior {style}".encode())
     (m1 / glyph_facts.FILE_NAME).write_text('{"format": "ams-glyph-facts/1", "glyphs": {}}\n')
-    (root / "rebuild" / "script.yaml").write_text("heights: {baseline: 0}\n")
+    (root / "glyph_data").mkdir()
+    (root / "glyph_data" / "script.yaml").write_text("heights: {baseline: 0}\n")
     (root / fingerprint.CONTACT_ALLOW_LABEL).write_text("[]\n")
     fingerprint.write_stage_a(m1, {"data": "d", "pipeline_code": "p"})
     record_green(cycle_paths.RUN_M1_GREEN, run_m1_skip_fingerprint(root), files=run_m1_skip_files(root))
@@ -91,12 +92,12 @@ class TestTheSenior:
     ):
         root = tmp_path / "root"
         _fake_build(root)
-        (root / "rebuild" / "script.yaml").write_text("heights: {baseline: 0, x-height: 5}\n")
+        (root / "glyph_data" / "script.yaml").write_text("heights: {baseline: 0, x-height: 5}\n")
         out = tmp_path / "fonts"
         with pytest.raises(StaleSeniorError) as raised:
             build_fonts.build(out, build_fonts.FONTS, root)
         message = str(raised.value)
-        assert "rebuild/script.yaml" in message
+        assert "glyph_data/script.yaml" in message
         assert build_fonts.RUN_M1_COMMAND in message
         assert not out.exists()
 

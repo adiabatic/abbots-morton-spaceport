@@ -14,7 +14,7 @@ make all
 
 - Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `rebuild/schema/rune.schema.json`: its ductus, its stances with their bitmaps and join surfaces, its policy records and its kerning. `doc/rebuild-design.md` explains the model.
 - The Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the font metadata and the Latin kerning rules are the other `glyph_data/*.yaml` files, and `postscript_glyph_names.yaml` maps glyph names to code points.
-- The variation sequences and the stylistic sets are in the registry, `rebuild/script.yaml`.
+- The variation sequences and the stylistic sets are in the registry, `glyph_data/script.yaml`, the one file in `glyph_data/` that holds no glyphs.
 
 ## Testing
 

@@ -220,6 +220,7 @@ MAKE_TEST_EXEMPT_FILES = (
     ".prettierrc",
     ".git-blame-ignore-revs",
     "LICENSE-OFL-1.1.txt",
+    "glyph_data/script.yaml",
     "site/gear-menu.js",
     "site/print.typ",
     "site/shared.css",
@@ -244,7 +245,7 @@ MAKE_TEST_RECIPE_PINS = ("FORCE=",)
 def make_test_exempt(path: str) -> bool:
     """Return whether a repo-relative path is outside gate:make-test's input closure. Each exemption follows from what the gate runs: pyright, and pytest test/ site/, whose session publishes the six fonts into site/ before it collects (rebuild/tools/build_fonts.py).
 
-    Nothing the gate runs reads the exempt trees as files, apart from `MAKE_TEST_REBUILD_FILES`, which the exemption leaves in the closure, and the inputs of the published fonts, which `make_test_font_lines` covers. test/, site/, tools/ and conftest.py read no rune file, and reach the rest of rebuild/ through the root conftest's imports of rebuild/tools/ leaf modules (`CONFTEST_EDGES` in rebuild/test_contracts_closure.py lists them) and through the publish, which runs in a child. The leaf modules are peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, suite_fonts for the font paths, and pyright_gate for the type check's own skip; none of them can change what the suite asserts, and the rebuild suite tests each of them. The publish reads the runes and the pipeline, but the fonts it writes change only with what `make_test_font_lines` keys on (the rebuild's Senior, and Mono's and Junior's code and data), so every other edit under rebuild/ or glyph_data/runes/ stays outside the closure. Markdown is not an input to any gate. .vscode/ is editor configuration, which no test reads. .github/ is CI, which runs the suite and is not read by it.
+    Nothing the gate runs reads the exempt trees as files, apart from `MAKE_TEST_REBUILD_FILES`, which the exemption leaves in the closure, and the inputs of the published fonts, which `make_test_font_lines` covers. test/, site/, tools/ and conftest.py read neither a rune file nor the registry (glyph_data/script.yaml), and reach the rest of rebuild/ through the root conftest's imports of rebuild/tools/ leaf modules (`CONFTEST_EDGES` in rebuild/test_contracts_closure.py lists them) and through the publish, which runs in a child. The leaf modules are peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, suite_fonts for the font paths, and pyright_gate for the type check's own skip; none of them can change what the suite asserts, and the rebuild suite tests each of them. The publish reads the runes and the pipeline, but the fonts it writes change only with what `make_test_font_lines` keys on (the rebuild's Senior, and Mono's and Junior's code and data), so every other edit under rebuild/ or glyph_data/runes/ or to the registry stays outside the closure; `make_test_font_lines` keys the registry by its parsed document, so a comment in it does not trigger the gate. Markdown is not an input to any gate. .vscode/ is editor configuration, which no test reads. .github/ is CI, which runs the suite and is not read by it.
 
     reference/csur/ and the reference PDFs and PNGs are human reference material that nothing compiles. reference/DepartureMono-Regular.otf stays in the closure, because tools/build_font.py bundles it into Mono and test/test_mono_matches_departure_mono.py shapes against it. site/icons/, site/*.svg, site/gear-menu.js and site/shared.css are browser assets the served pages load, and site/print.typ is the source `make all` typesets; nothing the gate runs reads any of them. site/shared.js stays, because test/test_shared.py runs it under node. The dotfile configs and the OFL text are read by git, the linters and the formatters, not by the suite.
 
@@ -311,7 +312,7 @@ def make_test_font_lines(root: Path = ROOT) -> list[str]:
 
     - the Senior the session copies: rebuild/out/m1/M1.otf and M1-Bold.otf by `fingerprint.font_content_digest`, which leaves out the version tables no shaper reads, and the glyph-facts sidecar beside them, which the checker reads in place, raw;
     - whether that Senior is current (`build_fonts.senior_staleness`), since the session refuses a stale one, so a key taken over a stale Senior never matches a green one;
-    - what Mono and Junior are built from: the import closure under rebuild/ of `MAKE_TEST_FAMILY_CODE_ROOTS` by `fingerprint.path_lines`, and the spec's data (the rune files, the registry and the schemas) by `fingerprint.data_path_lines`, both prose-insensitive. Their other inputs, glyph_data/*.yaml, postscript_glyph_names.yaml, reference/DepartureMono-Regular.otf and tools/, are in the closure as files.
+    - what Mono and Junior are built from: the import closure under rebuild/ of `MAKE_TEST_FAMILY_CODE_ROOTS` by `fingerprint.path_lines`, and the spec's data (the rune files, the registry and the schemas) by `fingerprint.data_path_lines`, both prose-insensitive. Their other inputs, the other glyph_data/*.yaml files, postscript_glyph_names.yaml, reference/DepartureMono-Regular.otf and tools/, are in the closure as files.
 
     A rune or pipeline edit therefore moves the key only through the fonts the suite checks: an edit that leaves the Senior, its sidecar and Mono's and Junior's inputs as they were, as a comparison-side or review-side edit does, leaves the key alone.
     """
@@ -331,7 +332,7 @@ def make_test_font_lines(root: Path = ROOT) -> list[str]:
     data = [
         *fingerprint.rune_paths(root),
         *sorted((root / "rebuild" / "schema").glob("*.json")),
-        root / "rebuild" / "script.yaml",
+        fingerprint.registry_path(root),
     ]
     lines = []
     for style, name in build_fonts.SENIOR_SOURCES.items():

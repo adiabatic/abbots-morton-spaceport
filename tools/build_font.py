@@ -37,15 +37,21 @@ def load_postscript_glyph_names() -> dict[str, int]:
 
 # The top-level keys a glyph file's document may carry.
 _GLYPH_FILE_KEYS = frozenset({"metadata", "glyphs", "kerning"})
+# The YAML files in glyph_data/ that are not glyph files: the rebuild's registry, which rebuild/pipeline/spec_load.py reads (`DEFAULT_REGISTRY_PATH`). A directory load leaves them out by name, as `fingerprint.font_data_paths` does.
+NON_GLYPH_FILE_NAMES = frozenset({"script.yaml"})
 
 
 def load_glyph_data(path: Path) -> GlyphData:
-    """Load the glyph records of a YAML file, or of every `*.yaml` file in a directory, merged in name order: the last `metadata` wins, and `glyphs` and the Latin `kerning` rules merge by name. Each file may hold several `---`-separated documents. Raises ValueError for a document with any other top-level key, which no build reads."""
+    """Load the glyph records of a YAML file, or of every `*.yaml` file in a directory but `NON_GLYPH_FILE_NAMES`, merged in name order: the last `metadata` wins, and `glyphs` and the Latin `kerning` rules merge by name. Each file may hold several `---`-separated documents. Raises ValueError for a document with any other top-level key, which no build reads."""
     metadata: dict[str, Any] = {}
     glyphs: dict[str, Any] = {}
     kerning_defs: dict[str, Any] = {}
 
-    files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
+    files = (
+        sorted(file for file in path.glob("*.yaml") if file.name not in NON_GLYPH_FILE_NAMES)
+        if path.is_dir()
+        else [path]
+    )
     for yaml_file in files:
         with open(yaml_file) as f:
             documents = list(yaml.load_all(f, Loader=_SAFE_LOADER))

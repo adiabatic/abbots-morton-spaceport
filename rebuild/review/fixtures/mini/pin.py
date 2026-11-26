@@ -18,7 +18,7 @@ PIN_PATH = HERE / "pin.json"
 PINNED_PATHS: tuple[str, ...] = (
     "glyph_data/runes",
     "rebuild/schema",
-    "rebuild/script.yaml",
+    "glyph_data/script.yaml",
 )
 
 

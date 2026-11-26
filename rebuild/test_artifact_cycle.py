@@ -2593,6 +2593,7 @@ def test_make_test_exempt_classification():
         "rebuild/pipeline/conform.py",
         "rebuild/tools/artifact_cycle.py",
         "glyph_data/runes/qsDay.yaml",
+        "glyph_data/script.yaml",
         "doc/glyph-names.md",
         "doc/rebuild-design.md",
         "WHATNEXT.md",
@@ -2667,7 +2668,7 @@ def test_make_tests_font_lines_key_the_senior_and_what_mono_and_junior_are_built
         "rebuild/pipeline/surface.py": "SURFACE = 1\n",
         "rebuild/pipeline/settle.py": "SETTLE = 1\n",
         "rebuild/tools/build_fonts.py": "BUILD_FONTS = 1\n",
-        "rebuild/script.yaml": "heights: {baseline: 0}\n",
+        "glyph_data/script.yaml": "heights: {baseline: 0}\n",
         "glyph_data/runes/qsMay.yaml": "rune: qsMay\n",
         "rebuild/out/m1/M1.otf": "not a font\n",
         "rebuild/out/m1/M1-Bold.otf": "not a bold font\n",
@@ -3353,7 +3354,7 @@ def _fake_run_m1_root(tmp_path):
         ("rebuild/pipeline/compile_font.py", "compile = 1\n"),
         ("glyph_data/runes/qsX.yaml", "rune: qsX\n"),
         ("rebuild/schema/rune.json", "{}\n"),
-        ("rebuild/script.yaml", "script: 1\n"),
+        ("glyph_data/script.yaml", "script: 1\n"),
         ("glyph_data/punctuation.yaml", "punctuation: 1\n"),
         ("glyph_data/latin_letters.yaml", "glyphs: {a: {bitmap: ['#']}}\n"),
         ("rebuild/m1-contact-allow.yaml", "- signature: junction-1\n  why: blessed once\n"),
@@ -3378,7 +3379,7 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
     assert all(ac.comparison_side_label(label) for label in fingerprint.COMPARISON_CODE_MODULES)
     assert not ac.comparison_side_label("uv.lock")
     assert not ac.comparison_side_label("glyph_data/runes/qsPea.yaml")
-    assert not ac.comparison_side_label("rebuild/script.yaml")
+    assert not ac.comparison_side_label("glyph_data/script.yaml")
     assert not ac.comparison_side_label("rebuild/pipeline/settle.py")
     assert not ac.comparison_side_label("rebuild/kernel-rs/src/lib.rs")
 

@@ -14,7 +14,7 @@ The full font compile reads the non-Quikscript part of the font beside the runes
 
 A rune's `kern` block reaches no table, no settlement and nothing the review corpus shows, so it is in no key built from `rune_file_digest`: not the `data` component, the tables' stamp, the settle memo's family keys (`rune_digests`), or the string replay's and deep replay's narrowing. It reaches the run_m1 skip key alone, through one line per rune (`kern_lines`, `rune_kern_digest`: the records less their `why`), so a kern edit rebuilds the font and nothing else (`artifact_cycle.kern_only_rebuild`). The rebuild suite's input closure hashes rune files whole, kern block included (`rune_document_digest`), because a test can read any part of a file.
 
-The other data inputs have prose-insensitive digests too, chosen by `_data_digest`. A schema under rebuild/schema/ is hashed by `schema_file_digest`: its parsed JSON with key order kept and every `title` and `description` annotation removed from the positions where a schema sits. `spec_load._SchemaValidator._ANNOTATIONS` declares these as annotations, and its standard validator's `VALIDATORS` dispatch does not evaluate them. A property named `description` stays, because the projection removes keywords from schemas and never names from `properties`; rebuild/schema/script.schema.json declares one. The `$schema` and `$id` metadata stay too, because they identify the dialect and reference scope. rebuild/script.yaml and glyph_data/punctuation.yaml are hashed by `yaml_data_digest`, their parsed documents with key order kept, which drops comments and formatting and nothing else. Key order stays because no reader of these files has been shown not to depend on it, so a pure reorder still moves the digest. A file that fails to parse is hashed raw. `data_path_lines` hashes every data input this way wherever one reaches a key: the `data` component and the run_m1 skip key, `tables_value` and `run_m1.locality_lines`, and the `data` line of the settle memo's stamp (`settle_memo_keys.stamped_data_paths`). Rewording a schema hover or a comment in one of these files therefore moves none of them.
+The other data inputs have prose-insensitive digests too, chosen by `_data_digest`. A schema under rebuild/schema/ is hashed by `schema_file_digest`: its parsed JSON with key order kept and every `title` and `description` annotation removed from the positions where a schema sits. `spec_load._SchemaValidator._ANNOTATIONS` declares these as annotations, and its standard validator's `VALIDATORS` dispatch does not evaluate them. A property named `description` stays, because the projection removes keywords from schemas and never names from `properties`; rebuild/schema/script.schema.json declares one. The `$schema` and `$id` metadata stay too, because they identify the dialect and reference scope. The registry, glyph_data/script.yaml, and glyph_data/punctuation.yaml are hashed by `yaml_data_digest`, their parsed documents with key order kept, which drops comments and formatting and nothing else. Key order stays because no reader of these files has been shown not to depend on it, so a pure reorder still moves the digest. A file that fails to parse is hashed raw. `data_path_lines` hashes every data input this way wherever one reaches a key: the `data` component and the run_m1 skip key, `tables_value` and `run_m1.locality_lines`, and the `data` line of the settle memo's stamp (`settle_memo_keys.stamped_data_paths`). Rewording a schema hover or a comment in one of these files therefore moves none of them.
 
 `code_file_digest` projects code files the same way. A `.py` file is hashed as its syntax tree with every docstring's text set to None, and a `.rs` file with its whole-line `//` comments removed, so rewording either moves no key built by `path_lines` or `hash_paths`. Everything the interpreter or compiler sees stays in: every identifier, every non-docstring string constant (matchers compare against error text), every annotation, default, and decorator, and every Rust code line including its trailing comment. The presence of each docstring stays too. A file that fails to parse or decode is hashed as raw bytes, as `_projected_digest` does, so the failure stays visible. Every other file type that reaches `path_lines`, such as the app's static files and the crate's manifest and lock, is hashed raw by `file_sha256`.
 
@@ -60,12 +60,17 @@ def rune_paths(repo_root: Path) -> list[Path]:
     return sorted((Path(repo_root) / "glyph_data" / "runes").glob("*.yaml"))
 
 
+def registry_path(repo_root: Path) -> Path:
+    """Return the registry (`spec_load.DEFAULT_REGISTRY_PATH`) under `repo_root`. It sits in glyph_data/ beside the glyph files and holds no glyph records: it is a table-side input (`data_paths`), and `font_data_paths` leaves it out by name."""
+    return Path(repo_root) / spec_load.DEFAULT_REGISTRY_PATH.relative_to(spec_load.REPO_ROOT)
+
+
 def data_paths(repo_root: Path) -> list[Path]:
     root = Path(repo_root)
     paths = rune_paths(root)
     paths += sorted((root / "rebuild" / "schema").glob("*.json"))
     paths += [
-        root / "rebuild" / "script.yaml",
+        registry_path(root),
         root / "glyph_data" / "punctuation.yaml",
     ]
     return paths
@@ -75,9 +80,10 @@ FONT_LINE_SUFFIX = "#font"  # the suffix of a font-data line in the run_m1 skip 
 
 
 def font_data_paths(repo_root: Path) -> list[Path]:
-    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`)."""
+    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml but the registry (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`). The registry (`registry_path`) is left out by name, because `tools/build_font.load_glyph_data` refuses a document whose top-level keys are not a glyph file's."""
     root = Path(repo_root)
-    glyph_files = sorted((root / "glyph_data").glob("*.yaml"))
+    registry = registry_path(root).name
+    glyph_files = sorted(path for path in (root / "glyph_data").glob("*.yaml") if path.name != registry)
     return glyph_files + [root / "postscript_glyph_names.yaml"]
 
 

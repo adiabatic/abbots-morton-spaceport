@@ -123,7 +123,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 
 - Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `rebuild/schema/rune.schema.json`: its `mono:` block is the Mono drawing, and its `stances:` are the proportional shapes, each a `bitmap` with its join surface.
   - Keep `traits: [alt]` and `traits: [half]` when those concepts are real; anything else that distinguishes a stance lives in named bitmaps or policy records.
-- The other glyphs, the metadata and the Latin kern rules are the other `glyph_data/*.yaml` files, and the variation sequences and stylistic sets are in the registry, `rebuild/script.yaml`.
+- The other glyphs, the metadata and the Latin kern rules are the other `glyph_data/*.yaml` files but one: `glyph_data/script.yaml` is the registry, which holds the variation sequences and stylistic sets.
 
 ## Dev-server URLs
 

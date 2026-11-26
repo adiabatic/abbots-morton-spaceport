@@ -103,6 +103,6 @@ def text_entities(codepoint_values: tuple[int, ...]) -> str:
 def load_spec(repo_root: Path = REPO_ROOT) -> ResolvedSpec:
     return spec_load.load_spec(
         repo_root / "glyph_data" / "runes",
-        repo_root / "rebuild" / "script.yaml",
+        repo_root / "glyph_data" / "script.yaml",
         repo_root / "rebuild" / "schema",
     )

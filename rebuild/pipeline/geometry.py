@@ -24,7 +24,7 @@ PIXEL = 50
 INK_X_OFFSET = 1
 MAX_GLYPH_NAME_BYTES = 63
 
-# A copy of the height table in rebuild/script.yaml (design section 2), so junction_gap and verify_unjoined_safe can take height names without a registry.
+# A copy of the height table in glyph_data/script.yaml (design section 2), so junction_gap and verify_unjoined_safe can take height names without a registry.
 HEIGHT_Y = {"baseline": 0, "x-height": 5, "y6": 6, "top": 8}
 
 

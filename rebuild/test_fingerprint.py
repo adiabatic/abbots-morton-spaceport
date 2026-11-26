@@ -31,7 +31,7 @@ def _fake_repo(tmp_path):
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\n")
     (root / "glyph_data" / "runes" / "qsBay.yaml").write_text("family: qsBay\n")
     (root / "glyph_data" / "punctuation.yaml").write_text("dots: []\n")
-    (root / "rebuild" / "script.yaml").write_text("alphabet: []\n")
+    (root / "glyph_data" / "script.yaml").write_text("alphabet: []\n")
     (root / "rebuild" / "schema" / "rune.schema.json").write_text("{}\n")
     (root / "rebuild" / "m1-contact-allow.yaml").write_text("[]\n")
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 1\n")
@@ -293,7 +293,7 @@ def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path)
     (root / "glyph_data" / "runes" / "qsPea.yaml").write_text("family: qsPea\nedited: true\n")
     moved_rune = fingerprint.tables_value(root)
     assert moved_rune != before
-    (root / "rebuild" / "script.yaml").write_text("alphabet: [edited]\n")
+    (root / "glyph_data" / "script.yaml").write_text("alphabet: [edited]\n")
     moved_data = fingerprint.tables_value(root)
     assert moved_data != moved_rune
     (root / "rebuild" / "pipeline" / "table.py").write_text("TABLE = 2\n")
@@ -352,7 +352,7 @@ def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_p
 
 
 def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
-    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. glyph_data/punctuation.yaml, which holds the angle parentheses, keeps its table-side data line, because the namer dot's glyphs come from it."""
+    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. glyph_data/punctuation.yaml, which holds the angle parentheses, keeps its table-side data line, because the namer dot's glyphs come from it. The registry, glyph_data/script.yaml, which the fake repo holds beside them, is no glyph file and is not in the list."""
     root = _fake_repo(tmp_path)
     latin = root / "glyph_data" / "latin_letters.yaml"
     latin.write_text("glyphs:\n  a: {bitmap: ['#']}\n")
@@ -371,6 +371,7 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
         "glyph_data/latin_letters.yaml#font",
         "postscript_glyph_names.yaml#font",
     ]
+    assert fingerprint.registry_path(root).is_file()
     assert fingerprint.font_data_paths(root) == [
         latin,
         root / "glyph_data" / "punctuation.yaml",
@@ -558,7 +559,7 @@ SCHEMA = textwrap.dedent("""\
     """)
 DATA_FILES = {
     "rebuild/schema/rune.schema.json": SCHEMA,
-    "rebuild/script.yaml": "heights: {baseline: 0, x-height: 5}\n",
+    "glyph_data/script.yaml": "heights: {baseline: 0, x-height: 5}\n",
     "glyph_data/punctuation.yaml": "glyphs:\n  exclam.prop:\n    y_offset: -1\n  colon.prop:\n    y_offset: 0\n",
 }
 
@@ -598,7 +599,7 @@ def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
             .replace("A named rune.", "Named.")
             .replace('"title": "Stance"', '"title": "A stance"')
             .replace('"minItems": 1', '"minItems":   1'),
-            "rebuild/script.yaml": "# Registries only.\nheights: {baseline: 0,   x-height: 5}  # in pixels\n",
+            "glyph_data/script.yaml": "# Registries only.\nheights: {baseline: 0,   x-height: 5}  # in pixels\n",
             "glyph_data/punctuation.yaml": "# Hand-written.\nglyphs:\n  exclam.prop:  # ! U+0021\n    y_offset: -1\n\n  colon.prop: {y_offset: 0}\n",
         },
     )
@@ -619,7 +620,7 @@ def test_a_schema_annotation_or_a_data_file_comment_moves_no_data_key(tmp_path):
             '"type": "object", "title": "Stance", "description": "One stance.", "minProperties": 0',
             '"minProperties": 0, "type": "object", "title": "Stance", "description": "One stance."',
         ),
-        ("rebuild/script.yaml", "x-height: 5", "x-height: 4"),
+        ("glyph_data/script.yaml", "x-height: 5", "x-height: 4"),
         ("glyph_data/punctuation.yaml", "y_offset: -1", "y_offset: -2"),
         (
             "glyph_data/punctuation.yaml",
@@ -709,7 +710,7 @@ def test_an_unparseable_data_file_hashes_raw(tmp_path):
     broken = {
         "rebuild/schema/rune.schema.json": '{"type": "object",',
         "rebuild/schema/script.schema.json": '{"type": "string", "pattern": "[\\ud800-\\udfff]"}',
-        "rebuild/script.yaml": "heights: [unclosed\n",
+        "glyph_data/script.yaml": "heights: [unclosed\n",
     }
     _write_data(root, broken)
     digests = dict(line.split("\t", 1) for line in fingerprint.data_lines(root))

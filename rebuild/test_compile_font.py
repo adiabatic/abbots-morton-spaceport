@@ -296,6 +296,23 @@ class TestTheFullFont:
         with pytest.raises(compile_font.FontSourceError, match="he-before-a"):
             compile_font.load_font_sources(tmp_path)
 
+    def test_the_registry_beside_the_glyph_files_is_not_read_as_one(self, tmp_path):
+        """The registry sits in glyph_data/ beside the glyph files and carries none of a glyph file's top-level keys, which `tools/build_font.load_glyph_data` refuses, so the font compile's file list (`fingerprint.font_data_paths`) and a directory load (`build_font.NON_GLYPH_FILE_NAMES`) both leave it out by name."""
+        import build_font
+
+        from rebuild.pipeline import fingerprint, spec_load
+
+        glyph_data = tmp_path / "glyph_data"
+        glyph_data.mkdir()
+        (glyph_data / "script.yaml").write_text(spec_load.DEFAULT_REGISTRY_PATH.read_text(encoding="utf-8"))
+        (glyph_data / "latin_letters.yaml").write_text("glyphs:\n  a: {bitmap: ['#']}\n")
+        assert fingerprint.registry_path(tmp_path) == glyph_data / spec_load.DEFAULT_REGISTRY_PATH.name
+        assert spec_load.DEFAULT_REGISTRY_PATH.name in build_font.NON_GLYPH_FILE_NAMES
+        assert compile_font.load_font_sources(tmp_path).glyphs == {"a": {"bitmap": ["#"]}}
+        assert build_font.load_glyph_data(glyph_data)["glyphs"] == {"a": {"bitmap": ["#"]}}
+        with pytest.raises(ValueError, match="heights"):
+            build_font.load_glyph_data(glyph_data / "script.yaml")
+
 
 class TestTheVariationGlyphs:
     """`run_m1.mint_variation_glyphs` over the checked-in registry and runes."""

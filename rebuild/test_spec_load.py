@@ -1369,7 +1369,7 @@ class TestConfigurationBlindness:
         assert schema["$defs"]["unlock"]["properties"]["feature"]["$ref"] == "#/$defs/featureTag"
 
     def test_each_interaction_is_covered_by_the_union_of_its_members_unlocking_runes(self, spec):
-        """`features.interactions` in rebuild/script.yaml names the set combinations the acceptance matrix enumerates together. For each one, every member is a capability feature some rune unlocks, the joint token is an acceptance configuration, the runes the joint configuration can change are the union of the runes each member can change, and the members unlock at least one rune in common (qsTea's full stance has both the ss03 x-height entry and the ss05 both-baseline pairing). Conversely, every pair of capability features that unlock a rune in common must be a declared interaction, so the acceptance matrix covers every interacting pair."""
+        """`features.interactions` in glyph_data/script.yaml names the set combinations the acceptance matrix enumerates together. For each one, every member is a capability feature some rune unlocks, the joint token is an acceptance configuration, the runes the joint configuration can change are the union of the runes each member can change, and the members unlock at least one rune in common (qsTea's full stance has both the ss03 x-height entry and the ss05 both-baseline pairing). Conversely, every pair of capability features that unlock a rune in common must be a declared interaction, so the acceptance matrix covers every interacting pair."""
         unlocking = _unlocking_runes(spec)
         scoped = _feature_scoped_runes(spec)
         capability = [tag for tag, info in spec.registry.features.items() if info.kind == "capability"]
@@ -1680,7 +1680,7 @@ VARIATION_REGISTRY = MINIMAL_REGISTRY + textwrap.dedent("""\
 
 
 class TestVariationSequences:
-    """The `variation_sequences` registry in rebuild/script.yaml: one record per selector, naming the fonts that carry its sequences and, per letter, the stance whose unjoined drawing the sequence selects (`run_m1.mint_variation_glyphs`)."""
+    """The `variation_sequences` registry in glyph_data/script.yaml: one record per selector, naming the fonts that carry its sequences and, per letter, the stance whose unjoined drawing the sequence selects (`run_m1.mint_variation_glyphs`)."""
 
     def test_the_records_load_into_the_registry_and_stay_out_of_the_kernel_dump(self, tmp_path):
         from rebuild.pipeline import kernel_io
