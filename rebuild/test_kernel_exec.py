@@ -28,11 +28,11 @@ from rebuild.pipeline import (
     fixtures,
     kernel_exec,
     kernel_io,
-    oracle_cache,
     row_delta,
     run_m1,
     run_m1_gates,
     settle,
+    settle_memo_keys,
     spec_load,
 )
 from rebuild.pipeline import table as table_module
@@ -1128,12 +1128,12 @@ class TestTheKernelInvocation:
         assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
 
     def test_the_records_code_digest_keeps_through_a_letter_batch_and_moves_with_the_crate(self, tmp_path):
-        """Every letter batch adds its code point to `baseline_subset.M1_ALPHABET`, and a batch can touch a gate such as `conform`, so the record's `code` keeps through both edits, or no build before a batch could pair with the first build after it. An edit to the crate's code moves it."""
+        """Every letter batch adds its code point to `alphabet.M1_ALPHABET`, and a batch can touch a gate such as `conform`, so the record's `code` keeps through both edits, or no build before a batch could pair with the first build after it. An edit to the crate's code moves it."""
         pipeline = tmp_path / "rebuild" / "pipeline"
         source = tmp_path / "rebuild" / "kernel-rs" / "src"
         pipeline.mkdir(parents=True)
         source.mkdir(parents=True)
-        (pipeline / "baseline_subset.py").write_text("M1_ALPHABET = frozenset({0xE650})\n", encoding="utf-8")
+        (pipeline / "alphabet.py").write_text("M1_ALPHABET = frozenset({0xE650})\n", encoding="utf-8")
         (pipeline / "conform.py").write_text("UNCOVERED = frozenset({'qsAh'})\n", encoding="utf-8")
         (source / "main.rs").write_text("fn main() {}\n", encoding="utf-8")
 
@@ -1141,9 +1141,7 @@ class TestTheKernelInvocation:
             return run_m1.table_build_record(SPEC, 1, root=tmp_path).code
 
         before = code()
-        (pipeline / "baseline_subset.py").write_text(
-            "M1_ALPHABET = frozenset({0xE650, 0xE661})\n", encoding="utf-8"
-        )
+        (pipeline / "alphabet.py").write_text("M1_ALPHABET = frozenset({0xE650, 0xE661})\n", encoding="utf-8")
         (pipeline / "conform.py").write_text("UNCOVERED = frozenset({'qsAh', 'qsThaw'})\n", encoding="utf-8")
         assert code() == before
         (source / "main.rs").write_text("fn main() { std::process::exit(1) }\n", encoding="utf-8")
@@ -2403,7 +2401,7 @@ class TestTheReplayStage:
         monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked(asked, refused="ss08"))
         monkeypatch.setattr(run_m1, "peak_footprint_self_bytes", lambda: 315_000_000)
         digests = {name: f"d-{name}" for name in SPEC.runes}
-        inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests=dict(digests), code="code", data="data")
         assert run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
         records = cycle_timings.load_pool_records(cycle_timings.JOURNAL)
         assert [
@@ -2431,7 +2429,7 @@ class TestTheReplayStage:
         self._in_threads(monkeypatch)
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked([]))
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         memos = conform.settle_memo_files(tmp_path, SPEC, inputs)
         assert run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs)["pass"]
         first = capsys.readouterr().out
@@ -2468,7 +2466,7 @@ class TestTheReplayStage:
         monkeypatch.setattr(kernel_exec, "_spec_dump", lambda spec: (dumps.append(spec), dump)[1])
         monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked(asked))
         memos = conform.settle_memo_files(
-            tmp_path, SPEC, oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+            tmp_path, SPEC, settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         )
         replayed = run_m1.replay_and_absorb(SPEC, tmp_path, memos, 2)
         assert replayed.passed and built == ["built"] and dumps == [SPEC]
@@ -2503,7 +2501,7 @@ class TestTheReplayStage:
         )
         monkeypatch.setattr(kernel_exec, "replay_memo_walk", walk)
         memos = conform.settle_memo_files(
-            tmp_path, SPEC, oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+            tmp_path, SPEC, settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         )
         configs = len(conform.SETTLEMENT_CONFIGS)
         for width, early in ((1, {configs - 2, configs - 1}), (configs, {0})):
@@ -2631,7 +2629,7 @@ class TestTheReplayStage:
         monkeypatch.setattr(run_m1, "replay_structure_stamp", lambda spec, root=None: "s1")
         digests = {name: f"d-{name}" for name in SPEC.runes}
         monkeypatch.setattr(run_m1.fingerprint, "rune_digests", lambda root: dict(digests))
-        inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests=dict(digests), code="code", data="data")
         memos = conform.settle_memo_files(tmp_path, SPEC, inputs)
 
         first = run_m1.run_replay_strings(SPEC, tmp_path, "stamp", memo_inputs=inputs)
@@ -2659,7 +2657,7 @@ class TestTheReplayStage:
         asked: list = []
         monkeypatch.setattr(run_m1, "replay_and_absorb", self._absorbing(asked))
         digests = {name: f"d-{name}" for name in SPEC.runes}
-        inputs = oracle_cache.SettleMemoInputs(rune_digests=dict(digests), oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests=dict(digests), code="code", data="data")
         assert set(conform.settle_memo_files(tmp_path, SPEC, inputs)) == set(conform.SETTLEMENT_CONFIGS)
 
         narrowed = run_m1.run_replay_strings(SPEC, tmp_path, None, memo_inputs=inputs, configs=["default"])
@@ -2691,7 +2689,7 @@ class TestTheReplayStage:
         """A full replay with memo inputs runs one `replay-strings` process a configuration, each writing its own `spec_parse[<config>]` line, and one absorb worker beside each, at widths 1 and 2 alike: it answers the counts the one-process walk answers, writes every configuration's settle memo file, leaves nothing at any window memo path and no staged file, and records each walk's own peak and each absorb's footprint, one observation a configuration."""
         from rebuild.tools import cycle_timings
 
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         for width in (1, 2):
             out_dir = self._tables(tables_dir, tmp_path / f"w{width}")
             summary = run_m1.run_replay_strings(SPEC, out_dir, None, replay_threads=width, memo_inputs=inputs)
@@ -2733,7 +2731,7 @@ class TestTheReplayStage:
         fields[6] = f"{fields[0]}.perturbed"
         lines[2] = "\t".join(fields)
         table.write_text("\n".join(lines) + "\n")
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         standing = conform.settle_memo_files(out_dir, SPEC, inputs)["default"]
         assert conform._write_settle_memo(standing, *conform._memo_columns([]))
         before = (standing.path.read_bytes(), standing.path.stat().st_ino)
@@ -2751,7 +2749,7 @@ class TestTheReplayStage:
     ):
         """A configuration whose settle memo head cannot be committed, here because a directory stands at its head's path, is a warning on a passing replay; every other configuration's head is committed over its base, and the base the blocked configuration's worker wrote, which no head lists, is removed."""
         out_dir = self._tables(tables_dir, tmp_path / "blocked")
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         memos = conform.settle_memo_files(out_dir, SPEC, inputs)
         blocked = row_delta.head_path(out_dir, memos["ss03"].path.name)
         blocked.mkdir()
@@ -2768,7 +2766,7 @@ class TestTheReplayStage:
         self, tables_dir, tmp_path, capsys
     ):
         """A single file whose header reads and whose tables do not, which a code change that renames a pickled class leaves, passes the plan's checks and is adopted onto the segment route. The compare's load refuses it, so the worker lays its refill out whole as an `unusable` base and the parent commits it through that route as the next generation's base: the single file and its link are gone, the memo stands, and its base is the file a replay into an empty tree writes, byte for byte."""
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         clean = self._tables(tables_dir, tmp_path / "clean")
         assert run_m1.run_replay_strings(SPEC, clean, None, memo_inputs=inputs, configs=["default"])["pass"]
         out_dir = self._tables(tables_dir, tmp_path / "damaged")

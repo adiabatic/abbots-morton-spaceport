@@ -39,6 +39,8 @@ from rebuild.pipeline import (
     run_m1,
     run_m1_gates,
     settle,
+    settle_memo_keys,
+    shared_segments,
     witness,
 )
 from rebuild.pipeline.fixtures import mini_spec
@@ -176,7 +178,7 @@ class TestIsolatedOverlay:
             and not isolated_overlay_active(live, conform.features_for_config(config))
         )
         assert cosmetic == conform.COSMETIC_CONFIGS
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
         assert set(conform.settle_memo_files(Path("m1"), spec, inputs)) == set(conform.SETTLEMENT_CONFIGS)
 
     def test_the_overlay_walk_answers_the_bare_stream_from_the_registry(self, spec, monkeypatch):
@@ -1224,7 +1226,7 @@ class TestOracleAudit:
         return oracle.OracleConfigResult(
             config=shard.config,
             divergent_rows=counted,
-            audit_blocks=oracle.ship(self._blocks(lines), writer.ship_to(shard).audit),
+            audit_blocks=shared_segments.ship(self._blocks(lines), writer.ship_to(shard).audit),
         )
 
     @staticmethod
@@ -1987,8 +1989,10 @@ class TestOracleAudit:
         def shipped(writer, shard, part):
             result = self._result(writer, shard, part)
             result.pass_ordinal = 1
-            result.store_segment = oracle.ship([gzip.compress(b"records\n")], writer.ship_to(shard).store)
-            result.memo_blocks = oracle.ship([b"head", b"rows"], writer.ship_to(shard).memo)
+            result.store_segment = shared_segments.ship(
+                [gzip.compress(b"records\n")], writer.ship_to(shard).store
+            )
+            result.memo_blocks = shared_segments.ship([b"head", b"rows"], writer.ship_to(shard).memo)
             return shard, result
 
         stores = oracle_cache.StoreSet(tmp_path, ("default",), {"default": stamp}, {})
@@ -2022,7 +2026,7 @@ class TestOracleAudit:
             [
                 "import sys, zlib",
                 "from pathlib import Path",
-                "from rebuild.pipeline import conform, oracle, run_m1, run_m1_gates",
+                "from rebuild.pipeline import conform, oracle, run_m1, run_m1_gates, shared_segments",
                 "out, mode = Path(sys.argv[1]), sys.argv[2]",
                 'shards = [oracle.OracleShard("default", 0, 1, 0, 2), oracle.OracleShard("default", 1, None, 1, 2)]',
                 'lines = [zlib.compress(b"default\\tE65%d\\tcell\\ta\\tqsPea\\tqsPea.half\\n" % digit) for digit in range(2)]',
@@ -2033,8 +2037,8 @@ class TestOracleAudit:
                 "    print(*names, flush=True)",
                 "    with run_m1._spawn_pool(2, len(shards), max_tasks_per_child=1) as pool:",
                 "        writer.executor = pool",
-                "        shipped = [future.result() for future in [pool.submit(oracle.ship, [line], name) for line, name in zip(lines, names[:2])]]",
-                "        blocks = pool.submit(oracle.ship, list(fresh.blocks), names[2]).result()",
+                "        shipped = [future.result() for future in [pool.submit(shared_segments.ship, [line], name) for line, name in zip(lines, names[:2])]]",
+                "        blocks = pool.submit(shared_segments.ship, list(fresh.blocks), names[2]).result()",
                 '        if mode == "land":',
                 "            counts = conform.FreshMemo((), fresh.rows, fresh.labels, fresh.records)",
                 "            absorbed, _seconds, _peak = pool.submit(run_m1_gates._absorb_memo, memo, None, [(blocks, counts)]).result()",
@@ -2692,7 +2696,7 @@ class TestOracleRowCache:
             MINI / "M1.otf", tmp_path / "tea.otf", lambda name: name.split(".")[0] == "qsTea"
         )
         position = oracle_cache.position_keys(REPO_ROOT, keys, edited, None)
-        assert oracle_cache.moved_families(cold_position[0], position[0]) == frozenset({"qsTea"})
+        assert settle_memo_keys.moved_families(cold_position[0], position[0]) == frozenset({"qsTea"})
         carried_report, carried_audit, carried_stores = self._pass(
             spec, tmp_path, "carried", read_dir=cold_stores, font=edited, position=position, **shared
         )
@@ -3618,14 +3622,14 @@ class TestSweepEconomics:
         """With `last`, the sweep runs one unit of its configuration. Over a toy alphabet of a boundary and three letters, two of which form a ligature, at maximum length 3, each symbol's unit shapes exactly the texts that end in it, in the whole sweep's order, so the units between them shape every text once, and each text's settled stream in its unit is the one the whole sweep settles for it, the length-3 texts included. Every text diverges against the stand-in font, and `merge_unit_results` over the units, taken in reverse, must give the whole sweep's result: its counts, its kinds in order, and its exemplars."""
         monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
         alphabet = (" ", TEA, IT, OY)
-        check_oracle = conform.check_oracle
+        check_glyph_names = conform.check_glyph_names
         settled: list[tuple[str, tuple[str, ...]]] = []
 
-        def recording_check_oracle(text, config, shaped, expected, divergences, modes) -> None:
+        def recording_check_glyph_names(text, config, shaped, expected, divergences, modes) -> None:
             settled.append((text, tuple(expected)))
-            check_oracle(text, config, shaped, expected, divergences, modes)
+            check_glyph_names(text, config, shaped, expected, divergences, modes)
 
-        monkeypatch.setattr(conform, "check_oracle", recording_check_oracle)
+        monkeypatch.setattr(conform, "check_glyph_names", recording_check_glyph_names)
 
         def run(
             last: str | None,
@@ -3672,13 +3676,13 @@ class TestSweepEconomics:
         monkeypatch.setattr(conform, "check_split_buffer", lambda *args, **kwargs: None)
         alphabet = (" ", TEA, IT, OY)
         settled: list[tuple[str, tuple[str, ...]]] = []
-        check_oracle = conform.check_oracle
+        check_glyph_names = conform.check_glyph_names
 
-        def recording_check_oracle(text, config, shaped, expected, divergences, modes) -> None:
+        def recording_check_glyph_names(text, config, shaped, expected, divergences, modes) -> None:
             settled.append((text, tuple(expected)))
-            check_oracle(text, config, shaped, expected, divergences, modes)
+            check_glyph_names(text, config, shaped, expected, divergences, modes)
 
-        monkeypatch.setattr(conform, "check_oracle", recording_check_oracle)
+        monkeypatch.setattr(conform, "check_glyph_names", recording_check_glyph_names)
 
         def run(last: str | None, triggers: frozenset[str]) -> tuple[int, list[tuple[str, tuple[str, ...]]]]:
             settled.clear()
@@ -4671,12 +4675,12 @@ class TestSettleMemoFile:
         return conform.SettleMemoFile(tmp_path / "settle-memo-default.bin", stamp, dict(keys or {}))
 
     def test_settle_memo_files_key_each_configuration_off_the_snapshot(self, spec, tmp_path):
-        inputs = oracle_cache.SettleMemoInputs(rune_digests={"qsTea": "t0"}, oracle_code="code", data="data")
+        inputs = settle_memo_keys.SettleMemoInputs(rune_digests={"qsTea": "t0"}, code="code", data="data")
         files = conform.settle_memo_files(tmp_path, spec, inputs)
         assert set(files) == set(conform.SETTLEMENT_CONFIGS)
         assert files["default"].path == tmp_path / "settle-memo-default.bin"
         assert len({memo.stamp for memo in files.values()}) == len(files)
-        assert files["default"].family_keys == oracle_cache.settle_family_keys(inputs, spec)
+        assert files["default"].family_keys == settle_memo_keys.settle_family_keys(inputs, spec)
         assert conform.settle_memo_files(tmp_path, spec, None) == {}
 
     def test_a_rune_edit_retires_only_the_entries_naming_it(self, spec, guard, tmp_path):

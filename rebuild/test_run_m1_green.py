@@ -27,6 +27,8 @@ from rebuild.pipeline import (
     row_delta,
     run_m1,
     run_m1_gates,
+    settle_memo_keys,
+    shared_segments,
 )
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
@@ -889,9 +891,9 @@ class TestOracleFanIn:
                 rows_compared=1,
                 divergent_rows=2 if shard.label == overcount else 1,
                 multi_matched_count=0 if multi is None else multi(shard),
-                audit_blocks=oracle.ship(audit.close(), ship_to.audit),
+                audit_blocks=shared_segments.ship(audit.close(), ship_to.audit),
                 fresh_memo=fresh,
-                memo_blocks=None if fresh is None else oracle.ship([b"head", b"rows"], ship_to.memo),
+                memo_blocks=None if fresh is None else shared_segments.ship([b"head", b"rows"], ship_to.memo),
             )
 
         return worker
@@ -1029,7 +1031,7 @@ class TestOracleFanIn:
         seen: list = []
         rows = {config: 1000 for config in conform.ORACLE_CONFIGS}
         self._pool(monkeypatch, self._worker(shards=seen), rows=rows)
-        memo_inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
+        memo_inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="c", data="d")
         monkeypatch.setattr(
             run_m1.conform,
             "settle_memo_files",
@@ -1115,7 +1117,7 @@ class TestOracleFanIn:
             return conform.MemoAbsorb(False, 0, 0, 0), 0.0, 7_000
 
         monkeypatch.setattr(run_m1_gates, "_absorb_memo", absorb)
-        return oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="c", data="d")
+        return settle_memo_keys.SettleMemoInputs(rune_digests={}, code="c", data="d")
 
     def test_every_range_returns_its_fresh_windows_and_the_absorbs_wait_for_memo_ready(
         self, monkeypatch, tmp_path
@@ -1330,7 +1332,9 @@ class TestOracleFanIn:
                 config=config,
                 rows_compared=stop - shard.first_row,
                 pass_ordinal=writer.pass_ordinal,
-                store_segment=None if writer.member is None else oracle.ship([writer.member], ship_to.store),
+                store_segment=(
+                    None if writer.member is None else shared_segments.ship([writer.member], ship_to.store)
+                ),
             )
 
         self._pool(monkeypatch, worker, rows=rows)
@@ -1716,13 +1720,13 @@ class TestConformFanIn:
             monkeypatch, tmp_path, {}, parts=[("default", "a"), ("ss04", "a")], lose=("ss04", "c")
         )
         names: list[str] = []
-        shipping = oracle.ship
+        shipping = shared_segments.ship
 
         def ship(pieces, name):
             names.append(name)
             return shipping(pieces, name)
 
-        monkeypatch.setattr(oracle, "ship", ship)
+        monkeypatch.setattr(shared_segments, "ship", ship)
         expected = sum(len(self.ALPHABET) ** length for length in range(1, conform.SWEEP_MAX_LENGTH + 1))
         with pytest.raises(
             RuntimeError,

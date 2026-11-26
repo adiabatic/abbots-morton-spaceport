@@ -22,7 +22,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
-from rebuild.pipeline.baseline_subset import M1_ALPHABET  # noqa: E402
+from rebuild.pipeline.alphabet import M1_ALPHABET  # noqa: E402
 from rebuild.pipeline.oracle import unformed_old_ligature  # noqa: E402
 
 BASELINE_DIR = REPO_ROOT / "rebuild" / "out"

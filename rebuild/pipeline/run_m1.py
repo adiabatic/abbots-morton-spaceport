@@ -60,10 +60,10 @@ from rebuild.pipeline import (
     kern_inventory,
     kernel_exec,
     kernel_io,
-    oracle_cache,
     output_sink,
     readback,
     row_delta,
+    settle_memo_keys,
     spec_load,
     surface,
     witness,
@@ -174,7 +174,7 @@ TABLE_BUILD_CODE_MODULES = frozenset(
 
 
 def table_build_code_paths(root: Path = REPO_ROOT) -> list[Path]:
-    """Return the code that `memo_structure_stamp` and a `TableBuildRecord`'s `code` digest both hash: the crate's manifest, lock and sources, and the modules `TABLE_BUILD_CODE_MODULES` names, as repo-relative paths. That roster is the module-grain import closure of the crate driver (`kernel_exec`, whose `build_table_files` runs the crate and is the whole timed `kernel_build_tables` span) and of the spec dump's writer (`kernel_io`), outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`. Being an import closure, it also holds modules the two import for work other than running the crate and writing the dump, and hashing those only moves the stamp and `code` more often. rebuild/test_build_code_closure.py checks the roster against that closure in both directions. The rest of `fingerprint.table_code_paths` reaches the crate, if at all, only through the dump, or through command-line values that change no table (`memo_structure_stamp` names them). So an edit there moves the structure stamp only where it changes the dump or the code that computes the stamp: the stamp's own code in run_m1.py, `spec_load.capability_features`, and the file digests `fingerprint.path_lines` takes. A letter batch's `baseline_subset.M1_ALPHABET` edit and a gate edit such as one to `conform` keep `code`, so a build before a batch can be paired with the first build after it."""
+    """Return the code that `memo_structure_stamp` and a `TableBuildRecord`'s `code` digest both hash: the crate's manifest, lock and sources, and the modules `TABLE_BUILD_CODE_MODULES` names, as repo-relative paths. That roster is the module-grain import closure of the crate driver (`kernel_exec`, whose `build_table_files` runs the crate and is the whole timed `kernel_build_tables` span) and of the spec dump's writer (`kernel_io`), outside rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`. Being an import closure, it also holds modules the two import for work other than running the crate and writing the dump, and hashing those only moves the stamp and `code` more often. rebuild/test_build_code_closure.py checks the roster against that closure in both directions. The rest of `fingerprint.table_code_paths` reaches the crate, if at all, only through the dump, or through command-line values that change no table (`memo_structure_stamp` names them). So an edit there moves the structure stamp only where it changes the dump or the code that computes the stamp: the stamp's own code in run_m1.py, `spec_load.capability_features`, and the file digests `fingerprint.path_lines` takes. A letter batch's `alphabet.M1_ALPHABET` edit and a gate edit such as one to `conform` keep `code`, so a build before a batch can be paired with the first build after it."""
     kernel = root / "rebuild" / "kernel-rs"
     named = {root / relative for relative in TABLE_BUILD_CODE_MODULES}
     return [path for path in fingerprint.table_code_paths(root) if kernel in path.parents or path in named]
@@ -1248,7 +1248,7 @@ def _run_table_gates(
     out_dir: Path,
     inputs: str | None,
     packing: Packing,
-    memo_inputs: oracle_cache.SettleMemoInputs | None,
+    memo_inputs: settle_memo_keys.SettleMemoInputs | None,
     replay_threads: int | None,
     state: _TableGateState,
 ) -> None:
@@ -1391,7 +1391,7 @@ def run(
     spec: ResolvedSpec | None = None,
     inputs: str | None = None,
     kernel_threads: int | None = None,
-    memo_inputs: oracle_cache.SettleMemoInputs | None = None,
+    memo_inputs: settle_memo_keys.SettleMemoInputs | None = None,
     replay_threads: int | None = None,
     scratch_beside_default: int | None = None,
     reuse: TableReuse | None = None,
@@ -1683,7 +1683,7 @@ def run_replay_strings(
     out_dir: Path,
     inputs: str | None,
     replay_threads: int | None = None,
-    memo_inputs: oracle_cache.SettleMemoInputs | None = None,
+    memo_inputs: settle_memo_keys.SettleMemoInputs | None = None,
     configs: Sequence[str] = conform.SETTLEMENT_CONFIGS,
     imports: str | None = None,
 ) -> dict:
@@ -1691,7 +1691,7 @@ def run_replay_strings(
 
     On a rune edit only some of the texts are walked. `replay_families` reads the last passing record beside the tables, and while `replay_structure_stamp` and the tables' imported windows (`imports`, the build's `imports_digest`) match, only the texts naming a changed rune, or a rune whose records read one, are walked. A build with no passing record or a changed structure walks everything, and a build where nothing changed walks nothing and carries the record forward. A caller with no stamp (its own spec, whose rune files are not the repository's) walks every text and writes no record.
 
-    The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay walks each configuration in a crate process of its own beside the spawn worker that absorbs its window memo as the walk writes it (`replay_and_absorb`), on the route its plan gave its configuration before the pool started (`conform.plan_settle_memos`). On the segment route the absorb compares its refill with the standing memo and writes a segment of what differs, or nothing when every window settled as the memo holds it (`conform.compare_replay`), and the refill whole as an `unusable` base when the standing memo does not read or its tables list an outcome the spec cannot name; on a base route it writes the refill whole as the next generation's base, today's file byte for byte. Once every walk has passed, the parent commits each configuration's head under the stamp and family keys `conform.settle_memo_files` computes, every part recorded under them. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. A red replay commits no head and writes no part at a width of the configuration count, and removes the parts its workers wrote early at a narrower one (`replay_and_absorb`), and a failed absorb is a warning, not a failure, since every reader settles what the memo lacks. When any configuration's memo is missing or fails `conform.settle_memo_standing`, a head that does not read, a part missing or not its size, or a part recording another stamp, every text is walked to refill it, which can widen the walk beyond what the structure stamp requires. The code `oracle_cache.settle_memo_stamp` hashes (`oracle_cache.oracle_code_paths`: the modules `oracle_cache.ORACLE_ROW_CODE_PATHS` names and the crate) is inside the build-side code `locality_lines` hashes, so an edit that moves that stamp's `oracle_code` line also moves the structure stamp. A narrowed walk (a rune edit), or a full walk with no `memo_inputs`, writes no memo and runs every configuration it walks in one crate process (`kernel_exec.replay_strings`), and leaves the existing memos to drop their own stale entries.
+    The walk also produces the settle memo. With `memo_inputs` (`settle_memo_inputs`, computed before the spec was loaded), every full replay walks each configuration in a crate process of its own beside the spawn worker that absorbs its window memo as the walk writes it (`replay_and_absorb`), on the route its plan gave its configuration before the pool started (`conform.plan_settle_memos`). On the segment route the absorb compares its refill with the standing memo and writes a segment of what differs, or nothing when every window settled as the memo holds it (`conform.compare_replay`), and the refill whole as an `unusable` base when the standing memo does not read or its tables list an outcome the spec cannot name; on a base route it writes the refill whole as the next generation's base, today's file byte for byte. Once every walk has passed, the parent commits each configuration's head under the stamp and family keys `conform.settle_memo_files` computes, every part recorded under them. So the witness stage, the oracle and the conformance sweep load what the replay settled instead of settling it again. A red replay commits no head and writes no part at a width of the configuration count, and removes the parts its workers wrote early at a narrower one (`replay_and_absorb`), and a failed absorb is a warning, not a failure, since every reader settles what the memo lacks. When any configuration's memo is missing or fails `conform.settle_memo_standing`, a head that does not read, a part missing or not its size, or a part recording another stamp, every text is walked to refill it, which can widen the walk beyond what the structure stamp requires. The code `settle_memo_keys.settle_memo_stamp` hashes (`settle_memo_keys.settle_memo_code_paths`: the modules `settle_memo_keys.SETTLE_MEMO_CODE_PATHS` names and the crate) is inside the build-side code `locality_lines` hashes, so an edit that moves that stamp's `code` line also moves the structure stamp. A narrowed walk (a rune edit), or a full walk with no `memo_inputs`, writes no memo and runs every configuration it walks in one crate process (`kernel_exec.replay_strings`), and leaves the existing memos to drop their own stale entries.
 
     The record written beside the tables is what the next build's walk is narrowed against, so it carries the structure stamp and every rune digest as well as the counts. It is written whether the walk passed or failed: a disagreement is recorded with the crate's message, and `_run_table_gates` raises it as `SystemExit`. The width is `_replay_threads`: `replay_threads` when given, else the machine's memory divided by `kernel_exec.REPLAY_PEAK_BYTES` (what one configuration's walk and its absorb hold together), capped at the configuration count and the cores, so every text replays in one round on both fleet machines. On a full replay that width gates the walks' crate processes, and `report_replay` records each walk's own peak as one reading of the `replay-walk` record and each absorb worker's peak footprint as one of the `REPLAY_ABSORB_POOL_UNIT` record. A narrowed replay records its one process's peak over the walks it ran at once (`_record_replay_walk`).
     """
@@ -2173,7 +2173,7 @@ def run_rule_witnesses(
     spec: ResolvedSpec,
     tables: Mapping[str, tuple | DecisionTable],
     out_dir: Path,
-    memo_inputs: oracle_cache.SettleMemoInputs | None,
+    memo_inputs: settle_memo_keys.SettleMemoInputs | None,
 ) -> dict:
     """Run the witness stage in this process: settle every configuration's certificates through the crate and check that each rule fires on its own certificate (`witness.check_rule_certificates`). This is the reachability half of the checks that fail the build on a rule that can never fire: the crate's fold fails on a rule no replayed row first-matches, and this fails on a rule whose replayed row no string reaches, which is what a wrong slot restriction in the worklist would produce. It runs here, on the tables the build just folded, because the certificates describe those tables; `--gates-only` reuses tables this stage already passed.
 
@@ -2202,7 +2202,7 @@ def _witness_inputs(
     spec: ResolvedSpec,
     tables: Mapping[str, tuple | DecisionTable],
     out_dir: Path,
-    memo_inputs: oracle_cache.SettleMemoInputs | None,
+    memo_inputs: settle_memo_keys.SettleMemoInputs | None,
 ) -> tuple[_WitnessShared, dict[str, DecisionTable], dict[str, conform.SettleMemoFile]]:
     """The witness stage's inputs, each computed once in the calling process: what every configuration's step shares (`_WitnessShared`, with the guard verdicts from `kernel_exec.guard_sweep`, one sweep per spec per process, which in run_m1's process the oracle's setup reads too), each configuration's decision table without its join table, in `tables` order, and each configuration's settle memo in its read-only form (`conform.settle_memo_files`, `conform.SettleMemoFile.read_only`), none when `memo_inputs` is None."""
     decisions = {
@@ -2263,7 +2263,7 @@ def _spawn_rule_witnesses(
     spec: ResolvedSpec,
     tables: Mapping[str, tuple],
     out_dir: Path,
-    memo_inputs: oracle_cache.SettleMemoInputs | None,
+    memo_inputs: settle_memo_keys.SettleMemoInputs | None,
 ) -> tuple[dict, int]:
     """Run the witness stage (`run_rule_witnesses`' step, over the same inputs) in one spawned worker, block until it has checked every configuration, and return the summary and the worker's peak memory. `_run_table_gates` calls this and says why the stage has a process of its own.
 
@@ -2401,9 +2401,9 @@ def tables_inputs() -> str:
     return inputs
 
 
-def settle_memo_inputs() -> oracle_cache.SettleMemoInputs:
-    """Return the disk-derived half of the settle memo's keys (`oracle_cache.SettleMemoInputs`). Call it where `tables_inputs` is called, before `load_default_spec`, so a key can only name content the settlements are at least as new as. Every entry point that shares a memo between phases takes this beside the tables' stamp and passes both to `conform.settle_memo_files` once the spec is loaded."""
-    return oracle_cache.settle_memo_inputs(REPO_ROOT)
+def settle_memo_inputs() -> settle_memo_keys.SettleMemoInputs:
+    """Return the disk-derived half of the settle memo's keys (`settle_memo_keys.SettleMemoInputs`). Call it where `tables_inputs` is called, before `load_default_spec`, so a key can only name content the settlements are at least as new as. Every entry point that shares a memo between phases takes this beside the tables' stamp and passes both to `conform.settle_memo_files` once the spec is loaded."""
+    return settle_memo_keys.settle_memo_inputs(REPO_ROOT)
 
 
 def full_run(

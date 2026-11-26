@@ -305,7 +305,7 @@ def _allow_after(root, text):
 
 
 def test_blessing_a_contact_signature_moves_the_run_key_alone(tmp_path):
-    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without dropping the oracle row cache, whose stamp (`oracle_cache.stamped_data_paths`) is built from `data_paths`."""
+    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without dropping the oracle row cache, whose stamp (`settle_memo_keys.stamped_data_paths`) is built from `data_paths`."""
     root = _fake_repo(tmp_path)
     before = _allow_after(root, ALLOW_LIST)
     assert root / fingerprint.CONTACT_ALLOW_LABEL not in fingerprint.data_paths(root)

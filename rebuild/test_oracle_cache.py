@@ -31,6 +31,8 @@ from rebuild.pipeline import (
     row_delta,
     run_m1,
     run_m1_gates,
+    settle_memo_keys,
+    shared_segments,
 )
 from rebuild.pipeline.model import CellId, Settled
 from rebuild.tools import artifact_cycle
@@ -203,7 +205,7 @@ def test_the_stamp_folds_none_of_the_inputs_the_comparison_re_reads_every_pass(r
     spec = fixtures.mini_spec()
     base = _stamp(repo, spec)
     (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
-    stamped = set(oracle_cache.stamped_data_paths(repo))
+    stamped = set(settle_memo_keys.stamped_data_paths(repo))
     assert _script(repo) in stamped
     for name in (
         "glyph_data/senior_quikscript_kerning.yaml",
@@ -224,7 +226,7 @@ def test_blessing_a_contact_signature_leaves_the_whole_store_stamp_untouched(rep
     allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y1'}\n", encoding="utf-8")
     base = _stamp(repo, spec)
     assert allow not in fingerprint.data_paths(repo)
-    assert allow not in set(oracle_cache.stamped_data_paths(repo))
+    assert allow not in set(settle_memo_keys.stamped_data_paths(repo))
     allow.write_text("- {signature: 'contact:qsPea.full.ex-y0:qsTea.full.en-y0:y2'}\n", encoding="utf-8")
     assert _stamp(repo, spec).lines == base.lines
     assert oracle_cache.moved_note(base.labels, _stamp(repo, spec).labels) is None
@@ -234,67 +236,21 @@ def test_a_schema_hover_or_a_registry_comment_leaves_both_stamps_untouched(repo)
     """The `data` line hashes the schemas without their `title` and `description` annotations and the registry without its comments (`fingerprint.data_path_lines`), so rewording either keeps every row and every memoized settlement. A keyword edit still moves both stamps."""
     spec = fixtures.mini_spec()
     schema_path = repo / "rebuild" / "schema" / "rune.schema.json"
-    base, memo = _stamp(repo, spec), oracle_cache.settle_memo_inputs(repo).data
+    base, memo = _stamp(repo, spec), settle_memo_keys.settle_memo_inputs(repo).data
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
     schema["description"] = "Reworded."
     schema["$defs"]["stance"]["description"] = "Reworded as well."
     schema_path.write_text(json.dumps(schema, indent=4), encoding="utf-8")
     _script(repo).write_text("# A comment.\n" + _script(repo).read_text(encoding="utf-8"), encoding="utf-8")
     assert _stamp(repo, spec).lines == base.lines
-    assert oracle_cache.settle_memo_inputs(repo).data == memo
+    assert settle_memo_keys.settle_memo_inputs(repo).data == memo
     schema["$defs"]["stance"]["minProperties"] = 1
     schema_path.write_text(json.dumps(schema, indent=4), encoding="utf-8")
     assert oracle_cache.moved_note(base.labels, _stamp(repo, spec).labels) == "data (changed)"
-    assert oracle_cache.settle_memo_inputs(repo).data != memo
+    assert settle_memo_keys.settle_memo_inputs(repo).data != memo
 
 
 # --- the family key's grain --------------------------------------------------------------
-
-
-def test_a_ligature_rune_edit_invalidates_only_rows_carrying_all_its_components():
-    """A ligature rune declares a `sequence` and no codepoint, so no row's codepoints name it, yet `settle.form_ligatures` routes the pair through its file. A key over only the families of a row's codepoints would therefore miss a ligature edit. The ligature clause fires when all the components' bits are present and ignores order: a row with the components in the other order can never form the ligature but is marked stale anyway. Over-invalidation is the safe direction, and a mask cheap enough to test on every row cannot check order."""
-    spec = fixtures.mini_spec()
-    tea_oy = (TEA, OY)
-    tea_pea = (TEA, PEA)
-    for moved, expected in (
-        ({"qsTea_qsOy"}, {tea_oy}),
-        ({"qsPea"}, {tea_pea}),
-        ({"qsSee"}, set()),
-    ):
-        mask = oracle_cache.StaleMask(spec, moved)
-        assert {row for row in (tea_oy, tea_pea) if mask.stale(mask.mask_of(row))} == expected
-
-    ligature = oracle_cache.StaleMask(spec, {"qsTea_qsOy"})
-    assert not ligature.stale(ligature.mask_of((TEA,)))
-    assert not ligature.stale(ligature.mask_of((OY,)))
-    assert ligature.stale(ligature.mask_of((OY, TEA)))
-    assert "qsTea_qsOy" in ligature.families_of(ligature.mask_of(tea_oy))
-    assert "qsTea_qsOy" not in ligature.families_of(ligature.mask_of(tea_pea))
-
-
-def test_a_ligature_rune_edit_stales_the_windows_carrying_its_formed_label():
-    """Settle-memo windows hold formed labels, so a window with a `qsTea_qsOy` label names the ligature rune and neither component, and the component clause alone would serve that window after an edit to `qsTea_qsOy.yaml`. The formed label's bit must read as moved on its own, while a single component's bit must not. An edit to a component must not make stale a window that names only the formed ligature, because the edit did not touch the ligature's file."""
-    spec = fixtures.mini_spec()
-    ligature = oracle_cache.StaleMask(spec, {"qsTea_qsOy"})
-    formed = ligature.bit_of("qsTea_qsOy")
-    assert formed and ligature.stale(formed)
-    assert not ligature.stale(ligature.bit_of("qsTea"))
-    assert not ligature.stale(ligature.bit_of("qsOy"))
-    assert ligature.stale(ligature.bit_of("qsTea") | ligature.bit_of("qsOy"))
-    assert ligature.bit_of("#EDGE") == 0
-
-    component = oracle_cache.StaleMask(spec, {"qsTea"})
-    assert component.stale(component.bit_of("qsTea"))
-    assert not component.stale(component.bit_of("qsTea_qsOy"))
-
-
-def test_a_moved_family_the_registry_cannot_place_stales_every_row():
-    """A moved name with neither a codepoint nor a sequence, such as a rune file for a family the registry does not list yet, can reach rows in ways the bits cannot describe, so it makes every row stale."""
-    spec = fixtures.mini_spec()
-    mask = oracle_cache.StaleMask(spec, {"qsNotInTheRegistry"})
-    assert mask.everything
-    assert mask.stale(mask.mask_of((PEA,)))
-    assert mask.stale(0)
 
 
 def test_an_alias_edit_stales_only_the_families_its_keys_name(repo):
@@ -304,13 +260,13 @@ def test_an_alias_edit_stales_only_the_families_its_keys_name(repo):
     base = _stamp(repo, spec)
 
     _write_alias(repo, {**ALIAS_MAP, "qsTea.en-y0": {"rune": "qsTea", "stance": "half", "entry": "y6"}})
-    assert oracle_cache.moved_families(before, _keys(repo, spec)) == frozenset({"qsTea"})
+    assert settle_memo_keys.moved_families(before, _keys(repo, spec)) == frozenset({"qsTea"})
 
     _write_alias(repo, {**ALIAS_MAP, "qsPea.half.ex-y5": "pending"})
-    assert oracle_cache.moved_families(before, _keys(repo, spec)) == frozenset({"qsPea"})
+    assert settle_memo_keys.moved_families(before, _keys(repo, spec)) == frozenset({"qsPea"})
 
     _write_alias(repo, {**ALIAS_MAP, "periodcentered.lowered": "boundary"})
-    assert oracle_cache.moved_families(before, _keys(repo, spec)) == frozenset()
+    assert settle_memo_keys.moved_families(before, _keys(repo, spec)) == frozenset()
     assert oracle_cache.moved_note(base.labels, _stamp(repo, spec).labels) == "alias_boundary (changed)"
 
 
@@ -334,10 +290,10 @@ def test_a_cited_family_absent_from_the_recorded_keys_is_a_miss(repo, tmp_path):
     """A family present in only one of the two key maps counts as moved. Comparing with `recorded.get(name) == current.get(name)` would treat two absences as equal, and the case that matters is a name present on one side only: a new ligature rune file for two letters already in the alphabet. Reading that as agreement would serve the pre-ligature verdict for every row of the pair."""
     recorded = {"qsPea": "p0", "qsTea": "t0"}
     current = {"qsPea": "p0", "qsTea": "t0", "qsTea_qsOy": "to0"}
-    assert oracle_cache.moved_families(recorded, current) == frozenset({"qsTea_qsOy"})
-    assert oracle_cache.moved_families(current, recorded) == frozenset({"qsTea_qsOy"})
-    assert oracle_cache.moved_families(recorded, recorded) == frozenset()
-    assert oracle_cache.moved_families({}, {}) == frozenset()
+    assert settle_memo_keys.moved_families(recorded, current) == frozenset({"qsTea_qsOy"})
+    assert settle_memo_keys.moved_families(current, recorded) == frozenset({"qsTea_qsOy"})
+    assert settle_memo_keys.moved_families(recorded, recorded) == frozenset()
+    assert settle_memo_keys.moved_families({}, {}) == frozenset()
 
     spec = fixtures.mini_spec()
     stamp = _stamp(repo, spec)
@@ -780,7 +736,9 @@ def test_a_segment_writer_writes_records_only_and_the_join_puts_the_frame_around
                     rows_compared=rows,
                     pass_ordinal=4,
                     store_segment=(
-                        None if member is None else oracle.ship([member], fan_in.ship_to(shard).store)
+                        None
+                        if member is None
+                        else shared_segments.ship([member], fan_in.ship_to(shard).store)
                     ),
                 )
                 fan_in.land(shard, result)
@@ -1415,7 +1373,7 @@ def _pooled_store_pass(
     token = secrets.token_hex(4)
     shipped = []
     for at, (rows, member) in enumerate(_members(stamp, keys, position, ordinal, records, cut)):
-        segment = oracle.ship([member], f"t{token}-{at}")
+        segment = shared_segments.ship([member], f"t{token}-{at}")
         assert segment is not None
         shipped.append((rows, segment))
     arguments = (
@@ -1436,7 +1394,7 @@ def _pooled_store_pass(
         with pytest.raises(FileNotFoundError):
             shared_memory.SharedMemory(segment.name, track=False)
     assert result.ages is not None and result.written.ages == bytearray()
-    mapped = oracle._Mapped(result.ages)
+    mapped = shared_segments.Mapped(result.ages)
     ages = b"".join(bytes(piece) for piece in mapped.pieces)
     mapped.close()
     stores.accept(replace(result.written, ages=ages))
@@ -1745,12 +1703,12 @@ def test_a_glyph_edit_moves_only_its_family_s_position_key(repo, tmp_path):
 
     tea = _font_edited(MINI_FONT, tmp_path / "tea.otf", lambda name: name.split(".")[0] == "qsTea")
     keys, stamp = _position(repo, spec, tea)
-    assert oracle_cache.moved_families(base_keys, keys) == frozenset({"qsTea"})
+    assert settle_memo_keys.moved_families(base_keys, keys) == frozenset({"qsTea"})
     assert stamp.lines == base_stamp.lines
 
     helper = _font_edited(MINI_FONT, tmp_path / "space.otf", lambda name: name == "space")
     keys, stamp = _position(repo, spec, helper)
-    assert oracle_cache.moved_families(base_keys, keys) == frozenset()
+    assert settle_memo_keys.moved_families(base_keys, keys) == frozenset()
     assert oracle_cache.moved_note(base_stamp.labels, stamp.labels) == "font_helpers (changed)"
 
 
@@ -1762,7 +1720,7 @@ def test_the_position_key_embeds_the_row_key(repo):
     base = oracle_cache.position_family_keys(row_keys, glyphs)
     assert set(base) == set(row_keys) | set(glyphs)
     _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
-    assert oracle_cache.moved_families(
+    assert settle_memo_keys.moved_families(
         base, oracle_cache.position_family_keys(_keys(repo, spec), glyphs)
     ) == frozenset({"qsPea"})
 
@@ -2101,56 +2059,6 @@ def test_the_position_keys_are_reverified_at_promotion(repo, tmp_path, monkeypat
     assert "not written" in message and "positions kern (changed)" in message
     assert (out_dir / oracle_cache.SET_HEAD_NAME).read_bytes() == promoted
     assert _unlisted_parts(out_dir) == [oracle_cache.ages_name(1)]
-
-
-# --- the settle memo's keys ----------------------------------------------------------------
-
-
-def test_the_settle_memo_keys_ignore_the_alias_map_and_move_per_family(repo):
-    """The memo's per-family key is the row key without the alias line. The walk that fills the memo never reads the alias map, so changing a family's aliases keeps every settlement, while a geometric edit to one rune moves that family's key and no other."""
-    spec = fixtures.mini_spec()
-    base = oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec)
-    assert set(base) == set(fingerprint.rune_digests(repo))
-    _write_alias(repo, {**ALIAS_MAP, "qsTea.en-y0": {"rune": "qsTea", "stance": "half", "entry": "y6"}})
-    assert oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec) == base
-    assert oracle_cache.moved_families(_keys(repo, spec), _keys(repo, spec)) == frozenset()
-    _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
-    moved = oracle_cache.settle_family_keys(oracle_cache.settle_memo_inputs(repo), spec)
-    assert oracle_cache.moved_families(base, moved) == frozenset({"qsPea"})
-
-
-def test_the_settle_memo_stamp_moves_with_the_walk_s_routes_and_not_the_comparison_s(repo, monkeypatch):
-    """The memo's whole-store stamp is the row stamp without the lines only the comparison reads. It moves with the configuration, its features, the walk's code closure, the non-rune data, the spec structure, and the settlement flags, and not with any edit to the alias map, the ledger, the kern sidecar, or a rune file. Each case is checked by the named line it moves or leaves unchanged."""
-    spec = fixtures.mini_spec()
-    inputs = oracle_cache.settle_memo_inputs(repo)
-    base = oracle_cache.settle_memo_stamp(inputs, spec, "default", frozenset())
-    assert set(base.labels) == {
-        "config",
-        "features",
-        "oracle_code",
-        "data",
-        "spec_structure",
-        "capability_features",
-        "settlement_flags",
-    }
-    assert set(base.labels) < set(_stamp(repo, spec).labels)
-    ss03 = oracle_cache.settle_memo_stamp(inputs, spec, "ss03", conform.features_for_config("ss03"))
-    assert oracle_cache.moved_note(base.labels, ss03.labels) == "config (changed), features (changed)"
-
-    _root, moved_spec = _predicate_class(repo, spec, monkeypatch)
-    structure = oracle_cache.settle_memo_stamp(inputs, moved_spec, "default", frozenset())
-    assert oracle_cache.moved_note(base.labels, structure.labels) == "spec_structure (changed)"
-
-    (repo / "glyph_data" / "senior_quikscript_kerning.yaml").write_text("pairs: []\n", encoding="utf-8")
-    _write_alias(repo, {**ALIAS_MAP, "periodcentered.lowered": "boundary"})
-    (repo / "rebuild" / "m1-divergences.yaml").write_text("[]\n", encoding="utf-8")
-    _perturb_rune(repo / "glyph_data" / "runes" / "qsPea.yaml")
-    same = oracle_cache.settle_memo_stamp(oracle_cache.settle_memo_inputs(repo), spec, "default", frozenset())
-    assert same.lines == base.lines
-
-    _rewrite_script(repo, lambda document: document["heights"].update({"x-height": 4}))
-    data = oracle_cache.settle_memo_stamp(oracle_cache.settle_memo_inputs(repo), spec, "default", frozenset())
-    assert oracle_cache.moved_note(base.labels, data.labels) == "data (changed)"
 
 
 _POSITION_LOCK = (

@@ -2,7 +2,7 @@
 
 Streams each `rebuild/out/baseline-<config>.tsv.gz` once through `rebuild.validation.rowmodel.open_table`, keeps the rows whose code points are all in `M1_ALPHABET`, and writes `rebuild/out/m1/baseline-<config>.subset.tsv.gz` with the header lines and the source's (length, codepoints) row order unchanged.
 
-`M1_ALPHABET` is the set written out below, the alphabet a letter batch extends. While the alphabet switch (`spec_load.M1_RUNES_ENV`) is set, it is instead the alphabet of the spec `spec_load.load_default_spec` narrows to, computed when this module is imported, so the name other modules import and `filter_table`'s default argument both take the narrowed set, and the stamp key below moves with it.
+`M1_ALPHABET` is the build's alphabet (`rebuild/pipeline/alphabet.py`), the alphabet a letter batch extends. While the alphabet switch (`spec_load.M1_RUNES_ENV`) is set, it is the alphabet of the spec `spec_load.load_default_spec` narrows to, so `filter_table`'s default argument takes the narrowed set, and the stamp key below moves with it.
 
 Each refilter also checks two kinds of fact that only a refilter can change, over the digests the filter pass computes, so no table is read a second time. A mismatch or a missing table raises `SubsetIdentityError` before the stamp is written, so the tables are never stamped fresh and every later run fails the same way.
 
@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint, spec_load
-from rebuild.pipeline.labels import spec_alphabet
+from rebuild.pipeline.alphabet import M1_ALPHABET
 from rebuild.validation.rowmodel import open_table, read_header
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -52,65 +52,6 @@ RENAME_COVERED_CONFIGS: dict[str, tuple[str, Mapping[str, str]]] = {
 # Each configuration whose sub-table keeps only the rows whose text holds one of its scope letters, with the configuration every other row must equal.
 WINDOW_SCOPED_CONFIGS: dict[str, tuple[str, frozenset[int]]] = {"ss07": ("default", frozenset({0xE67C}))}
 
-
-def _switch_alphabet() -> frozenset[int] | None:
-    """Return the alphabet of the spec `spec_load.load_default_spec` narrows to while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set, the code points `labels.spec_alphabet` reads from it, or None when the switch is unset."""
-    if spec_load.m1_runes() is None:
-        return None
-    return frozenset(ord(symbol) for symbol in spec_alphabet(spec_load.load_default_spec()))
-
-
-M1_ALPHABET = _switch_alphabet() or frozenset(
-    {
-        0x0020,
-        0x00B7,
-        0x200C,
-        0xE650,
-        0xE651,
-        0xE652,
-        0xE653,
-        0xE654,
-        0xE655,
-        0xE656,
-        0xE657,
-        0xE658,
-        0xE659,
-        0xE65A,
-        0xE65B,
-        0xE65C,
-        0xE65D,
-        0xE65E,
-        0xE65F,
-        0xE660,
-        0xE661,
-        0xE662,
-        0xE663,
-        0xE664,
-        0xE665,
-        0xE666,
-        0xE667,
-        0xE668,
-        0xE669,
-        0xE66A,
-        0xE66B,
-        0xE66C,
-        0xE670,
-        0xE671,
-        0xE672,
-        0xE673,
-        0xE674,
-        0xE675,
-        0xE676,
-        0xE677,
-        0xE678,
-        0xE679,
-        0xE67A,
-        0xE67B,
-        0xE67C,
-        0xE67D,
-        0xE67E,
-    }
-)
 
 _IDENTITY_REMEDY = "the identity is what lets the oracle leave the cosmetic configurations out and compare a window-scoped one only inside its scope; check the old font's stylistic set in glyph_data/quikscript.yaml, or give the configuration a full oracle comparison by taking it out of RENAME_COVERED_CONFIGS or WINDOW_SCOPED_CONFIGS here and out of conform.COSMETIC_CONFIGS (the Configurations section of rebuild/baseline/README.md)"
 

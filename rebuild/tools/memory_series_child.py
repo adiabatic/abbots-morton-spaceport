@@ -140,11 +140,11 @@ def carry_and_append_absorb(memo, spec, parts, sweep=None):
 
 
 def absorb_main() -> int:
-    """Run one absorbs line's absorb (`memory_series`' "The absorbs step") over the job pickled on stdin: `writer`, `absorb` for `conform.absorb_settle_memo` or `carry` for the carry-and-append absorb (`carry_and_append_absorb`); `memo`, the settle memo; `spec`; `parts`, each a shared memory segment's name and lengths (`oracle.Shipped`) and its fresh windows' counts, as the oracle's and the sweep's pools hand an absorb its parts; `sweep`, the sweep's prune or None; and `write`. It maps each segment and unlinks its name at once, as the pools' absorb worker does (`run_m1_gates._absorb_memo`), and runs the absorb: with `write`, over the line's own clone of the standing memo, writing its segment, or its base, and the head there as the pools' absorbs write theirs; otherwise with the finished file hashed in order instead of written. It prints, as one JSON line on stdout, its last, the absorb's seconds, the hashed file's row count, size and sha256 (none when the absorb wrote its part), and for `absorb` the absorb's path, row counts and what it wrote. The carry-and-append absorb writes nothing."""
+    """Run one absorbs line's absorb (`memory_series`' "The absorbs step") over the job pickled on stdin: `writer`, `absorb` for `conform.absorb_settle_memo` or `carry` for the carry-and-append absorb (`carry_and_append_absorb`); `memo`, the settle memo; `spec`; `parts`, each a shared memory segment's name and lengths (`shared_segments.Shipped`) and its fresh windows' counts, as the oracle's and the sweep's pools hand an absorb its parts; `sweep`, the sweep's prune or None; and `write`. It maps each segment and unlinks its name at once, as the pools' absorb worker does (`run_m1_gates._absorb_memo`), and runs the absorb: with `write`, over the line's own clone of the standing memo, writing its segment, or its base, and the head there as the pools' absorbs write theirs; otherwise with the finished file hashed in order instead of written. It prints, as one JSON line on stdout, its last, the absorb's seconds, the hashed file's row count, size and sha256 (none when the absorb wrote its part), and for `absorb` the absorb's path, row counts and what it wrote. The carry-and-append absorb writes nothing."""
     import time
     from dataclasses import asdict, replace
 
-    from rebuild.pipeline import conform, oracle
+    from rebuild.pipeline import conform, shared_segments
 
     job = pickle.load(sys.stdin.buffer)
     mapped = []
@@ -153,7 +153,7 @@ def absorb_main() -> int:
         if shipped is None:
             parts.append(counts)
             continue
-        segment = oracle._Mapped(shipped)
+        segment = shared_segments.Mapped(shipped)
         mapped.append(segment)
         parts.append(replace(counts, blocks=segment.pieces, release=segment.close))
     hashed: list = []

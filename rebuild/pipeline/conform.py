@@ -1,6 +1,6 @@
 """Conformance gates (M1-PLAN sections 5 and 6, Group 3): HarfBuzz against the settlement function, and the settlement function against the section 13.1 baseline oracle.
 
-`run_conformance` runs the conformance sweep. For each settlement configuration it shapes every text of length 1 to the maximum length (`SWEEP_MAX_LENGTH`, 4 by default) over the alphabet and compares the result with settlement: glyph names (`check_oracle`), split-buffer equivalence (`check_split_buffer`), zero gaps at joins (`check_join_gaps`), and the advance at every other slot (`check_break_advances`), which must be the glyph's `hmtx` advance plus the kern the build compiled for it and the glyph after it, read from `kern-classes.json` (`KernSides`). This comparison uses no ledger, so any divergence is a compiler defect. `Shaper` (rebuild/pipeline/shapers.py) shapes at the MONOTONE_CHARACTERS cluster level and reads glyph names through TTFont, because HarfBuzz's name API truncates them.
+`run_conformance` runs the conformance sweep. For each settlement configuration it shapes every text of length 1 to the maximum length (`SWEEP_MAX_LENGTH`, 4 by default) over the alphabet and compares the result with settlement: glyph names (`check_glyph_names`), split-buffer equivalence (`check_split_buffer`), zero gaps at joins (`check_join_gaps`), and the advance at every other slot (`check_break_advances`), which must be the glyph's `hmtx` advance plus the kern the build compiled for it and the glyph after it, read from `kern-classes.json` (`KernSides`). This comparison uses no ledger, so any divergence is a compiler defect. `Shaper` (rebuild/pipeline/shapers.py) shapes at the MONOTONE_CHARACTERS cluster level and reads glyph names through TTFont, because HarfBuzz's name API truncates them.
 
 The isolated-overlay configuration (ss10, `OVERLAY_CONFIGS`) has no settlement to compare against. Read-back checks on every build that the ss10 input substitution covers every letter cmap glyph and that no copy appears in any formation sequence, marker line, ZWNJ lock class, or settlement input. So under ss10 every letter renders as its copy at its `hmtx` advance plus its kern, and nothing forms or attaches. The conformance sweep checks this at `OVERLAY_MAX_LENGTH`: single letters show that each letter maps to its copy, and pairs show that no pair forms or joins, and that each moves by exactly its kern.
 
@@ -14,7 +14,7 @@ What only the conformance sweep checks is what needs the real binary: HarfBuzz's
 
 Settlement goes through `_SettledWindowWalk`'s per-configuration window memo: the crate settles each distinct raw window once, in a batch, and every recurrence is a lookup. The oracle's rows are the conformance sweep's texts, so the two share the memo through one output per configuration under rebuild/out/m1, `settle-memo-<config>.bin` (`SettleMemoFile`), keyed per family like the oracle row cache. The output is held in `row_delta`'s segment format with the probe merge: a head lists a base, a whole file in the layout `_write_settle_memo` states, and up to `row_delta.SEGMENT_CAP` segments past it before a fold, each writer step's own (`_settle_memo_segment`): its rows in the same layout, its Bloom filter and dead bitmaps naming the earlier rows it drops, and the head records the stamp and family keys each part was settled under. A reader maps every part the head lists (`_MemoStore`); its materialized form, every part's live rows re-serialized as one file, is the file a whole-file writer gives (`materialize_settle_memo`). The string replay fills the memo on every full replay (`read_replay_memo`, from the window memo the `replay-strings` subcommand writes into a pipe it inherits), comparing its refill with the standing content and writing a segment of what differs, or the head alone (`compare_replay`); the oracle's and the conformance sweep's absorbs each write a segment of their fresh windows (`absorb_settle_memo`). Each writer's route, a segment or a whole base, is decided before any writer of its step writes (`plan_settle_memos`). So a window is settled once per configuration until a rune it names changes, a cold pass does its settling in the replay instead of in the oracle, and a pass writes the rows it changes.
 
-The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position comparison), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-junction classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `oracle_cache.ORACLE_ROW_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
+The section 6 oracle gate is in rebuild/pipeline/oracle.py (`compare_against_baseline`, the ledger classifier) and rebuild/pipeline/oracle_positions.py (the position comparison), which the enumeration's stamp leaves out. This module holds what they consume. `_compare_row` compares one baseline row's ligation (clusters), per-junction classification, and cell identity with the settled stream through the alias map, and returns the `DivergentRow` the oracle classifies. `_cached_verdict` and `_served_verdict` convert between that result and the oracle row cache's record, and `_verify_served_sample` re-derives a pass's sample of served rows and checks them against the store. `_compare_row` and the walk are the two entry points `settle_memo_keys.SETTLE_MEMO_CODE_PATHS` is derived from, which is why they live here and the classifier does not.
 
 The crate does all settlement, through `kernel_exec`. `_SettledWindowWalk` sends waves of distinct raw windows to `kernel_exec.settle_windows`. The certificate check (`witness.check_rule_certificates`) and the conformance sweep each call `kernel_exec.guard_sweep` once and pass its verdicts to every formation call below them. Nothing here re-derives a settled cell.
 """
@@ -42,7 +42,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import IO, Callable, Iterable, Iterator, Literal, Mapping, Protocol, Sequence, cast
 
-from rebuild.pipeline import geometry, kernel_exec, oracle_cache, output_sink, row_delta, settle
+from rebuild.pipeline import (
+    geometry,
+    kernel_exec,
+    oracle_cache,
+    output_sink,
+    row_delta,
+    settle,
+    settle_memo_keys,
+)
 from rebuild.pipeline.labels import (
     BOUNDARY_GLYPH_NAMES,
     _BOUNDARY_KIND_LABELS,
@@ -228,7 +236,7 @@ def settled_names(
     return names
 
 
-def check_oracle(text, config, shaped, expected, divergences: DivergenceSink, modes) -> None:
+def check_glyph_names(text, config, shaped, expected, divergences: DivergenceSink, modes) -> None:
     actual = normalize_actual(text, shaped)
     expected = normalize_expected(expected)
     if len(actual) != len(expected):
@@ -978,7 +986,7 @@ class _MemoStore:
 
     `load` reads the head, opens and maps every part it lists with each part's size checked against the head, and keeps the mappings and their file objects until `close`. It reads the parts' tables into Python: `labels` (every part's label table in part order, interned: a segment lists only the labels no earlier part lists, so the ids of every part index this one table), `label_ids` (its inverse), and `outcomes` (each part's outcomes in part order, each passed through the walk's `_outcome`, so they are the same objects `windows` holds; an outcome whose cell the spec cannot name, for which `_outcome`'s `geometry.display_name` raises `LookupError`, as it does for a cell of a rune or an anchor height the spec does not hold, is held as a placeholder, its settled item with two empty names, which no writer reads past the settled item). Each part's six id columns, value column and probe index, and each segment's Bloom filter, are `memoryview.cast` slices over its mapping, so they cost the worker no heap. They are pages of the parts, held once per machine in the page cache however many walks map them, and the kernel can evict them under memory pressure.
 
-    Two byte arrays belong to each walk, a byte a row over every part's rows in part order, base first. `dead` flags every row this walk does not serve: every row of a part that records another stamp than `memo.stamp` (the part serves nothing, as a single file under another stamp serves nothing), a row naming a family whose key changed since its part was settled (`oracle_cache.StaleMask` at label grain over the keys its part records, computed over its six columns with C-level maps and one reduce), a row whose outcome is a placeholder (one C-level map over each part's value column, made only when the tables hold a placeholder), a row a later segment's dead bitmap names, or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks. `reached` flags every row a probe has returned. `live` counts the rows `dead` does not flag, `stale` the rows the stale fold flags that no dead bitmap names, `loaded` the live rows plus the stale ones (the `loaded=` of the `[t] settle_memo` line), `unasked` the rows the restriction dropped, and `buried` the rows of the parts that serve under `memo.stamp` that a dead bitmap names. A load with `every_stamp` (the full replay's compare) flags only the rows a dead bitmap names.
+    Two byte arrays belong to each walk, a byte a row over every part's rows in part order, base first. `dead` flags every row this walk does not serve: every row of a part that records another stamp than `memo.stamp` (the part serves nothing, as a single file under another stamp serves nothing), a row naming a family whose key changed since its part was settled (`settle_memo_keys.StaleMask` at label grain over the keys its part records, computed over its six columns with C-level maps and one reduce), a row whose outcome is a placeholder (one C-level map over each part's value column, made only when the tables hold a placeholder), a row a later segment's dead bitmap names, or, for a walk restricted by `load_only_asked_by`, a row whose five settlement-independent slots are outside its asks. `reached` flags every row a probe has returned. `live` counts the rows `dead` does not flag, `stale` the rows the stale fold flags that no dead bitmap names, `loaded` the live rows plus the stale ones (the `loaded=` of the `[t] settle_memo` line), `unasked` the rows the restriction dropped, and `buried` the rows of the parts that serve under `memo.stamp` that a dead bitmap names. A load with `every_stamp` (the full replay's compare) flags only the rows a dead bitmap names.
 
     A probe maps the window's six labels through `label_ids`, and a label the tables lack is a miss before any hashing. It hashes the six ids once as every writer did: each id times its slot's odd 64-bit constant in `_MEMO_MIX`, summed modulo 2^64. It then tests the segments newest first, each through its Bloom filter (the test `row_delta.bloom_contains` makes, keyed on that sum) and then its index, shifted right by 64 - k for its 2^k slots with linear probing from there, and then the base through its index, and returns the first live row it finds, marked reached. The hash is written out so the file does not depend on Python's tuple hash, and `_memo_slots` and `_memo_hashes` are the writers' vectorized forms of it. It sums per-column products so that the ids never have to share one word: six ids at the `H` columns' 16-bit width need 96 bits, a multiply-shift over a 64-bit word that drops two of them clusters badly on the live ids, and the sum keeps chains near one probe at the writer's half-full sizing. Each part's keys are distinct (every writer keeps one row a key in a part), so a probe stops a part at the first row whose ids match, and a dead row there sends it on to the next older part.
 
@@ -1190,7 +1198,7 @@ class _MemoStore:
                 dead[span] = b"\x01" * part.rows
                 foreign += part.rows
                 continue
-            mask = oracle_cache.StaleMask(spec, oracle_cache.moved_families(keys, memo.family_keys))
+            mask = settle_memo_keys.StaleMask(spec, settle_memo_keys.moved_families(keys, memo.family_keys))
             if mask.everything:
                 dead[span] = b"\x01" * part.rows
                 foreign += part.rows
@@ -1591,7 +1599,7 @@ class _NotThisFormat(ValueError):
 class SettleMemoFile:
     """Where one configuration's settle memo lives between phases, and the keys a walk must match to read it. `path` names the output, `settle-memo-<config>.bin`: its head, `<path>.head`, its base, `<path>.<gen>.base`, and its segments, `<path>.<gen>.<n>.delta`, beside it (`row_delta`'s naming), or, in a tree from before the segment format, the single file at `path` itself, which the next writer adopts as generation 0's base. The string replay fills the memo on every full replay from the crate's window memo (`read_replay_memo`, `compare_replay`). The oracle and the conformance sweep each map it, settle only what it lacks, and write a segment of what they added. The witness stage maps it, settles what it lacks, and writes nothing (`read_only`).
 
-    `stamp` is the memo's stamp (`oracle_cache.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure, the capability features, the engine's settlement flags, and the configuration). `family_keys` holds the per-family rune keys (`oracle_cache.settle_family_keys`). The two keys follow the oracle row cache's reasoning: a window's settlement depends only on the rune files its six slots name (a formed ligature label names its rune directly, and every ligature rune whose components all appear among the slots counts too). Each part records the stamp and family keys it was settled under, so a part under another stamp serves nothing, and a part under this stamp serves every row that names no family whose key changed since that part was settled, and drops the rest.
+    `stamp` is the memo's stamp (`settle_memo_keys.settle_memo_stamp`: the walk's code closure, the non-rune data, the resolved spec structure, the capability features, the engine's settlement flags, and the configuration). `family_keys` holds the per-family rune keys (`settle_memo_keys.settle_family_keys`). The two keys follow the oracle row cache's reasoning: a window's settlement depends only on the rune files its six slots name (a formed ligature label names its rune directly, and every ligature rune whose components all appear among the slots counts too). Each part records the stamp and family keys it was settled under, so a part under another stamp serves nothing, and a part under this stamp serves every row that names no family whose key changed since that part was settled, and drops the rest.
 
     `returns_fresh` says a walk keyed with this memo may not write it. Such a walk still reads the memo, but `save_memo` encodes only the windows it settled fresh, in memory (`FreshMemo`, on `_SettledWindowWalk.fresh_memo`), and its caller hands them to `absorb_settle_memo`, which writes them as a segment of the memo. Every row range of the pooled oracle returns its fresh windows, whether or not its configuration is split, because two ranges writing the shared memo would race for one segment. Every settlement unit of the pooled conformance sweep returns them for the same reason, beside which rows it reached, so the parent can prune what no unit reached (`MemoReach`).
 
@@ -1658,16 +1666,16 @@ def settle_memo_line(
 
 
 def settle_memo_files(
-    out_dir: Path, spec: ResolvedSpec, inputs: oracle_cache.SettleMemoInputs | None
+    out_dir: Path, spec: ResolvedSpec, inputs: settle_memo_keys.SettleMemoInputs | None
 ) -> dict[str, SettleMemoFile]:
     """One `SettleMemoFile` per settlement configuration under `out_dir`, keyed from `inputs` (read from disk by the caller before loading `spec`) and from `spec`. The overlay configuration settles nothing and gets none. Returns an empty mapping when `inputs` is None."""
     if inputs is None:
         return {}
-    keys = oracle_cache.settle_family_keys(inputs, spec)
+    keys = settle_memo_keys.settle_family_keys(inputs, spec)
     return {
         config: SettleMemoFile(
             Path(out_dir) / f"settle-memo-{config}.bin",
-            oracle_cache.settle_memo_stamp(inputs, spec, config, features_for_config(config)).value,
+            settle_memo_keys.settle_memo_stamp(inputs, spec, config, features_for_config(config)).value,
             keys,
         )
         for config in SETTLEMENT_CONFIGS
@@ -3577,7 +3585,7 @@ class _SettledWindowWalk:
 
     A horizon walk may also name `max_windows`, a ceiling on `windows`. Before a wave whose settles could take `windows` past it, `_run` empties `windows` and counts a release in `releases`, and the walk continues, settling again any window it meets after that. Each state carries its own settled stream, so a release costs only the settles of windows met again, counted in `fresh_windows` with the rest. The ceiling is counted in windows, not bytes, so a release happens at the same point on every machine. It also caps `batch`, so one wave never settles more than the ceiling. A ceiling at the most entries a dict holds before it doubles keeps `windows` in one table, so the walk's peak has a bound that does not depend on how many texts it walks.
 
-    `memo` names the settle memo this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`read_replay_memo`, `compare_replay`), the oracle and the conformance sweep each map it and settle what it lacks, and the witness stage maps it and settles what it lacks without writing it (`SettleMemoFile.read_only`). It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes to it only when this walk settled a window the memo lacked, or pruned one. `_write_settle_memo` describes a part's layout, `_settle_memo_segment` a segment's, and `_MemoStore` how a walk maps the parts: the tables go on the heap, and the columns, indexes and filters stay pages of the mappings, shared in the page cache by every walk that maps them. An entry whose window names a family whose key changed since its part was settled is dropped at load (`oracle_cache.StaleMask` at label grain, including the ligature clause).
+    `memo` names the settle memo this walk shares with the other walks over the same texts. The string replay fills it on a full replay (`read_replay_memo`, `compare_replay`), the oracle and the conformance sweep each map it and settle what it lacks, and the witness stage maps it and settles what it lacks without writing it (`SettleMemoFile.read_only`). It is mapped on the first wave that would otherwise reach the crate, so a walk that settles nothing (an oracle pass whose rows are all served) never opens it. `save_memo` writes to it only when this walk settled a window the memo lacked, or pruned one. `_write_settle_memo` describes a part's layout, `_settle_memo_segment` a segment's, and `_MemoStore` how a walk maps the parts: the tables go on the heap, and the columns, indexes and filters stay pages of the mappings, shared in the page cache by every walk that maps them. An entry whose window names a family whose key changed since its part was settled is dropped at load (`settle_memo_keys.StaleMask` at label grain, including the ligature clause).
 
     Loaded entries stay in `_cold`, the `_MemoStore` over the mapping, which marks each row it returns as reached. With `promote` (a constructor keyword, on by default) a hit is also copied into `windows`, so the witness stage, which prefills its texts and then walks each one again, runs the store's probe once per window and a dict lookup after that. The oracle's walk turns off `promote_pinned`, a constructor keyword also on by default: a hit whose window spells out its whole text (`_is_pinned`) stays in the store, because that text alone reads it, so a copy would cost its key tuple and save no later probe. A text walked again probes the store again and hits, so nothing settles again. Every other hit is copied, and every window the walk settles fresh still goes into `windows`. `promoted_hits` counts the hits copied and `kept_hits` the hits left in the store. The conformance sweep runs with `promote=False` and serves every window from the columns: it reaches nearly every loaded window, so promoted copies would cost the key tuples the columns exist to avoid. `save_memo(prune=True)` keeps only the reached rows. The conformance sweep walks every text every pass, so an entry it never reached is a window no text produces any more (its left slot named a settlement an edit has since changed), and keeping it would grow the memo with every rune edit. The serial sweep prunes in its own save, a segment whose dead bitmaps name the windows it never reached. The pooled sweep's units each walk a share of the texts, so none of them may prune: each returns its fresh windows and its `reached` flags (`memo_reach`), and the parent prunes through `absorb_settle_memo` over the union of those flags. The oracle does not prune, because it does not walk the rows its row cache serves, so their windows are never reached. Its save on the `--jobs 1` path writes a segment of the windows it settled fresh; on a fold, a whole file of `windows` in the order the walk met them and then every other live row in part order, and when its walk left a hit in the store it carries every live row, and `_memo_index` merges the carried copy of each row the walk copied into `windows` onto that entry, so the file still holds one row per window, with the same windows and outcomes, and an index of the same slot count, as a walk that copies every hit would write.
 
@@ -4262,7 +4270,7 @@ def _conformance_config(
                         text, config, features, shaper, shaped, divergences, splitters, kern_sides
                     )
                 expected = isolated_overlay_labels(spec, isolated_overlay_tokens(spec, text))
-                check_oracle(text, config, shaped, expected, divergences, modes)
+                check_glyph_names(text, config, shaped, expected, divergences, modes)
                 check_isolated_positions(text, config, shaper, shaped, divergences, kern_sides)
             if progress is not None:
                 progress(result.sequences)
@@ -4287,7 +4295,7 @@ def _conformance_config(
         result.shaping_runs += 1
         if set(text) & splitters:
             check_split_buffer(text, config, features, shaper, shaped, divergences, splitters, kern_sides)
-        check_oracle(text, config, shaped, names, divergences, modes)
+        check_glyph_names(text, config, shaped, names, divergences, modes)
         if anchors_of is not None:
             check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
         if kern_sides is not None:

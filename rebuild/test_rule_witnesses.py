@@ -17,10 +17,10 @@ from rebuild.pipeline import (
     emit_gsub,
     fixtures,
     kernel_exec,
-    oracle_cache,
     row_delta,
     run_m1,
     settle,
+    settle_memo_keys,
     witness,
 )
 from rebuild.pipeline.table import Rule
@@ -150,7 +150,7 @@ def test_a_rule_with_no_certificate_vouches_for_nothing(spec, tables, guard):
 
 def test_the_witness_stage_writes_a_summary_and_no_settle_memo_byte(spec, tables, guard, tmp_path):
     """The build stage over the mini tables writes one passing summary with a record per configuration, and no settle memo byte. A run with no file leaves none, so a second run over the same tables settles the same windows fresh again and serves none. A third run writes the second's summary again, so `witness_summary.json` stays in place, keeping its inode and its modification time, here set long ago so that any write would move it. A file another phase wrote, holding every window `default`'s certificates reach, serves them all, and keeps its bytes and its modification time."""
-    inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+    inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
     memos = conform.settle_memo_files(tmp_path, spec, inputs)
     summary = run_m1.run_rule_witnesses(spec, tables, tmp_path, inputs)
     assert summary["pass"]
@@ -199,7 +199,7 @@ def test_the_stage_in_a_process_of_its_own_writes_what_it_writes_in_process(
     spec, tables, tmp_path, monkeypatch
 ):
     """The build runs the stage in one spawned worker (`run_m1._spawn_rule_witnesses`), which gets the spec, the guard verdicts and the guard sources once, through its pool's initializer, and then one task a configuration, in the tables' order, each carrying that configuration's decision table without its join table and its read-only settle memo, submitted only once the task before it has returned. Over the mini tables it returns the summary the stage returns in this process, writes the same `witness_summary.json` and nothing else, and reports its own peak memory."""
-    inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+    inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
     here, apart = tmp_path / "here", tmp_path / "apart"
     here.mkdir()
     apart.mkdir()
@@ -253,7 +253,7 @@ def _ask_of(window) -> tuple[str, ...]:
 
 def test_the_stage_loads_only_the_windows_its_certificates_can_ask(spec, tables, guard, tmp_path):
     """The file is seeded the way the conformance sweep seeds it: every mini-alphabet string up to length 2, walked and saved whole, which holds more windows than the certificates ask. The stage serves exactly the rows whose five settlement-independent slots are among its asks, and witnesses every rule, and afterwards each file holds the bytes it was seeded with. It settles fresh exactly the windows an unrestricted walk over the same file and texts settles, which shows the ask set covers everything the walk asks: a row the load dropped and the walk then needed would be settled again and counted fresh."""
-    inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="code", data="data")
+    inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="code", data="data")
     memos = conform.settle_memo_files(tmp_path, spec, inputs)
     alphabet = sorted(conform.spec_alphabet(spec))
     texts = ["".join(combo) for length in (1, 2) for combo in itertools.product(alphabet, repeat=length)]

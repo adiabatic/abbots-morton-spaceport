@@ -6,7 +6,7 @@ The after font's GSUB wiring is in neither key, for the reason `fingerprint.afte
 
 The position comparison adds `"position"` to a row's `kinds` and `"position-mismatch"`, and optionally `"position-kern-attributable"`, to its `divergence_tags`, and changes nothing else, so a served row verdict and a fresh one enter the position comparison in the same state. The position verdict is stored before the ledger decides whether the row goes through the position comparison. A row the previous pass never shaped is recorded as `UNSHAPED` and is shaped when a ledger edit makes it eligible, and a shaped row's position verdict is written forward even when this pass's ledger excludes the row. If any of the facts above stops holding, the cache serves wrong verdicts without any error, and `STORE_FORMAT` must change.
 
-Classification is outside both keys because it always runs: `classify_divergence` and `_match_compiled` run over every row on every pass, served or fresh, so `rebuild/m1-divergences.yaml` and every ledger predicate are applied again to the served verdict. A ledger-only edit therefore serves every row and still rewrites every `matched_entry`; this is the `run_m1 --gates-only` workflow. The classifier's code is outside both stamps for the same reason. It lives in `rebuild/pipeline/oracle.py`, which neither `conform.py` nor `oracle_positions.py` imports, so a classifier edit serves every row verdict and every position verdict. The producer (`_compare_row`, `_cell_deltas`, the walk, and the record codec) is in `conform.py`, which is always in `ORACLE_ROW_CODE_PATHS`. `rebuild/test_build_code_closure.py` checks that the roster names no comparison-side module.
+Classification is outside both keys because it always runs: `classify_divergence` and `_match_compiled` run over every row on every pass, served or fresh, so `rebuild/m1-divergences.yaml` and every ledger predicate are applied again to the served verdict. A ledger-only edit therefore serves every row and still rewrites every `matched_entry`; this is the `run_m1 --gates-only` workflow. The classifier's code is outside both stamps for the same reason. It lives in `rebuild/pipeline/oracle.py`, which neither `conform.py` nor `oracle_positions.py` imports, so a classifier edit serves every row verdict and every position verdict. The producer (`_compare_row`, `_cell_deltas`, the walk, and the record codec) is in `conform.py`, which is always in `settle_memo_keys.SETTLE_MEMO_CODE_PATHS`. `rebuild/test_build_code_closure.py` checks that the roster names no comparison-side module.
 
 The staleness test is per family and has no threshold. A row is served when no family it can reach has a key different from the one recorded for it. A row reaches the families of its codepoints plus every ligature rune whose components all appear among them. The ligature clause is needed because `rebuild/script.yaml` declares the ligature runes with a `sequence:` and no codepoint, yet `settle.form_ligatures` routes a `qsTea qsOy` window through `qsTea_qsOy.yaml`. A family key (`family_keys`) combines the family's prose-insensitive rune digest, the digests of the runes in its `spec_load.rune_closure`, and the alias map's entries for that family. A family present in only one of the recorded and current key maps counts as moved (`moved_families`).
 
@@ -22,7 +22,7 @@ A position verdict outlives a move of the row stamp, which drops every row verdi
 - Those glyphs' outlines, advances and cursive anchors: the position keys of every family the row reaches. They embed the row keys, so a rune edit still re-shapes the rows that reach its family.
 - The rest of the font apart from GSUB, the kern sidecar, the toolchain and the position comparison's code: the position stamp. `POSITION_CODE_PATHS` is the position comparison's import closure, so its `position_code` line covers that code without the row stamp.
 
-The row stamp's other lines reach a position only through settlement, which the settled digest covers: the crate, the code of the walk and of this module (the part of `ORACLE_ROW_CODE_PATHS` outside the position closure), the data inputs, the spec structure, the capability features and the settlement flags. Its `alias_boundary` line is read by the row comparison alone. So a crate edit, a pipeline edit outside the position closure, or a predicate class gaining a member re-derives every row and re-shapes only the rows whose settled cells changed. A store whose `subset` line moved, which every letter addition does, still does not load: its records would have to be matched to the new table's rows by codepoints instead of by ordinal, and a letter addition also moves the position keys of every neighbor whose rune it edits.
+The row stamp's other lines reach a position only through settlement, which the settled digest covers: the crate, the code of the walk and of this module (the part of `settle_memo_keys.SETTLE_MEMO_CODE_PATHS` outside the position closure), the data inputs, the spec structure, the capability features and the settlement flags. Its `alias_boundary` line is read by the row comparison alone. So a crate edit, a pipeline edit outside the position closure, or a predicate class gaining a member re-derives every row and re-shapes only the rows whose settled cells changed. A store whose `subset` line moved, which every letter addition does, still does not load: its records would have to be matched to the new table's rows by codepoints instead of by ordinal, and a letter addition also moves the position keys of every neighbor whose rune it edits.
 
 Keying by settled window instead of by row was measured and rejected. A settled window spans six slots and a row has at most four letters, so windows name more letters than rows (287,280 of 499,989 distinct windows name four letters). With four edited runes, window keys served 45.4% of the work against row keys' 48.6%. Window keys cover only settlement, not the comparison, and a window's left slot is keyed on the previous window's output, so an edit changes keys downstream and produces misses. Added on top of a row store, window keys served 1.40% more lookups.
 
@@ -36,7 +36,7 @@ The key relies on one assumption that nothing else in the pipeline checks: every
 
 Every failure falls back toward a full pass. `load_store` returns None for an absent, unreadable, format-mismatched, digest-mismatched, short or trailer-less store, one whose head lists a part missing or not the size it records, or an ages column naming another generation, for one whose row stamp moved in a `POSITION_ROW_STAMP_LABELS` line, and for one whose row stamp moved where no position can be served, because the position stamp moved too or the pass has no font, and None costs one uncached oracle pass. A store whose row stamp moved in another line, and whose positions can be served, loads with every row stale, which costs one pass of deriving rows and shaping the positions whose settled cells changed. A store whose position stamp or position keys do not match loads with every position stale, which costs one pass of shaping.
 
-The settle memo that the oracle shares with the conformance sweep (`conform.SettleMemoFile`) keys its entries with the same primitives, so they live here too. `settle_family_keys` is `family_keys` without the alias line, because the walk never reads the alias map. `settle_memo_stamp` is the row stamp without the format, subset and alias-boundary lines, because a memo entry is only a settlement. A memo entry's reach is read from its window's labels instead of a row's codepoints: the six slots' families, the rune a formed ligature label names, and every ligature rune whose components all appear among them. `StaleMask.bit_of` maps one label to its bit. The memo is a base and segments under a head (`row_delta`'s probe merge), and the head records the stamp and family keys each part was settled under, so a reader builds one `StaleMask` a part, over `moved_families` between that part's recorded keys and the current ones: a row a segment added in one pass and a family key moved in the next is masked whether or not that pass asked its window again, and the next absorb names it in its segment's dead bitmap (`conform._MemoStore`, `conform.absorb_settle_memo`). `SettleMemoInputs` is the disk-derived half of both keys, read before the spec is loaded, as `run_m1.tables_inputs` is. The settlements are then at least as new as the content the keys name, so a rune edited during a run ends up under a key the next pass reports as moved, whichever side of the load the edit happened on.
+The settle memo that the oracle shares with the conformance sweep (`conform.SettleMemoFile`) keys its entries with the same primitives, which rebuild/pipeline/settle_memo_keys.py holds: the code closure the row stamp's `oracle_code` line hashes (`settle_memo_keys.SETTLE_MEMO_CODE_PATHS`), the data paths its `data` line hashes, `reach_lines`, which `family_keys` extends with the alias line, `moved_families` and `StaleMask`. The memo's stamp is the row stamp without the format, subset and alias-boundary lines, and its family keys are `family_keys` without the alias line, because a memo entry is only a settlement.
 """
 
 from __future__ import annotations
@@ -69,6 +69,13 @@ import yaml
 from rebuild.pipeline import fingerprint, kernel_exec, output_sink, row_delta, spec_load
 from rebuild.pipeline.fingerprint import EnvironmentStamp, moved_note
 from rebuild.pipeline.model import ResolvedSpec
+from rebuild.pipeline.settle_memo_keys import (
+    StaleMask,
+    moved_families,
+    reach_lines,
+    settle_memo_code_paths,
+    stamped_data_paths,
+)
 from rebuild.pipeline.position_record import (
     NO_SETTLED_DIGEST,
     SETTLED_DIGEST_WIDTH,
@@ -94,7 +101,7 @@ SERVE_BOTH = 2
 # The row age a writer records for a row `unreachable_glyph_heads` refuses. Every pass finds a record this old due, so the row is derived on every pass and never served.
 UNCOVERED_AGE = -MAX_RECORD_AGE
 
-# The position comparison's import closure, which the position stamp hashes on its own because a stored position is served across a move of the row stamp: oracle_positions.py (`_position_mismatch`, `_kern_normalized_positions`, the position record codec, `settled_digest`, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from), the shapers, the record types, `geometry.PIXEL`, the row model, and what they import. rebuild/test_oracle_code_closure.py walks the imports from oracle_positions.py and checks that this list names exactly the modules it reaches outside its stop-set (rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, as for `ORACLE_ROW_CODE_PATHS`), and that the classifier in oracle.py, this module, and conform.py are unreachable: a classifier edit re-shapes no position, and an edit to the walk, the crate driver or the store re-shapes only the rows whose settled cells changed. Every module here but oracle_positions.py is in `ORACLE_ROW_CODE_PATHS` too, so an edit to one drops both verdicts.
+# The position comparison's import closure, which the position stamp hashes on its own because a stored position is served across a move of the row stamp: oracle_positions.py (`_position_mismatch`, `_kern_normalized_positions`, the position record codec, `settled_digest`, `_verify_served_positions`, `KernEvaluator` and `_shaper_for`, which picks the shaper every stored position comes from), the shapers, the record types, `geometry.PIXEL`, the row model, and what they import. rebuild/test_oracle_code_closure.py walks the imports from oracle_positions.py and checks that this list names exactly the modules it reaches outside its stop-set (rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, as for `settle_memo_keys.SETTLE_MEMO_CODE_PATHS`), and that the classifier in oracle.py, this module, and conform.py are unreachable: a classifier edit re-shapes no position, and an edit to the walk, the crate driver or the store re-shapes only the rows whose settled cells changed. Every module here but oracle_positions.py is in `settle_memo_keys.SETTLE_MEMO_CODE_PATHS` too, so an edit to one drops both verdicts.
 POSITION_CODE_PATHS = (
     "rebuild/pipeline/geometry.py",
     "rebuild/pipeline/labels.py",
@@ -113,37 +120,6 @@ TOOLCHAIN_LOCK = "uv.lock"
 # The two alias heads that name a boundary glyph instead of a family. `_compare_row` skips every name in `labels.BOUNDARY_GLYPH_NAMES` before it reads the alias map, so these entries never reach a verdict. They are hashed into the whole-store stamp instead of a family key, and `alias_family_digests` raises on any other head that has no rune digest.
 BOUNDARY_ALIAS_HEADS = frozenset({"space", "periodcentered"})
 
-# The modules that `_compare_row` and `_SettledWindowWalk` import, directly or transitively: the comparison and its settlement, the stream vocabulary (`labels`), the crate driver, the spec loader, the fingerprints the keys are computed from, and this module. rebuild/test_oracle_code_closure.py walks the import graph from conform.py on every contracts run and fails when a reachable module outside its stop-set is missing here or a listed module is unreachable. conform.py holds the producer this cache serves: `_compare_row`, the walk, and the record codec. The classifier in oracle.py must stay out: if conform.py reached it, this test would fail until it was listed, and rebuild/test_build_code_closure.py fails when this list names it. The shapers and the record types are listed because conform.py and this module import them, `output_sink` because conform.py writes its summary through it, and `row_delta` because `table` reads the windows outputs through it; the position comparison's own closure is `POSITION_CODE_PATHS`, stamped on its own, and the test also checks that it never reaches oracle.py, which would put the classifier in the position stamp. The witness stage's rule replay is in witness.py, which imports conform.py and emit_gsub.py, so emit_gsub.py is outside this closure and an emitter edit keeps the store. The walk's stop-set is rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, so the rebuild/tools modules the comparison imports are not listed, and none of them can change a verdict: `kernel_exec` imports `memory_budget` to size its fan-out and `peak_rss` to read its peaks, and the streams are byte-identical at any width; `fingerprint` imports `site_fonts.font_paths`, which feeds only Stage B's `fonts` component, and `lock_digest.lock_digest`, whose value the position stamp's `toolchain` line takes in. The tables stamp and the run_m1 skip key leave them out too.
-ORACLE_ROW_CODE_PATHS = (
-    "rebuild/pipeline/conform.py",
-    "rebuild/pipeline/fingerprint.py",
-    "rebuild/pipeline/geometry.py",
-    "rebuild/pipeline/kernel_exec.py",
-    "rebuild/pipeline/kernel_io.py",
-    "rebuild/pipeline/labels.py",
-    "rebuild/pipeline/model.py",
-    "rebuild/pipeline/oracle_cache.py",
-    "rebuild/pipeline/output_sink.py",
-    "rebuild/pipeline/position_record.py",
-    "rebuild/pipeline/row_delta.py",
-    "rebuild/pipeline/settle.py",
-    "rebuild/pipeline/shapers.py",
-    "rebuild/pipeline/spec_load.py",
-    "rebuild/pipeline/table.py",
-    "rebuild/validation/rowmodel.py",
-)
-
-
-def oracle_code_paths(repo_root: Path) -> list[Path]:
-    """Return `ORACLE_ROW_CODE_PATHS` resolved against a checkout, plus the kernel crate's manifest, lock and every Rust source file. The crate decides every settlement this cache stores, and a hand-kept list of its modules would miss the next one added."""
-    root = Path(repo_root)
-    kernel = root / "rebuild" / "kernel-rs"
-    return (
-        [root / relative for relative in ORACLE_ROW_CODE_PATHS]
-        + [kernel / "Cargo.toml", kernel / "Cargo.lock"]
-        + sorted((kernel / "src").rglob("*.rs"))
-    )
-
 
 def store_path(out_dir: Path, config: str) -> Path:
     """Return the name a configuration's store answers to, beside the M1 artifacts but not one of them: the single file a tree from before the segment format holds, which `load_store` and `read_header` take to mean the configuration under the set head in the same directory where there is one. Neither it nor the names of the set head, the bases, the segments and the ages column match `artifact_cycle.M1_ARTIFACT_NAMES` or any glob over the tables there, so none is hashed into a gate key or part of the artifacts-present check. It is a cache, and a cycle that deletes it loses only time."""
@@ -155,22 +131,6 @@ def _sha256_file(path: Path, digest: Callable[[Path], str] = fingerprint.file_sh
         return digest(Path(path))
     except OSError:
         return "missing"
-
-
-def stamped_data_paths(repo_root: Path) -> list[Path]:
-    """Return the data inputs the whole-store stamp and the settle memo's stamp hash, each as `fingerprint.data_path_lines` hashes it, so a schema hover or a comment in a data file moves neither stamp. They are `fingerprint.data_paths` without the rune files, the alias map, the divergence ledger and the kern sidecar, each of which is covered another way. The rune files are covered per family by the keys. The alias map's family heads are covered per family, and its two boundary heads have their own stamp line. The divergence ledger is read again by classification on every pass. The kern sidecar is in the position stamp, so an edit to it re-shapes every position and re-derives no row verdict. The contact allow-list is not in `fingerprint.data_paths`, so it needs no exclusion here."""
-    root = Path(repo_root)
-    runes = set(fingerprint.rune_paths(root))
-    excluded = {
-        root / "glyph_data" / "senior_quikscript_kerning.yaml",
-        root / "rebuild" / "m1-aliases.yaml",
-        root / "rebuild" / "m1-divergences.yaml",
-    }
-    return [
-        path
-        for path in fingerprint.data_paths(root)
-        if path.is_file() and path not in runes and path not in excluded
-    ]
 
 
 def alias_family_digests(alias_path: Path, family_names: Collection[str]) -> dict[str, str]:
@@ -188,12 +148,6 @@ def alias_family_digests(alias_path: Path, family_names: Collection[str]) -> dic
     return {head: fingerprint.digest_lines(lines) for head, lines in buckets.items()}
 
 
-def _reach_lines(name: str, digests: Mapping[str, str], closure: Mapping[str, frozenset[str]]) -> list[str]:
-    """Return the `member\\tdigest` lines for the family and every rune in its `spec_load.rune_closure` (the runes reachable from it through ligature trailing components and `resolve.against` targets, transitively), which are the runes whose content its records read directly."""
-    reach = sorted({name} | set(closure.get(name, frozenset())))
-    return [f"{member}\t{digests.get(member, '-')}" for member in reach]
-
-
 def family_keys(repo_root: Path, spec: ResolvedSpec, alias_path: Path) -> dict[str, str]:
     """Return, per rune family, the key a row's staleness test compares: a digest over the family's prose-insensitive rune digest, the digests of its `spec_load.rune_closure` (the runes reachable through the trailing component whose outgoing stroke a ligature keeps and through `resolve.against` targets, transitively), and the alias map's entries for the family, which the comparison reads to turn an old compiled name into a cell. A family with no alias entries records `-`, so its key changes when entries are added for it. The whole-store stamp covers every other cross-rune route."""
     digests = fingerprint.rune_digests(Path(repo_root))
@@ -201,7 +155,7 @@ def family_keys(repo_root: Path, spec: ResolvedSpec, alias_path: Path) -> dict[s
     aliases = alias_family_digests(Path(alias_path), digests.keys())
     keys: dict[str, str] = {}
     for name in sorted(digests):
-        lines = _reach_lines(name, digests, closure)
+        lines = reach_lines(name, digests, closure)
         lines.append(f"alias\t{aliases.get(name, '-')}")
         keys[name] = fingerprint.digest_lines(lines)
     return keys
@@ -233,50 +187,6 @@ def position_keys(
     return position_family_keys(row_keys, glyph_digests), EnvironmentStamp(lines=lines)
 
 
-@dataclass(frozen=True)
-class SettleMemoInputs:
-    """The disk-derived half of the settle memo's keys, computed before the spec they describe is loaded, as `run_m1.tables_inputs` is, so the settlements are at least as new as the content these keys name. `settle_memo_stamp` computes the spec-derived half (`spec_structure`, `capability_features`) from the loaded spec that settles."""
-
-    rune_digests: Mapping[str, str]
-    oracle_code: str
-    data: str
-
-
-def settle_memo_inputs(repo_root: Path) -> SettleMemoInputs:
-    root = Path(repo_root)
-    return SettleMemoInputs(
-        rune_digests=fingerprint.rune_digests(root),
-        oracle_code=fingerprint.hash_paths(root, oracle_code_paths(root)),
-        data=fingerprint.digest_lines(fingerprint.data_path_lines(root, stamped_data_paths(root))),
-    )
-
-
-def settle_family_keys(inputs: SettleMemoInputs, spec: ResolvedSpec) -> dict[str, str]:
-    """Return, per rune family, the key a memo entry's staleness test compares: `family_keys` without the alias line. The walk that fills the memo never reads the alias map, and a settlement depends only on the rune files a window names and their `spec_load.rune_closure`."""
-    closure = spec_load.rune_closure(spec)
-    return {
-        name: fingerprint.digest_lines(_reach_lines(name, inputs.rune_digests, closure))
-        for name in sorted(inputs.rune_digests)
-    }
-
-
-def settle_memo_stamp(
-    inputs: SettleMemoInputs, spec: ResolvedSpec, config: str, features: Collection[str]
-) -> EnvironmentStamp:
-    """Return the stamp over everything that can change a memoized settlement without changing a named family's key. It is `environment_stamp` without the lines only the comparison reads (the subset table and the alias map's boundary heads) and without the store format, which each part of the memo records in its own header. It uses `settlement_flags` and not `kernel_exec.enumeration_tokens`, because the walk settles windows one at a time and never enumerates, so deep-class grain cannot affect it. While the alphabet switch is set, the lines end with its token (`spec_load.alphabet_lines`), so a memo over the whole alphabet never serves a small one, nor the reverse; with it unset no line is added."""
-    lines = (
-        f"config\t{config}",
-        "features\t" + json.dumps(sorted(features)),
-        f"oracle_code\t{inputs.oracle_code}",
-        f"data\t{inputs.data}",
-        f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
-        "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
-        "settlement_flags\t" + json.dumps(kernel_exec.settlement_flags()),
-        *spec_load.alphabet_lines(),
-    )
-    return EnvironmentStamp(lines=lines)
-
-
 def environment_stamp(
     repo_root: Path,
     spec: ResolvedSpec,
@@ -293,7 +203,7 @@ def environment_stamp(
         f"format\t{STORE_FORMAT}",
         f"config\t{config}",
         "features\t" + json.dumps(sorted(features)),
-        f"oracle_code\t{fingerprint.hash_paths(root, oracle_code_paths(root))}",
+        f"oracle_code\t{fingerprint.hash_paths(root, settle_memo_code_paths(root))}",
         f"data\t{fingerprint.digest_lines(fingerprint.data_path_lines(root, stamped_data_paths(root)))}",
         f"spec_structure\t{spec_load.spec_structure_digest(spec)}",
         "capability_features\t" + json.dumps(spec_load.capability_features(spec)),
@@ -305,78 +215,6 @@ def environment_stamp(
         f"subset\t{_sha256_file(Path(subset_path))}",
     )
     return EnvironmentStamp(lines=lines)
-
-
-def moved_families(recorded: Mapping[str, str], current: Mapping[str, str]) -> frozenset[str]:
-    """Return every family whose key differs between the recorded and current maps. A name present in only one map counts as moved, so a rune file that appears or disappears is a miss and never a match."""
-    moved = set(current.keys() ^ recorded.keys())
-    for name in current.keys() & recorded.keys():
-        if current[name] != recorded[name]:
-            moved.add(name)
-    return frozenset(moved)
-
-
-class StaleMask:
-    """The per-row staleness test, as a bitmask over the families a row can reach. There is one bit per family, in sorted registry order. `mask_of` builds a row's mask from its codepoints, and `stale` returns whether any moved family is inside it: directly, for a family with a codepoint, or through the ligature clause, which applies only when every component of a moved ligature rune is in the row. The ligature clause is read from `spec.registry.families[...].sequence` instead of a `_`-split of the name, because `settle.form_ligatures` routes on the sequence. A moved ligature rune also sets its own bit, because the settle memo keys windows on formed labels: a window whose slot holds `qsThey_qsUtter` names that rune and none of its components, so the component clause alone would serve it after an edit to the ligature's file. A moved family that the registry places by neither codepoint nor sequence makes every row stale, since over-invalidation is the safe direction."""
-
-    def __init__(self, spec: ResolvedSpec, moved: Collection[str] = ()) -> None:
-        families = spec.registry.families
-        self.spec = spec
-        self._bit: dict[str, int] = {name: 1 << index for index, name in enumerate(sorted(families))}
-        self._family_of: dict[int, str] = {
-            info.codepoint: name for name, info in families.items() if info.codepoint is not None
-        }
-        self._ligatures: dict[str, int] = {}
-        for name, info in families.items():
-            if not info.sequence:
-                continue
-            bits = 0
-            for component in info.sequence:
-                bits |= self._bit.get(component, 0)
-            self._ligatures[name] = bits
-        self.moved = frozenset(moved)
-        self.everything = False
-        symbols = 0
-        ligatures: list[int] = []
-        for name in sorted(self.moved):
-            info = families.get(name)
-            if info is not None and info.codepoint is not None:
-                symbols |= self._bit[name]
-            elif info is not None and info.sequence:
-                symbols |= self._bit[name]
-                ligatures.append(self._ligatures[name])
-            else:
-                self.everything = True
-        self._stale_symbols = symbols
-        self._stale_ligatures = tuple(sorted(set(ligatures)))
-        self._reach: dict[int, tuple[str, ...]] = {}
-
-    def mask_of(self, codepoints: Iterable[int]) -> int:
-        mask = 0
-        for codepoint in codepoints:
-            name = self._family_of.get(codepoint)
-            if name is not None:
-                mask |= self._bit[name]
-        return mask
-
-    def bit_of(self, family: str) -> int:
-        """Return the bit for one family name, or zero for a name the registry does not place (a boundary label, a window edge, or an unknown family). The settle memo uses this because its windows name families by label, not by codepoint. A formed ligature label maps to the ligature rune's own bit, which `stale` checks directly when that rune moved."""
-        return self._bit.get(family, 0)
-
-    def stale(self, mask: int) -> bool:
-        if self.everything or mask & self._stale_symbols:
-            return True
-        return bool(self._stale_ligatures) and any((mask & bits) == bits for bits in self._stale_ligatures)
-
-    def families_of(self, mask: int) -> tuple[str, ...]:
-        """Return every family a row with this mask can reach: the letters its codepoints name, plus each ligature rune whose components are all among them. Memoized on the mask, because many rows share a mask."""
-        cached = self._reach.get(mask)
-        if cached is None:
-            names = [name for name, bit in self._bit.items() if mask & bit]
-            names += [name for name, bits in self._ligatures.items() if bits and (mask & bits) == bits]
-            cached = tuple(sorted(set(names)))
-            self._reach[mask] = cached
-        return cached
 
 
 def unreachable_glyph_heads(glyph_names: Iterable[str], reachable: Collection[str]) -> tuple[str, ...]:
@@ -1438,7 +1276,7 @@ def _record_arrays(records: bytes | bytearray) -> tuple["array[int]", "array[int
 
 
 class RowWriter:
-    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. A writer with a `path` writes the configuration's whole file to a temporary path and moves it into place with `os.replace`, as the tests' stores are written. A writer with no `path` builds one gzip member in memory, which `close` leaves on `member` for the range to ship home (`oracle.ship`) and the store write to compare or write (`write_store`): one row range of a cut configuration's records only, with no header or trailer, which the store write places between a header member and a trailer member (`_joined_pieces`) once every range of the configuration has returned, or with `whole` an uncut configuration's whole file, header and trailer included, byte for byte the file a writer with a `path` writes."""
+    """One configuration's store being written, one record per subset row in table order. The row count is a trailer instead of a header field, so the header can be written before the count is known, and a truncated store has no trailer and fails to load. A writer with a `path` writes the configuration's whole file to a temporary path and moves it into place with `os.replace`, as the tests' stores are written. A writer with no `path` builds one gzip member in memory, which `close` leaves on `member` for the range to ship home (`shared_segments.ship`) and the store write to compare or write (`write_store`): one row range of a cut configuration's records only, with no header or trailer, which the store write places between a header member and a trailer member (`_joined_pieces`) once every range of the configuration has returned, or with `whole` an uncut configuration's whole file, header and trailer included, byte for byte the file a writer with a `path` writes."""
 
     def __init__(
         self,

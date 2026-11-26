@@ -2,7 +2,7 @@
 
 Nothing here builds a table or a font; everything runs against tables and an M1.otf that are already built. So this module is left out of the stamp a serialized window enumeration carries (`fingerprint.table_code_paths` subtracts `fingerprint.COMPARISON_CODE_MODULES`), and rebuild/test_build_code_closure.py fails if the import graph from any build-side module or from `run_m1.run` reaches it. An edit to `classify_divergence`, a predicate, `compile_ledger`, `_match_compiled`, or the position comparison therefore keeps every enumeration on disk, and `run_m1 --gates-only` re-runs the oracle over them. Like every module `fingerprint.COMPARISON_CODE_MODULES` names, it stays in `fingerprint.pipeline_code_paths`, so an edit here still changes the Stage A `pipeline_code` component, the artifact cycle's run_m1 skip key, and the Stage A record the review corpus's manifest copies.
 
-The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `oracle_cache.ORACLE_ROW_CODE_PATHS` must cover, outside the closure test's stop-set (`WIDTH_AND_TELEMETRY_MODULES`), and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_oracle_code_closure.py fails if conform.py's import graph reaches this module. The position comparison's entry module is rebuild/pipeline/oracle_positions.py, and `oracle_cache.POSITION_CODE_PATHS` names its import closure. No module in that closure imports this one either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_mismatch` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
+The rows the oracle classifies are produced in conform.py. `_compare_row` and `_SettledWindowWalk` are the entry points whose import graph `settle_memo_keys.SETTLE_MEMO_CODE_PATHS` must cover, outside the closure test's stop-set (`WIDTH_AND_TELEMETRY_MODULES`), and the record codec (`_cached_verdict`, `_served_verdict`) and `_verify_served_sample` sit beside them. No module under that stamp imports this one, so after a classifier edit every row verdict is still served from the store; rebuild/test_settle_memo_code_closure.py fails if conform.py's import graph reaches this module unlisted, and rebuild/test_oracle_code_closure.py checks that the roster never names it. The position comparison's entry module is rebuild/pipeline/oracle_positions.py, and `oracle_cache.POSITION_CODE_PATHS` names its import closure. No module in that closure imports this one either, so a classifier edit also keeps every stored position, and the same test checks that direction. `_compare_config` calls the position comparison through the `oracle_positions` module, not through imported names, so monkeypatching `oracle_positions._position_mismatch` affects both the rows this pass shapes and `_verify_served_positions` (rebuild/test_conform.py relies on this).
 
 `compare_against_baseline` is the serial path. For each configuration it streams the subset table and settles each row, or, given an `OracleRowCache`, serves the row verdict from the previous pass's store and walks only the rows an edit can reach (rebuild/pipeline/oracle_cache.py documents what the keys cover). It compares ligation, junctions, and cells through the alias map and matches each divergent row against the `CompiledLedger` (`compile_ledger`). Rows the ledger calls ink-identical are shaped against M1.otf to compare positions, or have their position verdict served from the same store under the position key.
 
@@ -35,7 +35,6 @@ import zlib
 from concurrent.futures import CancelledError, Executor, Future, ThreadPoolExecutor
 from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass, field, replace
-from multiprocessing import shared_memory
 from pathlib import Path
 from typing import BinaryIO, Callable, Container, Iterable, Iterator, Mapping, Protocol, Sequence, cast
 
@@ -50,6 +49,7 @@ from rebuild.pipeline import (
     position_record,
     row_delta,
     settle,
+    settle_memo_keys,
     spec_load,
 )
 from rebuild.pipeline.conform import (
@@ -68,6 +68,7 @@ from rebuild.pipeline.conform import (
 from rebuild.pipeline.labels import BOUNDARY_GLYPH_NAMES, features_for_config, load_alias_map
 from rebuild.pipeline.model import CellId, ResolvedSpec, isolated_overlay_active
 from rebuild.pipeline.shapers import IsolatedOverlayShaper, Shaper
+from rebuild.pipeline.shared_segments import Mapped, Shipped, ship, unlink_if_made
 from rebuild.tools import console
 from rebuild.tools.peak_rss import peak_footprint_self_bytes
 from rebuild.validation.rowmodel import Row, iter_rows
@@ -170,14 +171,6 @@ class ShipTo:
     audit: str
     store: str
     memo: str
-
-
-@dataclass(frozen=True)
-class Shipped:
-    """Bytes a row range or a conformance-sweep unit hands `run_m1`'s parent, or the settle memo absorb its parent starts, in a POSIX shared memory segment (`ship`) instead of on its pickled result: `name` is the segment and `lengths` the pieces laid end to end in it. A result reaches the parent through the pool's pipe as one message, which the parent reads into a buffer it grows to the message's size, and macOS's allocator keeps such buffers, and the large objects unpickled from them, dirty once freed, so what a range sends would cost the parent several times its size in footprint (measured in `var/keep/ram-inventory/v4/11a-overrun/`). A segment's pages count in the footprint of a process that has them mapped and has touched them, and in no other: the pages a range writes leave its footprint when it closes its mapping after the copy, and the parent's mapping touches none of them until the parent reads them."""
-
-    name: str
-    lengths: tuple[int, ...]
 
 
 @dataclass
@@ -1362,35 +1355,6 @@ class AuditBlocks:
         return self.blocks
 
 
-def ship(pieces: list[bytes], name: str) -> Shipped | None:
-    """Copy `pieces` end to end into a new POSIX shared memory segment called `name`, dropping each from the list once it is copied, close this process's mapping, and return what names them, or None when there are no bytes, for which no segment is made. Making the segment registers it with the resource tracker, which a spawned pool worker shares with the parent that started it, and which unlinks any segment still registered once the parent and every worker have exited. Whoever maps the segment unlinks it as it maps it, and unregisters it in doing so (`_Mapped`: a configuration's section task, `audit_section_task`, for the ranges' audit lines; its store task, `store_section_task`, for their store members; the parent's `InOrderWriter`, for a section's bytes as it writes the part and a store's ages as it takes them; or a settle memo absorb's worker, `run_m1_gates._absorb_memo`), and the parent unlinks any segment it named and nobody mapped as it exits (`InOrderWriter.__exit__`, `run_m1_gates._SweepSegments`)."""
-    lengths = tuple(len(piece) for piece in pieces)
-    if not sum(lengths):
-        return None
-    segment = shared_memory.SharedMemory(name, create=True, size=sum(lengths))
-    buffer = segment.buf
-    assert buffer is not None
-    try:
-        at = 0
-        for index, length in enumerate(lengths):
-            buffer[at : at + length] = pieces[index]
-            pieces[index] = b""
-            at += length
-    finally:
-        segment.close()
-    return Shipped(name, lengths)
-
-
-def _unlink_if_made(name: str, track: bool = True) -> None:
-    """Unlink the shared memory segment `name` if a range made it. Attaching registers the name with the resource tracker and unlinking unregisters it, so the tracker holds nothing for it afterward, whether or not the range's own registration reached it. A dead run's segment is attached with `track` false, since the tracker it was registered with died with that run."""
-    try:
-        segment = shared_memory.SharedMemory(name, track=track)
-    except FileNotFoundError:
-        return
-    segment.unlink()
-    segment.close()
-
-
 SEGMENT_RECORD = "segment-names"
 
 
@@ -1421,32 +1385,11 @@ def _unlink_recorded_segments(scratch: Path) -> None:
         names = _segment_names(token, position)
         for name in (names.audit, names.store, names.memo):
             with suppress(OSError, ValueError):
-                _unlink_if_made(name, track=False)
+                unlink_if_made(name, track=False)
     for slot in slots:
         for name in (_section_name(token, slot), _stores_name(token, slot)):
             with suppress(OSError, ValueError):
-                _unlink_if_made(name, track=False)
-
-
-class _Mapped:
-    """A shipped segment mapped and unlinked at once, so that its name never outlives the mapping, with its pieces as views: by a section task, by the parent's in-order writer, or by a settle memo absorb's worker. Attaching registers the name with the resource tracker again, which holds a name once, and unlinking unregisters it, so a segment mapped here leaves the tracker nothing to clean up. Its pages enter the mapping process's footprint as it reads them and leave at `close`."""
-
-    def __init__(self, shipped: Shipped) -> None:
-        self._segment = shared_memory.SharedMemory(shipped.name)
-        self._segment.unlink()
-        buffer = self._segment.buf
-        assert buffer is not None
-        self.size = sum(shipped.lengths)
-        self.closed = False
-        bounds = list(itertools.accumulate(shipped.lengths, initial=0))
-        self.pieces = [buffer[first:stop] for first, stop in itertools.pairwise(bounds)]
-
-    def close(self) -> None:
-        for piece in self.pieces:
-            piece.release()
-        self.pieces = []
-        self._segment.close()
-        self.closed = True
+                unlink_if_made(name, track=False)
 
 
 def _section_order(name: bytes) -> tuple[int, bytes]:
@@ -1708,14 +1651,14 @@ def audit_section_task(
     blocks: Sequence[Shipped | None],
     ship_name: str,
 ) -> SectionResult:
-    """Compare one configuration's section of the audit, in a fresh pool process (`InOrderWriter`): the lines its row ranges shipped home, compressed a block at a time (`AuditBlocks`), mapped from their shared memory segments in range order and each name unlinked as it is mapped (`_Mapped`), against the standing audit's section, its base's and each segment's merged by key (`_section_rows`, over `head`'s parts, which this process opens itself; None on a route that reads no standing audit), through the compare the serial writer runs over the whole audit (`SectionCompare`). The new rows' and the standing rows' first and last lines must be `config`'s (`_check_section`). The section's bytes in the part go home in the shared memory segment `ship_name`: on the segment route its upserts and tombstones and on a fold every row, each as one gzip member (`_SectionMember`), which `row_delta.MemberPart` would write for the same lines; and on a `first` or `unusable` base every row, plain, which are exactly the ranges' lines, so the task ships the ranges' compressed blocks as they came, one piece a block, and the parent inflates them as it writes the part, as the serial writer inflates them as it feeds them, so neither holds a section's plain lines. With no blocks it tombstones every standing row of a configuration the plan does not compare. Returns what the section came to (`SectionResult`)."""
+    """Compare one configuration's section of the audit, in a fresh pool process (`InOrderWriter`): the lines its row ranges shipped home, compressed a block at a time (`AuditBlocks`), mapped from their shared memory segments in range order and each name unlinked as it is mapped (`Mapped`), against the standing audit's section, its base's and each segment's merged by key (`_section_rows`, over `head`'s parts, which this process opens itself; None on a route that reads no standing audit), through the compare the serial writer runs over the whole audit (`SectionCompare`). The new rows' and the standing rows' first and last lines must be `config`'s (`_check_section`). The section's bytes in the part go home in the shared memory segment `ship_name`: on the segment route its upserts and tombstones and on a fold every row, each as one gzip member (`_SectionMember`), which `row_delta.MemberPart` would write for the same lines; and on a `first` or `unusable` base every row, plain, which are exactly the ranges' lines, so the task ships the ranges' compressed blocks as they came, one piece a block, and the parent inflates them as it writes the part, as the serial writer inflates them as it feeds them, so neither holds a section's plain lines. With no blocks it tombstones every standing row of a configuration the plan does not compare. Returns what the section came to (`SectionResult`)."""
     started = time.perf_counter()
-    mapped: list[_Mapped] = []
+    mapped: list[Mapped] = []
     member = _SectionMember()
     try:
         for shipped in blocks:
             if shipped is not None:
-                mapped.append(_Mapped(shipped))
+                mapped.append(Mapped(shipped))
         pieces = [piece for segment in mapped for piece in segment.pieces]
         with ExitStack() as stack:
             ends: _Ends | None = None
@@ -1803,12 +1746,12 @@ def store_section_task(
     pass_ordinal: int,
     ship_name: str,
 ) -> StoresResult:
-    """Write one configuration's store in a fresh pool process (`InOrderWriter`), through the same code the serial path's store set runs in its own process (`oracle_cache.write_store`): the members its row ranges shipped home, mapped from their shared memory segments in row order and each name unlinked as it is mapped (`_Mapped`), compared with the standing records on the route the stores' plan gave it, whose parts this process opens itself, and written as its segment or its base under its final name, which no head lists until the parent commits the set head. Its ages, two signed bytes a row, go home in the shared memory segment `ship_name`, for the parent's store set to take into the ages column (`oracle_cache.StoreSet.accept`)."""
+    """Write one configuration's store in a fresh pool process (`InOrderWriter`), through the same code the serial path's store set runs in its own process (`oracle_cache.write_store`): the members its row ranges shipped home, mapped from their shared memory segments in row order and each name unlinked as it is mapped (`Mapped`), compared with the standing records on the route the stores' plan gave it, whose parts this process opens itself, and written as its segment or its base under its final name, which no head lists until the parent commits the set head. Its ages, two signed bytes a row, go home in the shared memory segment `ship_name`, for the parent's store set to take into the ages column (`oracle_cache.StoreSet.accept`)."""
     started = time.perf_counter()
-    mapped: list[_Mapped] = []
+    mapped: list[Mapped] = []
     try:
         for _rows, shipped in members:
-            mapped.append(_Mapped(shipped))
+            mapped.append(Mapped(shipped))
         written = oracle_cache.write_store(
             inputs,
             config,
@@ -1990,7 +1933,7 @@ class InOrderWriter:
         stores = self.stores
         if stores is None:
             if segment is not None:
-                _unlink_if_made(segment.name)
+                unlink_if_made(segment.name)
             return
         self._wait(("stores", shard.config), segment)
         held = self._segments.setdefault(shard.config, {})
@@ -2007,7 +1950,7 @@ class InOrderWriter:
         ):
             for _rows, shipped, _ordinal in ranges:
                 if shipped is not None:
-                    _unlink_if_made(shipped.name)
+                    unlink_if_made(shipped.name)
             self._hold(-self._waiting.pop(("stores", shard.config), 0))
             return
         self._stored[shard.config] = self.executor.submit(
@@ -2098,7 +2041,7 @@ class InOrderWriter:
         for config, result in stored.items():
             ages = b""
             if result.ages is not None:
-                mapped = _Mapped(result.ages)
+                mapped = Mapped(result.ages)
                 try:
                     ages = b"".join(bytes(piece) for piece in mapped.pieces)
                 finally:
@@ -2145,7 +2088,7 @@ class InOrderWriter:
     def _write_sections(
         self, name: str, header: bytes, members: bool, sections: Sequence[SectionResult]
     ) -> row_delta.Part:
-        """Write the part `name` under its final name, which no head lists until the commit: `header`, as its own gzip member when the part is held as `members`, then each section's bytes in order, each segment mapped and unlinked as it is reached (`_Mapped`) and closed once written, all through one hashing count (`row_delta._Counting`), and return its `Part`. A plain part's sections come as the ranges' compressed blocks, each inflated as it is written, and must inflate to the bytes their tasks counted."""
+        """Write the part `name` under its final name, which no head lists until the commit: `header`, as its own gzip member when the part is held as `members`, then each section's bytes in order, each segment mapped and unlinked as it is reached (`Mapped`) and closed once written, all through one hashing count (`row_delta._Counting`), and return its `Part`. A plain part's sections come as the ranges' compressed blocks, each inflated as it is written, and must inflate to the bytes their tasks counted."""
         index: list[row_delta.Member] = []
         with output_sink.replacing(self._out_dir / name) as handle:
             counting = row_delta._Counting(handle)
@@ -2157,7 +2100,7 @@ class InOrderWriter:
                 counting.write(header)
             for section in sections:
                 assert section.output is not None
-                mapped = _Mapped(section.output)
+                mapped = Mapped(section.output)
                 try:
                     written = 0
                     for piece in mapped.pieces:
@@ -2197,12 +2140,12 @@ class InOrderWriter:
         self._segments = {}
         for shard in self._order:
             names = self.ship_to(shard)
-            _unlink_if_made(names.audit)
-            _unlink_if_made(names.store)
-            _unlink_if_made(names.memo)
+            unlink_if_made(names.audit)
+            unlink_if_made(names.store)
+            unlink_if_made(names.memo)
         for slot in range(len(self._slots)):
-            _unlink_if_made(_section_name(self._token, slot))
-            _unlink_if_made(_stores_name(self._token, slot))
+            unlink_if_made(_section_name(self._token, slot))
+            unlink_if_made(_stores_name(self._token, slot))
         self._reap()
         self._hold(-sum(self._waiting.values()) - sum(self._unwritten.values()))
         self._waiting, self._unwritten = {}, {}
@@ -2295,7 +2238,9 @@ def _compare_config(
     # A writing pass carries each served row's settled digest forward from its record; a pass that writes nothing never reads it.
     carried_settled = store.settled if store is not None and writer is not None else None
     # A writing pass records each row it derives that `oracle_cache.unreachable_glyph_heads` refuses at `UNCOVERED_AGE`. Reach depends only on the registry, so a pass that loaded no store asks a mask of its own.
-    coverage = None if writer is None else (store.mask if store is not None else oracle_cache.StaleMask(spec))
+    coverage = (
+        None if writer is None else (store.mask if store is not None else settle_memo_keys.StaleMask(spec))
+    )
     while True:
         chunk = list(itertools.islice(rows, ORACLE_ROW_CHUNK))
         if not chunk:

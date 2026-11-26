@@ -74,10 +74,10 @@ from rebuild.pipeline import (
     conform,
     kernel_exec,
     kernel_io,
-    oracle,
     output_sink,
     row_delta,
     run_m1,
+    shared_segments,
     spec_load,
 )
 from rebuild.pipeline.model import ResolvedSpec
@@ -1342,8 +1342,8 @@ def absorb_job(
     raise ValueError(f"{path} is not an absorbs path")
 
 
-def _ship_untracked(pieces: Sequence[bytes | memoryview], name: str) -> oracle.Shipped | None:
-    """`oracle.ship` without the resource tracker's registration, since the absorb child that maps and unlinks the segment runs under a tracker of its own."""
+def _ship_untracked(pieces: Sequence[bytes | memoryview], name: str) -> shared_segments.Shipped | None:
+    """`shared_segments.ship` without the resource tracker's registration, since the absorb child that maps and unlinks the segment runs under a tracker of its own."""
     from multiprocessing import shared_memory
 
     lengths = tuple(len(piece) for piece in pieces)
@@ -1359,13 +1359,13 @@ def _ship_untracked(pieces: Sequence[bytes | memoryview], name: str) -> oracle.S
             at += len(piece)
     finally:
         segment.close()
-    return oracle.Shipped(name, lengths)
+    return shared_segments.Shipped(name, lengths)
 
 
 def _unlink_segments(names: Iterable[str]) -> None:
     for name in names:
         with suppress(OSError, ValueError):
-            oracle._unlink_if_made(name, track=False)
+            shared_segments.unlink_if_made(name, track=False)
 
 
 class _AbsorbSegments:
@@ -1566,12 +1566,12 @@ def absorbs_report(lines: Sequence[Mapping]) -> list[str]:
 
 def run_absorbs(args: argparse.Namespace, tree: Path) -> int:
     """Run the absorbs holder's lines (the module docstring's "The absorbs step") under the held lock: clone the live `default` settle memo, its head and every part it lists, into the tree (`clone_memo`), make each distinct count's inputs once (`absorb_count`), a standing file only when a path of `--paths` reads one, then for each named count, in order, and each path of `--paths` measure one line (`measure_absorb_line`), the absorb over a clone of the line's standing memo of its own on a path that reads one, recording each as it finishes, then the fit (`absorbs_report`). Every segment a line ships is unlinked and the line's clone removed as the line ends, however it ends (`_AbsorbSegments`), and the clone and every standing file the run wrote are removed as it ends, however it ends."""
-    from rebuild.pipeline import oracle_cache, run_m1_gates
+    from rebuild.pipeline import run_m1_gates, settle_memo_keys
 
     spec = spec_load.load_default_spec()
-    live = conform.settle_memo_files(run_m1.OUT_DIR, spec, oracle_cache.settle_memo_inputs(run_m1.REPO_ROOT))[
-        ABSORB_CONFIG
-    ]
+    live = conform.settle_memo_files(
+        run_m1.OUT_DIR, spec, settle_memo_keys.settle_memo_inputs(run_m1.REPO_ROOT)
+    )[ABSORB_CONFIG]
     if not conform.settle_memo_standing(live):
         raise SystemExit(f"{live.path} is not a settle memo under this tree's stamp; a cycle pass refills it")
     empty_tree(tree)

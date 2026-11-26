@@ -1,12 +1,8 @@
-"""Checks that `oracle_cache.ORACLE_ROW_CODE_PATHS` and `POSITION_CODE_PATHS` name exactly the code the oracle comparison runs.
+"""Checks that `oracle_cache.POSITION_CODE_PATHS` names exactly the code the oracle's position comparison runs. The row comparison's roster is the settle memo's (`settle_memo_keys.SETTLE_MEMO_CODE_PATHS`), which rebuild/test_settle_memo_code_closure.py checks.
 
-`ORACLE_ROW_CODE_PATHS` is a hand-written list, not a glob over `rebuild/pipeline/`. If a module that runs in `_compare_row` or `_SettledWindowWalk` is missing from it, the store's stamp does not hash that module, and a fix to it would be skipped and the old row verdict served as current. This test walks the import graph from the module that defines those two entry points and requires every reachable module outside its stop-set to be listed. It also checks the other direction, that every listed module is reachable, because a listed module the comparison never reaches drops the whole store on every commit that edits it.
+The walk is at module grain, as in `rebuild/test_review_code_closure.py`, with the same stop-set, rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES`, which the walk neither records nor follows. A test checks that every member the comparison reaches imports, transitively, only other members.
 
-The walk is at module grain, as in `rebuild/test_review_code_closure.py`. That errs in the safe direction: a module conform.py imports for a purpose the comparison never uses is still stamped. The one exception is the stop-set, rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES` (the pool-width, peak-memory, font-path and lock-digest helpers among them), which the walk neither records nor follows; the comment on `oracle_cache.ORACLE_ROW_CODE_PATHS` says why none of them can change a verdict. A test checks that every member a comparison reaches imports, transitively, only other members, so an edge into a member that imports beyond the set fails. The opposite error, a module the comparison runs that the import graph does not show, would need a dynamic import, and the walked modules use none. The walk follows `if TYPE_CHECKING:` imports too, because `ast.walk` ignores the guard, so a type-only import is stamped like any other.
-
-Because of the module grain, the witness stage's rule replay is in `rebuild/pipeline/witness.py` and not in conform.py. The replay imports `rebuild/pipeline/emit_gsub.py`, and if it were in conform.py, the roster would have to name the emitter.
-
-The position comparison has its own walk, from `rebuild/pipeline/oracle_positions.py`, and `POSITION_CODE_PATHS` must name exactly the modules it reaches outside the stop-set. The position stamp is checked on its own, without the row stamp, because a stored position is served across a move of the row stamp when the row's settled stream did not change, so a module the position comparison reaches is covered only when that roster names it. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the position comparison: it re-runs over every served verdict and is in neither roster, and if the position comparison imported it, a predicate edit would change `position_code` and re-shape every position. The row store, the settlement walk and the crate driver must be unreachable too, or an edit to one would re-shape every position where the settled digest already covers what it decides.
+The position comparison's walk starts from `rebuild/pipeline/oracle_positions.py`, and `POSITION_CODE_PATHS` must name exactly the modules it reaches outside the stop-set. The position stamp is checked on its own, without the row stamp, because a stored position is served across a move of the row stamp when the row's settled stream did not change, so a module the position comparison reaches is covered only when that roster names it. `rebuild/pipeline/oracle.py`, the classifier, must be unreachable from the position comparison: it re-runs over every served verdict and is in neither roster, and if the position comparison imported it, a predicate edit would change `position_code` and re-shape every position. The row store, the settlement walk and the crate driver must be unreachable too, or an edit to one would re-shape every position where the settled digest already covers what it decides.
 """
 
 from __future__ import annotations
@@ -14,12 +10,11 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from rebuild.pipeline import conform, oracle_cache, oracle_positions
+from rebuild.pipeline import conform, oracle_cache, oracle_positions, settle_memo_keys
 from rebuild.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-ORACLE_ENTRY_MODULES = ("rebuild.pipeline.conform",)
 POSITION_ENTRY_MODULES = ("rebuild.pipeline.oracle_positions",)
 POSITION_COMPARISON_NAMES = frozenset(
     {
@@ -81,97 +76,15 @@ def reachable_modules(entry_points: tuple[str, ...]) -> dict[str, Path]:
     return _walk(entry_points)[0]
 
 
-def _reached_files() -> set[Path]:
-    reached = reachable_modules(ORACLE_ENTRY_MODULES)
-    # A package's empty __init__.py carries no behavior for a fingerprint to protect.
-    return {path for path in reached.values() if path.name != "__init__.py"}
-
-
 def test_both_comparison_entry_points_live_in_the_walked_module():
-    """The walk starts from conform.py, so `_compare_row` and `_SettledWindowWalk` must be defined there. If either moved to another file, the walk tests would keep passing while covering the wrong graph."""
+    """The row comparison's walk starts from conform.py (rebuild/test_settle_memo_code_closure.py checks the roster it gives), so `_compare_row` and `_SettledWindowWalk` must be defined there. If either moved to another file, the roster tests would keep passing while covering the wrong graph."""
     source = ast.parse((REPO_ROOT / "rebuild" / "pipeline" / "conform.py").read_text(encoding="utf-8"))
     defined = {node.name for node in source.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
     assert {"_compare_row", "_SettledWindowWalk"} <= defined, (
         "the oracle cache's two comparison entry points are no longer defined in rebuild/pipeline/conform.py, "
-        f"so ORACLE_ENTRY_MODULES names the wrong graph; conform.py defines {sorted(defined & {'_compare_row', '_SettledWindowWalk'})}"
+        f"so the walk names the wrong graph; conform.py defines {sorted(defined & {'_compare_row', '_SettledWindowWalk'})}"
     )
     assert hasattr(conform, "_compare_row") and hasattr(conform, "_SettledWindowWalk")
-
-
-def test_the_rule_replay_lives_outside_the_comparisons_closure():
-    """The witness stage's rule replay, which reads the GSUB emitter's rule fold, is defined in rebuild/pipeline/witness.py, the comparison's walk does not reach `emit_gsub`, and the roster does not name emit_gsub.py. An edit to the emitter alone therefore keeps every stored row verdict. The generic tests below would accept the replay moving back into conform.py if the roster gained emit_gsub.py; this test fails on that move."""
-    source = ast.parse((REPO_ROOT / "rebuild" / "pipeline" / "witness.py").read_text(encoding="utf-8"))
-    defined = {node.name for node in source.body if isinstance(node, ast.FunctionDef)}
-    replay = {
-        "_first_matching_rule",
-        "_matched_windows",
-        "_renamed_rules_by_input",
-        "check_rule_certificates",
-    }
-    assert replay <= defined, f"witness.py defines {sorted(defined & replay)} of the replay's four functions"
-    assert "rebuild.pipeline.emit_gsub" not in reachable_modules(
-        ORACLE_ENTRY_MODULES
-    ), "the comparison's import closure reaches emit_gsub again, so an emitter edit drops the oracle row store whole"
-    assert "rebuild/pipeline/emit_gsub.py" not in oracle_cache.ORACLE_ROW_CODE_PATHS
-
-
-def test_oracle_row_code_paths_covers_the_comparison_import_graph():
-    files = _reached_files()
-    assert (
-        REPO_ROOT / "rebuild" / "pipeline" / "settle.py" in files
-    ), "the walk found nothing; the entry module moved"
-    named = {REPO_ROOT / relative for relative in oracle_cache.ORACLE_ROW_CODE_PATHS}
-    uncovered = sorted(str(path.relative_to(REPO_ROOT)) for path in files - named)
-    assert uncovered == [], (
-        "these modules run in the oracle's comparison but ORACLE_ROW_CODE_PATHS does not name them, so the whole-store "
-        "stamp does not hash them and a fix to one would be served around as though the previous pass had already "
-        f"applied it: {', '.join(uncovered)}. Add each to ORACLE_ROW_CODE_PATHS in rebuild/pipeline/oracle_cache.py, "
-        "or move the code out of the comparison's reach."
-    )
-
-
-def test_the_named_oracle_closure_holds_no_module_the_comparison_never_reaches():
-    """Every module the roster names must be reachable from the comparison. An extra name does not make results wrong, but it drops the whole store on a commit that could not have changed a verdict."""
-    files = _reached_files()
-    strays = sorted(
-        relative for relative in oracle_cache.ORACLE_ROW_CODE_PATHS if REPO_ROOT / relative not in files
-    )
-    assert strays == [], (
-        "named in ORACLE_ROW_CODE_PATHS but unreachable from the comparison, so every store drops whenever one of "
-        f"them moves and nothing is bought for it: {', '.join(strays)}"
-    )
-
-
-def test_the_walk_stops_only_at_modules_whose_imports_stay_inside_the_stop_set():
-    """The walk neither records nor follows a module in `WIDTH_AND_TELEMETRY_MODULES`, so neither roster hashes what such a module imports. That is sound only while every member either comparison reaches imports, transitively, nothing outside the set. The set is the corpus build's, and some members import far beyond it (`artifact_cycle` imports the review pipeline), so an edge from a comparison into one of those fails here instead of being trusted."""
-    for entry_points in (ORACLE_ENTRY_MODULES, POSITION_ENTRY_MODULES):
-        queue = sorted(_walk(entry_points)[1])
-        checked: set[str] = set()
-        while queue:
-            module = queue.pop()
-            if module in checked:
-                continue
-            checked.add(module)
-            path = _module_path(module)
-            assert path is not None, f"{module} is in WIDTH_AND_TELEMETRY_MODULES but is not on disk"
-            onward = {name for name in _imports(path) if _module_path(name) is not None}
-            outside = sorted(onward - WIDTH_AND_TELEMETRY_MODULES)
-            assert outside == [], (
-                f"the walk from {', '.join(entry_points)} stops at {module}, which imports {', '.join(outside)} "
-                "outside WIDTH_AND_TELEMETRY_MODULES, so no roster hashes that code although the comparison runs it. "
-                f"Import a leaf of the set instead of {module}, or move the code out of the comparison's reach."
-            )
-            queue.extend(onward)
-
-
-def test_every_named_oracle_path_exists():
-    """Every path `oracle_code_paths` returns must exist. `fingerprint.hash_paths` skips a missing path without error, so a renamed module would drop out of the stamp silently. This also covers `Cargo.toml` and `Cargo.lock`, which `oracle_code_paths` names directly; the Rust sources come from a glob."""
-    missing = [
-        str(path.relative_to(REPO_ROOT))
-        for path in oracle_cache.oracle_code_paths(REPO_ROOT)
-        if not path.is_file()
-    ]
-    assert missing == [], f"the oracle row cache's stamp names files that are not there: {', '.join(missing)}"
 
 
 def _position_reached_files() -> set[Path]:
@@ -226,12 +139,12 @@ def test_the_classifier_lives_outside_the_position_comparison_s_closure():
     assert "rebuild.pipeline.oracle" not in reachable_modules(
         POSITION_ENTRY_MODULES
     ), "the position comparison's import closure reaches oracle.py, so a classifier edit re-shapes every position"
-    assert "rebuild/pipeline/oracle.py" not in oracle_cache.ORACLE_ROW_CODE_PATHS
+    assert "rebuild/pipeline/oracle.py" not in settle_memo_keys.SETTLE_MEMO_CODE_PATHS
     assert "rebuild/pipeline/oracle.py" not in oracle_cache.POSITION_CODE_PATHS
 
 
 def test_the_position_roster_names_only_the_position_comparison_and_every_entry_exists():
-    """Every path in `POSITION_CODE_PATHS` must exist and be reachable from the position comparison. `oracle_code_paths` does not cover this roster and `fingerprint.hash_paths` skips a missing path, so a renamed position comparison module would drop out of the position stamp silently. A name the walk never reaches would re-shape every position on an edit that could not change one."""
+    """Every path in `POSITION_CODE_PATHS` must exist and be reachable from the position comparison. `settle_memo_keys.settle_memo_code_paths` does not cover this roster and `fingerprint.hash_paths` skips a missing path, so a renamed position comparison module would drop out of the position stamp silently. A name the walk never reaches would re-shape every position on an edit that could not change one."""
     files = _position_reached_files()
     missing = [
         relative for relative in oracle_cache.POSITION_CODE_PATHS if not (REPO_ROOT / relative).is_file()

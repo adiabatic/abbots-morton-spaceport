@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 from rebuild.pipeline import fingerprint, output_sink, spec_load, table
-from rebuild.pipeline.baseline_subset import M1_ALPHABET
+from rebuild.pipeline.alphabet import M1_ALPHABET
 from rebuild.review import app_index, diff_units, shards, snapshot, tablediff, unit_ids
 from rebuild.review.audit import (
     BATCH_SIZE,
@@ -78,7 +78,7 @@ def _sha256(path: Path) -> str:
 
 
 def _alphabet_meta() -> dict:
-    """Return the migration progress shown on the corpus chip. `migrated` counts the letters the build's alphabet (`baseline_subset.M1_ALPHABET`) holds without its boundary tokens, which is the set of letters that have runes under glyph_data/runes/. `total` counts the whole Quikscript alphabet."""
+    """Return the migration progress shown on the corpus chip. `migrated` counts the letters the build's alphabet (`alphabet.M1_ALPHABET`) holds without its boundary tokens, which is the set of letters that have runes under glyph_data/runes/. `total` counts the whole Quikscript alphabet."""
     return {"migrated": len(M1_ALPHABET & set(LETTERS)), "total": len(LETTERS)}
 
 

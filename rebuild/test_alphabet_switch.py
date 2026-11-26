@@ -1,4 +1,4 @@
-"""Tests for the alphabet switch, `AMS_M1_RUNES` (`spec_load.M1_RUNES_ENV`), which runs an M1 build on a small alphabet for the fault kit: the spec `load_default_spec` narrows to, `baseline_subset.M1_ALPHABET` taken from that spec when the module is imported, the alphabet token in every stamp over a build while the switch is set and in none while it is unset, and the refusal of every entry point that writes the live tree unless the fault kit started it."""
+"""Tests for the alphabet switch, `AMS_M1_RUNES` (`spec_load.M1_RUNES_ENV`), which runs an M1 build on a small alphabet for the fault kit: the spec `load_default_spec` narrows to, `alphabet.M1_ALPHABET` taken from that spec when the module is imported, the alphabet token in every stamp over a build while the switch is set and in none while it is unset, and the refusal of every entry point that writes the live tree unless the fault kit started it."""
 
 from __future__ import annotations
 
@@ -12,13 +12,14 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import (
+    alphabet,
     baseline_subset,
     fingerprint,
     fixtures,
     kernel_exec,
-    oracle_cache,
     run_m1,
     run_m1_gates,
+    settle_memo_keys,
     spec_load,
 )
 from rebuild.review import build, landing
@@ -78,13 +79,13 @@ def test_m1_alphabet_is_the_narrowed_spec_s_alphabet_when_imported_under_the_swi
     """A fresh process under the switch imports `M1_ALPHABET` as the narrowed spec's alphabet, the boundary tokens beside the named letters' code points, and both the name the review build imports and `filter_table`'s default argument are that set."""
     probe = (
         "import json\n"
-        "from rebuild.pipeline import baseline_subset, manual_pins, spec_load\n"
+        "from rebuild.pipeline import alphabet, baseline_subset, manual_pins, spec_load\n"
         "from rebuild.review import build\n"
         "print(json.dumps({\n"
-        "    'alphabet': sorted(baseline_subset.M1_ALPHABET),\n"
+        "    'alphabet': sorted(alphabet.M1_ALPHABET),\n"
         "    'migrated': sorted(manual_pins.migrated_alphabet(spec_load.load_default_spec())),\n"
-        "    'default': baseline_subset.filter_table.__defaults__[0] is baseline_subset.M1_ALPHABET,\n"
-        "    'imported': build.M1_ALPHABET is baseline_subset.M1_ALPHABET,\n"
+        "    'default': baseline_subset.filter_table.__defaults__[0] is alphabet.M1_ALPHABET,\n"
+        "    'imported': build.M1_ALPHABET is alphabet.M1_ALPHABET,\n"
         "}))\n"
     )
     environment = {**os.environ, spec_load.M1_RUNES_ENV: SMALL}
@@ -100,7 +101,7 @@ def test_m1_alphabet_is_the_narrowed_spec_s_alphabet_when_imported_under_the_swi
     assert seen["alphabet"] == [0x0020, 0x00B7, 0x200C, 0xE652, 0xE653, 0xE67A]
     assert seen["migrated"] == seen["alphabet"]
     assert seen["default"] and seen["imported"]
-    assert baseline_subset.M1_ALPHABET > frozenset(seen["alphabet"])
+    assert alphabet.M1_ALPHABET > frozenset(seen["alphabet"])
 
 
 def _stamps(root: Path, record_dir: str) -> dict:
@@ -109,14 +110,14 @@ def _stamps(root: Path, record_dir: str) -> dict:
     records = root / record_dir
     records.mkdir()
     fingerprint.write_stage_a(records, fingerprint.stage_a(root))
-    inputs = oracle_cache.SettleMemoInputs(rune_digests={}, oracle_code="C", data="D")
+    inputs = settle_memo_keys.SettleMemoInputs(rune_digests={}, code="C", data="D")
     return {
         "tables": run_m1.tables_inputs(),
         "skip": artifact_cycle.run_m1_skip_lines(root),
         "skip_value": artifact_cycle.run_m1_skip_fingerprint(root),
         "stage_a": (records / fingerprint.STAGE_A_FILENAME).read_text(),
         "records": records,
-        "settle": oracle_cache.settle_memo_stamp(inputs, spec, "ss03", ["ss03"]),
+        "settle": settle_memo_keys.settle_memo_stamp(inputs, spec, "ss03", ["ss03"]),
     }
 
 
@@ -138,7 +139,7 @@ def test_the_alphabet_token_joins_every_stamp_only_while_the_switch_is_set(monke
         '  "baselines": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",\n'
         '  "pipeline_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"\n}\n'
     )
-    assert whole["settle"].value == "d5d85b5add5cb3dc9e984cc472db4c1ade6481f1b9c5577a2729577322a1c91a"
+    assert whole["settle"].value == "d7de3032c782a2627fa15f96f74c16b4ffbe0e254072278fb1d63466bbc092c1"
 
     monkeypatch.setenv(spec_load.M1_RUNES_ENV, SMALL)
     small = _stamps(tmp_path, "small")

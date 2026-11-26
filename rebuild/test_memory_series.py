@@ -521,7 +521,7 @@ def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(mon
     """An absorbs run clones the live `default` settle memo, its head and every part the head lists, into its tree, makes each distinct count's inputs once, and measures each named count, a count named twice twice, on every path `--paths` names, in order, each line's two jobs in the series' own environment, without the allocator setting; it records each line under the absorbs holder with its count, path and row counts, then each path's fit against rows, and removes the clone and every standing file it wrote however it ends. A run whose paths read no standing file writes none. Every segment a line ships is unlinked once the line ends, however it ends, and a run killed before its cleanup leaves their names for the next run's `empty_tree` to unlink."""
     from multiprocessing import shared_memory
 
-    from rebuild.pipeline import oracle_cache, run_m1
+    from rebuild.pipeline import run_m1, settle_memo_keys
 
     spec = fixtures.mini_spec()
     guard = kernel_exec.guard_sweep(spec)
@@ -583,7 +583,7 @@ def test_an_absorbs_run_makes_each_counts_inputs_once_and_records_every_line(mon
     monkeypatch.setattr(ms, "ROOT", tmp_path)
     monkeypatch.setattr(ms.spec_load, "load_default_spec", lambda: spec)
     monkeypatch.setattr(run_m1, "OUT_DIR", out_dir)
-    monkeypatch.setattr(oracle_cache, "settle_memo_inputs", lambda root: "inputs")
+    monkeypatch.setattr(settle_memo_keys, "settle_memo_inputs", lambda root: "inputs")
     monkeypatch.setattr(conform, "settle_memo_files", lambda out, spec, inputs: {"default": live})
     monkeypatch.setattr(ms, "absorb_count", counting)
     monkeypatch.setattr(ms, "measure_absorb_line", measure_absorb_line)

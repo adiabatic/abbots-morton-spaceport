@@ -990,7 +990,7 @@ def _texts_worker(
     slot: int,
     kern_sides: conform.KernSides | None = None,
 ):
-    """Run one targeted unit in its own process: settle `texts` in order through a `conform._SettledWindowWalk` whose horizon is the longest of them and whose windows are released before they pass `memo_windows`, and give each the per-text checks `conform._conformance_config` gives a settlement configuration's text, `conform.check_split_buffer` where it holds a splitter, `conform.check_oracle`, `conform.check_join_gaps`, and, given `kern_sides`, `conform.check_break_advances`. Store the count of texts shaped in the unit's `slot` after each chunk of `conform.TEXT_CHUNK`, and return the result with the process's peak footprint. It lives here and not as a mode of `conform._conformance_config` because conform.py is in the tables' stamp and the oracle's row-code closure, which an edit there invalidates."""
+    """Run one targeted unit in its own process: settle `texts` in order through a `conform._SettledWindowWalk` whose horizon is the longest of them and whose windows are released before they pass `memo_windows`, and give each the per-text checks `conform._conformance_config` gives a settlement configuration's text, `conform.check_split_buffer` where it holds a splitter, `conform.check_glyph_names`, `conform.check_join_gaps`, and, given `kern_sides`, `conform.check_break_advances`. Store the count of texts shaped in the unit's `slot` after each chunk of `conform.TEXT_CHUNK`, and return the result with the process's peak footprint. It lives here and not as a mode of `conform._conformance_config` because conform.py is in the tables' stamp and the oracle's row-code closure, which an edit there invalidates."""
     store = _counter_writer(slot)
     shaper = conform.Shaper(Path(font_path))
     features = features_for_config(config)
@@ -1019,7 +1019,7 @@ def _texts_worker(
                 conform.check_split_buffer(
                     text, config, features, shaper, shaped, divergences, splitters, kern_sides
                 )
-            conform.check_oracle(text, config, shaped, names, divergences, modes)
+            conform.check_glyph_names(text, config, shaped, names, divergences, modes)
             if anchors_of is not None:
                 conform.check_join_gaps(text, config, shaper, shaped, anchors_of, divergences)
             if kern_sides is not None:

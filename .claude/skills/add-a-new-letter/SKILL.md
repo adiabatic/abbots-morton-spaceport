@@ -32,7 +32,7 @@ The user makes the design decisions. Where the old record can be converted in mo
 
 ## 1 — grow the alphabet
 
-Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/baseline_subset.py`. This step needs nothing else. `run_m1` refilters the subset tables itself (`ensure_fresh`). It refuses to start while any glyph name in a subset row lacks a `rebuild/m1-aliases.yaml` entry, and it lists the missing names. An entry may map to `pending` while the migration is in progress.
+Add the codepoint to `M1_ALPHABET` in `rebuild/pipeline/alphabet.py`. This step needs nothing else. `run_m1` refilters the subset tables itself (`ensure_fresh`). It refuses to start while any glyph name in a subset row lacks a `rebuild/m1-aliases.yaml` entry, and it lists the missing names. An entry may map to `pending` while the migration is in progress.
 
 ## 2 — author the rune file(s)
 

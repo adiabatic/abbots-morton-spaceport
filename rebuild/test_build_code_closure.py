@@ -1,12 +1,12 @@
 """Checks that `fingerprint.COMPARISON_CODE_MODULES`, `fingerprint.FONT_COMPILE_TOOL_MODULES` and `run_m1.TABLE_BUILD_CODE_MODULES` match the import graph.
 
-`COMPARISON_CODE_MODULES` lists, as repo-relative paths, the modules of `pipeline_code_paths` left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and M1.otf on disk, as `run_m1 --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `rebuild/test_oracle_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `rebuild/pipeline/run_m1.py`, reaches the comparison side through rebuild/pipeline/run_m1_gates.py from `full_run` and its `python -m` entry, because a full run also runs the gates, so it is checked at function grain instead: no expression in `run_m1.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
+`COMPARISON_CODE_MODULES` lists, as repo-relative paths, the modules of `pipeline_code_paths` left out of a serialized window enumeration's stamp (`fingerprint.table_code_paths`, the code half of `tables_value`). Reusing the tables and M1.otf on disk, as `run_m1 --gates-only` and `--conform-only` do, is safe only if no module on that list can change a table or the font. The first check walks the import graph from every build-side module and requires it to reach nothing on the list. Like `rebuild/test_settle_memo_code_closure.py`, it works at module grain and follows `if TYPE_CHECKING:` imports, which errs toward including too much. The driver, `rebuild/pipeline/run_m1.py`, reaches the comparison side through rebuild/pipeline/run_m1_gates.py from `full_run` and its `python -m` entry, because a full run also runs the gates, so it is checked at function grain instead: no expression in `run_m1.run`, or in any module-level function it calls transitively, may name a comparison-side module or anything imported from one.
 
-The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
+The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `settle_memo_keys.SETTLE_MEMO_CODE_PATHS`, because a comparison-side module named there would drop every settle memo on a gate edit for no benefit.
 
 `FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_review_code_closure.py does not follow them either, so a second check holds the review corpus build's Python (`fingerprint.review_code_paths` and the modules the build reaches under rebuild/pipeline and rebuild/validation) to importing no tools/ or test/ module by bare name. The roster check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash.
 
-`TABLE_BUILD_CODE_MODULES` is the Python half of `run_m1.table_build_code_paths`, the code that the table build record's structure stamp (`run_m1.memo_structure_stamp`) and its `code` hash. The crate reads nothing but the spec dump and its command line, so the roster is the module-grain import closure of the crate driver and the dump's writer (`kernel_exec`, `kernel_io`), stopping at rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES` as rebuild/test_oracle_code_closure.py does, with the same check that every module the walk stops at imports only other members. A module the walk reaches that the roster misses could change what the crate reads while the stamp and `code` hold, so two builds of different inputs would pair as the same; a roster entry the walk never reaches moves both on an edit the crate cannot see. A second check holds the paths to the whole crate plus the roster, every one on disk, because `fingerprint.hash_paths` skips a missing file.
+`TABLE_BUILD_CODE_MODULES` is the Python half of `run_m1.table_build_code_paths`, the code that the table build record's structure stamp (`run_m1.memo_structure_stamp`) and its `code` hash. The crate reads nothing but the spec dump and its command line, so the roster is the module-grain import closure of the crate driver and the dump's writer (`kernel_exec`, `kernel_io`), stopping at rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES` as rebuild/test_settle_memo_code_closure.py does, with the same check that every module the walk stops at imports only other members. A module the walk reaches that the roster misses could change what the crate reads while the stamp and `code` hold, so two builds of different inputs would pair as the same; a roster entry the walk never reaches moves both on an edit the crate cannot see. A second check holds the paths to the whole crate plus the roster, every one on disk, because `fingerprint.hash_paths` skips a missing file.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from rebuild.pipeline import fingerprint, oracle_cache, run_m1
+from rebuild.pipeline import fingerprint, run_m1, settle_memo_keys
 from rebuild.test_review_code_closure import BUILD_ENTRY_MODULES as CORPUS_ENTRY_MODULES
 from rebuild.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES, reachable_modules
 
@@ -300,12 +300,12 @@ def test_every_roster_entry_is_reached_from_the_driver():
     ), f"named in COMPARISON_CODE_MODULES but unreachable from {BUILD_DRIVER.name}: {', '.join(strays)}"
 
 
-def test_the_comparison_side_is_outside_the_oracle_row_cache_stamp():
-    named = {REPO_ROOT / relative for relative in oracle_cache.ORACLE_ROW_CODE_PATHS}
+def test_the_comparison_side_is_outside_the_settle_memo_stamp():
+    named = {REPO_ROOT / relative for relative in settle_memo_keys.SETTLE_MEMO_CODE_PATHS}
     inside = sorted(str(path.relative_to(REPO_ROOT)) for path in _comparison_paths() & named)
     assert inside == [], (
-        "these comparison-side modules ride ORACLE_ROW_CODE_PATHS, so every classifier edit drops the whole store for "
-        f"nothing — the classifier re-runs over served rows regardless: {', '.join(inside)}"
+        "these comparison-side modules ride SETTLE_MEMO_CODE_PATHS, so every edit to one drops every settle memo for "
+        f"nothing, since no settlement runs them: {', '.join(inside)}"
     )
 
 
