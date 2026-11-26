@@ -2,7 +2,7 @@ import CoreText
 import Foundation
 
 // Usage: coretext_smoke FONT.otf [--features TAG[,TAG...]] HEXCP [HEXCP ...]. --features turns on raw OpenType feature tags through kCTFontFeatureSettingsAttribute.
-// Output: a header line "WIDTH <typographic width in points>", then one tab-separated line per shaped glyph: glyph ID, UTF-16 string index, x position, y position, and the PostScript name of the font CoreText used for that run, so a silent fallback to a system font shows up in the comparison. The width line lets the Python driver check the advance of a ZWNJ at the end of the line. Every codepoint fed to the harness is in the Basic Multilingual Plane, so UTF-16 string indices equal scalar indices.
+// Output: a header line "WIDTH <typographic width in points>", then one tab-separated line per shaped glyph: glyph ID, UTF-16 string index, x position, y position, the PostScript name of the font CoreText used for that run, so a silent fallback to a system font shows up in the comparison, and that font's `head.checkSumAdjustment` as eight hex digits (or "-" when CoreText gives no `head` table), so a run drawn from an installed font with the same PostScript name as FONT.otf shows up too. The width line lets the Python driver check the advance of a ZWNJ at the end of the line. Every codepoint fed to the harness is in the Basic Multilingual Plane, so UTF-16 string indices equal scalar indices.
 // Codepoints are passed as hex on argv because PUA literals do not reliably survive shell quoting.
 
 let arguments = CommandLine.arguments
@@ -65,6 +65,10 @@ for run in runs {
     let runAttributes = CTRunGetAttributes(run) as! [NSAttributedString.Key: Any]
     let runFont = runAttributes[NSAttributedString.Key(kCTFontAttributeName as String)] as! CTFont
     let runFontName = CTFontCopyPostScriptName(runFont) as String
+    var runFontChecksum = "-"
+    if let head = CTFontCopyTable(runFont, CTFontTableTag(kCTFontTableHead), []) as Data?, head.count >= 12 {
+        runFontChecksum = head[8..<12].map { String(format: "%02x", $0) }.joined()
+    }
     let count = CTRunGetGlyphCount(run)
     var glyphs = [CGGlyph](repeating: 0, count: count)
     var positions = [CGPoint](repeating: .zero, count: count)
@@ -73,6 +77,6 @@ for run in runs {
     CTRunGetPositions(run, CFRange(location: 0, length: 0), &positions)
     CTRunGetStringIndices(run, CFRange(location: 0, length: 0), &stringIndices)
     for index in 0..<count {
-        print("\(glyphs[index])\t\(stringIndices[index])\t\(positions[index].x)\t\(positions[index].y)\t\(runFontName)")
+        print("\(glyphs[index])\t\(stringIndices[index])\t\(positions[index].x)\t\(positions[index].y)\t\(runFontName)\t\(runFontChecksum)")
     }
 }

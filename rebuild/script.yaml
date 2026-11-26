@@ -22,6 +22,12 @@ predicate_classes:
   talls: {height_class: tall}
   shorts: {height_class: short}
   deeps: {height_class: deep}
+# Each selector maps a letter followed by it to a glyph drawn from one stance of the letter's rune, in the fonts `fonts` names (cmap format 14): the stance's unjoined cell, or its base drawing where the stance has no unjoined cell, with no anchors either way, so settlement neither reads nor joins it.
+variation_sequences:
+- {selector: 0xFE00, fonts: [mono, junior, senior], runes: {qsUtter: alternate, qsNo: flipped}}
+- selector: 0xFE01
+  fonts: [senior]
+  runes: {qsPea: half, qsTea: half, qsDay: half, qsHe: half, qsWay: half, qsWhy: half, qsZoo: half}
 families:
   qsPea: {codepoint: 0xE650}
   qsBay: {codepoint: 0xE651}

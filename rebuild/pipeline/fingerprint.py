@@ -16,6 +16,8 @@ The three human-reviewed ledgers have prose-insensitive digests, like the rune f
 
 `rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. It also drops the `kern` block whole. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
+The full font compile reads the non-Quikscript part of the font beside the runes (`font_data_paths`: the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, the Latin kern rules, the glyph-name map, and the angle parentheses of glyph_data/quikscript.yaml, `angle_paren_digest`). No table, settlement, oracle row or review unit reads them, so they are in no Stage A component and not in the tables' stamp. They reach the run_m1 skip key alone, one line per file (`font_data_lines`, labeled `<label>#font`), and a moved font-data line, like a moved kern line, makes the cycle recompile the font over the tables on disk (`artifact_cycle.kern_only_rebuild`). glyph_data/punctuation.yaml is the exception: the namer dot's glyphs come from it, so it keeps its data line. The review corpus and the oracle key on the after font's Quikscript glyphs and the helper glyphs a Quikscript run reaches (`after_font_glyph_digests`, `RUNE_HELPER_GLYPHS`), so a Latin glyph edit keeps their caches; the corpus's freshness check compares the fonts' tables (`kern_blind_font_digest`), so the corpus is rebuilt over that cache.
+
 A rune's `kern` block reaches no table, no settlement and nothing the review corpus shows, so it is in no key built from `rune_file_digest`: not the `data` component, the tables' stamp, the oracle row cache's or settle memo's family keys (`rune_digests`), the string replay's and deep replay's narrowing, or the review unit cache's family keys (`rune_explain_digests`). It reaches the run_m1 skip key alone, through one line per rune (`kern_lines`, `rune_kern_digest`: the records less their `why`), so a kern edit rebuilds the font and nothing else (`artifact_cycle.kern_only_rebuild`). The rebuild suite's input closure hashes rune files whole, kern block included (`rune_document_digest`), because a test can read any part of a file. The after font's kern lookup is likewise outside every key that reads the font for the review corpus or the oracle (`after_font_glyph_digests`, `kern_blind_font_digest`).
 
 The crate appends a refuse record's `why` to that refusal's elimination message when it builds a ranking. The table fixpoint never requests a ranking; only the review corpus's explain panel shows rankings. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the corpus. No key built from `rune_file_digest` or `rune_digests` sees it.
@@ -83,6 +85,50 @@ def data_paths(repo_root: Path) -> list[Path]:
     return paths
 
 
+# The glyph_data files the full font does not read whole: the old engine's Quikscript families, of which it takes only the angle parentheses (`ANGLE_PAREN_FAMILIES`), and the Senior kerning the runes' `kern:` blocks replace.
+FONT_DATA_EXCLUDED = ("quikscript.yaml", "senior_quikscript_kerning.yaml")
+QUIKSCRIPT_DATA = "glyph_data/quikscript.yaml"
+ANGLE_PAREN_FAMILIES = ("qsAngleParenLeft", "qsAngleParenRight")
+FONT_LINE_SUFFIX = "#font"  # the suffix of a font-data line in the run_m1 skip key (`font_data_lines`)
+
+
+def font_data_paths(repo_root: Path) -> list[Path]:
+    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml outside `FONT_DATA_EXCLUDED` (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads; it also reads the angle parentheses from `QUIKSCRIPT_DATA` (`angle_paren_digest`)."""
+    root = Path(repo_root)
+    glyph_files = [
+        path for path in sorted((root / "glyph_data").glob("*.yaml")) if path.name not in FONT_DATA_EXCLUDED
+    ]
+    return glyph_files + [root / "postscript_glyph_names.yaml"]
+
+
+def _projected_angle_parens(document: object) -> object:
+    families = document.get("glyph_families") if isinstance(document, dict) else None
+    if not isinstance(families, dict):
+        return None
+    return {name: families.get(name) for name in ANGLE_PAREN_FAMILIES}
+
+
+def angle_paren_digest(path: Path) -> str:
+    """Return the digest of the angle parentheses' families in glyph_data/quikscript.yaml, the one part of that file the full font compile reads, so an edit to the old engine's Quikscript families leaves the font's key alone."""
+    return _projected_digest(path, _projected_angle_parens)
+
+
+def font_data_lines(repo_root: Path) -> list[str]:
+    """Return one `<label>#font\\t<digest>` line per font-compile input outside `data_paths`, sorted: each `font_data_paths` file by `_data_digest`, and glyph_data/quikscript.yaml by `angle_paren_digest`. glyph_data/punctuation.yaml is in `data_paths` already, because the namer dot's glyphs come from it, so its line stays there. These lines are the run_m1 skip key's font-data lines (`artifact_cycle.run_m1_skip_lines`). They are in no Stage A component and not in the tables' stamp, because no table depends on a Latin or Shavian glyph: a moved font-data line alone makes the cycle recompile the font over the tables on disk, as a moved kern line does (`artifact_cycle.kern_only_rebuild`)."""
+    root = Path(repo_root)
+    runes = set(rune_paths(root))
+    table_side = set(data_paths(root))
+    lines = [
+        f"{_label(root, path)}{FONT_LINE_SUFFIX}\t{_data_digest(root, path, runes)}"
+        for path in font_data_paths(root)
+        if path not in table_side and path.is_file()
+    ]
+    quikscript = root / QUIKSCRIPT_DATA
+    if quikscript.is_file():
+        lines.append(f"{QUIKSCRIPT_DATA}{FONT_LINE_SUFFIX}\t{angle_paren_digest(quikscript)}")
+    return sorted(lines)
+
+
 # The code of `pipeline_code_paths` that the table build and the font compile never run, as repo-relative paths: the gates that check the tables and font a build has written, and the guards that check the oracle's baselines, aliases and ledger before those gates run. These are the oracle's driver and classifier (oracle.py), its position comparison (oracle_positions.py, whose import closure the oracle row cache stamps on its own as `oracle_cache.POSITION_CODE_PATHS`), the Manual-pin gate (manual_pins.py) and the rebuild/validation modules it replays the pins through that the build never reaches (classify.py, pins.py, shaping.py), the subsetter that filters the oracle's baselines (baseline_subset.py), and run_m1's gate half (run_m1_gates.py). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build reaches any module listed here.
 COMPARISON_CODE_MODULES = frozenset(
     {
@@ -111,7 +157,7 @@ FONT_COMPILE_TOOL_MODULES = frozenset(
 
 
 def font_compile_tool_paths(repo_root: Path) -> list[Path]:
-    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the mini font and puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
+    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the font and puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
 
 
@@ -166,7 +212,7 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
 
     This component also keys the review corpus: the review build copies the Stage A record into the corpus manifest, the cycle's corpus skip (`artifact_cycle.corpus_build_skippable`) checks the manifest's copy against the record, and `make verdict-ready` checks it against a value recomputed from the sources, so a code edit to any of these files makes the corpus stale even when it leaves M1.otf, divergence-audit.tsv, and the subset tables byte-identical. That over-invalidation is the accepted error: a key over content digests of what the corpus reads would serve a stale corpus as fresh if it missed an input, while an extra corpus rebuild costs only machine time.
 
-    The tools/ modules are included because compile_font passes the mini font to tools/build_font.py, so an edit to the glyph compiler, the IR, the FEA emitter, or the join analysis changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
+    The tools/ modules are included because compile_font passes the font to tools/build_font.py, so an edit to the glyph compiler, the IR, the FEA emitter, or the join analysis changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
 
     tools/build_font.py also imports `rebuild.tools.memory_budget`, and through it `rebuild.tools.peak_rss`, to size its worker pool. Neither module is in this list or in any other component this module computes.
     """
@@ -418,13 +464,20 @@ def gpos_kern_blind_wiring(table: Any) -> tuple:
 
 
 def _kern_blind_gpos_line(font: Any) -> str | None:
-    """The `GPOS` line of `kern_blind_font_digest`: a digest of everything in GPOS that a shaper with `kern` off applies, or None when GPOS holds a lookup outside the `kern` feature's reach that is not a cursive attachment, which this projection does not describe (the caller then hashes the table's bytes). The projection is the kern-blind wiring (`gpos_kern_blind_wiring`), each remaining lookup's flag, every cursive record by glyph with its anchors, and each script and language system's remaining feature tags."""
+    """The `GPOS` line of `kern_blind_font_digest`: a digest of everything in GPOS that a shaper with `kern` off applies, or None when GPOS holds a lookup outside the `kern` feature's reach that is neither a cursive attachment nor a mark attachment, which this projection does not describe (the caller then hashes the table's bytes). The projection is the kern-blind wiring (`gpos_kern_blind_wiring`), each remaining cursive lookup's flag and every cursive record by glyph with its anchors, each script and language system's remaining feature tags, and, when the font has any, each mark-attachment lookup's XML (`_lookup_xml`) with its place among the remaining lookups. The mark lookups are the full font's Latin `mark` feature, which no kern edit moves."""
     table = font["GPOS"].table
     dropped = kern_only_lookups(table)
     lookups: list[Any] = list(table.LookupList.Lookup if table.LookupList else ())
     cursive: list = []
+    marks: list = []
     for index, lookup in enumerate(lookups):
         if index in dropped:
+            continue
+        kinds = {
+            type(getattr(subtable, "ExtSubTable", subtable)).__name__ for subtable in lookup.SubTable or []
+        }
+        if kinds and kinds <= MARK_ATTACHMENT_SUBTABLES:
+            marks.append((len(cursive) + len(marks), _lookup_xml(lookup, font)))
             continue
         entries = []
         for subtable in lookup.SubTable or []:
@@ -461,8 +514,25 @@ def _kern_blind_gpos_line(font: Any) -> str | None:
                     sorted(tags[i] for i in system.FeatureIndex or [] if tags[i] != KERN_FEATURE_TAG),
                 )
             )
-    payload = repr((gpos_kern_blind_wiring(table), cursive, scripts))
+    projection: tuple = (gpos_kern_blind_wiring(table), cursive, scripts)
+    payload = repr((*projection, marks) if marks else projection)
     return "GPOS-kern-blind\t" + hashlib.sha256(payload.encode()).hexdigest()
+
+
+# The GPOS subtables of the full font's `mark` feature, which `_kern_blind_gpos_line` describes by their XML (`_lookup_xml`) beside the cursive records.
+MARK_ATTACHMENT_SUBTABLES = frozenset({"MarkBasePos", "MarkLigPos", "MarkMarkPos"})
+
+
+def _lookup_xml(lookup: Any, font: Any) -> str:
+    """A lookup's fontTools XML dump, which names every glyph, anchor and class it holds and no lookup index, so it is the same wherever the lookup sits in the list."""
+    import io
+
+    from fontTools.misc.xmlWriter import XMLWriter
+
+    buffer = io.BytesIO()
+    writer = XMLWriter(buffer, newlinestr="\n")
+    lookup.toXML(writer, font)
+    return buffer.getvalue().decode()
 
 
 _KERN_BLIND_DIGESTS: dict[str, str] = {}
@@ -596,8 +666,12 @@ def cursive_anchor_map(font) -> dict[str, list]:
     return anchors
 
 
+# The glyphs outside every qs family that a Quikscript run can reach: the notdef, the boundary glyphs, and the namer dot pair. The full font's Latin, Shavian, punctuation and symbol glyphs are in no window, so `after_font_glyph_digests` leaves them out.
+RUNE_HELPER_GLYPHS = frozenset({".notdef", "space", "uni200C", "periodcentered", "periodcentered.lowered"})
+
+
 def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
-    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the non-qs glyphs (boundary and marker helpers), the cmap, and the GPOS feature-to-lookup wiring less the `kern` feature and the lookups only it reaches (`gpos_kern_blind_wiring`): every reader of this digest shapes with `kern` off, so whether the font has a kern lookup moves none of its keys. The function lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
+    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the helper glyphs a Quikscript run can reach outside the families (`RUNE_HELPER_GLYPHS`), the cmap entries of those glyphs and the family glyphs, and the GPOS feature-to-lookup wiring less the `kern` feature and the lookups only it reaches (`gpos_kern_blind_wiring`): every reader of this digest shapes with `kern` off, so whether the font has a kern lookup moves none of its keys. Every reader shapes Quikscript windows, which reach no Latin glyph, so an edit to a Latin glyph or its code point moves neither digest. The function lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
 
     The GSUB wiring is left out. A rune edit changes the GSUB lookup list on nearly every cycle, so including it would drop every cache keyed on this digest after each rune edit. A window's glyph selection is covered by two other things. The caches' keys include the settled cells the window resolves to (the audit row's `new` column for a unit, the per-family rune keys for an oracle row). And `gate:conform` shapes the compiled font through HarfBuzz every cycle and checks that its selection matches settlement. So while conform passes, the glyph the font selects for a window is a function of the window's settled cells, which cannot change without the key changing. Every glyph a window can reach, in every variant of every family, is in the per-family digests. GPOS stays in because it can move a run without changing a glyph name or a cell.
     """
@@ -610,6 +684,8 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
     anchors = cursive_anchor_map(font)
     per_glyph: dict[str, str] = {}
     for name in sorted(glyph_set.keys()):
+        if not name.split(".")[0].startswith("qs") and name not in RUNE_HELPER_GLYPHS:
+            continue
         pen = DecomposingRecordingPen(glyph_set)
         glyph_set[name].draw(pen)
         payload = repr((name, tuple(pen.value), metrics.get(name), anchors.get(name)))
@@ -633,9 +709,8 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
         gpos = font["GPOS"].table  # pyright: ignore[reportAttributeAccessIssue]
         features, types = gpos_kern_blind_wiring(gpos)
         wiring.append(("GPOS", features, types))
-    helper_lines.append(
-        "cmap\t" + hashlib.sha256(repr(sorted((font.getBestCmap() or {}).items())).encode()).hexdigest()
-    )
+    cmap = sorted((code, name) for code, name in (font.getBestCmap() or {}).items() if name in per_glyph)
+    helper_lines.append("cmap\t" + hashlib.sha256(repr(cmap).encode()).hexdigest())
     helper_lines.append("layout\t" + hashlib.sha256(repr(wiring).encode()).hexdigest())
     helpers = hashlib.sha256("\n".join(helper_lines).encode()).hexdigest()
     return family_digests, helpers
@@ -902,7 +977,7 @@ NON_TABLE_DATA_LABELS = (
 
 
 def table_data_lines(repo_root: Path) -> list[str]:
-    """Return `data_lines` without `NON_TABLE_DATA_LABELS`, the data inputs no table stage reads. The oracle reads the alias map and the divergence ledger to name and classify divergences after the fixpoint has decided them. Only `oracle_positions.KernEvaluator` reads the kern sidecar, to add its kerns back before a position comparison; the font compile passes the builder an empty kerning map and never opens the file. None of the three reaches the kernel crate or any stage that builds a decision table, so including them in the tables' stamp would discard enumerations that would be rebuilt byte for byte. A rune's kern block is in no data line at all (`rune_file_digest` leaves it out): the kernel's spec dump leaves it out (`model.KERNEL_FIELD`), and only `rebuild/pipeline/kern.py`, which runs after the tables exist, reads it.
+    """Return `data_lines` without `NON_TABLE_DATA_LABELS`, the data inputs no table stage reads. The oracle reads the alias map and the divergence ledger to name and classify divergences after the fixpoint has decided them. Only `oracle_positions.KernEvaluator` reads the kern sidecar, to add its kerns back before a position comparison; the font compile never opens the file (`FONT_DATA_EXCLUDED`). None of the three reaches the kernel crate or any stage that builds a decision table, so including them in the tables' stamp would discard enumerations that would be rebuilt byte for byte. A rune's kern block is in no data line at all (`rune_file_digest` leaves it out): the kernel's spec dump leaves it out (`model.KERNEL_FIELD`), and only `rebuild/pipeline/kern.py`, which runs after the tables exist, reads it.
 
     All three files stay in `data_lines`, so an edit to one still moves the `data` component and the run_m1 skip key. The cycle then re-runs the comparison over the tables and font on disk (`artifact_cycle.comparison_side_label`) instead of the fixpoint. A kern edit moves only its rune's kern line in the run_m1 skip key (`kern_lines`), and the cycle then runs `run_m1 --kern-only` (`artifact_cycle.kern_only_rebuild`).
     """

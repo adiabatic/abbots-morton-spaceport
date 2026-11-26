@@ -8,7 +8,9 @@ It also checks that the ss10 overlay is isolated (`_check_isolation`, `_check_an
 
 It checks each cosmetic set's lookup (`_check_cosmetic`, `_check_cosmetic_registrations`): registered under its set alone, after every lookup another feature registers, substituting exactly the planned unjoined cell glyphs by their same-advance copies, with no cursive anchor on either and each copy covered by the cursive lookups that cover its cell.
 
-It checks the `kern` feature against the kern plan (`_check_kern`): GPOS registers `curs` alone when the plan has no rule and `curs` and `kern` otherwise; the kern lookup's adjacent rules and its one-ZWNJ rules each give exactly the plan's (first glyph, second glyph) to value relation through their value lookups; and no glyph the lookup adjusts has an exit anchor, and no glyph it reads after one has an entry anchor, so the lookup cannot move a join.
+It checks the `kern` feature against the kern plan (`_check_kern`): the feature holds no lookup after the `curs` lookups when the plan has no rule and the plan's one lookup there otherwise; that lookup's adjacent rules and its one-ZWNJ rules each give exactly the plan's (first glyph, second glyph) to value relation through their value lookups; and no glyph the lookup adjusts has an exit anchor, and no glyph it reads after one has an entry anchor, so the lookup cannot move a join.
+
+The full font also carries features the rune pipeline does not plan, from glyph_data/ (`compile_font`): GSUB's `ccmp`, and GPOS's `mark` and the Latin lookups of `kern` (`FOREIGN_GSUB_FEATURES`, `FOREIGN_GPOS_FEATURES`). They are allowed beside the planned ones, which must still be exactly as planned and in definition order, and `_check_foreign` holds them apart from the runes: each table's lookups split cleanly into those the planned features reach and those the foreign ones reach, with every foreign lookup defined first, as `compile_font` writes them; no foreign lookup substitutes a rune-owned glyph (`rune_owned`: every `qs` glyph, the boundary glyphs and the namer dot pair); and none positions a pair of two rune-owned glyphs, though one may move a rune glyph before a non-rune glyph, as the Latin rule that kerns every glyph before `j` does. The foreign lookup counts are recorded under `checked["foreign_lookups"]`. The namer dot's mid-word row (`emit_gsub`'s `namer_midword`) is checked with the namer-dot stage. The variation sequences are checked against the glyphs `run_m1.mint_variation_glyphs` minted (`_check_variation_glyphs`): the cmap format 14 is exactly theirs, and no settlement class, outcome or other stage of the plan names one and no cursive lookup anchors one. Bold, when the build writes one, is checked against Regular (`verify_bold`): byte-identical layout tables and the same `usMaxContext`, cmap, glyph order and advances, and every outline Regular's widened by the overstrike, so every check above holds for Bold too.
 
 The stage is a structural comparison with the plan only. It does not simulate shaping: it does not apply lookups to a buffer, compose stages, or decide which of two competing rules wins. It checks `pack_gsub`'s repack on the written bytes by decompiling the settlement lookup through `pack_gsub.per_glyph_sequences` and reassembling each input glyph's ordered rules into the plan's (`_reassemble`). The packer refines every rule into disjoint pieces over its family's atoms (`pack_gsub._refine`), so a plan rule is matched to a run of consecutive font rules with its outcome that lie inside it, miss each other, together cover it, and hold `uni200C` wherever it does short of the farthest slot on a side, since HarfBuzz skips a ZWNJ that a context slot does not hold. Pieces that overlap, that leave part of the plan rule uncovered, that sit out of order, or that drop such a `uni200C` are divergences. The reassembly never calls the packer's refinement, which would then be checking itself. Ordered rules are compared per input glyph for settlement and per lead glyph for formation, because first-match-wins only orders rules that share an input glyph, and feaLib may regroup the others. feaLib compiles each chained-context ruleset in whichever of the three formats is smallest, so the guarded formation is format 1 in a small font and format 3 in the shipped one, and the packed settlement lookup arrives as format 2, with a format-3 subtable for any rule the packer keeps whole, beside any format-2 subtable feaLib wrote itself.
 
@@ -31,6 +33,7 @@ from rebuild.pipeline import pack_gsub
 from rebuild.pipeline.emit_gpos import (
     CURS_HEIGHT_YS,
     KERN_FEATURE,
+    PIXEL,
     ZWNJ_GLYPH,
     Anchor,
     KernPlan,
@@ -42,9 +45,15 @@ from rebuild.pipeline.model import cosmetic_copy_name
 
 MAX_DIVERGENCES = 50
 BOUNDARY_GLYPHS = ("uni200C", "space")
+NAMER_DOT_GLYPHS = ("periodcentered", "periodcentered.lowered")
 SUBTABLE_OFFSET_HEADROOM_FLOOR = 16_384
 GROUP_RULE_BYTES_CEILING = 65_535 - SUBTABLE_OFFSET_HEADROOM_FLOOR
 NO_REQUIRED_FEATURE = 0xFFFF
+# The features the rune pipeline does not plan, which the full font carries from glyph_data/ (`compile_font`): GSUB's `ccmp`, and GPOS's `mark` and the Latin lookups of `kern`, which the plan's own kern lookup shares.
+FOREIGN_GSUB_FEATURES = ("ccmp",)
+FOREIGN_GPOS_FEATURES = ("kern", "mark")
+LAYOUT_TABLES = ("GDEF", "GSUB", "GPOS")
+_VALUE_FIELDS = ("XPlacement", "YPlacement", "XAdvance", "YAdvance")
 
 Row = tuple[tuple[str, ...], tuple[frozenset[str], ...], str | None]
 
@@ -381,13 +390,13 @@ def _check_isolation(
     exempt: frozenset[int],
     divergences: list[str],
 ) -> dict:
-    """Check the GSUB half of the overlay's isolation. The ss10 input substitution's mapping covers exactly the letter cmap glyphs (every cmap entry except the boundary glyphs and the namer dot), no copy has a cmap entry, and no copy appears at any position of any other GSUB lookup: the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, with a format-2 class 0 resolved to the glyphs its ClassDef does not name. `exempt` names the lookups allowed to see copies, which is only the namer-dot stage: its follower class holds the Short copies so that the dot still lowers under ss10. Backtrack and lookahead slots are not checked, because a copy there can never match: under ss10 every letter is a copy and no input slot admits one, and outside ss10 no copy is ever in the buffer. `_check_anchorless_copies` checks the GPOS half."""
+    """Check the GSUB half of the overlay's isolation. The ss10 input substitution's mapping covers exactly the letter cmap glyphs (every cmap entry the plan names, which is every rune's raw glyph, except the boundary glyphs and the namer dot; a Latin glyph's cmap entry is none of the plan's), no copy has a cmap entry, and no copy appears at any position of any other GSUB lookup: the keys and values of every single substitution, every ligature's components and result, and every input slot of every chained-context rule, with a format-2 class 0 resolved to the glyphs its ClassDef does not name. `exempt` names the lookups allowed to see copies, which is only the namer-dot stage: its follower class holds the Short copies so that the dot still lowers under ss10. Backtrack and lookahead slots are not checked, because a copy there can never match: under ss10 every letter is a copy and no input slot admits one, and outside ss10 no copy is ever in the buffer. `_check_anchorless_copies` checks the GPOS half."""
     stage = "isolation"
     cmap = font.getBestCmap() or {}
     boundary: set[str] = set(BOUNDARY_GLYPHS)
     if plan.namer_dot_stage is not None:
         boundary.add(plan.namer_dot_stage[0])
-    letters = frozenset(name for name in cmap.values() if name not in boundary)
+    letters = frozenset(name for name in cmap.values() if name in plan.named_glyphs and name not in boundary)
     mapping = _single_mapping(ss10_input)
     if mapping is None:
         divergences.append(f"{stage}: the ss10 input substitution holds no single substitutions")
@@ -535,14 +544,19 @@ def _feature_indices(table: Any) -> dict[str, list[int]]:
     return indices
 
 
+def _plan_gsub_tags(plan: GsubPlan) -> list[str]:
+    return sorted(["calt", *plan.marker_lines, *plan.cosmetic_lines] + (["ss10"] if plan.ss10_input else []))
+
+
 def _check_feature_list(plan: GsubPlan, gsub: Any, divergences: list[str]) -> dict[str, list[int]] | None:
-    """Check the GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, and ss10 when the plan has an ss10 input substitution. feaLib writes the feature records sorted by tag, so an unsorted list is also a divergence. Returns each tag's lookup indices, or None when the tags or their lookup counts do not match the plan."""
+    """Check the GSUB feature registration the plan implies: calt always, one stylistic-set feature per marker lookup, and ss10 when the plan has an ss10 input substitution. Beside them the font may register the features `FOREIGN_GSUB_FEATURES` names, which `_check_foreign` checks; any other tag is a divergence. feaLib writes the feature records sorted by tag, so an unsorted list is also a divergence. Returns each tag's lookup indices, or None when the tags or their lookup counts do not match the plan."""
     tags = [record.FeatureTag for record in gsub.FeatureList.FeatureRecord or []]
-    expected = sorted(
-        ["calt", *plan.marker_lines, *plan.cosmetic_lines] + (["ss10"] if plan.ss10_input else [])
-    )
-    if sorted(tags) != expected:
-        divergences.append(f"feature list: GSUB registers {sorted(tags)}, expected {expected}")
+    expected = _plan_gsub_tags(plan)
+    planned = sorted(tag for tag in tags if tag not in FOREIGN_GSUB_FEATURES)
+    if planned != expected:
+        divergences.append(
+            f"feature list: GSUB registers {sorted(tags)}, expected {expected} and any of {list(FOREIGN_GSUB_FEATURES)}"
+        )
         return None
     if tags != sorted(tags):
         divergences.append(f"feature list: GSUB feature records are ordered {tags}, expected them sorted")
@@ -842,21 +856,34 @@ def _check_settle(
 def _check_namer_dot(
     plan: GsubPlan, lookup: Any, lookups: list[Any], all_glyphs: frozenset[str], divergences: list[str]
 ) -> int:
-    """Check the namer-dot lookup: the ZWNJ guard row that keeps the dot from lowering across a word boundary, then the row that lowers it before a Short letter."""
+    """Check the namer-dot lookup: the ZWNJ guard row that keeps the dot from lowering across a word boundary, then, when the plan has mid-word glyphs, the row that keeps a dot after one of them (`plan.namer_midword`) at its height before a Short letter, then the row that lowers it before a Short letter."""
     stage = "namer dot"
     assert plan.namer_dot_stage is not None
     dot, lowered, followers = plan.namer_dot_stage
     rows, problems = _chain_rows(lookup, all_glyphs)
     for problem in problems:
         divergences.append(f"{stage}: {problem}")
-    if len(rows) != 2:
-        divergences.append(f"{stage}: {len(rows)} rows, expected the guard row and the lowering row")
+    expected_rows = 3 if plan.namer_midword else 2
+    if len(rows) != expected_rows:
+        divergences.append(
+            f"{stage}: {len(rows)} rows, expected the guard row, {'the mid-word row, ' if plan.namer_midword else ''}and the lowering row"
+        )
         return len(rows)
-    guard, lower = rows
+    guard, *midword, lower = rows
     if guard.input != (frozenset({dot}),) or guard.lookahead != (frozenset({"uni200C"}),) or guard.records:
         divergences.append(
             f"{stage}: the guard row is {_slots_text(guard.input)} before {_slots_text(guard.lookahead)} with substitutions {list(guard.records)}, expected [{{{dot}}}] before [{{uni200C}}] with none"
         )
+    for row in midword:
+        if (
+            row.backtrack != (plan.namer_midword,)
+            or row.input != (frozenset({dot}),)
+            or row.lookahead != (followers,)
+            or row.records
+        ):
+            divergences.append(
+                f"{stage}: the mid-word row is {len(row.backtrack[0]) if row.backtrack else 0} backtrack glyphs and {_slots_text(row.input)} before a {len(row.lookahead[0]) if row.lookahead else 0}-glyph class with substitutions {list(row.records)}, expected the plan's {len(plan.namer_midword)} mid-word glyphs and [{{{dot}}}] before the plan's {len(followers)} followers with none"
+            )
     if lower.input != (frozenset({dot}),) or lower.lookahead != (followers,):
         divergences.append(
             f"{stage}: the lowering row is {_slots_text(lower.input)} before a {len(lower.lookahead[0]) if lower.lookahead else 0}-glyph follower class, expected [{{{dot}}}] before the plan's {len(followers)} followers"
@@ -884,20 +911,45 @@ def _gpos_tags(kern: KernPlan | None) -> list[str]:
     return ["curs", KERN_FEATURE] if kern is not None and kern.rules else ["curs"]
 
 
+def _check_gpos_feature_list(gpos: Any, kern: KernPlan | None, divergences: list[str]) -> bool:
+    """Check that GPOS registers the features the plan implies (`_gpos_tags`) and otherwise only the ones `FOREIGN_GPOS_FEATURES` names, sorted as feaLib writes them. `kern` may be registered with no kern rule in the plan, for the Latin kern lookups alone; `_kern_partition` tells the plan's kern lookup from those. Returns whether the list passed."""
+    tags = [record.FeatureTag for record in gpos.FeatureList.FeatureRecord or []]
+    expected = _gpos_tags(kern)
+    allowed = set(expected) | set(FOREIGN_GPOS_FEATURES)
+    if not set(expected) <= set(tags) or not set(tags) <= allowed or tags != sorted(tags):
+        divergences.append(
+            f"feature list: GPOS registers {tags}, expected {' and '.join(expected)}, beside any of {list(FOREIGN_GPOS_FEATURES)}, sorted"
+        )
+        return False
+    return True
+
+
+def _kern_partition(gpos: Any, divergences: list[str]) -> tuple[list[int], list[int]]:
+    """Split the `kern` feature's lookups into the plan's and the Latin ones by where they are defined. `compile_font` writes the Latin features ahead of the rune FEA, so a Latin kern lookup comes before every `curs` lookup and the plan's kern lookup after every one (`emit_gpos`); a kern lookup between two `curs` lookups is a divergence. Returns (the plan's, the Latin ones)."""
+    indices = _feature_indices(gpos)
+    curs = indices.get("curs", [])
+    kern = indices.get(KERN_FEATURE, [])
+    if not curs:
+        return kern, []
+    planned = [index for index in kern if index > max(curs)]
+    latin = [index for index in kern if index < min(curs)]
+    stray = sorted(set(kern) - set(planned) - set(latin))
+    if stray:
+        divergences.append(
+            f"lookup order: kern lookups {stray} sit among the curs lookups {curs}, neither before them with the Latin features nor after them with the plan's"
+        )
+    return planned, latin
+
+
 def _check_cursive(
     gpos: Any,
     cursive: Mapping[int, Mapping[str, Registration]],
     divergences: list[str],
     kern: KernPlan | None = None,
 ) -> dict[str, int]:
-    """Check that GPOS registers exactly the features the plan implies (`_gpos_tags`) and has one `curs` lookup per registered height that has any anchors, in height order, each a format-1 CursivePos whose entry and exit records equal the emitter's registrations for every glyph."""
+    """Check that GPOS registers the features the plan implies (`_check_gpos_feature_list`) and has one `curs` lookup per registered height that has any anchors, in height order, each a format-1 CursivePos whose entry and exit records equal the emitter's registrations for every glyph."""
     counts: dict[str, int] = {}
-    tags = [record.FeatureTag for record in gpos.FeatureList.FeatureRecord or []]
-    expected_tags = _gpos_tags(kern)
-    if tags != expected_tags:
-        divergences.append(
-            f"feature list: GPOS registers {tags}, expected exactly {' and '.join(expected_tags)}"
-        )
+    if not _check_gpos_feature_list(gpos, kern, divergences):
         return counts
     indices = _feature_indices(gpos)["curs"]
     heights = [y for y in CURS_HEIGHT_YS if cursive.get(y)]
@@ -989,14 +1041,20 @@ def _relation_text(pairs: Sequence[tuple[tuple[str, str], int | None]]) -> str:
 
 
 def _check_kern(gpos: Any, plan: KernPlan | None, all_glyphs: frozenset[str], divergences: list[str]) -> dict:
-    """Check the `kern` feature against the kern plan (rebuild/KERN-PLAN.md section 5). With no rule in the plan the font carries no `kern` feature, which `_check_cursive`'s feature list checks. Otherwise the feature holds one chained-context lookup, defined after every `curs` lookup, whose rules each adjust their one input glyph through a single-adjustment value lookup registered in no feature, before either one following glyph (the adjacent shape) or `uni200C` and then one following glyph (the one-ZWNJ shape). Read-back rebuilds, rule by rule and first match first, the (first glyph, second glyph) to value relation each shape gives, the value being the x-advance the value lookup gives the first glyph, and compares each with the plan's relation. It also checks that the lookup cannot move a join: no glyph it adjusts has an exit anchor in any cursive lookup, and no glyph it reads after an adjusted one has an entry anchor."""
-    if plan is None or not plan.rules:
-        return {}
+    """Check the `kern` feature's planned lookup against the kern plan (rebuild/KERN-PLAN.md section 5). The Latin kern lookups the feature also holds are defined before every `curs` lookup (`_kern_partition`) and checked as foreign lookups (`_check_foreign`). With no rule in the plan the feature holds no lookup after the `curs` lookups. Otherwise it holds one chained-context lookup there, whose rules each adjust their one input glyph through a single-adjustment value lookup registered in no feature, before either one following glyph (the adjacent shape) or `uni200C` and then one following glyph (the one-ZWNJ shape). Read-back rebuilds, rule by rule and first match first, the (first glyph, second glyph) to value relation each shape gives, the value being the x-advance the value lookup gives the first glyph, and compares each with the plan's relation. It also checks that the lookup cannot move a join: no glyph it adjusts has an exit anchor in any cursive lookup, and no glyph it reads after an adjusted one has an entry anchor."""
     stage = "kern"
+    kern_indices, _latin = _kern_partition(gpos, [])
+    if plan is None or not plan.rules:
+        if kern_indices:
+            divergences.append(
+                f"{stage}: the kern feature carries lookups {kern_indices} after the curs lookups, but the plan has no kern rule"
+            )
+        return {}
     indices = _feature_indices(gpos)
-    kern_indices = indices.get(KERN_FEATURE, [])
     if len(kern_indices) != 1:
-        divergences.append(f"{stage}: the kern feature carries lookups {kern_indices}, expected exactly one")
+        divergences.append(
+            f"{stage}: the kern feature carries lookups {kern_indices} after the curs lookups, expected exactly one"
+        )
         return {}
     index = kern_indices[0]
     curs_indices = indices.get("curs", [])
@@ -1098,13 +1156,472 @@ def _check_kern(gpos: Any, plan: KernPlan | None, all_glyphs: frozenset[str], di
     }
 
 
+def rune_owned(all_glyphs: frozenset[str], plan: GsubPlan) -> frozenset[str]:
+    """The glyphs the rune pipeline owns: every `qs` glyph (letters, cells, copies, the variation glyphs and the angle parentheses), the boundary glyphs, and the namer dot pair. A lookup the plan does not own may substitute none of them and position no pair of two of them (`_check_foreign`)."""
+    dots = plan.namer_dot_stage[:2] if plan.namer_dot_stage is not None else NAMER_DOT_GLYPHS
+    return frozenset(name for name in all_glyphs if name.startswith("qs")) | (
+        frozenset((*BOUNDARY_GLYPHS, *dots)) & all_glyphs
+    )
+
+
+def _invoked(lookup: Any) -> list[int]:
+    """The lookup indices a contextual lookup's rules invoke, in any of the three formats of a (chained) contextual GSUB or GPOS subtable."""
+    found: list[int] = []
+    for subtable in _unwrapped(lookup):
+        holders: list[Any] = [subtable]
+        for set_name, rule_name in (
+            ("ChainSubRuleSet", "ChainSubRule"),
+            ("ChainSubClassSet", "ChainSubClassRule"),
+            ("SubRuleSet", "SubRule"),
+            ("SubClassSet", "SubClassRule"),
+            ("ChainPosRuleSet", "ChainPosRule"),
+            ("ChainPosClassSet", "ChainPosClassRule"),
+            ("PosRuleSet", "PosRule"),
+            ("PosClassSet", "PosClassRule"),
+        ):
+            for rule_set in getattr(subtable, set_name, None) or []:
+                if rule_set is not None:
+                    holders.extend(getattr(rule_set, rule_name, None) or [])
+        for holder in holders:
+            found.extend(index for _sequence, index in _records_of(holder))
+    return found
+
+
+def _reach(lookups: list[Any], roots: Sequence[int]) -> set[int]:
+    seen: set[int] = set()
+    queue = list(roots)
+    while queue:
+        index = queue.pop()
+        if index in seen or not 0 <= index < len(lookups):
+            continue
+        seen.add(index)
+        queue.extend(_invoked(lookups[index]))
+    return seen
+
+
+def _partition(
+    table: Any, plan_roots: Sequence[int], foreign_roots: Sequence[int], label: str, divergences: list[str]
+) -> tuple[set[int], set[int]]:
+    """Split a layout table's lookups into the plan's and the foreign ones: those its planned features reach, directly or through the rules of a contextual lookup, and those the foreign features reach. No lookup may be both or neither, and every foreign lookup comes before every planned one, which is where `compile_font` writes the Latin features. Returns (the planned lookups, the foreign ones)."""
+    lookups = list(table.LookupList.Lookup or [])
+    planned = _reach(lookups, plan_roots)
+    foreign = _reach(lookups, foreign_roots)
+    shared = sorted(planned & foreign)
+    if shared:
+        divergences.append(
+            f"foreign lookups: {label} lookups {shared[:5]} are reached by both a planned and a foreign feature"
+        )
+    orphans = sorted(set(range(len(lookups))) - planned - foreign)
+    if orphans:
+        divergences.append(f"foreign lookups: {label} lookups {orphans[:5]} are reached by no feature")
+    if planned and foreign and max(foreign) > min(planned):
+        divergences.append(
+            f"lookup order: {label} foreign lookup {max(foreign)} is defined after the plan's lookup {min(planned)}, so the Latin features no longer come first"
+        )
+    return planned, foreign - planned
+
+
+def _substituted(subtable: Any) -> set[str] | None:
+    """Every glyph a non-contextual GSUB subtable reads or writes, or None for a contextual subtable, whose substitutions are its invoked lookups'."""
+    kind = type(subtable).__name__
+    if kind == "SingleSubst":
+        return set(subtable.mapping) | set(subtable.mapping.values())
+    if kind == "MultipleSubst":
+        return set(subtable.mapping) | {glyph for out in subtable.mapping.values() for glyph in out}
+    if kind == "AlternateSubst":
+        return set(subtable.alternates) | {glyph for out in subtable.alternates.values() for glyph in out}
+    if kind == "LigatureSubst":
+        return {
+            glyph
+            for first, ligatures in subtable.ligatures.items()
+            for ligature in ligatures
+            for glyph in (first, *ligature.Component, ligature.LigGlyph)
+        }
+    if kind == "ReverseChainSingleSubst":
+        return set(subtable.Coverage.glyphs) | set(subtable.Substitute or [])
+    return None
+
+
+def _check_foreign_gsub(
+    lookups: list[Any], foreign: set[int], owned: frozenset[str], divergences: list[str]
+) -> None:
+    """Check that no foreign GSUB lookup reads or writes a rune-owned glyph at a substituted position. A contextual lookup substitutes only through the lookups it invokes, which `_partition` holds to the foreign set, so each of those is checked here on its own."""
+    for index in sorted(foreign):
+        for subtable in _unwrapped(lookups[index]):
+            touched = _substituted(subtable)
+            if touched is None:
+                continue
+            hit = sorted(touched & owned)
+            if hit:
+                divergences.append(
+                    f"foreign lookups: GSUB lookup {index} substitutes rune-owned glyphs {hit[:5]}, which only the plan's lookups may"
+                )
+
+
+def _moves(value: Any) -> bool:
+    return value is not None and any(getattr(value, name, 0) for name in _VALUE_FIELDS)
+
+
+def _single_movers(lookup: Any) -> set[str] | None:
+    """The glyphs a single-adjustment lookup moves, or None when the lookup holds anything but single adjustments."""
+    moved: set[str] = set()
+    for subtable in _unwrapped(lookup):
+        if type(subtable).__name__ != "SinglePos":
+            return None
+        glyphs = list(subtable.Coverage.glyphs)
+        if subtable.Format == 1:
+            if _moves(subtable.Value):
+                moved.update(glyphs)
+        else:
+            moved.update(glyph for glyph, value in zip(glyphs, subtable.Value) if _moves(value))
+    return moved
+
+
+def _moved_pairs(subtable: Any, all_glyphs: frozenset[str]) -> list[tuple[frozenset[str], frozenset[str]]]:
+    """The (first glyphs, second glyphs) of every pair a PairPos subtable moves either glyph of, a format-2 class 0 resolved as `_class_sets` resolves it."""
+    pairs: list[tuple[frozenset[str], frozenset[str]]] = []
+    coverage = frozenset(subtable.Coverage.glyphs)
+    if subtable.Format == 1:
+        for first, pair_set in zip(subtable.Coverage.glyphs, subtable.PairSet or []):
+            seconds = frozenset(
+                record.SecondGlyph
+                for record in pair_set.PairValueRecord or []
+                if _moves(record.Value1) or _moves(record.Value2)
+            )
+            if seconds:
+                pairs.append((frozenset({first}), seconds))
+        return pairs
+    firsts = _class_sets(subtable.ClassDef1.classDefs, coverage)
+    seconds = _class_sets(subtable.ClassDef2.classDefs, all_glyphs)
+    for class1, record in enumerate(subtable.Class1Record or []):
+        for class2, values in enumerate(record.Class2Record or []):
+            if _moves(values.Value1) or _moves(values.Value2):
+                pairs.append((firsts.get(class1, frozenset()) & coverage, seconds.get(class2, frozenset())))
+    return pairs
+
+
+def _check_foreign_gpos(
+    gpos: Any,
+    roots: Sequence[int],
+    all_glyphs: frozenset[str],
+    owned: frozenset[str],
+    divergences: list[str],
+) -> None:
+    """Check that no foreign GPOS lookup positions a pair of two rune-owned glyphs. A foreign lookup a feature registers is checked by its type: a single adjustment may move no rune-owned glyph, since it moves it before every glyph; a pair adjustment no pair whose two sides are both rune-owned; a mark attachment no rune-owned mark on a rune-owned base; a cursive attachment no rune-owned glyph; and a chained-context lookup no rune-owned glyph its single-adjustment value lookup moves when the glyph after it can be rune-owned. So the Latin `kern` rule that kerns every glyph before `j` passes, and the old font's ·He-before-ZWNJ rule, which `compile_font` leaves out, would not. A lookup reached only through a rule is checked in that rule's context."""
+    stage = "foreign lookups"
+    lookups = list(gpos.LookupList.Lookup or [])
+    for index in sorted(set(roots)):
+        lookup = lookups[index]
+        for subtable in _unwrapped(lookup):
+            kind = type(subtable).__name__
+            if kind == "SinglePos":
+                hit = sorted((_single_movers(lookup) or set()) & owned)
+                if hit:
+                    divergences.append(
+                        f"{stage}: GPOS lookup {index} moves rune-owned glyphs {hit[:5]} before any glyph"
+                    )
+                break
+            if kind == "PairPos":
+                for firsts, seconds in _moved_pairs(subtable, all_glyphs):
+                    lead, follow = sorted(firsts & owned), sorted(seconds & owned)
+                    if lead and follow:
+                        divergences.append(
+                            f"{stage}: GPOS lookup {index} kerns rune-owned pairs such as {lead[0]}|{follow[0]}, which only the plan's kern lookup may"
+                        )
+                        break
+            elif kind in ("MarkBasePos", "MarkLigPos", "MarkMarkPos"):
+                marks = frozenset(_either(subtable, "MarkCoverage", "Mark1Coverage").glyphs)
+                bases = (
+                    subtable.BaseCoverage
+                    if kind == "MarkBasePos"
+                    else _either(subtable, "LigatureCoverage", "Mark2Coverage")
+                )
+                mark_hit, base_hit = sorted(marks & owned), sorted(frozenset(bases.glyphs) & owned)
+                if mark_hit and base_hit:
+                    divergences.append(
+                        f"{stage}: GPOS lookup {index} attaches rune-owned marks {mark_hit[:5]} to rune-owned glyphs {base_hit[:5]}"
+                    )
+            elif kind == "CursivePos":
+                hit = sorted(frozenset(subtable.Coverage.glyphs) & owned)
+                if hit:
+                    divergences.append(
+                        f"{stage}: GPOS lookup {index} gives rune-owned glyphs {hit[:5]} cursive anchors"
+                    )
+            elif kind == "ChainContextPos":
+                rows, problems = _chain_rows(lookup, all_glyphs)
+                for problem in problems:
+                    divergences.append(f"{stage}: GPOS lookup {index} {problem}")
+                for row_index, row in enumerate(rows):
+                    for sequence, target in row.records:
+                        movers = (
+                            None if _lookup_at(lookups, target) is None else _single_movers(lookups[target])
+                        )
+                        if movers is None:
+                            divergences.append(
+                                f"{stage}: GPOS lookup {index} rule {row_index} invokes lookup {target}, which is not a single adjustment"
+                            )
+                            continue
+                        moved = (
+                            row.input[sequence] & movers & owned if sequence < len(row.input) else frozenset()
+                        )
+                        if sequence + 1 < len(row.input):
+                            after = row.input[sequence + 1]
+                        else:
+                            after = row.lookahead[0] if row.lookahead else all_glyphs
+                        if moved and after & owned:
+                            divergences.append(
+                                f"{stage}: GPOS lookup {index} rule {row_index} moves rune-owned glyphs {sorted(moved)[:5]} before rune-owned glyphs {sorted(after & owned)[:5]}"
+                            )
+                break
+            else:
+                divergences.append(
+                    f"{stage}: GPOS lookup {index} subtable is {kind}, which read-back does not check"
+                )
+
+
+def _check_foreign(font: Any, plan: GsubPlan, all_glyphs: frozenset[str], divergences: list[str]) -> dict:
+    """Check the lookups the plan does not own, the Latin features of the full font (`FOREIGN_GSUB_FEATURES`, `FOREIGN_GPOS_FEATURES`). Each table's lookups split cleanly into the plan's and the foreign ones, foreign first (`_partition`); no foreign GSUB lookup substitutes a rune-owned glyph (`rune_owned`, `_check_foreign_gsub`), and no foreign GPOS lookup positions a pair of two (`_check_foreign_gpos`). Returns each table's foreign lookup count and each foreign feature's registered lookup count, for `readback_summary.json`."""
+    owned = rune_owned(all_glyphs, plan)
+    counts: dict[str, Any] = {}
+    if "GSUB" in font:
+        gsub = font["GSUB"].table
+        indices = _feature_indices(gsub)
+        plan_roots = [index for tag in _plan_gsub_tags(plan) for index in indices.get(tag, [])]
+        foreign_roots = [index for tag in FOREIGN_GSUB_FEATURES for index in indices.get(tag, [])]
+        _planned, foreign = _partition(gsub, plan_roots, foreign_roots, "GSUB", divergences)
+        _check_foreign_gsub(list(gsub.LookupList.Lookup or []), foreign, owned, divergences)
+        counts["gsub_lookups"] = len(foreign)
+        counts.update({tag: len(indices[tag]) for tag in FOREIGN_GSUB_FEATURES if tag in indices})
+    if "GPOS" in font:
+        gpos = font["GPOS"].table
+        indices = _feature_indices(gpos)
+        planned_kern, latin_kern = _kern_partition(gpos, divergences)
+        plan_roots = [*indices.get("curs", []), *planned_kern]
+        foreign_roots = [
+            *latin_kern,
+            *(
+                index
+                for tag in FOREIGN_GPOS_FEATURES
+                if tag != KERN_FEATURE
+                for index in indices.get(tag, [])
+            ),
+        ]
+        _planned, foreign = _partition(gpos, plan_roots, foreign_roots, "GPOS", divergences)
+        _check_foreign_gpos(gpos, foreign_roots, all_glyphs, owned, divergences)
+        counts["gpos_lookups"] = len(foreign)
+        counts["kern"] = len(latin_kern)
+        counts.update(
+            {
+                tag: len(indices[tag])
+                for tag in FOREIGN_GPOS_FEATURES
+                if tag != KERN_FEATURE and tag in indices
+            }
+        )
+    return counts
+
+
+def _cmap14_sequences(font: Any) -> dict[int, dict[int, str]]:
+    sequences: dict[int, dict[int, str]] = {}
+    for subtable in font["cmap"].tables:
+        if subtable.format != 14:
+            continue
+        for selector, entries in subtable.uvsDict.items():
+            for base, glyph in entries:
+                if glyph is not None:
+                    sequences.setdefault(selector, {})[base] = glyph
+    return sequences
+
+
+def _check_variation_glyphs(
+    font: Any,
+    plan: GsubPlan,
+    expected: Mapping[int, Mapping[int, str]],
+    all_glyphs: frozenset[str],
+    divergences: list[str],
+) -> dict:
+    """Check the variation sequences (`run_m1.mint_variation_glyphs`): the font's cmap format 14 maps exactly the expected (selector, base code point) pairs to their glyphs, and each such glyph is in the font, is in none of settlement's classes or outcomes and no formation sequence, marker line, ZWNJ lock or ss10 or cosmetic substitution of the plan, and carries no cursive anchor. The stages above hold every planned lookup to the plan and `_check_foreign` holds every other lookup off the rune-owned glyphs, so no GSUB lookup reads or writes one at a substituted position either: a sequence selects a glyph that nothing settles, joins or redraws. The namer dot's follower class may hold one, which only lowers a dot before it."""
+    stage = "variation sequences"
+    got = _cmap14_sequences(font)
+    want = {selector: dict(mapping) for selector, mapping in expected.items() if mapping}
+    if got != want:
+        divergences.append(f"{stage}: cmap format 14 maps {got}, expected {want}")
+    glyphs = frozenset(name for mapping in want.values() for name in mapping.values())
+    missing = sorted(glyphs - all_glyphs)
+    if missing:
+        divergences.append(f"{stage}: the font carries no glyph {missing[:5]}")
+    named: set[str] = set()
+    for rule in plan.settle_rules:
+        named.update((rule.input_glyph, rule.outcome, *(rule.backtrack or ())))
+        named.update(glyph for slot in rule.lookahead for glyph in slot)
+    for row in plan.formation_guarded_rows:
+        named.update(row.sequence)
+        named.update(glyph for slot in row.lookahead for glyph in slot)
+        if row.ligature is not None:
+            named.add(row.ligature)
+    for sequence, ligature in plan.formation_plain:
+        named.update((*sequence, ligature))
+    for pairs in (
+        *plan.marker_lines.values(),
+        *plan.cosmetic_lines.values(),
+        plan.ss10_input,
+        plan.locked_glyphs,
+    ):
+        named.update(pairs)
+        named.update(pairs.values())
+    settled = sorted(glyphs & named)
+    if settled:
+        divergences.append(f"{stage}: the plan's settlement, formation or substitutions name {settled[:5]}")
+    if "GPOS" in font:
+        anchored = sorted(
+            name for name, found in _cursive_coverage(font["GPOS"].table, glyphs).items() if found
+        )
+        if anchored:
+            divergences.append(f"{stage}: cursive lookups cover {anchored[:5]}")
+    return {"sequences": sum(len(mapping) for mapping in want.values()), "glyphs": len(glyphs)}
+
+
+def _filled_bands(glyph_set: Any, name: str) -> list[tuple[int, int, tuple[tuple[int, int], ...]]]:
+    """A glyph's outline as horizontal bands, each (bottom, top, its filled x intervals): the outline's own y coordinates cut it into bands, and the nonzero winding of the vertical edges at a band's middle gives the intervals. Every outline here is a union of axis-aligned rectangles traced into straight lines (`tools/build_font.union_contours`), so the bands describe it exactly."""
+    from fontTools.pens.recordingPen import RecordingPen
+
+    pen = RecordingPen()
+    glyph_set[name].draw(pen)
+    edges: list[tuple[int, int, int, int]] = []
+    start: tuple[int, int] | None = None
+    current: tuple[int, int] | None = None
+
+    def edge(end: tuple[int, int]) -> None:
+        assert current is not None
+        (x0, y0), (x1, y1) = current, end
+        if x0 != x1 and y0 != y1:
+            raise ValueError(f"{name}: the outline holds a diagonal line, which no pixel outline draws")
+        if x0 == x1 and y0 != y1:
+            edges.append((x0, min(y0, y1), max(y0, y1), 1 if y1 > y0 else -1))
+
+    for operator, points in pen.value:
+        if operator == "moveTo":
+            start = current = points[0]
+        elif operator == "lineTo" and current is not None:
+            edge(points[0])
+            current = points[0]
+        elif operator in ("closePath", "endPath") and current is not None and start is not None:
+            edge(start)
+            current = start
+        else:
+            raise ValueError(f"{name}: the outline holds a {operator}, which no pixel outline draws")
+    ys = sorted({y for _x, bottom, top, _direction in edges for y in (bottom, top)})
+    bands: list[tuple[int, int, tuple[tuple[int, int], ...]]] = []
+    for bottom, top in zip(ys, ys[1:]):
+        middle = (bottom + top) / 2
+        crossings = sorted((x, direction) for x, low, high, direction in edges if low < middle < high)
+        intervals: list[tuple[int, int]] = []
+        winding = 0
+        left = 0
+        for x, direction in crossings:
+            before = winding
+            winding += direction
+            if before == 0 and winding != 0:
+                left = x
+            elif before != 0 and winding == 0:
+                intervals.append((left, x))
+        bands.append((bottom, top, tuple(intervals)))
+    return bands
+
+
+def _overstruck(
+    bands: list[tuple[int, int, tuple[tuple[int, int], ...]]], overstrike: int
+) -> list[tuple[int, int, tuple[tuple[int, int], ...]]]:
+    """The bands with every interval widened by `overstrike` units to the right and overlapping intervals merged, which is what Bold draws (`tools/build_font.build_font(bold=True)`)."""
+    widened: list[tuple[int, int, tuple[tuple[int, int], ...]]] = []
+    for bottom, top, intervals in bands:
+        merged: list[list[int]] = []
+        for left, right in intervals:
+            if merged and left <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], right + overstrike)
+            else:
+                merged.append([left, right + overstrike])
+        widened.append((bottom, top, tuple((left, right) for left, right in merged)))
+    return widened
+
+
+def _coalesced(
+    bands: list[tuple[int, int, tuple[tuple[int, int], ...]]],
+) -> list[tuple[int, int, tuple[tuple[int, int], ...]]]:
+    """The bands with each run of vertically adjacent bands that share their intervals joined into one, so two outlines cut at different y coordinates compare alike."""
+    joined: list[tuple[int, int, tuple[tuple[int, int], ...]]] = []
+    for bottom, top, intervals in bands:
+        if not intervals:
+            continue
+        if joined and joined[-1][1] == bottom and joined[-1][2] == intervals:
+            joined[-1] = (joined[-1][0], top, intervals)
+        else:
+            joined.append((bottom, top, intervals))
+    return joined
+
+
+def verify_bold(
+    regular_path: Path, bold_path: Path, overstrike: int = PIXEL // 2, divergences: list[str] | None = None
+) -> dict:
+    """Check Bold against Regular (`compile_font.build_font(bold_path=…)`): the two fonts hold byte-identical GDEF, GSUB and GPOS tables, the same `usMaxContext`, the same cmap table and glyph order, and every glyph's advance, and Bold draws each glyph as Regular's outline with every filled run `overstrike` units wider to the right (`_filled_bands`, `_overstruck`). Read-back's plan checks on Regular then hold for Bold too. Appends each divergence to `divergences` and returns the counts it checked."""
+    from fontTools.ttLib import TTFont
+
+    stage = "bold"
+    found = divergences if divergences is not None else []
+    regular = TTFont(str(regular_path), lazy=True)
+    bold = TTFont(str(bold_path), lazy=True)
+    try:
+        regular_reader, bold_reader = cast(Any, regular.reader), cast(Any, bold.reader)
+        for tag in (*LAYOUT_TABLES, "cmap"):
+            if (tag in regular_reader) != (tag in bold_reader):
+                found.append(f"{stage}: {tag} is in one font and not the other")
+            elif tag in regular_reader and regular_reader[tag] != bold_reader[tag]:
+                found.append(f"{stage}: Bold's {tag} is not byte for byte Regular's")
+        if (
+            regular["OS/2"].usMaxContext != bold["OS/2"].usMaxContext
+        ):  # pyright: ignore[reportAttributeAccessIssue]
+            found.append(
+                f"{stage}: Bold's usMaxContext {bold['OS/2'].usMaxContext} is not Regular's {regular['OS/2'].usMaxContext}"
+            )  # pyright: ignore[reportAttributeAccessIssue]
+        order = regular.getGlyphOrder()
+        if bold.getGlyphOrder() != order:
+            found.append(f"{stage}: Bold's glyph order is not Regular's")
+            return {"glyphs": 0}
+        regular_metrics = regular["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+        bold_metrics = bold["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
+        regular_set, bold_set = regular.getGlyphSet(), bold.getGlyphSet()
+        widened = 0
+        for name in order:
+            if regular_metrics[name][0] != bold_metrics[name][0]:
+                found.append(
+                    f"{stage}: {name} advances {bold_metrics[name][0]} in Bold and {regular_metrics[name][0]} in Regular"
+                )
+            try:
+                expected = _coalesced(_overstruck(_filled_bands(regular_set, name), overstrike))
+                drawn = _coalesced(_filled_bands(bold_set, name))
+            except ValueError as error:
+                found.append(f"{stage}: {error}")
+                continue
+            if drawn != expected:
+                found.append(
+                    f"{stage}: Bold's {name} is not Regular's outline widened {overstrike} units to the right"
+                )
+            elif expected:
+                widened += 1
+        return {"glyphs": len(order), "overstruck": widened, "overstrike": overstrike}
+    finally:
+        regular.close()
+        bold.close()
+
+
 def verify_font(
     font_path: Path,
     plan: GsubPlan,
     cursive: Mapping[int, Mapping[str, Registration]],
     kern: KernPlan | None = None,
+    variation_sequences: Mapping[int, Mapping[int, str]] | None = None,
+    bold_path: Path | None = None,
 ) -> dict:
-    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the kern lookup against `kern` (`_check_kern`; with no plan or a plan with no rule the font must carry no `kern` feature), the boundary glyphs, the overlay's isolation, the GSUB offset budget, and the settlement lookup's largest packed group. Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
+    """Re-parse the font at `font_path` and run every check in this module against the emitters' plan: registrations, lookup order, lookupFlags, lookup contents, the kern lookup against `kern` (`_check_kern`; with no plan or a plan with no rule the font must carry no planned kern lookup), the boundary glyphs, the overlay's isolation, the GSUB offset budget, the settlement lookup's largest packed group, the lookups the plan does not own (`_check_foreign`), the variation sequences against `variation_sequences` (`_check_variation_glyphs`; with none the font must carry no cmap format 14), and Bold against Regular when `bold_path` names it (`verify_bold`). Returns the JSON-ready report `run_m1` writes to `readback_summary.json`. Divergences are collected in the report, not raised: `divergences` holds the first `MAX_DIVERGENCES` messages and, when there are more, one line saying how many more, and `divergence_count` holds the total."""
     from fontTools.ttLib import TTFont
 
     divergences: list[str] = []
@@ -1211,8 +1728,14 @@ def verify_font(
                 )
             if plan.cosmetic_lines:
                 checked["cosmetic_registrations"] = _check_cosmetic_registrations(gpos, plan, divergences)
+        checked["foreign_lookups"] = _check_foreign(font, plan, all_glyphs, divergences)
+        checked["variation_sequences"] = _check_variation_glyphs(
+            font, plan, variation_sequences or {}, all_glyphs, divergences
+        )
     finally:
         font.close()
+    if bold_path is not None:
+        checked["bold"] = verify_bold(font_path, bold_path, divergences=divergences)
 
     reported = divergences[:MAX_DIVERGENCES]
     if len(divergences) > MAX_DIVERGENCES:

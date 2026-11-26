@@ -58,6 +58,25 @@
       "propertyNames": {"pattern": "^[a-z][a-z0-9-]*$"},
       "additionalProperties": {"$ref": "#/$defs/classExpression"}
     },
+    "variation_sequences": {
+      "description": "One record per variation selector: its code point (the loader holds it to U+FE00–U+FE0F or U+E0100–U+E01EF and to one record), the fonts that carry its sequences, and, for each rune it applies to, the stance whose unjoined drawing the sequence selects.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["selector", "fonts", "runes"],
+        "properties": {
+          "selector": {"type": "integer", "minimum": 65024},
+          "fonts": {"type": "array", "items": {"enum": ["mono", "junior", "senior"]}, "minItems": 1},
+          "runes": {
+            "type": "object",
+            "propertyNames": {"$ref": "#/$defs/familyName"},
+            "minProperties": 1,
+            "additionalProperties": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}
+          }
+        }
+      }
+    },
     "families": {
       "type": "object",
       "propertyNames": {"$ref": "#/$defs/familyName"},

@@ -1,10 +1,10 @@
 # What next
 
-## The main thread — M1 rune migration
+## The main thread — the cutover
 
-The rebuild migrates the cursive-join engine rune by rune and checks each batch against the old font through the oracle.
+**The rebuild is taking over every font, stage by stage, and `rebuild/CUTOVER-PLAN.md` is the plan: its rulings, the stages left, and the open forks.** Until its stage 4 the old build still writes `site/` and the oracle still checks the rebuild against the old font.
 
-**Next step: every letter of the alphabet is migrated, and the qsOwe batch, the last, is closed.** The build settles seven configurations (`conform.SETTLEMENT_CONFIGS`, `ss07` among them). `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
+**Every letter of the alphabet is migrated, and the qsOwe batch, the last, is closed.** The build settles seven configurations (`conform.SETTLEMENT_CONFIGS`, `ss07` among them). `make verdict-ready` is the readiness check, `glyph_data/runes/` lists the migrated runes, and `make novelty-order` orders the remaining blanks.
 
 **A close-out runs when the author asks for one, and at least once every `journal.HISTORY_DAYS` days.** No letter batch is left to close one. A close-out folds the store's accepted verdicts into the tracked `rebuild/accepted-units.txt` and starts the journal again (`doc/review-cycle.md` § The accepted list and the close-out), and the `close-out` skill runs it. The last close-out, which closed the ·Owe batch, keeps its archive under `var/keep/close-outs/`: the store it found, with the notes and provenance markers of the verdicts it accepted, until the next close-out replaces it. Retention's report and `make verdict-ready` warn once the journal's first event turns `journal.CLOSE_OUT_DUE_DAYS` days old.
 

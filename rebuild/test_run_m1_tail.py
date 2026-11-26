@@ -51,6 +51,12 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(run_m1, "mint_cosmetic_glyphs", lambda spec, cell_glyphs: ({}, {}))
     monkeypatch.setattr(run_m1, "namer_dot_glyphs", lambda: {})
     monkeypatch.setattr(
+        run_m1, "mint_variation_glyphs", lambda spec, cell_glyphs: run_m1.VariationGlyphs({}, {}, ())
+    )
+    monkeypatch.setattr(
+        run_m1.compile_font, "load_font_sources", lambda: run_m1.compile_font.FontSources({}, {}, {})
+    )
+    monkeypatch.setattr(
         run_m1, "_run_defect_gates", lambda spec, tables, glyphs, kerned=None: defects.DefectReport()
     )
     monkeypatch.setattr(
@@ -68,7 +74,7 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(
         run_m1.emit_gsub,
         "emit_gsub",
-        lambda spec, tables, glyphs, ss10_copies, cosmetic_substitutions=None: SimpleNamespace(
+        lambda spec, tables, glyphs, ss10_copies, cosmetic_substitutions=None, namer_midword=(): SimpleNamespace(
             fea_text="", rule_count=0
         ),
     )
@@ -76,18 +82,18 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
     monkeypatch.setattr(run_m1.emit_gpos, "emit_gpos", lambda glyphs, spec, kern=None: "")
     monkeypatch.setattr(run_m1.emit_gpos, "cursive_registrations", lambda glyphs, spec: {})
 
-    def build_mini_font(glyphs, fea, path):
+    def build_font(glyphs, fea, path, sources=None, variation_sequences=None, bold_path=None):
         events.append("compile")
         if on_compile is not None:
             on_compile()
         path.write_bytes(b"not a font")
         return path
 
-    monkeypatch.setattr(run_m1.compile_font, "build_mini_font", build_mini_font)
+    monkeypatch.setattr(run_m1.compile_font, "build_font", build_font)
     monkeypatch.setattr(
         run_m1.readback,
         "verify_font",
-        lambda font, plan, registrations, kern=None: {
+        lambda font, plan, registrations, kern=None, variation_sequences=None, bold_path=None: {
             "pass": readback_pass,
             "divergences": [] if readback_pass else ["a divergence"],
             "divergence_count": 0 if readback_pass else 1,
@@ -279,7 +285,7 @@ class TestTheReadbackRecord:
             "divergence_count": 0 if passed else 1,
         }
         monkeypatch.setattr(
-            run_m1.readback, "verify_font", lambda font, plan, registrations, kern=None: report
+            run_m1.readback, "verify_font", lambda font, plan, registrations, kern=None, **_checks: report
         )
         monkeypatch.setattr(run_m1, "head_commit", lambda root=run_m1.REPO_ROOT: "95521363")
         _stub_gates(monkeypatch, events)
@@ -399,7 +405,7 @@ class TestTheFirstRed:
         monkeypatch.setattr(
             run_m1.readback,
             "verify_font",
-            lambda font, plan, registrations, kern=None: {
+            lambda font, plan, registrations, kern=None, **_checks: {
                 "pass": False,
                 "divergences": ["a divergence", "… and 199 more"],
                 "divergence_count": 200,

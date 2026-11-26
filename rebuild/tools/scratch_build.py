@@ -63,7 +63,7 @@ class FontBuild:
 
 
 def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> FontBuild:
-    """Build `spec`'s tables for `build_configs` into `out_dir`, resolve the kern records (`kern.run_stage`, which writes `kern.tsv` there), compile `M1.otf` there with its kern lookup, read it back, and write `readback_summary.json` and `kern-classes.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence, and what the kern stage raises."""
+    """Build `spec`'s tables for `build_configs` into `out_dir`, resolve the kern records (`kern.run_stage`, which writes `kern.tsv` there), compile `M1.otf` there with its kern lookup and without the full font's non-Quikscript glyphs and features (`compile_font.build_font` with no `FontSources`), which no Quikscript text the oracle shapes reaches, read it back, and write `readback_summary.json` and `kern-classes.json`, as run_m1's glyph chain does without its defect gates. Raises `readback.ReadbackError` after writing the report when read-back finds a divergence, and what the kern stage raises."""
     out_dir.mkdir(parents=True, exist_ok=True)
     tables, _digests = run_m1.build_tables(spec, out_dir, configs=build_configs)
 
@@ -77,7 +77,7 @@ def build_font(spec: ResolvedSpec, out_dir: Path, build_configs: list[str]) -> F
     gpos_fea = emit_gpos.emit_gpos({**cell_glyphs, **bare, **copies}, spec=spec, kern=kern_plan)
     fea = gsub_plan.fea_text + "\n" + gpos_fea
     all_glyphs = {**cell_glyphs, **bare, **copies, **dots}
-    font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
+    font_path = compile_font.build_font(all_glyphs, fea, out_dir / "M1.otf")
 
     readback_report = readback.verify_font(
         font_path,

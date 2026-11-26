@@ -180,7 +180,7 @@ def built(tmp_path_factory):
         ss10_copies=ss10_copies,
         cosmetic_substitutions=substitutions,
     )
-    font_path = compile_font.build_mini_font(
+    font_path = compile_font.build_font(
         {**curs_glyphs, **dots},
         plan.fea_text + "\n" + emit_gpos.emit_gpos(curs_glyphs, spec=spec),
         tmp_path_factory.mktemp("m1-cosmetic") / "M1Cosmetic.otf",
@@ -270,7 +270,7 @@ class TestTheEmittedFont:
         gsub = emit_gsub.emit_gsub(
             plain, tables, glyphs={**built.cell_glyphs, **bare}, ss10_copies=ss10_copies
         )
-        font_path = compile_font.build_mini_font(
+        font_path = compile_font.build_font(
             {**curs_glyphs, **run_m1.namer_dot_glyphs()},
             gsub.fea_text + "\n" + emit_gpos.emit_gpos(curs_glyphs, spec=plain),
             tmp_path / "M1Plain.otf",

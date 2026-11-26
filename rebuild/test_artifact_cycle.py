@@ -5138,6 +5138,7 @@ def _fake_run_m1_root(tmp_path):
         ("rebuild/schema/rune.json", "{}\n"),
         ("rebuild/script.yaml", "script: 1\n"),
         ("glyph_data/punctuation.yaml", "punctuation: 1\n"),
+        ("glyph_data/latin_letters.yaml", "glyphs: {a: {bitmap: ['#']}}\n"),
         ("rebuild/m1-aliases.yaml", "qsX: X\n"),
         (
             "rebuild/m1-divergences.yaml",
@@ -5179,7 +5180,7 @@ def test_comparison_side_label_names_only_the_inputs_no_table_stage_reads():
 
 
 def test_every_run_m1_label_is_stamped_the_toolchain_kern_or_comparison_side(tmp_path):
-    """Every label in the run_m1 key must be covered by the tables' stamp, named by `comparison_side_label`, or be a rune's kern line (`kern_side_label`); otherwise a gates-only rerun or a kern-only rebuild would reuse artifacts that no longer match that input. The one exception is uv.lock, which is none of them, so a change to it prevents both. A new key line that fits no group fails this test."""
+    """Every label in the run_m1 key must be covered by the tables' stamp, named by `comparison_side_label`, or reach the font alone (`font_only_label`: a rune's kern line or a font-data line); otherwise a gates-only rerun or a kern-only rebuild would reuse artifacts that no longer match that input. The one exception is uv.lock, which is none of them, so a change to it prevents both. A new key line that fits no group fails this test."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -5194,12 +5195,13 @@ def test_every_run_m1_label_is_stamped_the_toolchain_kern_or_comparison_side(tmp
         if label not in stamped
         and label != "uv.lock"
         and not ac.comparison_side_label(label)
-        and not ac.kern_side_label(label)
+        and not ac.font_only_label(label)
     ] == []
     assert stamped & set(labels)
     assert [label for label in labels if ac.comparison_side_label(label)]
     assert [label for label in labels if ac.kern_side_label(label)]
-    assert not stamped & {label for label in labels if ac.kern_side_label(label)}
+    assert [label for label in labels if ac.font_data_label(label)] == ["glyph_data/latin_letters.yaml#font"]
+    assert not stamped & {label for label in labels if ac.font_only_label(label)}
     assert "uv.lock" in labels
 
 
@@ -6791,6 +6793,28 @@ def test_a_kern_only_rebuild_is_planned_only_when_every_moved_label_is_a_kern_li
     assert ac.kern_only_rebuild(None, kern_moved) is None
     assert not ac.comparison_side_label("glyph_data/runes/qsNo.yaml#kern")
     assert ac.gates_only_rerun(prior, kern_moved) is None
+
+
+def test_a_kern_only_rebuild_also_recompiles_the_font_over_moved_font_data():
+    """A font-data line (`fingerprint.font_data_lines`) reaches the font alone, as a kern line does, so a pass whose moved labels are kern lines and font-data lines plans a kern-only rebuild, and one where a table-side input moved beside them does not."""
+    prior = {
+        "files": {
+            "glyph_data/runes/qsNo.yaml#kern": "k1",
+            "glyph_data/latin_letters.yaml#font": "l1",
+            "glyph_data/runes/qsNo.yaml": "r1",
+        }
+    }
+    latin_moved = {**prior["files"], "glyph_data/latin_letters.yaml#font": "l2"}
+    both_moved = {**latin_moved, "glyph_data/runes/qsNo.yaml#kern": "k2"}
+    rune_moved = {**latin_moved, "glyph_data/runes/qsNo.yaml": "r2"}
+    assert ac.kern_only_rebuild(prior, latin_moved) == ["glyph_data/latin_letters.yaml#font"]
+    assert ac.kern_only_rebuild(prior, both_moved) == [
+        "glyph_data/latin_letters.yaml#font",
+        "glyph_data/runes/qsNo.yaml#kern",
+    ]
+    assert ac.kern_only_rebuild(prior, rune_moved) is None
+    assert ac.font_data_label("glyph_data/latin_letters.yaml#font")
+    assert not ac.comparison_side_label("glyph_data/latin_letters.yaml#font")
 
 
 def test_a_kern_only_plan_spawns_the_kern_only_child_and_sizes_no_fanout():

@@ -2,7 +2,7 @@
 
 First, `build_tables` builds the decision and join tables for every settlement configuration (`conform.SETTLEMENT_CONFIGS`) in one kernel-crate process. It enumerates and folds `default` first and each other configuration as a delta over `default`'s memo. As it folds each configuration it checks first-match-wins against the rows, writes the TSVs, writes one certificate per rule built from the table's row chains, and writes the window enumeration stamped with the fingerprint of its sources, as the rows that differ from the previous build's where there is one. `--conform-only` takes its glyph inventory from that enumeration's head file and stops with an error when it is stale or missing. Each configuration's windows head is committed on a background pool once its payload is written. A bare run runs the crate only when its input has moved since the last green run: when the table-reuse record a green run leaves under rebuild/out/m1 holds the same key (`table_reuse_lines`: the spec dump, the binary, the crate's sources and the roster, the table build's driver in this file, the configurations and the mode flags) and every table file still has the raw digest it records, the build re-stamps each configuration's head file with this run's sources instead, and its tables are byte for byte what the crate would write (`build_tables`). Every later stage below runs over them as over a build's, the string replay and the shipped-order walk included.
 
-Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, and the namer dot pair), runs the kern stage (rebuild/pipeline/kern.py, which writes `kern.tsv`), runs the defect gates under the reviewed allow-list with every kerned break at its kerned offset, emits GSUB and GPOS (the kern lookup among them, and `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, runs read-back (rebuild/pipeline/readback.py), and writes `kern-classes.json`, the kern lookup's classes the conformance sweep checks shaped breaks against, and on a build `kern-inventory.json`, the review app's kerning view's data (rebuild/pipeline/kern_inventory.py). Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
+Two branches then run over the tables. The table-only branch (`_run_table_gates`, on one background thread) runs the string replay (`run_replay_strings`, recorded in `replay_summary.json`), which walks every configuration's stored rules over every text up to `REPLAY_MAX_LENGTH` against the crate's own settlement, then the witness stage (`_spawn_rule_witnesses`, in a spawned worker of its own handed one configuration's decision table at a time, the step `run_rule_witnesses` runs in process, recorded in `witness_summary.json`), which settles every certificate and checks that its rule fires. Beside those two it runs the shipped-order walk (`run_emitted_order`), where each configuration's walk waits for that configuration's pack. The glyph chain (`_run_glyph_chain`, on the calling thread) mints the glyphs (settled cells named by their cell labels, the raw cmap glyphs, the marker, locked and ss10 copies, the glyphs the variation sequences select, `mint_variation_glyphs`, and the namer dot pair), runs the kern stage (rebuild/pipeline/kern.py, which writes `kern.tsv`), runs the defect gates under the reviewed allow-list with every kerned break at its kerned offset, emits GSUB and GPOS (the kern lookup among them, and `behavior_classes.json`, the record key `rebuild/tools/deep_sweep.py` reads), compiles the font, runs read-back (rebuild/pipeline/readback.py), and writes `kern-classes.json`, the kern lookup's classes the conformance sweep checks shaped breaks against, and on a build `kern-inventory.json`, the review app's kerning view's data (rebuild/pipeline/kern_inventory.py). The font is the whole Senior Regular, as `make all` ships it (`compile_font`: the rune glyphs with the Latin, Shavian, punctuation and symbol glyphs, the metadata, the variation sequences and the Latin `kern`, `ccmp` and `mark` features of glyph_data/), and Bold beside it as `BOLD_FONT`, which shares Regular's packed layout tables, so every gate below runs on the bytes that ship. Read-back re-parses the written font, checks it against the emitters' plan, and checks the GSUB's uint16 subtable-offset headroom against its floor and the settlement lookup's largest packed group against its ceiling in the same parse. Its `[t] readback` line ends with HEAD's short commit id and the settlement lookup's size figures (`readback.budget_figures`), so the timings journal keeps them for every build and `make cycle-timings ARGS='--by-commit'` lists them.
 
 `full_run` then runs the Manual-pin gate and the oracle (rebuild/pipeline/run_m1_gates.py). The oracle starts once the string replay has returned, beside the witness stage, and writes to the settle memos only after the witness stage, which reads them and writes none, has returned. `full_run` joins the table-only branch after the oracle, before it decides the run_m1 gate. The join raises the first failure in serial order (the packing, the replay, the witnesses, the shipped order), and any of those is raised in place of a glyph-chain failure, so a failing build reports what a serial build would.
 
@@ -71,6 +71,7 @@ from rebuild.pipeline import table as table_module
 from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.model import (
     CellId,
+    CellPlan,
     GlyphRecord,
     ResolvedSpec,
     cosmetic_copies,
@@ -101,6 +102,7 @@ PUNCTUATION_YAML = REPO_ROOT / "glyph_data" / "punctuation.yaml"
 CONTACT_ALLOW_YAML = REPO_ROOT / "rebuild" / "m1-contact-allow.yaml"
 
 RAW_STANCE = "cmap"
+BOLD_FONT = "M1-Bold.otf"
 
 
 def _spawn_pool(
@@ -1113,6 +1115,57 @@ def mint_cosmetic_glyphs(
     return copies, substitutions
 
 
+@dataclass(frozen=True)
+class VariationGlyphs:
+    """What `mint_variation_glyphs` gives the compile: the glyphs the variation sequences select, keyed by their unjoined cell, the cmap format 14 mapping (selector to base code point to glyph name), and one record per sequence for `pipeline_summary.json`, saying whether its glyph is the stance's unjoined cell or, where the stance has none, its base drawing."""
+
+    glyphs: dict[CellId, GlyphRecord]
+    sequences: dict[int, dict[int, str]]
+    report: tuple[dict, ...]
+
+
+def mint_variation_glyphs(
+    spec: ResolvedSpec, cell_glyphs: Mapping[CellId, GlyphRecord], font: str = "senior"
+) -> VariationGlyphs:
+    """Mint the glyph each variation sequence of `font` selects (`model.ScriptRegistry.variation_sequences`): the unjoined cell (no entry, no exit, no adjustment) of the stance the registry names, drawn as `surface.resolve_cell` binds it, or the stance's base drawing where the stance has no unjoined cell (a stance whose surface requires an exit, as ·Utter's `alternate` does). Either way the glyph is named by the cell's label and carries no anchor, so no cursive lookup attaches it, and it is no settled cell: settlement reads only the raw cmap glyphs, so a sequence selects its glyph and no settlement rule names it, which read-back checks (`readback._check_variation_glyphs`). A cell some table reaches is a settled cell the build mints already (`cell_glyphs`); its sequence names that glyph, and read-back then reports it, because the glyph is in settlement's classes. A rune the alphabet leaves out has no sequence."""
+    glyphs: dict[CellId, GlyphRecord] = {}
+    sequences: dict[int, dict[int, str]] = {}
+    report: list[dict] = []
+    for selector, entry in sorted(spec.registry.variation_sequences.items()):
+        if font not in entry.fonts:
+            continue
+        for rune_name, stance in entry.runes.items():
+            rune = spec.runes.get(rune_name)
+            if rune is None or rune.codepoint is None:
+                continue
+            cell = CellId(rune_name, stance, None, None, ())
+            name = cell_label(spec, cell)
+            drawn = "unjoined cell"
+            settled = cell_glyphs.get(cell)
+            if settled is not None:
+                name = settled.name
+                drawn = "settled cell"
+            else:
+                try:
+                    plan = surface.resolve_cell(spec, cell)
+                except spec_load.SpecError:
+                    plan = CellPlan(cell=cell)
+                    drawn = "base drawing"
+                record = geometry.realize(spec, plan, name=name)
+                glyphs[cell] = replace(record, entry=None, exit=None, entry_curs_only=None, safety_checks=())
+            sequences.setdefault(selector, {})[rune.codepoint] = name
+            report.append(
+                {
+                    "selector": f"U+{selector:04X}",
+                    "rune": rune_name,
+                    "stance": stance,
+                    "glyph": name,
+                    "drawn": drawn,
+                }
+            )
+    return VariationGlyphs(glyphs, sequences, tuple(report))
+
+
 def namer_dot_glyphs() -> dict[CellId, GlyphRecord]:
     raw = yaml.safe_load(PUNCTUATION_YAML.read_text())["glyphs"]
     records: dict[CellId, GlyphRecord] = {}
@@ -1426,13 +1479,15 @@ def _run_glyph_chain(
     commit: str | None,
     inventory_inputs: str | None = None,
 ) -> dict:
-    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`), the compile and read-back, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it), the kerning view's inventory when `inventory_inputs` names the tables' stamp (`kern_inventory.write_inventory`, which keeps a `kern-inventory.json` already stamped for these tables and Manual pages, and otherwise settles its witnesses through the kernel and checks them against the font just compiled), and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
+    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`, and the namer dot's mid-word glyphs from `compile_font.FontSources.midword_glyphs`), the compile of Regular and Bold with the non-Quikscript part of glyph_data/ (`compile_font.load_font_sources`) and read-back of both, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it), the kerning view's inventory when `inventory_inputs` names the tables' stamp (`kern_inventory.write_inventory`, which keeps a `kern-inventory.json` already stamped for these tables and Manual pages, and otherwise settles its witnesses through the kernel and checks them against the font just compiled), and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
     bare, copies, ss10_copies = mint_raw_glyphs(spec)
     cosmetic, cosmetic_substitutions = mint_cosmetic_glyphs(spec, cell_glyphs)
+    variation = mint_variation_glyphs(spec, cell_glyphs)
     dots = namer_dot_glyphs()
+    sources = compile_font.load_font_sources()
     console.timing("glyph_minting", time.perf_counter() - start)
 
     console.phase("kern")
@@ -1456,9 +1511,10 @@ def _run_glyph_chain(
     gsub_plan = emit_gsub.emit_gsub(
         spec,
         tables,
-        glyphs={**cell_glyphs, **bare},
+        glyphs={**cell_glyphs, **bare, **variation.glyphs},
         ss10_copies=ss10_copies,
         cosmetic_substitutions=cosmetic_substitutions,
+        namer_midword=sources.midword_glyphs(),
     )
     classes = sorted({*emit_gsub.behavior_classes(gsub_plan), *kern_plan.behavior_classes()})
     (out_dir / "behavior_classes.json").write_text(
@@ -1474,14 +1530,27 @@ def _run_glyph_chain(
 
     console.phase("compile_font")
     start = time.perf_counter()
-    all_glyphs = {**curs_glyphs, **dots}
-    font_path = compile_font.build_mini_font(all_glyphs, fea, out_dir / "M1.otf")
+    all_glyphs = {**curs_glyphs, **variation.glyphs, **dots}
+    bold_path = out_dir / BOLD_FONT
+    font_path = compile_font.build_font(
+        all_glyphs,
+        fea,
+        out_dir / "M1.otf",
+        sources=sources,
+        variation_sequences=variation.sequences,
+        bold_path=bold_path,
+    )
     console.timing("compile_font", time.perf_counter() - start)
 
     console.phase("readback")
     start = time.perf_counter()
     readback_report = readback.verify_font(
-        font_path, gsub_plan, emit_gpos.cursive_registrations(curs_glyphs, spec=spec), kern=kern_plan
+        font_path,
+        gsub_plan,
+        emit_gpos.cursive_registrations(curs_glyphs, spec=spec),
+        kern=kern_plan,
+        variation_sequences=variation.sequences,
+        bold_path=bold_path,
     )
     output_sink.write_output(
         out_dir / "readback_summary.json", json.dumps(readback_report, indent=2) + "\n", keep_if_equal=True
@@ -1511,7 +1580,10 @@ def _run_glyph_chain(
         "kern_facing_pairs": len(kern_resolution.pairs),
         "kern_rules": len(kern_plan.rules),
         **_defect_summary_fields(defect_report),
+        "variation_sequences": list(variation.report),
+        "latin_kern_rules_left_out": list(sources.dropped_kerning),
         "font": str(font_path),
+        "bold_font": str(bold_path),
     }
     output_sink.write_output(
         out_dir / "pipeline_summary.json", json.dumps(summary, indent=2) + "\n", keep_if_equal=True
@@ -2405,6 +2477,7 @@ def full_run(
     except (
         SystemExit,
         compile_font.GroupTooLargeError,
+        compile_font.FontSourceError,
         readback.ReadbackError,
         emit_gsub.EmitError,
         conform.WitnessError,
@@ -2465,17 +2538,17 @@ def _publish_kern_only(staging: Path, summary: dict) -> dict:
 
 
 def kern_only_run(*, started: float) -> None:
-    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks (`artifact_cycle.kern_only_rebuild`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, `behavior_classes.json`, M1.otf and `pipeline_summary.json`. It builds no kern inventory: `kern-inventory.json` depends on no `kern` block (`kern_inventory`), and the staged publish moves only the files the chain wrote, so the build's inventory stays in place. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
+    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks or the font's non-Quikscript data (`artifact_cycle.kern_only_rebuild`, `fingerprint.font_data_lines`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, and the font data reaches only the glyphs and features no Quikscript text reaches, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, `behavior_classes.json`, M1.otf, M1-Bold.otf and `pipeline_summary.json`. It builds no kern inventory: `kern-inventory.json` depends on no `kern` block (`kern_inventory`), and the staged publish moves only the files the chain wrote, so the build's inventory stays in place. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
 
     It stands on the Stage A record, which it carries forward and never writes. It refuses unless the record under `OUT_DIR` matches the sources on disk before it reads anything else (`artifact_cycle.m1_stage_a_current`): a run writes that record only once its gates pass, and every run that rewrites the gate summaries or the audit deletes it first, so a matching record shows that the Manual-pin and oracle summaries and the audit beside it are a passing run's over these Stage A inputs. Without it those summaries may be a red rerun's, or the audit may describe other sources, and only a full build can say. It also reads the build a `--gates-only` pass reads and refuses the same way (`run_m1_gates.gates_only_base`), and refuses when either summary does not read.
 
-    The glyph chain runs into `kern_only_staging()`, and its files replace the build's only once read-back has passed (`_publish_kern_only`). So a kern error, an emission or compile error, or a read-back divergence is recorded red and leaves `OUT_DIR` as it was: the prior font beside the summaries that describe it, and the Stage A record still matching, so the next cycle plans a kern-only rebuild again once the edit is fixed. Nothing the record vouches for changes: the corpus reads the font without its `kern` lookup (`fingerprint.kern_blind_font_digest`), and the rest of the font comes from the same tables, runes and code. A Stage A input that moves while the pass runs may have reached the staged font, so the pass then publishes nothing and stops red. Once published, the gate is evaluated over the new summary and the standing two; run_m1's green is recorded only when no input but kern lines moved since the last green (`artifact_cycle.kern_only_rebuild`), and otherwise the pass says which input kept it from recording one. It lives here, inside the tables' stamp like `full_run`, because it writes build artifacts.
+    The glyph chain runs into `kern_only_staging()`, and its files replace the build's only once read-back has passed (`_publish_kern_only`). So a kern error, an emission or compile error, or a read-back divergence is recorded red and leaves `OUT_DIR` as it was: the prior font beside the summaries that describe it, and the Stage A record still matching, so the next cycle plans a kern-only rebuild again once the edit is fixed. Nothing the record vouches for changes: the corpus reads the font without its `kern` lookup (`fingerprint.kern_blind_font_digest`), and the rest of the font comes from the same tables, runes and code. A Stage A input that moves while the pass runs may have reached the staged font, so the pass then publishes nothing and stops red. Once published, the gate is evaluated over the new summary and the standing two; run_m1's green is recorded only when no input but kern lines and font-data lines moved since the last green (`artifact_cycle.kern_only_rebuild`), and otherwise the pass says which input kept it from recording one. It lives here, inside the tables' stamp like `full_run`, because it writes build artifacts.
     """
     from rebuild.pipeline import run_m1_gates
     from rebuild.tools.artifact_cycle import (
         evaluate_run_m1_gate,
+        font_only_label,
         kern_only_rebuild,
-        kern_side_label,
         moved_input_labels,
         read_green_record,
         run_m1_skip_files,
@@ -2526,6 +2599,7 @@ def kern_only_run(*, started: float) -> None:
         kern.KernInternalError,
         emit_gpos.KernPlanError,
         compile_font.GroupTooLargeError,
+        compile_font.FontSourceError,
         readback.ReadbackError,
         emit_gsub.EmitError,
     ) as error:
@@ -2557,9 +2631,9 @@ def kern_only_run(*, started: float) -> None:
         )
         return
     labels = moved_input_labels(record, current) or []
-    offenders = [label for label in labels if not kern_side_label(label)]
+    offenders = [label for label in labels if not font_only_label(label)]
     if offenders:
-        why = f"these inputs other than kern blocks moved since the last green M1 build, so only a full build can record a green over them: {', '.join(offenders)}"
+        why = f"these inputs other than kern blocks and font data moved since the last green M1 build, so only a full build can record a green over them: {', '.join(offenders)}"
     elif record is None:
         why = "there is no prior green M1 build for this pass to stand on"
     elif not isinstance(record.get("files"), dict):

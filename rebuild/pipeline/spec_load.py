@@ -52,6 +52,7 @@ from rebuild.pipeline.model import (
     Surface,
     SurfaceRow,
     Unlock,
+    VariationSelector,
     When,
 )
 
@@ -1763,6 +1764,45 @@ def _build_rune(
     )
 
 
+def _check_variation_sequences(
+    registry_context: _FileContext, raw: dict, contexts: list[_FileContext]
+) -> None:
+    """Report a selector outside the two variation-selector blocks (U+FE00–U+FE0F and U+E0100–U+E01EF) or given two records, a font named twice, and a variation sequence whose rune is not a registered letter with a code point, since a sequence starts from a code point, or whose stance the rune's file does not declare. A rune whose file this store does not hold is checked against the registry alone, as a fixture store holds only some runes."""
+    families = raw.get("families") or {}
+    stances_by_rune = {
+        context.data["rune"]: set((context.data.get("stances") or {}))
+        for context in contexts
+        if isinstance(context.data, dict) and isinstance(context.data.get("rune"), str)
+    }
+    seen: set[int] = set()
+    entries: list[dict] = raw.get("variation_sequences") or []
+    for index, entry in enumerate(entries):
+        selector = entry["selector"]
+        if not (0xFE00 <= selector <= 0xFE0F or 0xE0100 <= selector <= 0xE01EF):
+            registry_context.error(
+                f"variation_sequences[{index}].selector", f"U+{selector:04X} is not a variation selector"
+            )
+        if selector in seen:
+            registry_context.error(
+                f"variation_sequences[{index}].selector", f"U+{selector:04X} has another record"
+            )
+        seen.add(selector)
+        fonts = list(entry["fonts"])
+        if len(set(fonts)) != len(fonts):
+            registry_context.error(f"variation_sequences[{index}].fonts", f"names a font twice: {fonts}")
+        for rune_name, stance in entry["runes"].items():
+            path = f"variation_sequences[{index}].runes.{rune_name}"
+            info = families.get(rune_name)
+            if not isinstance(info, dict) or info.get("codepoint") is None:
+                registry_context.error(
+                    path, f"{rune_name!r} is not a registered letter with a code point to start a sequence"
+                )
+                continue
+            stances = stances_by_rune.get(rune_name)
+            if stances is not None and stance not in stances:
+                registry_context.error(path, f"{rune_name} declares no stance {stance!r}")
+
+
 def _build_registry(raw: dict, classes: dict[str, frozenset[str]]) -> ScriptRegistry:
     features_raw = dict(raw.get("features") or {})
     interactions = tuple(tuple(group) for group in features_raw.pop("interactions", ()))
@@ -1786,6 +1826,10 @@ def _build_registry(raw: dict, classes: dict[str, frozenset[str]]) -> ScriptRegi
                 sequence=tuple(info["sequence"]) if info.get("sequence") else None,
             )
             for name, info in (raw.get("families") or {}).items()
+        },
+        variation_sequences={
+            entry["selector"]: VariationSelector(fonts=tuple(entry["fonts"]), runes=dict(entry["runes"]))
+            for entry in raw.get("variation_sequences") or ()
         },
     )
 
@@ -1861,6 +1905,7 @@ def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> Resolve
                     f"families.{family_name}.sequence[{position}]",
                     f"unknown family {member!r} in ligature sequence",
                 )
+    _check_variation_sequences(registry_context, registry_raw, contexts)
 
     for context in contexts:
         linter = _Linter(context, registry_families, registry_classes, registry_features, cosmetic_features)

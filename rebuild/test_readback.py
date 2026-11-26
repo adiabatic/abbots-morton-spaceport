@@ -21,7 +21,7 @@ from rebuild.pipeline import (
     run_m1,
     shapers,
 )
-from rebuild.pipeline.model import KernBlock, KernFollower, KernRecord
+from rebuild.pipeline.model import KernBlock, KernFollower, KernRecord, VariationSelector
 from rebuild.tools import cycle_timings as ct
 
 CONFIGS = ("default", "ss03")
@@ -39,7 +39,7 @@ def built(tmp_path_factory):
     curs_glyphs = {**cell_glyphs, **bare, **copies}
     gsub_plan = emit_gsub.emit_gsub(spec, tables, glyphs={**cell_glyphs, **bare}, ss10_copies=ss10_copies)
     gpos_fea = emit_gpos.emit_gpos(curs_glyphs, spec=spec)
-    font_path = compile_font.build_mini_font(
+    font_path = compile_font.build_font(
         {**curs_glyphs, **dots},
         gsub_plan.fea_text + "\n" + gpos_fea,
         tmp_path_factory.mktemp("m1-readback") / "M1Readback.otf",
@@ -870,7 +870,7 @@ def kerned(tmp_path_factory):
     directory = tmp_path_factory.mktemp("m1-kern")
     fonts = {}
     for name, kern_plan in (("kerned", plan), ("plain", None)):
-        fonts[name] = compile_font.build_mini_font(
+        fonts[name] = compile_font.build_font(
             {**curs_glyphs, **dots},
             gsub_plan.fea_text + "\n" + emit_gpos.emit_gpos(curs_glyphs, spec=spec, kern=kern_plan),
             directory / f"M1{name.title()}.otf",
@@ -901,9 +901,9 @@ class TestTheKernLookup:
         plain = readback.verify_font(
             kerned.fonts["plain"], kerned.gsub_plan, kerned.cursive, kern=kerned.plan
         )
-        assert any("expected exactly curs and kern" in line for line in plain["divergences"])
+        assert any("expected curs and kern" in line for line in plain["divergences"])
         unexpected = readback.verify_font(kerned.fonts["kerned"], kerned.gsub_plan, kerned.cursive)
-        assert any("expected exactly curs" in line for line in unexpected["divergences"])
+        assert any("but the plan has no kern rule" in line for line in unexpected["divergences"])
         clean = readback.verify_font(
             kerned.fonts["plain"], kerned.gsub_plan, kerned.cursive, kern=emit_gpos.KernPlan()
         )
@@ -982,3 +982,208 @@ class TestTheKernLookup:
         assert fingerprint.kern_blind_font_digest(plain) == fingerprint.kern_blind_font_digest(kerned_font)
         assert fingerprint.font_content_digest(plain) != fingerprint.font_content_digest(kerned_font)
         assert fingerprint.after_font_current(kerned_font, fingerprint.file_sha256(kerned_font), plain)
+
+
+@pytest.fixture(scope="module")
+def full(tmp_path_factory):
+    """The mini fixture with two kern records and a variation sequence, compiled as run_m1 compiles the shipped font: with the non-Quikscript part of glyph_data/ (`compile_font.load_font_sources`), the namer dot's mid-word glyphs, the variation glyphs, and Bold beside Regular."""
+    base = fixtures.mini_spec()
+    runes = {
+        name: (
+            dataclasses.replace(rune, kern=KernBlock(records=KERN_RECORDS[name], inherits=rune.kern.inherits))
+            if name in KERN_RECORDS
+            else rune
+        )
+        for name, rune in base.runes.items()
+    }
+    registry = dataclasses.replace(
+        base.registry,
+        variation_sequences={0xFE01: VariationSelector(fonts=("senior",), runes={"qsTea": "half"})},
+    )
+    spec = dataclasses.replace(base, runes=runes, registry=registry)
+    tables: dict[str, tuple] = {
+        config: kernel_exec.build_tables(spec, conform.features_for_config(config)) for config in CONFIGS
+    }
+    cell_glyphs = run_m1.mint_cell_glyphs(spec, tables)
+    bare, copies, ss10_copies = run_m1.mint_raw_glyphs(spec)
+    variation = run_m1.mint_variation_glyphs(spec, cell_glyphs)
+    dots = run_m1.namer_dot_glyphs()
+    sources = compile_font.load_font_sources()
+    eligible = {
+        name: copy
+        for name, copy in ss10_copies.items()
+        if geometry.isolated_cell(spec, name).entry is None
+        and geometry.isolated_cell(spec, name).exit is None
+    }
+    kern_plan = emit_gpos.kern_plan(kern.resolve(spec, tables, cell_glyphs, eligible), cell_glyphs)
+    curs_glyphs = {**cell_glyphs, **bare, **copies}
+    gsub_plan = emit_gsub.emit_gsub(
+        spec,
+        tables,
+        glyphs={**cell_glyphs, **bare, **variation.glyphs},
+        ss10_copies=ss10_copies,
+        namer_midword=sources.midword_glyphs(),
+    )
+    directory = tmp_path_factory.mktemp("m1-full")
+    font_path = compile_font.build_font(
+        {**curs_glyphs, **variation.glyphs, **dots},
+        gsub_plan.fea_text + "\n" + emit_gpos.emit_gpos(curs_glyphs, spec=spec, kern=kern_plan),
+        directory / "M1.otf",
+        sources=sources,
+        variation_sequences=variation.sequences,
+        bold_path=directory / "M1-Bold.otf",
+    )
+    return SimpleNamespace(
+        font=font_path,
+        bold=directory / "M1-Bold.otf",
+        plan=gsub_plan,
+        kern=kern_plan,
+        cursive=emit_gpos.cursive_registrations(curs_glyphs, spec=spec),
+        variation=variation,
+    )
+
+
+def _full_report(full, font=None, **overrides):
+    arguments = {
+        "kern": full.kern,
+        "variation_sequences": full.variation.sequences,
+        "bold_path": full.bold,
+        **overrides,
+    }
+    return readback.verify_font(font or full.font, full.plan, full.cursive, **arguments)
+
+
+def _full_corrupted(full, tmp_path, mutate, **overrides):
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(full.font))
+    try:
+        mutate(font)
+        out_path = tmp_path / "M1.otf"
+        font.save(str(out_path))
+    finally:
+        font.close()
+    return _full_report(full, out_path, **{"bold_path": None, **overrides})
+
+
+def _feature_lookups(font, table, tag):
+    return list(_feature_record(font, table, tag).Feature.LookupListIndex)
+
+
+class TestTheFullFont:
+    """Read-back over a font that carries the Latin features the plan does not own (`readback._check_foreign`), the namer dot's mid-word row, a variation sequence, and Bold."""
+
+    def test_a_clean_full_build_verifies_and_records_the_foreign_lookups(self, full):
+        report = _full_report(full)
+        assert report["divergences"] == []
+        checked = report["checked"]
+        foreign = checked["foreign_lookups"]
+        assert foreign["gsub_lookups"] > 0 and foreign["ccmp"] > 0
+        assert (
+            foreign["kern"] > 0
+            and foreign["mark"] > 0
+            and foreign["gpos_lookups"] >= foreign["kern"] + foreign["mark"]
+        )
+        assert checked["namer_rows"] == 3
+        assert checked["kern"]["pairs"] == len(full.kern.relation()) > 0
+        assert checked["variation_sequences"] == {"sequences": 1, "glyphs": 1}
+        assert checked["bold"]["overstruck"] > 0
+        assert checked["isolation"]["cmap_letters"] == len(full.plan.ss10_input)
+
+    def test_the_mini_font_carries_no_foreign_lookup(self, built):
+        font_path, plan, cursive, _copies = built
+        report = readback.verify_font(font_path, plan, cursive)
+        assert report["checked"]["foreign_lookups"] == {"gsub_lookups": 0, "gpos_lookups": 0, "kern": 0}
+
+    def test_the_namer_dot_keeps_its_height_after_a_latin_letter_or_digit(self, full):
+        """At a word start a `·` before a Short letter is lowered; after a Latin letter or digit it is a mid-word middot and keeps its height, as in the shipped font. A ZWNJ after the dot still keeps it from lowering."""
+        shaper = conform.Shaper(full.font)
+        none = frozenset()
+        it = chr(0xE670)
+
+        def dot(text):
+            return [
+                glyph["name"]
+                for glyph in shaper.shape(text, none)
+                if glyph["name"].startswith("periodcentered")
+            ]
+
+        assert dot("\u00b7" + it) == ["periodcentered.lowered"]
+        assert dot(" \u00b7" + it) == ["periodcentered.lowered"]
+        assert dot("a\u00b7" + it) == ["periodcentered"]
+        assert dot("3\u00b7" + it) == ["periodcentered"]
+        assert dot("\u00e9\u00b7" + it) == ["periodcentered"]
+        assert dot("\u00b7\u200c" + it) == ["periodcentered"]
+
+    def test_a_dropped_midword_row_is_a_divergence(self, full):
+        plan = dataclasses.replace(full.plan, namer_midword=frozenset())
+        report = readback.verify_font(
+            full.font, plan, full.cursive, kern=full.kern, variation_sequences=full.variation.sequences
+        )
+        assert _named(report, "namer dot: 3 rows, expected the guard row, and the lowering row")
+
+    def test_a_foreign_lookup_that_substitutes_a_rune_glyph(self, full, tmp_path):
+        def mutate(font):
+            lookups = font["GSUB"].table.LookupList.Lookup
+            for index in _feature_lookups(font, "GSUB", "ccmp"):
+                for inner in readback._invoked(lookups[index]):
+                    for subtable in lookups[inner].SubTable:
+                        _inner(subtable).mapping["qsIt"] = "dotlessi"
+
+        report = _full_corrupted(full, tmp_path, mutate)
+        assert _named(report, "substitutes rune-owned glyphs ['qsIt']")
+
+    def test_a_foreign_kern_between_two_rune_glyphs(self, full, tmp_path):
+        """The Latin rule that kerns every glyph before `j` passes; the same rule with ·It added beside `j` kerns rune-owned pairs."""
+
+        def mutate(font):
+            lookups = font["GPOS"].table.LookupList.Lookup
+            curs = _feature_lookups(font, "GPOS", "curs")
+            for index in _feature_lookups(font, "GPOS", "kern"):
+                if index > min(curs):
+                    continue
+                for subtable in lookups[index].SubTable:
+                    subtable = _inner(subtable)
+                    if subtable.Format == 2 and "j" in subtable.ClassDef2.classDefs:
+                        subtable.ClassDef2.classDefs["qsIt"] = subtable.ClassDef2.classDefs["j"]
+
+        report = _full_corrupted(full, tmp_path, mutate)
+        assert _named(report, "kerns rune-owned pairs")
+
+    def test_a_foreign_lookup_after_the_plans_lookups(self, full, tmp_path):
+        """Registering ccmp's lookups under calt's last lookup too reaches them from a planned feature, and the plan's lookups no longer all follow the foreign ones."""
+
+        def mutate(font):
+            ccmp = _feature_lookups(font, "GSUB", "ccmp")
+            _feature_record(font, "GSUB", "calt").Feature.LookupListIndex.append(ccmp[0])
+
+        report = _full_corrupted(full, tmp_path, mutate)
+        assert _named(report, "are reached by both a planned and a foreign feature")
+
+    def test_a_variation_sequence_the_cmap_does_not_carry(self, full, tmp_path):
+        def mutate(font):
+            font["cmap"].tables = [table for table in font["cmap"].tables if table.format != 14]
+
+        report = _full_corrupted(full, tmp_path, mutate)
+        assert _named(report, "variation sequences: cmap format 14 maps {}")
+
+    def test_a_variation_glyph_settlement_names(self, full):
+        (glyph,) = {name for mapping in full.variation.sequences.values() for name in mapping.values()}
+        rule = full.plan.settle_rules[0]
+        plan = dataclasses.replace(
+            full.plan, settle_rules=(dataclasses.replace(rule, outcome=glyph), *full.plan.settle_rules[1:])
+        )
+        report = readback.verify_font(
+            full.font, plan, full.cursive, kern=full.kern, variation_sequences=full.variation.sequences
+        )
+        assert _named(report, f"the plan's settlement, formation or substitutions name ['{glyph}']")
+
+    def test_a_bold_whose_layout_is_not_regulars(self, full, tmp_path):
+        from fontTools.ttLib import TTFont
+
+        bold = TTFont(str(full.bold))
+        bold["GPOS"].table.LookupList.Lookup[0].LookupFlag = 8
+        corrupted = tmp_path / "M1-Bold.otf"
+        bold.save(str(corrupted))
+        report = _full_report(full, bold_path=corrupted)
+        assert _named(report, "bold: Bold's GPOS is not byte for byte Regular's")

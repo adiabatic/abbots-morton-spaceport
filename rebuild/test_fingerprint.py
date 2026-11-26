@@ -532,6 +532,101 @@ def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_p
     )
 
 
+def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
+    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules, the glyph-name map and the angle parentheses beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. Of glyph_data/quikscript.yaml only the angle parentheses count, so an edit to the old engine's Quikscript families moves nothing; glyph_data/punctuation.yaml keeps its table-side data line, because the namer dot's glyphs come from it."""
+    root = _fake_repo(tmp_path)
+    latin = root / "glyph_data" / "latin_letters.yaml"
+    latin.write_text("glyphs:\n  a: {bitmap: ['#']}\n")
+    (root / "postscript_glyph_names.yaml").write_text("a: 0x61\n")
+    quikscript = root / "glyph_data" / "quikscript.yaml"
+    quikscript.write_text(
+        "glyph_families:\n  qsAngleParenLeft: {mono: {bitmap: ['#']}}\n  qsAngleParenRight: {mono: {bitmap: ['#']}}\n  qsPea: {mono: {bitmap: ['#']}}\n"
+    )
+
+    def keys():
+        return (
+            fingerprint.tables_value(root),
+            fingerprint.stage_a(root),
+            artifact_cycle.run_m1_skip_files(root),
+        )
+
+    before = keys()
+    labels = [label for label in before[2] if label.endswith(fingerprint.FONT_LINE_SUFFIX)]
+    assert labels == [
+        "glyph_data/latin_letters.yaml#font",
+        "glyph_data/quikscript.yaml#font",
+        "postscript_glyph_names.yaml#font",
+    ]
+    assert fingerprint.font_data_paths(root) == [
+        latin,
+        root / "glyph_data" / "punctuation.yaml",
+        root / "postscript_glyph_names.yaml",
+    ]
+    latin.write_text("glyphs:\n  a: {bitmap: ['##']}\n")
+    edited = keys()
+    assert edited[:2] == before[:2]
+    moved = artifact_cycle.moved_input_labels({"files": before[2]}, edited[2])
+    assert moved == ["glyph_data/latin_letters.yaml#font"]
+    assert artifact_cycle.kern_only_rebuild({"files": before[2]}, edited[2]) == moved
+    quikscript.write_text(
+        quikscript.read_text().replace("qsPea: {mono: {bitmap: ['#']}}", "qsPea: {mono: {bitmap: ['##']}}")
+    )
+    assert keys() == edited
+    quikscript.write_text(
+        quikscript.read_text().replace(
+            "qsAngleParenLeft: {mono: {bitmap: ['#']}}", "qsAngleParenLeft: {mono: {bitmap: ['##']}}"
+        )
+    )
+    assert artifact_cycle.moved_input_labels({"files": edited[2]}, keys()[2]) == [
+        "glyph_data/quikscript.yaml#font"
+    ]
+
+
+def test_the_kern_blind_digest_describes_the_mark_lookups(tmp_path):
+    """The full font's `mark` feature is GPOS outside the `kern` feature's reach, so `kern_blind_font_digest` describes its lookups (`_lookup_xml`) instead of falling back to the table's bytes: a font with marks keeps its kern-blind digest when only its kern lookups change, and a moved mark anchor moves it."""
+    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+
+    def font(path, kern_value, anchor_x):
+        builder = FontBuilder(550, isTTF=False)
+        order = [".notdef", "a", "b", "acutecomb"]
+        builder.setupGlyphOrder(order)
+        builder.setupCharacterMap({0x61: "a", 0x62: "b", 0x301: "acutecomb"})
+        builder.setupCFF(
+            "T-Regular", {}, {name: T2CharStringPen(100, None).getCharString() for name in order}, {}
+        )
+        builder.setupHorizontalMetrics({name: (100, 0) for name in order})
+        builder.setupHorizontalHeader(ascent=550, descent=-150)
+        builder.setupNameTable({"familyName": "T", "styleName": "Regular"})
+        builder.setupOS2()
+        builder.setupPost()
+        addOpenTypeFeaturesFromString(
+            builder.font,
+            f"""
+            markClass acutecomb <anchor 0 300> @top;
+            feature mark {{ lookup mark_top {{ pos base [a b] <anchor {anchor_x} 300> mark @top; }} mark_top; }} mark;
+            feature kern {{ lookup kern_ab {{ pos a b {kern_value}; }} kern_ab; }} kern;
+            """,
+        )
+        builder.save(str(path))
+        return path
+
+    plain = font(tmp_path / "plain.otf", -50, 50)
+    kerned = font(tmp_path / "kerned.otf", -100, 50)
+    moved = font(tmp_path / "moved.otf", -50, 60)
+    assert fingerprint._kern_blind_gpos_line(_open(plain)) is not None
+    assert fingerprint.kern_blind_font_digest(plain) == fingerprint.kern_blind_font_digest(kerned)
+    assert fingerprint.kern_blind_font_digest(plain) != fingerprint.kern_blind_font_digest(moved)
+    assert fingerprint.font_content_digest(plain) != fingerprint.font_content_digest(kerned)
+
+
+def _open(path):
+    from fontTools.ttLib import TTFont
+
+    return TTFont(str(path))
+
+
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
     """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs all of rebuild/pipeline/ and rebuild/validation/, and `COMPARISON_CODE_MODULES` is the only subtraction, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
     root = _fake_repo(tmp_path)

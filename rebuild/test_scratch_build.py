@@ -93,7 +93,7 @@ def test_the_oracle_walks_the_configurations_the_request_names_and_the_line_repo
     monkeypatch.setattr(emit_gsub, "emit_gsub", lambda *args, **rest: SimpleNamespace(fea_text=""))
     monkeypatch.setattr(emit_gpos, "emit_gpos", lambda *args, **rest: "")
     monkeypatch.setattr(emit_gpos, "cursive_registrations", lambda *args, **rest: {})
-    monkeypatch.setattr(compile_font, "build_mini_font", lambda glyphs, fea, path: path)
+    monkeypatch.setattr(compile_font, "build_font", lambda glyphs, fea, path: path)
     monkeypatch.setattr(readback, "verify_font", lambda *args, **rest: {"pass": True})
     monkeypatch.setattr(kern, "run_stage", lambda *args, **rest: None)
     monkeypatch.setattr(kern, "write_classes", lambda *args, **rest: None)

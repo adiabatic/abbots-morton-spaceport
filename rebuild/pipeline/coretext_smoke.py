@@ -1,6 +1,6 @@
 """Shape the M1 smoke sequences with CoreText and with HarfBuzz, and report every slot where the two disagree (M1-PLAN section 5, Group 3).
 
-The Swift harness (`coretext_smoke.swift`) is compiled with `swiftc -O` when its binary is missing or older than the source. Each sequence in `smoke_sequences_m1.txt` runs under every configuration in `FEATURE_CONFIGURATIONS`, through the harness and through uharfbuzz, and the two glyph streams are compared glyph ID by glyph ID and position by position. CoreText reports cumulative pen positions in points at 100 pt, which are converted to font units (× upem / 100, rounded) before the comparison. Glyph names come from fontTools because HarfBuzz's glyph-name API truncates. A ZWNJ slot is not compared by glyph ID: both shapers must give it zero advance and no ink. A run also fails when CoreText falls back to another font. The summary is written to `coretext_summary.json` beside the font.
+The Swift harness (`coretext_smoke.swift`) is compiled with `swiftc -O` when its binary is missing or older than the source. Each sequence in `smoke_sequences_m1.txt` runs under every configuration in `FEATURE_CONFIGURATIONS`, through the harness and through uharfbuzz, and the two glyph streams are compared glyph ID by glyph ID and position by position. CoreText reports cumulative pen positions in points at 100 pt, which are converted to font units (× upem / 100, rounded) before the comparison. Glyph names come from fontTools because HarfBuzz's glyph-name API truncates. A ZWNJ slot is not compared by glyph ID: both shapers must give it zero advance and no ink. A run also fails when CoreText falls back to another font, or draws the run from a font other than the file, which it could when an installed font has the file's PostScript name, as an installed copy of the released Senior has the rebuild's: the harness reports each run's font `head.checkSumAdjustment`, a checksum over the whole file, and it must be the file's. The summary is written to `coretext_summary.json` beside the font.
 
 Run as: uv run python -m rebuild.pipeline.coretext_smoke --font rebuild/out/m1/M1.otf
 """
@@ -57,6 +57,7 @@ class CoreTextGlyph:
     x_points: float
     y_points: float
     postscript_name: str
+    font_checksum: int | None
 
 
 def parse_sequences(source) -> list[tuple[str, list[int]]]:
@@ -143,7 +144,7 @@ def run_coretext(
     width = float(lines[0].split()[1])
     glyphs = []
     for line in lines[1:]:
-        gid, string_index, x, y, postscript_name = line.split("\t")
+        gid, string_index, x, y, postscript_name, checksum = line.split("\t")
         glyphs.append(
             CoreTextGlyph(
                 gid=int(gid),
@@ -151,6 +152,7 @@ def run_coretext(
                 x_points=float(x),
                 y_points=float(y),
                 postscript_name=postscript_name,
+                font_checksum=None if checksum == "-" else int(checksum, 16),
             )
         )
     return width, glyphs
@@ -228,6 +230,7 @@ def main() -> int:
     binary = compile_binary()
     shaper = HarfBuzzShaper(args.font)
     expected_postscript_name = shaper.tt["name"].getDebugName(6)
+    expected_checksum = shaper.tt["head"].checkSumAdjustment  # pyright: ignore[reportAttributeAccessIssue]
 
     failures = 0
     runs = 0
@@ -242,6 +245,11 @@ def main() -> int:
                 if glyph.postscript_name != expected_postscript_name:
                     details.append(
                         f"CoreText fell back to {glyph.postscript_name} (expected {expected_postscript_name})"
+                    )
+                    break
+                if glyph.font_checksum != expected_checksum:
+                    details.append(
+                        f"CoreText drew the run from a font named {glyph.postscript_name} whose head.checkSumAdjustment is {glyph.font_checksum if glyph.font_checksum is None else f'{glyph.font_checksum:08x}'}, not {args.font}'s {expected_checksum:08x}: an installed font with the same PostScript name"
                     )
                     break
             if not details:

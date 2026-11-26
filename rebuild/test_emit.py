@@ -398,6 +398,28 @@ class TestEmitGsub:
         assert lookup_body.index("ignore sub periodcentered' uni200C;") < lookup_body.index(
             "sub periodcentered' @m1_namer_short_followers by periodcentered.lowered;"
         )
+        assert "@m1_namer_midword" not in fea
+        assert plan.namer_midword == frozenset()
+
+    def test_the_namer_dot_keeps_its_height_after_a_midword_glyph(self, spec, glyphs):
+        """After a Latin letter or digit a `·` is a mid-word middot, so the namer-dot stage ignores it there before a Short letter, between the ZWNJ guard and the lowering row, as the old font's `emit_namer_dot_calt` does. The plan records the class, so read-back checks the row, and the deep sweep's key gains a token for the backtrack shape."""
+        plan = emit_gsub.emit_gsub(
+            spec,
+            {frozenset(): FakeDecision(_rules(spec, glyphs))},
+            glyphs=glyphs,
+            namer_midword=("zero", "a", "a"),
+        )
+        fea = plan.fea_text
+        assert "@m1_namer_midword = [a zero];" in fea
+        lookup_body = fea.split("lookup m1_namer_dot_word_start {")[1].split("}")[0]
+        midword = "ignore sub @m1_namer_midword periodcentered' @m1_namer_short_followers;"
+        assert (
+            lookup_body.index("ignore sub periodcentered' uni200C;")
+            < lookup_body.index(midword)
+            < lookup_body.index("sub periodcentered' @m1_namer_short_followers by periodcentered.lowered;")
+        )
+        assert plan.namer_midword == frozenset({"a", "zero"})
+        assert "namer-dot:midword-backtrack" in emit_gsub.behavior_classes(plan)
 
 
 class TestBehaviorClasses:

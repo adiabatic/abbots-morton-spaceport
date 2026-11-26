@@ -1671,3 +1671,55 @@ def test_each_ligature_stance_records_the_trailing_stance_it_takes_kern_records_
     assert dict(spec.runes["qsThey_qsZoo"].kern.inherits) == {"sole": "half"}
     assert dict(spec.runes["qsOut_qsTea"].kern.inherits) == {}
     assert all(not rune.kern.inherits for rune in spec.runes.values() if rune.sequence is None)
+
+
+VARIATION_REGISTRY = MINIMAL_REGISTRY + textwrap.dedent("""\
+    variation_sequences:
+    - {selector: 0xFE00, fonts: [mono, senior], runes: {qsIt: sole}}
+    """)
+
+
+class TestVariationSequences:
+    """The `variation_sequences` registry in rebuild/script.yaml: one record per selector, naming the fonts that carry its sequences and, per letter, the stance whose unjoined drawing the sequence selects (`run_m1.mint_variation_glyphs`)."""
+
+    def test_the_records_load_into_the_registry_and_stay_out_of_the_kernel_dump(self, tmp_path):
+        from rebuild.pipeline import kernel_io
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SpecWarning)
+            loaded = load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE}, VARIATION_REGISTRY)
+        assert loaded.registry.variation_sequences == {
+            0xFE00: model.VariationSelector(fonts=("mono", "senior"), runes={"qsIt": "sole"})
+        }
+        assert "variation_sequences" not in kernel_io.registry_payload(loaded.registry)
+
+    def test_a_sequence_names_a_stance_its_rune_declares(self, tmp_path):
+        registry = VARIATION_REGISTRY.replace("{qsIt: sole}", "{qsIt: half}")
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, registry)
+        assert any("qsIt declares no stance 'half'" in issue.message for issue in error.issues)
+
+    def test_a_sequence_starts_from_a_letter_with_a_code_point(self, tmp_path):
+        registry = VARIATION_REGISTRY.replace("{qsIt: sole}", "{qsBay: sole}")
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, registry)
+        assert any("'qsBay' is not a registered letter" in issue.message for issue in error.issues)
+
+    def test_a_selector_is_a_variation_selector_with_one_record(self, tmp_path):
+        outside = VARIATION_REGISTRY.replace("selector: 0xFE00", "selector: 0xFE10")
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, outside)
+        assert any("U+FE10 is not a variation selector" in issue.message for issue in error.issues)
+        twice = VARIATION_REGISTRY + "- {selector: 0xFE00, fonts: [junior], runes: {qsIt: sole}}\n"
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, twice)
+        assert any("U+FE00 has another record" in issue.message for issue in error.issues)
+
+    def test_the_senior_sequences_name_the_letters_the_old_build_maps(self, spec):
+        """The old build reads its variation sequences from glyph_data/metadata.yaml and the rebuild from the registry. Until the old build leaves the tree, each selector maps the same letters in both, so the rebuilt Senior keeps every sequence the shipped one has and adds none; only what each one selects differs (rebuild/CUTOVER-PLAN.md section 3)."""
+        metadata = yaml.safe_load((spec_load.REPO_ROOT / "glyph_data" / "metadata.yaml").read_text())[
+            "metadata"
+        ]
+        old = {selector: set(mapping) for selector, mapping in metadata["variation_sequences"].items()}
+        new = {
+            selector: set(entry.runes)
+            for selector, entry in spec.registry.variation_sequences.items()
+            if "senior" in entry.fonts
+        }
+        assert new == old

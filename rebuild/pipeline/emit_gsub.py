@@ -8,7 +8,7 @@ Lookups are defined in the order they must apply, because definition order fixes
 4. The ZWNJ lock: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
 5. The settlement rows' outcome lookups, registered in no feature and referenced by name from those rows. Each is a single substitution, and lookup k holds each input glyph's k-th distinct outcome, for the input glyphs whose rows name that many, so there are as many as the most outcomes any input glyph has (`_settle_outcome_lookups`). feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
-7. The namer-dot calt, after settlement. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the mini font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10.
+7. The namer-dot calt, after settlement: the dot is lowered before a Short letter, except before a ZWNJ and after a mid-word glyph. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the rebuild's font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10. The mid-word glyphs (`namer_midword`, the Latin letters and digits `compile_font.FontSources.midword_glyphs` names) are the old font's exception: after one, a `·` is a mid-word middot, as in Catalan `l·l`, and keeps its height. A font without Latin glyphs has no mid-word row.
 8. One single-substitution lookup per cosmetic set (`model.cosmetic_features`), `m1_<set>_cosmetic`, registered under that set alone: each unjoined cell glyph a `cosmetic:` record redraws to its cosmetic copy (`run_m1.mint_cosmetic_glyphs`). It comes last, so every settlement row and the namer dot have read the cell glyph before it is redrawn, and the set changes no join.
 
 The rules are read by duck typing against `table.Rule`: `input_glyph`, `backtrack`, `look1` to `look4` (tuples of glyph labels or None), `outcome`, `joint`, and `provenance`. `look3` and `look4` are read with `getattr`, so tables without them still work. A live `look3` compiles to a third lookahead class after `look2`, the raw third slot a depth-3 record reads, and a live `look4` to a fourth. The rule lists of all configurations in `tables_by_config` are folded into one by exact-duplicate union, after each configuration's raw labels are renamed to its marker copies (`model.raw_rename_map`). Two rules with the same window key and different outcomes raise EmitError.
@@ -59,6 +59,7 @@ _KNOWN_PLAN_FIELDS = frozenset(
         "marker_lines",
         "settle_rules",
         "namer_dot_stage",
+        "namer_midword",
         "calt_stages",
         "cosmetic_lines",
     }
@@ -102,6 +103,7 @@ class GsubPlan:
     marker_lines: dict[str, dict[str, str]] = field(default_factory=dict)  # feature -> {source: target}
     settle_rules: tuple[SettleRule, ...] = ()
     namer_dot_stage: tuple[str, str, frozenset[str]] | None = None  # (dot, lowered, followers)
+    namer_midword: frozenset[str] = frozenset()  # the backtrack class of the namer dot's mid-word row
     calt_stages: tuple[str, ...] = ()  # lookup names in calt definition order
     cosmetic_lines: dict[str, dict[str, str]] = field(
         default_factory=dict
@@ -172,6 +174,8 @@ def behavior_classes(plan: GsubPlan) -> tuple[str, ...]:
         tokens.add("settle:cross-subtable")
     if plan.namer_dot_stage is not None:
         tokens.add("namer-dot")
+        if plan.namer_midword:
+            tokens.add("namer-dot:midword-backtrack")
     for name in plan.calt_stages:
         if name not in _CALT_STAGE_NAMES:
             raise EmitError(
@@ -781,8 +785,9 @@ def emit_gsub(
     ss10_copies: Mapping[str, str] | None = None,
     namer_dot: tuple[str, str] | None = ("periodcentered", "periodcentered.lowered"),
     cosmetic_substitutions: Mapping[str, Mapping[str, str]] | None = None,
+    namer_midword: Iterable[str] = (),
 ) -> GsubPlan:
-    """Emit the GSUB feature code and its structured plan. `glyphs` supplies the glyph names that the rules are checked against and the namer-dot follower class. Without it, the namer-dot stage is left out. `ss10_copies` maps raw cmap glyph names to their anchor-free `.ss10` copies for the ss10 input substitution. Without it, the ss10 input substitution is left out and the FEA says so in a comment."""
+    """Emit the GSUB feature code and its structured plan. `glyphs` supplies the glyph names that the rules are checked against and the namer-dot follower class. Without it, the namer-dot stage is left out. `ss10_copies` maps raw cmap glyph names to their anchor-free `.ss10` copies for the ss10 input substitution. Without it, the ss10 input substitution is left out and the FEA says so in a comment. `namer_midword` names the glyphs after which the namer dot is not lowered (stage 7)."""
     registry = _ClassRegistry()
     rules = _fold_rules(tables_by_config, spec)
     per_feature_markers, marker_glyphs, marker_pairs = _marker_lookups(spec)
@@ -843,6 +848,8 @@ def emit_gsub(
 
     namer_lines: list[str] = []
     namer_dot_stage: tuple[str, str, frozenset[str]] | None = None
+    midword = sorted(set(namer_midword))
+    midword_ignore: str | None = None
     if namer_dot is not None and names_by_cell:
         dot_glyph, lowered_glyph = namer_dot
         shorts = spec.registry.predicate_classes.get("shorts", frozenset())
@@ -853,12 +860,17 @@ def emit_gsub(
         if followers:
             namer_dot_stage = (dot_glyph, lowered_glyph, frozenset(followers))
             namer_lines.append(f"@m1_namer_short_followers = [{' '.join(followers)}];")
-            namer_lines.append(
-                "lookup m1_namer_dot_word_start {\n"
+            body = [
                 # HarfBuzz skips default-ignorables such as ZWNJ in contextual matching unless a rule names them. Without this ignore the dot would lower across a ZWNJ, which must act as a word boundary (design section 3.4).
-                f"    ignore sub {dot_glyph}' uni200C;\n"
-                f"    sub {dot_glyph}' @m1_namer_short_followers by {lowered_glyph};\n"
-                "} m1_namer_dot_word_start;"
+                f"    ignore sub {dot_glyph}' uni200C;"
+            ]
+            if midword:
+                namer_lines.append(f"@m1_namer_midword = [{' '.join(midword)}];")
+                midword_ignore = f"ignore sub @m1_namer_midword {dot_glyph}' @m1_namer_short_followers;"
+                body.append(f"    {midword_ignore}")
+            body.append(f"    sub {dot_glyph}' @m1_namer_short_followers by {lowered_glyph};")
+            namer_lines.append(
+                "lookup m1_namer_dot_word_start {\n" + "\n".join(body) + "\n} m1_namer_dot_word_start;"
             )
     if namer_lines:
         parts.append("")
@@ -908,8 +920,10 @@ def emit_gsub(
         named_glyphs.update(pairs.values())
     locked_set = frozenset(name for name in named_glyphs if ".noentry" in name) | frozenset(locked_members)
     allowed_ignores = (
-        frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset()
-    ) | frozenset(formation_ignores)
+        (frozenset({f"ignore sub {namer_dot[0]}' uni200C;"}) if namer_dot is not None else frozenset())
+        | frozenset(formation_ignores)
+        | (frozenset({midword_ignore}) if midword_ignore is not None else frozenset())
+    )
     _assert_fold_sources(grouped_rules, tables_by_config)
     _assert_invariants(rules, frozenset(named_glyphs), fea, locked_set, allowed_ignores)
 
@@ -926,6 +940,7 @@ def emit_gsub(
         marker_lines={feature: dict(pairs) for feature, pairs in marker_pairs.items()},
         settle_rules=tuple(_settle_rule_of(rule) for rule in grouped_rules),
         namer_dot_stage=namer_dot_stage,
+        namer_midword=frozenset(midword) if midword_ignore is not None else frozenset(),
         calt_stages=tuple(calt_lookups),
         cosmetic_lines=cosmetic_lines,
     )

@@ -32,7 +32,7 @@ rebuild/pipeline/
   defects.py          E-DANGLE, E-UNREALIZED, E-ANCHOR, off-anchor contact, dead policy
   emit_gsub.py        the staged GSUB (its module docstring gives the stage order)
   emit_gpos.py        per-height curs lookups
-  compile_font.py     mini-font build via build_font(senior_fea=...) and the pack_gsub repack
+  compile_font.py     the Senior font, Regular and Bold, via tools/build_font.build_font(senior_fea=...) and the pack_gsub repack
   readback.py         post-compile read-back: the written font re-parsed and checked against the plan, GSUB offset headroom included
   conform.py          HarfBuzz sweep against settlement, the per-row baseline comparison and its memoized walk
   oracle.py           baseline-oracle driver, divergence classifier, ledger matching
@@ -365,7 +365,7 @@ def cursive_registrations(glyphs, spec=None) -> dict[int, dict[str, Registration
     # the per-height anchor registry the curs lookups render, in font units: read-back's GPOS expectation.
 
 # compile_font.py
-def build_mini_font(glyphs, fea: str, out_path: Path) -> Path: ...
+def build_font(glyphs, fea: str, out_path: Path, sources=None, variation_sequences=None, bold_path=None) -> Path: ...
     # the prototype's recipe: legacy glyphs:-only dict (qs names suffixed .prop), empty glyph_families, the
     # prototype's metadata dict under the family name AbbotsMortonSpaceportM1 (metric parity with
     # glyph_data/metadata.yaml is left to integration), build_font(..., variant="senior", senior_fea=fea);
@@ -388,7 +388,7 @@ def verify_font(font_path: Path, plan: GsubPlan, cursive: Mapping[int, Mapping[s
     # emit_gpos.cursive_registrations. The scope is the back half: FEA text → feaLib → packing →
     # serialization → re-parsed bytes. The fold → FEA front half keeps its emission-time assertions and is
     # covered by conform.
-    # run_m1 runs it immediately after build_mini_font and writes readback_summary.json beside the other
+    # run_m1 runs it immediately after compile_font.build_font and writes readback_summary.json beside the other
     # per-gate summaries; a divergence raises ReadbackError and fails the build.
 
 # baseline_subset.py — streams rebuild/out/baseline-<config>.tsv.gz through
