@@ -1,9 +1,9 @@
-"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The m1-audit build (`build_m1`) runs in the review crate's build process (`rebuild/review-rs/`, `ams-review build`), which assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts, and writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file, with the overflow parts a cached build appends changed units to after them), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. This module computes what the process reads before it starts, the units init and the build input with every stamp in it, and runs it. The table-diff mode (`build_table_diff`) builds here, in Python. The §7 contract checker (`check_unit`, `check_shards`, `check_output_dir`) and the corpus's materialized form (`MaterializedCorpus`) read a written corpus. The `snapshot` subcommand writes an accepted-state baseline. `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
+"""Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The m1-audit build (`build_m1`) runs in the review crate's build process (`rebuild/review-rs/`, `ams-review build`), which assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts, and writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file, with the overflow parts a cached build appends changed units to after them), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. This module computes what the process reads before it starts, the units init and the build input with every stamp in it, and runs it. The table-diff mode (`build_table_diff`) builds here, in Python, against a snapshot of the accepted build (`rebuild/review/snapshot.py`), with the units `rebuild/review/diff_units.py` finds. The §7 contract checker (`check_unit`, `check_shards`, `check_output_dir`) and the corpus's materialized form (`MaterializedCorpus`) read a written corpus. The `snapshot` subcommand takes a snapshot of a run_m1 build (`snapshot.take`). `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
     uv run python -m rebuild.review.build
-    uv run python -m rebuild.review.build --mode table-diff --baseline <dir> --new <dir> --before-font <otf> --after-font <otf>
-    uv run python -m rebuild.review.build snapshot --tables rebuild/out/m1 --font rebuild/out/m1/M1.otf --to rebuild/out/review-baseline
+    uv run python -m rebuild.review.build --mode table-diff [--snapshot <dir>] [--new rebuild/out/m1] --out <dir>
+    uv run python -m rebuild.review.build snapshot [--tables rebuild/out/m1] [--home var/keep/review-snapshot]
     uv run python -m rebuild.review.build refresh-assets
 """
 
@@ -34,12 +34,14 @@ from itertools import combinations
 from pathlib import Path
 from typing import BinaryIO
 
-from rebuild.pipeline import fingerprint, output_sink, row_delta, spec_load
+from rebuild.pipeline import fingerprint, output_sink, row_delta, spec_load, table
 from rebuild.pipeline.baseline_subset import M1_ALPHABET
 from rebuild.review import (
     app_index,
     audit,
     corpus_exec,
+    diff_units,
+    snapshot,
     tablediff,
     unit_cache,
     unit_index,
@@ -70,7 +72,6 @@ from rebuild.review.ink import (
     JUNIOR_VERIFICATION_METHOD,
     PICTURE_VERIFICATION_METHOD,
     VERIFICATION_METHOD,
-    InkComparator,
 )
 from rebuild.review.enrich import (
     EXPLAIN_UNIT_BATCH_SIZE,
@@ -956,233 +957,230 @@ def _relative(path: Path, repo_root: Path) -> str:
 # --- table-diff mode -----------------------------------------------------------------
 
 
-def _table_diff_unit_json(
-    entry: tablediff.DiffEntry,
-    full_configs,
-    ink_identical: bool,
-    picture_identical: bool,
-) -> dict:
-    """One table-diff entry's fragment, with the same content identity an m1-audit unit has: it is built with `id` and `content_key` None, stamped with the hash of its carry projection, and given `unit_cache.unit_id_for` of that stamp as its id. `row_key` is the entry's table key (`key.label()`), which keeps the row in the projection: the class and the summary are outside it, and two settlement rows of one input can share an example text and both outcomes."""
-    example_text = entry.example_text
-    gate, note = config_badge((entry.config,), full_configs)
-    if entry.table == "join":
-        old = entry.old
-        new = entry.new
-        before = {
-            "glyphs": [entry.key.left, entry.key.right],
-            "junctions": [old.junction if old else "absent"],
-        }
-        after = {
-            "cells": [entry.key.left, entry.key.right],
-            "junctions": [new.junction if new else "absent"],
-            "extensions": [new.extension if new else 0],
-        }
-        diff_positions = [0, 1]
-        pair = {"left": 0, "right": 1}
-        explain = _join_explain(entry)
-        provenance: list[str] = []
-        summary = (
-            f"The join row for {entry.key.label()} is {entry.bucket} under {entry.config}; "
-            "old and new values are in the explain panel."
+def _new_certificates(
+    new_dir: Path, config: str, spec, inputs: Sequence[str]
+) -> list[tuple[str, tuple[int, ...] | None]]:
+    """The new build's certificates under `config`, one (input label, text) pair per rule, read from its windows head (`table.read_windows_head`, the one reader of a table's head). A head that does not read, or whose rules are not the settlement table's, refuses the build, since the two would describe different builds."""
+    try:
+        _stamp, decision = table.read_windows_head(new_dir, config)
+    except (OSError, ValueError) as error:
+        raise SystemExit(
+            f"{new_dir}'s {config} windows head does not read ({error}); run `uv run python -m rebuild.pipeline.run_m1`"
+        ) from None
+    if [rule.input_glyph for rule in decision.rules] != list(inputs):
+        raise SystemExit(
+            f"{new_dir}'s {config} settlement table and windows head hold different rules; run `uv run python -m rebuild.pipeline.run_m1`"
         )
-    else:
-        members = entry.paired or (entry,)
-        before = {
-            "glyphs": [member.old.outcome for member in members if member.old is not None],
-            "junctions": [],
-        }
-        after = {
-            "cells": [member.new.outcome for member in members if member.new is not None],
-            "junctions": [],
-            "extensions": [],
-        }
-        diff_positions = [0] if (before["glyphs"] or after["cells"]) else []
-        pair = None
-        explain = _settlement_explain(entry)
-        summary = (
-            f"The settlement row for {entry.key.label()} is {entry.bucket} under {entry.config}; "
-            "old and new values are in the explain panel."
+    try:
+        certificates = snapshot.certificates_of(spec, decision)
+    except snapshot.SnapshotError as error:
+        raise SystemExit(str(error)) from None
+    return [(rule.input_glyph, certificate.text) for rule, certificate in zip(decision.rules, certificates)]
+
+
+def _diff_inputs(accepted: snapshot.Snapshot | None, new_dir: Path, after_font: Path) -> list[Path]:
+    """The files a table-diff build reads, whose latest modification time is its `generated_at`: the snapshot's record, the new build's tables and windows heads, and its font."""
+    paths = [after_font]
+    if accepted is not None:
+        paths.append(accepted.directory / snapshot.RECORD_NAME)
+    for config in tablediff.SETTLED_CONFIGS:
+        paths += [
+            new_dir / f"settlement-{config}.tsv",
+            new_dir / f"joins-{config}.tsv",
+            table.windows_head_path(new_dir, config),
+        ]
+    return paths
+
+
+def table_diff_units(
+    accepted: snapshot.Snapshot,
+    new_dir: Path,
+    fonts: diff_units.Fonts,
+    spec=None,
+    repo_root: Path = REPO_ROOT,
+) -> tuple[list[diff_units.Unit], dict[str, diff_units.ConfigCounts]]:
+    """Diff every settled configuration's tables in `accepted` against `new_dir`'s and find the units that show the changes (`diff_units.UnitFinder`). A configuration whose two tables hold the same bytes on both sides is passed over unparsed. The spec, which spells the new build's certificates out, is loaded from `repo_root` only when some configuration's rows changed."""
+    finder: diff_units.UnitFinder | None = None
+    for config in tablediff.SETTLED_CONFIGS:
+        new_settlement = new_dir / f"settlement-{config}.tsv"
+        new_joins = new_dir / f"joins-{config}.tsv"
+        held = config in accepted.configs
+        if not held and not new_settlement.is_file():
+            continue
+        if (
+            held
+            and new_settlement.is_file()
+            and new_joins.is_file()
+            and tablediff.same_table(accepted.settlement_path(config), new_settlement)
+            and tablediff.same_table(accepted.joins_path(config), new_joins)
+        ):
+            continue
+        old_rows = accepted.settlement(config)
+        new_rows = tablediff.load_settlement(new_settlement, config) if new_settlement.is_file() else {}
+        settlement_entries = tablediff.diff_settlement(old_rows, new_rows, config)
+        join_entries = tablediff.diff_joins(
+            accepted.joins(config),
+            tablediff.load_joins(new_joins, config) if new_joins.is_file() else {},
+            config,
         )
-        provenance = sorted(
-            {
-                pointer.strip()
-                for member in members
-                for value in (member.old, member.new)
-                if value is not None and getattr(value, "provenance", "")
-                for pointer in value.provenance.split(";")
-                if pointer.strip()
-            }
+        if not settlement_entries and not join_entries:
+            continue
+        if finder is None:
+            if spec is None:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    spec = load_spec(repo_root)
+            finder = diff_units.UnitFinder(
+                spec,
+                fonts,
+                tablediff.SETTLED_CONFIGS,
+                diff_units.inventory_texts(new_dir / "kern-inventory.json"),
+            )
+        old_certificates = accepted.certificates(config)
+        if len(old_certificates) != len(old_rows):
+            raise SystemExit(
+                f"{accepted.directory} holds {len(old_certificates)} {config} certificates for {len(old_rows)} rules; take the snapshot again"
+            )
+        new_certificates = (
+            _new_certificates(new_dir, config, spec, [key.input for key in new_rows])
+            if settlement_entries
+            else []
         )
-    fragment = {
-        "id": None,
-        "ink_identical": ink_identical,
-        "picture_identical": picture_identical,
-        "junior_equivalent": False,
-        "no_verdict": False,
-        "duplicate_group": None,
-        "cluster": None,
-        "class": entry.bucket,
-        "group": f"{entry.table}:{getattr(entry.key, 'input', getattr(entry.key, 'left', ''))}",
-        "row_key": entry.key.label(),
-        "codepoints": ":".join(f"{value:04X}" for value in example_text) if example_text else None,
-        "text_entities": text_entities(example_text) if example_text else None,
-        "notation": notation(example_text) if example_text else entry.key.label(),
-        "notation_tokens": list(notation_tokens(example_text)) if example_text else None,
-        "configs": [entry.config],
-        "config_note": note,
-        "config_gate": gate,
-        "render_groups": [{"configs": [entry.config]}],
-        "kinds": [entry.table],
-        "exemplar": False,
-        "before": before,
-        "after": after,
-        "diff_positions": diff_positions,
-        "pair": pair,
-        "pair_codepoints": None,
-        "highlight": None,
-        "boundary_marks": [],
-        "summary": summary,
-        "explain": explain,
-        "provenance": provenance,
-        "drafts": {"pin": None, "policy": None, "any_of": None},
-        "content_key": None,
+        finder.add_config(
+            config,
+            settlement_entries,
+            join_entries,
+            [(key.input, certificate.text) for key, certificate in zip(old_rows, old_certificates)],
+            new_certificates,
+        )
+        del old_rows, new_rows, settlement_entries, join_entries
+    if finder is None:
+        return [], {}
+    return finder.units(), finder.counts
+
+
+def _unit_rows(unit: diff_units.Unit) -> set[tuple[str, str, str]]:
+    return {
+        (config, entry.table, entry.key.label())
+        for config, entries in unit.rows.items()
+        for entry in entries
+        for _member in (entry.paired or (entry,))
     }
-    fragment["content_key"] = unit_cache.carry_content_hash(fragment)
-    fragment["id"] = unit_cache.unit_id_for(fragment["content_key"])
-    return fragment
-
-
-def _settlement_explain(entry: tablediff.SettlementDiffEntry) -> str:
-    lines = [f"settlement diff ({entry.bucket}), config {entry.config}"]
-    for member in entry.paired or (entry,):
-        key = member.key
-        lines.append(f"  context: {key.label()}")
-        if member.old is not None:
-            lines.append(f"    old: {member.old.outcome}" + (" [joint]" if member.old.joint else ""))
-            if member.old.provenance:
-                lines.append(f"    old provenance: {member.old.provenance}")
-        if member.new is not None:
-            lines.append(f"    new: {member.new.outcome}" + (" [joint]" if member.new.joint else ""))
-            if member.new.provenance:
-                lines.append(f"    new provenance: {member.new.provenance}")
-    return "\n".join(lines)
-
-
-def _join_explain(entry: tablediff.JoinDiffEntry) -> str:
-    lines = [f"join diff ({entry.bucket}), config {entry.config}", f"  pair: {entry.key.label()}"]
-    if entry.old is not None:
-        lines.append(f"    old: junction {entry.old.junction}, extension {entry.old.extension}")
-    if entry.new is not None:
-        lines.append(f"    new: junction {entry.new.junction}, extension {entry.new.extension}")
-    return "\n".join(lines)
 
 
 def build_table_diff(
     out_dir: Path,
-    baseline_dir: Path,
-    new_dir: Path,
-    before_font: Path,
-    after_font: Path,
+    snapshot_dir: Path | None,
+    new_dir: Path = M1_SUBSETS,
+    *,
+    after_font: Path | None = None,
+    spec=None,
     repo_root: Path = REPO_ROOT,
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
-    with_example_texts: bool = True,
-    example_depth: int = 5,
 ) -> dict:
+    """Build the table-diff corpus into `out_dir`: the accepted build in `snapshot_dir` (a snapshot, `rebuild/review/snapshot.py`) against the run_m1 build in `new_dir`, its tables, windows heads and `M1.otf` (or `after_font`), and return the manifest. Each unit is one visible change (`diff_units`), in one of `diff_units.CLASSES`, shaped in the snapshot's font as before and the new build's as after. An empty diff gives a corpus with no units, and so does a `snapshot_dir` of None, the build of a machine with no snapshot, whose manifest's `baseline` says no snapshot is present and whose before font is the after font, so the app shell and the kerning view still boot. The manifest's `configs` is every settled configuration, the universe every unit's config badge is resolved against, and `table_rows` counts each configuration's changed rows. The written corpus is checked with `check_shards` before the build returns."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    entries = tablediff.diff_dirs(baseline_dir, new_dir)
-    if not entries:
-        raise SystemExit(
-            f"{baseline_dir} and {new_dir} settle every window alike, so there is nothing to diff"
-        )
-
-    if with_example_texts:
+    new_dir = Path(new_dir)
+    after_font = Path(after_font) if after_font is not None else new_dir / "M1.otf"
+    universe = list(tablediff.SETTLED_CONFIGS)
+    accepted: snapshot.Snapshot | None = None
+    if snapshot_dir is not None:
         try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                spec = load_spec(repo_root)
-            for config in sorted({entry.config for entry in entries}):
-                tablediff.ExampleIndex(spec, config, max_depth=example_depth).attach(entries)
-        except Exception as error:  # noqa: BLE001 — example texts are an enrichment, not a gate
-            print(f"warning: example-text search unavailable ({error})", file=sys.stderr)
-
-    all_configs = sorted({entry.config for entry in entries})
-    by_bucket: dict[str, list[tablediff.DiffEntry]] = {}
-    for entry in entries:
-        by_bucket.setdefault(entry.bucket, []).append(entry)
-
+            accepted = snapshot.load(Path(snapshot_dir))
+        except snapshot.SnapshotError as error:
+            raise SystemExit(str(error)) from None
+    before_font = accepted.font if accepted is not None else after_font
     font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
-    comparator = InkComparator(before_font, after_font)
+    fonts = diff_units.Fonts(before_font, after_font)
+    units, counts = (
+        table_diff_units(accepted, new_dir, fonts, spec, repo_root) if accepted is not None else ([], {})
+    )
+
+    by_class: dict[str, list[dict]] = {cls.id: [] for cls in diff_units.CLASSES}
+    rows_by_class: dict[str, set[tuple[str, str, str]]] = {cls.id: set() for cls in diff_units.CLASSES}
+    ids_seen: set[str] = set()
+    for unit in units:
+        fragment = diff_units.fragment(unit, fonts, universe, config_badge)
+        if fragment["id"] in ids_seen:
+            raise SystemExit(f"two table-diff units share the id {fragment['id']}: {fragment['row_key']}")
+        ids_seen.add(fragment["id"])
+        by_class[fragment["class"]].append(fragment)
+        rows_by_class[fragment["class"]].update(_unit_rows(unit))
+
+    present = [cls for cls in diff_units.CLASSES if by_class[cls.id]]
+    sections = {
+        cls.id: class_section(
+            None, cls.no_verdict, sum(1 for fragment in by_class[cls.id] if not slim_fragment(fragment))
+        )
+        for cls in present
+    }
+    present.sort(key=lambda cls: SECTIONS.index(sections[cls.id]))
+    rank = family_ranks(dict(LETTERS))
+    human = sorted(
+        (
+            triage_key(
+                index,
+                fragment["group"],
+                parse_codepoints(fragment["codepoints"]) if fragment["codepoints"] else (),
+                fragment["id"],
+                rank,
+            ),
+            fragment["id"],
+        )
+        for index, cls in enumerate(present)
+        for fragment in by_class[cls.id]
+        if not slim_fragment(fragment)
+    )
+    human_unit_ids = [unit_id for _key, unit_id in human]
+    position = {unit_id: index for index, unit_id in enumerate(human_unit_ids)}
+
     classes_meta: list[dict] = []
     shards_by_class: dict[str, list[dict]] = {}
     spans_by_class: dict[str, list[tuple[int, int, int]]] = {}
-    index = 0
-    human_index = 0
-    human_unit_ids: list[str] = []
-    machine_units = 0
-    machine_rows = 0
     machine_by_class: dict[str, int] = {}
-    ids_seen: set[str] = set()
-    for bucket in tablediff.DIFF_BUCKETS:
-        members = by_bucket.get(bucket, [])
-        if not members:
-            continue
-        shard = []
-        batches = set()
-        machine_count = 0
-        check_counts = {check_id: 0 for check_id in MACHINE_CHECKS}
-        for entry in members:
-            # An entry without an example text has no text to shape, so it cannot be shown ink- or picture-identical and stays a human unit.
-            text = "".join(chr(value) for value in entry.example_text) if entry.example_text else ""
-            ink_identical = bool(text) and comparator.ink_identical(text, (entry.config,))
-            picture_identical = (
-                bool(text) and not ink_identical and comparator.picture_identical(text, (entry.config,))
-            )
-            fragment = _table_diff_unit_json(entry, all_configs, ink_identical, picture_identical)
-            if fragment["id"] in ids_seen:
-                raise SystemExit(f"two table-diff entries share the id {fragment['id']}: {entry.key.label()}")
-            ids_seen.add(fragment["id"])
-            if ink_identical or picture_identical:
-                machine_count += 1
-                check_counts["ink_identical" if ink_identical else "picture_identical"] += 1
-                machine_rows += max(len(entry.paired), 1)
-            else:
-                batches.add(human_index // batch_size)
-                human_index += 1
-                human_unit_ids.append(fragment["id"])
-            shard.append(fragment)
-            index += 1
-        # Sort by id within the bucket, as every m1-audit shard is sorted, so the locator's blocks ascend.
-        shard.sort(key=lambda fragment: fragment["id"])
-        parts, spans_by_class[bucket] = _write_shard(out_dir, bucket, shard)
-        shards_by_class[bucket] = shard
-        machine_units += machine_count
+    check_totals = {check_id: 0 for check_id in MACHINE_CHECKS}
+    for cls in present:
+        shard = sorted(by_class[cls.id], key=lambda fragment: fragment["id"])
+        check_counts = {
+            check_id: sum(1 for fragment in shard if fragment.get(check_id) is True)
+            for check_id in MACHINE_CHECKS
+        }
+        machine_count = sum(1 for fragment in shard if machine_approved(fragment))
+        parts, spans_by_class[cls.id] = _write_shard(out_dir, cls.id, shard)
+        shards_by_class[cls.id] = shard
         if machine_count:
-            machine_by_class[bucket] = machine_count
+            machine_by_class[cls.id] = machine_count
+        for check_id, count in check_counts.items():
+            check_totals[check_id] += count
         classes_meta.append(
             {
-                "id": bucket,
-                "title": tablediff.BUCKET_TITLE[bucket],
-                "summary": tablediff.BUCKET_SUMMARY[bucket],
+                "id": cls.id,
+                "title": cls.title,
+                "summary": cls.summary,
                 "note": None,
-                "section": class_section(None, False, len(members) - machine_count),
+                "section": sections[cls.id],
                 "status": None,
                 "ink_identical": False,
-                "no_verdict": False,
-                "why": tablediff.BUCKET_WHY[bucket],
-                "unit_count": len(members),
-                "row_count": sum(max(len(entry.paired), 1) for entry in members),
+                "no_verdict": cls.no_verdict,
+                "why": cls.why,
+                "unit_count": len(shard),
+                "row_count": len(rows_by_class[cls.id]),
                 "machine_approved_count": machine_count,
                 "machine_checks": check_counts,
                 "shards": parts,
-                "batches": sorted(batches),
+                "batches": sorted(
+                    {
+                        position[fragment["id"]] // batch_size
+                        for fragment in shard
+                        if fragment["id"] in position
+                    }
+                ),
             }
         )
 
-    # A bucket with no human unit is listed with No review needed, after the buckets that hold questions; it adds nothing to the triage index, so moving it keeps the index in class order.
-    classes_meta.sort(key=lambda meta: SECTIONS.index(meta["section"]))
-    fonts = {
+    fonts_meta = {
         "before": _copy_font(
             before_font, out_dir, "before.otf", "AMS Review Before", repo_root, font_digests["before"]
         ),
@@ -1190,30 +1188,49 @@ def build_table_diff(
             after_font, out_dir, "after.otf", "AMS Review After", repo_root, font_digests["after"]
         ),
     }
+    machine_units = sum(machine_by_class.values())
+    methods = {
+        "ink_identical": VERIFICATION_METHOD,
+        "picture_identical": PICTURE_VERIFICATION_METHOD,
+        "junior_equivalent": JUNIOR_VERIFICATION_METHOD,
+    }
     manifest = {
         "format": MANIFEST_FORMAT,
         "mode": "table-diff",
-        "generated_at": _generated_at(Path(baseline_dir), Path(new_dir), before_font, after_font),
+        "generated_at": _generated_at(*_diff_inputs(accepted, new_dir, after_font)),
         "repo_head": _repo_head(repo_root),
         "inputs_fingerprint": {key: None for key in fingerprint.COMPONENTS},
-        "source": {"baseline": str(baseline_dir), "new": str(new_dir)},
-        "fonts": fonts,
+        "source": {
+            "snapshot": None if accepted is None else _relative(accepted.directory, repo_root),
+            "new": _relative(new_dir, repo_root),
+        },
+        "baseline": accepted.baseline() if accepted is not None else dict(snapshot.ABSENT_BASELINE),
+        "fonts": fonts_meta,
         "alphabet": _alphabet_meta(),
-        "configs": all_configs,
+        "configs": universe,
         "feature_descriptions": dict(FEATURE_DESCRIPTIONS),
         "batch_size": batch_size,
         "human_unit_ids": human_unit_ids,
         "totals": {
-            "units": index,
+            "units": len(units),
             "rows": sum(meta["row_count"] for meta in classes_meta),
-            "batches": (human_index + batch_size - 1) // batch_size,
+            "batches": (len(human_unit_ids) + batch_size - 1) // batch_size,
         },
         "machine_approved": {
             "units": machine_units,
-            "rows": machine_rows,
+            "rows": sum(len(rows_by_class[cls_id]) for cls_id in machine_by_class),
             "method": VERIFICATION_METHOD,
             "by_class": machine_by_class,
+            "checks": {
+                check_id: {
+                    "units": check_totals[check_id],
+                    "rows": check_totals[check_id],
+                    "method": methods[check_id],
+                }
+                for check_id in MACHINE_CHECKS
+            },
         },
+        "table_rows": {config: counts[config].record() for config in universe if config in counts},
         "classes": classes_meta,
         "ledger_classes": {},
         "build_command": BUILD_COMMAND + " --mode table-diff",
@@ -1229,6 +1246,18 @@ def build_table_diff(
     errors = check_shards(manifest, shards_by_class)
     if errors:
         raise SystemExit("contract check failed:\n" + "\n".join(errors[:CONTRACT_ERRORS_SHOWN]))
+    shaped = sum(record.texts for record in counts.values())
+    seconds = sum(record.seconds for record in counts.values())
+    console.say(
+        f"review.build table-diff: {len(units)} units against "
+        + (
+            f"the snapshot of {str(accepted.commit or 'an unknown commit')[:12]}"
+            if accepted is not None
+            else "no snapshot"
+        )
+        + f"; {shaped} texts shaped in {seconds:.1f}s",
+        file=sys.stderr,
+    )
     return manifest
 
 
@@ -1396,6 +1425,8 @@ def check_manifest(manifest: dict) -> list[str]:
         )
         need(isinstance(meta.get("no_verdict"), bool), f"classes[{identifier}].no_verdict must be a bool")
     need(section_ranks == sorted(section_ranks), f"classes must be listed by section ({', '.join(SECTIONS)})")
+    if manifest.get("mode") == "table-diff":
+        errors.extend(f"manifest: {message}" for message in _table_diff_manifest_errors(manifest))
     lookup = manifest.get("ledger_classes")
     need(isinstance(lookup, dict), "ledger_classes must map ledger class ids to their copy")
     for identifier, record in lookup.items() if isinstance(lookup, dict) else ():
@@ -1406,6 +1437,46 @@ def check_manifest(manifest: dict) -> list[str]:
             and isinstance(record.get("why"), str),
             f"ledger_classes[{identifier}] must carry a nonempty title and summary, a ledger status and a why",
         )
+    return errors
+
+
+def _table_diff_manifest_errors(manifest: Mapping) -> list[str]:
+    """The table-diff manifest's own predicates: `baseline` names the snapshot the corpus was built against, or says none is present, in which case the corpus holds no units; `configs` is every settled configuration, the universe the badges are resolved against; and every class is one of `diff_units.CLASS_IDS`, taking no verdict exactly when it is one of `diff_units.NO_VERDICT_CLASS_IDS`."""
+    errors: list[str] = []
+    baseline = manifest.get("baseline")
+    keys = ("commit", "taken_at", "digest")
+    if not (
+        isinstance(baseline, dict)
+        and set(baseline) == {*keys, "present"}
+        and isinstance(baseline.get("present"), bool)
+        and all(
+            baseline.get(key) is None or (isinstance(baseline.get(key), str) and baseline.get(key))
+            for key in keys
+        )
+    ):
+        errors.append(
+            "baseline must map commit, taken_at and digest to strings or null, and present to a bool"
+        )
+    elif baseline["present"]:
+        if not isinstance(baseline.get("digest"), str):
+            errors.append("a present baseline must name its snapshot's digest")
+    else:
+        if any(baseline.get(key) is not None for key in keys):
+            errors.append("a baseline that is not present names no commit, time or digest")
+        if (manifest.get("totals") or {}).get("units") != 0:
+            errors.append("a corpus built with no snapshot holds no units")
+    if manifest.get("configs") != list(tablediff.SETTLED_CONFIGS):
+        errors.append(f"configs must be every settled configuration ({', '.join(tablediff.SETTLED_CONFIGS)})")
+    for meta in manifest.get("classes") or ():
+        identifier = meta.get("id")
+        if identifier not in diff_units.CLASS_IDS:
+            errors.append(
+                f"classes[{identifier}] is not a table-diff class ({', '.join(diff_units.CLASS_IDS)})"
+            )
+        elif meta.get("no_verdict") is not (identifier in diff_units.NO_VERDICT_CLASS_IDS):
+            errors.append(
+                f"classes[{identifier}].no_verdict must be {identifier in diff_units.NO_VERDICT_CLASS_IDS}"
+            )
     return errors
 
 
@@ -1781,11 +1852,46 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
         cluster is None or (isinstance(cluster, str) and cluster.startswith("c-")),
         "cluster must be null or a c-XXXXXXXX signature id",
     )
-    if mode == "m1-audit":
+    if mode in ("m1-audit", "table-diff"):
         if human:
             need(isinstance(cluster, str), "human units must carry a cluster signature id")
         else:
             need(cluster is None, "machine-approved and no-verdict units must carry cluster null")
+    if mode == "table-diff":
+        need(
+            unit.get("class") in diff_units.CLASS_IDS,
+            f"class must be a table-diff class ({', '.join(diff_units.CLASS_IDS)})",
+        )
+        need(
+            unit.get("no_verdict") is (unit.get("class") in diff_units.NO_VERDICT_CLASS_IDS),
+            "no_verdict must be true exactly on a unit of a class that takes no verdict",
+        )
+        kinds = unit.get("kinds")
+        need(
+            isinstance(kinds, list) and all(kind in diff_units.KINDS for kind in kinds),
+            f"kinds must name the row buckets and {diff_units.CONTEXT_KIND} ({', '.join(diff_units.KINDS)})",
+        )
+        need(duplicate_group is None, "table-diff units carry duplicate_group null")
+        # A unit that shows several changes names each in its row key, joined by `; `, and stands in `joins` when any of them is a join row (`diff_units.KIND_PRECEDENCE`).
+        changes = str(unit.get("row_key") or "").split("; ")
+        if unit.get("class") in ("joins", "settlement"):
+            need(
+                (unit.get("class") == "joins") == any(change.startswith("join ") for change in changes),
+                "a unit that shows a join row is in joins, and one that shows none is not",
+            )
+        if codepoints is None:
+            need(
+                all(
+                    unit.get(key) is None
+                    for key in ("text_entities", "notation_tokens", "pair", "pair_codepoints", "highlight")
+                ),
+                "a unit with no text carries no text_entities, notation_tokens, pair, pair_codepoints or highlight",
+            )
+        if pair is not None:
+            need(
+                isinstance(unit.get("pair_codepoints"), list) and isinstance(highlight, dict),
+                "a unit with a pair carries its pair_codepoints and highlight",
+            )
 
     junctions = unit.get("secondary_junctions")
     if junctions is not None:
@@ -2247,15 +2353,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
     if argv and argv[0] == "snapshot":
-        parser = argparse.ArgumentParser(
-            prog="rebuild.review.build snapshot", description=tablediff.write_snapshot.__doc__
-        )
-        parser.add_argument("--tables", type=Path, required=True)
-        parser.add_argument("--font", type=Path, required=True)
-        parser.add_argument("--to", type=Path, required=True)
-        args = parser.parse_args(argv[1:])
-        tablediff.write_snapshot(args.tables, args.font, args.to, REPO_ROOT)
-        print(f"Wrote {args.to}", file=sys.stderr)
+        snapshot.main(["take", *argv[1:]])
         return
 
     from rebuild.tools.artifact_cycle import (
@@ -2271,10 +2369,20 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--mode", choices=("m1-audit", "table-diff"), default="m1-audit")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
-    parser.add_argument("--baseline", type=Path, help="baseline tables directory (table-diff mode)")
-    parser.add_argument("--new", dest="new_dir", type=Path, help="new tables directory (table-diff mode)")
-    parser.add_argument("--before-font", type=Path, default=SITE_BEFORE_FONT)
-    parser.add_argument("--after-font", type=Path, default=M1_AFTER_FONT)
+    parser.add_argument(
+        "--snapshot",
+        type=Path,
+        help="table-diff mode: the snapshot of the accepted build to compare against (`rebuild/review/snapshot.py`); the default is the current one under var/keep/review-snapshot/, and with none there the corpus has no units",
+    )
+    parser.add_argument(
+        "--new",
+        dest="new_dir",
+        type=Path,
+        default=M1_SUBSETS,
+        help="table-diff mode: the run_m1 build to compare, whose tables, windows heads and M1.otf it reads",
+    )
+    parser.add_argument("--before-font", type=Path, default=SITE_BEFORE_FONT, help="m1-audit mode only")
+    parser.add_argument("--after-font", type=Path, default=M1_AFTER_FONT, help="m1-audit mode only")
     parser.add_argument("--junior-font", type=Path, default=SITE_JUNIOR_FONT)
     parser.add_argument(
         "--jobs",
@@ -2309,14 +2417,10 @@ def main(argv: list[str] | None = None) -> None:
     refuse_the_served_corpus(args.out)
 
     if args.mode == "table-diff":
-        if not args.baseline or not args.new_dir:
-            parser.error("table-diff mode needs --baseline and --new")
         manifest = build_table_diff(
             args.out,
-            args.baseline,
+            args.snapshot if args.snapshot is not None else snapshot.current(),
             args.new_dir,
-            args.before_font,
-            args.after_font,
             batch_size=args.batch_size,
         )
     else:

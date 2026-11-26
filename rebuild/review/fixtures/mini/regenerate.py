@@ -7,7 +7,7 @@ The bundle holds:
 - `audit.tsv`, the live divergence audit's materialized form (`oracle.materialized_audit`) filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, a fixed set picked for the enrichment and drafting each shows. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
 - `baseline-<config>.subset.tsv.gz` for each of `conform.ORACLE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
 - `M1.otf`, a copy of the after font the slices were extracted against.
-- `settlement-default.tsv` and `joins-default.tsv`, which `rebuild/test_review_tablediff.py` and the table-diff build test use as real tables beside a real font.
+- `settlement-default.tsv` and `joins-default.tsv`, which `rebuild/test_review_tablediff.py` reads as real tables.
 - `pin.json`, the tree and blob shas of `pin.PINNED_PATHS` at the commit this ran on.
 
 All of it must be regenerated together. A slice from one build beside a font from another, or a pin from a third, would make the enricher report glyph disagreements caused by the bundle and not by the code.

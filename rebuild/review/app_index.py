@@ -295,13 +295,22 @@ def artifact_is_current(corpus: Path, name: str, fmt: str) -> bool:
 
 
 def outputs_not_current(corpus: Path) -> list[str]:
-    """Name each file a finished build leaves beside its manifest that is missing or does not describe it: the per-unit index, by its head's stamps and the parts it lists, or the inline header of the single file a corpus from before the segment format holds (`unit_index.index_is_current`, #618's change 32), both app sidecars (`artifact_is_current`, which no caller hands the index, whose header only `unit_index.index_header` reads) and the unit store, by its head (`unit_index.store_is_current`). The manifest does not name them and a build writes them after it, the store last, so a corpus is one a build finished only when this is empty. The store is among them because only a store written for the manifest can place a deflated fragment (#618's change 35). This is the one check of a finished corpus: `artifact_cycle.corpus_complete`, which the cycle's skip and its keep of a `review.next` read, and `status`'s freshness check, which `make verdict-ready` and the app's banner read, both take it, so the two never disagree on a corpus."""
+    """Name each file a finished build leaves beside its manifest that is missing or does not describe it: the per-unit index, by its head's stamps and the parts it lists, or the inline header of the single file a corpus from before the segment format holds (`unit_index.index_is_current`, #618's change 32), both app sidecars (`artifact_is_current`, which no caller hands the index, whose header only `unit_index.index_header` reads) and, for an m1-audit corpus, the unit store, by its head (`unit_index.store_is_current`). The manifest does not name them and a build writes them after it, the store last, so a corpus is one a build finished only when this is empty. The store is among them because only a store written for the manifest can place a deflated fragment (#618's change 35); a table-diff corpus has none and holds no deflated fragment. This is the one check of a finished corpus: `artifact_cycle.corpus_complete`, which the cycle's skip and its keep of a `review.next` read, and `status`'s freshness check, which `make verdict-ready` and the app's banner read, both take it, so the two never disagree on a corpus."""
     corpus = Path(corpus)
     stale = [] if unit_index.index_is_current(corpus) else [unit_index.INDEX_NAME]
     stale += [name for name, fmt in ARTIFACTS if not artifact_is_current(corpus, name, fmt)]
-    if not unit_index.store_is_current(corpus):
+    if not _table_diff(corpus) and not unit_index.store_is_current(corpus):
         stale.append(row_delta.head_name(unit_index.STORE_NAME))
     return stale
+
+
+def _table_diff(corpus: Path) -> bool:
+    """Whether the manifest beside these files is a table-diff corpus's, which the build writes in Python with every fragment plain and no unit store, so its fragments are read through the per-unit index and the store is not among the files that must describe it."""
+    try:
+        manifest = json.loads((Path(corpus) / "manifest.json").read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return False
+    return isinstance(manifest, dict) and manifest.get("mode") == "table-diff"
 
 
 def load_rows(corpus: Path, name: str) -> list[dict[str, Any]] | None:

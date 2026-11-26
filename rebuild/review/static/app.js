@@ -146,6 +146,7 @@ import {
   partitionClusters,
   pruneShownDecisions,
   queueCounts,
+  queueEmptyNote,
   queueResumeAction,
   queueTotals,
   readShownDecisions,
@@ -923,19 +924,19 @@ function buildKindOfChange(unit) {
   return block;
 }
 
+const EXPLAIN_INTRO =
+  'This panel shows the full candidate table the settlement function considered at each divergent position, ' +
+  'with each elimination attributed to the YAML record that caused it. "->" marks the winning candidate; ' +
+  '"decided by" names the stage that separated it from the runner-up.';
+const TABLE_DIFF_EXPLAIN_INTRO =
+  'This panel names the change this unit shows, the configurations it holds under and how its text was found, ' +
+  'and lists the rows of the accepted and the new tables it stands for, by configuration.';
+
 function buildExplainPanel(unit) {
   const panel = el('div', 'explain-panel');
   panel.hidden = true;
   panel.append(buildKindOfChange(unit));
-  panel.append(
-    el(
-      'p',
-      'explain-intro',
-      'This panel shows the full candidate table the settlement function considered at each divergent position, ' +
-        'with each elimination attributed to the YAML record that caused it. "->" marks the winning candidate; ' +
-        '"decided by" names the stage that separated it from the runner-up.',
-    ),
-  );
+  panel.append(el('p', 'explain-intro', manifest.mode === 'table-diff' ? TABLE_DIFF_EXPLAIN_INTRO : EXPLAIN_INTRO));
   if (hasExplainSource(unit)) fillExplainPanel(panel, unit);
   return panel;
 }
@@ -971,7 +972,7 @@ function fillExplainPanel(panel, unit) {
     }
     panel.append(list);
   }
-  if (unit.drafts) {
+  if (unit.drafts && (unit.drafts.pin || unit.drafts.policy || unit.drafts.any_of)) {
     panel.append(el('h4', null, 'Drafts'));
     const list = el('ul');
     if (unit.drafts.pin) {
@@ -1832,13 +1833,7 @@ function renderQueue({ anchor = null } = {}) {
     }
   }
   if (!clustered) {
-    container.append(
-      el(
-        'p',
-        'queue-note',
-        `This corpus predates cluster signatures — rebuild it with ${manifest.build_command ?? 'uv run python -m rebuild.review.build'} to use the review queue.`,
-      ),
-    );
+    container.append(el('p', 'queue-note', queueEmptyNote(manifest)));
     return;
   }
   const recordOf = (id) => store.records.get(id);

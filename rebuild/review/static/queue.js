@@ -241,6 +241,22 @@ export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf, exi
   return { action: current ? null : 'restamp', unitIds: kept };
 }
 
+// The note the Queue shows when no human unit carries a cluster signature. Every human unit of a table-diff corpus carries one, so there that means no change since the accepted build needs a verdict: there is none, the machine approved every one or none takes a verdict, or the machine has no snapshot to compare with (the manifest's `baseline`). An m1-audit corpus without signatures predates them.
+export function queueEmptyNote(manifest) {
+  if (manifest?.mode !== 'table-diff') {
+    return `This corpus predates cluster signatures — rebuild it with ${manifest?.build_command ?? 'uv run python -m rebuild.review.build'} to use the review queue.`;
+  }
+  const baseline = manifest.baseline ?? {};
+  if (!baseline.present) {
+    return 'No snapshot of an accepted build is on this machine, so there is nothing to compare with — take one with uv run python -m rebuild.review.snapshot take.';
+  }
+  const since = typeof baseline.commit === 'string' && baseline.commit ? baseline.commit.slice(0, 12) : 'the accepted build';
+  const units = manifest.totals?.units ?? 0;
+  if (units === 0) return `No unaccepted changes since ${since}.`;
+  const count = units.toLocaleString('en-US');
+  return `No unaccepted change since ${since} needs a verdict: the ${units === 1 ? 'one change is' : `${count} changes are`} machine-approved or take no verdict.`;
+}
+
 export function queueTotals(clusters) {
   let blankUnits = 0;
   let duplicateGroups = 0;

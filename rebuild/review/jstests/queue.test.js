@@ -9,6 +9,7 @@ import {
   verdictsAgree,
   singletonChunks,
   queueResumeAction,
+  queueEmptyNote,
   queueTotals,
   queueCounts,
   nextQueueDecision,
@@ -608,4 +609,42 @@ test('nextQueueDecision never offers a ruled class, even the largest one', () =>
   assert.equal(decision.kind, 'cluster');
   assert.equal(decision.cluster.id, 'c-open');
   assert.deepEqual(decision.unitIds, ['u-0010', 'u-0011']);
+});
+
+test('buildClusters groups table-diff rows, whose duplicate group is null, by cluster with each unit its own duplicate group', () => {
+  const rows = [
+    makeUnit('u-1', { class: 'settlement', duplicate_group: null, cluster: 'c-11111111', configs: ['default', 'ss03'] }),
+    makeUnit('u-2', { class: 'joins', duplicate_group: null, cluster: 'c-11111111', configs: ['default'] }),
+    makeUnit('u-3', { class: 'joins', duplicate_group: null, cluster: 'c-22222222', configs: ['ss04'] }),
+  ];
+  const clusters = buildClusters(rows, () => undefined);
+  assert.deepEqual(
+    clusters.map((cluster) => [cluster.id, cluster.memberIds]),
+    [
+      ['c-11111111', ['u-1', 'u-2']],
+      ['c-22222222', ['u-3']],
+    ],
+    'a join unit and a settlement unit that show the same pixels share one card, whatever their configurations',
+  );
+  assert.deepEqual(clusters[0].duplicateGroups.map((group) => group.unitIds), [['u-1'], ['u-2']]);
+  assert.deepEqual(clusters[0].representatives, ['u-1', 'u-2']);
+  const decision = nextQueueDecision(rows, () => undefined, new Set());
+  assert.equal(decision.key, 'c-11111111');
+  assert.deepEqual(decision.unitIds, ['u-1', 'u-2'], 'every unit of a table-diff card is stacked, since none shares a duplicate group');
+});
+
+test('queueEmptyNote says what an unclustered queue means for each kind of corpus', () => {
+  assert.match(queueEmptyNote({ mode: 'm1-audit', build_command: 'build it' }), /predates cluster signatures — rebuild it with build it/u);
+  const commit = 'bb61f6e003b0a83211f09264519387a52344f18d';
+  const tableDiff = { mode: 'table-diff', baseline: { present: true, commit, taken_at: '2026-11-26T09:08:33Z', digest: 'd0' }, totals: { units: 0 } };
+  assert.equal(queueEmptyNote(tableDiff), 'No unaccepted changes since bb61f6e003b0.');
+  assert.equal(
+    queueEmptyNote({ ...tableDiff, totals: { units: 1234 } }),
+    'No unaccepted change since bb61f6e003b0 needs a verdict: the 1,234 changes are machine-approved or take no verdict.',
+  );
+  assert.match(queueEmptyNote({ ...tableDiff, totals: { units: 1 } }), /the one change is machine-approved/u);
+  assert.match(
+    queueEmptyNote({ mode: 'table-diff', baseline: { present: false, commit: null, taken_at: null, digest: null }, totals: { units: 0 } }),
+    /No snapshot of an accepted build is on this machine/u,
+  );
 });

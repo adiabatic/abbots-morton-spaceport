@@ -1,44 +1,18 @@
-"""Diff two directories of settlement and join tables for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. `ExampleIndex` finds an example text for each entry by settling every short sequence, and `write_snapshot` writes the baseline a later diff compares against."""
+"""Diff two builds' settlement and join tables row by row for the review corpus's table-diff mode (rebuild/REVIEW-PLAN.md §2.3, design §8). Rows are matched by key, removals and additions that share an input are paired into one regrouped entry, and settlement changes that move only provenance go to the low-priority `provenance-only` bucket, which sorts last. A changed row is evidence: `rebuild/review/diff_units.py` turns the entries into the visible changes the corpus shows, and the bucket names are the `kinds` its units carry. The loaders read a table as run_m1 writes it or gzipped, as a snapshot holds it (`rebuild/review/snapshot.py`)."""
 
 from __future__ import annotations
 
-import json
-import shutil
-import subprocess
+import gzip
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Self
+from typing import IO, Literal, Self
 
-from rebuild.pipeline import fingerprint
 from rebuild.review.audit import ACCEPTANCE_CONFIGS, M1_ONLY_CONFIGS
 
 SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss10") + M1_ONLY_CONFIGS
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
-
-BUCKET_TITLE = {
-    "added": "Added",
-    "removed": "Removed",
-    "regrouped": "Regrouped",
-    "changed": "Changed",
-    "provenance-only": "Provenance only",
-}
-
-BUCKET_SUMMARY = {
-    "added": "Rows only the new tables have: behavior the baseline never produced.",
-    "removed": "Rows only the baseline tables have: behavior the new tables no longer produce.",
-    "regrouped": "Rows removed and added for one config and input, shown together as one regrouped row.",
-    "changed": "Rows in both tables whose outcome, junction or extension differs.",
-    "provenance-only": "Rows that behave the same and differ only in which rule is credited; low priority.",
-}
-
-BUCKET_WHY = {
-    "added": "Settlement/join rows present only in the new tables: behavior the baseline never produced.",
-    "removed": "Rows present only in the baseline tables: behavior the new tables no longer produce.",
-    "regrouped": "A re-partitioned context: removals and additions sharing (config, input), rendered as one regrouped row.",
-    "changed": "Rows whose key exists in both tables with a different outcome, junction, or extension.",
-    "provenance-only": "Settlement rows whose behavior is identical and only the provenance attribution moved — low priority.",
-}
 
 
 @dataclass(frozen=True)
@@ -91,7 +65,6 @@ class _DiffEntryBase:
     bucket: str
     config: str
     paired: tuple[Self, ...] = ()
-    example_text: tuple[int, ...] | None = None
 
 
 @dataclass(kw_only=True)
@@ -117,10 +90,19 @@ def _parse_set(token: str) -> frozenset[str] | None:
     return None if token == "-" else frozenset(token.split(" "))
 
 
-def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
+def open_table(path: Path) -> IO[str]:
+    """Open a table for reading as text: gzipped when its name ends in `.gz`, as a snapshot holds it, and plain otherwise, as run_m1 writes it."""
+    path = Path(path)
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8")
+    return open(path, encoding="utf-8")
+
+
+def load_settlement(path: Path, config: str | None = None) -> dict[SettlementKey, SettlementValue]:
+    """Read a settlement table into its rows, in rule order. `config` names the configuration the keys carry, which defaults to the one the file's name gives."""
     rows: dict[SettlementKey, SettlementValue] = {}
-    config = _config_from_path(path, "settlement-")
-    with open(path, encoding="utf-8") as handle:
+    config = config if config is not None else _config_from_path(path, "settlement-")
+    with open_table(path) as handle:
         for line in handle:
             if line.startswith("#") or line.startswith("input\t") or not line.strip():
                 continue
@@ -148,11 +130,11 @@ def load_settlement(path: Path) -> dict[SettlementKey, SettlementValue]:
     return rows
 
 
-def load_joins(path: Path) -> dict[JoinKey, JoinValue]:
-    """Read a join table (`table.JOIN_COLUMNS`) into its rows. A table a build wrote before the join table lost its `kern` column (always 0, since kerning reaches no join row) carries a fifth field, which is ignored, so a baseline build directory from that time still diffs."""
+def load_joins(path: Path, config: str | None = None) -> dict[JoinKey, JoinValue]:
+    """Read a join table (`table.JOIN_COLUMNS`) into its rows. A table a build wrote before the join table lost its `kern` column (always 0, since kerning reaches no join row) carries a fifth field, which is ignored, so a baseline build directory from that time still diffs. `config` is as for `load_settlement`."""
     rows: dict[JoinKey, JoinValue] = {}
-    config = _config_from_path(path, "joins-")
-    with open(path, encoding="utf-8") as handle:
+    config = config if config is not None else _config_from_path(path, "joins-")
+    with open_table(path) as handle:
         for line in handle:
             if line.startswith("#") or line.startswith("left\t") or not line.strip():
                 continue
@@ -165,7 +147,7 @@ def load_joins(path: Path) -> dict[JoinKey, JoinValue]:
 
 
 def _config_from_path(path: Path, prefix: str) -> str:
-    return Path(path).stem.removeprefix(prefix)
+    return Path(path).name.removesuffix(".gz").removesuffix(".tsv").removeprefix(prefix)
 
 
 def table_configs(directory: Path) -> list[str]:
@@ -268,165 +250,24 @@ def diff_dirs(baseline_dir: Path, new_dir: Path, configs: list[str] | None = Non
     return entries
 
 
-def _load_if_exists(path: Path, loader):
+def _load_if_exists(path: Path, loader: Callable[[Path], dict]) -> dict:
     return loader(path) if path.exists() else {}
 
 
-# --- example-text search --------------------------------------------------------
+_COMPARE_CHUNK = 1 << 20
 
 
-class ExampleIndex:
-    """Settle every sequence of letters and boundaries up to `max_depth` under one configuration and index the results two ways: per-position context tuples (input, settled left, raw right1 through right4) for settlement-row example texts, and adjacent settled-label pairs for join-row example texts. Sequences are enumerated shortest first and in codepoint order, and each index keeps the first sequence it sees, so an example text is always a shortest one. Each depth is sent to the crate `chunk` sequences at a time, and `kernel_exec.settle_sequences` settles each batch in waves, one per position, so the kernel is called per wave rather than per text. The sweep covers every text, so some are expected to fail: a sequence whose ligature formation or labeling raises, or that the kernel rejects, is skipped, and the rest of its batch is kept."""
+def same_table(first: Path, second: Path) -> bool:
+    """Whether two table files hold the same bytes once each is read as `open_table` reads it, gzipped or plain, compared a chunk at a time without parsing a row, so a configuration whose tables did not move costs a read and no diff."""
 
-    EDGE = "#EDGE"
-    NA = "#NA"
-    BOUNDARYISH = frozenset({"space", "uni200C", "periodcentered"})
+    def opened(path: Path):
+        return gzip.open(path, "rb") if Path(path).suffix == ".gz" else open(path, "rb")
 
-    def __init__(self, spec, config: str, max_depth: int = 5, chunk: int = 20000):
-        import itertools
-
-        from rebuild.pipeline import kernel_exec, settle
-        from rebuild.pipeline.labels import features_for_config, formed_labels, spec_alphabet
-
-        self.spec = spec
-        self.config = config
-        features = features_for_config(config)
-        guard_verdicts = kernel_exec.guard_sweep(spec)
-        self.positions: dict[tuple[str, str, str, str, str, str], tuple[int, ...]] = {}
-        self.pairs: dict[tuple[str, str], tuple[int, ...]] = {}
-        alphabet = spec_alphabet(spec)
-        for depth in range(1, max_depth + 1):
-            stream = itertools.product(alphabet, repeat=depth)
-            while True:
-                batch = list(itertools.islice(stream, chunk))
-                if not batch:
-                    break
-                requests: list[tuple[list, frozenset[str]]] = []
-                asked: list[tuple[tuple[int, ...], list[str]]] = []
-                for combo in batch:
-                    text = "".join(combo)
-                    codepoints = tuple(ord(ch) for ch in text)
-                    try:
-                        tokens = settle.form_ligatures(
-                            spec, settle.tokens_from_codepoints(spec, codepoints), guard_verdicts
-                        )
-                        raw = formed_labels(spec, tokens, features)
-                    except Exception:
-                        continue
-                    requests.append((tokens, features))
-                    asked.append((codepoints, raw))
-                answers = kernel_exec.settle_sequences(spec, requests, on_error="drop")
-                for (codepoints, raw), traces in zip(asked, answers):
-                    if traces is None:
-                        continue
-                    settled_labels = [settle.cell_label(spec, trace.settled.cell) for trace in traces]
-                    letter_mask = [not settle.is_boundary_settled(trace.settled) for trace in traces]
-                    if len(raw) != len(settled_labels):
-                        continue
-                    for index, label in enumerate(raw):
-                        if label in self.BOUNDARYISH:
-                            continue
-                        left = (
-                            self.EDGE
-                            if index == 0
-                            else (
-                                raw[index - 1]
-                                if raw[index - 1] in self.BOUNDARYISH
-                                else settled_labels[index - 1]
-                            )
-                        )
-                        right1 = raw[index + 1] if index + 1 < len(raw) else self.EDGE
-                        right2 = (
-                            self.NA
-                            if right1 in self.BOUNDARYISH or right1 == self.EDGE
-                            else (raw[index + 2] if index + 2 < len(raw) else self.EDGE)
-                        )
-                        right3 = (
-                            self.NA
-                            if right2 in self.BOUNDARYISH or right2 in (self.EDGE, self.NA)
-                            else (raw[index + 3] if index + 3 < len(raw) else self.EDGE)
-                        )
-                        right4 = (
-                            self.NA
-                            if right3 in self.BOUNDARYISH or right3 in (self.EDGE, self.NA)
-                            else (raw[index + 4] if index + 4 < len(raw) else self.EDGE)
-                        )
-                        self.positions.setdefault((label, left, right1, right2, right3, right4), codepoints)
-                        if index + 1 < len(settled_labels) and letter_mask[index] and letter_mask[index + 1]:
-                            self.pairs.setdefault(
-                                (settled_labels[index], settled_labels[index + 1]), codepoints
-                            )
-
-    def example_settlement(self, key: SettlementKey) -> tuple[int, ...] | None:
-        best: tuple[int, ...] | None = None
-        for (label, left, right1, right2, right3, right4), codepoints in self.positions.items():
-            if label != key.input:
-                continue
-            if key.backtrack is not None and left not in key.backtrack:
-                continue
-            if key.look1 is not None and right1 not in key.look1:
-                continue
-            if key.look2 is not None and right2 not in key.look2:
-                continue
-            if key.look3 is not None and right3 not in key.look3:
-                continue
-            if key.look4 is not None and right4 not in key.look4:
-                continue
-            if best is None or (len(codepoints), codepoints) < (len(best), best):
-                best = codepoints
-        return best
-
-    def example_join(self, key: JoinKey) -> tuple[int, ...] | None:
-        return self.pairs.get((key.left, key.right))
-
-    def attach(self, entries: list[DiffEntry]) -> None:
-        for entry in entries:
-            if entry.config != self.config or entry.example_text is not None:
-                continue
-            if entry.table == "join":
-                entry.example_text = self.example_join(entry.key)
-            else:
-                keys = [member.key for member in entry.paired] or [entry.key]
-                for key in keys:
-                    example_text = self.example_settlement(key)
-                    if example_text is not None:
-                        entry.example_text = example_text
-                        break
-
-
-# --- the baseline snapshot ---------------------------------------------------------
-
-
-def write_snapshot(tables_dir: Path, font: Path, to: Path, repo_root: Path | None = None) -> dict:
-    """Copy the per-config settlement/join TSVs and the OTF they shipped with into an accepted-state directory the next migration diffs against, with sha256s, source paths, and the repo HEAD recorded in snapshot.json. Only the tables of configurations in `SETTLED_CONFIGS` are copied, so tables left behind by a configuration the build does not settle never become part of the accepted state."""
-    tables_dir, font, to = Path(tables_dir), Path(font), Path(to)
-    to.mkdir(parents=True, exist_ok=True)
-    files: dict[str, dict] = {}
-    for prefix in ("settlement-", "joins-"):
-        for source in sorted(tables_dir.glob(f"{prefix}*.tsv")):
-            if _config_from_path(source, prefix) not in SETTLED_CONFIGS:
-                continue
-            target = to / source.name
-            shutil.copyfile(source, target)
-            files[source.name] = {"source": str(source), "sha256": _sha256(target)}
-    font_target = to / font.name
-    shutil.copyfile(font, font_target)
-    files[font.name] = {"source": str(font), "sha256": _sha256(font_target)}
-    head = "unknown"
-    try:
-        head = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"],
-            cwd=repo_root or Path.cwd(),
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except OSError, subprocess.CalledProcessError:
-        pass
-    snapshot = {"format": "ams-review-snapshot/1", "repo_head": head, "font": font.name, "files": files}
-    (to / "snapshot.json").write_text(json.dumps(snapshot, indent=1) + "\n", encoding="utf-8")
-    return snapshot
-
-
-def _sha256(path: Path) -> str:
-    return fingerprint.file_sha256(Path(path))
+    with opened(first) as left, opened(second) as right:
+        while True:
+            a = left.read(_COMPARE_CHUNK)
+            b = right.read(len(a) or _COMPARE_CHUNK)
+            if a != b:
+                return False
+            if not a:
+                return True

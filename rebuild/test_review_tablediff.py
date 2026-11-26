@@ -1,18 +1,13 @@
-"""Tests for the table-vs-table diff mode: added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, example-text search that re-settles to the changed row, and the snapshot round trip.
+"""Tests for the row diff the table-diff mode reads its evidence from (`rebuild/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the table widths and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `rebuild/test_review_diff_units.py` covers the units the corpus makes of the rows, and `rebuild/test_review_snapshot.py` the snapshot. The classification and self-diff tests use the synthetic pair or the frozen mini-M1 bundle's tables."""
 
-The two example-text tests re-settle real settlement rows and join-row pairs from the frozen mini-M1 bundle's tables and check that the outcome comes back. They settle under the spec `mini_bundle` materializes, which is the spec those tables were built from, so they test `ExampleIndex` and not the current rules. The classification, round-trip, and self-diff tests use the synthetic pair or the same bundle.
-"""
-
-import warnings
+import gzip
+import shutil
 from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import conform, explain
-from rebuild.pipeline.labels import features_for_config
-from rebuild.pipeline.settle import cell_label
+from rebuild.pipeline import conform
 from rebuild.review import tablediff
-from rebuild.review.enrich import load_spec
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
@@ -173,33 +168,6 @@ def test_diff_is_deterministic(table_dirs):
     ]
 
 
-@pytest.fixture(scope="module")
-def example_index(mini_bundle):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        spec = load_spec(mini_bundle.spec_root)
-    return spec, tablediff.ExampleIndex(spec, "default", max_depth=3)
-
-
-def test_example_text_resettles_to_the_settlement_row(example_index):
-    """Every example text the index returns for a frozen settlement row settles to that row's outcome under the spec that wrote the row. The sampled example texts are explained in one `explain_many` call, which runs a few kernel processes instead of one per example text."""
-    spec, index = example_index
-    rows = tablediff.load_settlement(MINI / "settlement-default.tsv")
-    asked = []
-    for key, value in list(rows.items())[::10]:
-        example_text = index.example_settlement(key)
-        if example_text is not None:
-            asked.append((key, value, example_text))
-    assert len(asked) >= 5
-    features = features_for_config("default")
-    reports = explain.explain_many(
-        spec, [(list(example_text), features) for _key, _value, example_text in asked]
-    )
-    for (key, value, _example_text), report in zip(asked, reports):
-        labels = [cell_label(spec, item.cell) for item in report.settled]
-        assert value.outcome in labels, (key.label(), value.outcome, labels)
-
-
 def test_a_join_table_with_the_old_kern_column_reads_as_the_same_rows(tmp_path):
     """A baseline build directory written while the join table had a `kern` column (always 0) still loads: the fifth field is ignored, and the rows equal the four-column table's."""
     current = MINI / "joins-default.tsv"
@@ -216,41 +184,21 @@ def test_a_join_table_with_the_old_kern_column_reads_as_the_same_rows(tmp_path):
     )
 
 
-def test_example_text_resettles_to_the_join_row_pair(example_index):
-    """Every example text the index returns for a frozen join row settles to that row's left and right as adjacent cells, explained in one `explain_many` call."""
-    spec, index = example_index
-    rows = tablediff.load_joins(MINI / "joins-default.tsv")
-    asked = []
-    for key in list(rows)[::25]:
-        example_text = index.example_join(key)
-        if example_text is not None:
-            asked.append((key, example_text))
-    assert len(asked) >= 5
-    features = features_for_config("default")
-    reports = explain.explain_many(spec, [(list(example_text), features) for _key, example_text in asked])
-    for (key, _example_text), report in zip(asked, reports):
-        labels = [cell_label(spec, item.cell) for item in report.settled]
-        assert (key.left, key.right) in set(zip(labels, labels[1:]))
-
-
-def test_example_text_attach_fills_entries(example_index, table_dirs):
-    _spec, index = example_index
-    old_dir, new_dir = table_dirs
-    entries = tablediff.diff_dirs(old_dir, new_dir)
-    index.attach(entries)
-    changed = next(e for e in entries if e.bucket == "changed" and e.table == "settlement")
-    assert changed.example_text is not None
-
-
-def test_snapshot_round_trip(tmp_path):
-    """`write_snapshot` copies a table directory's settlement and join TSVs and the font, records their sha256s, and the copy diffs empty against its source. The table directory is the frozen mini-M1 bundle, which has real tables and a real font."""
-    snapshot_dir = tmp_path / "accepted"
-    snapshot = tablediff.write_snapshot(MINI, MINI / "M1.otf", snapshot_dir, REPO_ROOT)
-    assert (snapshot_dir / "snapshot.json").exists()
-    assert (snapshot_dir / "M1.otf").exists()
-    assert "settlement-default.tsv" in snapshot["files"]
-    assert snapshot["files"]["M1.otf"]["sha256"]
-    assert tablediff.diff_dirs(snapshot_dir, MINI) == []
+def test_a_gzipped_table_reads_as_the_plain_one_and_compares_by_its_rows(tmp_path):
+    """A snapshot holds its tables gzipped; they load as the plain tables do, take their configuration from the name before `.tsv.gz`, and `same_table` compares them with a plain table byte for byte."""
+    for name, loader in (
+        ("settlement-default.tsv", tablediff.load_settlement),
+        ("joins-default.tsv", tablediff.load_joins),
+    ):
+        packed = tmp_path / f"{name}.gz"
+        with open(MINI / name, "rb") as source, gzip.GzipFile(packed, "wb") as target:
+            shutil.copyfileobj(source, target)
+        assert loader(packed) == loader(MINI / name)
+        assert tablediff.same_table(packed, MINI / name)
+        changed = tmp_path / name
+        changed.write_bytes((MINI / name).read_bytes() + b"x")
+        assert not tablediff.same_table(packed, changed)
+        assert not tablediff.same_table(changed, packed)
 
 
 def test_the_settled_configurations_match_the_builds():
@@ -285,20 +233,3 @@ def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_
     (new_dir / "joins-ss02.tsv").write_text(JOINS_NEW)
     assert tablediff.table_configs(old_dir) == tablediff.table_configs(new_dir) == ["default"]
     assert {entry.config for entry in tablediff.diff_dirs(old_dir, new_dir)} == {"default"}
-
-
-def test_a_snapshot_leaves_out_tables_of_a_configuration_outside_the_settled_set(table_dirs, tmp_path):
-    """`write_snapshot` copies only the tables of settled configurations, so a stale configuration's tables never become part of the accepted state."""
-    _old_dir, new_dir = table_dirs
-    for unsettled in ("ss02+ss03", *conform.OVERLAY_CONFIGS):
-        (new_dir / f"settlement-{unsettled}.tsv").write_text(SETTLEMENT_NEW)
-        (new_dir / f"joins-{unsettled}.tsv").write_text(JOINS_NEW)
-    font = tmp_path / "M1.otf"
-    font.write_bytes(b"font")
-    snapshot_dir = tmp_path / "accepted"
-    snapshot = tablediff.write_snapshot(new_dir, font, snapshot_dir, REPO_ROOT)
-    assert sorted(snapshot["files"]) == ["M1.otf", "joins-default.tsv", "settlement-default.tsv"]
-    assert sorted(path.name for path in snapshot_dir.glob("*.tsv")) == [
-        "joins-default.tsv",
-        "settlement-default.tsv",
-    ]

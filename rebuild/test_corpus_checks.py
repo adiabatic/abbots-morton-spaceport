@@ -483,26 +483,13 @@ def test_an_empty_audit_refuses_before_any_unit_is_built(tmp_path, mini_bundle):
     assert str(audit_path) in str(raised.value)
 
 
-def test_identical_table_directories_refuse_to_diff(tmp_path):
-    """The table-diff build exits the same way: two directories that settle every window alike have no diff to review."""
-    old_dir = tmp_path / "old"
-    new_dir = tmp_path / "new"
-    old_dir.mkdir()
-    new_dir.mkdir()
-    for name in ("settlement-default.tsv", "joins-default.tsv"):
-        shutil.copyfile(MINI / name, old_dir / name)
-        shutil.copyfile(MINI / name, new_dir / name)
-    with pytest.raises(SystemExit) as raised:
-        build_table_diff(
-            tmp_path / "out",
-            old_dir,
-            new_dir,
-            REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
-            MINI_FONT,
-            with_example_texts=False,
-        )
-    assert str(old_dir) in str(raised.value)
-    assert str(new_dir) in str(raised.value)
+def test_a_table_diff_build_with_no_snapshot_writes_a_corpus_with_no_units(tmp_path):
+    """Where the m1-audit build refuses a corpus with nothing to review, the table-diff build writes one, because no unaccepted change is its normal state: here a machine with no snapshot, whose corpus shows the after font as both fonts, so the app shell and the kerning view boot. `rebuild/test_review_diff_units.py` builds the empty diff of a snapshot against its own build."""
+    out = tmp_path / "out"
+    manifest = build_table_diff(out, None, MINI)
+    assert manifest["totals"]["units"] == 0 and manifest["classes"] == []
+    assert manifest["baseline"]["present"] is False
+    assert check_output_dir(out) == []
 
 
 def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
@@ -516,7 +503,7 @@ def test_a_font_that_moved_since_load_fails_the_copy(tmp_path):
 
 
 def test_a_manifest_with_no_classes_draws_no_error():
-    """`check_manifest` accepts an empty `classes` list. The build exits before it would write one (see the tests above), and a checker that failed on it would fail on the rebuild's intended end state."""
+    """`check_manifest` accepts an empty `classes` list, which a table-diff corpus with no unaccepted change has (see the test above)."""
     manifest, _shards = _corpus()
     manifest["classes"] = []
     assert not [error for error in check_manifest(manifest) if "classes" in error]

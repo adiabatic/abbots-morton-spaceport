@@ -1,4 +1,4 @@
-"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the checker the tests and the table-diff build run over a written corpus, whose predicates the review crate runs over every unit `build_m1` writes), the manifest's class list and copy over a mini build, the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer, `_write_json`, the triage export, the table-diff build, the corpus identity's stamps, and the refusal to build into the served corpus while the review server listens.
+"""Tests for the review-app build: the §7 contract checker over rebuild/review/fixtures/ (the checker the tests and the table-diff build run over a written corpus, whose predicates the review crate runs over every unit `build_m1` writes), the manifest's class list and copy over a mini build, the config-note badge text, the app shell and its scripts, the assets refresh, the shard writer, `_write_json`, the triage export, the corpus identity's stamps, and the refusal to build into the served corpus while the review server listens.
 
 No test here reads the live corpus. `build_m1` checks the per-unit and per-shard contracts over every unit it writes and fails the build on any violation, and what the manifest writer computes from its own inputs (the fingerprint and the feature descriptions) needs no separate check; the class order and each class's copy and section are tested over a mini build. Two claims about a built corpus are tested elsewhere. The sidecars' byte addressing is tested in `rebuild/test_app_index.py` over a mini build, and the staging in `app_index.write_app_artifacts` and the currency check in `artifact_cycle.corpus_build_skippable` keep a shipped corpus from carrying a sidecar built for other shards. rebuild/review-facts-pins.json records that the ink-duplicate merge ran on the corpus, since its pre-merge `volatile.audit.units` is larger than its post-merge `volatile.manifest.totals.units`. The shipped ink deltas are covered by the build's verification sample, which re-shapes `VERIFICATION_SAMPLE` cached windows on every build.
 """
@@ -16,7 +16,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, row_delta
-from rebuild.review import accepted, app_index, facts, tablediff, unit_cache
+from rebuild.review import accepted, app_index, facts, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
@@ -33,7 +33,6 @@ from rebuild.review.build import (
     _prune_orphan_shards,
     _write_json,
     _write_shard,
-    build_table_diff,
     check_manifest,
     check_output_dir,
     check_shards,
@@ -324,7 +323,7 @@ def test_an_identical_class_whose_every_unit_is_re_routed_leaves_the_class_list(
 
 
 def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
-    """Table-diff units diff TSV rows, not rendered ink, so they carry no `ink_deltas`, and the field is required only in m1-audit mode. `test_table_diff_build` runs the whole checker over a real table-diff build."""
+    """Table-diff units carry no `ink_deltas`, which the standing approvals match and only m1-audit mode requires. `rebuild/test_review_diff_units.py` runs the whole checker over real table-diff builds."""
     unit = _fixture_unit(ink_identical=False)
     without = {key: value for key, value in unit.items() if key != "ink_deltas"}
     assert not any("ink_deltas" in error for error in check_unit(without, "table-diff"))
@@ -1148,73 +1147,6 @@ def test_export_rejects_bad_format(tmp_path):
     bad.write_text(json.dumps({"format": "nope", "verdicts": []}))
     with pytest.raises(SystemExit):
         load_verdicts(bad)
-
-
-def test_table_diff_build(tmp_path):
-    """Runs table-diff mode end to end over the frozen tables in fixtures/mini/: a synthetic one-row edit produces a one-unit corpus that passes the contract checker, with the edited row's pointer reaching the explain panel. The tables are inputs, not the subject, so they are frozen beside the font they were extracted with instead of read from the live build, which keeps this test in the contracts lane."""
-    old_dir = tmp_path / "old"
-    new_dir = tmp_path / "new"
-    old_dir.mkdir()
-    new_dir.mkdir()
-    for name in ("settlement-default.tsv", "joins-default.tsv"):
-        shutil.copyfile(MINI / name, old_dir / name)
-        shutil.copyfile(MINI / name, new_dir / name)
-    settlement = (new_dir / "settlement-default.tsv").read_text().splitlines()
-    settlement[-1] = settlement[-1].rsplit("\t", 2)[0] + "\tjoint\tsynthetic-pointer"
-    (new_dir / "settlement-default.tsv").write_text("\n".join(settlement) + "\n")
-
-    out_dir = tmp_path / "out"
-    manifest = build_table_diff(
-        out_dir,
-        old_dir,
-        new_dir,
-        REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf",
-        MINI / "M1.otf",
-        with_example_texts=True,
-        example_depth=2,
-    )
-    assert manifest["mode"] == "table-diff"
-    assert manifest["totals"]["units"] == 1
-    assert check_output_dir(out_dir) == []
-    assert set(tablediff.BUCKET_TITLE) == set(tablediff.BUCKET_SUMMARY) == set(tablediff.DIFF_BUCKETS)
-    (meta,) = manifest["classes"]
-    assert (meta["title"], meta["summary"]) == (
-        tablediff.BUCKET_TITLE["changed"],
-        tablediff.BUCKET_SUMMARY["changed"],
-    )
-    assert meta["status"] is None and manifest["ledger_classes"] == {}
-    human = meta["unit_count"] - meta["machine_approved_count"]
-    assert meta["section"] == ("open-questions" if human else "no-review-needed")
-    shard = json.loads((out_dir / "units" / "changed.json").read_text(encoding="utf-8"))
-    assert len(shard) == 1
-    assert shard[0]["class"] == "changed"
-    assert "ink_deltas" not in shard[0]
-    assert check_unit(shard[0], "table-diff") == []
-    assert manifest["human_unit_ids"] == [unit["id"] for unit in shard if not slim_fragment(unit)]
-    assert "synthetic-pointer" in shard[0]["explain"] or "synthetic-pointer" in " ".join(
-        shard[0]["provenance"]
-    )
-
-
-def test_table_diff_rows_that_share_an_example_and_outcomes_keep_distinct_ids():
-    """Two settlement rows of one input whose example text and outcomes match on both sides differ only in their context sets, which reach the unit id through `row_key`, since the class and the summary are outside the carry projection."""
-    value = tablediff.SettlementValue(outcome="qsPea.full", joint=False, provenance="")
-    rows = [
-        tablediff.SettlementDiffEntry(
-            bucket="provenance-only",
-            config="default",
-            key=tablediff.SettlementKey(
-                config="default", input="qsPea", backtrack=backtrack, look1=look1, look2=None
-            ),
-            old=value,
-            new=value,
-            example_text=(0xE650, 0xE650),
-        )
-        for backtrack, look1 in ((None, frozenset({"qsPea"})), (frozenset({"qsPea.full"}), None))
-    ]
-    first, second = (review_build._table_diff_unit_json(row, ["default"], False, False) for row in rows)
-    assert first["id"] != second["id"]
-    assert check_unit(first, "table-diff") == [] and check_unit(second, "table-diff") == []
 
 
 def test_a_build_into_the_served_corpus_refuses_while_the_review_server_listens(tmp_path, monkeypatch):

@@ -474,7 +474,7 @@ export function classesInBatch(manifest, batch, showMachine = true) {
 }
 
 export function copyPreamble(unit) {
-  return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints} (${unit.notation}). `;
+  return `I'm looking at rebuild/out/review/ unit ${unit.id} — ${unit.codepoints ?? 'no text'} (${unit.notation}). `;
 }
 
 // Keyed on the unit object, which is not modified after parsing, so an entry cannot go stale and is collected with its row. Without the cache every keystroke would rebuild and lowercase one string per unit in the queue.
