@@ -8,7 +8,7 @@ Resident set under-reads a process under memory pressure: on Darwin the pages th
 
 `swap_used_bytes` is the machine's swap in use, for a report to show beside a pool's footprint so a run short of memory is visible in its log: Darwin's `vm.swapusage` through `sysctlbyname`, or `/proc/meminfo`'s `SwapTotal` less `SwapFree` on Linux. It lags and does not fall back when the pressure ends, which is why `memory_budget` never sizes a pool from it. `parse_compressor_bytes` reads the memory Darwin's compressor occupies from a `vm_stat` text, and `parse_swapouts` the pages it has written to swap since boot, for the memory series (`engine/tools/memory_series.py`) to log beside it; a swapout delta, unlike `vm.swapusage`, counts what a step sent to swap whatever the swap held before.
 
-The module imports only the standard library, so the pipeline, the corpus build and `tools/build_font.py` (through `memory_budget`) can import it without adding any other module to their import closures.
+The module imports only the standard library, so the pipeline, the corpus build and `engine/pipeline/font_assembly.py` (through `memory_budget`) can import it without adding any other module to their import closures.
 """
 
 from __future__ import annotations

@@ -3,7 +3,7 @@
 A test's closure is the union of these:
 
 - Its reads: every repo file the audit hook saw opened during the test's setup, call, and teardown. This includes a font HarfBuzz maps, which the conftest reports to the hook. A `.pyc` is mapped back to its source. What a fixture scoped wider than a function reads during its setup is credited to every test that requests the fixture, because the setup runs once, under one test.
-- The static import closure of the test module: the repo modules reachable through `import` statements at any nesting, absolute or relative, `if TYPE_CHECKING:` included, resolved against the repo root, the importer's directory, and the `tools/` directory the suite puts on `sys.path`.
+- The static import closure of the test module: the repo modules reachable through `import` statements at any nesting, absolute or relative, `if TYPE_CHECKING:` included, resolved against the repo root and the importer's directory.
 - The static import closure of every module the test imported dynamically, and of both conftests. The `import` audit event fires on a module's first load in a worker. `importlib.import_module` raises no such event but opens the module's `.pyc` or source file, so every `.py` file a test read is also treated as an imported module.
 - The import-time reads of every module in that closure. A module's body runs once per process, under whichever test imported it first, so the recorder credits what the body reads to the module, and every test that can reach the module gets those reads.
 - The labels in `GLOBAL_LABELS`, which every test depends on without opening: the two conftests, pyproject.toml and uv.lock.
@@ -44,7 +44,6 @@ from engine.tools.closure_record import (
 
 CONFTEST_PATHS = ("conftest.py", "engine/conftest.py")
 GLOBAL_LABELS = frozenset((*CONFTEST_PATHS, "pyproject.toml", "uv.lock"))
-SIBLING_ROOTS = ("tools",)
 
 
 def kernel_files(files: dict[str, str]) -> frozenset[str]:
@@ -53,7 +52,7 @@ def kernel_files(files: dict[str, str]) -> frozenset[str]:
 
 
 def _module_files(name: str, importer: Path, root: Path, level: int) -> list[Path]:
-    """Return every file that importing `name` from `importer` can execute: the module itself (a `.py` or a package's `__init__.py`) and each package `__init__.py` above it. An absolute name is resolved against the repo root, the importer's own directory (a bare sibling import inside `tools/`), and the sibling root the suite puts on `sys.path`: `tools/`, whose modules import each other by bare name, which the font compile puts there. A relative name walks up `level - 1` directories from the importer's package. Every match is kept, not only the one `sys.path` order would pick, because an extra file in a closure can only make a test run."""
+    """Return every file that importing `name` from `importer` can execute: the module itself (a `.py` or a package's `__init__.py`) and each package `__init__.py` above it. An absolute name is resolved against the repo root and the importer's own directory (a bare sibling import inside `tools/`, whose scripts import each other by bare name). A relative name walks up `level - 1` directories from the importer's package. Every match is kept, not only the one `sys.path` order would pick, because an extra file in a closure can only make a test run."""
     parts = [part for part in name.split(".") if part]
     if level:
         base = importer.parent
@@ -61,7 +60,7 @@ def _module_files(name: str, importer: Path, root: Path, level: int) -> list[Pat
             base = base.parent
         bases = [base]
     else:
-        bases = [root, importer.parent, *(root / sibling for sibling in SIBLING_ROOTS)]
+        bases = [root, importer.parent]
     hits: list[Path] = []
     for base in bases:
         for depth in range(1, len(parts)):

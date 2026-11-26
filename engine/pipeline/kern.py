@@ -6,7 +6,7 @@
 - The join tables of every settlement configuration, as the build parsed them from `joins-<config>.tsv`. `check_join_rows` asserts over every row the invariant the design rests on: a row is a `break` exactly when its left cell has no live exit and its right cell has no live entry. A violation raises `KernInternalError` naming the row.
 - The pairs a ZWNJ separates, which no join row records. Each configuration's windows head lists the cells settled immediately before a ZWNJ and the cells settled immediately after one (`table.DecisionTable.zwnj_before` and `zwnj_after`, from the crate's `fold::zwnj_cells`), and every cell of the first set meets every cell of the second across a ZWNJ in some text, so `zwnj_breaks` takes their product as that configuration's breaks. A cell after a ZWNJ is the `.locked` copy of a word-initial cell (or, for a rune with no entry on any stance, the word-initial cell itself), drawn and spaced as that cell is, so it lands on the following side its twin is on whenever both meet a break. A head that does not list the ZWNJ cells, or lists none on one side although the spec can settle a letter beside a ZWNJ (`zwnj_reachable`), or a cell before a ZWNJ with a live exit or after one with a live entry, raises `KernInternalError`.
 - The letters' ss10 copies (`run_build.mint_raw_glyphs`). Under the isolated overlay nothing forms or joins, so every ordered pair of letters is a break between their copies (`ss10_breaks`). A copy is drawn from its letter's isolated cell (`geometry.isolated_cell`) with its anchors stripped, so the stage treats the copy as that cell: it is a member of the cell's sides, records match it as they match the cell, and its pairs carry each overlay configuration (`overlay_configs`). A copy whose isolated cell has a live exit would break that rule, and raises `KernInternalError`; no rune draws one.
-- The realized glyph records, which give each cell its ink and its advance as `tools/build_font.py` compiles them: the drawing's width plus `INK_X_OFFSET` blank pixels on each side, less the Senior tightening's pixel (`SENIOR_TIGHTENING`).
+- The realized glyph records, which give each cell its ink and its advance as `engine/pipeline/font_assembly.py` compiles them: the drawing's width plus `INK_X_OFFSET` blank pixels on each side, less the Senior tightening's pixel (`SENIOR_TIGHTENING`).
 
 **Sides** (KERN-PLAN §3). A rune's leading cells are those on the left of some break, and its following cells those on the right of one. A leading cell's facing edge is, for each bitmap row with ink, the distance from its rightmost ink to its advance edge; a following cell's is, for each such row, the x of its leftmost ink, left bearing included (`leading_edge`, `following_edge`). `refine_sides` splits one rune's cells on one side top down, so every side is named by the record grammar: when every cell has one edge, the rune is one side; otherwise each stance whose cells share an edge is a side; otherwise each far-side state of the stance (the entry state for a leading cell, the exit state for a following cell, a height or `none`) whose cells share an edge is a side; otherwise each bound drawing of that state (the drawing the cell's last `bind` adjustment names, a `padded-left-N` copy among them, or none) is a side. A side whose cells still differ after the last split differs only in an extension, contraction or trim amount, which no record can name, and is flagged `mixed`.
 
@@ -63,7 +63,7 @@ BREAK = "break"
 INHERITED_MARK = " (inherited)"
 
 INK_X_OFFSET = geometry.INK_X_OFFSET
-SENIOR_TIGHTENING = 1  # tools/build_font.py trims this many pixels from a Quikscript letter's computed advance (engine/KERN-PLAN.md section 1)
+SENIOR_TIGHTENING = 1  # engine/pipeline/font_assembly.py trims this many pixels from a Quikscript letter's computed advance (engine/KERN-PLAN.md section 1)
 
 Edge = tuple[tuple[int, int], ...]
 CellPair = tuple[CellId, CellId]
@@ -170,7 +170,7 @@ def _ink_rows(record: GlyphRecord) -> list[tuple[int, int, int]]:
 
 
 def advance(record: GlyphRecord) -> int:
-    """Return the record's compiled advance in pixels: what tools/build_font.py gives a Quikscript letter with no explicit advance, its widest row plus `INK_X_OFFSET` blank pixels on each side, less `SENIOR_TIGHTENING`. Settled cells never carry an explicit advance."""
+    """Return the record's compiled advance in pixels: what engine/pipeline/font_assembly.py gives a Quikscript letter with no explicit advance, its widest row plus `INK_X_OFFSET` blank pixels on each side, less `SENIOR_TIGHTENING`. Settled cells never carry an explicit advance."""
     if record.advance_width is not None:
         raise KernInternalError(
             f"{record.name} carries an explicit advance; a settled cell takes its advance from its drawing"

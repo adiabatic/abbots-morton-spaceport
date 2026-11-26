@@ -1,12 +1,12 @@
 """Build Mono and Junior, Regular and Bold, from the rune files and the non-Quikscript glyph files (`build_mono_and_junior`). The command that publishes the six shipped fonts into site/, engine/tools/build_fonts.py (`make all`), builds these two through it and takes Senior from the rebuild's own build.
 
-Mono and Junior read the spec (`load_family_spec`), the font's non-Quikscript part (`compile_font.load_font_sources`) and, for Mono, the Departure Mono glyphs and layout tables `tools/build_font.py` copies in, and nothing else: no settlement table, so they build while the tables are stale or absent. `family_glyphs` turns the runes into glyph records (`tools/glyph_records.py`) beside the non-Quikscript ones, and `tools/build_font.build_font` compiles them. A record keyed by a bare glyph name is a Mono drawing and one keyed `<name>.prop` a Junior drawing, as in the glyph files, so Junior takes a bare record only where no `.prop` record has its name.
+Mono and Junior read the spec (`load_family_spec`), the font's non-Quikscript part (`compile_font.load_font_sources`) and, for Mono, the Departure Mono glyphs and layout tables `engine/pipeline/font_assembly.py` copies in, and nothing else: no settlement table, so they build while the tables are stale or absent. `family_glyphs` turns the runes into glyph records (`engine/pipeline/glyph_records.py`) beside the non-Quikscript ones, and `font_assembly.build_font` compiles them. A record keyed by a bare glyph name is a Mono drawing and one keyed `<name>.prop` a Junior drawing, as in the glyph files, so Junior takes a bare record only where no `.prop` record has its name.
 
 - Each letter's Mono drawing is its rune's `mono:` block, and its Junior drawing its isolated cell (`geometry.isolated_cell`), drawn as `run_build.mint_raw_glyphs` draws Senior's raw cmap glyph. A ligature forms only in Senior, so neither font holds a ligature glyph, nor any glyph no text reaches.
 - A variation sequence reaches the fonts its registry record's `fonts:` names (`model.ScriptRegistry.variation_sequences`) as a cmap format 14 entry (`compile_font.add_variation_sequences`). Its Junior glyph is drawn and named as Senior's (`surface.variation_plan`, `settle.cell_label`), and its Mono glyph, under the same name, is the stance's base bitmap, which must be `MONO_COLUMNS` wide.
 - A letter whose unjoined cell a cosmetic set (`overlay: cosmetic`, ss06) redraws in Senior has its cosmetic copy in Junior, under the name Senior gives the copy of that cell (`model.cosmetic_copy_name`).
 
-The registry decides each font's features. Mono carries none of its own, since `tools/build_font.py` copies Departure Mono's layout tables into it. Junior carries the registry's overlay sets (`junior_fea`), the cosmetic sets first and the isolated overlay (ss10) after them so that it wins: a cosmetic set substitutes each letter by its copy, and the isolated overlay every Junior glyph that is not a bare letter by its letter. Then the namer dot lowers before a Junior glyph of a rune in the `shorts` predicate class, except before a ZWNJ and after a mid-word glyph (`compile_font.FontSources.midword_glyphs`), by the rule shape Senior's emitter writes (`emit_gsub.namer_dot_lookup`). `tools/build_font.build_font` takes that feature code after `mark` (`quikscript_fea=`).
+The registry decides each font's features. Mono carries none of its own, since `engine/pipeline/font_assembly.py` copies Departure Mono's layout tables into it. Junior carries the registry's overlay sets (`junior_fea`), the cosmetic sets first and the isolated overlay (ss10) after them so that it wins: a cosmetic set substitutes each letter by its copy, and the isolated overlay every Junior glyph that is not a bare letter by its letter. Then the namer dot lowers before a Junior glyph of a rune in the `shorts` predicate class, except before a ZWNJ and after a mid-word glyph (`compile_font.FontSources.midword_glyphs`), by the rule shape Senior's emitter writes (`emit_gsub.namer_dot_lookup`). `font_assembly.build_font` takes that feature code after `mark` (`quikscript_fea=`).
 """
 
 from __future__ import annotations
@@ -182,7 +182,7 @@ def _namer_dot_fea(followers: Iterable[str], midword: Iterable[str]) -> str | No
 
 
 def _glyph_data(sources: compile_font.FontSources, family: FamilyGlyphs) -> dict[str, Any]:
-    """The glyph-data dict `tools/build_font.build_font` reads: the non-Quikscript records and the runes' beside them, the metadata, and the Latin kern rules."""
+    """The glyph-data dict `font_assembly.build_font` reads: the non-Quikscript records and the runes' beside them, the metadata, and the Latin kern rules."""
     return {
         "metadata": dict(sources.metadata),
         "glyphs": {**sources.glyphs, **family.records},
@@ -203,9 +203,9 @@ def _saved(builder: Any, font: Any, variant: str) -> bytes:
 def build_mono_and_junior(
     out_dir: Path, fonts: Sequence[str] = ("mono", "junior"), root: Path = REPO_ROOT
 ) -> list[Path]:
-    """Build the fonts `fonts` names of Mono and Junior, Regular and Bold, from the runes and glyph files under `root` into `out_dir` under their shipped file names, with Junior's `.fea` sidecar beside it, and return the font paths. A font whose bytes are already on disk is left alone (`tools/build_font._write_if_changed`)."""
-    import build_font as builder
-    from glyph_records import CompiledGlyphSet, compile_glyph_records
+    """Build the fonts `fonts` names of Mono and Junior, Regular and Bold, from the runes and glyph files under `root` into `out_dir` under their shipped file names, with Junior's `.fea` sidecar beside it, and return the font paths. A font whose bytes are already on disk is left alone (`font_assembly._write_if_changed`)."""
+    from engine.pipeline import font_assembly as builder
+    from engine.pipeline.glyph_records import CompiledGlyphSet, compile_glyph_records
 
     if not fonts:
         return []

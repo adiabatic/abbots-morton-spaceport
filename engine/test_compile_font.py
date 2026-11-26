@@ -1,4 +1,4 @@
-"""Integration tests for `compile_font.build_font`. The mini font: six glyphs of four mini-spec letters and a hand-written settlement lookup compiled through `tools/build_font.build_font`'s `quikscript_fea=` path, then shaped and classified. The full font: the checked-in runes' raw glyphs and variation glyphs compiled with the non-Quikscript part (`compile_font.load_font_sources`), then compared glyph for glyph with the Junior `build_family` builds from the same glyph files, and its Bold with its Regular."""
+"""Integration tests for `compile_font.build_font`. The mini font: six glyphs of four mini-spec letters and a hand-written settlement lookup compiled through `font_assembly.build_font`'s `quikscript_fea=` path, then shaped and classified. The full font: the checked-in runes' raw glyphs and variation glyphs compiled with the non-Quikscript part (`compile_font.load_font_sources`), then compared glyph for glyph with the Junior `build_family` builds from the same glyph files, and its Bold with its Regular."""
 
 import threading
 from types import SimpleNamespace
@@ -118,10 +118,10 @@ class TestBuildMiniFont:
     def test_another_threads_lines_reach_stdout_while_the_font_compiles(
         self, inputs, tmp_path, monkeypatch, capsys
     ):
-        """run_build's table-only branch writes its `[t]` and `[phase]` lines from its own thread while the glyph chain compiles the font, and `console` resolves `sys.stdout` when each line is written, so such a line reaches stdout only while the compile leaves the process's stdout in place. The probe thread writes its line from inside the `build_font` call, and `build_font(quiet=True)` adds nothing of its own."""
-        import build_font
+        """run_build's table-only branch writes its `[t]` and `[phase]` lines from its own thread while the glyph chain compiles the font, and `console` resolves `sys.stdout` when each line is written, so such a line reaches stdout only while the compile leaves the process's stdout in place. The probe thread writes its line from inside the `font_assembly.build_font` call, which adds nothing of its own."""
+        from engine.pipeline import font_assembly
 
-        real_build_font = build_font.build_font
+        real_build_font = font_assembly.build_font
 
         def build_beside_a_thread(*args, **kwargs):
             thread = threading.Thread(target=console.timing, args=("probe", 0.0))
@@ -129,7 +129,7 @@ class TestBuildMiniFont:
             thread.join()
             return real_build_font(*args, **kwargs)
 
-        monkeypatch.setattr(build_font, "build_font", build_beside_a_thread)
+        monkeypatch.setattr(font_assembly, "build_font", build_beside_a_thread)
         glyphs, fea, _names = inputs
         compile_font.build_font(glyphs, fea, tmp_path / "SeniorProbe.otf")
         assert capsys.readouterr().out == "[t] probe 0.0s\n"
@@ -297,21 +297,19 @@ class TestTheFullFont:
             compile_font.load_font_sources(tmp_path)
 
     def test_the_registry_beside_the_glyph_files_is_not_read_as_one(self, tmp_path):
-        """The registry sits in glyph_data/ beside the glyph files and carries none of a glyph file's top-level keys, which `tools/build_font.load_glyph_data` refuses, so the font compile's file list (`fingerprint.font_data_paths`) and a directory load (`build_font.NON_GLYPH_FILE_NAMES`) both leave it out by name."""
-        import build_font
-
-        from engine.pipeline import fingerprint, spec_load
+        """The registry sits in glyph_data/ beside the glyph files and carries none of a glyph file's top-level keys, which `font_assembly.load_glyph_data` refuses, so the font compile's file list (`fingerprint.font_data_paths`) and a directory load (`font_assembly.NON_GLYPH_FILE_NAMES`) both leave it out by name."""
+        from engine.pipeline import fingerprint, font_assembly, spec_load
 
         glyph_data = tmp_path / "glyph_data"
         glyph_data.mkdir()
         (glyph_data / "script.yaml").write_text(spec_load.DEFAULT_REGISTRY_PATH.read_text(encoding="utf-8"))
         (glyph_data / "latin_letters.yaml").write_text("glyphs:\n  a: {bitmap: ['#']}\n")
         assert fingerprint.registry_path(tmp_path) == glyph_data / spec_load.DEFAULT_REGISTRY_PATH.name
-        assert spec_load.DEFAULT_REGISTRY_PATH.name in build_font.NON_GLYPH_FILE_NAMES
+        assert spec_load.DEFAULT_REGISTRY_PATH.name in font_assembly.NON_GLYPH_FILE_NAMES
         assert compile_font.load_font_sources(tmp_path).glyphs == {"a": {"bitmap": ["#"]}}
-        assert build_font.load_glyph_data(glyph_data)["glyphs"] == {"a": {"bitmap": ["#"]}}
+        assert font_assembly.load_glyph_data(glyph_data)["glyphs"] == {"a": {"bitmap": ["#"]}}
         with pytest.raises(ValueError, match="heights"):
-            build_font.load_glyph_data(glyph_data / "script.yaml")
+            font_assembly.load_glyph_data(glyph_data / "script.yaml")
 
 
 class TestTheVariationGlyphs:

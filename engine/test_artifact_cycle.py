@@ -2627,7 +2627,7 @@ def test_make_test_exempt_classification():
     for path in (
         "glyph_data/latin_letters.yaml",
         "glyph_data/punctuation.yaml",
-        "tools/build_font.py",
+        "tools/reflow_yaml.py",
         "test/test_outlines.py",
         "test/test_shared.py",
         "site/the-manual.html",
@@ -2725,7 +2725,7 @@ def _git_repo(tmp_path):
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     subprocess.run(["git", "config", "core.excludesFile", os.devnull], cwd=tmp_path, check=True)
     (tmp_path / "tools").mkdir()
-    (tmp_path / "tools" / "build_font.py").write_text("print()\n")
+    (tmp_path / "tools" / "reflow_yaml.py").write_text("print()\n")
     (tmp_path / "engine").mkdir()
     (tmp_path / "engine" / "notes.py").write_text("x = 1\n")
     (tmp_path / "README.md").write_text("hello\n")
@@ -2750,7 +2750,7 @@ def test_closure_files_apply_the_exemptions(tmp_path):
     assert ac.make_test_closure_files(root) == [
         "reference/DepartureMono-Regular.otf",
         "site/shared.js",
-        "tools/build_font.py",
+        "tools/reflow_yaml.py",
     ]
 
 
@@ -2779,7 +2779,7 @@ def test_closure_fingerprint_moves_only_with_closure_content(tmp_path):
     (root / "README.md").write_text("changed\n")
     assert ac.make_test_closure_fingerprint(root) == first
 
-    (root / "tools" / "build_font.py").write_text("print(2)\n")
+    (root / "tools" / "reflow_yaml.py").write_text("print(2)\n")
     second = ac.make_test_closure_fingerprint(root)
     assert second != first
 
@@ -2860,9 +2860,9 @@ def test_closure_fingerprint_is_none_when_make_is_unavailable(tmp_path, monkeypa
 
 def test_closure_fingerprint_moves_when_a_tracked_file_is_deleted(tmp_path):
     root = _git_repo(tmp_path)
-    subprocess.run(["git", "add", "tools/build_font.py"], cwd=root, check=True)
+    subprocess.run(["git", "add", "tools/reflow_yaml.py"], cwd=root, check=True)
     first = ac.make_test_closure_fingerprint(root)
-    (root / "tools" / "build_font.py").unlink()
+    (root / "tools" / "reflow_yaml.py").unlink()
     assert ac.make_test_closure_fingerprint(root) != first
 
 
@@ -3351,7 +3351,7 @@ def _fake_run_build_root(tmp_path):
         (tmp_path / rel).mkdir(parents=True, exist_ok=True)
     _write_behavior_classes(tmp_path, ["backtrack:1"])
     for rel, text in (
-        ("tools/build_font.py", "build = 1\n"),
+        ("engine/pipeline/font_assembly.py", "build = 1\n"),
         ("engine/pipeline/emit_gsub.py", "emit = 1\n"),
         ("engine/pipeline/pack_gsub.py", "pack = 1\n"),
         ("engine/pipeline/compile_font.py", "compile = 1\n"),
@@ -3437,7 +3437,7 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
 
 
 def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tmp_path):
-    """The run_build key and the conform key cover different inputs. The conformance sweep shapes the compiled font and re-settles the windows beside it. It reads no allow-list or Manual-pin code, so editing either changes the run_build key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_build covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the tools/ files the compile runs, the uharfbuzz version and the maximum length each change it."""
+    """The run_build key and the conform key cover different inputs. The conformance sweep shapes the compiled font and re-settles the windows beside it. It reads no allow-list or Manual-pin code, so editing either changes the run_build key and leaves the conform key alone. A rune edit, a crate edit, a uv.lock edit and the font's bytes also leave the conform key alone; the crate's string replay inside run_build covers rune and crate edits. A behavior class the lookup has not emitted before, the compile code, the font assembly it passes the font to, the uharfbuzz version and the maximum length each change it."""
     root = _fake_run_build_root(tmp_path)
     conform = ac.conform_skip_fingerprint(root, 4)
     run_key = ac.run_build_skip_fingerprint(root)
@@ -3461,7 +3461,7 @@ def test_a_comparison_side_edit_moves_the_run_key_and_leaves_the_sweeps_alone(tm
         ("engine/pipeline/emit_gsub.py", "emit = 2\n"),
         ("engine/pipeline/pack_gsub.py", "pack = 2\n"),
         ("engine/pipeline/compile_font.py", "compile = 2\n"),
-        ("tools/build_font.py", "build = 2\n"),
+        ("engine/pipeline/font_assembly.py", "build = 2\n"),
     ):
         (root / rel).write_text(text)
         moved = ac.conform_skip_fingerprint(root, 4)
@@ -3556,7 +3556,7 @@ def test_deep_sweep_skip_lines_name_the_classes_the_code_and_the_shaper(tmp_path
 
 
 def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path):
-    """A new behavior class, a statement edit to a compile module, and a new tools/ file each move the key. Rewording a compile module's docstring or comment does not, because both halves of the compile code are hashed through `fingerprint.path_lines`."""
+    """A new behavior class, a statement edit to a compile module, and a statement edit to the font assembly each move the key. Rewording a compile module's docstring or comment does not, because both halves of the compile code are hashed through `fingerprint.path_lines`."""
     _write_behavior_classes(tmp_path, ["namer-dot"])
     base = ac.deep_sweep_skip_fingerprint(tmp_path)
     _write_behavior_classes(tmp_path, ["namer-dot", "guard-form:zwnj"])
@@ -3570,14 +3570,16 @@ def test_deep_sweep_fingerprint_moves_with_a_class_or_the_compile_code(tmp_path)
     code.write_text('"""Emit, reworded."""\nEMIT = 2\n')
     rewritten = ac.deep_sweep_skip_fingerprint(tmp_path)
     assert rewritten != written
-    (tmp_path / "tools").mkdir()
-    (tmp_path / "tools" / "build_font.py").write_text("# fea emitter\n")
-    with_tools = ac.deep_sweep_skip_fingerprint(tmp_path)
-    assert with_tools != rewritten
+    (tmp_path / "engine" / "pipeline" / "font_assembly.py").write_text("ASSEMBLY = 1\n")
+    with_assembly = ac.deep_sweep_skip_fingerprint(tmp_path)
+    assert with_assembly != rewritten
     files = ac.deep_sweep_skip_files(tmp_path)
     assert files is not None
-    assert "tools/build_font.py" in files
-    assert ac.conform_skip_files(tmp_path, 4)["tools/build_font.py"] == files["tools/build_font.py"]
+    assert "engine/pipeline/font_assembly.py" in files
+    assert (
+        ac.conform_skip_files(tmp_path, 4)["engine/pipeline/font_assembly.py"]
+        == files["engine/pipeline/font_assembly.py"]
+    )
 
 
 def test_deep_sweep_status_walks_unknown_never_run_due_and_current(tmp_path, monkeypatch):
@@ -3795,7 +3797,7 @@ def test_contracts_fingerprint_ignores_prose_in_runes(tmp_path):
 
 
 def test_every_harness_file_moves_the_contracts_key(tmp_path):
-    """Every file in `ENGINE_GATE_HARNESS_PATHS` is read under `pytest engine/`: the tests that compile a font run the tools/ compile modules, and `engine_gate_closure_files` names the reader of every other entry. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
+    """Every file in `ENGINE_GATE_HARNESS_PATHS` is read under `pytest engine/`, and `engine_gate_closure_files` names the reader of each entry. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     for rel in ac.ENGINE_GATE_HARNESS_PATHS:
         harness_file = tmp_path / rel
@@ -3809,13 +3811,23 @@ def test_every_harness_file_moves_the_contracts_key(tmp_path):
         previous = current
 
 
-def test_the_harness_roster_names_the_font_compile_modules_in_tools():
-    """The harness roster's tools/ entries are exactly the font compile's modules. The suite reaches tools/ only through the font compile, whose import closure there engine/test_build_code_closure.py holds within that list. This test fails when the list changes and the roster does not."""
-    from engine.pipeline import fingerprint
+def test_the_harness_roster_names_the_tools_modules_the_suite_imports():
+    """The harness roster's tools/ entries are exactly the tools/ modules a test under engine/ imports (`from tools.<name> import …`), the only tools/ files the suite opens. This test fails when a test starts or stops importing one and the roster does not follow."""
+    import ast
 
-    assert {rel for rel in ac.ENGINE_GATE_HARNESS_PATHS if rel.startswith("tools/")} == {
-        f"tools/{name}" for name in fingerprint.FONT_COMPILE_TOOL_MODULES
-    }
+    imported = set()
+    for path in (REPO_ROOT / "engine").glob("test_*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("tools."):
+                imported.add(f"tools/{node.module.removeprefix('tools.')}.py")
+            elif isinstance(node, ast.Import):
+                imported.update(
+                    f"tools/{alias.name.removeprefix('tools.')}.py"
+                    for alias in node.names
+                    if alias.name.startswith("tools.")
+                )
+    assert imported
+    assert {rel for rel in ac.ENGINE_GATE_HARNESS_PATHS if rel.startswith("tools/")} == imported
 
 
 def test_contracts_fingerprint_is_none_outside_git(tmp_path):

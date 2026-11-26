@@ -44,8 +44,8 @@ def _fake_repo(tmp_path):
     (root / "engine" / "review" / "build.py").write_text("BUILD = 1\n")
     (root / "engine" / "review" / "serve.py").write_text("SERVE = 1\n")
     (root / "engine" / "review" / "static" / "app.js").write_text("export const app = 1;\n")
-    (root / "tools" / "build_font.py").write_text("BUILD_FONT = 1\n")
-    (root / "tools" / "glyph_records.py").write_text("GLYPH_RECORDS = 1\n")
+    (root / "engine" / "pipeline" / "font_assembly.py").write_text("FONT_ASSEMBLY = 1\n")
+    (root / "engine" / "pipeline" / "glyph_records.py").write_text("GLYPH_RECORDS = 1\n")
     (root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf").write_bytes(b"senior-font")
     (root / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf").write_bytes(b"junior-font")
     return root
@@ -434,8 +434,8 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
     assert root / "engine" / "kernel-rs" / "Cargo.toml" in fingerprint.pipeline_code_paths(root)
     assert root / "engine" / "kernel-rs" / "Cargo.lock" in fingerprint.pipeline_code_paths(root)
     assert root / "engine" / "kernel-rs" / "src" / "guard.rs" in fingerprint.pipeline_code_paths(root)
-    assert root / "tools" / "build_font.py" in fingerprint.pipeline_code_paths(root)
-    assert root / "tools" / "glyph_records.py" in fingerprint.pipeline_code_paths(root)
+    assert root / "engine" / "pipeline" / "font_assembly.py" in fingerprint.pipeline_code_paths(root)
+    assert root / "engine" / "pipeline" / "glyph_records.py" in fingerprint.pipeline_code_paths(root)
     before = _components(root)
     (root / "engine" / "validation" / "shaping.py").write_text("SENIOR_FONT = 2\n")
     after = _components(root)
@@ -451,16 +451,16 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
     }
 
 
-def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
-    """compile_font passes the mini font to tools/build_font.py, which compiles the glyph records, so an edit to that tools/ closure changes Senior-Regular.otf. It must move `pipeline_code` (and with it the Stage A record), the run_build skip key, and `tables_value` (and with it the conform sweep's check and the review corpus's `tables` component)."""
+def test_a_font_assembly_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
+    """compile_font passes the mini font to engine/pipeline/font_assembly.py, which compiles the glyph records, so an edit to the font assembly changes Senior-Regular.otf. It must move `pipeline_code` (and with it the Stage A record), the run_build skip key, and `tables_value` (and with it the conform sweep's check and the review corpus's `tables` component)."""
     root = _fake_repo(tmp_path)
-    for name in ("build_font.py", "glyph_records.py"):
-        assert root / "tools" / name in fingerprint.pipeline_code_paths(root)
-        assert root / "tools" / name in fingerprint.table_code_paths(root)
+    for name in ("font_assembly.py", "glyph_records.py"):
+        assert root / "engine" / "pipeline" / name in fingerprint.pipeline_code_paths(root)
+        assert root / "engine" / "pipeline" / name in fingerprint.table_code_paths(root)
     before = _components(root)
     before_tables = fingerprint.tables_value(root)
     before_run = artifact_cycle.run_build_skip_fingerprint(root)
-    (root / "tools" / "build_font.py").write_text("BUILD_FONT = 2\n")
+    (root / "engine" / "pipeline" / "font_assembly.py").write_text("FONT_ASSEMBLY = 2\n")
     after = _components(root)
     moved = ("pipeline_code",)
     assert all(after[key] != before[key] for key in moved)
@@ -911,7 +911,7 @@ def test_a_docstring_edit_moves_no_code_keyed_component(tmp_path):
 
 
 def test_the_gate_closures_stay_raw_through_a_docstring_edit(tmp_path):
-    """The rebuild-lane closure and gate:make-test's closure hash files raw, because test fixtures and the closure tests read source text. So a docstring-only edit that moves no fingerprint component still moves each lane key and the make-test key. One edited file is in each closure: a pipeline module is in the lane closure but not in gate:make-test's (`make_test_exempt` excludes engine/), and a font-compile tools/ module is in gate:make-test's closure and in `pipeline_code`. The fake repo is a git repo because both closures are listed with `git ls-files`."""
+    """The rebuild-lane closure and gate:make-test's closure hash files raw, because test fixtures and the closure tests read source text. So a docstring-only edit that moves no fingerprint component still moves each lane key and the make-test key. One edited file is in each closure: a pipeline module is in the lane closure but not in gate:make-test's (`make_test_exempt` excludes engine/), and a tools/ module is in gate:make-test's closure. The fake repo is a git repo because both closures are listed with `git ls-files`."""
     root = _fake_repo(tmp_path)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / "Makefile").write_text("all:\n\t@true\ntest:\n\t@true\n")
@@ -919,16 +919,16 @@ def test_the_gate_closures_stay_raw_through_a_docstring_edit(tmp_path):
     (root / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
     (root / "uv.lock").write_text("lock\n")
     table = root / "engine" / "pipeline" / "table.py"
-    build_font = root / "tools" / "build_font.py"
+    reflow = root / "tools" / "reflow_yaml.py"
     table.write_text('"""The table."""\n\nTABLE = 1\n')
-    build_font.write_text('"""The compile."""\n\nBUILD_FONT = 1\n')
+    reflow.write_text('"""The reflow."""\n\nREFLOW = 1\n')
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
     contracts = artifact_cycle.contracts_fingerprint(root)
     make_test = artifact_cycle.make_test_closure_fingerprint(root)
     assert contracts is not None and make_test is not None
     components = _components(root)
     table.write_text('"""The table, reworded."""\n\nTABLE = 1\n')
-    build_font.write_text('"""The compile, reworded."""\n\nBUILD_FONT = 1\n')
+    reflow.write_text('"""The reflow, reworded."""\n\nREFLOW = 1\n')
     assert _components(root) == components
     assert artifact_cycle.contracts_fingerprint(root) != contracts
     assert artifact_cycle.make_test_closure_fingerprint(root) != make_test
@@ -1137,7 +1137,7 @@ def _builder_font(target, units_per_em):
 
 
 def test_a_units_per_em_edit_moves_the_font_content_digest_through_the_cff_font_matrix(tmp_path):
-    """tools/build_font.py passes `FontBuilder.setupCFF` a `fontInfo` with no FontMatrix, so fontTools writes the `CFF ` top dict's FontMatrix as 1/unitsPerEm. Two fonts built that way that differ only in unitsPerEm therefore differ in `CFF ` as well as `head`, and the content digest, which keeps `CFF `, tells them apart. If a fontTools release stops deriving the matrix, this test fails before a unitsPerEm edit in glyph_data/metadata.yaml can go unseen by every font key."""
+    """engine/pipeline/font_assembly.py passes `FontBuilder.setupCFF` a `fontInfo` with no FontMatrix, so fontTools writes the `CFF ` top dict's FontMatrix as 1/unitsPerEm. Two fonts built that way that differ only in unitsPerEm therefore differ in `CFF ` as well as `head`, and the content digest, which keeps `CFF `, tells them apart. If a fontTools release stops deriving the matrix, this test fails before a unitsPerEm edit in glyph_data/metadata.yaml can go unseen by every font key."""
     from fontTools.ttLib import TTFont
 
     fonts = {upem: _builder_font(tmp_path / f"upem-{upem}.otf", upem) for upem in (550, 1100)}

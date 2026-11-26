@@ -1,6 +1,6 @@
-"""The glyph records `tools/build_font.py` builds a font from, and the variant's glyph set it compiles them into.
+"""The glyph records `engine/pipeline/font_assembly.py` builds a font from, and the variant's glyph set it compiles them into.
 
-A record (`GlyphDef`) is one glyph's YAML mapping: its `bitmap` rows, `y_offset`, `advance_width`, a composite's `base`, `top` and `bottom`, and the mark and kerning keys. `GlyphData` is a whole font's input, as `build_font.load_glyph_data` reads the glyph files: the metadata, the records keyed by glyph name, and the Latin kern rules. The rebuild hands its own records in through the same shape (engine/pipeline/compile_font.py, engine/pipeline/build_family.py).
+A record (`GlyphDef`) is one glyph's YAML mapping: its `bitmap` rows, `y_offset`, `advance_width`, a composite's `base`, `top` and `bottom`, and the mark and kerning keys. `GlyphData` is a whole font's input, as `font_assembly.load_glyph_data` reads the glyph files: the metadata, the records keyed by glyph name, and the Latin kern rules. The rebuild hands its own records in through the same shape (engine/pipeline/compile_font.py, engine/pipeline/build_family.py).
 
 A record whose name carries `.prop` (`is_proportional_glyph`) is the proportional fonts' drawing of the glyph its base name names (`get_base_glyph_name`). `compile_glyph_records` gives a variant its records: Mono takes them as written, and Junior and Senior take each `.prop` record under its base name in place of the plain record of that name, with every composite's `base` renamed to match. `CompiledGlyphSet` holds the result for a build.
 """

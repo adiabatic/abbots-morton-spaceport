@@ -314,7 +314,7 @@ def _check_contact(report, allow, left: GlyphRecord, right: GlyphRecord, join, k
         )
         offset = (
             advance - 1 + kern
-        )  # tools/build_font.py compiles a Senior Quikscript letter with no explicit advance one pixel narrower than width + 2
+        )  # engine/pipeline/font_assembly.py compiles a Senior Quikscript letter with no explicit advance one pixel narrower than width + 2
         junction_y = None
     left_ink = geometry.ink_cells(left)
     right_ink = geometry.ink_cells(right, x_origin=offset)

@@ -1,8 +1,8 @@
 """Compile the rebuild's font (M1-PLAN section 5, Group 3).
 
-`build_font` passes `tools/build_font.build_font` a glyph-data dict of glyph records (`tools/glyph_records.py`) and the rune FEA as `quikscript_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs, and `tools/build_font.py` trims one pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening). `tools/build_font.build_font` returns the unsaved TTFont and prints nothing, and this module packs it and writes the OTF and the `.fea` sidecar itself. Nothing redirects stdout around the call, because a redirect swaps `sys.stdout` for the whole process: run_build's table-only branch writes its `[t]` and `[phase]` lines from another thread while the font compiles, and `engine/tools/console.py` resolves `sys.stdout` when each line is written.
+`build_font` passes `font_assembly.build_font` a glyph-data dict of glyph records (`engine/pipeline/glyph_records.py`) and the rune FEA as `quikscript_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs, and `engine/pipeline/font_assembly.py` trims one pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening). `font_assembly.build_font` returns the unsaved TTFont and prints nothing, and this module packs it and writes the OTF and the `.fea` sidecar itself. Nothing redirects stdout around the call, because a redirect swaps `sys.stdout` for the whole process: run_build's table-only branch writes its `[t]` and `[phase]` lines from another thread while the font compiles, and `engine/tools/console.py` resolves `sys.stdout` when each line is written.
 
-The non-Quikscript part of the font is optional, so the tests that compile a font from a few runes run the same code path as the build. Without `FontSources` the font holds the rune glyphs, `space` and `uni200C`, named by `METADATA`. With them (`load_font_sources`) it is the whole Senior Regular: the glyph records of every `fingerprint.font_data_paths` file, the angle parentheses and `space` among them, with the rune pipeline's records winning where both name a glyph (the namer dot pair, `space`, `uni200C`); the metadata of glyph_data/metadata.yaml, so the name table is the shipped Senior's; and the Latin `kern`, `ccmp` and `mark` features, which `tools/build_font._assemble_fea` writes ahead of the rune FEA, the order the old build writes them in. A Latin kern rule may not name a Quikscript glyph (`_names_a_rune`), since the runes' `kern:` blocks own every kern between rune glyphs (engine/KERN-PLAN.md section 1), so `load_font_sources` refuses one. `variation_sequences` adds a cmap format 14 subtable (`add_variation_sequences`), from the glyphs `run_build.mint_variation_glyphs` minted. A `bold_path` also writes Bold beside Regular: the overstruck outlines, with Regular's packed GDEF, GSUB and GPOS bytes and its `usMaxContext` (`tools/build_font.CompiledSeniorOTL`), so the two fonts shape alike by construction and the layout is compiled and packed once. Read-back checks both (`readback.verify_bold`).
+The non-Quikscript part of the font is optional, so the tests that compile a font from a few runes run the same code path as the build. Without `FontSources` the font holds the rune glyphs, `space` and `uni200C`, named by `METADATA`. With them (`load_font_sources`) it is the whole Senior Regular: the glyph records of every `fingerprint.font_data_paths` file, the angle parentheses and `space` among them, with the rune pipeline's records winning where both name a glyph (the namer dot pair, `space`, `uni200C`); the metadata of glyph_data/metadata.yaml, so the name table is the shipped Senior's; and the Latin `kern`, `ccmp` and `mark` features, which `font_assembly._assemble_fea` writes ahead of the rune FEA, the order the old build writes them in. A Latin kern rule may not name a Quikscript glyph (`_names_a_rune`), since the runes' `kern:` blocks own every kern between rune glyphs (engine/KERN-PLAN.md section 1), so `load_font_sources` refuses one. `variation_sequences` adds a cmap format 14 subtable (`add_variation_sequences`), from the glyphs `run_build.mint_variation_glyphs` minted. A `bold_path` also writes Bold beside Regular: the overstruck outlines, with Regular's packed GDEF, GSUB and GPOS bytes and its `usMaxContext` (`font_assembly.CompiledSeniorOTL`), so the two fonts shape alike by construction and the layout is compiled and packed once. Read-back checks both (`readback.verify_bold`).
 
 Packing must happen before the first save. `pack_gsub.pack_font` repacks the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables on the in-memory font; that module's docstring says why. With follower prefer slots on (`kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT`), the unpacked lookup can overflow its own uint16 subtable-offset array (at about 6,400 merged rules). fontTools' overflow resolution cannot fix an overflow of that array, so the unpacked font cannot be saved at all. `pack_font` runs on every build, so conform tests one code path. `readback.verify_font` checks the packed lookup in the written bytes and reports a failure when the subtable-offset headroom is below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR` or the largest packed group passes `readback.GROUP_RULE_BYTES_CEILING`.
 
@@ -12,7 +12,6 @@ Between the pack and the save, `build_font` measures every format-2 chained-cont
 from __future__ import annotations
 
 import io
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, cast
@@ -21,11 +20,9 @@ from engine.pipeline import fingerprint, pack_gsub
 from engine.pipeline.model import GlyphRecord
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-if str(REPO_ROOT / "tools") not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT / "tools"))
 
 if TYPE_CHECKING:
-    from glyph_records import GlyphData, GlyphDef
+    from engine.pipeline.glyph_records import GlyphData, GlyphDef
 
 GROUP_RULE_BYTES_LIMIT = 64_000
 LAYOUT_TABLES = ("GDEF", "GSUB", "GPOS")
@@ -63,7 +60,7 @@ class FontSources:
 
     def compiled_names(self) -> dict[str, str]:
         """Each record's glyph name in the proportional font, keyed by its YAML key: a `.prop` record takes its base name, and a plain record whose name a `.prop` record also takes is left out, as `glyph_records.prepare_proportional_glyphs` does."""
-        from glyph_records import get_base_glyph_name, is_proportional_glyph
+        from engine.pipeline.glyph_records import get_base_glyph_name, is_proportional_glyph
 
         proportional = {get_base_glyph_name(key) for key in self.glyphs if is_proportional_glyph(key)}
         names: dict[str, str] = {}
@@ -75,8 +72,8 @@ class FontSources:
         return names
 
     def midword_glyphs(self) -> tuple[str, ...]:
-        """The glyphs after which a `·` is a mid-word middot and not a namer dot: every glyph whose code point is an ASCII or Latin letter or digit (`tools/build_font._is_orthodox_letter_or_digit`), sorted. `emit_gsub`'s namer-dot stage reads them as its mid-word exception."""
-        from build_font import _is_orthodox_letter_or_digit, _resolve_codepoint
+        """The glyphs after which a `·` is a mid-word middot and not a namer dot: every glyph whose code point is an ASCII or Latin letter or digit (`font_assembly._is_orthodox_letter_or_digit`), sorted. `emit_gsub`'s namer-dot stage reads them as its mid-word exception."""
+        from engine.pipeline.font_assembly import _is_orthodox_letter_or_digit, _resolve_codepoint
 
         postscript = dict(self.postscript_names)
         return tuple(
@@ -94,8 +91,8 @@ def _names_a_rune(rule: Mapping[str, Any]) -> bool:
 
 
 def load_font_sources(root: Path = REPO_ROOT) -> FontSources:
-    """Read the non-Quikscript part of the full font from `fingerprint.font_data_paths` in its order, merged as `tools/build_font.load_glyph_data` merges a directory. Raises `FontSourceError` when a file carries a top-level key no build reads (`load_glyph_data` refuses it) or a Latin kern rule names a rune glyph (`_names_a_rune`)."""
-    from build_font import load_glyph_data, load_postscript_glyph_names
+    """Read the non-Quikscript part of the full font from `fingerprint.font_data_paths` in its order, merged as `font_assembly.load_glyph_data` merges a directory. Raises `FontSourceError` when a file carries a top-level key no build reads (`load_glyph_data` refuses it) or a Latin kern rule names a rune glyph (`_names_a_rune`)."""
+    from engine.pipeline.font_assembly import load_glyph_data, load_postscript_glyph_names
 
     metadata: dict[str, Any] = {}
     glyphs: dict[str, Any] = {}
@@ -202,8 +199,8 @@ def _saved(font: Any) -> bytes:
 
 
 def _layout_of(data: bytes) -> Any:
-    """The packed layout tables of a saved font, as the bytes it holds them in, and its `usMaxContext`, in the form `tools/build_font.build_font(senior_otl=…)` writes into another font."""
-    from build_font import CompiledSeniorOTL
+    """The packed layout tables of a saved font, as the bytes it holds them in, and its `usMaxContext`, in the form `font_assembly.build_font(senior_otl=…)` writes into another font."""
+    from engine.pipeline.font_assembly import CompiledSeniorOTL
     from fontTools.ttLib import TTFont
 
     font = TTFont(io.BytesIO(data), lazy=True)
@@ -227,8 +224,8 @@ def build_font(
     fea_path: Path | None = None,
 ) -> Path:
     """Compile `glyphs` and the rune FEA `fea` into the OTF at `out_path` and its FEA sidecar at `fea_path` (by default `out_path` with a `.fea` suffix), and Bold at `bold_path` when one is given, and return `out_path`. With `sources` the font is the whole Senior (the module docstring says what that adds); without them it holds the rune glyphs alone. `variation_sequences` maps each selector to its base code points' glyphs."""
-    import build_font as builder
-    from glyph_records import CompiledGlyphSet, compile_glyph_records
+    from engine.pipeline import font_assembly as builder
+    from engine.pipeline.glyph_records import CompiledGlyphSet, compile_glyph_records
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Assemble one pixel font from glyph records with fontTools' FontBuilder: the generic font assembly the rebuild's builds call, `engine/pipeline/compile_font.py` for Senior and `engine/pipeline/build_family.py` for Mono and Junior.
 
 `build_font` takes a font's records (`glyph_records.GlyphData`, as `load_glyph_data` reads the glyph files and the rebuild hands in its own beside them) and a variant, `mono`, `junior` or `senior`, and returns the unsaved TTFont: the glyph order and cmap, the outlines and metrics, the name, OS/2, post, gasp and head tables, and the layout. Mono bundles Departure Mono's glyphs and copies its GDEF, GSUB and GPOS. Junior and Senior compile the Latin `kern`, `ccmp` and `mark` features the records give, then the caller's Quikscript feature code (`quikscript_fea`), and Senior trims a pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening).
@@ -21,16 +20,22 @@ from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables.DefaultTable import DefaultTable
-from departure_mono_import import import_departure_mono
-from glyph_records import CompiledGlyphSet, GlyphData, GlyphDef, compile_glyph_records, is_proportional_glyph
+from engine.pipeline.departure_mono_import import import_departure_mono
+from engine.pipeline.glyph_records import (
+    CompiledGlyphSet,
+    GlyphData,
+    GlyphDef,
+    compile_glyph_records,
+    is_proportional_glyph,
+)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEPARTURE_MONO_OTF = _REPO_ROOT / "reference" / "DepartureMono-Regular.otf"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 def load_postscript_glyph_names() -> dict[str, int]:
-    path = Path(__file__).parent.parent / "postscript_glyph_names.yaml"
+    path = _REPO_ROOT / "postscript_glyph_names.yaml"
     with open(path) as f:
         return yaml.load(f, Loader=_SAFE_LOADER)
 

@@ -1,4 +1,4 @@
-# Registries only, never policy (design section 2). The file holds no glyph records, so the font compile leaves it out of the glyph files by name (engine/pipeline/fingerprint.py's `font_data_paths`, tools/build_font.py's `load_glyph_data`).
+# Registries only, never policy (design section 2). The file holds no glyph records, so the font compile leaves it out of the glyph files by name (engine/pipeline/fingerprint.py's `font_data_paths`, engine/pipeline/font_assembly.py's `load_glyph_data`).
 heights: {baseline: 0, x-height: 5, y6: 6, top: 8}
 boundary_tokens:
   space: {codepoint: 0x0020, splits_runs: true}

@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 import yaml
-from reflow_yaml import reflow
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from engine.pipeline import kern
 from engine.pipeline.model import Provenance
 from engine.review import kern_writer
 from engine.test_kern import load
+from tools.reflow_yaml import reflow
 
 REPO = Path(__file__).resolve().parent.parent
 CODEPOINTS = {

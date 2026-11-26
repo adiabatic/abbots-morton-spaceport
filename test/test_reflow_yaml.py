@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from reflow_yaml import reflow
+from tools.reflow_yaml import reflow
 
 RUNE_WITH_KERN = """\
 rune: qsNo

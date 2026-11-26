@@ -103,7 +103,7 @@ class TestReadNormalization:
 
 @pytest.fixture
 def synthetic_tree(tmp_path: Path) -> Path:
-    """A small repo with every import form the walk must follow: a package, an absolute `from` import, a relative one, an import inside a function, a `TYPE_CHECKING` import, a bare sibling import, and a `test/` module imported by bare name."""
+    """A small repo with every import form the walk must follow: a package, an absolute `from` import, a relative one, an import inside a function, a `TYPE_CHECKING` import, a bare sibling import, a bare import between two `tools/` scripts, and a bare name nothing beside its importer holds."""
     _write(tmp_path, "pkg/__init__.py")
     _write(tmp_path, "pkg/a.py", "from pkg import b\nfrom . import c\n\n\ndef f():\n    import pkg.lazy\n")
     _write(tmp_path, "pkg/b.py", "import json\n")
@@ -115,8 +115,9 @@ def synthetic_tree(tmp_path: Path) -> Path:
     _write(tmp_path, "pkg/typed.py")
     _write(tmp_path, "pkg/lazy.py", "import sib\n")
     _write(tmp_path, "pkg/sib.py")
-    _write(tmp_path, "tools/build_font.py")
-    _write(tmp_path, "x.py", "import build_font\n")
+    _write(tmp_path, "tools/helper.py")
+    _write(tmp_path, "tools/run.py", "import helper\n")
+    _write(tmp_path, "x.py", "import helper\n")
     _write(tmp_path, "broken.py", "def (\n")
     return tmp_path
 
@@ -134,8 +135,9 @@ class TestStaticImportClosure:
             "pkg/sib.py",
         }
 
-    def test_a_bare_name_resolves_against_the_sibling_roots(self, synthetic_tree: Path):
-        assert cc.ImportGraph(synthetic_tree).closure("x.py") == {"x.py", "tools/build_font.py"}
+    def test_a_bare_name_resolves_against_the_importers_directory_and_no_other(self, synthetic_tree: Path):
+        assert cc.ImportGraph(synthetic_tree).closure("tools/run.py") == {"tools/run.py", "tools/helper.py"}
+        assert cc.ImportGraph(synthetic_tree).closure("x.py") == {"x.py"}
 
     def test_a_file_that_does_not_parse_is_its_own_closure(self, synthetic_tree: Path):
         assert cc.ImportGraph(synthetic_tree).closure("broken.py") == {"broken.py"}

@@ -1481,7 +1481,7 @@ def _check_variation_glyphs(
 
 
 def _filled_bands(glyph_set: Any, name: str) -> list[tuple[int, int, tuple[tuple[int, int], ...]]]:
-    """A glyph's outline as horizontal bands, each (bottom, top, its filled x intervals): the outline's own y coordinates cut it into bands, and the nonzero winding of the vertical edges at a band's middle gives the intervals. Every outline here is a union of axis-aligned rectangles traced into straight lines (`tools/build_font.union_contours`), so the bands describe it exactly."""
+    """A glyph's outline as horizontal bands, each (bottom, top, its filled x intervals): the outline's own y coordinates cut it into bands, and the nonzero winding of the vertical edges at a band's middle gives the intervals. Every outline here is a union of axis-aligned rectangles traced into straight lines (`font_assembly.union_contours`), so the bands describe it exactly."""
     from fontTools.pens.recordingPen import RecordingPen
 
     pen = RecordingPen()
@@ -1531,7 +1531,7 @@ def _filled_bands(glyph_set: Any, name: str) -> list[tuple[int, int, tuple[tuple
 def _overstruck(
     bands: list[tuple[int, int, tuple[tuple[int, int], ...]]], overstrike: int
 ) -> list[tuple[int, int, tuple[tuple[int, int], ...]]]:
-    """The bands with every interval widened by `overstrike` units to the right and overlapping intervals merged, which is what Bold draws (`tools/build_font.build_font(bold=True)`)."""
+    """The bands with every interval widened by `overstrike` units to the right and overlapping intervals merged, which is what Bold draws (`font_assembly.build_font(bold=True)`)."""
     widened: list[tuple[int, int, tuple[tuple[int, int], ...]]] = []
     for bottom, top, intervals in bands:
         merged: list[list[int]] = []

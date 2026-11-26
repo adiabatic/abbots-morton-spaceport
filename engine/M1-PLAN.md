@@ -12,9 +12,9 @@ Rules for M1 work:
 
 ## 1. Locations
 
-**Rune files: `glyph_data/runes/`**, the address §2 gives them. The old pipeline finds YAML only through the non-recursive `path.glob("*.yaml")` in `tools/build_font.py`’s `load_glyph_data`, so the old font build never reads files in `glyph_data/runes/`. Each migrated family has one file named for its rune; a ligature’s file is named for its sequence (`qsTea_qsOy.yaml`).
+**Rune files: `glyph_data/runes/`**, the address §2 gives them. The old pipeline finds YAML only through the non-recursive `path.glob("*.yaml")` in `engine/pipeline/font_assembly.py`’s `load_glyph_data`, so the old font build never reads files in `glyph_data/runes/`. Each migrated family has one file named for its rune; a ligature’s file is named for its sequence (`qsTea_qsOy.yaml`).
 
-**Registry: `glyph_data/script.yaml`**, the address §2 gives it. It holds no glyph records, and `tools/build_font.py`'s `load_glyph_data` refuses a document whose top-level keys are not a glyph file's, so the font compile's list of glyph files (`fingerprint.font_data_paths`) and `load_glyph_data`'s directory load (`NON_GLYPH_FILE_NAMES`) leave it out by name. `spec_load.load_spec` takes the registry path as an argument, and `spec_load.DEFAULT_REGISTRY_PATH` names it.
+**Registry: `glyph_data/script.yaml`**, the address §2 gives it. It holds no glyph records, and `engine/pipeline/font_assembly.py`'s `load_glyph_data` refuses a document whose top-level keys are not a glyph file's, so the font compile's list of glyph files (`fingerprint.font_data_paths`) and `load_glyph_data`'s directory load (`NON_GLYPH_FILE_NAMES`) leave it out by name. `spec_load.load_spec` takes the registry path as an argument, and `spec_load.DEFAULT_REGISTRY_PATH` names it.
 
 **Schemas: `engine/schema/rune.schema.json` and `engine/schema/script.schema.json`** (JSON Schema 2020-12). `spec_load` validates every rune file and the registry against them at load time through `jsonschema` (§4 of this plan). `.vscode/settings.json` maps both schemas to their files for editor validation.
 
@@ -32,7 +32,7 @@ engine/pipeline/
   defects.py          E-DANGLE, E-UNREALIZED, E-ANCHOR, off-anchor contact, dead policy
   emit_gsub.py        the staged GSUB (its module docstring gives the stage order)
   emit_gpos.py        per-height curs lookups
-  compile_font.py     the Senior font, Regular and Bold, via tools/build_font.build_font(quikscript_fea=...) and the pack_gsub repack
+  compile_font.py     the Senior font, Regular and Bold, via font_assembly.build_font(quikscript_fea=...) and the pack_gsub repack
   build_family.py     Mono and Junior, Regular and Bold, from each rune's mono: block and isolated cell, via the same build_font
   readback.py         post-compile read-back: the written font re-parsed and checked against the plan, GSUB offset headroom included
   conform.py          HarfBuzz sweep against settlement and its memoized settle walk
@@ -64,7 +64,7 @@ Why the first batch took this shape: the four families qsPea, qsTea, qsMay, and 
 
 **Kerning is outside M1 settlement.** The rune files' `kern:` blocks reach the font through the kern stage (engine/KERN-PLAN.md §8), which runs over the settled tables; no table and no settlement reads them.
 
-**The namer dot is in scope as a token.** M1’s emitter supplies its own dot-lowering stage, because `_namer_dot_calt_fea` in `tools/build_font.py` emits nothing for the mini font, whose glyph data (`compile_font._glyph_data`) has no `shorts` context set, and the glyph set includes `periodcentered` and `periodcentered.lowered`. No rune record conditions on `is: namer-dot`, so that condition value is registered but unexercised. The dot lowers with ZWNJ transparent to the match, as in the old font (the window `00B7:200C:E670`), so the split-buffer check treats the two dot forms as one slot signature.
+**The namer dot is in scope as a token.** M1’s emitter supplies its own dot-lowering stage, because `_namer_dot_calt_fea` in `engine/pipeline/font_assembly.py` emits nothing for the mini font, whose glyph data (`compile_font._glyph_data`) has no `shorts` context set, and the glyph set includes `periodcentered` and `periodcentered.lowered`. No rune record conditions on `is: namer-dot`, so that condition value is registered but unexercised. The dot lowers with ZWNJ transparent to the match, as in the old font (the window `00B7:200C:E670`), so the split-buffer check treats the two dot forms as one slot signature.
 
 ## 3. The rune-file template
 

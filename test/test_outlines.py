@@ -1,20 +1,18 @@
-"""Tests for the glyph outlines `tools/build_font.py` draws.
+"""Tests for the glyph outlines `engine/pipeline/font_assembly.py` draws.
 
 - `union_contours` traces the union of a glyph's pixel rectangles: abutting and overlapping rectangles merge into one contour, outer contours run counter-clockwise and holes clockwise, diagonal pixels keep a contour each, and no contour holds a point where it does not turn.
 - In every glyph of all six fonts, the outline's nonzero winding number is 0 or 1 everywhere, so no two contours overlap and no contour runs clockwise around ink, no two contours share an edge, and every point is a corner.
 """
 
-import sys
 from pathlib import Path
 
 import pytest
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.ttLib import TTFont
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "tools"))
+from engine.pipeline.font_assembly import union_contours
 
-from build_font import union_contours  # noqa: E402
+ROOT = Path(__file__).resolve().parent.parent
 
 SITE_DIR = ROOT / "site"
 FONTS = [

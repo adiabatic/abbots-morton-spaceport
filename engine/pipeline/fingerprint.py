@@ -22,7 +22,7 @@ Three closures outside this module hash code files raw. The rebuild-lane closure
 
 The fonts and `uv.lock`, which a version bump rewrites, have version-blind digests too, so neither moves a component or key that hashes it this way. The bump still reruns the rebuild suite and pyright, whose closures hash pyproject.toml raw, and gate:make-test, whose closure hashes glyph_data/metadata.yaml raw. A build writes the new version into each font's `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
 
-- `font_content_digest` hashes a font table by table from the bytes the `sfnt` reader returns: the sorted table tags, then each table's length and digest, leaving out `head` and `name` (`FONT_VERSION_TABLES`). `head` holds the revision, the checksum adjustment, and the modification time, and `name` holds the version strings. A shaper reads neither to position a glyph. `head` also holds `unitsPerEm`, but an edit to `units_per_em` in glyph_data/metadata.yaml still reaches the digest through `CFF `: tools/build_font.py passes `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the matrix as 1/unitsPerEm. engine/test_fingerprint.py checks that fontTools default. Only a hand edit to `head.unitsPerEm` alone would go unseen, and nothing in the tree makes one. Every table that can affect a shaped run stays (`CFF `, `hmtx`, `GPOS`, `GSUB`, `cmap`), and so does the list of tables. A file fontTools cannot open, or whose table it cannot read, is hashed as raw bytes.
+- `font_content_digest` hashes a font table by table from the bytes the `sfnt` reader returns: the sorted table tags, then each table's length and digest, leaving out `head` and `name` (`FONT_VERSION_TABLES`). `head` holds the revision, the checksum adjustment, and the modification time, and `name` holds the version strings. A shaper reads neither to position a glyph. `head` also holds `unitsPerEm`, but an edit to `units_per_em` in glyph_data/metadata.yaml still reaches the digest through `CFF `: engine/pipeline/font_assembly.py passes `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the matrix as 1/unitsPerEm. engine/test_fingerprint.py checks that fontTools default. Only a hand edit to `head.unitsPerEm` alone would go unseen, and nothing in the tree makes one. Every table that can affect a shaped run stays (`CFF `, `hmtx`, `GPOS`, `GSUB`, `cmap`), and so does the list of tables. A file fontTools cannot open, or whose table it cannot read, is hashed as raw bytes.
 - `lock_digest` (in `engine.tools.lock_digest`, a separate module because the pyright gate also hashes the lock and must not import engine.pipeline) removes the project's own block from the lock and hashes the rest, so a changed dependency pin or an added or removed package still moves it.
 """
 
@@ -80,7 +80,7 @@ FONT_LINE_SUFFIX = "#font"  # the suffix of a font-data line in the run_build sk
 
 
 def font_data_paths(repo_root: Path) -> list[Path]:
-    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml but the registry (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`). The registry (`registry_path`) is left out by name, because `tools/build_font.load_glyph_data` refuses a document whose top-level keys are not a glyph file's."""
+    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml but the registry (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`). The registry (`registry_path`) is left out by name, because `font_assembly.load_glyph_data` refuses a document whose top-level keys are not a glyph file's."""
     root = Path(repo_root)
     registry = registry_path(root).name
     glyph_files = sorted(path for path in (root / "glyph_data").glob("*.yaml") if path.name != registry)
@@ -114,25 +114,9 @@ COMPARISON_CODE_MODULES = frozenset(
     }
 )
 
-FONT_COMPILE_TOOL_MODULES = frozenset(
-    {
-        "build_font.py",
-        "departure_mono_import.py",
-        "glyph_records.py",
-    }
-)
-
-
-def font_compile_tool_paths(repo_root: Path) -> list[Path]:
-    """Return the tools/ modules the font compile runs. engine/pipeline/compile_font.py calls tools/build_font.py to build the font and puts tools/ on sys.path, so these modules import each other by bare name; engine/pipeline/build_family.py calls the same module for Mono and Junior. The rest of tools/ is scripts that no build runs, so this is a fixed list instead of the whole directory. engine/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
-    return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
-
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    """Return the code the `pipeline_code` component hashes: engine/pipeline, engine/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). engine/validation holds the shaper, the junction classifier, and the `data-expect` grammar, collector and checker the pin gate runs. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
-
-    The tools/ modules are included because compile_font passes the font to tools/build_font.py, so an edit to the font assembly, the glyph records' compile or the Departure Mono import changes Senior-Regular.otf. They are build-side, so `table_code_paths` keeps them as well.
-    """
+    """Return the code the `pipeline_code` component hashes: engine/pipeline, engine/validation, and the kernel crate's manifest, lock, and sources. engine/pipeline holds the generic font assembly the compile passes the font to (`font_assembly`, `glyph_records`, `departure_mono_import`), so an edit to the font assembly, the glyph records' compile or the Departure Mono import changes Senior-Regular.otf and moves this component, and `table_code_paths` keeps them as well. engine/validation holds the shaper, the junction classifier, and the `data-expect` grammar, collector and checker the pin gate runs. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error."""
     root = Path(repo_root)
     kernel = root / "engine" / "kernel-rs"
     return (
@@ -140,7 +124,6 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
         + sorted(path for path in (root / "engine" / "validation").glob("*.py"))
         + [kernel / "Cargo.toml", kernel / "Cargo.lock"]
         + sorted((kernel / "src").rglob("*.rs"))
-        + font_compile_tool_paths(root)
     )
 
 

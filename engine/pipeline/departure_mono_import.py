@@ -1,12 +1,11 @@
-#!/usr/bin/env python3
 """Import the glyphs of the Departure Mono OTF as GlyphDef dicts for the mono build.
 
-Departure Mono has UPM 550 and 50 font units per pixel, every glyph advances 350 units (7 pixels), and all ink lies on the 50-unit grid within x in [0, 350]. Each glyph is sampled on that grid into a GlyphDef in the form `bitmap_to_rectangles` in `tools/build_font.py` reads: row 0 is the top row, `y_offset` is the pixel row of the bottom row (negative for descenders), and `advance_width` is in pixels.
+Departure Mono has UPM 550 and 50 font units per pixel, every glyph advances 350 units (7 pixels), and all ink lies on the 50-unit grid within x in [0, 350]. Each glyph is sampled on that grid into a GlyphDef in the form `bitmap_to_rectangles` in `engine/pipeline/font_assembly.py` reads: row 0 is the top row, `y_offset` is the pixel row of the bottom row (negative for descenders), and `advance_width` is in pixels.
 
 Sampling raises `ValueError` on a cell that is not on the pixel grid and on a bitmap that does not reproduce the sampled cells, so the ink stays aligned with the Departure Mono GPOS anchors the mono build copies.
 
 Usage:
-    uv run python tools/departure_mono_import.py reference/DepartureMono-Regular.otf
+    uv run python -m engine.pipeline.departure_mono_import reference/DepartureMono-Regular.otf
 """
 
 import sys
@@ -168,7 +167,8 @@ def _print_sample(name: str, glyph_def: dict[str, Any]) -> None:
 def main() -> None:
     if len(sys.argv) != 2:
         print(
-            "Usage: uv run python tools/departure_mono_import.py <DepartureMono-Regular.otf>", file=sys.stderr
+            "Usage: uv run python -m engine.pipeline.departure_mono_import <DepartureMono-Regular.otf>",
+            file=sys.stderr,
         )
         sys.exit(1)
 

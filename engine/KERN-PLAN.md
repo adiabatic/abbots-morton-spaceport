@@ -11,7 +11,7 @@ These are the author's decisions, and each one closes a question the old font le
 - **The most specific record wins, and values never add up.** `by: 0` is a real value that cancels a broader record.
 - **The unit an author edits is a facing pair**: one right-hand edge against one left-hand edge (§3).
 - **The editor writes each change through to the YAML**, keeps a journal for undo, and holds its writes while a cycle pass reads the runes.
-- **The Senior tightening stays in the advance widths.** `tools/build_font.py` trims a pixel from every Quikscript letter's advance, so no record states it.
+- **The Senior tightening stays in the advance widths.** `engine/pipeline/font_assembly.py` trims a pixel from every Quikscript letter's advance, so no record states it.
 - **A break at a ZWNJ kerns exactly as the same two shapes kern at any other break.** The old font's rule that tightens ·He before any ZWNJ is not carried over.
 - **The editor shows joined pairs and does not edit them.**
 - **ss10 text kerns, and so does Junior.** Under ss10 no pair joins, so every pair of letters is a break between two isolated shapes, and those pairs take records like any other.
