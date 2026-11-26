@@ -15,6 +15,7 @@ This file maps each kind of change to the gate that checks it, and says what eac
 | The review server, the verdict store, or the land                             | `uv run pytest rebuild/test_landing.py rebuild/test_review_autosave.py -n auto --dist worksteal`, then `make test-rebuild` |
 | A rune or pipeline edit, to rebuild and recheck the tables                    | `uv run python -m rebuild.pipeline.run_m1` (or a `make review-cycle` pass)                                                 |
 | A rune's `kern:` block, or the font's non-Quikscript data, alone              | `uv run python -m rebuild.pipeline.run_m1 --kern-only` (a cycle pass plans it)                                             |
+| Mono and Junior, or the six-font command (`build_family`, `build_fonts`)      | `make test-rebuild`, then `make rebuild-fonts`                                                                             |
 | Commit time                                                                   | `make artifact-cycle`; `make review-cycle` when a review session follows                                                   |
 | Is it ready for review?                                                       | `make verdict-ready`                                                                                                       |
 | A change meant to shorten edit-to-READY (#584)                                | `make cycle-timings ARGS='--by-step'`, before and after on matched pass shapes (`doc/perf-check.md`)                       |

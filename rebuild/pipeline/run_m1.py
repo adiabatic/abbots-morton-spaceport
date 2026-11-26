@@ -71,7 +71,6 @@ from rebuild.pipeline import table as table_module
 from rebuild.pipeline.labels import features_for_config
 from rebuild.pipeline.model import (
     CellId,
-    CellPlan,
     GlyphRecord,
     ResolvedSpec,
     cosmetic_copies,
@@ -1127,7 +1126,7 @@ class VariationGlyphs:
 def mint_variation_glyphs(
     spec: ResolvedSpec, cell_glyphs: Mapping[CellId, GlyphRecord], font: str = "senior"
 ) -> VariationGlyphs:
-    """Mint the glyph each variation sequence of `font` selects (`model.ScriptRegistry.variation_sequences`): the unjoined cell (no entry, no exit, no adjustment) of the stance the registry names, drawn as `surface.resolve_cell` binds it, or the stance's base drawing where the stance has no unjoined cell (a stance whose surface requires an exit, as ·Utter's `alternate` does). Either way the glyph is named by the cell's label and carries no anchor, so no cursive lookup attaches it, and it is no settled cell: settlement reads only the raw cmap glyphs, so a sequence selects its glyph and no settlement rule names it, which read-back checks (`readback._check_variation_glyphs`). A cell some table reaches is a settled cell the build mints already (`cell_glyphs`); its sequence names that glyph, and read-back then reports it, because the glyph is in settlement's classes. A rune the alphabet leaves out has no sequence."""
+    """Mint the glyph each variation sequence of `font` selects (`model.ScriptRegistry.variation_sequences`): the unjoined cell (no entry, no exit, no adjustment) of the stance the registry names, drawn as `surface.resolve_cell` binds it, or the stance's base drawing where the stance has no unjoined cell (a stance whose surface requires an exit, as ·Utter's `alternate` does), the choice `surface.variation_plan` makes for Junior's sequences too. Either way the glyph is named by the cell's label and carries no anchor, so no cursive lookup attaches it, and it is no settled cell: settlement reads only the raw cmap glyphs, so a sequence selects its glyph and no settlement rule names it, which read-back checks (`readback._check_variation_glyphs`). A cell some table reaches is a settled cell the build mints already (`cell_glyphs`); its sequence names that glyph, and read-back then reports it, because the glyph is in settlement's classes. A rune the alphabet leaves out has no sequence."""
     glyphs: dict[CellId, GlyphRecord] = {}
     sequences: dict[int, dict[int, str]] = {}
     report: list[dict] = []
@@ -1140,17 +1139,12 @@ def mint_variation_glyphs(
                 continue
             cell = CellId(rune_name, stance, None, None, ())
             name = cell_label(spec, cell)
-            drawn = "unjoined cell"
             settled = cell_glyphs.get(cell)
             if settled is not None:
                 name = settled.name
                 drawn = "settled cell"
             else:
-                try:
-                    plan = surface.resolve_cell(spec, cell)
-                except spec_load.SpecError:
-                    plan = CellPlan(cell=cell)
-                    drawn = "base drawing"
+                plan, drawn = surface.variation_plan(spec, cell)
                 record = geometry.realize(spec, plan, name=name)
                 glyphs[cell] = replace(record, entry=None, exit=None, entry_curs_only=None, safety_checks=())
             sequences.setdefault(selector, {})[rune.codepoint] = name

@@ -157,7 +157,7 @@ FONT_COMPILE_TOOL_MODULES = frozenset(
 
 
 def font_compile_tool_paths(repo_root: Path) -> list[Path]:
-    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the font and puts tools/ on sys.path, so these modules import each other by bare name. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
+    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the font and puts tools/ on sys.path, so these modules import each other by bare name; rebuild/pipeline/build_family.py calls the same module for Mono and Junior. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
 
 

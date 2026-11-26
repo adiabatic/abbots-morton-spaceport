@@ -34,6 +34,8 @@ glyph_data/
 
 Until cutover the registry lives at `rebuild/script.yaml`, because the old build reads every `glyph_data/*.yaml` and would take a `glyph_data/script.yaml` for a Senior kerning rule (`rebuild/M1-PLAN.md` §1).
 
+The rune files draw the Quikscript letters of all three fonts: Senior's from the settled cells, Junior's from each letter's isolated cell, and Mono's from its `mono:` block (`rebuild/pipeline/build_family.py`), each beside the non-Quikscript glyphs the font compile reads (`compile_font.load_font_sources`). The registry's variation sequences name the fonts they reach, and Junior carries its overlay sets.
+
 `script.yaml` holds:
 
 - The closed height table (`baseline: 0`, `x-height: 5`, `y6: 6`, `top: 8`). Adding a height is a language change.
@@ -572,6 +574,7 @@ Each pass is small and testable on its own, with an artifact that can be dumped 
 | `emit_gpos`    | curs/kern emitters                                                                                                                                                                                                                       |
 | `pack_gsub`    | the per-rule format-3 subtables feaLib writes for the settlement lookup                                                                                                                                                                  |
 | `compile_font` | build_font.py core (largely kept)                                                                                                                                                                                                        |
+| `build_family` | the old IR's compile of Mono's and Junior's glyphs, and `emit_quikscript_ss`                                                                                                                                                             |
 | `explain`      | inspect_join, shape_sequences, FEA archaeology                                                                                                                                                                                           |
 | `conform`      | The sweeps’ correctness burden (example-sequence generation, HarfBuzz diff)                                                                                                                                                              |
 | `review`       | build_check_html (evolves: table-diff rows, verdict exports)                                                                                                                                                                             |

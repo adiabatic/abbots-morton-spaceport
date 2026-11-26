@@ -232,6 +232,14 @@ def resolve_cell(spec: ResolvedSpec, cell: CellId) -> CellPlan:
     )
 
 
+def variation_plan(spec: ResolvedSpec, cell: CellId) -> tuple[CellPlan, str]:
+    """Return the plan a variation sequence draws `cell` by, the unjoined cell of the stance the registry names, and which drawing that is: the cell as `resolve_cell` binds it (`"unjoined cell"`), or, where no feature configuration has the cell (a stance whose surface requires an exit, as ·Utter's `alternate` does), the stance's base drawing (`"base drawing"`). `run_m1.mint_variation_glyphs` draws Senior's sequences by it and `build_family.family_glyphs` Junior's, so the two fonts draw a sequence alike."""
+    try:
+        return resolve_cell(spec, cell), "unjoined cell"
+    except SpecError:
+        return CellPlan(cell=cell), "base drawing"
+
+
 def _ink_columns(row: str) -> list[int]:
     return [column for column, pixel in enumerate(row) if pixel == "#"]
 

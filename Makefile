@@ -1,9 +1,13 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate kernel-proofs review-rs-build review-rs-check conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all rebuild-fonts test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate kernel-proofs review-rs-build review-rs-check conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
 	cmp -s reference/DepartureMono-Regular.otf site/DepartureMono-Regular.otf || cp reference/DepartureMono-Regular.otf site/
 	cd site && typst compile --font-path . print.typ
+
+# Builds the six shipped fonts from the runes, under their shipped file names, into rebuild/out/fonts/ or the directory OUT names: Mono and Junior, Regular and Bold, from the rune files and the glyph files, and Senior as the copy of the rebuild's build under rebuild/out/m1/, which it refuses while run_m1's last green build does not cover the inputs on disk. FONTS='mono junior' leaves Senior out and needs no M1 build. rebuild/tools/build_fonts.py's module docstring says what each font reads. It writes nothing under site/, which `all` still builds with the old engine.
+rebuild-fonts:
+	uv run python -m rebuild.tools.build_fonts $(if $(OUT),--out $(OUT)) $(if $(FONTS),--fonts $(FONTS))
 
 check-html-after: all
 	uv run python tools/build_check_html.py

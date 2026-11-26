@@ -140,9 +140,10 @@ def _manifest_stamp(out_dir: Path) -> str:
         return "missing"
 
 
-# The rebuild/pipeline modules the corpus build never imports, such as the driver, its gates, the oracle, the conformance sweep, the emitters, the font compile, the explain renderer the crate ports, and the test fixtures. rebuild/test_review_code_closure.py checks this set against the import closure of build.py and of the modules whose constants the crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`), in both directions. The build reads the vocabulary it shares with the sweep (the alphabet, a configuration's features, a formed stream's labels, the boundary names, and the alias map) from `labels.py`, which imports none of these modules. This is an exclusion list, so a new pipeline module is hashed into `corpus_code_paths` until the test shows the build never reaches it and it is added here.
+# The rebuild/pipeline modules the corpus build never imports, such as the driver, its gates, the oracle, the conformance sweep, the emitters, the font compile and the Mono and Junior build, the explain renderer the crate ports, and the test fixtures. rebuild/test_review_code_closure.py checks this set against the import closure of build.py and of the modules whose constants the crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`), in both directions. The build reads the vocabulary it shares with the sweep (the alphabet, a configuration's features, a formed stream's labels, the boundary names, and the alias map) from `labels.py`, which imports none of these modules. This is an exclusion list, so a new pipeline module is hashed into `corpus_code_paths` until the test shows the build never reaches it and it is added here.
 PIPELINE_NON_CORPUS_MODULES = frozenset(
     {
+        "build_family.py",
         "compile_font.py",
         "conform.py",
         "coretext_smoke.py",

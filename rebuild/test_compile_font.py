@@ -1,4 +1,4 @@
-"""Integration tests for `compile_font.build_font`. The mini font: six glyphs of four mini-spec letters and a hand-written settlement lookup compiled through `tools/build_font.build_font`'s `senior_fea=` path, then shaped and classified. The full font: the checked-in runes' raw glyphs and variation glyphs compiled with the non-Quikscript part (`compile_font.load_font_sources`), then compared glyph for glyph with the shipped Senior that `make all` writes under site/, and its Bold with its Regular. The old pipeline is only read, never modified."""
+"""Integration tests for `compile_font.build_font`. The mini font: six glyphs of four mini-spec letters and a hand-written settlement lookup compiled through `tools/build_font.build_font`'s `quikscript_fea=` path, then shaped and classified. The full font: the checked-in runes' raw glyphs and variation glyphs compiled with the non-Quikscript part (`compile_font.load_font_sources`), then compared glyph for glyph with the shipped Senior that `make all` writes under site/, and its Bold with its Regular. The old pipeline is only read, never modified."""
 
 import threading
 from types import SimpleNamespace

@@ -32,7 +32,8 @@ rebuild/pipeline/
   defects.py          E-DANGLE, E-UNREALIZED, E-ANCHOR, off-anchor contact, dead policy
   emit_gsub.py        the staged GSUB (its module docstring gives the stage order)
   emit_gpos.py        per-height curs lookups
-  compile_font.py     the Senior font, Regular and Bold, via tools/build_font.build_font(senior_fea=...) and the pack_gsub repack
+  compile_font.py     the Senior font, Regular and Bold, via tools/build_font.build_font(quikscript_fea=...) and the pack_gsub repack
+  build_family.py     Mono and Junior, Regular and Bold, from each rune's mono: block and isolated cell, via the same build_font
   readback.py         post-compile read-back: the written font re-parsed and checked against the plan, GSUB offset headroom included
   conform.py          HarfBuzz sweep against settlement, the per-row baseline comparison and its memoized walk
   oracle.py           baseline-oracle driver, divergence classifier, ledger matching
@@ -49,6 +50,8 @@ Tests are `rebuild/test_<module>.py`. Pytest’s `testpaths` excludes `rebuild/`
 `rebuild/pipeline/run_m1.py` is the integration driver (`uv run python -m rebuild.pipeline.run_m1`), and its module docstring gives the order of its stages. Font-side conformance runs through `run_m1 --conform-only` (with `--jobs`, one process per unit: the ss10 overlay whole and each settlement configuration once per final symbol, `run_m1_gates.sweep_units`; maximum length from `--conform-max-length`, default 4), which the artifact cycle runs as `gate:conform`. `make conform-deep` runs the same sweep at maximum length 5+ under its own green record. The CoreText smoke runs through `uv run python -m rebuild.pipeline.coretext_smoke`.
 
 The build writes its artifacts to `rebuild/out/m1/` (gitignored with `rebuild/out/`): `M1.otf`, `M1.fea`, `settlement-<config>.tsv`, `joins-<config>.tsv`, the per-gate summaries (`conform_summary.json`, `readback_summary.json`, `oracle_summary.json`, and others), `divergence-audit.tsv`, and the filtered baseline sub-tables. Three checked-in, human-reviewed source files feed the gates: the divergence ledger `rebuild/m1-divergences.yaml`, the alias map `rebuild/m1-aliases.yaml`, and the defect gates’ allow-list `rebuild/m1-contact-allow.yaml`. The allow-list’s header gives the signature forms it takes; most of its entries are off-anchor contacts the old font already draws on a join the baseline shows. `make prettier` runs black over the repository, `rebuild/` included (line length 110). `rebuild/REVIEW-PLAN.md` specifies the review corpus that reads the divergence ledger.
+
+`make rebuild-fonts` (`rebuild/tools/build_fonts.py`) writes the six shipped fonts under their shipped file names into `rebuild/out/fonts/`: Mono and Junior from `build_family`, which reads the spec and the glyph files the Senior compile reads (`compile_font.load_font_sources`) and no table, and Senior copied from `M1.otf` and `M1-Bold.otf` once run_m1's last green build covers the inputs on disk.
 
 ## 2. M1 scope
 
@@ -336,7 +339,7 @@ def emit_gsub(spec, tables_by_config: Mapping[frozenset[str], DecisionTable], gl
     # cmap glyph → its anchor-free .ss10 copy) → formation (the §5.7 guard's m1_formation_guarded first) →
     # ss markers (unconditional, per set; composite markers for the declared interactions, ss03+ss05 on
     # qsTea) → ZWNJ lock → ONE settlement lookup (per-family subtables) → namer-dot mini-calt (supplied
-    # here because the senior_fea path has none).
+    # here because the quikscript_fea path has none).
     # glyphs (the realized inventory) supplies the glyph names the rules are checked against and the
     # namer-dot follower class; without it the namer-dot stage is left out. ss10_copies (raw cmap glyph name →
     # .ss10 copy name) feeds the ss10 input substitution; without it that stage is left out and the FEA says
@@ -368,7 +371,7 @@ def cursive_registrations(glyphs, spec=None) -> dict[int, dict[str, Registration
 def build_font(glyphs, fea: str, out_path: Path, sources=None, variation_sequences=None, bold_path=None) -> Path: ...
     # the prototype's recipe: legacy glyphs:-only dict (qs names suffixed .prop), empty glyph_families, the
     # prototype's metadata dict under the family name AbbotsMortonSpaceportM1 (metric parity with
-    # glyph_data/metadata.yaml is left to integration), build_font(..., variant="senior", senior_fea=fea);
+    # glyph_data/metadata.yaml is left to integration), build_font(..., variant="senior", quikscript_fea=fea);
     # space and uni200C records are added when absent. pack_gsub repacks the settlement lookup's format-3
     # subtables into shared-ClassDef format-2 groups before the first save, and the settlement lookup uses
     # GSUB type 7 Extension offsets (useExtension).

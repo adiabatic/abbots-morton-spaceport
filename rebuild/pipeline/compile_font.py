@@ -1,8 +1,8 @@
 """Compile the rebuild's font (M1-PLAN section 5, Group 3).
 
-`build_font` passes `tools/build_font.build_font` a glyph-data dict that holds only legacy `glyphs:` records, with an empty `glyph_families` so the old IR emitter emits nothing, and passes the rune FEA as `senior_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs, and `tools/build_font.py` trims one pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening). `build_font` returns the unsaved TTFont (`output_path=None`), and this module packs it and writes the OTF and the `.fea` sidecar itself. The call passes `quiet=True` rather than redirecting stdout, because a redirect swaps `sys.stdout` for the whole process: run_m1's table-only branch writes its `[t]` and `[phase]` lines from another thread while the font compiles, and `rebuild/tools/console.py` resolves `sys.stdout` when each line is written.
+`build_font` passes `tools/build_font.build_font` a glyph-data dict that holds only legacy `glyphs:` records, with an empty `glyph_families` so the old IR emitter emits nothing, and passes the rune FEA as `quikscript_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs, and `tools/build_font.py` trims one pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening). `build_font` returns the unsaved TTFont (`output_path=None`), and this module packs it and writes the OTF and the `.fea` sidecar itself. The call passes `quiet=True` rather than redirecting stdout, because a redirect swaps `sys.stdout` for the whole process: run_m1's table-only branch writes its `[t]` and `[phase]` lines from another thread while the font compiles, and `rebuild/tools/console.py` resolves `sys.stdout` when each line is written.
 
-The non-Quikscript part of the font is optional, so the tests that compile a font from a few runes run the same code path as the build. Without `FontSources` the font holds the rune glyphs, `space` and `uni200C`, named by `METADATA`. With them (`load_font_sources`) it is the whole Senior Regular: the glyph records of every `fingerprint.font_data_paths` file and the angle parentheses from glyph_data/quikscript.yaml, with the rune pipeline's records winning where both name a glyph (the namer dot pair, `space`, `uni200C`); the metadata of glyph_data/metadata.yaml, so the name table is the shipped Senior's; and the Latin `kern`, `ccmp` and `mark` features, which `tools/build_font._assemble_fea` writes ahead of the rune FEA, the order the old build writes them in. A kern rule that names a Quikscript glyph (`_names_a_rune`) is left out, since the runes' `kern:` blocks own every kern between rune glyphs (rebuild/KERN-PLAN.md section 1). glyph_data/senior_quikscript_kerning.yaml is never read. `variation_sequences` adds a cmap format 14 subtable (`_cmap14`), from the glyphs `run_m1.mint_variation_glyphs` minted. A `bold_path` also writes Bold beside Regular: the overstruck outlines, with Regular's packed GDEF, GSUB and GPOS bytes and its `usMaxContext` (`tools/build_font.CompiledSeniorOTL`), so the two fonts shape alike by construction and the layout is compiled and packed once. Read-back checks both (`readback.verify_bold`).
+The non-Quikscript part of the font is optional, so the tests that compile a font from a few runes run the same code path as the build. Without `FontSources` the font holds the rune glyphs, `space` and `uni200C`, named by `METADATA`. With them (`load_font_sources`) it is the whole Senior Regular: the glyph records of every `fingerprint.font_data_paths` file and the angle parentheses from glyph_data/quikscript.yaml, with the rune pipeline's records winning where both name a glyph (the namer dot pair, `space`, `uni200C`); the metadata of glyph_data/metadata.yaml, so the name table is the shipped Senior's; and the Latin `kern`, `ccmp` and `mark` features, which `tools/build_font._assemble_fea` writes ahead of the rune FEA, the order the old build writes them in. A kern rule that names a Quikscript glyph (`_names_a_rune`) is left out, since the runes' `kern:` blocks own every kern between rune glyphs (rebuild/KERN-PLAN.md section 1). glyph_data/senior_quikscript_kerning.yaml is never read. `variation_sequences` adds a cmap format 14 subtable (`add_variation_sequences`), from the glyphs `run_m1.mint_variation_glyphs` minted. A `bold_path` also writes Bold beside Regular: the overstruck outlines, with Regular's packed GDEF, GSUB and GPOS bytes and its `usMaxContext` (`tools/build_font.CompiledSeniorOTL`), so the two fonts shape alike by construction and the layout is compiled and packed once. Read-back checks both (`readback.verify_bold`).
 
 Packing must happen before the first save. `pack_gsub.pack_font` repacks the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables on the in-memory font; that module's docstring says why. With follower prefer slots on (`kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT`), the unpacked lookup can overflow its own uint16 subtable-offset array (at about 6,400 merged rules). fontTools' overflow resolution cannot fix an overflow of that array, so the unpacked font cannot be saved at all. `pack_font` runs on every build, so conform tests one code path. `readback.verify_font` checks the packed lookup in the written bytes and reports a failure when the subtable-offset headroom is below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR` or the largest packed group passes `readback.GROUP_RULE_BYTES_CEILING`.
 
@@ -228,7 +228,8 @@ def _cmap14(variation_sequences: Mapping[int, Mapping[int, str]]) -> Any:
     return subtable
 
 
-def _add_variation_sequences(font: Any, variation_sequences: Mapping[int, Mapping[int, str]] | None) -> None:
+def add_variation_sequences(font: Any, variation_sequences: Mapping[int, Mapping[int, str]] | None) -> None:
+    """Append the cmap format 14 subtable of `variation_sequences` (selector to base code point to glyph name) to the font's cmap, when there is a sequence. `build_family` adds Mono's and Junior's sequences through it too."""
     subtable = _cmap14(variation_sequences or {})
     if subtable is not None:
         font["cmap"].tables.append(subtable)
@@ -273,11 +274,11 @@ def build_font(
     glyph_data = _glyph_data(glyphs, sources)
     compiled = compile_glyph_set(glyph_data, "senior")
     font = builder.build_font(
-        glyph_data, None, variant="senior", senior_fea=fea, compiled=compiled, quiet=True
+        glyph_data, None, variant="senior", quikscript_fea=fea, compiled=compiled, quiet=True
     )
 
     try:
-        _add_variation_sequences(font, variation_sequences)
+        add_variation_sequences(font, variation_sequences)
         pack_gsub.pack_font(font)
         _check_group_sizes(font)
         regular = _saved(font)
@@ -293,13 +294,13 @@ def build_font(
             None,
             variant="senior",
             bold=True,
-            senior_fea=fea,
+            quikscript_fea=fea,
             compiled=compiled,
             senior_otl=_layout_of(regular),
             quiet=True,
         )
         try:
-            _add_variation_sequences(bold, variation_sequences)
+            add_variation_sequences(bold, variation_sequences)
             builder._write_if_changed(Path(bold_path), _saved(bold))
         finally:
             bold.close()

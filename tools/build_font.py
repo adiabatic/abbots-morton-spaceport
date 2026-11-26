@@ -929,9 +929,9 @@ def _assemble_fea(
     variant: str,
     pixel_width: int,
     pixel_height: int,
-    senior_fea: str | None,
+    quikscript_fea: str | None,
 ) -> str | None:
-    """Return the feature file a variant compiles, or None for mono, which copies Departure Mono's tables. `senior_fea` is the precomputed Senior join code (see `build_font`). When it is None, a Senior build emits its own. `ss10_copies` (empty outside Senior) are kerned like their bare glyphs and are in the namer-dot follower class like their bare glyphs."""
+    """Return the feature file a variant compiles, or None for mono, which copies Departure Mono's tables. `quikscript_fea` is the caller's Quikscript feature code, which goes after `mark` (see `build_font`): Senior's join code, or Junior's stylistic sets and namer dot. When it is None, a Senior build emits its own join code and a Junior build its own stylistic sets from the compiled glyph set. `ss10_copies` (empty outside Senior) are kerned like their bare glyphs and are in the namer-dot follower class like their bare glyphs."""
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
     glyphs_def = inventory.glyphs_def
@@ -957,11 +957,11 @@ def _assemble_fea(
             fea_code_parts.append(mark_fea)
 
     if is_senior:
-        # The Senior FEA is the same for Regular and Bold, and emitting it takes ≈1.8s, so `main()` emits it once and passes it as `senior_fea`. A caller that builds a Senior font directly, such as a test, gets it emitted here.
-        if senior_fea is None:
-            senior_fea = build_senior_fea(glyph_data, join_glyphs, pixel_width, pixel_height)
-        if senior_fea:
-            fea_code_parts.append(senior_fea)
+        # The Senior FEA is the same for Regular and Bold, and emitting it takes ≈1.8s, so `main()` emits it once and passes it as `quikscript_fea`. A caller that builds a Senior font directly, such as a test, gets it emitted here.
+        if quikscript_fea is None:
+            quikscript_fea = build_senior_fea(glyph_data, join_glyphs, pixel_width, pixel_height)
+        if quikscript_fea:
+            fea_code_parts.append(quikscript_fea)
 
         senior_kerning_rules = glyph_data.get("senior_kerning", [])
         if senior_kerning_rules:
@@ -973,7 +973,7 @@ def _assemble_fea(
                 )
             )
     elif is_proportional:
-        ss_fea = emit_quikscript_ss(join_glyphs)
+        ss_fea = quikscript_fea if quikscript_fea is not None else emit_quikscript_ss(join_glyphs)
         if ss_fea:
             fea_code_parts.append(ss_fea)
 
@@ -1004,7 +1004,7 @@ class CompiledSeniorOTL:
 def compile_senior_otl(
     glyph_data: GlyphData,
     compiled: CompiledGlyphSet,
-    senior_fea: str | None,
+    quikscript_fea: str | None,
     pixel_width: int | None = None,
 ) -> CompiledSeniorOTL:
     """Compile the Senior GDEF, GSUB, and GPOS once, on a font that has only the glyph order. Senior Regular and Bold share their glyph order and feature file, so these tables are byte-identical, and the feaLib compile is the slowest and most memory-intensive step of a Senior build. `main()` runs this in a pool worker beside the other builds and passes the result to both Senior jobs as `build_font(senior_otl=…)`."""
@@ -1021,7 +1021,7 @@ def compile_senior_otl(
         "senior",
         pixel_width,
         pixel_height,
-        senior_fea,
+        quikscript_fea,
     )
     assert fea_code is not None, "the senior build always carries feature code"
     font = TTFont()
@@ -1090,7 +1090,7 @@ def build_font(
     variant: str = "mono",
     pixel_width: int | None = None,
     bold: bool = False,
-    senior_fea: str | None = None,
+    quikscript_fea: str | None = None,
     compiled: CompiledGlyphSet | None = None,
     senior_otl: CompiledSeniorOTL | None = None,
     quiet: bool = False,
@@ -1101,7 +1101,7 @@ def build_font(
         variant: "mono", "junior", or "senior".
         pixel_width: Width of each pixel in font units. Defaults to metadata["pixel_size"], which is always the pixel height.
         bold: Widen each drawn pixel by `pixel_width // 2` units to the right, and name and style-link the font as Bold. The pixel grid, advance widths, and anchors do not change.
-        senior_fea: Precomputed Senior feature code from `build_senior_fea`, used only for Senior. When None, the build emits its own.
+        quikscript_fea: The caller's Quikscript feature code, which goes after `mark`: for Senior, the join code (`build_senior_fea`), and for Junior, the stylistic sets and the namer dot (rebuild/pipeline/build_family.py writes Junior's from the runes). Mono ignores it. When None, a Senior or Junior build emits its own from the compiled glyph set.
         compiled: The variant's compiled glyph set. `bold` does not affect it, so `main()` compiles Senior once for both Senior jobs. When None, the build compiles its own.
         senior_otl: The Senior GDEF, GSUB, and GPOS from `compile_senior_otl`, used only for Senior. When given, the build writes these bytes instead of compiling the feature code.
         quiet: Print nothing: no save or feature-code lines, no GSUB budget, and no summary.
@@ -1354,7 +1354,7 @@ def build_font(
         variant,
         pixel_width,
         pixel_height,
-        senior_fea,
+        quikscript_fea,
     )
     if fea_code is not None:
         if is_senior and senior_otl is not None:
@@ -1460,7 +1460,7 @@ def _build_one_font(
     variant: str,
     bold: bool,
     compiled: CompiledGlyphSet | None = None,
-    senior_fea: str | None = None,
+    quikscript_fea: str | None = None,
     senior_otl: CompiledSeniorOTL | None = None,
 ) -> None:
     # Pool worker entry point. Each worker reloads the glyph data from disk (≈15 ms) so the parent does not have to pickle it. The Senior jobs receive the shared compiled glyph set, feature code, and layout tables.
@@ -1471,18 +1471,18 @@ def _build_one_font(
         Path(output_path_str),
         variant=variant,
         bold=bold,
-        senior_fea=senior_fea,
+        quikscript_fea=quikscript_fea,
         compiled=compiled,
         senior_otl=senior_otl,
     )
 
 
 def _compile_senior_otl_job(
-    input_path_str: str, compiled: CompiledGlyphSet, senior_fea: str | None
+    input_path_str: str, compiled: CompiledGlyphSet, quikscript_fea: str | None
 ) -> CompiledSeniorOTL:
     _install_warning_hook()
     glyph_data = load_glyph_data(Path(input_path_str))
-    return compile_senior_otl(glyph_data, compiled, senior_fea)
+    return compile_senior_otl(glyph_data, compiled, quikscript_fea)
 
 
 def main() -> None:
