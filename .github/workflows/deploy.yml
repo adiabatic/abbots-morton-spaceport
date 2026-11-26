@@ -1,13 +1,20 @@
 name: Build and Deploy
 
+# The fonts are built on the author's machine, because the Senior's table build needs more memory than a hosted runner has, and this workflow publishes them: it needs no Rust and builds no table. HACKING.md § Cutting a release gives the order.
 on:
+  # A site-only redeploy: the pages at the ref it runs on, with the fonts of a published release.
   workflow_dispatch:
-  # Release tags are named release/<version>. The release job reads the version from the tag.
+    inputs:
+      tag:
+        description: "The release whose fonts the site serves, such as release/16.000 (default: the latest published release)"
+        required: false
+        default: ""
+  # Release tags are named release/<version>. `make draft-release ARGS=--apply` uploads the fonts and fonts.json to a draft release for the tag before the tag is pushed, and the release job publishes that draft.
   push:
     tags:
       - 'release/*'
 
-# `contents: write` lets the release job create a GitHub release. `pages` and `id-token` let the deploy job publish to GitHub Pages.
+# `contents: write` lets the build job see the draft release, which the API lists only to a token with push access, and lets the release job attach the zip and publish it. `pages` and `id-token` let the deploy job publish to GitHub Pages.
 permissions:
   contents: write
   pages: write
@@ -21,6 +28,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      release_id: ${{ steps.release.outputs.release_id }}
     steps:
       - uses: actions/checkout@v6
 
@@ -38,17 +48,92 @@ jobs:
       - name: Type check
         run: uv run pyright
 
-      - name: Build fonts
+      # GET /releases/tags/{tag} answers only for a published release, so a tag push finds its draft by listing the releases, drafts among them, and matching tag_name. A draft's tag_name need not exist as a tag: the draft keeps it when the tag is pushed, and the tag joins the release when it is published.
+      - name: Find the release that holds the fonts
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          mkdir -p build
-          uv run python tools/build_font.py glyph_data/ build/
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq ".[] | select(.tag_name == \"$tag\") | [.id, .draft] | @tsv" > matches.tsv
+            if grep -q $'\tfalse$' matches.tsv; then
+              echo "::error::$tag is already a published release, so there is no draft to publish."
+              exit 1
+            fi
+            drafts=$(awk -F'\t' '$2 == "true" { print $1 }' matches.tsv)
+            count=$(printf '%s' "$drafts" | grep -c . || true)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::Found $count draft releases for $tag, not one. Upload the fonts with \`make draft-release ARGS=--apply\` on the tagged commit, which replaces any draft for the tag. It refuses while the tag is on origin, so delete the tag there first (git push origin :refs/tags/$tag) and push it again after the upload."
+              exit 1
+            fi
+            release_id="$drafts"
+          else
+            if [ -n "$INPUT_TAG" ]; then
+              tag="$INPUT_TAG"
+            else
+              tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            fi
+            if ! release_id=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/${tag//\//%2F}" --jq .id); then
+              echo "::error::There is no published release for $tag."
+              exit 1
+            fi
+          fi
+          echo "Taking the fonts from release $release_id ($tag)."
+          {
+            echo "tag=$tag"
+            echo "version=${tag#release/}"
+            echo "release_id=$release_id"
+          } >> "$GITHUB_OUTPUT"
+
+      # A release from `make draft-release` carries the six OTFs and fonts.json. A published release from before it carries only abbots-morton-spaceport-<version>.zip, which holds the six OTFs under the names the site loads from 12.000 on, so a redeploy can take its fonts from 12.000 or later.
+      - name: Download the fonts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ steps.release.outputs.release_id }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir fonts
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+            --jq '.[] | [.id, .name] | @tsv' > assets.tsv
+          download() {
+            gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$1" > "$2"
+          }
+          while IFS=$'\t' read -r id name; do
+            case "$name" in
+              *.otf | fonts.json) download "$id" "fonts/$name" ;;
+            esac
+          done < assets.tsv
+          if [ ! -e fonts/fonts.json ] && [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            zip_id=$(awk -F'\t' -v name="abbots-morton-spaceport-$VERSION.zip" '$2 == name { print $1 }' assets.tsv)
+            if [ -n "$zip_id" ]; then
+              download "$zip_id" release.zip
+              unzip -j -o release.zip '*.otf' -d fonts
+            fi
+          fi
+          ls -l fonts
+
+      # On a tag push the fonts must be the ones fonts.json records for the tagged commit; `rebuild/tools/release_fonts.py`'s module docstring gives the checks.
+      - name: Check the fonts
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            uv run python -m rebuild.tools.release_fonts verify fonts --version "$VERSION" --commit "$GITHUB_SHA"
+          else
+            uv run python -m rebuild.tools.release_fonts verify fonts --version "$VERSION"
+          fi
 
       - name: Convert to woff2
         run: |
           uv run python -c "
           from fontTools.ttLib import TTFont
           from pathlib import Path
-          for otf in Path('build').glob('*.otf'):
+          for otf in Path('fonts').glob('*.otf'):
               font = TTFont(otf)
               font.flavor = 'woff2'
               font.save(otf.with_suffix('.woff2'))
@@ -56,7 +141,7 @@ jobs:
 
       - name: Prepare site
         run: |
-          cp build/*.otf build/*.woff2 site/
+          cp fonts/*.otf fonts/*.woff2 site/
           cp reference/DepartureMono-Regular.otf site/
           uv run python -c "
           from fontTools.ttLib import TTFont
@@ -71,13 +156,13 @@ jobs:
           path: site
 
       - name: Upload font files for release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'push'
         uses: actions/upload-artifact@v7
         with:
           name: font-files
           path: |
-            build/*.otf
-            build/*.woff2
+            fonts/*.otf
+            fonts/*.woff2
             README.md
             FONTLOG.md
 
@@ -93,9 +178,12 @@ jobs:
         uses: actions/deploy-pages@v5
 
   release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build, deploy]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      RELEASE_ID: ${{ needs.build.outputs.release_id }}
     steps:
       - name: Download font files
         uses: actions/download-artifact@v8
@@ -103,30 +191,38 @@ jobs:
           name: font-files
           path: release-contents
 
-      - name: Extract version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/release/}" >> $GITHUB_OUTPUT
-
       - name: Extract changelog for this version
-        id: changelog
         run: |
-          VERSION="${{ steps.version.outputs.VERSION }}"
           # Extract text from "### $VERSION" until next "### " or EOF
-          CHANGELOG=$(awk "/^### ${VERSION//./\\.}/{found=1; next} /^### /{found=0} found" release-contents/FONTLOG.md)
-          # Handle multi-line output for GitHub Actions
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          awk "/^### ${VERSION//./\\.}/{found=1; next} /^### /{found=0} found" release-contents/FONTLOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::FONTLOG.md has no text under ### $VERSION for the release notes."
+            exit 1
+          fi
 
       - name: Create release zip
         run: |
           cd release-contents
-          mv build/* .
-          rmdir build
-          zip -r "../abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip" .
+          mv fonts/* .
+          rmdir fonts
+          zip -r "../abbots-morton-spaceport-$VERSION.zip" .
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: abbots-morton-spaceport-${{ steps.version.outputs.VERSION }}.zip
-          body: ${{ steps.changelog.outputs.CHANGELOG }}
+      # The zip goes up by the draft's id, which the build job found; a rerun after a failed publish replaces the zip it attached.
+      - name: Attach the zip and publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="abbots-morton-spaceport-$VERSION.zip"
+          for id in $(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq ".[] | select(.name == \"$zip\") | .id"); do
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$id"
+          done
+          curl --fail-with-body --silent --show-error --output /dev/null \
+            -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/zip" \
+            --data-binary "@$zip" \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$zip"
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            -F draft=false -f make_latest=true -F body=@notes.md --jq .html_url

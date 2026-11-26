@@ -13,3 +13,4 @@ description: Bump the font's minor version in glyph_data/metadata.yaml and pypro
    ```
 
 3. Ensure `FONTLOG.md` has a `### X.YYY` heading for the new version directly under `## Changelog`, matching the metadata format. Leave it empty if there is nothing to record yet.
+4. HACKING.md § Cutting a release gives the rest of the release: the `FONTLOG.md` section, the commit, `make draft-release`, and the tag.
