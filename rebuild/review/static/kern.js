@@ -899,3 +899,26 @@ export function likenessText(comparable) {
 export function nextComparison(current) {
   return COMPARISONS[(COMPARISONS.indexOf(current) + 1) % COMPARISONS.length];
 }
+
+// The order the detail panel lists a pair of letters' facing pairs in, as indexes into the entry's `pairs`: by following side, then by leading side, so the pairs that share a second shape (every stance of ·Ye before half ·Way) stand together.
+export function facingOrder(model, entry) {
+  const pairs = model.doc.pairs;
+  return [...(entry?.pairs ?? []).keys()].sort((one, other) => {
+    const first = pairs[entry.pairs[one]];
+    const second = pairs[entry.pairs[other]];
+    return first.follow - second.follow || first.lead - second.lead || one - other;
+  });
+}
+
+// The facing-pair index `step` places from `facing` in `order` (`facingOrder`), or null past either end, where the up and down keys move on to another pair of letters.
+export function stepInOrder(order, facing, step) {
+  const at = order.indexOf(facing) + step;
+  return order.indexOf(facing) >= 0 && at >= 0 && at < order.length ? order[at] : null;
+}
+
+// A relative's relation in a word or two, for a tile: `≈` leads one whose junction is the selected pair's only as far as `CLOSE_REACH` px past the closest ink, and a near relative gives its distance.
+export function relationWord(relative) {
+  const word = { same: 'same', mirror: 'mirror', flip: 'upside down', turn: 'half turn' }[relative.relation] ?? relative.relation;
+  if (relative.distance !== undefined) return `near ${word}, ${relative.distance} px`;
+  return relative.exact ? word : `≈ ${word}`;
+}

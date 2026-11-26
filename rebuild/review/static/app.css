@@ -2172,6 +2172,31 @@ body.kern-view {
       }
     }
 
+    .kern-facing-row.compact {
+      grid-template-columns: minmax(0, 1fr) auto;
+      padding: 0.1rem 0.5rem;
+      opacity: 0.75;
+
+      .kern-what {
+        flex-direction: row;
+        gap: 0.5rem;
+        align-items: baseline;
+      }
+
+      .kern-value {
+        font-size: 0.9rem;
+      }
+    }
+
+    .kern-facing-head {
+      display: block;
+      padding: 0.15rem 0 0;
+      border: 0;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
     .kern-joined-row {
       opacity: 0.8;
     }
@@ -2417,7 +2442,22 @@ body.kern-view {
       font-weight: 600;
     }
 
-    .kern-relative-row {
+    .kern-tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+      flex-direction: unset;
+      gap: 0.3rem;
+    }
+
+    .kern-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 0.1rem;
+      align-items: flex-start;
+      padding: 0.3rem 0.35rem;
+      font-size: 11px;
+      line-height: 1.25;
+      color: var(--muted);
       cursor: pointer;
 
       &.own {
@@ -2427,6 +2467,31 @@ body.kern-view {
 
       &:not(.own):hover {
         border-color: var(--accent);
+      }
+
+      code {
+        overflow-wrap: anywhere;
+        color: light-dark(#222, #e0e0e0);
+      }
+
+      .kern-row-actions {
+        margin-top: auto;
+      }
+
+      button {
+        min-width: 1.4rem;
+        padding: 0 0.3rem;
+        line-height: 1.4;
+      }
+
+      .kern-value {
+        min-width: 1.6rem;
+        font-size: 0.95rem;
+        text-align: center;
+
+        &.pending {
+          text-decoration: underline dotted;
+        }
       }
     }
 
@@ -2459,13 +2524,8 @@ body.kern-view {
 
     .kern-row-actions {
       display: flex;
-      gap: 0.25rem;
+      gap: 0.15rem;
       align-items: center;
-
-      .kern-value {
-        min-width: 1.8rem;
-        text-align: center;
-      }
     }
   }
 

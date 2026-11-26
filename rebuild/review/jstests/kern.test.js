@@ -27,6 +27,7 @@ import {
   decidersOf,
   deciderText,
   deltaSet,
+  facingOrder,
   facingScope,
   followsLetters,
   historyAfterReply,
@@ -58,6 +59,7 @@ import {
   reachText,
   refusalText,
   relationText,
+  relationWord,
   relativesIndex,
   relativesOf,
   relativesToGive,
@@ -73,6 +75,7 @@ import {
   splitStanding,
   staleAnswer,
   stalenessLines,
+  stepInOrder,
   stateFromSelection,
   textFocus,
   valueForClearance,
@@ -696,4 +699,33 @@ test('the comparison key steps through the relatives, the like first shapes and 
   assert.equal(nextComparison('junction'), 'lead');
   assert.equal(nextComparison('lead'), 'follow');
   assert.equal(nextComparison('follow'), 'junction');
+});
+
+test('a pair of letters’ facing pairs are listed by second shape, so the pairs that share one stand together', () => {
+  const order = facingOrder(model, noTea);
+  assert.deepEqual([...order].sort((one, other) => one - other), [...noTea.pairs.keys()]);
+  const follows = order.map((index) => model.doc.pairs[noTea.pairs[index]].follow);
+  assert.deepEqual(follows, [...follows].sort((one, other) => one - other));
+  const leadsWithin = order.filter((index) => model.doc.pairs[noTea.pairs[index]].follow === follows[0]).map((index) => model.doc.pairs[noTea.pairs[index]].lead);
+  assert.deepEqual(leadsWithin, [...leadsWithin].sort((one, other) => one - other));
+  assert.deepEqual(facingOrder(model, null), []);
+  // A made-up entry whose pairs alternate between two second shapes comes out with each shape's pairs together.
+  const made = { doc: { pairs: [{ lead: 0, follow: 5 }, { lead: 0, follow: 6 }, { lead: 1, follow: 5 }, { lead: 1, follow: 6 }] } };
+  assert.deepEqual(facingOrder(made, { pairs: [0, 1, 2, 3] }), [0, 2, 1, 3]);
+});
+
+test('up and down step through that order, and past either end give way to another pair of letters', () => {
+  const order = [0, 2, 1, 3];
+  assert.equal(stepInOrder(order, 0, 1), 2);
+  assert.equal(stepInOrder(order, 2, 1), 1);
+  assert.equal(stepInOrder(order, 1, -1), 2);
+  assert.equal(stepInOrder(order, 3, 1), null);
+  assert.equal(stepInOrder(order, 0, -1), null);
+  assert.equal(stepInOrder([], 0, 1), null);
+});
+
+test('a tile names a relative’s relation in a word or two', () => {
+  assert.equal(relationWord({ relation: 'mirror', exact: true }), 'mirror');
+  assert.equal(relationWord({ relation: 'flip', exact: false }), '≈ upside down');
+  assert.equal(relationWord({ relation: 'turn', distance: 2 }), 'near half turn, 2 px');
 });
