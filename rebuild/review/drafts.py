@@ -1,30 +1,14 @@
-"""What the review build hands the crate's verdict-export drafters (rebuild/REVIEW-PLAN.md §4.3) from Python. An approval drafts a whole-word data-expect pin, checked with `test_shaping.parse_expect`, a rejection the smallest one-line record that reverses the change, and "fine either way" an any-of record with both behaviors as full expect strings; the review crate drafts all three. A pin draft's `attribute` and `duplicate_of` come from the site corpus's pinned cells (`corpus_index_from_pages`), and its expect string from the letter names test/test_shaping.py maps each character to (`_import_test_shaping`), both of which cross in the units init (`units_exec.write_init`)."""
+"""What the review build hands the crate's verdict-export drafters (rebuild/REVIEW-PLAN.md §4.3) from Python. An approval drafts a whole-word data-expect pin, checked with the grammar's `parse_expect` (`rebuild/validation/expect.py`), a rejection the smallest one-line record that reverses the change, and "fine either way" an any-of record with both behaviors as full expect strings; the review crate drafts all three. A pin draft's `attribute` and `duplicate_of` come from the site corpus's pinned cells (`corpus_index_from_pages`), and its expect string from the glyph names the grammar's character map gives each character (`expect.CHAR_TO_GLYPH`), both of which cross in the units init (`units_exec.write_init`)."""
 
 from __future__ import annotations
 
-import sys
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Mapping
 
 from rebuild.validation.rowmodel import config_token_for_features
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-
-
-_test_shaping: Any = None
-
-
-def _import_test_shaping() -> Any:
-    global _test_shaping
-    if _test_shaping is None:
-        test_dir = str(REPO_ROOT / "test")
-        if test_dir not in sys.path:
-            sys.path.insert(0, test_dir)
-        import test_shaping
-
-        _test_shaping = test_shaping
-    return _test_shaping
 
 
 class _PinCollector(HTMLParser):

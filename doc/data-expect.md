@@ -1,6 +1,6 @@
 # `data-expect` attribute format
 
-The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output. The root `conftest.py` collects each attribute as a pytest item, and `test/test_shaping.py` parses it (`parse_expect`) and checks glyph selection and cursive attachment against the compiled glyph metadata. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
+The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output. `parse_expect` in `rebuild/validation/expect.py` is the grammar's authority, and `rebuild/validation/check.py` is the checker. The root `conftest.py` collects each attribute as a pytest item and checks it against the rebuilt fonts in `rebuild/out/fonts/`, which the session builds first; the build's pin gate (`rebuild/pipeline/manual_pins.py`) checks the same pins against the font it has just compiled. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
 
 The `data-expect-noncanonically` attribute has the same syntax and test behavior as `data-expect`. It marks Senior Quikscript joins that are worth testing but do not appear in Read’s manual.
 
@@ -13,30 +13,30 @@ The `data-expect-noncanonically` attribute has the same syntax and test behavior
 | `\X`          | Literal character (via glyph names or `uniXXXX`) | `\.`     |
 | `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)        | `◊space` |
 
-`◊ZWNJ` matches the `space` glyph in the shaped output (`LOZENGE_MAP` in `test/test_shaping.py`).
+`◊ZWNJ` and `◊space` both stand for the `space` token (`LOZENGE_MAP` in `rebuild/validation/expect.py`), which matches the shaped `space` glyph or the ZWNJ's own glyph, `uni200C` (`check.BOUNDARY_GLYPH_EQUIVALENTS`).
+
+A token's glyph is the first glyph of the cluster that covers the token's first character, so a variation selector after a letter belongs to that letter's token.
 
 ## Variant assertions
 
-Append dot-separated modifiers to assert properties of the selected glyph variant. Only `.alt` and `.half` are stable semantic assertions. They name real Quikscript concepts and are checked against the compiled glyph’s traits.
+Append dot-separated modifiers to assert properties of the selected glyph. A glyph's name is its cell's label (`settle.cell_label`: rune, stance, entry and exit heights, adjustments) or the name of a raw cmap glyph or one of its copies, and the checker reads it with `check.parse_glyph_name`. What a name does not carry comes from the glyph-facts sidecar the build writes beside the Senior (`rebuild/pipeline/glyph_facts.py`).
 
-| Modifier | Meaning                                 | Example     |
-| -------- | --------------------------------------- | ----------- |
-| `.∅`     | exact glyph, with no contextual variant | `·May.∅`    |
-| `.alt`   | stable alternate stance                 | `·No.alt`   |
-| `.half`  | stable half stance                      | `·Pea.half` |
+| Modifier                                                         | Holds when the glyph                                                               | Read from | Example                   |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------- | ------------------------- |
+| `.half`, `.alt`                                                  | is a stance with that trait                                                        | sidecar   | `·No.alt`                 |
+| `.entry`, `.exit`                                                | has an entry, an exit                                                              | name      | `·Roe.exit`               |
+| `.en-yN`, `.ex-yN`                                               | enters, exits at height N                                                          | name      | `·Roe.!ex-y0`             |
+| `.extended`                                                      | carries some `en-ext-N` or `ex-ext-N` adjustment                                   | name      | `·Fee.exit.extended`      |
+| `.en-ext-N`, `.ex-ext-N`, `.en-con-N`, `.ex-con-N`, `.en-trim-N` | carries that adjustment                                                            | name      | `·Ye ~b~ ·Roe.en-ext-1`   |
+| `.locked`                                                        | is the ZWNJ-locked form: a cell's `locked` adjustment or a raw glyph's locked copy | name      | `·Utter.locked`           |
+| `.<bitmap>`                                                      | draws that bound bitmap, a `bitmaps:` sibling of its stance                        | sidecar   | `·Utter.reaches-way-back` |
+| `.∅`                                                             | is the isolated cell's glyph or the bare cmap glyph                                | sidecar   | `·May.∅`                  |
 
-Prefix a modifier with `!` to assert the selected glyph does **not** carry that trait or compatibility tag.
+Prefix a modifier with `!` to assert that it does **not** hold: `.!half`, `.!alt`, `.!ex-y0`.
 
-| Modifier | Example      |
-| -------- | ------------ |
-| `.!alt`  | `·No.!alt`   |
-| `.!half` | `·Pea.!half` |
+`check.MODIFIER_FORMS` lists the same vocabulary. A modifier outside it is an error, never a pass, and a pending pin does not excuse one (see [Pending pins](#pending-pins)). The `.∅` assertion uses U+2205 EMPTY SET and cannot be combined with other variant assertions.
 
-The `.∅` assertion uses U+2205 EMPTY SET. `·May.∅` passes only when the shaped glyph is named `qsMay`, and fails on `qsMay.noentry`, `qsMay.ex-y0`, or any other variant. It cannot be combined with other variant assertions.
-
-Other modifiers in the corpus, such as `entry`, `exit`, `extended`, `noentry`, `en-y0`, `ex-y0`, `ex-y5`, and `reaches-way-back`, are compatibility tags. They are matched against the compatibility tags the compiler records for each glyph (`compat_assertions`), not against substrings of the glyph name.
-
-Variant assertions are optional. Without them, any variant of the base letter satisfies the check.
+Variant assertions are optional. Without them, any glyph of the base letter satisfies the check.
 
 ## Ligature assertions
 
@@ -46,7 +46,7 @@ Use `+` to assert that two letters are shaped as a single ligature glyph:
 ·Day+Utter
 ```
 
-This expects one output glyph whose compiled metadata sequence records both `qsDay` and `qsUtter`.
+This expects one output glyph whose rune is the ligature `qsDay_qsUtter`.
 
 Variant assertions go at the end of the ligature token, after the last letter name. For example, `·Day+Utter.half` asserts a ·Day+·Utter ligature with the `half` trait, even though the half stance belongs to the first letter of the pair.
 
@@ -60,7 +60,7 @@ Use `+?` or `+|` when the font may or may not ligate two letters:
 | `·Day+?Utter`  | May ligate; if separate, connection between them unasserted |
 | `·Day+\|Utter` | May ligate; if separate, assert a break between them        |
 
-The test runner tries both interpretations (ligated and separated) and passes if either matches. Variant assertions on the token apply to the ligature glyph in the ligated interpretation and are dropped in the separated one.
+The checker tries both interpretations (ligated and separated) and passes if either matches. Variant assertions on the token apply to the ligature glyph in the ligated interpretation and are dropped in the separated one.
 
 ## Connection assertions
 
@@ -77,19 +77,33 @@ Connection operators between tokens say whether and how adjacent glyphs attach:
 | `\|?\|`     | Break, with shape isolation NOT asserted |
 | `?`         | Maybe connects, or doesn’t               |
 
-A join means the preceding glyph’s exit anchor and the following glyph’s entry anchor share the specified Y coordinate. A break means no exit and entry share a Y coordinate. A `|` break also fails when the left glyph is a half stance with an exit its base stance lacks and the right letter has an entry at that Y in some variant, since that suggests a forward lookup chose the half stance across the break. A maybe skips the connection assertion, so the test passes whether or not the glyphs join. Use it where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
+A join is read from the font's GPOS `curs` lookups, one per height: two adjacent glyphs join at a height when the left one has an exit and the right one an entry in that height's lookup. A break means they join at no height. A maybe skips the connection assertion, so the test passes whether or not the glyphs join. Use it where the source material is ambiguous, such as an accidental pen-lift in the original manuscript.
 
 ### Break-isolation invariant
 
-When `|` separates two Quikscript letter tokens, or `?` separates a pair that does not join, the test runner also asserts that **neither letter influences the other’s shape choice**. It shapes the two sides in separate HarfBuzz buffers and checks that the glyph at each token beside the break has the same outline and the same position record (offsets and advances) as in the full shaping. A glyph with a different name but the same outline and position passes. A difference means a `calt` lookup is reaching across the non-join, and the failure message names the in-context and split glyphs. The check runs only on text shaped with the Senior font (`_check_break_isolation` in `test/test_shaping.py`).
+When `|` separates two Quikscript letter tokens, or `?` separates a pair that does not join, the checker also asserts that **neither letter influences the other’s shape choice**. It shapes the run whole and split at each such break in separate HarfBuzz buffers, both with the `kern` feature off, and checks that the glyphs of each token beside the break have the same outlines and the same position records (offsets and advances) in both. A glyph with a different name but the same outline and position passes. A difference means a contextual lookup is reaching across the non-join, and the failure message names the whole-run and split glyphs. The `kern` feature is off because a kern pair is the space the font puts between the two letters at the break, which no split reproduces; the conformance sweep checks every break's kern. The check runs only on text shaped with the Senior font (`_check_break_isolation` in `rebuild/validation/check.py`).
 
-So there is no need to write `.!half`, `.!alt`, `.!wide`, and so on beside a `|` to assert that one glyph was not chosen because of the other. The runner checks this for letter-to-letter pairs only. Boundary tokens such as `◊space`, `◊ZWNJ`, and escaped punctuation are excluded, because they exist to influence the shape of their neighbors.
+So there is no need to write `.!half`, `.!alt`, and so on beside a `|` to assert that one glyph was not chosen because of the other. The checker checks this for letter-to-letter pairs only. Boundary tokens such as `◊space`, `◊ZWNJ`, and escaped punctuation are excluded, because they exist to influence the shape of their neighbors.
 
 ### When the font legitimately leaks across a non-join: `|?|`
 
-A few rules intentionally change a letter because of its neighbor even when the two do not join. For example, `qsThaw.after-tall` drops ·Thaw’s baseline entry anchor when a Tall letter precedes it. In real text such a rule fires only on literal adjacency: the `after:` (or `before:`) selector compiles to a backward (or forward) context lookup whose match list contains only the named families, so a space or ZWNJ between two words occupies the slot the lookup checks and the rule does not fire. In a test, `|` inserts no character, because the runner concatenates the code points, so the lookup still fires. If the change alters the glyph’s outline or position, the isolation check reports it.
+A rule may intentionally change a letter because of its neighbor even when the two do not join. In real text such a rule fires only on literal adjacency, so a space or ZWNJ between two words stops it. In a test, `|` inserts no character, because the checker concatenates the code points, so the rule still fires. If the change alters the glyph’s outline or position, the isolation check reports it.
 
-Use `|?|` instead of `|` for these cases. It still asserts that the two glyphs do not cursive-attach (no shared entry and exit Y), but skips the isolation check. Use it only when the change is intended and a space or ZWNJ between the letters in real text would stop the rule from firing. A change of glyph name alone, with the same outline and position, already passes `|`, so `|?|` is needed only when the outline or position differs.
+Use `|?|` instead of `|` for these cases. It still asserts that the two glyphs do not cursive-attach, but skips the isolation check. Use it only when the change is intended and a space or ZWNJ between the letters in real text would stop the rule from firing. A change of glyph name alone, with the same outline and position, already passes `|`, so `|?|` is needed only when the outline or position differs.
+
+## Stylistic sets
+
+An element's `data-stylistic-set` (`"03"`, or several separated by spaces) turns those sets on for its whole text, and a descendant's turns them on for the run it starts. A run that turns on a set the font lacks fails, so a pin cannot pass by naming a feature the font ignores.
+
+## Pending pins
+
+A pin the rebuild disagrees with, pending the author's ruling, keeps the author's text and carries `data-expect-pending` with a short reason:
+
+```html
+<dd data-expect="·Owe ~x~ ·Fee | ·It | ·She ~b~ ·Low" data-expect-pending="the rebuild regroups this as ·Owe | ·Fee ~x~ ·It">…</dd>
+```
+
+The suite reports a pending pin that fails as an expected failure, and fails a pending pin that passes, so the attribute cannot outlive the disagreement it records. The build's pin gate counts pending pins in its summary (`manual_pins_summary.json`) and does not fail on them. `WHATNEXT.md` points at the pins awaiting a ruling; the attribute on each is the list.
 
 ## Duplicates
 

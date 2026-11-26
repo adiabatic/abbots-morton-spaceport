@@ -78,7 +78,9 @@ def test_namer_dot_lowers_at_word_start(variant: str, text: str) -> None:
 def test_consecutive_names(variant: str) -> None:
     # In ·Bay·No the first dot precedes a Deep letter and stays plain, and the second precedes a Short letter and lowers. A Quikscript letter before a namer dot does not block the substitution.
     names = _shape(variant, DOT + BAY + DOT + NO)
-    assert names == [PLAIN, "qsBay", LOWERED, "qsNo"]
+    # The letters are compared by their base, the name up to its first dot, so the check holds for the old build's bare names and the rebuild's cell labels alike.
+    bases = [name if name in (PLAIN, LOWERED) else name.split(".", 1)[0] for name in names]
+    assert bases == [PLAIN, "qsBay", LOWERED, "qsNo"]
 
 
 def test_mono_has_no_lowered_namer_dot() -> None:

@@ -112,7 +112,7 @@ def font_data_lines(repo_root: Path) -> list[str]:
     return sorted(lines)
 
 
-# The code of `pipeline_code_paths` that the table build and the font compile never run, as repo-relative paths: the gates that check the tables and font a build has written, and the guards that check the oracle's baselines, aliases and ledger before those gates run. These are the oracle's driver and classifier (oracle.py), its position comparison (oracle_positions.py, whose import closure the oracle row cache stamps on its own as `oracle_cache.POSITION_CODE_PATHS`), the Manual-pin gate (manual_pins.py) and the rebuild/validation modules it replays the pins through that the build never reaches (classify.py, pins.py, shaping.py), the subsetter that filters the oracle's baselines (baseline_subset.py), and run_m1's gate half (run_m1_gates.py). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build reaches any module listed here.
+# The code of `pipeline_code_paths` that the table build and the font compile never run, as repo-relative paths: the gates that check the tables and font a build has written, and the guards that check the oracle's baselines, aliases and ledger before those gates run. These are the oracle's driver and classifier (oracle.py), its position comparison (oracle_positions.py, whose import closure the oracle row cache stamps on its own as `oracle_cache.POSITION_CODE_PATHS`), the pin gate (manual_pins.py) and the rebuild/validation modules it checks the pins through that the build never reaches (the grammar, expect.py; the corpus collector, corpus.py; the checker, check.py; classify.py and shaping.py), the subsetter that filters the oracle's baselines (baseline_subset.py), and run_m1's gate half (run_m1_gates.py). They stay in `pipeline_code_paths`, and `table_code_paths` leaves them out, so an edit to one re-runs the gates over the tables on disk instead of forcing a full build. A module of this kind that is missing from the set is hashed into the tables' stamp, so every edit to it forces a full build. rebuild/test_build_code_closure.py fails if the build reaches any module listed here.
 COMPARISON_CODE_MODULES = frozenset(
     {
         "rebuild/pipeline/baseline_subset.py",
@@ -120,11 +120,16 @@ COMPARISON_CODE_MODULES = frozenset(
         "rebuild/pipeline/oracle.py",
         "rebuild/pipeline/oracle_positions.py",
         "rebuild/pipeline/run_m1_gates.py",
+        "rebuild/validation/check.py",
         "rebuild/validation/classify.py",
-        "rebuild/validation/pins.py",
+        "rebuild/validation/corpus.py",
+        "rebuild/validation/expect.py",
         "rebuild/validation/shaping.py",
     }
 )
+
+# The rebuild/validation modules no build step and no gate runs, which `pipeline_code_paths` leaves out, so an edit to one moves no build key: the old-font pin replay (pins.py), which only rebuild/test_validation_suite.py runs and which goes with the comparison against the old font.
+VALIDATION_UNBUILT_MODULES = frozenset({"pins.py"})
 
 
 FONT_COMPILE_TOOL_MODULES = frozenset(
@@ -148,12 +153,11 @@ SITE_CORPUS_FILES = ("site/index.html", "site/the-manual.html", "site/extra-seni
 
 
 def draft_harness_paths(repo_root: Path) -> list[Path]:
-    """Return the draft harness the approval drafter follows: test/test_shaping.py, whose `parse_expect` and `_expand_maybe_ligatures` the crate's drafter ports to check every pin draft and whose character map the units init carries, postscript_glyph_names.yaml, which test_shaping reads when it is imported, and the tools/ modules it imports (`font_compile_tool_paths`, which rebuild/test_build_code_closure.py checks covers them)."""
+    """Return the draft harness the approval drafter follows: the `data-expect` grammar (rebuild/validation/expect.py), whose `parse_expect` and `expand_maybe_ligatures` the crate's drafter ports to check every pin draft and whose character map the units init carries, and postscript_glyph_names.yaml, which the grammar reads that map from when it is imported. The grammar imports nothing else from the repository (rebuild/test_build_code_closure.py checks it)."""
     root = Path(repo_root)
     return [
-        root / "test" / "test_shaping.py",
+        root / "rebuild" / "validation" / "expect.py",
         root / "postscript_glyph_names.yaml",
-        *font_compile_tool_paths(root),
     ]
 
 
@@ -191,7 +195,7 @@ def draft_inputs_value(lines: Iterable[str]) -> str:
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
-    """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, row model, junction classifier, and Manual-pin replays, which are the before side of the M1 comparison. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
+    """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, the row model, the junction classifier, and the `data-expect` grammar, collector and checker the pin gate runs, less `VALIDATION_UNBUILT_MODULES`. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
 
     This component also keys the review corpus: the review build copies the Stage A record into the corpus manifest, the cycle's corpus skip (`artifact_cycle.corpus_build_skippable`) checks the manifest's copy against the record, and `make verdict-ready` checks it against a value recomputed from the sources, so a code edit to any of these files makes the corpus stale even when it leaves M1.otf, divergence-audit.tsv, and the subset tables byte-identical. That over-invalidation is the accepted error: a key over content digests of what the corpus reads would serve a stale corpus as fresh if it missed an input, while an extra corpus rebuild costs only machine time.
 
@@ -203,7 +207,11 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
     kernel = root / "rebuild" / "kernel-rs"
     return (
         sorted((root / "rebuild" / "pipeline").glob("*.py"))
-        + sorted((root / "rebuild" / "validation").glob("*.py"))
+        + sorted(
+            path
+            for path in (root / "rebuild" / "validation").glob("*.py")
+            if path.name not in VALIDATION_UNBUILT_MODULES
+        )
         + [kernel / "Cargo.toml", kernel / "Cargo.lock"]
         + sorted((kernel / "src").rglob("*.rs"))
         + font_compile_tool_paths(root)

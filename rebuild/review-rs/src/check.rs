@@ -397,7 +397,7 @@ impl Needs {
     }
 }
 
-/// `build.check_unit(fragment, at=(DRAFTED,))` over the init's `MACHINE_CHECKS` and `SLIM_OMITTED_KEYS`, with `parse_expect` over its `_CHAR_TO_GLYPH`.
+/// `build.check_unit(fragment, at=(DRAFTED,))` over the init's `MACHINE_CHECKS` and `SLIM_OMITTED_KEYS`, with `parse_expect` over its `CHAR_TO_GLYPH`.
 pub struct ContractCheck {
     machine_checks: Vec<String>,
     slim_omitted: Vec<String>,

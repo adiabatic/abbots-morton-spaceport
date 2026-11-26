@@ -1,12 +1,13 @@
-"""The Manual-pin gate: replays every data-expect pin from `MANDATING_CORPORA` whose text uses only migrated letters against the built M1 font, and reports each disagreement.
+"""The pin gate: checks every `data-expect` pin of the three pages (`corpus.PIN_PAGES`) against the built M1 font through the checker the font suite uses (`rebuild/validation/check.py`), and reports each failure.
 
-The mandating corpora are the repository's transcription of what The Manual requires letters to look like, and `test/test_shaping.py` checks them against the old Senior font. This gate replays each in-scope pin against M1.otf with the validation suite's shaper and GPOS junction classifier, and `run_m1` fails the build on any disagreement, when no pin is in scope, or when an in-scope pin was not replayed (`run_m1_gates.manual_pin_gate_failure`). There is no waiver list. A disagreement means either the rune data breaks a Manual requirement (fix the runes) or the pin mistranscribes The Manual (fix the pin, which `test/test_shaping.py` then checks against the old font).
+The pages are the repository's transcription of what The Manual requires letters to look like (`site/the-manual.html`, and `site/index.html`, which quotes it) and a supplementary word list (`site/extra-senior-words.html`). The root conftest checks the same pins against the rebuilt fonts under `rebuild/out/fonts/` with the same function (`check.check_pin`), so the suite and this gate agree on every pin they both check. `run_m1` fails the build on any failure, when no pin is in scope, or when a pin in scope was not checked (`run_m1_gates.manual_pin_gate_failure`). There is no waiver list. A failure means either the rune data breaks a requirement (fix the runes) or the pin mistranscribes it (fix the pin).
 
-The third corpus `test/test_shaping.py` reads, site/extra-senior-words.html, is left out. It is a supplementary word list, not a transcription of The Manual, so a disagreement with it shows that M1 and the old font differ on that word but should not block a rune batch. `rebuild/validation/pins.py` still reads all three corpora, because it checks fidelity to the old font.
+A pin the rebuild disagrees with pending the author's ruling carries `corpus.PENDING_ATTRIBUTE`. The gate counts such a pin in its summary and does not fail on it, whether it fails as expected or passes; the suite fails on a pending pin that passes, so the mark cannot go stale. A pin the vocabulary or the grammar rejects (`check.UnknownModifier`, a token that does not fit the text) fails the gate whether or not it is pending.
 
-The checks follow `rebuild/validation/pins.py` with two differences. First, `.half` and `.alt` assertions look up the stance's declared traits: the shaped glyph name is split back into rune and stance, because M1 stance names (`flipped`, `alternate`) need not contain the trait name the way the old glyph names did. Second, the `.∅` exact-glyph assertion accepts either the bare cmap glyph or the label of the rune's isolated cell, both of which draw the letter with no contextual variant. Other variant assertions (`en-y0`, `noentry`, `extended`, and so on) are skipped and counted, as in the baseline replay, because the junction-height assertions already cover their design content and the old font's compat metadata has no M1 equivalent.
+What the gate leaves out, each counted in the summary with its reason (`skipped`):
 
-Pins that use letters outside the alphabet are counted per missing letter (`blocked_by`, `sole_blocker`), so the summary shows which letters' migration would bring the most pins into scope. A pin whose stylistic-set configuration is not in `conform.ACCEPTANCE_CONFIGS` is skipped and counted in `skipped_config`, because the M1 font does not implement that feature. `rebuild/validation/pins.py` still checks such a pin against the old font. The collector also admits the M1-only configurations (`conform.M1_ONLY_CONFIGS`, through `PIN_CONFIGS`), which the old-font replay skips.
+- A Junior run (`force-junior`): the build compiles Senior only, and the suite checks Junior runs against the rebuilt Junior.
+- A pin with a Quikscript letter the spec's alphabet leaves out, which only the alphabet switch (`spec_load.M1_RUNES_ENV`) does. Such pins are counted per missing letter (`blocked_by`, `sole_blocker`), so a narrowed build's summary shows which letters keep which pins out.
 """
 
 from __future__ import annotations
@@ -17,36 +18,41 @@ from pathlib import Path
 
 import yaml
 
-from rebuild.pipeline import conform, geometry
 from rebuild.pipeline.labels import spec_alphabet
 from rebuild.pipeline.model import ResolvedSpec
-from rebuild.pipeline.settle import cell_label
-from rebuild.validation.classify import JunctionClassifier
-from rebuild.validation.pins import Disagreement, PinRun, ReplayReport, _import_test_shaping, collect_pin_runs
-from rebuild.validation.rowmodel import CONFIGS, Row, format_codepoints
-from rebuild.validation.shaping import Shaper, last_glyph_covering, row_for
+from rebuild.validation import check, corpus
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PS_NAMES_PATH = REPO_ROOT / "postscript_glyph_names.yaml"
+QUIKSCRIPT_CODEPOINTS = range(0xE650, 0xE680)
+JUNIOR_SKIP_REASON = "the build compiles Senior only; make test checks Junior runs against the rebuilt Junior"
 
-# The module docstring says why site/extra-senior-words.html is left out.
-MANDATING_CORPORA = ("site/index.html", "site/the-manual.html")
-PIN_CONFIGS = frozenset(CONFIGS) | frozenset(conform.ACCEPTANCE_CONFIGS)
 
-BOUNDARY_GLYPH_EQUIVALENTS = {"space": frozenset({"space", "uni200C"})}
+@dataclass
+class PageCounts:
+    pins: int = 0
+    checked: int = 0
+    passed: int = 0
+    failed: int = 0
+    pending: int = 0
+    pending_passing: int = 0
+    invalid: int = 0
+    blocked: int = 0
+    junior_runs_skipped: int = 0
+
+    def as_dict(self) -> dict[str, int]:
+        return dict(vars(self))
 
 
 @dataclass
 class ManualPinReport:
-    pins_eligible: int = 0
     pins_in_scope: int = 0
-    skipped_config: int = 0
     replayed: int = 0
-    junction_assertions: int = 0
-    identity_assertions: int = 0
-    trait_assertions: int = 0
-    variant_assertions_skipped: int = 0
-    disagreements: list[Disagreement] = field(default_factory=list)
+    pages: dict[str, PageCounts] = field(default_factory=dict)
+    disagreements: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)
+    pending_passing: list[str] = field(default_factory=list)
+    skipped: Counter = field(default_factory=Counter)
     blocked_by: Counter = field(default_factory=Counter)
     sole_blocker: Counter = field(default_factory=Counter)
 
@@ -64,221 +70,60 @@ def _codepoint_display_names() -> dict[int, str]:
     return {cp: name for name, cp in names.items()}
 
 
-def _stance_traits(spec: ResolvedSpec, glyph_name: str) -> frozenset[str]:
-    parts = glyph_name.split(".")
-    rune = spec.runes.get(parts[0])
-    if rune is None or len(parts) < 2:
-        return frozenset()
-    stance = rune.stances.get(parts[1])
-    if stance is None:
-        return frozenset()
-    return frozenset(stance.traits)
+def missing_letters(pin: corpus.Pin, alphabet: frozenset[int]) -> set[int]:
+    """Return the Quikscript letters of the pin's text that `alphabet` lacks. Every other character is in the font whatever the alphabet."""
+    return {ord(ch) for ch in pin.text if ord(ch) in QUIKSCRIPT_CODEPOINTS and ord(ch) not in alphabet}
 
 
-def _exact_glyph_names(spec: ResolvedSpec, base: str) -> frozenset[str]:
-    names = {base}
-    if base in spec.runes:
-        names.add(cell_label(spec, geometry.isolated_cell(spec, base)))
-    return frozenset(names)
+def _line(pin: corpus.Pin, text: str) -> str:
+    return f"{pin.source} {pin.expect!r}: {text}"
 
 
-def _expected_base(token: dict) -> str:
-    if token["lig_base"]:
-        return f"{token['base']}_{token['lig_base']}"
-    return token["base"]
-
-
-def _base_matches(expected: str, glyph_base: str) -> bool:
-    if glyph_base == expected:
-        return True
-    return glyph_base in BOUNDARY_GLYPH_EQUIVALENTS.get(expected, frozenset())
-
-
-def _check_interpretation(
-    spec: ResolvedSpec,
-    text: str,
-    tokens: list[dict],
-    connections: list[dict],
-    row: Row,
-) -> tuple[str | None, int, int, int, int]:
-    """Checks one interpretation of a pin's optional ligatures against a shaped row. Returns (first failure or None, junction assertions, identity assertions, trait assertions, variant assertions skipped)."""
-    ts = _import_test_shaping()
-    spans = ts._token_char_spans(text, tokens)
-    junction_checks = 0
-    identity_checks = 0
-    trait_checks = 0
-    variant_skips = 0
-
-    for i, token in enumerate(tokens):
-        start, end = spans[i]
-        glyph = row.glyphs[last_glyph_covering(row.clusters, start)]
-        base = glyph.split(".")[0]
-        expected = _expected_base(token)
-        identity_checks += 1
-        if not _base_matches(expected, base):
-            return (
-                f"token {i}: expected base {expected}, got {glyph!r}",
-                junction_checks,
-                identity_checks,
-                trait_checks,
-                variant_skips,
-            )
-        if token["exact_glyph"] and glyph not in _exact_glyph_names(spec, expected):
-            return (
-                f"token {i}: expected the isolated form of {expected}, got {glyph!r}",
-                junction_checks,
-                identity_checks,
-                trait_checks,
-                variant_skips,
-            )
-        traits = _stance_traits(spec, glyph)
-        for v in token["variants"]:
-            if v in ("half", "alt"):
-                trait_checks += 1
-                if v not in traits:
-                    return (
-                        f"token {i}: expected trait {v!r} on {glyph!r} (stance traits: {sorted(traits)})",
-                        junction_checks,
-                        identity_checks,
-                        trait_checks,
-                        variant_skips,
-                    )
-            else:
-                variant_skips += 1
-        for v in token.get("neg_variants", []):
-            if v in ("half", "alt"):
-                trait_checks += 1
-                if v in traits:
-                    return (
-                        f"token {i}: trait {v!r} must not appear on {glyph!r}",
-                        junction_checks,
-                        identity_checks,
-                        trait_checks,
-                        variant_skips,
-                    )
-            else:
-                variant_skips += 1
-        for k in range(start, end - 1):
-            junction_checks += 1
-            if row.junctions[k] != "lig":
-                return (
-                    f"token {i}: expected ligature junction at {k}, got {row.junctions[k]!r}",
-                    junction_checks,
-                    identity_checks,
-                    trait_checks,
-                    variant_skips,
-                )
-
-    for i, conn in enumerate(connections):
-        junction_index = spans[i + 1][0] - 1
-        junction = row.junctions[junction_index]
-        kind = conn["kind"]
-        if kind == "maybe":
-            continue
-        junction_checks += 1
-        if kind == "height":
-            if junction != f"y{conn['y']}":
-                return (
-                    f"connection {i}: expected y{conn['y']} at junction {junction_index}, got {junction!r}",
-                    junction_checks,
-                    identity_checks,
-                    trait_checks,
-                    variant_skips,
-                )
-        elif kind == "join":
-            if not junction.startswith("y"):
-                return (
-                    f"connection {i}: expected a join at junction {junction_index}, got {junction!r}",
-                    junction_checks,
-                    identity_checks,
-                    trait_checks,
-                    variant_skips,
-                )
-        elif kind in ("break", "break_no_isolation"):
-            if junction != "break":
-                return (
-                    f"connection {i}: expected break at junction {junction_index}, got {junction!r}",
-                    junction_checks,
-                    identity_checks,
-                    trait_checks,
-                    variant_skips,
-                )
-        else:
-            raise ValueError(f"unknown connection kind {kind!r}")
-
-    return (None, junction_checks, identity_checks, trait_checks, variant_skips)
-
-
-def _check_pin(
-    spec: ResolvedSpec,
-    shaper: Shaper,
-    classifier: JunctionClassifier,
-    pin: PinRun,
-    report: ManualPinReport,
-) -> None:
-    ts = _import_test_shaping()
-    row = row_for(shaper, classifier, pin.text, pin.features or None)
-    interpretations = ts._expand_maybe_ligatures(list(pin.tokens), list(pin.connections))
-    errors: list[str] = []
-    for tokens, connections in interpretations:
-        try:
-            error, junction_checks, identity_checks, trait_checks, variant_skips = _check_interpretation(
-                spec, pin.text, tokens, connections, row
-            )
-        except ValueError as exc:
-            errors.append(f"structural: {exc}")
-            continue
-        if error is None:
-            report.replayed += 1
-            report.junction_assertions += junction_checks
-            report.identity_assertions += identity_checks
-            report.trait_assertions += trait_checks
-            report.variant_assertions_skipped += variant_skips
-            return
-        errors.append(error)
-    report.replayed += 1
-    report.disagreements.append(
-        Disagreement(
-            kind="manual-pin",
-            source=pin.source,
-            config=pin.config_token,
-            codepoints=format_codepoints(row.codepoints),
-            expect=pin.expect,
-            detail=f"shaped {'|'.join(row.glyphs)} junctions {','.join(row.junctions)}; "
-            + " // ".join(errors),
-        )
-    )
-
-
-def run_gate(font_path: Path, spec: ResolvedSpec) -> ManualPinReport:
+def run_gate(font_path: Path, spec: ResolvedSpec, root: Path = REPO_ROOT) -> ManualPinReport:
+    """Check every pin of the three pages under `root` against the font at `font_path` and its glyph-facts sidecar (`check.glyph_facts_path`), leaving out what the module docstring lists."""
     report = ManualPinReport()
-    collection = ReplayReport()
-    pins = [
-        pin
-        for pin in collect_pin_runs(collection, configs=PIN_CONFIGS)
-        if pin.source.startswith(MANDATING_CORPORA)
-    ]
-    report.pins_eligible = len(pins)
     alphabet = migrated_alphabet(spec)
-
-    in_scope: list[PinRun] = []
-    for pin in pins:
-        if pin.config_token not in conform.ACCEPTANCE_CONFIGS:
-            report.skipped_config += 1
-            continue
-        missing = {ord(ch) for ch in pin.text} - alphabet
+    fonts: dict[str, check.CheckFont | None] = {
+        "senior": check.CheckFont(font_path, glyph_facts=check.glyph_facts_path(font_path)),
+        "junior": None,
+    }
+    for pin in corpus.read_pins(root):
+        counts = report.pages.setdefault(pin.page, PageCounts())
+        counts.pins += 1
+        missing = missing_letters(pin, alphabet)
         if missing:
+            counts.blocked += 1
+            report.skipped["pins with a letter the alphabet switch leaves out"] += 1
             report.blocked_by.update(missing)
             if len(missing) == 1:
                 report.sole_blocker.update(missing)
             continue
-        in_scope.append(pin)
-    report.pins_in_scope = len(in_scope)
-
-    shaper = Shaper(font_path)
-    classifier = JunctionClassifier(font_path)
-    for pin in in_scope:
-        _check_pin(spec, shaper, classifier, pin, report)
+        outcome = check.check_pin(fonts, pin, {"junior": JUNIOR_SKIP_REASON})
+        counts.junior_runs_skipped += len(outcome.skipped_runs)
+        if outcome.skipped_runs:
+            report.skipped[f"Junior runs: {JUNIOR_SKIP_REASON}"] += len(outcome.skipped_runs)
+        if outcome.checked_runs == 0:
+            continue
+        counts.checked += 1
+        report.pins_in_scope += 1
+        report.replayed += 1
+        status = outcome.status
+        if status == "pass":
+            counts.passed += 1
+        elif status == "fail":
+            counts.failed += 1
+            report.disagreements.append(_line(pin, outcome.message()))
+        elif status == "invalid":
+            counts.invalid += 1
+            report.disagreements.append(_line(pin, outcome.message()))
+        elif status == "pending":
+            counts.pending += 1
+            report.pending.append(_line(pin, f"pending ({pin.pending})"))
+        else:
+            counts.pending_passing += 1
+            report.pending_passing.append(
+                _line(pin, f"passes, but carries {corpus.PENDING_ATTRIBUTE}={pin.pending!r}")
+            )
     return report
 
 
@@ -294,15 +139,13 @@ def summarize(report: ManualPinReport, blocker_limit: int = 10) -> dict:
         for cp, count in report.blocked_by.most_common(blocker_limit)
     ]
     return {
-        "pins_eligible": report.pins_eligible,
         "pins_in_scope": report.pins_in_scope,
-        "skipped_config": report.skipped_config,
         "replayed": report.replayed,
-        "junction_assertions": report.junction_assertions,
-        "identity_assertions": report.identity_assertions,
-        "trait_assertions": report.trait_assertions,
-        "variant_assertions_skipped": report.variant_assertions_skipped,
-        "disagreements": [f"{d.source} [{d.config}] {d.expect!r}: {d.detail}" for d in report.disagreements],
+        "pages": {page: counts.as_dict() for page, counts in report.pages.items()},
+        "skipped": dict(sorted(report.skipped.items())),
+        "disagreements": list(report.disagreements),
+        "pending": list(report.pending),
+        "pending_passing": list(report.pending_passing),
         "top_blocking_letters": blockers,
         "pass": report.passed,
     }

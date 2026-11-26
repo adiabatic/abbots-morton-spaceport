@@ -1,17 +1,13 @@
-"""Helpers that check HarfBuzz shaping of the Senior and Junior fonts against data-expect strings.
+"""The old engine's `data-expect` harness: shapes the old build's Senior and Junior fonts under `site/` and checks a run against the compiled glyph metadata of `glyph_data/quikscript.yaml` (`build_anchor_map`, `_try_interpretation`, `run_shaping_test_runs`).
 
-The root conftest.py collects the data-expect attributes in site/index.html, site/the-manual.html, and site/extra-senior-words.html with `_DataExpectCollector` and checks each one with `run_shaping_test_runs`, which verifies the shaped glyph sequence and its cursive connections.
+The pin suite does not use it: the root conftest checks the `data-expect` pins against the rebuilt fonts through `rebuild/validation/check.py`, and `rebuild/validation/expect.py` and `rebuild/validation/corpus.py` hold the grammar and the collector this module imports. What still imports it reads the old build's glyph names or anchors: the tests in test/test_calt_regressions.py that do, test/quikscript_shaping_helpers.py, and tools/manual_letters_prefill.py.
 """
 
-import re
 import sys
-from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any
 
-import pytest
 import uharfbuzz as hb
-import yaml
 from fontTools.pens.recordingPen import RecordingPen
 from fontTools.ttLib import TTFont
 
@@ -21,376 +17,34 @@ FONT_PATHS = {
     "junior": ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf",
 }
 GLYPH_DATA_DIR = ROOT / "glyph_data"
-PS_NAMES_PATH = ROOT / "postscript_glyph_names.yaml"
 
-sys.path.insert(0, str(ROOT / "tools"))
+for _path in (str(ROOT), str(ROOT / "tools")):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 from build_font import load_glyph_data
 from glyph_compiler import compile_glyph_set
 from quikscript_ir import Anchor, JoinGlyph
 
+from rebuild.validation.corpus import partition_by_runs as _partition_by_runs
+from rebuild.validation.expect import (
+    Connection,
+    ExpectToken,
+    PartitionedRun,
+    Run,
+    parse_expect,
+)
+from rebuild.validation.expect import expand_maybe_ligatures as _expand_maybe_ligatures
+from rebuild.validation.expect import token_char_spans as _token_char_spans
 
-class ExpectToken(TypedDict):
-    base: str
-    lig_base: str | None
-    lig_mode: Literal["maybe", "maybe_break"] | None
-    variants: list[str]
-    neg_variants: list[str]
-    exact_glyph: bool
-
-
-class Connection(TypedDict):
-    kind: Literal["join", "break", "height", "maybe"]
-    y: int | None
-
-
-class Run(TypedDict):
-    font: str
-    text: str
-    features: NotRequired[dict[str, bool]]
-
-
-class PartitionedRun(Run):
-    tokens: list[ExpectToken]
-    connections: list[Connection]
-
+__all__ = ["Connection", "ExpectToken", "PartitionedRun", "Run", "parse_expect"]
 
 AnchorMap = dict[str, dict[str, list[Anchor]]]
 
-
-class _CellInfo(TypedDict):
-    expect: str | None
-    line: int
-    stylistic_set: str | None
-
-
-def _build_char_to_glyph_name() -> dict[str, str]:
-    with open(PS_NAMES_PATH) as f:
-        ps_names = yaml.safe_load(f)
-    result: dict[str, str] = {}
-    for name, codepoint in ps_names.items():
-        result[chr(codepoint)] = name
-    return result
-
-
-_CHAR_TO_GLYPH = _build_char_to_glyph_name()
 _COMPILED_GLYPH_META: dict[str, dict[str, JoinGlyph]] = {}
 _ANCHOR_MAPS: dict[str, tuple[AnchorMap, dict[str, set[int]]]] = {}
 _TT_FONTS: dict[str, TTFont] = {}
 _TT_GLYPH_SETS: dict[str, Any] = {}
 _OUTLINE_SIG_CACHE: dict[tuple[str, str], tuple] = {}
-
-
-# ---------------------------------------------------------------------------
-# data-expect parser
-# ---------------------------------------------------------------------------
-
-TOKEN_RE = re.compile(
-    r"""
-    ·(-ing|J['\u2019]?ai|[A-Z][a-z]*)  # letter name (·Bay, ·-ing, ·J'ai)
-    (?:\+([?|]?)([A-Z][a-z]*))?         # optional ligature partner (+Utter, +?Utter, +|Utter)
-    ((?:\.(?:!?[a-z][-a-z0-9]*|∅))*)    # optional variant assertions (.half.extended, .!exit, .∅)
-    """,
-    re.VERBOSE,
-)
-
-ESCAPE_RE = re.compile(r"\\(.)")
-
-LOZENGE_RE = re.compile(r"◊([A-Za-z]+)")
-LOZENGE_MAP = {
-    "space": "space",
-    "ZWNJ": "space",
-}
-
-CONN_RE = re.compile(r"\s*~([xbt6])~\s*|\s*(\|\?\|)\s*|\s*(\?)\s*|\s*\|\s*")
-
-
-def _letter_to_qs(name: str) -> str:
-    if name == "-ing":
-        return "qsIng"
-    name = name.replace("\u2019", "").replace("'", "")
-    return "qs" + name
-
-
-def parse_expect(raw: str) -> tuple[list[ExpectToken], list[Connection]]:
-    """Parse a data-expect string into tokens and connections, with one connection between each pair of adjacent tokens.
-
-    A token's `lig_mode` is None for a required ligature (`+`), "maybe" for `+?`, and "maybe_break" for `+|`. `variants` and `neg_variants` hold the `.name` and `.!name` assertions. `exact_glyph` is set by `.∅`, which requires the shaped glyph name to be the bare letter or ligature name (`qsTea`, `qsDay_qsEat`).
-
-    A connection's `kind` is "join" for whitespace alone, "height" for `~x~`, `~b~`, `~t~`, or `~6~` (with `y` set to that height), "break" for `|`, "maybe" for `?`, and "break_no_isolation" for `|?|`. A "break_no_isolation" connection fails, as "break" does, when the left glyph exits at a Y where the right glyph enters, but it skips the half-stance check in `_try_interpretation` and the isolation check in `_check_break_isolation`. Use it where the font is meant to change a letter's shape across a non-join, such as removing a cosmetic entry stub.
-    """
-    HEIGHT_MAP = {"x": 5, "b": 0, "t": 8, "6": 6}
-
-    raw = raw.strip()
-    tokens = []
-    connections = []
-    pos = 0
-    first = True
-
-    while pos < len(raw):
-        remaining = raw[pos:]
-
-        if first:
-            remaining = remaining.lstrip()
-            first = False
-        else:
-            conn_m = CONN_RE.match(remaining)
-            if conn_m is None:
-                ws = re.match(r"\s+", remaining)
-                if ws:
-                    connections.append({"kind": "join", "y": None})
-                    pos += ws.end()
-                    remaining = raw[pos:]
-                else:
-                    raise ValueError(f"Expected connection operator at pos {pos}: {remaining!r}")
-            else:
-                if conn_m.group(1):
-                    h = conn_m.group(1)
-                    connections.append({"kind": "height", "y": HEIGHT_MAP[h]})
-                elif conn_m.group(2):
-                    connections.append({"kind": "break_no_isolation", "y": None})
-                elif conn_m.group(3):
-                    connections.append({"kind": "maybe", "y": None})
-                else:
-                    connections.append({"kind": "break", "y": None})
-                pos += conn_m.end()
-                remaining = raw[pos:]
-
-        remaining = remaining.lstrip()
-        pos = len(raw) - len(remaining)
-
-        esc_m = ESCAPE_RE.match(remaining)
-        if esc_m:
-            char = esc_m.group(1)
-            glyph_name = _CHAR_TO_GLYPH.get(char)
-            if glyph_name is None:
-                glyph_name = f"uni{ord(char):04X}"
-            tokens.append(
-                {
-                    "base": glyph_name,
-                    "lig_base": None,
-                    "lig_mode": None,
-                    "variants": [],
-                    "neg_variants": [],
-                    "exact_glyph": False,
-                }
-            )
-            pos += esc_m.end()
-            continue
-
-        loz_m = LOZENGE_RE.match(remaining)
-        if loz_m:
-            key = loz_m.group(1)
-            glyph_name = LOZENGE_MAP.get(key)
-            if glyph_name is None:
-                raise ValueError(f"Unknown lozenge name: ◊{key}")
-            tokens.append(
-                {
-                    "base": glyph_name,
-                    "lig_base": None,
-                    "lig_mode": None,
-                    "variants": [],
-                    "neg_variants": [],
-                    "exact_glyph": False,
-                }
-            )
-            pos += loz_m.end()
-            continue
-
-        tok_m = TOKEN_RE.match(remaining)
-        if tok_m is None:
-            raise ValueError(f"Expected glyph token at pos {pos}: {remaining!r}")
-
-        letter = tok_m.group(1)
-        lig_mode_char = tok_m.group(2)
-        lig_partner = tok_m.group(3)
-        variant_str = tok_m.group(4)
-
-        if lig_partner:
-            lig_mode = {"": None, "?": "maybe", "|": "maybe_break"}[lig_mode_char or ""]
-        else:
-            lig_mode = None
-
-        pos_variants = []
-        neg_variants = []
-        exact_glyph = False
-        if variant_str:
-            for v in variant_str.split("."):
-                if not v:
-                    continue
-                if v == "∅":
-                    if exact_glyph:
-                        raise ValueError(f"Exact glyph assertion .∅ appears more than once in {raw!r}")
-                    exact_glyph = True
-                elif v.startswith("!"):
-                    neg_variants.append(v[1:])
-                else:
-                    pos_variants.append(v)
-        if exact_glyph and (pos_variants or neg_variants):
-            raise ValueError(
-                f"Exact glyph assertion .∅ cannot be combined with other variant assertions in {raw!r}"
-            )
-
-        tokens.append(
-            {
-                "base": _letter_to_qs(letter),
-                "lig_base": _letter_to_qs(lig_partner) if lig_partner else None,
-                "lig_mode": lig_mode,
-                "variants": pos_variants,
-                "neg_variants": neg_variants,
-                "exact_glyph": exact_glyph,
-            }
-        )
-        pos += tok_m.end()
-
-    return tokens, connections
-
-
-# ---------------------------------------------------------------------------
-# HTML collector
-# ---------------------------------------------------------------------------
-
-
-class _DataExpectCollector(HTMLParser):
-    """Collect the data-expect or data-expect-noncanonically attribute of each <td>, <span>, and <dd> element, with the element's text split into runs.
-
-    A run is a stretch of text shaped with one font and one feature set. A `force-junior` descendant starts a Junior run, and a descendant with `data-stylistic-set` starts a run with those stylistic sets. Each run carries the union of the stylistic sets of every descendant still open around it, so text inside a `force-junior` span, or after an inner set closes, keeps an enclosing descendant's sets, and an element with both `force-junior` and `data-stylistic-set` starts a Junior run with its sets. Text outside every `force-junior` descendant is Senior. Only <td>, <span>, and <dd> descendants are tracked, and a data-expect element inside another one is not collected separately.
-    """
-
-    _TAGS = {"td", "span", "dd"}
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.cells: list[tuple[str, str | None, int, str | None, list[Run]]] = []
-        self._open_tags: list[tuple[str, bool, bool, str | None]] = []
-        self._cell_active = False
-        self._cell_info: _CellInfo | None = None
-        self._runs: list[Run] = []
-
-    def _current_font(self) -> str:
-        for _tag, _is_cell, is_junior, _inner_ss in reversed(self._open_tags):
-            if is_junior:
-                return "junior"
-        return "senior"
-
-    def _current_features(self) -> dict[str, bool]:
-        features: dict[str, bool] = {}
-        for _tag, _is_cell, _is_junior, inner_ss in self._open_tags:
-            if inner_ss:
-                features.update({f"ss{ss.zfill(2)}": True for ss in inner_ss.split()})
-        return features
-
-    def _start_run(self) -> None:
-        run: Run = {"font": self._current_font(), "text": ""}
-        features = self._current_features()
-        if features:
-            run["features"] = features
-        self._runs.append(run)
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag not in self._TAGS:
-            return
-        attr_dict = dict(attrs)
-        expect = attr_dict.get("data-expect", attr_dict.get("data-expect-noncanonically"))
-        css_class = attr_dict.get("class", "") or ""
-        is_force_junior = "force-junior" in css_class.split()
-
-        if expect is not None and not self._cell_active:
-            self._cell_active = True
-            self._cell_info = {
-                "expect": expect,
-                "line": self.getpos()[0],
-                "stylistic_set": attr_dict.get("data-stylistic-set"),
-            }
-            self._runs = [{"font": "senior", "text": ""}]
-            self._open_tags.append((tag, True, False, None))
-            return
-
-        if self._cell_active:
-            inner_ss = attr_dict.get("data-stylistic-set")
-            self._open_tags.append((tag, False, is_force_junior, inner_ss))
-            if is_force_junior or inner_ss:
-                self._start_run()
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag not in self._TAGS or not self._open_tags:
-            return
-        open_tag, is_cell_start, was_force_junior, was_inner_ss = self._open_tags[-1]
-        if open_tag != tag:
-            return
-        self._open_tags.pop()
-
-        if not self._cell_active:
-            return
-
-        if is_cell_start:
-            non_empty: list[Run] = []
-            for r in self._runs:
-                text = r["text"].strip()
-                if not text:
-                    continue
-                entry: Run = {"font": r["font"], "text": text}
-                features = r.get("features")
-                if features:
-                    entry["features"] = features
-                non_empty.append(entry)
-            if not non_empty:
-                non_empty = [{"font": "senior", "text": ""}]
-            full_text = "".join(r["text"] for r in self._runs).strip()
-            assert self._cell_info is not None
-            self.cells.append(
-                (
-                    full_text,
-                    self._cell_info["expect"],
-                    self._cell_info["line"],
-                    self._cell_info["stylistic_set"],
-                    non_empty,
-                )
-            )
-            self._cell_active = False
-            self._cell_info = None
-            self._runs = []
-        elif was_force_junior or was_inner_ss:
-            self._start_run()
-
-    def handle_data(self, data: str) -> None:
-        if self._cell_active:
-            self._runs[-1]["text"] += data
-
-
-@pytest.mark.parametrize(
-    ("inner", "expected"),
-    [
-        (
-            'A<span class="force-junior">B</span>C',
-            [
-                {"font": "senior", "text": "A", "features": {"ss10": True}},
-                {"font": "junior", "text": "B", "features": {"ss10": True}},
-                {"font": "senior", "text": "C", "features": {"ss10": True}},
-            ],
-        ),
-        (
-            'A<span data-stylistic-set="02">B</span>C',
-            [
-                {"font": "senior", "text": "A", "features": {"ss10": True}},
-                {"font": "senior", "text": "B", "features": {"ss10": True, "ss02": True}},
-                {"font": "senior", "text": "C", "features": {"ss10": True}},
-            ],
-        ),
-        (
-            'A<span class="force-junior" data-stylistic-set="02">B</span>C',
-            [
-                {"font": "senior", "text": "A", "features": {"ss10": True}},
-                {"font": "junior", "text": "B", "features": {"ss10": True, "ss02": True}},
-                {"font": "senior", "text": "C", "features": {"ss10": True}},
-            ],
-        ),
-    ],
-)
-def test_collector_keeps_enclosing_stylistic_set_on_nested_runs(inner: str, expected: list[Run]) -> None:
-    collector = _DataExpectCollector()
-    collector.feed(f'<span data-expect="x"><span data-stylistic-set="10">{inner}</span></span>')
-    collector.close()
-    assert [cell[4] for cell in collector.cells] == [expected]
 
 
 # ---------------------------------------------------------------------------
@@ -469,57 +123,6 @@ def _expected_exact_glyph_name(tok: ExpectToken) -> str:
     if tok["lig_base"]:
         return f"{tok['base']}_{tok['lig_base']}"
     return tok["base"]
-
-
-# ---------------------------------------------------------------------------
-# Maybe-ligature expansion
-# ---------------------------------------------------------------------------
-
-
-def _expand_maybe_ligatures(
-    tokens: list[ExpectToken], connections: list[Connection]
-) -> list[tuple[list[ExpectToken], list[Connection]]]:
-    maybe_indices = [i for i, tok in enumerate(tokens) if tok.get("lig_mode") in ("maybe", "maybe_break")]
-    if not maybe_indices:
-        return [(tokens, connections)]
-
-    from itertools import product
-
-    interpretations = []
-    for combo in product([True, False], repeat=len(maybe_indices)):
-        maybe_map = dict(zip(maybe_indices, combo))
-        new_tokens = []
-        new_connections = []
-        for i, tok in enumerate(tokens):
-            if i > 0:
-                new_connections.append(connections[i - 1])
-            if i in maybe_map and not maybe_map[i]:
-                conn_kind = "maybe" if tok["lig_mode"] == "maybe" else "break"
-                new_tokens.append(
-                    {
-                        "base": tok["base"],
-                        "lig_base": None,
-                        "lig_mode": None,
-                        "variants": [],
-                        "neg_variants": [],
-                        "exact_glyph": False,
-                    }
-                )
-                new_connections.append({"kind": conn_kind, "y": None})
-                new_tokens.append(
-                    {
-                        "base": tok["lig_base"],
-                        "lig_base": None,
-                        "lig_mode": None,
-                        "variants": [],
-                        "neg_variants": [],
-                        "exact_glyph": False,
-                    }
-                )
-            else:
-                new_tokens.append({**tok, "lig_mode": None})
-        interpretations.append((new_tokens, new_connections))
-    return interpretations
 
 
 # ---------------------------------------------------------------------------
@@ -681,49 +284,6 @@ def run_shaping_test(
 # ---------------------------------------------------------------------------
 # Multi-run test runner
 # ---------------------------------------------------------------------------
-
-
-def _token_input_char_count(tok: ExpectToken) -> int:
-    """Return the number of input characters the token covers, not counting variation selectors: two for a ligature, one otherwise."""
-    if tok.get("lig_base"):
-        return 2
-    return 1
-
-
-def _is_modifier_char(c: str) -> bool:
-    """Return whether `c` is a variation selector (U+FE00 to U+FE0F), which attaches to the character before it instead of forming a token."""
-    return 0xFE00 <= ord(c) <= 0xFE0F
-
-
-def _token_char_spans(text: str, tokens: list[ExpectToken]) -> list[tuple[int, int]]:
-    """Return one half-open `(start, end)` character range per token in `text`.
-
-    Each range covers the token's characters and the variation selectors after its last one. Raises ValueError when `text` runs out before the last token ends or has characters left over.
-    """
-    spans: list[tuple[int, int]] = []
-    char_idx = 0
-    for tok in tokens:
-        while char_idx < len(text) and _is_modifier_char(text[char_idx]):
-            char_idx += 1
-        if char_idx >= len(text):
-            raise ValueError(f"Not enough input chars for token {tok!r} at char {char_idx}")
-        start = char_idx
-        base = _token_input_char_count(tok)
-        consumed = 0
-        while consumed < base:
-            if char_idx >= len(text):
-                raise ValueError(f"Token {tok!r} overruns text at char {char_idx}")
-            if _is_modifier_char(text[char_idx]):
-                char_idx += 1
-                continue
-            char_idx += 1
-            consumed += 1
-        while char_idx < len(text) and _is_modifier_char(text[char_idx]):
-            char_idx += 1
-        spans.append((start, char_idx))
-    if char_idx != len(text):
-        raise ValueError(f"Text not fully consumed by tokens: used {char_idx} of " f"{len(text)} chars")
-    return spans
 
 
 def _shape_text_glyph_names(
@@ -898,76 +458,6 @@ def _check_break_isolation(
                 "contextual lookup is leaking across the break."
             )
     return None
-
-
-def _partition_by_runs(
-    runs: list[Run], tokens: list[ExpectToken], connections: list[Connection]
-) -> list[PartitionedRun]:
-    """Split `tokens` and `connections` among `runs`, returning one PartitionedRun per run.
-
-    Each token goes to the run that holds its characters, and a variation selector goes with the token before it. A connection between tokens in different runs is dropped, because each run is shaped separately. Raises ValueError when a token straddles two runs, a run's tokens are not contiguous, or the characters and tokens don't line up.
-    """
-    full_text = ""
-    run_for_char = []
-    for run_idx, run in enumerate(runs):
-        for _ in run["text"]:
-            run_for_char.append(run_idx)
-        full_text += run["text"]
-
-    token_to_run = []
-    char_idx = 0
-    for tok in tokens:
-        base = _token_input_char_count(tok)
-        while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
-            char_idx += 1
-        if char_idx >= len(full_text):
-            raise ValueError(f"Not enough input chars for token {tok!r} at char {char_idx}")
-        token_run = run_for_char[char_idx]
-        consumed = 0
-        while consumed < base:
-            if char_idx >= len(full_text):
-                raise ValueError(f"Token {tok!r} overruns text at char {char_idx}")
-            c = full_text[char_idx]
-            if _is_modifier_char(c):
-                char_idx += 1
-                continue
-            if run_for_char[char_idx] != token_run:
-                raise ValueError(f"Token {tok!r} straddles run boundary at char {char_idx}")
-            char_idx += 1
-            consumed += 1
-        while char_idx < len(full_text) and _is_modifier_char(full_text[char_idx]):
-            char_idx += 1
-        token_to_run.append(token_run)
-
-    if char_idx != len(full_text):
-        raise ValueError(f"Run text not fully consumed: used {char_idx} of " f"{len(full_text)} chars")
-
-    slices: list[PartitionedRun] = []
-    for run_idx, run in enumerate(runs):
-        tok_indices = [i for i, r in enumerate(token_to_run) if r == run_idx]
-        if not tok_indices:
-            run_tokens: list[ExpectToken] = []
-            run_conns: list[Connection] = []
-        else:
-            run_tokens = [tokens[i] for i in tok_indices]
-            run_conns = []
-            for i in range(len(tok_indices) - 1):
-                if tok_indices[i + 1] != tok_indices[i] + 1:
-                    raise ValueError(
-                        f"Non-contiguous tokens in run {run_idx}: " f"{tok_indices[i]} -> {tok_indices[i+1]}"
-                    )
-                run_conns.append(connections[tok_indices[i]])
-        sl: PartitionedRun = {
-            "font": run["font"],
-            "text": run["text"],
-            "tokens": run_tokens,
-            "connections": run_conns,
-        }
-        run_features = run.get("features")
-        if run_features:
-            sl["features"] = run_features
-        slices.append(sl)
-    return slices
 
 
 def run_shaping_test_runs(

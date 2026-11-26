@@ -23,11 +23,11 @@ from rebuild.pipeline import fingerprint, kernel_exec, kernel_io
 from rebuild.pipeline.labels import load_alias_map
 from rebuild.pipeline.model import CellId
 from rebuild.review.audit import ACCEPTANCE_CONFIGS
-from rebuild.review.drafts import _import_test_shaping
 from rebuild.review.enrich import load_spec
 from rebuild.review.ink import EMPTY_OUTLINE_KEY, OutlineCache, OutlineIntern, junior_tracking
 from rebuild.review.subset_pack import PACK_FORMAT, PACKER_DIGEST, table_digests
 from rebuild.validation.classify import JunctionClassifier
+from rebuild.validation.expect import CHAR_TO_GLYPH
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CRATE = REPO_ROOT / "rebuild" / "review-rs"
@@ -154,7 +154,7 @@ def init_values(init: Mapping[str, Any]) -> dict[str, Any]:
         "identical_classes": frozenset(init["identical_classes"]),
         "corpus_index": dict(init["corpus_index"]),
         "rune_schema": _path_text(repo_root / "rebuild" / "schema" / "rune.schema.json"),
-        "glyph_names_by_char": dict(_import_test_shaping()._CHAR_TO_GLYPH),
+        "glyph_names_by_char": dict(CHAR_TO_GLYPH),
         "vocabulary": vocabulary(),
     }
 

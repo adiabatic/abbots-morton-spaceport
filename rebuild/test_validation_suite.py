@@ -19,6 +19,7 @@ from fontTools.ttLib import TTFont
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from validation.classify import JunctionClassifier
+from validation.expect import parse_expect
 from validation.pins import PinRun, ReplayReport, check_pin, collect_pin_runs
 from validation.rowmodel import (
     ALPHABET,
@@ -167,10 +168,7 @@ def test_config_token_for_features() -> None:
 
 
 def _synthetic_pin(expect: str, text: str) -> PinRun:
-    from validation.pins import _import_test_shaping
-
-    ts = _import_test_shaping()
-    tokens, connections = ts.parse_expect(expect)
+    tokens, connections = parse_expect(expect)
     return PinRun(
         source="synthetic",
         expect=expect,
@@ -198,15 +196,27 @@ def test_check_pin_records_disagreement(shaper: Shaper, classifier: JunctionClas
     assert "expected y5" in report.disagreements[0].detail
 
 
+# The pins that restate a ruling the runes carry and the old font lacks, as (page, expect): ·I·Tea reaching the x-height under ss03 rather than ss02 (commit 97ccd2a0), and ·Vie·Utter drawn as two joined letters rather than a ligature. The old-font replay disagrees with exactly these, and retires with the comparison against the old font (rebuild/CUTOVER-PLAN.md, stage 4).
+RULINGS_THE_OLD_FONT_LACKS = frozenset(
+    {
+        ("site/the-manual.html", "·May ~b~ ·I ~x~ ·Tea.!half"),
+        ("site/the-manual.html", "·Roe ~b~ ·I ~x~ ·Tea ~b~ ·-ing ~b~ ·Zoo.half"),
+        ("site/the-manual.html", "·Roe ~b~ ·I ~x~ ·Tea.!half"),
+        ("site/extra-senior-words.html", "·Owe | ·Vie ~b~ ·Utter ~x~ ·Roe ~b~ ·Low | ·At ~x~ ·No ~x~ ·Day"),
+    }
+)
+
+
 def test_full_corpus_replay_live(shaper: Shaper, classifier: JunctionClassifier) -> None:
     report = ReplayReport()
     pins = collect_pin_runs(report)
     assert report.cells_total > 500
     assert len(pins) > 450
-    assert {pin.config_token for pin in pins} >= {"default", "ss02", "ss03"}
+    assert {pin.config_token for pin in pins} >= {"default", "ss03"}
     for pin in pins:
         check_pin(shaper, classifier, pin, report)
-    assert report.disagreements == []
+    disagreeing = {(d.source.rsplit(":", 1)[0], d.expect) for d in report.disagreements}
+    assert disagreeing == RULINGS_THE_OLD_FONT_LACKS
 
 
 def test_determinism_sample_emit_is_stable() -> None:

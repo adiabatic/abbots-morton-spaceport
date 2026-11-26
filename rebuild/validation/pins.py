@@ -1,6 +1,6 @@
 """Corpus-pin replay per rebuild/baseline/README.md (Validation).
 
-Collects every data-expect run from the corpora in `CORPUS_FILES` with the test suite's collector and parser (imported read-only from test/test_shaping.py). Keeps the Senior runs whose text is inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the baseline configurations (`rowmodel.CONFIGS`). Replays each pin's per-junction expectations against this suite's own shaping and junction classification. The test suite already checks these pins against the same font, so a disagreement is treated as a validation-suite bug until shown otherwise.
+Collects every data-expect run from the corpora in `CORPUS_FILES` with the corpus collector and the grammar (`rebuild/validation/corpus.py`, `rebuild/validation/expect.py`). Keeps the Senior runs whose text is inside the 47-symbol basis alphabet and whose stylistic-set configuration is one of the baseline configurations (`rowmodel.CONFIGS`). Replays each pin's per-junction expectations against the old build's Senior with this suite's own shaping and junction classification. The pins describe the rebuild, which the suite checks them against (`rebuild/validation/check.py`), so the pins that restate a ruling the rebuild carries and the old font lacks disagree here (`rebuild/test_validation_suite.py` lists them).
 
 Nothing here reads a baseline table. A table row is a pure function of the font bytes, the alphabet, and the extractor code, and `rebuild.pipeline.baseline_subset.check_font_provenance`, which runs on every `ensure_fresh`, checks each table header's `font_sha256` against the font that header names. So a live shaping and a table row describe the same font.
 
@@ -9,12 +9,13 @@ Only the `half` and `alt` variant assertions are replayed, because those traits 
 
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Collection
+from typing import Collection
 
 from .classify import JunctionClassifier
+from .corpus import DataExpectCollector, partition_by_runs
+from .expect import Connection, ExpectToken, expand_maybe_ligatures, parse_expect, token_char_spans
 from .rowmodel import (
     ALPHABET_SET,
     CONFIGS,
@@ -27,20 +28,6 @@ from .shaping import Shaper, last_glyph_covering, row_for
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 CORPUS_FILES = ("site/index.html", "site/the-manual.html", "site/extra-senior-words.html")
 
-_test_shaping: Any = None
-
-
-def _import_test_shaping() -> Any:
-    global _test_shaping
-    if _test_shaping is None:
-        test_dir = str(REPO_ROOT / "test")
-        if test_dir not in sys.path:
-            sys.path.insert(0, test_dir)
-        import test_shaping
-
-        _test_shaping = test_shaping
-    return _test_shaping
-
 
 @dataclass(frozen=True)
 class PinRun:
@@ -49,8 +36,8 @@ class PinRun:
     text: str
     config_token: str
     features: dict[str, bool]
-    tokens: tuple[dict, ...]
-    connections: tuple[dict, ...]
+    tokens: tuple[ExpectToken, ...]
+    connections: tuple[Connection, ...]
 
 
 @dataclass
@@ -86,21 +73,21 @@ class ReplayReport:
 
 
 def collect_pin_runs(report: ReplayReport, *, configs: Collection[str] = CONFIGS) -> list[PinRun]:
-    ts = _import_test_shaping()
     pin_runs: list[PinRun] = []
     for rel in CORPUS_FILES:
         path = REPO_ROOT / rel
-        collector = ts._DataExpectCollector()
+        collector = DataExpectCollector()
         collector.feed(path.read_text(encoding="utf-8"))
-        for _text, expect, line, stylistic_set, runs in collector.cells:
+        for cell in collector.cells:
+            expect, line, stylistic_set, runs = cell.expect, cell.line, cell.stylistic_set, cell.runs
             if not expect or not expect.strip():
                 continue
             report.cells_total += 1
-            tokens, connections = ts.parse_expect(expect)
+            tokens, connections = parse_expect(expect)
             cell_features = (
                 {f"ss{ss.zfill(2)}": True for ss in stylistic_set.split()} if stylistic_set else {}
             )
-            slices = ts._partition_by_runs(runs, tokens, connections)
+            slices = partition_by_runs(runs, tokens, connections)
             for sl in slices:
                 if not sl["text"]:
                     continue
@@ -130,7 +117,7 @@ def collect_pin_runs(report: ReplayReport, *, configs: Collection[str] = CONFIGS
     return pin_runs
 
 
-def _expected_base(token: dict) -> str:
+def _expected_base(token: ExpectToken) -> str:
     if token["lig_base"]:
         return f"{token['base']}_{token['lig_base']}"
     return token["base"]
@@ -138,14 +125,13 @@ def _expected_base(token: dict) -> str:
 
 def _check_interpretation(
     text: str,
-    tokens: list[dict],
-    connections: list[dict],
+    tokens: list[ExpectToken],
+    connections: list[Connection],
     row: Row,
     report: ReplayReport,
 ) -> tuple[str | None, int, int, int]:
     """Check one expansion of a pin's maybe-ligatures against a shaped row, and return (first failure or None, junction assertions checked, identity assertions checked, variant assertions skipped)."""
-    ts = _import_test_shaping()
-    spans = ts._token_char_spans(text, tokens)
+    spans = token_char_spans(text, tokens)
     junction_checks = 0
     identity_checks = 0
     variant_skips = 0
@@ -243,9 +229,8 @@ def _check_interpretation(
 
 
 def check_pin(shaper: Shaper, classifier: JunctionClassifier, pin: PinRun, report: ReplayReport) -> Row:
-    ts = _import_test_shaping()
     row = row_for(shaper, classifier, pin.text, pin.features or None)
-    interpretations = ts._expand_maybe_ligatures(list(pin.tokens), list(pin.connections))
+    interpretations = expand_maybe_ligatures(list(pin.tokens), list(pin.connections))
     errors: list[str] = []
     for tokens, connections in interpretations:
         try:

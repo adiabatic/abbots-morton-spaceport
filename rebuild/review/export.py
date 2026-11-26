@@ -91,12 +91,11 @@ def load_verdicts(path: Path) -> dict:
 
 
 def _reparse_status(expect: str) -> str:
-    """Return "pass" or "fail: <error>" from running `parse_expect` in `test/test_shaping.py` on an expect string, or "unavailable" when that module cannot be imported or the parser raises anything other than ValueError."""
+    """Return "pass" or "fail: <error>" from running the grammar's `parse_expect` (`rebuild/validation/expect.py`) on an expect string, or "unavailable" when that module cannot be imported or the parser raises anything other than ValueError."""
     try:
-        from rebuild.review.drafts import _import_test_shaping
+        from rebuild.validation.expect import parse_expect
 
-        ts = _import_test_shaping()
-        ts.parse_expect(expect)
+        parse_expect(expect)
         return "pass"
     except ValueError as error:
         return f"fail: {error}"

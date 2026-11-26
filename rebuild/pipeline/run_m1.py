@@ -55,6 +55,7 @@ from rebuild.pipeline import (
     emit_gsub,
     fingerprint,
     geometry,
+    glyph_facts,
     kern,
     kern_inventory,
     kernel_exec,
@@ -1473,7 +1474,7 @@ def _run_glyph_chain(
     commit: str | None,
     inventory_inputs: str | None = None,
 ) -> dict:
-    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`, and the namer dot's mid-word glyphs from `compile_font.FontSources.midword_glyphs`), the compile of Regular and Bold with the non-Quikscript part of glyph_data/ (`compile_font.load_font_sources`) and read-back of both, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it), the kerning view's inventory when `inventory_inputs` names the tables' stamp (`kern_inventory.write_inventory`, which keeps a `kern-inventory.json` already stamped for these tables and Manual pages, and otherwise settles its witnesses through the kernel and checks them against the font just compiled), and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
+    """Run the glyph chain over one build's tables: minting, the kern stage (`kern.run_stage`, which writes `kern.tsv` and raises on `E-KERN-UNMATCHED`, `E-KERN-INCOMPARABLE`, `E-KERN-NARROWER` or a broken break invariant), the defect gates with every kerned break at its kerned offset, the feature emission (the kern lookup from `emit_gpos.kern_plan`, and the namer dot's mid-word glyphs from `compile_font.FontSources.midword_glyphs`), the compile of Regular and Bold with the non-Quikscript part of glyph_data/ (`compile_font.load_font_sources`) and read-back of both, then write `kern-classes.json` (`kern.write_classes`, once read-back has passed, so it always describes the font beside it) and the glyph-facts sidecar the `data-expect` checker reads (`glyph_facts.publish`, which holds it to the compiled font's glyph order), the kerning view's inventory when `inventory_inputs` names the tables' stamp (`kern_inventory.write_inventory`, which keeps a `kern-inventory.json` already stamped for these tables and Manual pages, and otherwise settles its witnesses through the kernel and checks them against the font just compiled), and `pipeline_summary.json`. It reads the spec and the tables and writes nothing the table-only branch reads; `kern_only_run` runs it alone over the tables on disk. The `[t] readback` line carries `readback_tokens` for `commit`, the commit `run` took before the build read its inputs, and is printed before a failed read-back raises, so a build that falls through the headroom floor still records its figures."""
     console.phase("glyph_minting")
     start = time.perf_counter()
     cell_glyphs = mint_cell_glyphs(spec, tables)
@@ -1557,6 +1558,15 @@ def _run_glyph_chain(
             f"{readback_report['divergence_count']} read-back divergence(s) between the compiled font and the plan; see {out_dir / 'readback_summary.json'}"
         )
     kern.write_classes(kern_resolution, cell_glyphs, out_dir)
+    glyph_facts.publish(
+        out_dir,
+        font_path,
+        spec,
+        cell_glyphs,
+        {**bare, **copies, **cosmetic},
+        variation.glyphs,
+        (dot.name for dot in dots.values()),
+    )
     if inventory_inputs is not None:
         console.phase("kern_inventory")
         start = time.perf_counter()
@@ -2532,7 +2542,7 @@ def _publish_kern_only(staging: Path, summary: dict) -> dict:
 
 
 def kern_only_run(*, started: float) -> None:
-    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks or the font's non-Quikscript data (`artifact_cycle.kern_only_rebuild`, `fingerprint.font_data_lines`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, and the font data reaches only the glyphs and features no Quikscript text reaches, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, `behavior_classes.json`, M1.otf, M1-Bold.otf and `pipeline_summary.json`. It builds no kern inventory: `kern-inventory.json` depends on no `kern` block (`kern_inventory`), and the staged publish moves only the files the chain wrote, so the build's inventory stays in place. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
+    """Run `python -m rebuild.pipeline.run_m1 --kern-only`: recompile the font over the tables on disk after an edit that moved only runes' `kern` blocks or the font's non-Quikscript data (`artifact_cycle.kern_only_rebuild`, `fingerprint.font_data_lines`). A kern block reaches no table (the spec dump leaves it out), no settlement, no oracle row and no review unit, and the font data reaches only the glyphs and features no Quikscript text reaches, so this runs the glyph chain alone (`_run_glyph_chain`): the kern stage, the defect gates at the kerned offsets, the emission, the compile and read-back, which give `kern.tsv`, `kern-classes.json`, the glyph-facts sidecar (`glyph_facts.FILE_NAME`), `behavior_classes.json`, M1.otf, M1-Bold.otf and `pipeline_summary.json`. It builds no kern inventory: `kern-inventory.json` depends on no `kern` block (`kern_inventory`), and the staged publish moves only the files the chain wrote, so the build's inventory stays in place. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle do not run: their summaries stand beside the new font.
 
     It stands on the Stage A record, which it carries forward and never writes. It refuses unless the record under `OUT_DIR` matches the sources on disk before it reads anything else (`artifact_cycle.m1_stage_a_current`): a run writes that record only once its gates pass, and every run that rewrites the gate summaries or the audit deletes it first, so a matching record shows that the Manual-pin and oracle summaries and the audit beside it are a passing run's over these Stage A inputs. Without it those summaries may be a red rerun's, or the audit may describe other sources, and only a full build can say. It also reads the build a `--gates-only` pass reads and refuses the same way (`run_m1_gates.gates_only_base`), and refuses when either summary does not read.
 

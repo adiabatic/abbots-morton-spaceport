@@ -873,6 +873,9 @@ CORPUS_UNREAD_CODE = (
     "rebuild/pipeline/explain.py",
     "rebuild/pipeline/fixtures.py",
     "rebuild/pipeline/geometry.py",
+    "rebuild/pipeline/glyph_facts.py",
+    "rebuild/validation/check.py",
+    "rebuild/validation/corpus.py",
     "rebuild/validation/pins.py",
     "rebuild/kernel-rs/src/fixpoint.rs",
     "rebuild/kernel-rs/src/fold.rs",
@@ -938,21 +941,23 @@ def test_both_store_stamps_survive_a_pipeline_or_crate_edit_the_corpus_never_rea
         previous = current
 
 
-def test_the_unit_store_survives_an_edit_to_a_tools_script_the_drafts_never_import(tmp_path):
-    """The `draft_harness` line hashes test/test_shaping.py and the tools/ modules it imports (`fingerprint.font_compile_tool_paths`, whose closure rebuild/test_build_code_closure.py checks), not the whole tools/ directory. So an edit to an old-font script no draft imports leaves the unit store's stamp as it was, and an edit to a font-compile module moves it at `draft_harness` alone, the label the crate's miss note names. The root is hand-built so the edits are to real files and the assertions are about the line, not this checkout."""
+def test_the_unit_store_survives_an_edit_to_a_tools_module_and_moves_on_the_grammars_glyph_names(tmp_path):
+    """The `draft_harness` line hashes the `data-expect` grammar and the glyph-name map it reads (`fingerprint.draft_harness_paths`), and the corpus build reaches no tools/ module (rebuild/test_build_code_closure.py checks both). So an edit to a tools/ module, an old-font script or a font-compile module alike, leaves the unit store's stamp as it was, and an edit to postscript_glyph_names.yaml moves it at `draft_harness` alone, the label the crate's miss note names. The root is hand-built so the edits are to real files and the assertions are about the line, not this checkout."""
     spec = fixtures.mini_spec()
     root = _stamped_root(tmp_path)
-    for relative in ("tools/serve.py", "tools/glyph_compiler.py"):
+    for relative in ("tools/serve.py", "tools/glyph_compiler.py", "rebuild/validation/expect.py"):
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         (root / relative).write_text(f"RELATIVE = {relative!r}\n", encoding="utf-8")
+    (root / "postscript_glyph_names.yaml").write_text("qsPea: 58960\n", encoding="utf-8")
 
     def stamp() -> fingerprint.EnvironmentStamp:
         return _both_stamps(root, spec)[0]
 
     base = stamp()
     _edit(root, "tools/serve.py")
-    assert stamp().value == base.value
     _edit(root, "tools/glyph_compiler.py")
+    assert stamp().value == base.value
+    (root / "postscript_glyph_names.yaml").write_text("qsPea: 58960\nqsBay: 58961\n", encoding="utf-8")
     edited = stamp()
     assert edited.value != base.value
     assert fingerprint.moved_note(base.labels, edited.labels) == "draft_harness (changed)"

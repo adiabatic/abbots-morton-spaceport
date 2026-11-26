@@ -625,7 +625,7 @@ def _open(path):
 
 
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
-    """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs all of rebuild/pipeline/ and rebuild/validation/, and `COMPARISON_CODE_MODULES` is the only subtraction, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
+    """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs rebuild/pipeline/ and rebuild/validation/ (less `VALIDATION_UNBUILT_MODULES`), and `COMPARISON_CODE_MODULES` is the only subtraction `table_code_paths` makes, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
     root = _fake_repo(tmp_path)
     for name in ("oracle.py", "oracle_positions.py"):
         assert root / "rebuild" / "pipeline" / name not in fingerprint.table_code_paths(root)
@@ -699,7 +699,7 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
 
 
 def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
-    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the corpus's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.corpus_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the corpus build nor the comparator runs it. The unit store's stamp still sees an edit to this closure through its draft-harness line, which hashes `fingerprint.font_compile_tool_paths`, and the manifest's `draft_inputs` component sees it through the same line."""
+    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the corpus's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.corpus_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the corpus build nor the comparator runs it, and the draft-harness line, which the unit store's stamp and the manifest's `draft_inputs` component carry, hashes only the `data-expect` grammar and the glyph-name map, so neither moves either."""
     root = _fake_repo(tmp_path)
     for name in ("build_font.py", "glyph_compiler.py"):
         assert root / "tools" / name in fingerprint.pipeline_code_paths(root)
@@ -709,7 +709,7 @@ def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_pat
     before_run = artifact_cycle.run_m1_skip_fingerprint(root)
     (root / "tools" / "build_font.py").write_text("BUILD_FONT = 2\n")
     after = fingerprint.compute_all(root)
-    moved = ("pipeline_code", "draft_inputs")
+    moved = ("pipeline_code",)
     assert all(after[key] != before[key] for key in moved)
     assert {key: after[key] for key in fingerprint.COMPONENTS if key not in moved} == {
         key: before[key] for key in fingerprint.COMPONENTS if key not in moved

@@ -30,7 +30,7 @@ typecheck:
 prettier:
 	uv run black -q .
 
-# Runs the font suite through rebuild/tools/make_test_gate.py, and pyright with it; each skips when nothing it reads has changed since its last green run (the wrapper's module docstring, rebuild/tools/pyright_gate.py). FORCE=1 runs both regardless, and the `typecheck` target runs pyright alone.
+# Runs the font suite through rebuild/tools/make_test_gate.py, and pyright with it; each skips when nothing it reads has changed since its last green run (the wrapper's module docstring, rebuild/tools/pyright_gate.py). FORCE=1 runs both regardless, and the `typecheck` target runs pyright alone. The suite's old-engine tests read the fonts `all` builds under site/; its data-expect pins and any-of regression checks read the rebuilt Senior and Junior, which its session builds into rebuild/out/fonts/ through rebuild-fonts' command first, and it fails, naming the build command, while the rebuild's Senior is stale.
 test:
 	AMS_RUN_PYRIGHT=$(if $(FORCE),force,1) uv run python -m rebuild.tools.make_test_gate $(if $(FORCE),--force)
 

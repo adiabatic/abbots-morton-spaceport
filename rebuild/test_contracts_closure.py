@@ -117,8 +117,8 @@ def synthetic_tree(tmp_path: Path) -> Path:
     _write(tmp_path, "pkg/typed.py")
     _write(tmp_path, "pkg/lazy.py", "import sib\n")
     _write(tmp_path, "pkg/sib.py")
-    _write(tmp_path, "test/test_shaping.py")
-    _write(tmp_path, "x.py", "import test_shaping\n")
+    _write(tmp_path, "tools/build_font.py")
+    _write(tmp_path, "x.py", "import build_font\n")
     _write(tmp_path, "broken.py", "def (\n")
     return tmp_path
 
@@ -137,7 +137,7 @@ class TestStaticImportClosure:
         }
 
     def test_a_bare_name_resolves_against_the_sibling_roots(self, synthetic_tree: Path):
-        assert cc.ImportGraph(synthetic_tree).closure("x.py") == {"x.py", "test/test_shaping.py"}
+        assert cc.ImportGraph(synthetic_tree).closure("x.py") == {"x.py", "tools/build_font.py"}
 
     def test_a_file_that_does_not_parse_is_its_own_closure(self, synthetic_tree: Path):
         assert cc.ImportGraph(synthetic_tree).closure("broken.py") == {"broken.py"}
@@ -1010,7 +1010,10 @@ CONFTEST_EDGES = {
         "rebuild/tools/peak_rss.py",
         "rebuild/tools/pyright_gate.py",
         "rebuild/tools/site_fonts.py",
-        "test/test_shaping.py",
+        "rebuild/tools/suite_fonts.py",
+        "rebuild/validation/__init__.py",
+        "rebuild/validation/check.py",
+        "rebuild/validation/corpus.py",
     },
     "rebuild/conftest.py": {
         "rebuild/tools/closure_record.py",

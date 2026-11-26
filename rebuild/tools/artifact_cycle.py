@@ -16,19 +16,19 @@ The pass reads the write meter (`rebuild.tools.write_meter`) as it starts, once 
 
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. run_m1's CLI prints the result on a `[check]` line instead (`console.CHECK`), which this driver files when the summaries a run_m1 or gate:conform child left do not say why it stopped (`_reported_red`). Each check invocation gets one line.
 
-gate:js and gate:make-test depend on no build artifact, so they start at t=0 in a small thread pool while the build steps run in sequence in the main thread, all but the corpus build's tail: once the build has closed its review-facts phase, it writes only its unit store and joins its ink-signature store's write, and nothing before the land reads either store, so the driver runs store-snapshot and the verdict update beside that write and joins the build before the land (`_do_corpus_build`, `_HeldCorpusBuild`). gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's processes at `corpus_job_budget`'s width, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build's units pool has finished, so that pool finds the gate lane idle, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
+gate:js depends on no build artifact, so it starts at t=0 in a small thread pool while the build steps run in sequence in the main thread, all but the corpus build's tail: once the build has closed its review-facts phase, it writes only its unit store and joins its ink-signature store's write, and nothing before the land reads either store, so the driver runs store-snapshot and the verdict update beside that write and joins the build before the land (`_do_corpus_build`, `_HeldCorpusBuild`). gate:make-test checks the `data-expect` pins against the rebuilt Senior its session copies from the build run_m1 leaves (rebuild/tools/build_fonts.py), so it is submitted to that pool once the run_m1 gate passes, and not run when the gate fails. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes too, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's processes at `corpus_job_budget`'s width, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build's units pool has finished, so that pool finds the gate lane idle, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, the review-facts pins included, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
 
-While a gated pass's build lane runs (run_m1, then the corpus build, then the verdict update, which starts beside the corpus build's store write), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle, the corpus build's ink-signature shaping and the standing fill's refill pool, are capped at every core on every pass rather than at a lane's share, so each shares the cores with gate:make-test's pool while both run, which costs contention time rather than memory; the refill pool subtracts gate:make-test's bytes, and the oracle's pool leaves them to the reserve (`sweep_job_budget`). Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it.
+While a gated pass's build lane runs (run_m1, then the corpus build, then the verdict update, which starts beside the corpus build's store write), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle, the corpus build's ink-signature shaping and the standing fill's refill pool, are capped at every core on every pass rather than at a lane's share. The last two share the cores with gate:make-test's pool while both run, which costs contention time rather than memory, and the refill pool subtracts gate:make-test's bytes; the oracle runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it.
 
 `--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. A pass that runs gate:make-test and neither run_m1 nor the corpus build queues them so under either policy (`gates_queue`). Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets, less what the settle-memo absorbs hold beyond it (ORACLE_ABSORB_BYTES); the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build (`corpus_job_budget`) gets the build lane's share less its main thread, with gate:make-test's memory off the machine when that gate runs, and every core less its main thread for its units pool when the gate lane is idle as that pool starts. Under the overlap policy, on a pass that runs gate:make-test beside the build lane, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool, which already holds the gate lane, so beside a corpus build at its lane share the suite falls to its floor of one worker and the sweep to its floor of one process per acceptance configuration on every machine. When the gates queue, neither subtracts gate:make-test's pool, which has finished by the time they start. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
 
-The overlap policy is the default because of whole-pass timings of `--fresh` passes under both policies on the 18-core 48 GiB machine (`doc/fleet.md`), which bare `make cycle-timings` on that machine lists step by step. With its pool at the gate lane's share, gate:make-test finishes on those passes before run_m1 does, so under either policy the conformance sweep and the rebuild suite start beside the corpus build and finish before the build lane, and the build lane ends the pass. The overlap policy's pass is no slower than the queue policy's, so the timings give no reason to switch. Timed by hand there with no corpus build or gate:make-test running, a narrowed conformance sweep and the full-width rebuild suite also finished sooner side by side than one after the other (issue #468 records the runs). Under the overlap policy the sweep and the suite subtract gate:make-test's pool even so, because the plan cannot tell whether it will be running when they start, which leaves the suite one worker; that time is off the critical path on those passes. The signal to time both policies again is an overlap-policy pass with gate:make-test's pool at the gate lane's share (its run line's `plan.make_test_workers`) that a `gate:` step ends. `make cycle-timings ARGS='--critical-path'` counts the passes each step ends, but its row for a pass shape also counts passes run at other gate:make-test widths, so such a pass shows there as growth in a `gate:` step's count.
+The overlap policy is the default because of whole-pass timings of `--fresh` passes under both policies on the 18-core 48 GiB machine (`doc/fleet.md`), which bare `make cycle-timings` on that machine lists step by step. Those passes ran gate:make-test from t=0, beside run_m1, and it finished before run_m1 did, so under either policy the conformance sweep and the rebuild suite started beside the corpus build and finished before the build lane, and the build lane ended the pass. gate:make-test starts after the run_m1 gate, beside the corpus build and the other two heavy gates, so those timings predate the schedule they argue for, and the comparison is due again. The overlap policy's pass is no slower than the queue policy's, so the timings give no reason to switch. Timed by hand there with no corpus build or gate:make-test running, a narrowed conformance sweep and the full-width rebuild suite also finished sooner side by side than one after the other (issue #468 records the runs). Under the overlap policy the sweep and the suite subtract gate:make-test's pool even so, because the plan cannot tell whether it will be running when they start, which leaves the suite one worker; that time is off the critical path on those passes. The signal to time both policies again is an overlap-policy pass with gate:make-test's pool at the gate lane's share (its run line's `plan.make_test_workers`) that a `gate:` step ends. `make cycle-timings ARGS='--critical-path'` counts the passes each step ends, but its row for a pass shape also counts passes run at other gate:make-test widths, so such a pass shows there as growth in a `gate:` step's count.
 
-The comparison behind the default covers `--fresh` passes on the 18-core machine only; `make cycle-timings` shows which machines and which kinds of pass each policy has run on. On the twelve-core machine the same pools share fewer cores. On a pass that runs the corpus build and skips gate:make-test (which skips when its input closure is unchanged since its last green run, as after only rune or rebuild-code edits, which `make_test_exempt` exempts), the two policies give every pool the same width, and under the overlap policy the sweep and the suite share the gate lane's cores while both run.
+The comparison behind the default covers `--fresh` passes on the 18-core machine only; `make cycle-timings` shows which machines and which kinds of pass each policy has run on. On the twelve-core machine the same pools share fewer cores. On a pass that runs the corpus build and skips gate:make-test (which skips when its input closure is unchanged since its last green run, as after only review-side or comparison-side code edits, which leave the rebuilt fonts and the rest of its closure as they were), the two policies give every pool the same width, and under the overlap policy the sweep and the suite share the gate lane's cores while both run.
 
 The cycle runs no cross-language check, because the kernel crate is the only engine that enumerates and the only one that settles. gate:conform checks settlement empirically: it shapes the compiled font through HarfBuzz and compares the result, window by window, with a re-settlement of every swept text through the crate's `settle-cases` subcommand, with the memo keyed on the raw window so the sweep does not depend on the crate's enumeration and fold. `make kernel-gate` is the crate's own gate, to run around a kernel-semantics change; it takes seconds once the crate is built. The spec-ingest parity check is a contracts test (rebuild/test_kernel_io.py) and runs in gate:rebuild-contracts on every cycle.
 
-gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/). The Makefile itself is represented by what `make -n all` and `make -n test` print. Re-running the gate over an unchanged closure would repeat the whole font suite (`make cycle-timings ARGS='--by-step'` reports what a run costs) and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the corpus build only when that predicate says the gate runs.
+gate:make-test is skipped when its input closure is unchanged since its last green run. The closure is every tracked or untracked-unignored file that `make_test_exempt` does not exempt; that function's docstring argues each exemption from what the gate runs (make all, which runs build_font over glyph_data/*.yaml non-recursively, typst, pyright over tools/ test/ conftest.py, and pytest test/ site/, whose session builds the rebuilt fonts it checks the pins against). The Makefile itself is represented by what `make -n all` and `make -n test` print, and the rebuilt fonts by what they are built from (`make_test_font_lines`), so a pass whose run_m1 writes the Senior decides the skip only after run_m1 (`Plan.make_test_undecided`). Re-running the gate over an unchanged closure would repeat the whole font suite (`make cycle-timings ARGS='--by-step'` reports what a run costs) and check nothing. The last green fingerprint is in rebuild/out/make-test-green.json, written by rebuild.tools.make_test_gate (the `make test` entry point) on every green run, so interactive and cycle greens share one record and `make test` skips on the same test. cycle_summary.json also records the fingerprint the cycle ran or skipped against, for display only. The skip reads only the shared green record, so a green that make_test_gate deleted after a red run cannot come back from an older summary. The fingerprint covers file content only, so a system toolchain change such as a typst upgrade does not move it (pyright and pytest are pinned in uv.lock, which is in the closure). --force-make-test and --fresh spawn `make test FORCE=1` (`make_test_gate_argv`), because the wrapper decides its own skip with the predicate the plan uses (`make_test_skippable`), and a plain `make test` would skip on the closure the flag forced. The plan reserves the gate's cores and memory beside the corpus build only when that predicate says the gate runs.
 
 The verdict update skips the same way, on rebuild/out/verdict-update-green.json. Each step of the verdict update is a pure function of the corpus, the verdicts master, the live store, the checked-in standing approvals, and its own code, so the key covers the corpus's inputs fingerprint and stamp, the master (named `autosave` when it is the live store, otherwise by its path and bytes), the live store's records, standing-approvals' bytes, and the verdict update's code (`verdict_update_code_paths` plus the review/ modules the verdict update runs). The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The code is in the key because no other fingerprint reads the verdict update's modules, and without it a fix to a fill's matcher or to the carry's join would be skipped. `verdict_update_code_paths` lists the verdict update's modules instead of all of rebuild/tools/, and rebuild/test_verdict_update_closure.py checks on every contracts run that the list covers the verdict update's import graph.
 
@@ -152,8 +152,10 @@ VERDICT_UPDATE_SKIP_NOTE = "corpus, verdicts master, live store, and standing ap
 DIRECT_MERGE_DECLINED_NOTE = "The corpus build is skipped, but the verdicts master is not an ams-review-verdicts/1 document stamped for the served corpus, so the merge would refuse it, and the verdict update takes the full carry by unit id instead of merging it straight in (the carry refuses a master it cannot read)."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
+MAKE_TEST_MAYBE_NOTE = "runs after run_m1 unless the rebuilt Senior it checks the pins against comes out, with the rest of its closure, under the key of its last green run, in which case its wrapper skips itself"
 UNDECIDED_UNTIL_RUN_M1 = {
     "gate:conform": CONFORM_MAYBE_NOTE,
+    "gate:make-test": MAKE_TEST_MAYBE_NOTE,
 }
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
 CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; the land swaps that directory in instead of a rebuild; --fresh overrides"
@@ -265,19 +267,34 @@ MAKE_TEST_EXEMPT_FILES = (
     "site/shared.css",
 )
 MAKE_TEST_EXEMPT_NAME_GLOBS = (("reference", "*.pdf"), ("reference", "*.png"), ("site", "*.svg"))
+# The files under rebuild/ the font suite runs to check the `data-expect` pins and the any-of regression checks: the root conftest's imports under rebuild/validation/ and their import closure there (the grammar, the corpus collector, the checker, the shaper, the junction classifier and the row model), and the names of the rebuilt fonts it checks (rebuild/tools/suite_fonts.py). `make_test_exempt` keeps them in the closure; rebuild/test_artifact_cycle.py holds the list to the root conftest's import closure.
+MAKE_TEST_REBUILD_FILES = (
+    "rebuild/tools/suite_fonts.py",
+    "rebuild/validation/__init__.py",
+    "rebuild/validation/check.py",
+    "rebuild/validation/classify.py",
+    "rebuild/validation/corpus.py",
+    "rebuild/validation/expect.py",
+    "rebuild/validation/rowmodel.py",
+    "rebuild/validation/shaping.py",
+)
+# The modules whose import closure under rebuild/ decides the bytes of the rebuilt Junior the session builds (`build_fonts.build` over `build_family.build_mono_and_junior`); `make_test_font_lines` hashes that closure.
+MAKE_TEST_JUNIOR_CODE_ROOTS = ("rebuild/pipeline/build_family.py", "rebuild/tools/build_fonts.py")
 MAKE_TEST_RECIPES = ("all", "test")
 MAKE_TEST_RECIPE_PINS = ("FORCE=",)
 
 
 def make_test_exempt(path: str) -> bool:
-    """Return whether a repo-relative path is outside gate:make-test's input closure. Each exemption follows from what the gate runs: make all, typst, pyright, and pytest test/ site/.
+    """Return whether a repo-relative path is outside gate:make-test's input closure. Each exemption follows from what the gate runs: make all, typst, pyright, and pytest test/ site/, whose session builds the rebuilt Senior and Junior first (rebuild/tools/build_fonts.py).
 
-    Nothing the gate runs reads the exempt trees. build_font globs glyph_data/*.yaml non-recursively, so it never reads glyph_data/runes/. test/, site/, tools/ and conftest.py read no rune file, and reach rebuild/ only through the root conftest's imports of rebuild/tools/ leaf modules (`CONFTEST_EDGES` in rebuild/test_contracts_closure.py lists them): peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, site_fonts for the font-path list, and pyright_gate for the type check's own skip. None of them can change what the suite asserts, and the rebuild suite tests each of them. Markdown is not an input to any gate. .vscode/ is editor configuration, and no import reaches its schema files: tools/quikscript_ir.py names them only in the error messages it raises. .github/ is CI, which runs the suite and is not read by it.
+    Nothing the gate runs reads the exempt trees as files, apart from `MAKE_TEST_REBUILD_FILES`, which the exemption leaves in the closure, and the inputs of the rebuilt fonts, which `make_test_font_lines` covers. build_font globs glyph_data/*.yaml non-recursively, so it never reads glyph_data/runes/. test/, site/, tools/ and conftest.py read no rune file, and reach the rest of rebuild/ only through the root conftest's imports of rebuild/tools/ leaf modules (`CONFTEST_EDGES` in rebuild/test_contracts_closure.py lists them): peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, site_fonts for the font-path list, and pyright_gate for the type check's own skip. None of them can change what the suite asserts, and the rebuild suite tests each of them. The pin checks read the rebuilt fonts, whose content a rune or pipeline edit reaches only through a build, so `make_test_font_lines` keys on what those fonts are built from and leaves every other edit under rebuild/ outside the closure. Markdown is not an input to any gate. .vscode/ is editor configuration, and no import reaches its schema files: tools/quikscript_ir.py names them only in the error messages it raises. .github/ is CI, which runs the suite and is not read by it.
 
     reference/csur/ and the reference PDFs and PNGs are human reference material that nothing compiles. reference/DepartureMono-Regular.otf stays in the closure, because tools/build_font.py bundles it and test/test_mono_matches_departure_mono.py shapes against it. site/icons/, site/*.svg, site/gear-menu.js and site/shared.css are browser assets the served pages load. The only Python that names them is tools/build_check_html.py, which writes them as string references and which only `make check-html-after` runs. site/shared.js stays, because test/test_shared.py runs it under node, and site/print.typ stays, because `make all` compiles it. The dotfile configs and the OFL text are read by git, the linters and the formatters, not by the suite.
 
     The name globs match only in their own directory, so site/*.svg does not match in a nested directory and reference/*.pdf does not match in reference/csur/. The Makefile is exempt as a file because the two rules the suite runs are keyed by their `make -n` output instead (`make_test_recipe_lines`), so a comment or a cycle or kernel target does not trigger the gate, while an edit to `all` or `test`, or one that stops the file parsing, still does.
     """
+    if path in MAKE_TEST_REBUILD_FILES:
+        return False
     if path.endswith(".md") or path in MAKE_TEST_EXEMPT_FILES:
         return True
     if any(path.startswith(prefix) for prefix in MAKE_TEST_EXEMPT_PREFIXES):
@@ -332,8 +349,46 @@ def make_test_recipe_lines(root: Path) -> list[str] | None:
     return lines
 
 
+def make_test_font_lines(root: Path = ROOT) -> list[str]:
+    """Return the lines gate:make-test's key carries for the rebuilt fonts the pin checks read, which the session builds into rebuild/out/fonts/ before it collects (`rebuild.tools.suite_fonts`), so their bytes are not on disk to hash when the key is taken:
+
+    - the Senior the session copies: rebuild/out/m1/M1.otf by `fingerprint.font_content_digest`, which leaves out the version tables no shaper reads, and the glyph-facts sidecar beside it, raw;
+    - whether that Senior is current (`build_fonts.senior_staleness`), since the session refuses a stale one, so a key taken over a stale Senior never matches a green one;
+    - what the Junior is built from: the import closure under rebuild/ of `MAKE_TEST_JUNIOR_CODE_ROOTS` by `fingerprint.path_lines`, and the spec's data (the rune files, the registry and the schemas) by `fingerprint.data_path_lines`, both prose-insensitive. Its other inputs, glyph_data/*.yaml, postscript_glyph_names.yaml and tools/, are in the closure as files.
+
+    A rune or pipeline edit therefore moves the key only through the fonts the suite checks: an edit that leaves M1.otf, its sidecar and Junior's inputs as they were, as a comparison-side or review-side edit does, leaves the key alone.
+    """
+    from rebuild.pipeline import fingerprint, glyph_facts
+    from rebuild.tools import build_fonts
+
+    m1 = root / build_fonts.M1_OUT
+    senior = m1 / build_fonts.SENIOR_SOURCES["Regular"]
+    graph = contracts.ImportGraph(root)
+    code = sorted(
+        {
+            rel
+            for start in MAKE_TEST_JUNIOR_CODE_ROOTS
+            for rel in graph.closure(start)
+            if rel.startswith("rebuild/") and rel.endswith(".py")
+        }
+    )
+    data = [
+        *fingerprint.rune_paths(root),
+        *sorted((root / "rebuild" / "schema").glob("*.json")),
+        root / "rebuild" / "script.yaml",
+    ]
+    lines = [
+        f"senior\t{fingerprint.font_content_digest(senior) if senior.is_file() else 'missing'}",
+        f"senior_glyph_facts\t{_sha256_path(m1 / glyph_facts.FILE_NAME)}",
+        f"senior_current\t{build_fonts.senior_staleness(root) or 'current'}",
+    ]
+    lines += [f"junior_code {line}" for line in fingerprint.path_lines(root, [root / rel for rel in code])]
+    lines += [f"junior_data {line}" for line in fingerprint.data_path_lines(root, data)]
+    return lines
+
+
 def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
-    """Return the content hash of gate:make-test's input closure: every file `make_test_exempt` keeps, read from the worktree (not the index) so uncommitted edits count, then the two Makefile rules as `make_test_recipe_lines` hashes them. A deleted tracked file hashes as absent, so deletions change the fingerprint too. None when git or make is unavailable, in which case the caller must run the gate."""
+    """Return the content hash of gate:make-test's input closure: every file `make_test_exempt` keeps, read from the worktree (not the index) so uncommitted edits count, then the two Makefile rules as `make_test_recipe_lines` hashes them, then the rebuilt fonts' lines (`make_test_font_lines`). A deleted tracked file hashes as absent, so deletions change the fingerprint too. None when git or make is unavailable, in which case the caller must run the gate."""
     files = make_test_closure_files(root)
     recipes = make_test_recipe_lines(root)
     if files is None or recipes is None:
@@ -342,6 +397,8 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
     for rel in files:
         digest.update(f"{rel}\t{_sha256_path(root / rel)}\n".encode())
     for line in recipes:
+        digest.update(f"{line}\n".encode())
+    for line in make_test_font_lines(root):
         digest.update(f"{line}\n".encode())
     return digest.hexdigest()
 
@@ -379,6 +436,7 @@ def make_test_gate_argv(*, force: bool) -> list[str]:
 M1_ARTIFACT_NAMES = (
     "M1.otf",
     "M1-Bold.otf",
+    "M1.glyph-facts.json",
     "kern-classes.json",
     "kern-inventory.json",
     "divergence-audit.tsv.head",
@@ -392,7 +450,6 @@ REBUILD_GATE_HARNESS_PATHS = (
     "site/extra-senior-words.html",
     "site/index.html",
     "site/the-manual.html",
-    "test/test_shaping.py",
     "tools/build_font.py",
     "tools/departure_mono_import.py",
     "tools/glyph_compiler.py",
@@ -858,7 +915,7 @@ def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
     """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the JS-only jstests, the review-facts pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
 
-    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py collects its pin runs from the three site corpora and puts test/ on sys.path to import test/test_shaping.py, which reads postscript_glyph_names.yaml at the repo root and imports the tools/ compile modules. rebuild/review/drafts.build_corpus_index reads the same three corpora. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ through the font compile and through test_shaping, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list, and the unit-cache environment stamp hashes the same list. The Mono builds in rebuild/test_build_family.py and rebuild/test_family_against_old_build.py read reference/DepartureMono-Regular.otf, whose glyphs and layout tables tools/build_font.py copies into Mono. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
+    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py and the checker's tests collect pins from the three site corpora through rebuild/validation/corpus.py, and the grammar (rebuild/validation/expect.py) reads postscript_glyph_names.yaml at the repo root when it is imported. rebuild/review/drafts.build_corpus_index reads the same three corpora. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ only through the font compile, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list. The Mono builds in rebuild/test_build_family.py and rebuild/test_family_against_old_build.py read reference/DepartureMono-Regular.otf, whose glyphs and layout tables tools/build_font.py copies into Mono. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
     The review-facts pins are exempt because the suite does not read them and the review-facts step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger and the standing approvals stay in, since tests read them, and `_closure_digest` gives them prose-insensitive hashes, so rewording a `why` or a `note` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
     """
@@ -1248,7 +1305,7 @@ STEP_DESCRIPTIONS = {
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts, up to the pass's maximum length (`CONFORM_MAX_LENGTH_DEFAULT` unless `--conform-max-length` sets it), and checks it against a fresh re-settlement window by window, the split-buffer check included; the ss10 overlay runs its own short-text case (`conform.OVERLAY_MAX_LENGTH`) against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
-    "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand. Skips when its input closure is unchanged since its last green run.",
+    "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand, once the run_m1 gate has passed: its session checks the data-expect pins against the rebuilt Senior that build leaves. Skips when its input closure, the rebuilt fonts' inputs among it, is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is derived from stale numbers.",
     "retention": f"Prunes the regenerable files a green cycle leaves behind: stashes the journal already replays, the journal past its {JOURNAL_HISTORY_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
 }
@@ -1388,6 +1445,14 @@ class Plan:
         """Return whether gate:conform is decided only after run_m1, the pass `plan_rows` shows as `run?`."""
         return not (self.skip_gates or self.skip_conform or self.skip_run_m1 or self.fresh)
 
+    def make_test_undecided(self) -> bool:
+        """Return whether gate:make-test is decided only after run_m1, by its wrapper: a pass whose run_m1 rewrites the rebuilt Senior (a full or kern-only build), which `plan_rows` shows as `run?`. A forced pass runs the gate whatever run_m1 leaves."""
+        step = self.step("gate:make-test")
+        forced = step is not None and step.argv == make_test_gate_argv(force=True)
+        return not (
+            self.skip_gates or self.skip_make_test or self.skip_run_m1 or self.rerun_gates_only or forced
+        )
+
     def in_scratch(self, path: Path) -> bool:
         """Return whether `path` lies in this pass's scratch directory, which the pass deletes when it ends."""
         return self.scratch_dir is not None and path.is_relative_to(self.scratch_dir)
@@ -1452,7 +1517,7 @@ def gates_queue(pool_policy: str, *, make_test_runs: bool = True, build_lane_run
 
 
 def _make_test_pool_bytes(*, skip_make_test: bool, ncores: int | None) -> float:
-    """Return the memory gate:make-test's pytest pool holds beside the run_m1 step: FONT_SUITE_WORKER_BYTES times `make_test_pool_width` at the gate lane's share of the cores, the width the pool runs at while run_m1 holds the build lane, or zero when the gate is skipped. The table build's width and the string replay's both subtract it."""
+    """Return the memory gate:make-test's pytest pool holds: FONT_SUITE_WORKER_BYTES times `make_test_pool_width` at the gate lane's share of the cores, the width the pool runs at beside the build lane, or zero when the gate is skipped. The table build's and the string replay's budgets take it through `_wave_fit_terms` for a caller that runs that pool beside them; the cycle runs none there, since gate:make-test starts once the run_m1 gate has passed, and passes `skip_make_test=True`."""
     return 0 if skip_make_test else _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
 
 
@@ -1468,7 +1533,7 @@ def _wave_fit_terms(*, skip_make_test: bool, ncores: int | None) -> tuple[float,
 def kernel_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits, and every configuration's prepared fold product stays resident, parked and compact until every configuration has parked and then read back whole through the cross-configuration exchange. `kernel_exec.kernel_threads_default` does the arithmetic over the settlement configurations: the widest width whose booking (`kernel_exec.table_build_booking_bytes`: the memo snapshot `default` keeps alive for the wave, one parked product per configuration, what each delta in flight adds beyond its own, and `default`'s fold preparation in a slot of its own once every delta has one, and no less than every configuration's product read back at the rendezvous) fits the machine's memory less the reserve. On the fleet (`doc/fleet.md`) this gives the whole wave, every configuration at once, on both 48 GiB machines with or without gate:make-test's pool subtracted. The cycle subtracts that pool too, because it runs from t=0 through the whole table build: FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers the cycle passes that child, the gate lane's share of the cores (`memory_budget.split_cores`), since run_m1 holds the build lane. A pass that skips the gate, including --skip-gates, subtracts nothing. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
+    """Return the kernel fan-out's width for this cycle, the `--kernel-threads` the plan passes run_m1. Memory limits this width because a live delta holds its whole working set until it emits, and every configuration's prepared fold product stays resident, parked and compact until every configuration has parked and then read back whole through the cross-configuration exchange. `kernel_exec.kernel_threads_default` does the arithmetic over the settlement configurations: the widest width whose booking (`kernel_exec.table_build_booking_bytes`: the memo snapshot `default` keeps alive for the wave, one parked product per configuration, what each delta in flight adds beyond its own, and `default`'s fold preparation in a slot of its own once every delta has one, and no less than every configuration's product read back at the rendezvous) fits the machine's memory less the reserve. On the fleet (`doc/fleet.md`) this gives the whole wave, every configuration at once, on both 48 GiB machines with or without gate:make-test's pool subtracted. With `skip_make_test` False it subtracts that pool, FONT_SUITE_WORKER_BYTES for each of the `make_test_pool_width` workers at the gate lane's share of the cores (`memory_budget.split_cores`); the cycle passes True, because gate:make-test starts only once the run_m1 gate has passed, so no pytest pool runs beside the table build. AMS_KERNEL_THREADS overrides the arithmetic, as it does for a bare run_m1, so the memory set aside for the pytest pool never narrows a stated width.
 
     The result is capped at the configuration count and the usable cores, as in `replay_threads_budget`. The memory result never exceeds the configuration count, but a stated AMS_KERNEL_THREADS can, and a machine can have fewer cores than configurations, so without the cap the plan line could name a width the build never takes. With it, the plan line, the argv and `cycle_summary.json`'s `plan.kernel_threads` show the real width, and `run_m1._table_build_threads`'s own `min()` changes nothing. A stated AMS_KERNEL_THREADS above the configuration count is cut to it here, as `run_m1._table_build_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1489,7 +1554,7 @@ def scratch_beside_default_budget(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return at most how many of the heaviest deltas this cycle's table build enumerates from scratch beside `default`, the `--scratch-beside-default` the plan passes run_m1, which the crate takes in whole tiers of equal unlocking-rune count: `kernel_exec.deltas_from_scratch` at `kernel_threads`, the width `kernel_threads_budget` gave, with gate:make-test's pytest pool off the machine as that width has it (`_wave_fit_terms`). run_m1 cannot derive this itself under a cycle, because it does not know that pool is running beside it. `ncores` and `total_bytes` are keywords so a test can compute the count for an invented machine."""
+    """Return at most how many of the heaviest deltas this cycle's table build enumerates from scratch beside `default`, the `--scratch-beside-default` the plan passes run_m1, which the crate takes in whole tiers of equal unlocking-rune count: `kernel_exec.deltas_from_scratch` at `kernel_threads`, the width `kernel_threads_budget` gave, with gate:make-test's pytest pool off the machine exactly when that width takes it off (`_wave_fit_terms`), which the cycle does not, since no such pool runs beside run_m1. `ncores` and `total_bytes` are keywords so a test can compute the count for an invented machine."""
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import deltas_from_scratch
 
@@ -1505,7 +1570,7 @@ def scratch_beside_default_budget(
 def replay_threads_budget(
     *, skip_make_test: bool = False, ncores: int | None = None, total_bytes: int | None = None
 ) -> int:
-    """Return the string replay's width for this cycle, the `--replay-threads` the plan passes run_m1: memory, less the reserve and gate:make-test's pytest pool, divided by `kernel_exec.REPLAY_PEAK_BYTES` (one configuration's length-4 walk and the absorb of its window memo beside it), the number of walks that run at once. The pool is the one `kernel_threads_budget` subtracts, because it runs for the whole run_m1 step and the replay runs inside that step; a pass that skips the gate subtracts nothing. `kernel_exec.replay_threads_default` does the arithmetic, and `AMS_REPLAY_THREADS` overrides it, as it does for a bare run_m1.
+    """Return the string replay's width for this cycle, the `--replay-threads` the plan passes run_m1: memory, less the reserve and gate:make-test's pytest pool, divided by `kernel_exec.REPLAY_PEAK_BYTES` (one configuration's length-4 walk and the absorb of its window memo beside it), the number of walks that run at once. The pool is the one `kernel_threads_budget` subtracts when `skip_make_test` is False; the cycle passes True, since gate:make-test starts only once the run_m1 gate has passed, after the replay inside run_m1 has finished. `kernel_exec.replay_threads_default` does the arithmetic, and `AMS_REPLAY_THREADS` overrides it, as it does for a bare run_m1.
 
     The result is capped at the configuration count and the usable cores, as in `kernel_threads_budget`. On every fleet machine the memory result exceeds the configuration count with or without the pool subtracted, so the subtraction matters only on a smaller machine, and without the cap the plan line would name a width the run never takes. With it, the plan line and the argv show the real width, and `run_m1._replay_threads`'s own `min()` changes nothing. A stated AMS_REPLAY_THREADS above the configuration count is cut to it here, as the crate and `run_m1._replay_threads` would cut it. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -2247,26 +2312,14 @@ def build_plan(
         ncores=ncores,
         total_bytes=total_bytes,
     )
-    kernel_threads = kernel_threads_budget(
-        skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
-    )
-    if skip_make_test:
-        kernel_reason = "the table build's memory ceiling, the one width RAM binds"
-    else:
-        kernel_workers = make_test_pool_width(ncores=ncores)
-        kernel_reason = f"the table build's memory ceiling, less gate:make-test's {kernel_workers} worker" + (
-            "" if kernel_workers == 1 else "s"
-        )
-    kernel_reason += ", capped at the configuration count and the cores"
+    # gate:make-test starts once the run_m1 gate has passed (`_run_cycle`), so no pytest pool runs beside the table build or the string replay, and their widths subtract none.
+    kernel_threads = kernel_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=total_bytes)
+    kernel_reason = "the table build's memory ceiling, the one width RAM binds, capped at the configuration count and the cores"
     scratch_beside_default = scratch_beside_default_budget(
-        kernel_threads, skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
+        kernel_threads, skip_make_test=True, ncores=ncores, total_bytes=total_bytes
     )
-    replay_threads = replay_threads_budget(
-        skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
-    )
-    replay_reason = replay_threads_derivation(
-        skip_make_test=no_make_test, ncores=ncores, total_bytes=total_bytes
-    )
+    replay_threads = replay_threads_budget(skip_make_test=True, ncores=ncores, total_bytes=total_bytes)
+    replay_reason = replay_threads_derivation(skip_make_test=True, ncores=ncores, total_bytes=total_bytes)
     corpus_dir = review_out if review_out is not None else REVIEW_OUT
     do_merge = (do_carry or direct_merge) and not no_merge and review_out is None
     do_retention = not keep_history and not first_run and review_out is None
@@ -2653,7 +2706,7 @@ def build_plan(
             )
         if skip_make_test:
             plan.steps.append(
-                Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="t0", skipped=True)
+                Step("gate:make-test", None, f"SKIPPED ({make_test_note})", lane="make-test", skipped=True)
             )
         elif force_make_test or fresh:
             plan.steps.append(
@@ -2661,11 +2714,11 @@ def build_plan(
                     "gate:make-test",
                     make_test_gate_argv(force=True),
                     "forced: the suite and pyright run even where their green records answer for the closure",
-                    lane="t0",
+                    lane="make-test",
                 )
             )
         else:
-            plan.steps.append(Step("gate:make-test", make_test_gate_argv(force=False), lane="t0"))
+            plan.steps.append(Step("gate:make-test", make_test_gate_argv(force=False), lane="make-test"))
 
     plan.steps.append(
         Step(
@@ -2990,10 +3043,10 @@ def _render_concurrency(plan: Plan) -> list[str]:
             "  Concurrency (--skip-gates):",
             f"    Lane build only; no gates; run_m1 sweeps --jobs {plan.sweep_jobs} ({plan.sweep_reason}) at --kernel-threads {_no_fanout(plan) or plan.kernel_threads} and --replay-threads {_no_fanout(plan) or plan.replay_threads}, corpus-build --jobs {plan.corpus_jobs} ({plan.corpus_reason}), corpus-build --signature-jobs {plan.signature_jobs} ({plan.signature_reason}), verdict-update --standing-fill-jobs {plan.standing_fill_jobs} ({plan.standing_fill_reason})",
         ]
-    t0_lane = (
-        "gate:js"
+    make_test_lane = (
+        f"SKIPPED ({plan.make_test_note})"
         if plan.skip_make_test
-        else f"gate:js, gate:make-test -n {plan.make_test_workers} ({plan.make_test_reason})"
+        else f"starts when run_m1's three JSONs pass, since its session checks the pins against the rebuilt Senior run_m1 leaves; -n {plan.make_test_workers} ({plan.make_test_reason})"
     )
     submit = "submit gate:rebuild-contracts"
     if plan.contracts_after_units:
@@ -3008,8 +3061,9 @@ def _render_concurrency(plan: Plan) -> list[str]:
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
-        f"    Lane t0   [from t=0, background]  : {t0_lane}",
+        "    Lane t0   [from t=0, background]  : gate:js",
         f"    Lane build[main thread]          : run_m1 -> {submit} -> corpus-seed -> corpus-build -> store-snapshot -> verdict-update -> land -> review-facts{store_write}",
+        f"    Lane make-test                   : {make_test_lane}",
     ]
     if plan.skip_conform:
         lines.append(
@@ -3098,7 +3152,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
 
 
 def plan_rows(plan: Plan) -> list[console.PlanRow]:
-    """Return the plan's steps as the console's rows. Only gate:conform can show `run?`, which makes the counts line a range: its skip key covers the artifacts run_m1 writes, so a pass that plans the sweep may still skip it once the build finishes. That row's note comes from `UNDECIDED_UNTIL_RUN_M1` and states the condition.
+    """Return the plan's steps as the console's rows. Only gate:conform and gate:make-test can show `run?`, which makes the counts line a range: each skip key covers artifacts run_m1 writes, so a pass that plans the gate may still skip it once the build finishes (`Plan.conform_undecided`, `Plan.make_test_undecided`). That row's note comes from `UNDECIDED_UNTIL_RUN_M1` and states the condition.
 
     A pass that skips run_m1 shows `run` instead, because nothing is rebuilt and `main` has already compared the same key and found no matching green record. A `--fresh` pass also shows `run`, because it reads no green record.
     """
@@ -3107,8 +3161,7 @@ def plan_rows(plan: Plan) -> list[console.PlanRow]:
         undecided = (
             step.name in UNDECIDED_UNTIL_RUN_M1
             and not step.skipped
-            and not plan.skip_run_m1
-            and not plan.fresh
+            and (plan.make_test_undecided() if step.name == "gate:make-test" else plan.conform_undecided())
         )
         status = (
             console.STATUS_SKIP
@@ -4653,17 +4706,7 @@ def _run_cycle(
             if plan.skip_gates
             else pool.submit(_gate_js_task, plan.argv("gate:js"), spawn, emit, registry)
         )
-        make_fut = (
-            None
-            if plan.skip_gates or plan.skip_make_test
-            else pool.submit(
-                _gate_make_test_task,
-                plan.argv("gate:make-test"),
-                _spawn_with_env(spawn, {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}),
-                emit,
-                registry,
-            )
-        )
+        make_fut: Future | None = None
         contracts_fut: Future | None = None
         conform_fut: Future | None = None
         conform_key: str | None = None
@@ -4702,8 +4745,21 @@ def _run_cycle(
             if not plan.skip_gates and not plan.skip_conform:
                 report.gate_conform = "not run (run_m1 gate failed)"
                 emit.step_not_run("gate:conform", "run_m1 gate failed")
-            _join_gates(report, failures, js_fut, None, None, make_fut, emit, timings)
+            if not plan.skip_gates and not plan.skip_make_test:
+                report.gate_make_test = "not run (run_m1 gate failed)"
+                emit.step_not_run("gate:make-test", "run_m1 gate failed")
+            _join_gates(report, failures, js_fut, None, None, None, emit, timings)
             return _finish(report, failures, plan, timings, emit)
+
+        # The font suite checks the data-expect pins against the rebuilt Senior, which its session copies from the build run_m1 has just left, so it starts here and not at t=0.
+        if not (plan.skip_gates or plan.skip_make_test):
+            make_fut = pool.submit(
+                _gate_make_test_task,
+                plan.argv("gate:make-test"),
+                _spawn_with_env(spawn, {"PYTEST_XDIST_AUTO_NUM_WORKERS": str(plan.make_test_workers)}),
+                emit,
+                registry,
+            )
 
         if not plan.skip_gates and not plan.skip_conform:
             current_conform_key = conform_skip_fingerprint(ROOT, plan.conform_max_length)
@@ -5852,11 +5908,6 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
     skip_make_test = False
     make_test_note = ""
     make_test_fp: str | None = None
-    if not args.skip_gates:
-        make_test_fp = make_test_closure_fingerprint(ROOT)
-        if make_test_skippable(make_test_fp, prior_make_test_fingerprint(), force=args.force_make_test):
-            skip_make_test = True
-            make_test_note = "closure unchanged since its last green run; --force-make-test overrides"
 
     run_m1_fp = run_m1_skip_fingerprint(ROOT)
     skip_run_m1 = False
@@ -5909,6 +5960,15 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 note = moved_inputs_note(green, current)
                 if note is not None:
                     run_m1_note = f"inputs moved since its last green: {note}"
+    # gate:make-test's key covers the rebuilt Senior (`make_test_font_lines`), which a full or kern-only build rewrites, so the plan can skip the gate only on a pass whose run_m1 writes no font; on any other the wrapper decides once run_m1 has finished.
+    if not args.skip_gates:
+        make_test_fp = make_test_closure_fingerprint(ROOT)
+        if (skip_run_m1 or rerun_gates_only) and make_test_skippable(
+            make_test_fp, prior_make_test_fingerprint(), force=args.force_make_test
+        ):
+            skip_make_test = True
+            make_test_note = "closure unchanged since its last green run; --force-make-test overrides"
+
     if skip_run_m1 or ((rerun_gates_only or rerun_kern_only) and m1_stage_a_current(ROOT)):
         if args.review_out is None and not first_run:
             if corpus_build_skippable(ROOT):

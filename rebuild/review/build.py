@@ -64,7 +64,7 @@ from rebuild.review.change_groups import (
     CHANGE_GROUP_ORDER,
     load_change_group_prose,
 )
-from rebuild.review.drafts import _import_test_shaping, corpus_index_from_pages
+from rebuild.review.drafts import corpus_index_from_pages
 from rebuild.review.feature_reach import ConfigFold, derive_fold
 from rebuild.review.ink import (
     JUNIOR_VERIFICATION_METHOD,
@@ -82,6 +82,7 @@ from rebuild.review.enrich import (
 )
 from rebuild.review.subset_pack import ensure_pack, is_junction_token, table_digests
 from rebuild.tools import console, cycle_paths
+from rebuild.validation.expect import parse_expect
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_OUT = REPO_ROOT / "rebuild" / "out" / "review"
@@ -1752,7 +1753,6 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
                 # The after-behavior candidate is the pin's `expect`, which the `drafts.pin.syntax` check above covers. The before-behavior candidate comes from the baseline side of the enrichment. The crate's any-of drafter already parses it and fails the unit when it does not parse; this parse repeats the check so that a corpus read from disk is covered too.
                 if mode == "m1-audit":
                     expect = pin.get("expect") if isinstance(pin, dict) else None
-                    parse_expect = _import_test_shaping().parse_expect
                     for candidate in candidates:
                         if candidate == expect or not isinstance(candidate, str):
                             continue

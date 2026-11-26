@@ -153,6 +153,7 @@ PIPELINE_NON_CORPUS_MODULES = frozenset(
         "explain.py",
         "fixtures.py",
         "geometry.py",
+        "glyph_facts.py",
         "kern.py",
         "kern_inventory.py",
         "ligature_outgoing_check.py",
@@ -171,8 +172,8 @@ PIPELINE_NON_CORPUS_MODULES = frozenset(
     }
 )
 
-# The rebuild/validation modules the corpus build never imports: the Manual-pin replay, which the crate ports for the pin drafts' check. rebuild/test_review_code_closure.py checks this set as it checks `PIPELINE_NON_CORPUS_MODULES`.
-VALIDATION_NON_CORPUS_MODULES = frozenset({"pins.py"})
+# The rebuild/validation modules the corpus build never imports: the old-font pin replay, which the crate ports for the pin drafts' check, and the corpus collector and the checker, which the suite and the pin gate run. rebuild/test_review_code_closure.py checks this set as it checks `PIPELINE_NON_CORPUS_MODULES`.
+VALIDATION_NON_CORPUS_MODULES = frozenset({"check.py", "corpus.py", "pins.py"})
 
 # The kernel crate modules the corpus build never runs. The review crate links the kernel library and runs the modules it names (`ams_m1_kernel::<module>`) in process, with their `crate::` closure, and the `settle-cases` and `guard-sweep` subcommands reach every one of those too, so every module those two handlers in main.rs reach stays hashed, with main.rs and lib.rs. rebuild/test_review_code_closure.py checks this exclusion list against the `crate::` references the two handlers reach outside the crate's test modules, and checks that the review crate's own reach is hashed.
 KERNEL_NON_CORPUS_MODULES = frozenset(
@@ -200,7 +201,7 @@ KERNEL_NON_CORPUS_MODULES = frozenset(
 def corpus_code_paths(repo_root: Path) -> list[Path]:
     """Return the code whose edit invalidates the per-unit store: the code the corpus build runs. The review side is `fingerprint.review_code_paths`, which is checked against the import graph of build.py and of the modules whose constants the crate reads. The pipeline side is rebuild/pipeline minus `PIPELINE_NON_CORPUS_MODULES`, plus rebuild/validation minus `VALIDATION_NON_CORPUS_MODULES`. The kernel crate side is rebuild/kernel-rs/src minus `KERNEL_NON_CORPUS_MODULES`, plus Cargo.toml and Cargo.lock, since the crate's dependencies and build profile affect every subcommand. The review crate is the stamp's `units_engine` line, not a path here. The ink-signature store uses the narrower `signature_code_paths`, so an edit here outside the font facts' readers re-enriches units and re-shapes nothing.
 
-    The lists work at module granularity, which over-invalidates in the safe direction: a module imported for something the build never calls is still hashed. The cached-versus-recomputed sample in every build checks that a cached fragment equals a recomputation. Two sets of modules are left out. The fan-out width and telemetry modules under rebuild/tools cannot change a unit's products: rebuild/test_unit_cache.py's serial-versus-parallel byte identity covers the width, and rebuild/test_review_code_closure.py checks that these are the only modules the build reaches outside the three trees. The font-compile tools are the other set: the build reaches tools/ only through test/test_shaping.py, and the draft harness line of `environment_stamp` hashes that file and the tools/ modules it imports (`fingerprint.font_compile_tool_paths`).
+    The lists work at module granularity, which over-invalidates in the safe direction: a module imported for something the build never calls is still hashed. The cached-versus-recomputed sample in every build checks that a cached fragment equals a recomputation. One set of modules is left out: the fan-out width and telemetry modules under rebuild/tools cannot change a unit's products, rebuild/test_unit_cache.py's serial-versus-parallel byte identity covers the width, and rebuild/test_review_code_closure.py checks that these are the only modules the build reaches outside the three trees. The build reaches no tools/ module (rebuild/test_build_code_closure.py), and the draft harness, the `data-expect` grammar in rebuild/validation, is hashed here and again, with the glyph-name map it reads, by the draft harness line of `environment_stamp` (`fingerprint.draft_harness_paths`).
     """
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"

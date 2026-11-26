@@ -1,6 +1,6 @@
-"""Tests for the Manual-pin gate in `rebuild/pipeline/manual_pins.py`: trait and exact-glyph matching resolve through stance declarations, not glyph-name substrings; `summarize` projects a report correctly; and the gate fails on a pin that contradicts the font.
+"""Tests for the pin gate in `rebuild/pipeline/manual_pins.py`: `summarize` projects a report, the alphabet switch's scoping counts the letters a narrowed alphabet leaves out, and the checker the gate runs fails a pin that contradicts the font.
 
-The build checks the live gate itself: `run_m1_gates.main()` exits when the gate fails, has no pins in scope, or does not replay every pin in scope (`run_m1_gates.manual_pin_gate_failure`), so no test repeats that `run_gate` call.
+The build checks the live gate itself: `run_m1_gates.main()` exits when the gate fails, has no pins in scope, or does not check every pin in scope (`run_m1_gates.manual_pin_gate_failure`), so no test repeats that `run_gate` call. `rebuild/test_validation_check.py` tests the checker's reading of glyph names, modifiers and pending pins.
 """
 
 from pathlib import Path
@@ -8,13 +8,8 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import manual_pins
-from rebuild.pipeline.geometry import isolated_cell
-from rebuild.pipeline.settle import cell_label
 from rebuild.pipeline.spec_load import load_default_spec
-from rebuild.review import enrich
-from rebuild.validation.classify import JunctionClassifier
-from rebuild.validation.pins import PinRun, _import_test_shaping
-from rebuild.validation.shaping import Shaper
+from rebuild.validation import check, corpus
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI_FONT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini" / "M1.otf"
@@ -25,59 +20,51 @@ def spec():
     return load_default_spec()
 
 
+def _pin(expect: str, text: str, pending: str | None = None) -> corpus.Pin:
+    return corpus.Pin(
+        page="synthetic",
+        line=1,
+        text=text,
+        expect=expect,
+        features={},
+        runs=({"font": "senior", "text": text},),
+        pending=pending,
+    )
+
+
 class TestGate:
     def test_summary_shape(self):
         """`summarize` depends only on the report, so a synthetic report tests its shape without a font. The module docstring says where the live gate is checked."""
         report = manual_pins.ManualPinReport()
         report.pins_in_scope = 3
         report.replayed = 3
+        report.pages["site/the-manual.html"] = manual_pins.PageCounts(pins=4, checked=3, passed=2, pending=1)
+        report.pending.append("site/the-manual.html:1 '·May': pending (why)")
+        report.skipped["Junior runs"] = 2
         report.blocked_by[0xE665] = 2
         report.sole_blocker[0xE665] = 1
         summary = manual_pins.summarize(report)
-        assert summary["pass"] == report.passed
+        assert summary["pass"] == report.passed is True
         assert summary["pins_in_scope"] == 3
+        assert summary["pages"]["site/the-manual.html"]["pending"] == 1
+        assert summary["pending"] == report.pending
+        assert summary["skipped"] == {"Junior runs": 2}
         assert all("letter" in entry and "blocks" in entry for entry in summary["top_blocking_letters"])
 
-
-def test_the_gate_collects_the_ss08_pin_that_the_old_font_replay_skips():
-    """The Manual writes ·Key·Utter·May under ss08, which the shipped font lacks, so the old-font replay's default roster drops the pin into `skipped_config`, while the gate's roster (`manual_pins.PIN_CONFIGS`) collects it under ss08 so the gate replays it."""
-    from rebuild.validation.pins import ReplayReport, collect_pin_runs
-
-    expect = "·Bay ~b~ ·It | ·Key | ·Utter.alt ~b~ ·May"
-
-    def ss08_pins(**roster):
-        return [
-            pin
-            for pin in collect_pin_runs(ReplayReport(), **roster)
-            if pin.source.startswith("site/the-manual.html:") and pin.expect == expect
-        ]
-
-    assert [pin.config_token for pin in ss08_pins(configs=manual_pins.PIN_CONFIGS)] == ["ss08"]
-    assert ss08_pins() == []
+    def test_a_pending_pin_does_not_fail_the_gate_and_a_disagreement_does(self):
+        report = manual_pins.ManualPinReport()
+        report.pending.append("pending")
+        assert report.passed
+        report.disagreements.append("failed")
+        assert not report.passed
 
 
-class TestSemantics:
-    def test_traits_resolve_through_stance_declarations(self, spec):
-        for rune_name, rune in spec.runes.items():
-            for stance_name, stance in rune.stances.items():
-                label = f"{rune_name}.{stance_name}.en-y0.ex-y5"
-                assert manual_pins._stance_traits(spec, label) == frozenset(stance.traits)
-
-    def test_alt_trait_visible_on_qsNo(self, spec):
-        alt_stances = [name for name, stance in spec.runes["qsNo"].stances.items() if "alt" in stance.traits]
-        assert alt_stances
-        for name in alt_stances:
-            assert "alt" in manual_pins._stance_traits(spec, f"qsNo.{name}.en-y0")
-
-    def test_bare_and_boundary_glyphs_carry_no_traits(self, spec):
-        assert manual_pins._stance_traits(spec, "qsMay") == frozenset()
-        assert manual_pins._stance_traits(spec, "space") == frozenset()
-        assert manual_pins._stance_traits(spec, "uni200C") == frozenset()
-
-    def test_exact_glyph_accepts_bare_and_isolated_cell(self, spec):
-        names = manual_pins._exact_glyph_names(spec, "qsMay")
-        assert "qsMay" in names
-        assert cell_label(spec, isolated_cell(spec, "qsMay")) in names
+class TestScope:
+    def test_the_missing_letters_are_the_quikscript_letters_the_alphabet_lacks(self, spec):
+        alphabet = manual_pins.migrated_alphabet(spec)
+        assert manual_pins.missing_letters(_pin("·May \\- ·Tea", "\ue665-\ue652"), alphabet) == set()
+        narrowed = alphabet - {0xE665}
+        assert manual_pins.missing_letters(_pin("·May | ·Tea", "\ue665\ue652"), narrowed) == {0xE665}
 
     def test_migrated_alphabet_tracks_spec(self, spec):
         alphabet = manual_pins.migrated_alphabet(spec)
@@ -88,26 +75,14 @@ class TestSemantics:
 
 
 class TestTheGateCanFail:
-    def test_contradicting_pin_fails(self, mini_bundle):
-        """The gate must fail a pin the font contradicts. That needs a font and a spec that match each other, which the frozen mini bundle provides. The test checks two pins for ·Pea·Tea, a break (`·Pea | ·Tea`) and an x-height join (`·Pea ~x~ ·Tea`). They cannot both hold, so at least one must fail."""
-        spec = enrich.load_spec(mini_bundle.spec_root)
-        ts = _import_test_shaping()
-        shaper = Shaper(MINI_FONT)
-        classifier = JunctionClassifier(MINI_FONT)
+    def test_contradicting_pin_fails(self):
+        """The gate must fail a pin the font contradicts. The frozen mini bundle's font has the cursive lookups the checker reads. The test checks two pins for ·Pea·Tea, a break (`·Pea | ·Tea`) and an x-height join (`·Pea ~x~ ·Tea`). They cannot both hold, so at least one must fail, and a pending mark turns that failure into an expected one."""
+        fonts = {"senior": check.CheckFont(MINI_FONT), "junior": None}
         text = "\ue650\ue652"
-        for expect in ("·Pea | ·Tea", "·Pea ~x~ ·Tea"):
-            tokens, connections = ts.parse_expect(expect)
-            pin = PinRun(
-                source="synthetic",
-                expect=expect,
-                text=text,
-                config_token="default",
-                features={},
-                tokens=tuple(tokens),
-                connections=tuple(connections),
-            )
-            report = manual_pins.ManualPinReport()
-            manual_pins._check_pin(spec, shaper, classifier, pin, report)
-            if report.disagreements:
-                return
-        pytest.fail("neither a break pin nor an x-height-join pin failed for ·Pea·Tea — the gate cannot fail")
+        statuses = {
+            expect: check.check_pin(fonts, _pin(expect, text)).status
+            for expect in ("·Pea | ·Tea", "·Pea ~x~ ·Tea")
+        }
+        assert "fail" in statuses.values(), statuses
+        failing = next(expect for expect, status in statuses.items() if status == "fail")
+        assert check.check_pin(fonts, _pin(failing, text, pending="why")).status == "pending"

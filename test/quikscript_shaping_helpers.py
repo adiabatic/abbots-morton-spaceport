@@ -228,29 +228,3 @@ def _senior_shaping_env() -> tuple[dict, dict, dict]:
 
     anchor_map, potentials = build_anchor_map("senior")
     return {"senior": _font()}, {"senior": anchor_map}, {"senior": potentials}
-
-
-def _assert_expect_any(text: str, expects: list[str]) -> None:
-    """Pass if any of ``expects`` matches the Senior shaping of ``text``.
-
-    Each entry in ``expects`` is a ``data-expect`` string (see ``doc/data-expect.md``). They are tried in order. If none matches, raises ``AssertionError`` listing every attempt.
-    """
-    from test_shaping import Run, run_shaping_test_runs
-
-    fonts, anchor_maps, potentials = _senior_shaping_env()
-    runs: list[Run] = [{"font": "senior", "text": text}]
-    errors: list[str] = []
-    for expect in expects:
-        try:
-            run_shaping_test_runs(
-                fonts,
-                anchor_maps,
-                runs,
-                expect,
-                base_potential_entries=potentials,
-            )
-            return
-        except AssertionError as exc:
-            errors.append(f"  {expect!r}: {exc}")
-    joined = "\n".join(errors)
-    raise AssertionError(f"No candidate data-expect matched shaping of {text!r}:\n{joined}")

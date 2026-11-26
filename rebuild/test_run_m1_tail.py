@@ -65,6 +65,7 @@ def _stub_chain(monkeypatch, events, *, on_compile=None, readback_pass=True):
         lambda spec, tables, glyphs, out_dir, ss10_copies=None: SimpleNamespace(pairs=()),
     )
     monkeypatch.setattr(run_m1.kern, "write_classes", lambda resolution, glyphs, out_dir: None)
+    monkeypatch.setattr(run_m1.glyph_facts, "publish", lambda out_dir, font_path, *_args: out_dir / "facts")
     monkeypatch.setattr(
         run_m1.kern_inventory,
         "write_inventory",

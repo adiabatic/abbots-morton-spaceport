@@ -848,22 +848,27 @@ def test_a_step_that_spawns_nothing_is_not_automatically_a_skipped_one():
 
 
 def test_the_plan_block_counts_its_steps_and_leaves_the_sweep_undecided():
-    """gate:conform is the one row the plan cannot decide. Its skip key covers the artifacts run_m1 writes, so a pass that plans the sweep may skip it once the build finishes, and the counts line shows a range. A pass that skips run_m1 shows the sweep as certain, because nothing is rebuilt and `main` has already compared the key and found no green record for it. A --fresh pass also shows it as certain."""
+    """gate:conform and gate:make-test are the rows the plan cannot decide. Each skip key covers artifacts run_m1 writes, so a pass that plans the gate may skip it once the build finishes, and the counts line shows a range. A pass that skips run_m1 shows both as certain, because nothing is rebuilt and `main` has already compared the keys and found no green record for them. A --fresh pass also shows them as certain, and a gates-only rerun, which writes no font, shows gate:make-test as certain."""
     plan = _plan()
     rows = ac.plan_rows(plan)
     by_name = {row.name: row for row in rows}
     assert by_name["gate:conform"].status == console.STATUS_MAYBE
+    assert (by_name["gate:make-test"].status, by_name["gate:make-test"].note) == (
+        console.STATUS_MAYBE,
+        ac.MAKE_TEST_MAYBE_NOTE,
+    )
     assert by_name["gate:rebuild-contracts"].status == console.STATUS_RUN
     assert by_name["run_m1"].status == console.STATUS_RUN
     assert by_name["gate:conform"].note == ac.CONFORM_MAYBE_NOTE
     text = _plan_text(plan)
     assert ac.CONFORM_MAYBE_NOTE in _step_lines(text, "gate:conform")
     assert "uv run pytest" in _step_lines(text, "gate:rebuild-contracts")
-    assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 1}–{len(rows)} will run, 0 skipped"
+    assert console.counts_line(rows) == f"{len(rows)} steps: {len(rows) - 2}–{len(rows)} will run, 0 skipped"
 
     rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
     rerun_by_name = {row.name: row for row in ac.plan_rows(rerun)}
     assert rerun_by_name["gate:conform"].status == console.STATUS_MAYBE
+    assert rerun_by_name["gate:make-test"].status == console.STATUS_RUN
 
     settled = _plan(
         skip_run_m1=True,
@@ -1670,7 +1675,8 @@ def test_the_executor_spawns_the_argv_the_plan_holds():
     assert spy == [("verdict-update", sentinel)]
 
 
-def test_gates_launch_before_run_m1_finishes(monkeypatch):
+def test_js_launches_before_run_m1_finishes_and_make_test_once_its_gate_passes(monkeypatch):
+    """gate:js reads no build artifact, so it starts at t=0, beside run_m1. gate:make-test checks the data-expect pins against the rebuilt Senior its session copies from run_m1's build, so it starts only once the run_m1 gate has passed."""
     record = {}
     js_started = threading.Event()
     make_started = threading.Event()
@@ -1710,13 +1716,13 @@ def test_gates_launch_before_run_m1_finishes(monkeypatch):
     )
     t.start()
     js_started.wait()
-    make_started.wait()
+    assert not make_started.wait(0.2)
     assert "run_m1_finish" not in record
     release_run_m1.set()
     t.join()
 
     assert record["js_start"] < record["run_m1_finish"]
-    assert record["make_start"] < record["run_m1_finish"]
+    assert record["run_m1_finish"] < record["make_start"]
 
 
 def test_the_rebuild_suite_waits_for_run_m1_pass(monkeypatch):
@@ -2401,13 +2407,18 @@ def test_queue_policy_contracts_runs_when_conform_task_raises(monkeypatch, capsy
     assert capsys.readouterr().out.count("ARTIFACT CYCLE SUMMARY") == 1
 
 
-def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
+def test_run_m1_failure_runs_no_make_test(monkeypatch, capsys):
+    """gate:make-test checks the pins against the rebuilt Senior, which a failed run_m1 leaves stale, so the pass does not start it."""
+
     def fake_run_m1(report, *, spawn, emit, registry, **_):
         return None
 
+    def fake_make(argv, spawn, emit, registry):
+        pytest.fail("gate:make-test started after a failed run_m1")
+
     monkeypatch.setattr(ac, "_do_run_m1", fake_run_m1)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
+    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
     monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
     _patch_build_chain(monkeypatch)
 
@@ -2415,7 +2426,7 @@ def test_run_m1_failure_still_collects_make_test(monkeypatch, capsys):
     report = ac.CycleReport()
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
 
-    assert report.gate_make_test == "green"
+    assert report.gate_make_test == "not run (run_m1 gate failed)"
     assert report.gate_contracts == "not run (run_m1 gate failed)"
     assert report.gate_conform == "not run (run_m1 gate failed)"
     assert rc == 1
@@ -3235,19 +3246,19 @@ def test_make_test_takes_every_core_when_no_build_lane_runs():
 
 
 def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_runs():
-    """`build_plan` tells the budgets the build lane runs when run_m1 or the corpus build does. On a roomy 18-core machine gate:make-test's pool is the gate lane's share while either runs and every core when neither does, and the t0 lane line states that width. With no build lane the heavy gates queue under the overlap policy too, so the rebuild suite and the conformance sweep subtract nothing for that pool and take every core after it, and the lane lines say why they wait; a pass with no build lane that skips gate:make-test does not queue, and its sweep and suite run side by side. The standing fill's memory term, whose pool can run beside gate:make-test's, subtracts its bytes at that width. The table build's width subtracts the gate lane's share on any pass, because run_m1 holds the build lane whenever it runs, and its plan line names that width."""
+    """`build_plan` tells the budgets the build lane runs when run_m1 or the corpus build does. On a roomy 18-core machine gate:make-test's pool is the gate lane's share while either runs and every core when neither does, and the make-test lane line states that width. With no build lane the heavy gates queue under the overlap policy too, so the rebuild suite and the conformance sweep subtract nothing for that pool and take every core after it, and the lane lines say why they wait; a pass with no build lane that skips gate:make-test does not queue, and its sweep and suite run side by side. The standing fill's memory term, whose pool can run beside gate:make-test's, subtracts its bytes at that width. The table build's width subtracts nothing for that pool on any pass, because the gate starts once the run_m1 gate has passed, and its plan line says so."""
     machine: dict[str, Any] = dict(ncores=18, total_bytes=MACHINE_48_GIB, pool_policy="overlap")
     for shape in ({}, {"skip_run_m1": True}, {"skip_corpus": True}):
         plan = _plan(**machine, **shape)
         assert (plan.make_test_workers, plan.gates_queue) == (9, False)
-    assert "gate:make-test -n 9 (the gate lane's 9 of 18 cores" in _plan_text(_plan(**machine))
+    assert "Lane make-test                   : starts when run_m1's three JSONs pass" in _plan_text(
+        _plan(**machine)
+    )
+    assert "; -n 9 (the gate lane's 9 of 18 cores" in _plan_text(_plan(**machine))
     idle = _plan(**machine, skip_run_m1=True, skip_corpus=True)
     assert (idle.make_test_workers, idle.gates_queue) == (18, True)
     text = _plan_text(idle)
-    assert (
-        "gate:make-test -n 18 (all 18 cores, since neither run_m1 nor the corpus build runs this pass)"
-        in text
-    )
+    assert "; -n 18 (all 18 cores, since neither run_m1 nor the corpus build runs this pass)" in text
     assert "QUEUED behind gate:make-test (no build lane this pass — one heavy pool at a time)" in text
     assert "QUEUED behind gate:conform (no build lane this pass — one heavy pool at a time)" in text
     no_make = _plan(**machine, skip_run_m1=True, skip_corpus=True, skip_make_test=True)
@@ -3267,7 +3278,11 @@ def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_r
     beside = ac.standing_fill_derivation(skip_gates=False, ncores=18, total_bytes=MACHINE_48_GIB)
     assert alone != beside
     assert idle.standing_fill_reason.endswith(alone)
-    assert "less gate:make-test's 9 workers" in idle.kernel_reason
+    assert (
+        idle.kernel_reason
+        == "the table build's memory ceiling, the one width RAM binds, capped at the configuration count and the cores"
+    )
+    assert "gate:make-test" not in _plan(**machine).kernel_reason
 
 
 @pytest.mark.parametrize("ncores", [18, 12, 10])
@@ -3316,7 +3331,7 @@ def test_the_kernel_fits_as_many_deltas_with_the_test_gates_running_as_run_alone
 
 
 def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_width_does(monkeypatch):
-    """The cycle decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine, because run_m1 cannot see that pool. The terms as they stand book a slot from scratch at a delta's slot, so wherever the whole wave fits every delta fits from scratch too; the test raises `SCRATCH_PEAK_BYTES` by 1 GB so a slot from scratch books more than a delta's. On an invented machine just large enough for the whole wave with every delta from scratch beside `default`, and nothing else, the width stays as it is with the pool running, but fewer deltas fit from scratch, so the plan passes fewer than a pass that skips the gate."""
+    """`scratch_beside_default_budget` decides how many deltas start from scratch beside `default` with gate:make-test's pool off the machine when `skip_make_test` is False, as the table build's width does. The terms as they stand book a slot from scratch at a delta's slot, so wherever the whole wave fits every delta fits from scratch too; the test raises `SCRATCH_PEAK_BYTES` by 1 GB so a slot from scratch books more than a delta's. On an invented machine just large enough for the whole wave with every delta from scratch beside `default`, and nothing else, the width stays as it is with the pool off the machine, but fewer deltas fit from scratch. The cycle starts gate:make-test once the run_m1 gate has passed, so its plan passes the count with the pool's memory kept, whether or not the gate runs."""
     from rebuild.pipeline import kernel_exec
     from rebuild.pipeline.conform import SETTLEMENT_CONFIGS
     from rebuild.pipeline.kernel_exec import table_build_booking_bytes
@@ -3334,14 +3349,14 @@ def test_the_deltas_from_scratch_take_the_pytest_pool_off_the_machine_as_the_wid
     assert table_build_booking_bytes(count, configs=count) + pool <= total - memory_budget.os_reserve_bytes(
         total_bytes=total
     ), "the invented machine is meant to keep the whole wave with the pool running"
-    passed = {}
+    beside = ac.scratch_beside_default_budget(count, skip_make_test=False, ncores=8, total_bytes=total)
+    alone = ac.scratch_beside_default_budget(count, skip_make_test=True, ncores=8, total_bytes=total)
+    assert beside < alone == count - 1
     for skip_make_test in (False, True):
         plan = _plan(ncores=8, total_bytes=total, skip_make_test=skip_make_test)
         assert plan.kernel_threads == count
         argv = plan.argv("run_m1")
-        passed[skip_make_test] = int(argv[argv.index("--scratch-beside-default") + 1])
-        assert passed[skip_make_test] == plan.scratch_beside_default
-    assert passed[False] < passed[True] == count - 1
+        assert int(argv[argv.index("--scratch-beside-default") + 1]) == plan.scratch_beside_default == alone
 
 
 def test_replay_threads_budget_takes_the_pytest_pool_off_the_machine_first():
@@ -3443,16 +3458,16 @@ def test_kernel_threads_budget_holds_its_answer_at_the_configuration_count_and_t
     plan = _plan(ncores=18, total_bytes=MACHINE_48_GIB)
     assert plan.kernel_threads == count
     assert (
-        f"run_m1 --kernel-threads          : {count}  (the table build's memory ceiling, less gate:make-test's {plan.make_test_workers} workers, capped at the configuration count and the cores)"
+        f"run_m1 --kernel-threads          : {count}  (the table build's memory ceiling, the one width RAM binds, capped at the configuration count and the cores)"
         in _plan_text(plan)
     )
     monkeypatch.setenv("AMS_KERNEL_THREADS", "99")
     assert ac.kernel_threads_budget(ncores=18, total_bytes=MACHINE_48_GIB) == count
 
 
-def test_a_plan_reserves_for_the_pytest_pool_only_when_that_gate_runs():
-    """The plan subtracts the pytest pool only when gate:make-test runs. When the gate is auto-skipped or `--skip-gates` is given, no pool runs, so the kernel width gets that memory back."""
-    assert _plan(ncores=8, total_bytes=MACHINE_32_GB).kernel_threads == 5
+def test_the_table_build_never_reserves_for_the_pytest_pool():
+    """gate:make-test starts once the run_m1 gate has passed, so no pytest pool runs beside the table build, and the kernel width is the same whether the gate runs, is auto-skipped, or `--skip-gates` is given."""
+    assert _plan(ncores=8, total_bytes=MACHINE_32_GB).kernel_threads == 6
     assert (
         _plan(
             ncores=8, total_bytes=MACHINE_32_GB, skip_make_test=True, make_test_note="closure unchanged"
@@ -3475,7 +3490,8 @@ def test_dry_run_renders_concurrency():
     )
     text = _plan_text(plan)
     assert "pool policy: overlap" in text
-    assert "Lane t0" in text
+    assert "Lane t0   [from t=0, background]  : gate:js\n" in text
+    assert "Lane make-test                   : starts when run_m1's three JSONs pass" in text
     assert "Lane build" in text
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
@@ -3500,8 +3516,10 @@ def test_dry_run_renders_concurrency():
     assert (
         f"run_m1 --replay-threads          : {plan.replay_threads}  (the string replay's own ceiling" in text
     )
-    assert plan.replay_threads == ac.replay_threads_budget(ncores=12, total_bytes=MACHINE_44_GB)
-    assert ac.replay_threads_derivation(ncores=12, total_bytes=MACHINE_44_GB) in text
+    assert plan.replay_threads == ac.replay_threads_budget(
+        skip_make_test=True, ncores=12, total_bytes=MACHINE_44_GB
+    )
+    assert ac.replay_threads_derivation(skip_make_test=True, ncores=12, total_bytes=MACHINE_44_GB) in text
     auto_skipped = _plan_text(_plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE))
     assert f"Lane conform                     : SKIPPED ({ac.CONFORM_SKIP_NOTE})" in auto_skipped
     assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
@@ -4092,8 +4110,65 @@ def test_make_test_exempt_classification():
         "reference/nested/a.pdf",
         "site/nested/a.svg",
         "uv.lock",
+        "rebuild/validation/check.py",
+        "rebuild/tools/suite_fonts.py",
     ):
         assert not ac.make_test_exempt(path), path
+
+
+def test_make_tests_rebuild_files_are_the_pin_checker_the_root_conftest_imports():
+    """`MAKE_TEST_REBUILD_FILES` is the font suite's pin checker: the root conftest's import closure under rebuild/validation/ and the module that names the fonts it checks. A rebuild/validation module the conftest reaches that the list misses could change what the suite asserts while its key holds; a module it does not reach, the old-font replay among them, stays exempt."""
+    closure = ac.contracts.ImportGraph(REPO_ROOT).closure("conftest.py")
+    checker = {rel for rel in closure if rel.startswith("rebuild/validation/")} | {
+        "rebuild/tools/suite_fonts.py"
+    }
+    assert set(ac.MAKE_TEST_REBUILD_FILES) == checker
+    assert "rebuild/tools/suite_fonts.py" in closure
+    assert ac.make_test_exempt("rebuild/validation/pins.py")
+
+
+def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(tmp_path, monkeypatch):
+    """`make_test_font_lines` keys the rebuilt fonts the session builds: the Senior under rebuild/out/m1 by content, its glyph-facts sidecar, whether it is current, and the import closure under rebuild/ of what builds the Junior with the spec's data. An edit to a module outside that closure moves no line, and one inside it moves a Junior line."""
+    from rebuild.pipeline import glyph_facts
+    from rebuild.tools import build_fonts
+
+    root = tmp_path / "root"
+    files = {
+        "rebuild/pipeline/build_family.py": "from rebuild.pipeline import surface\n",
+        "rebuild/pipeline/surface.py": "SURFACE = 1\n",
+        "rebuild/pipeline/oracle.py": "ORACLE = 1\n",
+        "rebuild/tools/build_fonts.py": "BUILD_FONTS = 1\n",
+        "rebuild/script.yaml": "heights: {baseline: 0}\n",
+        "glyph_data/runes/qsMay.yaml": "rune: qsMay\n",
+        "rebuild/out/m1/M1.otf": "not a font\n",
+        f"rebuild/out/m1/{glyph_facts.FILE_NAME}": "{}\n",
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    staleness: list[str | None] = [None]
+    monkeypatch.setattr(build_fonts, "senior_staleness", lambda at: staleness[0])
+
+    def lines() -> dict[str, str]:
+        return dict(line.split("\t", 1) for line in ac.make_test_font_lines(root))
+
+    base = lines()
+    assert base["senior_current"] == "current"
+    assert {key for key in base if key.startswith("junior_code ")} == {
+        "junior_code rebuild/pipeline/build_family.py",
+        "junior_code rebuild/pipeline/surface.py",
+        "junior_code rebuild/tools/build_fonts.py",
+    }
+    assert "junior_data glyph_data/runes/qsMay.yaml" in base
+    (root / "rebuild/pipeline/oracle.py").write_text("ORACLE = 2\n")
+    assert lines() == base
+    (root / "rebuild/pipeline/surface.py").write_text("SURFACE = 2\n")
+    moved = lines()
+    assert {key for key in base if moved[key] != base[key]} == {"junior_code rebuild/pipeline/surface.py"}
+    (root / "rebuild/out/m1/M1.otf").write_text("another font\n")
+    staleness[0] = "its inputs moved"
+    again = lines()
+    assert {key for key in moved if again[key] != moved[key]} == {"senior", "senior_current"}
 
 
 FAKE_MAKEFILE = """.PHONY: all test kernel-check
@@ -4290,6 +4365,9 @@ def test_dry_run_plan_skip_make_test():
     assert by_name["gate:rebuild-contracts"].argv is not None
     rendered = _plan_text(plan)
     assert "Lane t0   [from t=0, background]  : gate:js" in rendered
+    assert (
+        "Lane make-test                   : SKIPPED (closure unchanged since its last green run)" in rendered
+    )
     assert "CO-RESIDENT with gate:rebuild-contracts' pool (overlap policy)" in _lane_conform_line(plan)
     assert "CO-RESIDENT with gate:conform's sweep (overlap policy)" in rendered
     alone = _plan_text(_plan(**skipped, skip_conform=True))
@@ -4298,6 +4376,21 @@ def test_dry_run_plan_skip_make_test():
     queued = _plan_text(_plan(**skipped, pool_policy="queue"))
     assert "gate:make-test not running, so no queueing" in queued
     assert "QUEUED behind gate:conform (queue policy — one heavy pool at a time)" in queued
+
+
+def test_a_pass_whose_run_m1_rewrites_the_senior_leaves_make_tests_skip_to_its_wrapper(tmp_path, monkeypatch):
+    """gate:make-test's key covers the rebuilt Senior, which a full or kern-only build rewrites, so a pass whose run_m1 builds cannot prove the skip from a matching green record before the build: it plans the gate to run, shows it as `run?` with the condition, and the wrapper decides once run_m1 has finished. `test_a_forced_pass_hands_the_make_test_wrapper_force` shows a pass whose run_m1 skips deciding at plan time."""
+    _unsettled_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
+    ac.record_make_test_green("fp")
+
+    plan = _planned([])
+    step = {step.name: step for step in plan.steps}["gate:make-test"]
+    assert not step.skipped
+    assert step.argv == ["make", "test"]
+    assert plan.make_test_undecided()
+    (row,) = [row for row in ac.plan_rows(plan) if row.name == "gate:make-test"]
+    assert (row.status, row.note) == (console.STATUS_MAYBE, ac.MAKE_TEST_MAYBE_NOTE)
 
 
 def _make_test_gate_args(argv: list[str]) -> list[str]:
@@ -4337,8 +4430,8 @@ def _font_suite_stub(monkeypatch, fingerprint: str) -> list[list[str]]:
 
 @pytest.mark.parametrize("flag", ["--fresh", "--force-make-test"])
 def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, flag):
-    """The wrapper behind `make test` reads the green record itself and exits early when the closure matches it. So `--fresh` and `--force-make-test` must reach the wrapper, not only the plan: the argv carries FORCE=1, the live Makefile turns it into `--force`, and the wrapper runs the suite. A plain pass over the same closure plans the gate as skipped."""
-    _unsettled_repo(tmp_path, monkeypatch)
+    """The wrapper behind `make test` reads the green record itself and exits early when the closure matches it. So `--fresh` and `--force-make-test` must reach the wrapper, not only the plan: the argv carries FORCE=1, the live Makefile turns it into `--force`, and the wrapper runs the suite. A plain pass over the same closure whose run_m1 skips plans the gate as skipped."""
+    _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     ac.record_make_test_green("fp")
 
@@ -4362,8 +4455,8 @@ def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, 
 def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     tmp_path, monkeypatch, flags, recorded
 ):
-    """The plan sets the corpus build's widths before `make test` decides anything, so the memory set aside for `make test` is correct only if the plan and the wrapper make the same skip decision. Memory reserved for a gate that then skips on its own green record is lost to the build. Every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the pool's memory back. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths."""
-    _unsettled_repo(tmp_path, monkeypatch)
+    """The plan sets the corpus build's widths before `make test` decides anything, so the memory set aside for `make test` is correct only if the plan and the wrapper make the same skip decision. Memory reserved for a gate that then skips on its own green record is lost to the build. On a pass whose run_m1 skips, so that the rebuilt Senior stays as it is, every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the pool's memory back. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths. The table build's width never subtracts it, since the gate starts once the run_m1 gate has passed."""
+    _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     if recorded is not None:
         ac.record_make_test_green(recorded)
@@ -4380,7 +4473,7 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
 
     assert plan.corpus_jobs == ac.corpus_job_budget(skip_gates=False, skip_make_test=not runs)
     assert plan.signature_jobs == ac.signature_job_budget()
-    assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=not runs)
+    assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=True)
     rendered = _plan_text(plan)
     assert ("holds the gate lane and its bytes come off the machine's memory" in rendered) is runs
     assert ("gate:make-test skipped, so the other gates hold the gate lane" in rendered) is not runs
@@ -5648,7 +5741,7 @@ def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
 
 
 def test_every_harness_file_moves_the_contracts_key(tmp_path):
-    """Every file in `REBUILD_GATE_HARNESS_PATHS` is read under `pytest rebuild/`: the tests that replay or draft data-expect pins import test/test_shaping.py, and the tools/ compile modules with it, and `rebuild_gate_closure_files` names the reader of every other entry. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
+    """Every file in `REBUILD_GATE_HARNESS_PATHS` is read under `pytest rebuild/`: the tests that compile a font run the tools/ compile modules, and `rebuild_gate_closure_files` names the reader of every other entry. So editing any of them must change the lane key instead of skipping on a green record that did not see the edit."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     for rel in ac.REBUILD_GATE_HARNESS_PATHS:
         harness_file = tmp_path / rel
@@ -5663,7 +5756,7 @@ def test_every_harness_file_moves_the_contracts_key(tmp_path):
 
 
 def test_the_harness_roster_names_the_font_compile_modules_in_tools():
-    """The harness roster's tools/ entries are exactly the font compile's modules. The suite reaches tools/ only through the font compile and test/test_shaping.py, whose import closure there rebuild/test_build_code_closure.py holds within that list, and `unit_cache.environment_stamp`, which the contracts tests that build a store recompute, hashes the same list. This test fails when the list changes and the roster does not."""
+    """The harness roster's tools/ entries are exactly the font compile's modules. The suite reaches tools/ only through the font compile, whose import closure there rebuild/test_build_code_closure.py holds within that list. This test fails when the list changes and the roster does not."""
     from rebuild.pipeline import fingerprint
 
     assert {rel for rel in ac.REBUILD_GATE_HARNESS_PATHS if rel.startswith("tools/")} == {

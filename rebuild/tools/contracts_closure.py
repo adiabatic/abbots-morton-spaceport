@@ -44,7 +44,7 @@ from rebuild.tools.closure_record import (
 
 CONFTEST_PATHS = ("conftest.py", "rebuild/conftest.py")
 GLOBAL_LABELS = frozenset((*CONFTEST_PATHS, "pyproject.toml", "uv.lock", "fonts"))
-SIBLING_ROOTS = ("test", "tools")
+SIBLING_ROOTS = ("tools",)
 
 
 def kernel_files(files: dict[str, str]) -> frozenset[str]:
@@ -53,7 +53,7 @@ def kernel_files(files: dict[str, str]) -> frozenset[str]:
 
 
 def _module_files(name: str, importer: Path, root: Path, level: int) -> list[Path]:
-    """Return every file that importing `name` from `importer` can execute: the module itself (a `.py` or a package's `__init__.py`) and each package `__init__.py` above it. An absolute name is resolved against the repo root, the importer's own directory (a bare sibling import inside `tools/`), and the sibling roots the suite puts on `sys.path`: `test/`, for `rebuild/validation/pins.py`'s `import test_shaping`, and `tools/`, whose modules import each other by bare name. A relative name walks up `level - 1` directories from the importer's package. Every match is kept, not only the one `sys.path` order would pick, because an extra file in a closure can only make a test run."""
+    """Return every file that importing `name` from `importer` can execute: the module itself (a `.py` or a package's `__init__.py`) and each package `__init__.py` above it. An absolute name is resolved against the repo root, the importer's own directory (a bare sibling import inside `tools/`), and the sibling root the suite puts on `sys.path`: `tools/`, whose modules import each other by bare name, which the font compile puts there. A relative name walks up `level - 1` directories from the importer's package. Every match is kept, not only the one `sys.path` order would pick, because an extra file in a closure can only make a test run."""
     parts = [part for part in name.split(".") if part]
     if level:
         base = importer.parent

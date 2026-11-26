@@ -21,6 +21,7 @@ from rebuild.pipeline import (
     defects,
     fingerprint,
     fixtures,
+    glyph_facts,
     oracle,
     oracle_cache,
     row_delta,
@@ -1918,8 +1919,9 @@ class TestGatesOnly:
         )
 
     def _build(self, monkeypatch, tmp_path, ran, *, report=None):
-        """Stubs the build this pass reuses: the font beside the stamped tables, the join tables the defect gate reads beside the enumeration, the minting, and the defect gate (returning `report`)."""
+        """Stubs the build this pass reuses: the font and its glyph-facts sidecar beside the stamped tables, the join tables the defect gate reads beside the enumeration, the minting, and the defect gate (returning `report`)."""
         (tmp_path / "M1.otf").write_bytes(b"font")
+        (tmp_path / glyph_facts.FILE_NAME).write_text("{}")
         monkeypatch.setattr(run_m1, "OUT_DIR", tmp_path)
         monkeypatch.setattr(run_m1_gates, "load_default_spec", lambda: object())
         monkeypatch.setattr(run_m1_gates, "check_window_scopes", lambda spec: [])
@@ -1978,6 +1980,7 @@ class TestGatesOnly:
         self._reuse(monkeypatch, {})
         self._green(monkeypatch, tmp_path)
         (tmp_path / "M1.otf").write_bytes(b"font")
+        (tmp_path / glyph_facts.FILE_NAME).write_text("{}")
         if left_behind is not None:
             (tmp_path / "pipeline_summary.json").write_text(left_behind)
         with pytest.raises(SystemExit) as error:
@@ -2000,7 +2003,7 @@ class TestGatesOnly:
             run_m1_gates.run_gates_only(out_dir=tmp_path)
         assert "joins-ss06.tsv is missing or unreadable" in str(error.value)
 
-    @pytest.mark.parametrize("missing", [None, "stamp", "font", "summary", "joins"])
+    @pytest.mark.parametrize("missing", [None, "stamp", "font", "glyph-facts", "summary", "joins"])
     def test_the_cycle_plans_a_rerun_over_exactly_the_builds_this_pass_accepts(
         self, monkeypatch, tmp_path, missing
     ):
@@ -2010,6 +2013,8 @@ class TestGatesOnly:
         self._summary(tmp_path)
         if missing == "font":
             (tmp_path / "M1.otf").unlink()
+        elif missing == "glyph-facts":
+            (tmp_path / glyph_facts.FILE_NAME).unlink()
         elif missing == "summary":
             (tmp_path / "pipeline_summary.json").unlink()
         elif missing == "joins":

@@ -22,8 +22,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "test"))
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT))
 
 import test_shaping as shaping  # noqa: E402
+
+from rebuild.validation.expect import CHAR_TO_GLYPH  # noqa: E402
 
 from manual_letters_words import load_page, page_path, save_page  # noqa: E402
 
@@ -217,7 +220,7 @@ def build_pages() -> dict[int, list[dict[str, Any]]]:
     collector = _Collector()
     collector.feed(MANUAL_HTML.read_text(encoding="utf-8"))
     collector.close()
-    names = shaping._build_char_to_glyph_name()
+    names = dict(CHAR_TO_GLYPH)
 
     by_paragraph: dict[int, list[dict[str, Any]]] = {}
     pages: dict[int, list[dict[str, Any]]] = {}

@@ -241,7 +241,7 @@ def _drive_sessionfinish(
 
 
 class TestWhenTheCheckIsJoined:
-    """Drive the root conftest's `pytest_configure` and `pytest_sessionfinish` on the plugin object pytest loaded (`_loaded_conftest` in rebuild/test_memory_budget.py says why it is not imported). `pyright_gate.begin` is stubbed to return a fake check, and the conftest's `subprocess` is stubbed to record any `make all` instead of running it. `_deferred_pyright` and `_shaping_cache` are replaced with fresh containers so the test cannot change the state of the session running it."""
+    """Drive the root conftest's `pytest_configure` and `pytest_sessionfinish` on the plugin object pytest loaded (`_loaded_conftest` in rebuild/test_memory_budget.py says why it is not imported). `pyright_gate.begin` is stubbed to return a fake check, and the conftest's `subprocess` is stubbed to record any `make all`, and the rebuilt fonts' build, instead of running it. `_deferred_pyright`, `_shaping_cache` and `_pin_cache` are replaced with fresh containers so the test cannot change the state of the session running it."""
 
     @pytest.fixture
     def root(self, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
@@ -249,15 +249,16 @@ class TestWhenTheCheckIsJoined:
         assert isinstance(plugin, ModuleType), "pytest has not loaded the root conftest as a plugin"
         monkeypatch.setattr(plugin, "_deferred_pyright", [])
         monkeypatch.setattr(plugin, "_shaping_cache", {})
+        monkeypatch.setattr(plugin, "_pin_cache", {})
         return plugin
 
     @pytest.fixture
     def builds(self, root: ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
         spawned: list[list[str]] = []
 
-        def fake_run(argv, cwd, check, env):
+        def fake_run(argv, cwd, check, env, **_capture):
             spawned.append(list(argv))
-            return SimpleNamespace(returncode=0)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr(root, "subprocess", SimpleNamespace(run=fake_run))
         return spawned
@@ -324,16 +325,37 @@ class TestWhenTheCheckIsJoined:
         args: tuple[str, ...],
         fonts_present: bool,
     ):
-        """When the run builds the fonts (`make test FORCE=1`, or a rebuild-only run whose site fonts are absent), the check runs alongside the build and a red check raises before any worker starts. Nothing is deferred to session end."""
+        """When the run builds the fonts (`make test FORCE=1`, or a rebuild-only run whose site fonts are absent), the check runs alongside the build and a red check raises before any worker starts. Nothing is deferred to session end. The font suite's run also builds the rebuilt fonts its pins are checked against, and a rebuild-only run does not."""
         check = _FakeCheck(1)
         self._begin(monkeypatch, check)
         monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: fonts_present)
         with pytest.raises(pytest.UsageError):
             root.pytest_configure(_RootStubConfig(*args))
-        assert builds == [["make", "all"]]
+        assert builds[0] == ["make", "all"]
+        rebuilt = [argv for argv in builds[1:] if "rebuild.tools.build_fonts" in argv]
+        assert len(rebuilt) == (1 if "site/" in args else 0)
         assert check.waits == 1
         assert root._deferred_pyright == []
         assert root._shaping_cache == {"_built": True}
+
+    def test_a_stale_senior_fails_the_font_suite_with_the_build_commands_message_and_abandons_the_check(
+        self, root: ModuleType, monkeypatch: pytest.MonkeyPatch
+    ):
+        """The font suite's session builds the rebuilt fonts its pins are checked against through `rebuild.tools.build_fonts`, which refuses a stale Senior and names the build command. The session then fails with that message before any worker starts, and abandons the check rather than waiting on it."""
+        check = _FakeCheck(0)
+        self._begin(monkeypatch, check)
+        refusal = "build_fonts: the rebuild's Senior is not current: run_m1 has no green build on record. Build it with `uv run python -m rebuild.pipeline.run_m1`"
+
+        def fake_run(argv, cwd, check, env, **_capture):
+            if "rebuild.tools.build_fonts" in argv:
+                return SimpleNamespace(returncode=1, stdout="", stderr=refusal)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(root, "subprocess", SimpleNamespace(run=fake_run))
+        with pytest.raises(pytest.UsageError, match="uv run python -m rebuild.pipeline.run_m1"):
+            root.pytest_configure(_RootStubConfig("test/", "site/"))
+        assert (check.waits, check.abandons) == (0, 1)
+        assert root._pin_cache == {}
 
     def test_a_worker_begins_no_check_and_still_reports_its_peak(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch

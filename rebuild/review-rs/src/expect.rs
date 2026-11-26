@@ -1,4 +1,4 @@
-//! Expect strings as the drafter writes, parses and replays them: written for a unit's spans ([`expect_string`]); `test_shaping.parse_expect` with `_letter_to_qs` ([`ExpectParser`]), `_expand_maybe_ligatures` ([`expand_maybe_ligatures`]), `_token_char_spans`, `_is_modifier_char` and `_token_input_char_count` ([`token_char_spans`]); `pins._check_interpretation` and `_expected_base` ([`check_interpretation`]); and the replay against the after font ([`Replayer`]).
+//! Expect strings as the drafter writes, parses and replays them: written for a unit's spans ([`expect_string`]); the grammar's `parse_expect` with `letter_to_qs` (`rebuild/validation/expect.py`, [`ExpectParser`]), `expand_maybe_ligatures` ([`expand_maybe_ligatures`]), `token_char_spans`, `is_modifier_char` and `token_input_char_count` ([`token_char_spans`]); `pins._check_interpretation` and `_expected_base` ([`check_interpretation`]); and the replay against the after font ([`Replayer`]).
 //!
 //! The parser reads the strings `parse_expect`'s regular expressions read, matched by hand in `re`'s order: `\s` and `strip` are `str.isspace` ([`is_space`]), `.` is any character but a newline, and the letter classes are ASCII. Positions are code point indices, as Python's are.
 
@@ -309,7 +309,7 @@ fn variant_tail(chars: &[char]) -> usize {
         .count()
 }
 
-/// `_letter_to_qs`: a letter token's family name.
+/// `letter_to_qs`: a letter token's family name.
 fn letter_to_qs(name: &str) -> String {
     if name == "-ing" {
         return "qsIng".to_owned();
@@ -317,7 +317,7 @@ fn letter_to_qs(name: &str) -> String {
     format!("qs{}", name.replace(['\u{2019}', '\''], ""))
 }
 
-/// `parse_expect` over the init's `_CHAR_TO_GLYPH`, which names the glyph of an escaped character.
+/// `parse_expect` over the init's `CHAR_TO_GLYPH`, which names the glyph of an escaped character.
 pub struct ExpectParser {
     glyph_names: HashMap<char, String>,
 }
@@ -448,7 +448,7 @@ impl ExpectParser {
     }
 }
 
-/// `_expand_maybe_ligatures`: the parse itself when no token is a maybe-ligature, and otherwise one interpretation per way of keeping or splitting each, in `itertools.product([True, False], ...)` order, keeping first. A split token becomes its two letters, bare, with a maybe connection for `+?` and a break for `+|` between them; every kept token loses its ligature mode.
+/// `expand_maybe_ligatures`: the parse itself when no token is a maybe-ligature, and otherwise one interpretation per way of keeping or splitting each, in `itertools.product([True, False], ...)` order, keeping first. A split token becomes its two letters, bare, with a maybe connection for `+?` and a break for `+|` between them; every kept token loses its ligature mode.
 pub fn expand_maybe_ligatures(tokens: &[ExpectToken], connections: &[Connection]) -> Vec<Parsed> {
     let maybe: Vec<usize> = tokens
         .iter()
@@ -500,12 +500,12 @@ pub fn expand_maybe_ligatures(tokens: &[ExpectToken], connections: &[Connection]
         .collect()
 }
 
-/// `_is_modifier_char`: whether a character is a variation selector, U+FE00 to U+FE0F.
+/// `is_modifier_char`: whether a character is a variation selector, U+FE00 to U+FE0F.
 fn is_modifier_char(letter: char) -> bool {
     ('\u{FE00}'..='\u{FE0F}').contains(&letter)
 }
 
-/// `_token_input_char_count`: two input characters for a ligature token, one otherwise.
+/// `token_input_char_count`: two input characters for a ligature token, one otherwise.
 fn token_input_char_count(token: &ExpectToken) -> usize {
     if token.lig_base.is_some() { 2 } else { 1 }
 }
@@ -514,7 +514,7 @@ fn token_repr(token: &ExpectToken) -> String {
     repr(&token.to_py()).expect("a token has a repr")
 }
 
-/// `_token_char_spans`: each token's half-open code point range in `text`, with the variation selectors after its last character, or the ValueError's message when the text runs out or has characters left over.
+/// `token_char_spans`: each token's half-open code point range in `text`, with the variation selectors after its last character, or the ValueError's message when the text runs out or has characters left over.
 pub fn token_char_spans(
     text: &[char],
     tokens: &[ExpectToken],

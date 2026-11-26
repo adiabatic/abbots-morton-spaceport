@@ -11,12 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import conform, manual_pins, spec_load
+from rebuild.pipeline import manual_pins, spec_load
 from rebuild.review import store_lock
 from rebuild.review.landing import clone_tree
 from rebuild.tools import fault_kit, write_meter
 from rebuild.tools.write_meter import Member, WriteReading
-from rebuild.validation.pins import ReplayReport, collect_pin_runs
+from rebuild.validation import corpus
 
 GATES = {
     "string-replay": {
@@ -496,20 +496,23 @@ def test_the_tree_is_the_work_tree_and_a_refresh_clones_only_what_moved(tmp_path
 
 
 def test_every_rows_alphabet_narrows_the_store_and_holds_a_manual_pin_and_a_ligature():
-    """`run_m1` fails a build with no Manual pin in scope, so each row's alphabet holds every letter of some pin the gate replays (#618's decision 59); it holds a ligature, since without one the formation lookup comes out empty and read-back fails the unfaulted build; and the switch accepts it."""
+    """`run_m1` fails a build with no pin in scope, so each row's alphabet holds every Quikscript letter of some pin with a Senior run, which the gate then checks (`manual_pins.missing_letters`, #618's decision 59); it holds a ligature, since without one the formation lookup comes out empty and read-back fails the unfaulted build; and the switch accepts it."""
     spec = spec_load.load_spec(
         spec_load.DEFAULT_RUNES_DIR, spec_load.DEFAULT_REGISTRY_PATH, spec_load.DEFAULT_SCHEMA_DIR
     )
+    whole = manual_pins.migrated_alphabet(spec)
     pins = [
-        {ord(character) for character in pin.text}
-        for pin in collect_pin_runs(ReplayReport(), configs=manual_pins.PIN_CONFIGS)
-        if pin.source.startswith(manual_pins.MANDATING_CORPORA)
-        and pin.config_token in conform.ACCEPTANCE_CONFIGS
+        pin
+        for pin in corpus.read_pins()
+        if any(run["font"] == "senior" for run in pin.runs)
+        and any(ord(character) in manual_pins.QUIKSCRIPT_CODEPOINTS for character in pin.text)
+        and not manual_pins.missing_letters(pin, whole)
     ]
+    assert pins
     for row in fault_kit.load_manifest().rows:
         narrowed = spec_load.narrowed(spec, row.alphabet)
         alphabet = manual_pins.migrated_alphabet(narrowed)
-        assert any(pin <= alphabet for pin in pins), row.id
+        assert any(not manual_pins.missing_letters(pin, alphabet) for pin in pins), row.id
         assert any(rune.sequence for rune in narrowed.runes.values()), row.id
 
 

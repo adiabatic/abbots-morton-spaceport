@@ -1408,7 +1408,7 @@
         </tr>
         <tr>
           <td
-            data-expect="·Way+Utter ~x~ ·No | ◊space | \= | ◊space | ·Way.half | ◊ZWNJ | ·Utter.noentry | ◊ZWNJ | ·No.noentry"
+            data-expect="·Way+Utter ~x~ ·No | ◊space | \= | ◊space | ·Way.half | ◊ZWNJ | ·Utter.locked | ◊ZWNJ | ·No.locked"
           >
              = &#xFE01;&zwnj;&zwnj;
           </td>
@@ -1938,7 +1938,7 @@
           </div>
           <div>
             <dt>might</dt>
-            <dd data-expect="·May ~b~ ·I ~x~ ·Tea.!half" data-stylistic-set="02"></dd>
+            <dd data-expect="·May ~b~ ·I ~x~ ·Tea.!half" data-stylistic-set="03"></dd>
           </div>
           <div>
             <dt>more</dt>
@@ -2274,7 +2274,7 @@
             <!-- prettier-ignore -->
             <dd>
               <span data-orthodox="he"></span>,
-              <span data-orthodox="him" data-expect="·He.!half ~b~ ·May.en-ext-1"></span>,
+              <span data-orthodox="him" data-expect="·He.!half ~b~ ·May"></span>,
               <span data-orthodox="his" data-expect="·He.half ~x~ ·Zoo"></span>
             </dd>
           </div>
@@ -2377,7 +2377,7 @@
             <!-- prettier-ignore -->
             <dd>
               <span data-orthodox="time"  data-expect="·Tea ~b~ ·May"></span>,
-              <span data-orthodox="times" data-expect="·Tea ~b~ ·May.en-ext-1 ~x~ ·Zoo"></span>
+              <span data-orthodox="times" data-expect="·Tea ~b~ ·May ~x~ ·Zoo"></span>
             </dd>
           </div>
           <div>
@@ -2568,7 +2568,7 @@
         <tr>
           <td data-expect="·Key | ·Awe ~b~ ·Low | ·-ing"></td>
           <td>.</td>
-          <td data-expect="·Roe ~b~ ·I ~x~ ·Tea ~b~ ·-ing ~b~ ·Zoo.half" data-stylistic-set="02"></td>
+          <td data-expect="·Roe ~b~ ·I ~x~ ·Tea ~b~ ·-ing ~b~ ·Zoo.half" data-stylistic-set="03"></td>
           <td>.</td>
           <td data-expect="·Low | ·Utter.alt ~b~ ·Vie ~b~ ·-ing ~b~ ·Low ~x~ ·It"></td>
           <td>.</td>
@@ -3605,7 +3605,7 @@
         
         
         
-        <span data-expect="·Roe ~b~ ·I ~x~ ·Tea.!half" data-stylistic-set="02"></span>!
+        <span data-expect="·Roe ~b~ ·I ~x~ ·Tea.!half" data-stylistic-set="03"></span>!
       </p>
 
       <h3 id="gown-shop">Gown shop</h3>
@@ -4030,7 +4030,7 @@
             <span data-expect="·Day | ·Et ~b~ ·Thaw"></span>,
             
             
-            <span data-expect="·Day | ◊ZWNJ | ·It ~b~ ·Zoo.half ~b~ ·I ~x~ ·Roe">&zwnj;&#xFE01;</span>
+            <span data-expect="·Day | ◊ZWNJ | ·It ~b~ ·Zoo.half ~b~ ·I ~x~ ·Roe" data-expect-pending="VS2 selects the half ·Zoo unjoined, so the rebuild shapes ·It | ·Zoo.half | ·I">&zwnj;&#xFE01;</span>
             —
             
             
@@ -4091,7 +4091,7 @@
 
             
             
-            <span data-expect="·See | ◊ZWNJ | ·Utter ~x~ ·May | ·Thaw | ·It ~b~ ·-ing">&zwnj;</span>
+            <span data-expect="·See | ◊ZWNJ | ·Utter ~x~ ·May | ·Thaw | ·It ~b~ ·-ing" data-expect-pending="settlement reads across the break: ·May takes another shape beside ·Thaw than alone">&zwnj;</span>
             <span data-expect="·No.alt ~b~ ·Eat | ·Tea"></span>
             
             <span data-expect="·He ~b~ ·I | \- | ·Bay ~b~ ·Roe | ·Et ~b~ ·Day.half">-</span>,

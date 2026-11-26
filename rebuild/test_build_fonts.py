@@ -1,4 +1,4 @@
-"""Tests for `rebuild/tools/build_fonts.py`, the six-font command: the Senior currency check and copy over a synthetic root whose run_m1 records each test writes, and the shipped file names."""
+"""Tests for `rebuild/tools/build_fonts.py`, the six-font command: the Senior currency check and copy over a synthetic root whose run_m1 records each test writes, the glyph-facts sidecar copied beside the Senior, and the shipped file names, which `rebuild/tools/suite_fonts.py` restates for the font suite."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import fingerprint, run_m1
-from rebuild.tools import build_fonts, cycle_paths
+from rebuild.pipeline import build_family, fingerprint, glyph_facts, run_m1
+from rebuild.tools import build_fonts, cycle_paths, suite_fonts
+from rebuild.validation import check
 from rebuild.tools.artifact_cycle import run_m1_skip_files, run_m1_skip_fingerprint
 from rebuild.tools.build_fonts import StaleSeniorError
 from rebuild.tools.green_record import record_green
@@ -21,6 +22,7 @@ def _fake_build(root: Path) -> None:
     m1.mkdir(parents=True)
     for style, name in build_fonts.SENIOR_SOURCES.items():
         (m1 / name).write_bytes(f"senior {style}".encode())
+    (m1 / glyph_facts.FILE_NAME).write_text('{"format": "ams-glyph-facts/1", "glyphs": {}}\n')
     (root / "rebuild" / "script.yaml").write_text("heights: {baseline: 0}\n")
     (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text("classes: []\n")
     fingerprint.write_stage_a(m1, {"data": "d", "baselines": "b", "pipeline_code": "p"})
@@ -42,6 +44,16 @@ class TestTheSenior:
             "AbbotsMortonSpaceportSansSenior-Bold.otf",
         ]
         assert [path.read_bytes() for path in written] == [b"senior Regular", b"senior Bold"]
+        assert (
+            check.glyph_facts_path(written[0]).read_bytes()
+            == (root / build_fonts.M1_OUT / glyph_facts.FILE_NAME).read_bytes()
+        )
+
+    def test_a_missing_glyph_facts_sidecar_is_named(self, tmp_path):
+        root = tmp_path / "root"
+        _fake_build(root)
+        (root / build_fonts.M1_OUT / glyph_facts.FILE_NAME).unlink()
+        assert build_fonts.senior_staleness(root) == f"rebuild/out/m1/{glyph_facts.FILE_NAME} is missing"
 
     def test_a_moved_comparison_side_input_leaves_it_current(self, tmp_path):
         root = tmp_path / "root"
@@ -80,3 +92,14 @@ class TestTheSenior:
         _fake_build(root)
         cycle_paths.RUN_M1_GREEN.unlink()
         assert build_fonts.senior_staleness(root) == "run_m1 has no green build on record"
+
+
+def test_the_font_suite_names_the_fonts_and_the_sidecar_this_command_writes():
+    """The root conftest and gate:make-test's key name the pin fonts through `suite_fonts`, which imports nothing; its names are the ones this command writes, and the sidecar's is the one the checker looks for beside the Senior and the one run_m1 writes under rebuild/out/m1."""
+    assert suite_fonts.fonts_dir(REPO_ROOT) == build_fonts.DEFAULT_OUT_DIR
+    for font, name in suite_fonts.FONT_FILES.items():
+        assert name == build_family.font_file_name(font, "Regular")
+    senior = suite_fonts.font_paths(REPO_ROOT)["senior"]
+    assert suite_fonts.glyph_facts_path(REPO_ROOT) == check.glyph_facts_path(senior)
+    assert check.glyph_facts_path(run_m1.OUT_DIR / "M1.otf").name == glyph_facts.FILE_NAME
+    assert set(suite_fonts.BUILT_FONTS) <= set(build_fonts.FONTS)
