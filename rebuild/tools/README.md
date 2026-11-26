@@ -21,4 +21,4 @@ Start here:
 
 `suite_fonts.py` is a library too, one the root conftest can import: it names the rebuilt fonts and the glyph-facts sidecar the font suite checks the `data-expect` pins against, as `build_fonts.py` writes them.
 
-`store_guards.py` is a library as well: the pass lock, the review-server check and the refusals every hand-run writer of the verdict store shares, the close-out and the table-diff accept (`rebuild/review/accept.py`).
+`store_guards.py` is a library as well: the pass lock, the review-server check and the refusals the table-diff accept (`rebuild/review/accept.py`), a hand-run writer of the verdict store, takes.

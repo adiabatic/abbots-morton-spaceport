@@ -219,7 +219,7 @@ def test_each_entry_point_that_writes_the_live_tree_refuses_the_switch(monkeypat
     monkeypatch.setattr(landing, "land", _refuse_to_run)
     monkeypatch.setattr(baseline_subset, "check_font_provenance", _refuse_to_run)
     monkeypatch.setattr(baseline_subset, "refresh", _refuse_to_run)
-    scratch = [str(tmp_path / name) for name in ("autosave.json", "journal.ndjson", "run", "corpus")]
+    scratch = [str(tmp_path / name) for name in ("autosave.json", "run", "corpus")]
     run = {
         "the artifact cycle": lambda: artifact_cycle.main(["--review-out", str(tmp_path / "corpus")]),
         "run_m1": run_m1.cli,
@@ -229,12 +229,10 @@ def test_each_entry_point_that_writes_the_live_tree_refuses_the_switch(monkeypat
             [
                 "--autosave",
                 scratch[0],
-                "--journal",
-                scratch[1],
                 "--run-dir",
-                scratch[2],
+                scratch[1],
                 "--corpus",
-                scratch[3],
+                scratch[2],
             ]
         ),
     }[entry]

@@ -8,7 +8,7 @@ function checks(overrides = {}) {
     freshness: { level: 'ok', detail: 'all components fresh', remedy: null, components: {} },
     gates: { level: 'ok', detail: 'gates green', remedy: null },
     verdict_store: { level: 'ok', detail: 'store readable', remedy: null },
-    fullest_verdicts: { level: 'ok', detail: 'fullest verdicts clean', remedy: null, path: null, count: null },
+    snapshot: { level: 'ok', detail: 'the accepted one', remedy: null },
     blanks: { level: 'ok', detail: '3 blank units', count: 3 },
     ...overrides,
   };
@@ -43,8 +43,8 @@ test('an error field folds the server message into the text', () => {
 });
 
 test('a reply refusing the verdict store shows the refusal with no restart remedy, which a reply with any other error keeps', () => {
-  for (const reason of ['store-malformed', 'land-unrecoverable', 'accepted-malformed', 'accepted-mismatch']) {
-    const error = 'the result run-1/verdicts-landing.json holds a verdict record on u-1 …';
+  for (const reason of ['store-malformed']) {
+    const error = 'the store verdicts-autosave.json holds a verdict record on u-1 …';
     const model = bannerModel({ ok: false, reason, error }, 'gen-1');
     assert.equal(model.level, 'error');
     assert.equal(model.text, `Autosave is off — ${error}`);
@@ -170,13 +170,13 @@ test('a warning check renders warn with its detail and remedy', () => {
   assert.equal(model.remedy, 'export soon');
 });
 
-test('a fullest verdicts warning is picked up after the four blocking checks pass', () => {
+test('a verdict-store warning is picked up after the blocking checks pass', () => {
   const model = bannerModel(
-    withChecks({ fullest_verdicts: { level: 'warn', detail: 'fullest verdicts drifting', remedy: null, path: 'p', count: 5 } }),
+    withChecks({ verdict_store: { level: 'warn', detail: 'There is no autosave yet.', remedy: null } }),
     'gen-1',
   );
   assert.equal(model.level, 'warn');
-  assert.equal(model.text, 'fullest verdicts drifting');
+  assert.equal(model.text, 'There is no autosave yet.');
   assert.equal(model.remedy, null);
 });
 
@@ -274,7 +274,7 @@ test('a Retry-After header is read in seconds, with a second when it names none'
 
 test('a table-diff corpus whose snapshot check fails stales the banner with the remake as its command', () => {
   const failing = { level: 'fail', detail: 'No snapshot is current on this machine; the pointer names d015524b1f7e.', remedy: 'make review-snapshot-remake' };
-  const model = bannerModel(withChecks({ snapshot: failing, fullest_verdicts: undefined }), 'gen-1');
+  const model = bannerModel(withChecks({ snapshot: failing }), 'gen-1');
   assert.equal(model.level, 'stale');
   assert.equal(model.text, failing.detail);
   assert.equal(model.command, 'make review-snapshot-remake');

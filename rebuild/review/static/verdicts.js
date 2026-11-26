@@ -1,5 +1,4 @@
 export const VERDICT_KINDS = ['approve', 'reject', 'either', 'identical', 'neither', 'skip'];
-export const ACCEPTED_KINDS = ['approve', 'either', 'identical'];
 
 export const EXPORT_FORMAT = 'ams-review-verdicts/1';
 export const DELTA_FORMAT = 'ams-review-verdicts-delta/1';
@@ -64,15 +63,10 @@ export function recordVerdictWithDuplicates(
   return applied;
 }
 
-// A note typed on an accepted record (`applyAccepted`) makes it a store record of the same verdict stamped now, so the save reaches the store as an override: the accepted record's own `at` reaches it only as an undo back to the accepted state.
 export function updateNote(store, unitId, note) {
   const record = store.records.get(unitId);
   if (!record || record.note === note) return false;
-  if (record.accepted) {
-    store.records.set(unitId, { unit: unitId, verdict: record.verdict, note, at: new Date().toISOString() });
-  } else {
-    record.note = note;
-  }
+  record.note = note;
   touch(store, unitId);
   return true;
 }
@@ -111,11 +105,9 @@ export function undo(store) {
   return { units, cursor: units[0] };
 }
 
-// The download holds the store's records only, never the accepted ones, which the tracked list holds.
 export function assembleExport(store, manifestGeneratedAt, exportedAt = new Date().toISOString()) {
   const verdicts = [];
   for (const record of store.records.values()) {
-    if (record.accepted) continue;
     verdicts.push({ unit: record.unit, verdict: record.verdict, note: record.note, at: record.at });
   }
   verdicts.sort((a, b) => (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0));
@@ -187,12 +179,10 @@ export function noteServerRecords(store, records) {
 }
 
 function copiedRecord(unit, record) {
-  const copy = { unit, verdict: record.verdict, note: record.note ?? '', at: record.at ?? '' };
-  if (record.accepted === true) copy.accepted = true;
-  return copy;
+  return { unit, verdict: record.verdict, note: record.note ?? '', at: record.at ?? '' };
 }
 
-// Replaces the tab's record for `unitId` with the server's (null when the server holds none) after the server refused the tab's change as a conflict. The server's record keeps its `accepted` flag, so an accepted unit the server holds no override for stays accepted.
+// Replaces the tab's record for `unitId` with the server's (null when the server holds none) after the server refused the tab's change as a conflict.
 export function adoptServerRecord(store, unitId, record) {
   if (record) {
     store.records.set(unitId, copiedRecord(unitId, record));
@@ -204,7 +194,7 @@ export function adoptServerRecord(store, unitId, record) {
   store.unexported.delete(unitId);
 }
 
-// Mirrors `rebuild.review.verdict_store.well_formed`, the record shape the carry and the merge take, down to Python's truthiness: a note Python reads as false (missing, null, false, 0, or an empty list or object) passes, and a strict import writes it as '', as the carry and the merge do, since a save takes only a string or null note.
+// Mirrors `rebuild.review.verdict_store.well_formed`, the record shape the store keeps, down to Python's truthiness: a note Python reads as false (missing, null, false, 0, or an empty list or object) passes, and a strict import writes it as '', as the store does, since a save takes only a string or null note.
 function wellFormed(entry) {
   if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return false;
   for (const key of ['unit', 'verdict', 'at']) {
@@ -216,7 +206,7 @@ function wellFormed(entry) {
   return typeof note === 'object' && Object.keys(note).length === 0;
 }
 
-// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`, each an `ams-review-verdicts/1` document: per corpus the entries were made on, the records a strict Import refuses (`wellFormed`, the merge's rule too) go in a separate verdicts-unsaved-malformed-<stamp>.json, apart from the rest of their corpus's entries, so they cannot make an Import refuse the file holding the rest, and verdicts-unsaved-<stamp>.json holds the other records and the clears (as a `cleared` list of { unit, at }).
+// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`, each an `ams-review-verdicts/1` document: per corpus the entries were made on, the records a strict Import refuses (`wellFormed`, the store's rule too) go in a separate verdicts-unsaved-malformed-<stamp>.json, apart from the rest of their corpus's entries, so they cannot make an Import refuse the file holding the rest, and verdicts-unsaved-<stamp>.json holds the other records and the clears (as a `cleared` list of { unit, at }).
 export function unsavedFiles(entries, exportedAt = new Date().toISOString()) {
   const files = new Map();
   for (const entry of entries) {
@@ -236,30 +226,7 @@ export function unsavedFiles(entries, exportedAt = new Date().toISOString()) {
   return [...files.values()];
 }
 
-// The records the `accepted` field of a full GET of /autosave gives (`rebuild.review.accepted.View.app_field`), one a listed id, approve, either and identical in turn: `{ unit, verdict, note: '', at: closed_at, accepted: true }`. The server lists only the ids on its served corpus's human units that hold no store record and no tombstone, so a tombstone hides a listed id with no reading of `cleared` here. A field naming no list gives none.
-export function* acceptedRecords(field) {
-  const at = field?.closed_at;
-  if (typeof at !== 'string') return;
-  for (const verdict of ACCEPTED_KINDS) {
-    for (const unit of Array.isArray(field[verdict]) ? field[verdict] : []) {
-      if (typeof unit === 'string') yield { unit, verdict, note: '', at, accepted: true };
-    }
-  }
-}
-
-// Puts the accepted records of `field` (`acceptedRecords`) into the store for each unit it holds no record for, as what the server holds, and returns those units. It marks nothing dirty or unexported. Each record's `at` is the close-out's, so a record from a sync or an Import replaces it only when dated after the close-out, and an undo back to it sends it by value, which the server reads as a return to the accepted state.
-export function applyAccepted(store, field) {
-  const added = [];
-  for (const record of acceptedRecords(field)) {
-    if (store.records.has(record.unit)) continue;
-    store.records.set(record.unit, record);
-    store.serverAt.set(record.unit, record.at);
-    added.push(record.unit);
-  }
-  return added;
-}
-
-// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent. With `strict`, which the Import dialog passes, a document holding a record `wellFormed` refuses is refused whole, as the merge refuses an input file holding a record the carry refuses (`verdict_store.well_formed`), and before its stamp is compared with `manifestGeneratedAt`, so the dialog refuses it without first asking whether to merge a file stamped for another manifest; without it, as for a restore or a sync of the server's records, a record is skipped and counted in `invalid` only when it has no string unit or its verdict is not a known kind.
+// `pendingAt(unit)` returns when this page made a change to the unit that the server has not yet acknowledged, or undefined when it has none: an incoming record replaces such a unit only when it is newer than that change, so a sync never reverts a clear or an undo waiting to be sent. With `strict`, which the Import dialog passes, a document holding a record `wellFormed` refuses is refused whole, as the store refuses a file holding one (`verdict_store.well_formed`), and before its stamp is compared with `manifestGeneratedAt`, so the dialog refuses it without first asking whether to merge a file stamped for another manifest; without it, as for a restore or a sync of the server's records, a record is skipped and counted in `invalid` only when it has no string unit or its verdict is not a known kind.
 export function importVerdicts(
   store,
   data,
@@ -310,18 +277,12 @@ export function importVerdicts(
   return { ok: true, mismatch, added, replaced, keptNewer, invalid, units };
 }
 
-const CARRIED_PROVENANCE_PREFIX = /^(?:\s*\[(?:carried|duplicate-fill|duplicate-harmonize|echo-fill|echo-harmonize|bulk|deferred|parked|standing)\b[^\]]*\])+\s*/;
-
-export function stripCarriedProvenance(note) {
-  return note.replace(CARRIED_PROVENANCE_PREFIX, '');
-}
-
 export function recentNotes(store, verdict = null, { limit = 10, exclude = [] } = {}) {
   const excluded = new Set(exclude);
   const newestAt = new Map();
   for (const record of store.records.values()) {
     if (verdict !== null && record.verdict !== verdict) continue;
-    const note = stripCarriedProvenance(record.note);
+    const note = record.note;
     if (!note || excluded.has(note)) continue;
     const seen = newestAt.get(note);
     if (seen === undefined || record.at > seen) newestAt.set(note, record.at);
@@ -331,12 +292,11 @@ export function recentNotes(store, verdict = null, { limit = 10, exclude = [] } 
   return notes.slice(0, limit);
 }
 
-// The records under each verdict, and under `accepted` how many of them are accepted records, so the rest are the verdicts recorded since the close-out.
+// The records under each verdict.
 export function verdictCounts(store) {
-  const counts = { approve: 0, reject: 0, either: 0, identical: 0, neither: 0, skip: 0, accepted: 0 };
+  const counts = { approve: 0, reject: 0, either: 0, identical: 0, neither: 0, skip: 0 };
   for (const record of store.records.values()) {
     counts[record.verdict] += 1;
-    if (record.accepted) counts.accepted += 1;
   }
   return counts;
 }

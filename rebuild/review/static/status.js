@@ -1,7 +1,6 @@
 import { storeRefusalOf } from './outbox.js';
 import { formatCount } from './render.js';
 
-// A table-diff corpus's status adds the `snapshot` check, which an m1-audit corpus's lacks.
 const FAIL_SCAN = ['corpus', 'freshness', 'gates', 'snapshot', 'verdict_store'];
 export const SERVER_UNREACHABLE_GRACE_MS = 60_000;
 const RETRY_AFTER_DEFAULT_MS = 1000;
@@ -11,9 +10,9 @@ export function retryAfterMs(header) {
   const seconds = Number.parseFloat(header ?? '');
   return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : RETRY_AFTER_DEFAULT_MS;
 }
-const WARN_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store', 'fullest_verdicts'];
+const WARN_SCAN = ['corpus', 'freshness', 'gates', 'snapshot', 'verdict_store'];
 
-// A remedy is copyable only when the whole string is a shell command. Every command remedy status.py emits starts with `make` or `uv run`; the prose remedies ("reload the page", "Merge … into the autosave (uv run …)") do not.
+// A remedy is copyable only when the whole string is a shell command. Every command remedy status.py emits starts with `make` or `uv run`; the prose remedies ("reload the page", "Replace the store with a readable one, …") do not.
 export function remedyCommand(remedy) {
   return remedy && /^(make|uv run) /u.test(remedy) ? remedy : null;
 }

@@ -1,4 +1,4 @@
-"""The guards a hand-run writer of the verdict store passes before it writes: the close-out (`rebuild.tools.close_out`) and the table-diff accept (`rebuild.review.accept`). Each takes the artifact cycle's pass lock beside the store without waiting and holds it to its end (`pass_lock`), so no pass that snapshotted the store before the write lands after it, refuses while a review server listens that may write the store (`serves`), and names the cause of either refusal (`pass_refusal`, `server_refusal`). A writer that reads the served corpus's human units first asks `make verdict-ready` and refuses while a blocking check fails (`readiness_refusal`)."""
+"""The guards the table-diff accept (`rebuild.review.accept`), a hand-run writer of the verdict store, and the snapshot remake pass before they write. Each takes the artifact cycle's pass lock beside the store without waiting and holds it to its end (`pass_lock`), so no pass runs across it, and names the pass that holds it when it refuses (`pass_refusal`). The accept reads the served corpus's human units, so it first asks `make verdict-ready` and refuses while a blocking check fails (`readiness_refusal`), and it tells the open tabs to reload onto the store it emptied only when a review server listens that may write the store (`serves`)."""
 
 from __future__ import annotations
 
@@ -38,18 +38,9 @@ def serves(store: Path) -> bool:
 
 
 def pass_refusal(store: Path) -> str:
-    """Return the refusal of a writer that found the pass lock beside `store` held (`pass_lock`), naming the holder's pid. A pass between its snapshot and its land would lay the saves made since over a prepared store from before the write."""
+    """Return the refusal of a writer that found the pass lock beside `store` held (`pass_lock`), naming the holder's pid."""
     who = holder(pass_lock_path_for(store)) or "unknown"
     return f"a pass holds {pass_lock_path_for(store)} (pid {who}); wait for it to finish"
-
-
-def server_refusal(store: Path, task: str) -> str:
-    """Return the refusal of `task`, a writer of `store`, while a review server listens that may write it (`serves`)."""
-    return (
-        f"a review server listening on port 7294 may write {Path(store).name}: its /capabilities answer names that store, or "
-        f"names none. Stop it for {task} and restart it afterwards, and the open tabs fetch the store and the "
-        "list again at the restart"
-    )
 
 
 def readiness_refusal(result: dict, ready: bool, consequence: str) -> str | None:

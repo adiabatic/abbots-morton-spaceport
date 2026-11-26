@@ -225,11 +225,9 @@ REVIEW_NON_BUILD_MODULES = frozenset(
         "serve.py",
         "verdict_store.py",
         "status.py",
-        "journal.py",
         "store_lock.py",
         "landing.py",
         "export.py",
-        "accepted.py",
         "kern_routes.py",
         "kern_writer.py",
     }
@@ -237,7 +235,7 @@ REVIEW_NON_BUILD_MODULES = frozenset(
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, journal.py the store's journal, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus and store into place. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus into place and carries the store onto it. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")

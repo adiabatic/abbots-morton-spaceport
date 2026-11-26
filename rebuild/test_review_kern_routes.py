@@ -694,7 +694,7 @@ REAL_SERVER_CHILD = """
 import sys
 from pathlib import Path
 from rebuild.pipeline import run_m1
-from rebuild.review import accepted, journal, kern_routes, serve
+from rebuild.review import kern_routes, serve
 from rebuild import test_review_kern_routes as tests
 from rebuild.test_kern import tables
 root = Path(sys.argv[1])
@@ -715,8 +715,6 @@ serve.M1_OUT = root / "rebuild" / "out" / "m1"
 serve.RUNES_DIR = root / "alphabet" / "runes"
 serve.CYCLE_SUMMARY_PATH = root / "rebuild" / "out" / "cycle_summary.json"
 serve.AUTOSAVE_PATH = root / "verdicts-autosave.json"
-serve.JOURNAL_PATH = root / journal.JOURNAL_NAME
-serve.ACCEPTED_PATH = accepted.path_for(serve.AUTOSAVE_PATH)
 serve.PORT = int(sys.argv[2])
 serve.main()
 """

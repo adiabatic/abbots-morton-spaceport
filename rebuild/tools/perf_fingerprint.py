@@ -1,10 +1,10 @@
-"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store with its accepted list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
+"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
 
 Run it with the tree under test's own interpreter and code, never the harness's:
 
   uv run --directory <tree> python -P <main>/rebuild/tools/perf_fingerprint.py --root <tree> --out <file>
 
-`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, `rebuild.review.accepted`, for a corpus read in its materialized form `rebuild.review.build`, and, for an audit or stores under `rebuild/out/m1`, `rebuild.pipeline.oracle` and `rebuild.pipeline.oracle_cache` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
+`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, for a corpus read in its materialized form `rebuild.review.build`, and, for an audit or stores under `rebuild/out/m1`, `rebuild.pipeline.oracle` and `rebuild.pipeline.oracle_cache` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
 
 The output is one `ams-perf-fingerprint/1` document:
 
@@ -12,8 +12,7 @@ The output is one `ams-perf-fingerprint/1` document:
 - `fonts`: `fingerprint.font_content_digest` of `rebuild/out/m1/M1.otf`, the corpus's `fonts/{before,after}.otf` and the six site fonts, null for a font that is missing.
 - `corpus`: one digest per file under `rebuild/out/review/` but the two stores, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` and `review-facts.json` are digested as canonical JSON without the keys `MANIFEST_STAMPS` names (for the facts file, inside its `corpus` block), and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
 - `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which a report names apart.
-- `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, its override section's among them, as one store, without the keys `STORE_STAMPS` names and without any record's `at`, since the fills stamp `at` with the corpus stamp. The projection is hashed as the store streams, a record at a time, through the tree's `accepted.read_tail` and `accepted.iter_records`, and a store out of order, or a tree without those readers, is parsed whole for the same value (`store_digest`).
-- `accepted`: the raw digest of the accepted list beside the store, `rebuild/accepted-units.txt`, null when there is none. Every reader of the store reads the units the list names as accepted and no pass writes it, so a pass that did shows up here and not in `verdicts`.
+- `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, without the keys `STORE_STAMPS` names and without any record's `at`, which records when a verdict was made (`store_digest`).
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 - `audit`: the digest of the divergence audit's materialized form (`oracle.materialized_audit` from the tree, its head's parts inflated and merged into the whole file over the live rows), null for a tree with neither a head nor the single file. A pass that changes no audit row leaves it where it was.
 - `oracle_stores`: for each configuration the oracle stores' set head lists, or each `oracle-rows-<config>.tsv.gz` a tree from before the segment format holds, two digests of its materialized store (`oracle_cache.materialized_store` from the tree): `materialized`, the bytes, and `records`, the records' inflated lines each cut before its two trailing ages, the header line left out and the trailer kept. Every pass that writes the stores moves its pass ordinal, which the header carries and the ages are counted from, and moves the ages of the rows it re-derives on schedule, so `materialized` differs across any two passes that wrote the stores; `records` differs only where a record's verdicts or settled digest moved, or where a record was added or removed.
@@ -30,7 +29,6 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
-import heapq
 import importlib
 import json
 import re
@@ -74,7 +72,6 @@ FONTS = (
 M1 = Path("rebuild/out/m1")
 REVIEW = Path("rebuild/out/review")
 AUTOSAVE = Path("verdicts-autosave.json")
-ACCEPTED = Path("rebuild/accepted-units.txt")
 FACTS_PINS = Path("rebuild/review-facts-pins.json")
 # The audit's single file and its head, and the oracle stores' set head, single files and trailer line (`oracle.AUDIT_NAME`, `oracle_cache.SET_HEAD_NAME`, `oracle_cache.store_path`, `oracle_cache.ROW_COUNT_TRAILER`), restated because the script imports nothing of the tree under test before `--root` is on its path, and nothing of the oracle unless a tree holds one.
 AUDIT = "divergence-audit.tsv"
@@ -247,94 +244,17 @@ def _without_at(value: object) -> object:
 
 
 def store_digest(path: Path) -> str | None:
-    """Digest a verdict store's projection: its format, the sorted (unit, verdict, note) of its records and the sorted unit ids it cleared, those of its override section (`overrides`, the records and tombstones on accepted units) listed with its own, so a store with no section keeps the digest it had before the section existed. The `cleared` list holds `{unit, at}` entries, or bare unit ids in an older file, and keeps a duplicate as often as the file holds it.
-
-    The projection is hashed as it streams (`_streamed_store_digest`), through the tree's own stream readers (`tree_accepted`): the members but the records first, then the store's own records one at a time, merged with the override section's sorted records, which are the canonical bytes a whole parse hashes, so the value is the same. A tree without those readers, and a store the stream does not take (one whose own records are not in (unit, verdict, note) order, or whose records or override section are not of the shape the projection's order is total over), are parsed whole (`_parsed_store_digest`), which is the same value on every file.
-    """
+    """Digest a verdict store's projection: its format, the sorted (unit, verdict, note) of its records and the sorted unit ids it cleared, without the keys `STORE_STAMPS` names and without any record's `at`. The `cleared` list holds `{unit, at}` entries, or bare unit ids in an older file, and keeps a duplicate as often as the file holds it. The store holds the verdicts made since the last accept, so it is parsed whole. None for a missing store."""
     if not path.is_file():
         return None
-    accepted = tree_accepted()
-    streamed = _streamed_store_digest(path, accepted) if accepted is not None else None
-    return streamed if streamed is not None else _parsed_store_digest(path)
-
-
-class _OutOfOrder(Exception):
-    """Raised inside `_streamed_store_digest` for a store its stream does not take."""
-
-
-def _store_row(record: object) -> tuple[str, str, str]:
-    """Return a record's (unit, verdict, note) as `store_digest` projects it, raising `_OutOfOrder` for one whose verdict or note is not a string, over which the projection's order is not a total order on its bytes."""
-    if not isinstance(record, dict):
-        raise _OutOfOrder
-    verdict, note = record.get("verdict"), record.get("note") or ""
-    if not isinstance(verdict, str) or not isinstance(note, str):
-        raise _OutOfOrder
-    return (str(record.get("unit")), verdict, note)
-
-
-def _ordered_rows(records: Iterable[object]) -> Iterator[tuple[str, str, str]]:
-    """Yield each record's `_store_row` in turn, raising `_OutOfOrder` at the first that sorts before the one before it."""
-    last: tuple[str, str, str] | None = None
-    for record in records:
-        row = _store_row(record)
-        if last is not None and row < last:
-            raise _OutOfOrder
-        yield row
-        last = row
-
-
-def _streamed_store_digest(path: Path, accepted: ModuleType) -> str | None:
-    """Return `store_digest` of the store at `path`, hashed as it streams, or None for a store the stream does not take: one `accepted.read_tail` does not read as an ams-review-verdicts/1 store, one with a second `verdicts` list, one whose own records are not in (unit, verdict, note) order, and one whose records or override section a whole parse would project differently or not at all. It writes the bytes `canonical` gives the projection, `{"cleared":...,"format":...,"verdicts":[...]}`, its members but the records read first (`read_tail`), then the store's own records (`iter_records`), merged with the override section's records, sorted. Both reads read the file it opened: `read_tail` reads it through its descriptor's `/dev/fd` name, so a writer that renames another file over `path` meanwhile changes neither."""
-    with path.open("rb") as handle:
-        tail = accepted.read_tail(f"/dev/fd/{handle.fileno()}")
-        if tail is None or tail.lists != 1:
-            return None
-        members = tail.members
-        section = members.get("overrides")
-        parts = [members, section] if isinstance(section, dict) else [members]
-        cleared = sorted(
-            str(entry.get("unit")) if isinstance(entry, dict) else str(entry)
-            for part in parts
-            for entry in part.get("cleared") or []
-        )
-        overridden = (section.get("verdicts") or []) if isinstance(section, dict) else []
-        if not isinstance(overridden, list):
-            return None
-        digest = hashlib.sha256(
-            b'{"cleared":'
-            + canonical(cleared)
-            + b',"format":'
-            + canonical(members.get("format"))
-            + b',"verdicts":['
-        )
-        try:
-            rows = heapq.merge(
-                _ordered_rows(accepted.iter_records(handle)), sorted(map(_store_row, overridden))
-            )
-            for index, row in enumerate(rows):
-                digest.update((b"," if index else b"") + canonical(list(row)))
-        except _OutOfOrder, ValueError:
-            return None
-    digest.update(b"]}")
-    return digest.hexdigest()
-
-
-def _parsed_store_digest(path: Path) -> str:
-    """Return `store_digest` of the store at `path` parsed whole."""
     document = json.loads(path.read_bytes())
-    for key in STORE_STAMPS:
-        document.pop(key, None)
-    section = document.get("overrides")
-    parts = [document, section] if isinstance(section, dict) else [document]
     records = sorted(
         (str(record.get("unit")), record.get("verdict"), record.get("note") or "")
-        for part in parts
-        for record in part.get("verdicts") or []
+        for record in document.get("verdicts") or []
     )
     cleared = sorted(
         str(entry.get("unit")) if isinstance(entry, dict) else str(entry)
-        for part in parts
-        for entry in part.get("cleared") or []
+        for entry in document.get("cleared") or []
     )
     return sha256_bytes(
         canonical(
@@ -462,7 +382,6 @@ def fingerprint_tree(
         "fonts": {rel: font_digest(root / rel) if (root / rel).is_file() else None for rel in FONTS},
         "corpus": corpus,
         "verdicts": store_digest(root / AUTOSAVE),
-        "accepted": file_sha256(root / ACCEPTED) if (root / ACCEPTED).is_file() else None,
         "stores": stores,
         "review_facts_pins": file_sha256(pins) if pins.is_file() else None,
     }
@@ -484,15 +403,6 @@ def tree_oracle() -> ModuleType:
 def tree_oracle_cache() -> ModuleType:
     """Return the tree's `rebuild.pipeline.oracle_cache`, imported from the tree first on `sys.path` only when the stores need it."""
     return importlib.import_module("rebuild.pipeline.oracle_cache")
-
-
-def tree_accepted() -> ModuleType | None:
-    """Return the tree's `rebuild.review.accepted`, imported as `tree_materialize` imports the build, from the tree first on `sys.path`, when it has the stream readers `store_digest` reads a store through (`read_tail`, `iter_records`), and None for a tree from before them."""
-    try:
-        module = importlib.import_module("rebuild.review.accepted")
-    except ImportError:
-        return None
-    return module if hasattr(module, "read_tail") and hasattr(module, "iter_records") else None
 
 
 def tree_index(corpus: Path) -> tuple[dict, Iterator[bytes]]:

@@ -1,69 +1,35 @@
-"""Tests for `rebuild.review.status.compute_status` and its helpers, which build the readiness dict that the review server's /status handler and the `verdict_ready` CLI render. Fixtures build a fake repo tree (corpus manifest and its sidecars, cycle summary, autosave, repo-root verdicts files, the accepted list) and stub the fingerprint recompute, so no real build inputs are read. The store's accepted units count among its effective verdicts and leave the blanks, a root file's never do, and a store that does not pair with its list fails the verdict-store check."""
+"""Tests for `rebuild.review.status.compute_status`, which builds the readiness dict that the review server's /status handler and the `verdict_ready` CLI render, and for the CLI's server row and checklist. Fixtures build a fake repo tree (a table-diff corpus's manifest and its sidecars, a snapshot and the tracked pointer that names it, the cycle summary and the verdict store) and stub the components' recompute, so no real build inputs are read."""
 
+import gzip
 import hashlib
 import json
 import os
-import time
-import weakref
-from collections import Counter
-from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
 
 from rebuild.pipeline import row_delta
-from rebuild.review import accepted, app_index, journal, status, store_lock, unit_cache, unit_index
-from rebuild.review.status import (
-    compute_status,
-    count_effective,
-    latest_verdicts,
-    pick_fullest_verdicts,
-)
-from rebuild.review.verdict_store import parse_autosave_payload
+from rebuild.review import status, store_lock, unit_index
+from rebuild.review.status import compute_status, count_effective
 from rebuild.tools import verdict_ready
 
 STAMP = "2026-07-17T20:24:44Z"
 OTHER_STAMP = "2026-07-10T00:00:00Z"
-FP = {
-    "data": "d",
-    "baselines": "b",
-    "pipeline_code": "p",
-    "review_code": "r",
-    "static": "s",
-    "fonts": "f",
-    "explain_prose": "e",
-    "draft_inputs": "i",
-}
-
-DEFAULT_CLASSES = [
-    {"id": "class-a", "shards": ["units/class-a.json"], "status": "approved", "section": "spot-check"},
-    {"id": "class-b", "shards": ["units/class-b.json"], "status": "per-unit", "section": "open-questions"},
-]
-HUMAN_ID_LIST = ["u-1", "u-2", "u-3"]
-HUMAN_IDS = frozenset(HUMAN_ID_LIST)
+FP = {"snapshot": "s", "tables": "t", "font_inputs": "f", "review_code": "r", "static": "x"}
+HUMAN = ["u-1", "u-2", "u-3"]
 AFTER_FONT_BYTES = b"OTTO-after"
 OTHER_FONT_BYTES = b"OTTO-newer"
+GATE_NAMES = ("js", "rebuild", "conform", "make_test")
 
 
 def recompute(_repo):
     return dict(FP)
 
 
-@pytest.fixture(autouse=True)
-def _empty_verdicts_memo(monkeypatch):
-    """`status._MEMO` is module state that persists across tests in an xdist worker, so each test starts with an empty memo and its parse counts are not affected by entries an earlier test left."""
-    monkeypatch.setattr(status, "_MEMO", {})
-
-
 def _write(path, obj):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj))
-
-
-def _write_raw(path, text, encoding="utf-8"):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(text.encode(encoding))
 
 
 def verdict(unit, kind="approve", at="2026-07-17T21:00:00Z"):
@@ -79,1281 +45,8 @@ def verdicts_doc(stamp, records):
     }
 
 
-def write_corpus(
-    review_dir: Path,
-    *,
-    generated_at: str = STAMP,
-    repo_head: str = "abc1234",
-    inputs_fp: str | Mapping[str, str | None] = "fresh",
-    after_font: str = "present",
-    sidecars: bool = True,
-) -> None:
-    """`after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of different bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block. `sidecars` writes the class shards, and the per-unit index, both app sidecars and the unit store stamped for the manifest, as a finished build leaves them; a test that needs one missing deletes it."""
-    manifest: dict[str, object] = {
-        "format": "ams-review-manifest/2",
-        "generated_at": generated_at,
-        "repo_head": repo_head,
-        "classes": DEFAULT_CLASSES,
-        "human_unit_ids": HUMAN_ID_LIST,
-    }
-    if inputs_fp == "fresh":
-        manifest["inputs_fingerprint"] = dict(FP)
-    elif inputs_fp != "omit":
-        manifest["inputs_fingerprint"] = inputs_fp
-    font = review_dir.parent / "m1" / "M1.otf"
-    font.parent.mkdir(parents=True, exist_ok=True)
-    font.write_bytes(AFTER_FONT_BYTES if after_font != "moved" else OTHER_FONT_BYTES)
-    if after_font != "omit":
-        manifest["fonts"] = {
-            "after": {
-                "file": "fonts/after.otf",
-                "sha256": hashlib.sha256(AFTER_FONT_BYTES).hexdigest(),
-            }
-        }
-    _write(review_dir / "manifest.json", manifest)
-    if sidecars:
-        parts = [part for meta in DEFAULT_CLASSES for part in meta["shards"]]
-        for part in parts:
-            (review_dir / part).parent.mkdir(parents=True, exist_ok=True)
-            (review_dir / part).write_text("[]")
-        unit_index.write_index(review_dir, [])
-        app_index.write_app_artifacts(review_dir, {}, {})
-        unit_cache.write_store(review_dir, "environment", [], parts=parts)
-
-
-def write_summary(
-    repo: Path,
-    *,
-    generated_at: str = STAMP,
-    inputs_fp: str | Mapping[str, str | None] = "match",
-    exit_: str = "ok",
-    gates: str | Mapping[str, Mapping[str, object]] = "green",
-) -> None:
-    fp = dict(FP) if inputs_fp == "match" else inputs_fp
-    if gates == "green":
-        gate_map = {
-            "js": {"status": "passed", "green": True},
-            "rebuild": {"status": "passed", "green": True},
-            "conform": {"status": "passed", "green": True},
-            "make_test": {"status": "passed", "green": True},
-        }
-    else:
-        gate_map = gates
-    _write(
-        repo / "rebuild" / "out" / "cycle_summary.json",
-        {
-            "format": "ams-cycle-summary/1",
-            "finished_at": "2026-07-17T21:30:00Z",
-            "exit": exit_,
-            "gates": gate_map,
-            "corpus": {"dir": "rebuild/out/review", "generated_at": generated_at, "inputs_fingerprint": fp},
-        },
-    )
-
-
-def write_autosave(repo, *, stamp=STAMP, records=None):
-    if records is None:
-        records = [verdict("u-1", "approve")]
-    _write(repo / "verdicts-autosave.json", verdicts_doc(stamp, records))
-
-
-def call(repo, **kwargs):
-    kwargs.setdefault("recompute", recompute)
-    return compute_status(
-        repo,
-        repo / "rebuild" / "out" / "review",
-        repo / "rebuild" / "out" / "m1",
-        repo / "verdicts-autosave.json",
-        repo / "rebuild" / "out" / "cycle_summary.json",
-        **kwargs,
-    )
-
-
-def setup_green(repo):
-    write_corpus(repo / "rebuild" / "out" / "review")
-    write_summary(repo)
-    write_autosave(repo)
-
-
-def test_manifest_missing(tmp_path):
-    write_summary(tmp_path)
-    result = call(tmp_path)
-    assert result["checks"]["corpus"]["level"] == "fail"
-    assert result["checks"]["corpus"]["remedy"] == "uv run python -m rebuild.review.build"
-    assert result["checks"]["freshness"]["level"] == "fail"
-    assert set(result["checks"]["freshness"]["components"].values()) == {"unknown"}
-    assert result["ready"] is False
-
-
-def test_a_manifest_without_an_input_fingerprint_fails_all_unknown(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp="omit")
-    write_summary(tmp_path)
-    write_autosave(tmp_path)
-    freshness = call(tmp_path)["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert set(freshness["components"].values()) == {"unknown"}
-    assert freshness["remedy"] == "make artifact-cycle"
-
-
-def test_data_stale_fails_with_artifact_cycle_remedy(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
-    write_summary(tmp_path, inputs_fp={**FP, "data": "OLD"})
-    write_autosave(tmp_path)
-    freshness = call(tmp_path)["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert freshness["components"]["data"] == "stale"
-    assert freshness["components"]["static"] == "fresh"
-    assert freshness["remedy"] == "make artifact-cycle"
-    assert "data" in freshness["detail"]
-
-
-def test_a_running_pass_replaces_the_artifact_cycle_remedy(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
-    write_summary(tmp_path, inputs_fp={**FP, "data": "OLD"})
-    write_autosave(tmp_path)
-    with store_lock.hold_flock(tmp_path / "var" / "cycle" / "pass.lock") as fd:
-        os.pwrite(fd, b"4242\n", 0)
-        freshness = call(tmp_path)["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert freshness["remedy"] == "wait for the running pass (pid 4242) to finish"
-    assert call(tmp_path)["checks"]["freshness"]["remedy"] == "make artifact-cycle"
-
-
-def test_explain_prose_stale_fails_like_any_other_hard_component(tmp_path):
-    """A stale `explain_prose` fails, as every component except `static` does. The corpus shows the refuse records' `why` in its explain text and the ledger classes' `why` as class rationales, so a corpus stamped before a rewording shows text the runes or the ledger no longer contain."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "explain_prose": "OLD"})
-    write_summary(tmp_path, inputs_fp={**FP, "explain_prose": "OLD"})
-    write_autosave(tmp_path)
-    freshness = call(tmp_path)["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert freshness["components"]["explain_prose"] == "stale"
-    assert freshness["components"]["static"] == "fresh"
-    assert freshness["remedy"] == "make artifact-cycle"
-    assert "explain_prose" in freshness["detail"]
-
-
-def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
-    """`static` is the only component whose staleness warns instead of failing. The remedy is the cycle, which copies the new assets over the served corpus and keeps the server running; `make review-build` would rebuild every unit and leave the recorded cycle stamped for a corpus that no longer exists."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "static": "OLD"})
-    write_summary(tmp_path, inputs_fp={**FP, "static": "OLD"})
-    write_autosave(tmp_path)
-    freshness = call(tmp_path)["checks"]["freshness"]
-    assert freshness["level"] == "warn"
-    assert freshness["components"]["static"] == "stale"
-    assert freshness["remedy"] == "make artifact-cycle"
-
-
-def test_freshness_fails_when_the_after_font_moved(tmp_path):
-    """The fingerprint hashes M1.otf's inputs and the two site fonts but not M1.otf itself, so a `run_m1` after the corpus build leaves every component fresh while the corpus serves the previous build's letters. The build checks the manifest's after-font sha256 against the bytes it copies, so comparing that sha256 with the font on disk catches the change."""
-    setup_green(tmp_path)
-    (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
-    result = call(tmp_path)
-    freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert "M1.otf" in freshness["detail"]
-    assert freshness["remedy"] == "make artifact-cycle"
-    assert set(freshness["components"].values()) == {"fresh"}
-    assert result["ready"] is False
-
-
-def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
-    """The per-unit index, both app sidecars and the unit store are written after the manifest and are not part of it, the store last. A build killed between the two, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus. A build killed after its sidecars and before its store leaves deflated fragments (#618's change 35) that only a store written for the manifest can place, so the check names the store's head too, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
-    setup_green(tmp_path)
-    review_dir = tmp_path / "rebuild" / "out" / "review"
-    row_delta.head_path(review_dir, unit_index.INDEX_NAME).unlink()
-    result = call(tmp_path)
-    freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert unit_index.INDEX_NAME in freshness["detail"]
-    assert freshness["remedy"] == "make artifact-cycle"
-    assert result["ready"] is False
-
-    write_corpus(review_dir, repo_head="def5678", sidecars=False)
-    unit_index.write_index(review_dir, [])
-    app_index.write_app_artifacts(review_dir, {}, {})
-    result = call(tmp_path)
-    freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert app_index.outputs_not_current(review_dir) == [row_delta.head_name(unit_index.STORE_NAME)]
-    assert row_delta.head_name(unit_index.STORE_NAME) in freshness["detail"]
-    assert result["ready"] is False
-
-
-def test_freshness_fails_when_the_font_record_is_absent(tmp_path):
-    """A corpus that records no after-font sha256 cannot be checked, and a corpus that cannot be checked is not ready."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review", after_font="omit")
-    write_summary(tmp_path)
-    write_autosave(tmp_path)
-    result = call(tmp_path)
-    freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert "rebuild/out/m1/M1.otf" in freshness["detail"]
-    assert result["ready"] is False
-
-
-def test_gates_summary_missing(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_autosave(tmp_path)
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "no recorded" in gates["detail"].lower()
-
-
-def test_gates_stamp_mismatch(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, generated_at=OTHER_STAMP)
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "different corpus" in gates["detail"]
-
-
-def test_gates_fingerprint_mismatch(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path, inputs_fp={**FP, "data": "X"})
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "different corpus" in gates["detail"]
-
-
-def test_gates_exit_failed(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        exit_="failed",
-        gates={
-            "js": {"status": "passed", "green": True},
-            "rebuild": {"status": "failed", "green": False},
-            "conform": {"status": "passed", "green": True},
-            "make_test": {"status": "passed", "green": True},
-        },
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "rebuild" in gates["detail"]
-
-
-GATE_NAMES = ("js", "rebuild", "conform", "make_test")
-
-
-def _gate_map(**overrides):
-    base = {name: {"status": "passed", "green": True, "skip": None} for name in GATE_NAMES}
-    base.update(overrides)
-    return base
-
-
-def test_gates_forced_skip_fails(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"}),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "unverified" in gates["detail"]
-    assert "conform" in gates["detail"]
-
-
-def test_gates_not_run_fails_as_unverified(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates={name: {"status": "not run", "green": False, "skip": None} for name in GATE_NAMES},
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "unverified" in gates["detail"]
-    assert "failing gates" not in gates["detail"]
-
-
-def test_gates_proved_skip_is_ready(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            conform={"status": "skipped (inputs unchanged)", "green": False, "skip": "proved"},
-            make_test={"status": "skipped (closure unchanged)", "green": False, "skip": "proved"},
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "ok"
-
-
-def test_gates_real_failure_named_as_failing_not_unverified(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            rebuild={"status": "FAILED (exit 1)", "green": False, "skip": None},
-            conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"},
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "failing gates: rebuild" in gates["detail"]
-
-
-def test_gates_an_unverified_conform_blocks_readiness(tmp_path):
-    """The readiness check reads each gate entry's fields without special-casing any gate, so conform is evaluated like the others: a skip that is not proved blocks as unverified, a failure blocks as failing, and only a pass or a proved skip is ready."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"},
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "unverified: conform" in gates["detail"]
-    assert gates["remedy"] == "make artifact-cycle"
-
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            conform={"status": "FAILED", "green": False, "skip": None},
-        ),
-    )
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "fail"
-    assert "failing gates: conform" in gates["detail"]
-
-    write_summary(
-        tmp_path,
-        gates=_gate_map(
-            conform={
-                "status": "skipped (font and sweep inputs unchanged)",
-                "green": False,
-                "skip": "proved",
-            },
-        ),
-    )
-    assert call(tmp_path)["checks"]["gates"]["level"] == "ok"
-
-
-def test_gates_all_green_ok(tmp_path):
-    setup_green(tmp_path)
-    gates = call(tmp_path)["checks"]["gates"]
-    assert gates["level"] == "ok"
-    assert "2026-07-17T21:30:00Z" in gates["detail"]
-
-
-def test_a_missing_store_warns_with_no_remedy(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    store = call(tmp_path)["checks"]["verdict_store"]
-    assert store["level"] == "warn"
-    assert "no autosave" in store["detail"].lower()
-    assert store["remedy"] is None
-
-
-def test_a_store_stamped_for_another_corpus_points_at_the_cycle(tmp_path):
-    """The cycle carries the store onto the served corpus."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, stamp=OTHER_STAMP)
-    store = call(tmp_path)["checks"]["verdict_store"]
-    assert store["level"] == "fail"
-    assert store["remedy"] == "make artifact-cycle"
-
-
-def test_verdict_store_aligned_ok_reports_count(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2", "skip"), verdict("u-3")])
-    store = call(tmp_path)["checks"]["verdict_store"]
-    assert store["level"] == "ok"
-    assert "2 effective" in store["detail"]
-
-
-@pytest.mark.parametrize(
-    "record, where",
-    [
-        ({**verdict("u-2"), "at": 5}, "on u-2"),
-        ({"verdict": "approve", "at": "2026-07-17T21:00:00Z"}, "at index 1"),
-    ],
-    ids=["numeric-at", "no-unit"],
-)
-@pytest.mark.parametrize("stamp", [STAMP, OTHER_STAMP], ids=["aligned", "stamped-elsewhere"])
-def test_a_store_holding_a_record_the_carry_refuses_fails_naming_it(tmp_path, record, where, stamp):
-    """The review server serves no verdict from such a store and refuses every save (`VerdictStore.reload`), so the readiness check fails on it, naming the record and the journal restore, instead of counting its verdicts."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, stamp=stamp, records=[verdict("u-1"), record])
-    stored = (tmp_path / "verdicts-autosave.json").read_bytes()
-    result = call(tmp_path)
-    store = result["checks"]["verdict_store"]
-    assert store["level"] == "fail" and not result["ready"]
-    assert f"verdicts-autosave.json holds a verdict record {where}" in store["detail"]
-    assert "Replace the store with a readable one" in store["remedy"]
-    assert result["checks"]["blanks"]["count"] is None
-    assert (tmp_path / "verdicts-autosave.json").read_bytes() == stored
-
-
-@pytest.mark.parametrize("store_stamp", [None, OTHER_STAMP], ids=["store-missing", "store-stamped-elsewhere"])
-def test_fullest_verdicts_none_warns(tmp_path, store_stamp):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    if store_stamp is not None:
-        write_autosave(tmp_path, stamp=store_stamp)
-    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
-    assert fullest["level"] == "warn"
-    assert fullest["path"] is None
-    assert fullest["count"] is None
-
-
-def test_fullest_verdicts_falls_back_to_the_store_when_no_file_competes(tmp_path):
-    setup_green(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2"), verdict("u-3", "skip")])
-    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
-    assert fullest["level"] == "ok"
-    assert fullest["path"] == "verdicts-autosave.json"
-    assert fullest["count"] == 2
-
-
-def test_fullest_verdicts_most_effective_wins(tmp_path):
-    setup_green(tmp_path)
-    _write(tmp_path / "verdicts-a.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    _write(
-        tmp_path / "verdicts-b.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")])
-    )
-    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
-    assert fullest["level"] == "ok"
-    assert fullest["path"] == "verdicts-b.json"
-    assert fullest["count"] == 3
-
-
-def test_fullest_verdicts_names_the_store_over_an_export_that_holds_no_more(tmp_path):
-    """A stamp-matching export at the root, such as a bulk proposal file, is not the fullest verdicts file while the store holds at least as many effective verdicts; the store wins a tie."""
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2"), verdict("u-3")])
-    _write(tmp_path / "verdicts-bulk-ss10.json", verdicts_doc(STAMP, [verdict("u-4")]))
-    _write(
-        tmp_path / "verdicts-export.json",
-        verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
-    )
-    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
-    assert fullest["path"] == "verdicts-autosave.json"
-    assert fullest["count"] == 3
-
-
-def test_fullest_verdicts_names_an_export_that_holds_more_than_the_store(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1")])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
-    assert fullest["path"] == "verdicts-export.json"
-    assert fullest["count"] == 2
-
-
-def test_fullest_verdicts_filters_stale_stamped_file(tmp_path):
-    setup_green(tmp_path)
-    _write(tmp_path / "verdicts-cur.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    _write(
-        tmp_path / "verdicts-old.json",
-        verdicts_doc(OTHER_STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
-    )
-    fullest = call(tmp_path)["checks"]["fullest_verdicts"]
-    assert fullest["path"] == "verdicts-cur.json"
-    assert fullest["count"] == 2
-
-
-def test_blanks_skip_counts_as_blank(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2", "skip"), verdict("u-3")])
-    blanks = call(tmp_path, human_ids=HUMAN_IDS)["checks"]["blanks"]
-    assert blanks["level"] == "ok"
-    assert blanks["count"] == 1
-    assert "1 blanks remaining" in blanks["detail"]
-
-
-def test_blanks_aligned_count_reads_the_manifests_human_unit_ids(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, records=[verdict("u-1")])
-    blanks = call(tmp_path)["checks"]["blanks"]
-    assert blanks["count"] == 2
-
-
-def test_blanks_null_when_no_aligned_autosave(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    blanks = call(tmp_path)["checks"]["blanks"]
-    assert blanks["level"] == "ok"
-    assert blanks["count"] is None
-
-
-def test_ready_only_in_full_green(tmp_path):
-    setup_green(tmp_path)
-    result = call(tmp_path)
-    assert result["ready"] is True
-    for name in ("corpus", "freshness", "gates", "verdict_store"):
-        assert result["checks"][name]["level"] == "ok"
-    assert result["corpus"]["repo_head"] == "abc1234"
-    assert result["corpus"]["generated_at"] == STAMP
-
-
-def test_data_stale_makes_not_ready(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review", inputs_fp={**FP, "data": "OLD"})
-    write_summary(tmp_path, inputs_fp={**FP, "data": "OLD"})
-    write_autosave(tmp_path)
-    assert call(tmp_path)["ready"] is False
-
-
-def test_never_raises_on_empty_review_dir(tmp_path):
-    (tmp_path / "rebuild" / "out" / "review").mkdir(parents=True)
-    result = call(tmp_path)
-    assert result["ready"] is False
-    assert result["checks"]["corpus"]["level"] == "fail"
-    assert result["checks"]["blanks"]["count"] is None
-
-
-def test_latest_verdicts_later_at_wins(tmp_path):
-    path = tmp_path / "v.json"
-    _write(
-        path,
-        verdicts_doc(
-            STAMP,
-            [
-                verdict("u-1", "approve", at="2026-07-17T01:00:00Z"),
-                verdict("u-1", "reject", at="2026-07-17T02:00:00Z"),
-                verdict("u-2", "approve", at="2026-07-17T05:00:00Z"),
-            ],
-        ),
-    )
-    latest = latest_verdicts(path)
-    assert latest["u-1"]["verdict"] == "reject"
-    assert latest["u-2"]["verdict"] == "approve"
-
-
-def test_count_effective_ignores_skip():
-    records = {
-        "u-1": {"verdict": "approve"},
-        "u-2": {"verdict": "skip"},
-        "u-3": {"verdict": "reject"},
-        "u-4": {"verdict": "either"},
-    }
-    assert count_effective(records) == 3
-
-
-def test_a_verdicts_file_below_the_repo_root_is_never_a_candidate(tmp_path):
-    _write(
-        tmp_path / "rebuild" / "evidence" / "verdicts-carried-abc1234.json",
-        verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]),
-    )
-    assert pick_fullest_verdicts(tmp_path, STAMP) is None
-
-
-def test_no_parsed_verdicts_file_outlives_the_read_of_the_next(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", 10**18)
-    write_autosave(tmp_path, records=[verdict(unit) for unit in ("u-1", "u-2", "u-3", "u-4")])
-    for name, units in (("a", ("u-1",)), ("b", ("u-1", "u-2")), ("c", ("u-1", "u-2", "u-3"))):
-        _write(tmp_path / f"verdicts-{name}.json", verdicts_doc(STAMP, [verdict(unit) for unit in units]))
-
-    class _Held(dict):
-        pass
-
-    class _HeldBytes(bytearray):
-        pass
-
-    real = status.parse_autosave_payload
-    held = []
-    overlaps = []
-
-    def hold(data):
-        raw = _HeldBytes(data)
-        held.append(weakref.ref(raw))
-        return raw
-
-    def spy(raw):
-        overlaps.append(
-            sum(1 for reference in held if (alive := reference()) is not None and alive is not raw)
-        )
-        data = real(raw)
-        if data is None:
-            return None
-        store = _Held(data)
-        held.append(weakref.ref(store))
-        return store
-
-    _spy_on_reads(monkeypatch, wrap=hold)
-    monkeypatch.setattr(status, "parse_autosave_payload", spy)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-c.json", 3)
-    picked = len(overlaps)
-    assert picked == 3
-    assert overlaps == [0] * len(overlaps)
-
-
-DEFAULT_HEAD_BYTES = accepted.HEAD_BYTES
-ESCAPED_VALUE_STAMP = "2026-07-04T00:00:00Z"
-
-
-def _records(count):
-    return [verdict(f"u-{index}") for index in range(1, count + 1)]
-
-
-def _digest(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _spy_on_parses(monkeypatch):
-    real = status.parse_autosave_payload
-    parsed = []
-
-    def spy(raw):
-        parsed.append(hashlib.sha256(raw).hexdigest())
-        return real(raw)
-
-    monkeypatch.setattr(status, "parse_autosave_payload", spy)
-    return parsed
-
-
-def _spy_on_head_reads(monkeypatch):
-    real = accepted.head_stamp
-    heads = []
-
-    def spy(head):
-        heads.append(len(head))
-        return real(head)
-
-    monkeypatch.setattr(accepted, "head_stamp", spy)
-    return heads
-
-
-def _spy_on_reads(monkeypatch, wrap=None):
-    """Patch `Path.open` to count the bytes read through each handle, per path, and pass each read through `wrap` when one is given. `Path.read_bytes` opens through `Path.open`, so the autosave read is counted too."""
-    real_open = Path.open
-    tally: Counter[Path] = Counter()
-
-    class Handle:
-        def __init__(self, path, handle):
-            self.path = path
-            self.handle = handle
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return self.handle.__exit__(*exc)
-
-        def __getattr__(self, name):
-            return getattr(self.handle, name)
-
-        def read(self, *args):
-            data = self.handle.read(*args)
-            tally[self.path] += len(data)
-            return data if wrap is None else wrap(data)
-
-    def spy(self, *args, **kwargs):
-        return Handle(self, real_open(self, *args, **kwargs))
-
-    monkeypatch.setattr(Path, "open", spy)
-    return tally
-
-
-def _escaped_key_text(stamp, records):
-    return (
-        f'{{"format": "ams-review-verdicts/1", "manifest\\u005fgenerated_at": "{stamp}", "exported_at": "", '
-        f'"verdicts": {json.dumps(records)}}}'
-    )
-
-
-def _escaped_value_text(records):
-    escaped = ESCAPED_VALUE_STAMP.replace("-", "\\u002d")
-    return (
-        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{escaped}", "exported_at": "", '
-        f'"verdicts": {json.dumps(records)}}}'
-    )
-
-
-def _reference_verdict_files(repo_root):
-    for path in sorted(Path(repo_root).glob("verdicts-*.json")):
-        if path.name == "verdicts-autosave.json":
-            continue
-        try:
-            raw = path.read_bytes()
-        except OSError:
-            continue
-        data = parse_autosave_payload(raw)
-        if data is None:
-            continue
-        yield path, data
-
-
-def _reference_effective_count(data):
-    try:
-        best = {}
-        for record in data["verdicts"]:
-            unit = record["unit"]
-            if unit not in best or record["at"] > best[unit]["at"]:
-                best[unit] = record
-        return sum(1 for record in best.values() if record.get("verdict") != "skip")
-    except KeyError, TypeError:
-        return None
-
-
-def _reference_pick_fullest_verdicts(repo_root, manifest_stamp):
-    best = None
-    for path, data in _reference_verdict_files(repo_root):
-        if data["manifest_generated_at"] != manifest_stamp:
-            continue
-        count = _reference_effective_count(data)
-        if count is None:
-            continue
-        if best is None or count > best[1]:
-            best = (path, count)
-    return best
-
-
-def _write_verdict_files(root):
-    """Write verdicts files covering the cases the head read must handle, and return every stamp they use. Each edge-case file has a stamp of its own, so wrongly skipping or wrongly keeping it changes the fullest verdicts file for that stamp."""
-    write_autosave(root, records=_records(4))
-    _write(root / "verdicts-plain-a.json", verdicts_doc(STAMP, _records(2)))
-    _write(root / "verdicts-plain-b.json", verdicts_doc(STAMP, _records(2)))
-    _write(root / "verdicts-plain-c.json", verdicts_doc(STAMP, _records(1)))
-    truncated = json.dumps(verdicts_doc("2026-07-01T00:00:01Z", _records(3)))
-    _write_raw(root / "verdicts-truncated.json", truncated[: len(truncated) - 5])
-    _write(
-        root / "verdicts-wrong-format.json",
-        {**verdicts_doc("2026-07-01T00:00:02Z", _records(3)), "format": "ams-review-verdicts/0"},
-    )
-    _write(
-        root / "verdicts-records-in-a-dict.json",
-        {
-            **verdicts_doc("2026-07-01T00:00:03Z", []),
-            "verdicts": {"u-1": verdict("u-1"), "u-2": verdict("u-2")},
-        },
-    )
-    _write(
-        root / "verdicts-bare-string-record.json", verdicts_doc("2026-07-01T00:00:04Z", [*_records(3), "u-4"])
-    )
-    foreign = json.dumps(verdicts_doc("2026-07-01T00:00:05Z", _records(200)))
-    _write_raw(root / "verdicts-foreign-truncated.json", foreign[: len(foreign) // 2])
-    _write(
-        root / "verdicts-late-stamp.json",
-        {
-            "format": "ams-review-verdicts/1",
-            "verdicts": _records(2),
-            "exported_at": "x" * (DEFAULT_HEAD_BYTES + 100),
-            "manifest_generated_at": "2026-07-02T00:00:00Z",
-        },
-    )
-    _write(
-        root / "verdicts-nested-stamp.json",
-        {
-            "meta": {"manifest_generated_at": "2026-07-03T00:00:00Z"},
-            **verdicts_doc("2026-07-03T00:00:01Z", _records(2)),
-        },
-    )
-    _write_raw(root / "verdicts-escaped-value.json", _escaped_value_text(_records(2)))
-    _write_raw(root / "verdicts-escaped-key.json", _escaped_key_text("2026-07-05T00:00:00Z", _records(2)))
-    _write_raw(
-        root / "verdicts-bom.json",
-        json.dumps(verdicts_doc("2026-07-06T00:00:00Z", _records(2))),
-        encoding="utf-8-sig",
-    )
-    _write_raw(
-        root / "verdicts-utf16.json",
-        json.dumps(verdicts_doc("2026-07-07T00:00:00Z", _records(2))),
-        encoding="utf-16",
-    )
-    _write(
-        root / "verdicts-null-stamp.json", {**verdicts_doc(STAMP, _records(3)), "manifest_generated_at": None}
-    )
-    _write(
-        root / "verdicts-no-stamp.json",
-        {
-            key: value
-            for key, value in verdicts_doc(STAMP, _records(3)).items()
-            if key != "manifest_generated_at"
-        },
-    )
-    _write_raw(
-        root / "verdicts-two-stamps.json",
-        '{"format": "ams-review-verdicts/1", "manifest_generated_at": "2026-07-08T00:00:00Z", '
-        f'"manifest_generated_at": "2026-07-08T00:00:01Z", "exported_at": "", "verdicts": {json.dumps(_records(2))}}}',
-    )
-    (root / "verdicts-dir.json").mkdir()
-    return [
-        STAMP,
-        "2026-07-01T00:00:01Z",
-        "2026-07-01T00:00:02Z",
-        "2026-07-01T00:00:03Z",
-        "2026-07-01T00:00:04Z",
-        "2026-07-01T00:00:05Z",
-        "2026-07-02T00:00:00Z",
-        "2026-07-03T00:00:00Z",
-        "2026-07-03T00:00:01Z",
-        ESCAPED_VALUE_STAMP,
-        "2026-07-05T00:00:00Z",
-        "2026-07-06T00:00:00Z",
-        "2026-07-07T00:00:00Z",
-        "2026-07-08T00:00:00Z",
-        "2026-07-08T00:00:01Z",
-    ]
-
-
-def test_pick_fullest_verdicts_parses_no_candidate_stamped_for_another_corpus(tmp_path, monkeypatch):
-    aligned = tmp_path / "verdicts-a.json"
-    stash = tmp_path / "verdicts-autosave-2026-07-10T00.00.00Z.json"
-    _write(aligned, verdicts_doc(STAMP, _records(2)))
-    _write(stash, verdicts_doc(OTHER_STAMP, _records(200)))
-    _write_raw(tmp_path / "verdicts-escaped-key.json", _escaped_key_text(OTHER_STAMP, _records(3)))
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(OTHER_STAMP, _records(3)))
-    assert stash.stat().st_size > accepted.HEAD_BYTES
-    parsed = _spy_on_parses(monkeypatch)
-    reads = _spy_on_reads(monkeypatch)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)
-    assert reads[stash] <= accepted.HEAD_BYTES
-    assert parsed == [_digest(aligned)]
-    reads.clear()
-    assert pick_fullest_verdicts(tmp_path, None) is None
-    assert reads[stash] <= accepted.HEAD_BYTES
-    assert parsed == [_digest(aligned)]
-
-
-def test_a_candidate_stamped_for_another_corpus_and_malformed_past_its_stamp_is_skipped(tmp_path):
-    text = json.dumps(verdicts_doc(OTHER_STAMP, _records(3)))
-    _write_raw(tmp_path / "verdicts-a-broken.json", text[: len(text) - 20])
-    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 1)
-    assert pick_fullest_verdicts(tmp_path, OTHER_STAMP) is None
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        pytest.param(json.dumps(verdicts_doc(STAMP, _records(3)))[:-5], id="truncated-tail"),
-        pytest.param(
-            json.dumps({**verdicts_doc(STAMP, _records(3)), "format": "ams-review-verdicts/0"}),
-            id="wrong-format",
-        ),
-        pytest.param(
-            json.dumps(
-                {**verdicts_doc(STAMP, []), "verdicts": {record["unit"]: record for record in _records(3)}}
-            ),
-            id="verdicts-not-a-list",
-        ),
-    ],
-)
-def test_an_aligned_candidate_malformed_past_its_stamp_is_not_trusted(tmp_path, text):
-    _write_raw(tmp_path / "verdicts-a-malformed.json", text)
-    assert pick_fullest_verdicts(tmp_path, STAMP) is None
-    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 1)
-
-
-def test_a_head_stamp_overridden_after_the_records_is_not_the_fullest_verdicts_file_under_the_head_stamp(
-    tmp_path,
-):
-    text = (
-        f'{{"format": "ams-review-verdicts/1", "manifest_generated_at": "{STAMP}", "exported_at": "{STAMP}", '
-        f'"verdicts": {json.dumps(_records(3))}, "manifest_generated_at": "{OTHER_STAMP}"}}'
-    )
-    assert json.loads(text)["manifest_generated_at"] == OTHER_STAMP
-    _write_raw(tmp_path / "verdicts-a-restamped.json", text)
-    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(1)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 1)
-
-
-def test_a_stamp_far_from_the_head_of_its_file_is_still_read(tmp_path):
-    path = tmp_path / "verdicts-late.json"
-    _write(
-        path,
-        {
-            "format": "ams-review-verdicts/1",
-            "verdicts": _records(2),
-            "exported_at": "x" * (accepted.HEAD_BYTES + 100),
-            "manifest_generated_at": STAMP,
-        },
-    )
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-
-
-def test_pick_fullest_verdicts_reads_a_file_stamped_for_another_corpus_by_its_head(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    newer_stamp = "2026-07-20T00:00:00Z"
-    aligned = tmp_path / "verdicts-aligned.json"
-    newer = tmp_path / "verdicts-newer.json"
-    _write(aligned, verdicts_doc(STAMP, _records(1)))
-    _write(newer, verdicts_doc(newer_stamp, _records(3)))
-    _write(tmp_path / "verdicts-older.json", verdicts_doc(OTHER_STAMP, _records(2)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 1)
-    assert status._MEMO[newer][1].parsed is False
-
-
-@pytest.mark.parametrize("head_bytes", [1, 7, 64, DEFAULT_HEAD_BYTES])
-def test_the_fullest_verdicts_file_answers_as_a_whole_parse_of_every_file_does(
-    tmp_path, monkeypatch, head_bytes
-):
-    stamps = [*_write_verdict_files(tmp_path), None, "no-such-stamp", 0]
-    monkeypatch.setattr(accepted, "HEAD_BYTES", head_bytes)
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    for stamp in stamps:
-        message = (stamp, accepted.HEAD_BYTES)
-        expected_fullest = _reference_pick_fullest_verdicts(tmp_path, stamp)
-        monkeypatch.setattr(status, "_MEMO", {})
-        assert pick_fullest_verdicts(tmp_path, stamp) == expected_fullest, message
-        assert pick_fullest_verdicts(tmp_path, stamp) == expected_fullest, message
-    monkeypatch.setattr(status, "_MEMO", {})
-    for stamp in stamps:
-        message = (stamp, accepted.HEAD_BYTES)
-        assert pick_fullest_verdicts(tmp_path, stamp) == _reference_pick_fullest_verdicts(
-            tmp_path, stamp
-        ), message
-
-
-def test_the_head_read_agrees_with_a_whole_parse_at_every_window_size(tmp_path, monkeypatch):
-    compact = tmp_path / "verdicts-compact.json"
-    indented = tmp_path / "verdicts-indented.json"
-    escaped = tmp_path / "verdicts-escaped-value.json"
-    _write(compact, verdicts_doc(STAMP, _records(1)))
-    _write_raw(indented, json.dumps(verdicts_doc(OTHER_STAMP, _records(2)), indent=2))
-    _write_raw(escaped, _escaped_value_text(_records(3)))
-    for path in (compact, indented, escaped):
-        assert path.read_bytes().index(b'"verdicts"') + len(b'"verdicts"') < 190
-    for size in range(1, 200):
-        monkeypatch.setattr(accepted, "HEAD_BYTES", size)
-        for stamp in (STAMP, OTHER_STAMP, ESCAPED_VALUE_STAMP, None, "no-such-stamp"):
-            monkeypatch.setattr(status, "_MEMO", {})
-            assert pick_fullest_verdicts(tmp_path, stamp) == _reference_pick_fullest_verdicts(
-                tmp_path, stamp
-            ), (stamp, size)
-
-
-def test_pick_fullest_verdicts_answers_an_unchanged_tree_from_the_memo(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    aligned = tmp_path / "verdicts-a.json"
-    foreign = tmp_path / "verdicts-b.json"
-    _write(aligned, verdicts_doc(STAMP, _records(2)))
-    _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
-    write_autosave(tmp_path, records=_records(1))
-    assert foreign.stat().st_size > accepted.HEAD_BYTES
-    parsed = _spy_on_parses(monkeypatch)
-    heads = _spy_on_head_reads(monkeypatch)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)
-    first = (len(parsed), len(heads))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)
-    assert (len(parsed), len(heads)) == first
-    assert set(status._MEMO) == {aligned, foreign}
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)
-    assert (len(parsed), len(heads)) == first
-
-
-def test_a_same_size_rewrite_in_place_is_read_again(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    path = tmp_path / "verdicts-a.json"
-    _write(path, verdicts_doc(STAMP, _records(2)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-    original = path.stat()
-    records = [verdict("u-1", "skip") | {"note": "abc"}, verdict("u-2")]
-    _write(path, verdicts_doc(STAMP, records))
-    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns - 1_000_000_000))
-    assert path.stat().st_size == original.st_size
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 1)
-    _write(path, verdicts_doc(OTHER_STAMP, records))
-    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns - 2_000_000_000))
-    assert path.stat().st_size == original.st_size
-    assert pick_fullest_verdicts(tmp_path, STAMP) is None
-    assert pick_fullest_verdicts(tmp_path, OTHER_STAMP) == (path, 1)
-
-
-def test_a_same_size_rewrite_that_keeps_its_mtime_is_read_again(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    path = tmp_path / "verdicts-a.json"
-    _write(path, verdicts_doc(STAMP, _records(2)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-    recorded = path.stat()
-    _write(path, verdicts_doc(OTHER_STAMP, _records(2)))
-    os.utime(path, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
-    deadline = time.monotonic() + 1
-    while path.stat().st_ctime_ns == recorded.st_ctime_ns and time.monotonic() < deadline:
-        os.utime(path, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
-    rewritten = path.stat()
-    assert (rewritten.st_ino, rewritten.st_size, rewritten.st_mtime_ns) == (
-        recorded.st_ino,
-        recorded.st_size,
-        recorded.st_mtime_ns,
-    )
-    assert rewritten.st_ctime_ns != recorded.st_ctime_ns
-    assert pick_fullest_verdicts(tmp_path, STAMP) is None
-    assert pick_fullest_verdicts(tmp_path, OTHER_STAMP) == (path, 2)
-
-
-def test_a_file_renamed_onto_a_candidate_is_read_again(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    path = tmp_path / "verdicts-a.json"
-    replacement = tmp_path / "replacement.json"
-    _write(path, verdicts_doc(STAMP, _records(2)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-    recorded = path.stat()
-    _write(replacement, verdicts_doc(OTHER_STAMP, _records(2)))
-    os.utime(replacement, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
-    os.replace(replacement, path)
-    replaced = path.stat()
-    assert (replaced.st_size, replaced.st_mtime_ns) == (recorded.st_size, recorded.st_mtime_ns)
-    assert pick_fullest_verdicts(tmp_path, STAMP) is None
-    assert pick_fullest_verdicts(tmp_path, OTHER_STAMP) == (path, 2)
-
-
-def test_a_corrupt_aligned_candidate_is_parsed_once_and_skipped_every_time(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    corrupt = tmp_path / "verdicts-a-corrupt.json"
-    valid = tmp_path / "verdicts-b.json"
-    _write_raw(corrupt, json.dumps(verdicts_doc(STAMP, _records(3)))[:-5])
-    _write(valid, verdicts_doc(STAMP, _records(1)))
-    parsed = _spy_on_parses(monkeypatch)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (valid, 1)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (valid, 1)
-    assert parsed.count(_digest(corrupt)) == 1
-
-
-def test_a_candidate_changed_inside_the_settle_window_is_read_again(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", 10**18)
-    path = tmp_path / "verdicts-a.json"
-    _write(path, verdicts_doc(STAMP, _records(2)))
-    parsed = _spy_on_parses(monkeypatch)
-    reads = _spy_on_reads(monkeypatch)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
-    assert reads[path] == 2 * path.stat().st_size
-    assert parsed == [_digest(path)]
-
-
-def test_a_deleted_candidate_drops_out_of_pick_fullest_verdicts(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    winner = tmp_path / "verdicts-a.json"
-    runner_up = tmp_path / "verdicts-b.json"
-    _write(winner, verdicts_doc(STAMP, _records(3)))
-    _write(runner_up, verdicts_doc(STAMP, _records(2)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (winner, 3)
-    winner.unlink()
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (runner_up, 2)
-    assert set(status._MEMO) == {runner_up}
-    runner_up.unlink()
-    assert pick_fullest_verdicts(tmp_path, STAMP) is None
-
-
-def test_the_fullest_verdicts_path_is_spelled_from_the_callers_root(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    _write(tmp_path / "verdicts-a.json", verdicts_doc(STAMP, _records(2)))
-    monkeypatch.chdir(tmp_path)
-    assert pick_fullest_verdicts(Path("."), STAMP) == (Path("verdicts-a.json"), 2)
-    assert pick_fullest_verdicts(Path("."), STAMP) == (Path("verdicts-a.json"), 2)
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-a.json", 2)
-
-
-def test_the_memo_holds_only_the_last_walks_candidates(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    first = tmp_path / "first"
-    second = tmp_path / "second"
-    export = second / "verdicts-export.json"
-    _write(first / "verdicts-a.json", verdicts_doc(STAMP, _records(1)))
-    _write(second / "verdicts-b.json", verdicts_doc(STAMP, _records(2)))
-    _write(export, verdicts_doc(OTHER_STAMP, _records(3)))
-    assert pick_fullest_verdicts(first, STAMP) == (first / "verdicts-a.json", 1)
-    assert set(status._MEMO) == {first / "verdicts-a.json"}
-    assert pick_fullest_verdicts(second, STAMP) == (second / "verdicts-b.json", 2)
-    assert set(status._MEMO) == {second / "verdicts-b.json", export}
-
-
-def test_mismatched_empty_autosave_remedy_names_the_fullest_verdicts_file(tmp_path):
-    write_corpus(tmp_path / "rebuild" / "out" / "review")
-    write_summary(tmp_path)
-    write_autosave(tmp_path, stamp=OTHER_STAMP, records=[])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    store = call(tmp_path)["checks"]["verdict_store"]
-    assert store["level"] == "fail"
-    assert "verdicts-export.json" in store["remedy"]
-    assert "stashed automatically" in store["remedy"]
-
-
-def test_partially_null_fingerprint_says_unverifiable_not_changed(tmp_path):
-    write_corpus(
-        tmp_path / "rebuild" / "out" / "review",
-        inputs_fp={**FP, "data": None, "baselines": None, "pipeline_code": None},
-    )
-    write_summary(tmp_path)
-    write_autosave(tmp_path)
-    freshness = call(tmp_path)["checks"]["freshness"]
-    assert freshness["level"] == "fail"
-    assert "cannot be verified" in freshness["detail"]
-    assert freshness["components"]["data"] == "unknown"
-    assert freshness["components"]["review_code"] == "fresh"
-
-
-def test_aligned_empty_autosave_warns_toward_the_fullest_verdicts_file(tmp_path):
-    setup_green(tmp_path)
-    write_autosave(tmp_path, records=[])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    result = call(tmp_path)
-    store = result["checks"]["verdict_store"]
-    assert store["level"] == "warn"
-    assert "verdicts-export.json" in store["remedy"]
-    assert result["ready"] is True
-    assert result["checks"]["blanks"]["count"] == 3
-
-
-def _readiness(repo, **kwargs):
-    kwargs.setdefault("other_root", lambda root: None)
-    return verdict_ready.readiness(
-        repo_root=repo,
-        review_dir=repo / "rebuild" / "out" / "review",
-        m1_out=repo / "rebuild" / "out" / "m1",
-        autosave_path=repo / "verdicts-autosave.json",
-        cycle_summary_path=repo / "rebuild" / "out" / "cycle_summary.json",
-        recompute=recompute,
-        **kwargs,
-    )
-
-
-def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
-    setup_green(tmp_path)
-    result, ready = _readiness(tmp_path, listening=lambda: False)
-    assert ready is False
-    assert result["ready"] is True
-    assert result["checks"]["server"]["level"] == "fail"
-    assert result["checks"]["server"]["remedy"] == "make review-serve"
-    lines = verdict_ready.checklist(result, ready)
-    assert "  ✗ server: not listening on port 7294" in lines
-    assert "      remedy: make review-serve" in lines
-    assert lines[-1] == "NOT READY"
-
-    result, ready = _readiness(tmp_path, listening=lambda: True)
-    assert ready is True
-    lines = verdict_ready.checklist(result, ready)
-    assert "  ✓ server: listening on port 7294" in lines
-    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
-
-
-def test_readiness_fails_the_server_row_for_a_server_that_serves_another_checkout(tmp_path):
-    setup_green(tmp_path)
-    result, ready = _readiness(tmp_path, listening=lambda: True, other_root=lambda root: "/elsewhere")
-    assert ready is False
-    assert result["checks"]["server"]["level"] == "fail"
-    lines = verdict_ready.checklist(result, ready)
-    assert "  ✗ server: a review server for another checkout (/elsewhere) holds port 7294" in lines
-    assert "      remedy: stop that checkout's review server, then make review-serve" in lines
-    assert lines[-1] == "NOT READY"
-
-
-def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path):
-    """Under `make review-cycle` the Makefile recipe handles the server after the cycle, so the cycle calls `readiness` with `with_server=False`. There is no server row, and READY depends on the corpus alone."""
-    setup_green(tmp_path)
-    result, ready = _readiness(tmp_path, with_server=False, listening=lambda: False)
-    assert ready is True
-    assert "server" not in result["checks"]
-    lines = verdict_ready.checklist(result, ready)
-    assert not any("server" in line for line in lines)
-    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
-
-
-def test_readiness_warns_that_a_close_out_is_due_once_the_journals_first_event_is_sixty_days_old(tmp_path):
-    """Retention's compaction can copy the journal once its first event is `journal.HISTORY_DAYS` days old, so from `journal.CLOSE_OUT_DUE_DAYS` days the checklist warns, naming that day and `make close-out`, without blocking."""
-    setup_green(tmp_path)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    for days, warned in ((59, False), (61, True)):
-        (tmp_path / journal.JOURNAL_NAME).unlink(missing_ok=True)
-        first = (now - timedelta(days=days)).isoformat().replace("+00:00", "Z")
-        journal.record_transition(
-            tmp_path / journal.JOURNAL_NAME,
-            source="merge",
-            stamp=STAMP,
-            old_stamp=None,
-            old_verdicts=[],
-            new_verdicts=[verdict("u-1")],
-            at=first,
-        )
-        result, ready = _readiness(tmp_path, listening=lambda: True)
-        assert ready is True
-        if not warned:
-            assert "journal" not in result["checks"]
-            continue
-        due = (now - timedelta(days=days) + timedelta(days=journal.HISTORY_DAYS)).date().isoformat()
-        assert result["checks"]["journal"] == {
-            "level": "warn",
-            "detail": f"the verdict journal's first event, at {first}, is 61 days old, and from {due} retention's compaction can copy the journal's kept history whole; `make close-out` starts the journal again",
-            "remedy": "make close-out",
-        }
-        assert "      remedy: make close-out" in verdict_ready.checklist(result, ready)
-
-
-LISTED = ["u-1AAAAAAAAAA", "u-1BBBBBBBBBB", "u-1CCCCCCCCCC"]
-UNLISTED = "u-1DDDDDDDDDD"
-CLOSED_AT = "2026-07-17T00:00:00Z"
-
-
-def write_list(repo, units=LISTED, closed_at=CLOSED_AT) -> dict:
-    """Write the list beside the repo's store, accepting `units` as approve, and return the field that names it."""
-    listed = accepted.path_for(repo / "verdicts-autosave.json")
-    listed.parent.mkdir(parents=True, exist_ok=True)
-    listed.write_bytes(accepted.render(closed_at, dict.fromkeys(units, "approve")))
-    field = accepted.read(listed).field()
-    assert field is not None
-    return field
-
-
-def write_named_autosave(repo, field, records=(), cleared=None, stamp=STAMP):
-    """Write the repo's store naming the list `field`, its records and tombstones (`cleared`, unit to the clear's `at`) on the ids of the list beside it as its override section and the rest as its own."""
-    store = repo / "verdicts-autosave.json"
-    own, tombstones, overrides = accepted.split(
-        {record["unit"]: record for record in records},
-        cleared or {},
-        accepted.read(accepted.path_for(store)).verdicts,
-    )
-    document = {**verdicts_doc(stamp, list(own.values())), "accepted": field}
-    if tombstones:
-        document["cleared"] = [{"unit": unit, "at": at} for unit, at in tombstones.items()]
-    if (section := overrides.field()) is not None:
-        document["overrides"] = section
-    _write(store, document)
-
-
-def test_the_stores_accepted_units_count_as_its_verdicts_and_leave_the_blanks(tmp_path):
-    """A listed unit the store holds no override for is one of the store's effective verdicts and no blank, so a store a close-out emptied neither warns that it is empty nor yields to an export made before the close-out; an override record and an override tombstone on a listed unit read as the store holds them."""
-    setup_green(tmp_path)
-    human = frozenset([*LISTED, UNLISTED])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict(unit) for unit in LISTED[:2]]))
-    write_named_autosave(tmp_path, write_list(tmp_path))
-    result = call(tmp_path, human_ids=human)
-    assert result["checks"]["verdict_store"]["level"] == "ok"
-    assert "3 effective verdicts, 3 of them accepted units" in result["checks"]["verdict_store"]["detail"]
-    assert (result["checks"]["fullest_verdicts"]["path"], result["checks"]["blanks"]["count"]) == (
-        "verdicts-autosave.json",
-        1,
-    )
-    write_named_autosave(
-        tmp_path, write_list(tmp_path), [verdict(LISTED[0], "reject")], {LISTED[1]: "2026-07-18T00:00:00Z"}
-    )
-    result = call(tmp_path, human_ids=human)
-    assert result["checks"]["fullest_verdicts"]["count"] == 2 and result["checks"]["blanks"]["count"] == 2
-
-
-def test_a_store_that_does_not_pair_with_its_list_fails_the_verdict_store_check(tmp_path):
-    setup_green(tmp_path)
-    write_named_autosave(tmp_path, write_list(tmp_path), [verdict(LISTED[0], "reject")])
-    write_list(tmp_path, LISTED[:1], closed_at="2026-07-18T00:00:00Z")
-    result = call(tmp_path)
-    store = result["checks"]["verdict_store"]
-    assert store["level"] == "fail" and not result["ready"]
-    assert "names the accepted list" in store["detail"] and result["checks"]["blanks"]["count"] is None
-
-
-# --- a table-diff corpus's rows ---------------------------------------------------------
-
-TD_FP = {"snapshot": "s", "tables": "t", "font_inputs": "f", "review_code": "r", "static": "x"}
-TD_HUMAN = ["u-1", "u-2", "u-3"]
-
-
-def recompute_table_diff(_repo):
-    return dict(TD_FP)
-
-
 def write_snapshot(repo: Path, *, current: bool = True) -> str:
     """Write a snapshot `snapshot.load` reads, with no configuration, under the repo's snapshot home, point `current` at it when asked, and return its digest."""
-    import gzip
-
     from rebuild.review import snapshot
 
     home = repo / status.SNAPSHOT_HOME
@@ -1396,8 +89,20 @@ def write_pointer(repo: Path, digest: str, snapshot_format: str | None = None) -
     )
 
 
-def write_table_diff_corpus(repo: Path, digest: str | None, *, units: int = 7, human=TD_HUMAN) -> None:
-    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict."""
+def write_corpus(
+    repo: Path,
+    digest: str | None,
+    *,
+    units: int = 7,
+    human=HUMAN,
+    mode: str = "table-diff",
+    generated_at: str = STAMP,
+    inputs_fp: str | Mapping[str, str | None] = "fresh",
+    after_font: str = "present",
+) -> None:
+    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict, with its per-unit index and both app sidecars stamped for the manifest, as a finished build leaves them. `after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of other bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block."""
+    from rebuild.review import app_index
+
     review_dir = repo / "rebuild" / "out" / "review"
     none = units - len(human) - 2 if units else 0
     classes = (
@@ -1422,14 +127,13 @@ def write_table_diff_corpus(repo: Path, digest: str | None, *, units: int = 7, h
         if units
         else []
     )
-    manifest = {
+    manifest: dict[str, object] = {
         "format": "ams-review-manifest/2",
-        "mode": "table-diff",
-        "generated_at": STAMP,
+        "mode": mode,
+        "generated_at": generated_at,
         "repo_head": "abc1234",
         "classes": classes,
         "human_unit_ids": list(human) if units else [],
-        "inputs_fingerprint": dict(TD_FP),
         "totals": {"units": units, "rows": units, "batches": 1 if units else 0},
         "baseline": {
             "commit": None,
@@ -1437,13 +141,18 @@ def write_table_diff_corpus(repo: Path, digest: str | None, *, units: int = 7, h
             "digest": digest,
             "present": digest is not None,
         },
-        "fonts": {
-            "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(AFTER_FONT_BYTES).hexdigest()}
-        },
     }
+    if inputs_fp == "fresh":
+        manifest["inputs_fingerprint"] = dict(FP)
+    elif inputs_fp != "omit":
+        manifest["inputs_fingerprint"] = inputs_fp
+    if after_font != "omit":
+        manifest["fonts"] = {
+            "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(AFTER_FONT_BYTES).hexdigest()}
+        }
     font = repo / "rebuild" / "out" / "m1" / "M1.otf"
     font.parent.mkdir(parents=True, exist_ok=True)
-    font.write_bytes(AFTER_FONT_BYTES)
+    font.write_bytes(AFTER_FONT_BYTES if after_font != "moved" else OTHER_FONT_BYTES)
     _write(review_dir / "manifest.json", manifest)
     for meta in classes:
         (review_dir / meta["shards"][0]).parent.mkdir(parents=True, exist_ok=True)
@@ -1452,40 +161,370 @@ def write_table_diff_corpus(repo: Path, digest: str | None, *, units: int = 7, h
     app_index.write_app_artifacts(review_dir, {}, {})
 
 
-def setup_table_diff(repo: Path, *, units: int = 7, records=None) -> str:
+def write_summary(
+    repo: Path,
+    *,
+    generated_at: str = STAMP,
+    inputs_fp: str | Mapping[str, str | None] = "match",
+    exit_: str = "ok",
+    gates: str | Mapping[str, Mapping[str, object]] = "green",
+) -> None:
+    fp = dict(FP) if inputs_fp == "match" else inputs_fp
+    gate_map = (
+        {name: {"status": "passed", "green": True} for name in GATE_NAMES} if gates == "green" else gates
+    )
+    _write(
+        repo / "rebuild" / "out" / "cycle_summary.json",
+        {
+            "format": "ams-cycle-summary/1",
+            "finished_at": "2026-07-17T21:30:00Z",
+            "exit": exit_,
+            "gates": gate_map,
+            "corpus": {"dir": "rebuild/out/review", "generated_at": generated_at, "inputs_fingerprint": fp},
+        },
+    )
+
+
+def write_autosave(repo, *, stamp=STAMP, records=None):
+    if records is None:
+        records = [verdict(unit) for unit in HUMAN]
+    _write(repo / "verdicts-autosave.json", verdicts_doc(stamp, records))
+
+
+def setup(repo: Path, *, units: int = 7, records=None, **corpus) -> str:
+    """A green checkout: a current snapshot the pointer names, a table-diff corpus built against it, a green cycle summary for that corpus, and a store stamped for it holding `records`, by default an approve on every human unit. Returns the snapshot's digest."""
     digest = write_snapshot(repo)
     write_pointer(repo, digest)
-    write_table_diff_corpus(repo, digest, units=units)
-    write_summary(repo, inputs_fp=dict(TD_FP))
-    write_autosave(repo, records=records if records is not None else [verdict(unit) for unit in TD_HUMAN])
+    write_corpus(repo, digest, units=units, **corpus)
+    write_summary(repo)
+    write_autosave(repo, records=records)
     return digest
 
 
-def test_a_table_diff_corpus_prints_its_own_rows_in_their_order(tmp_path):
-    setup_table_diff(tmp_path)
-    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
-    assert result["corpus"]["mode"] == "table-diff"
-    assert list(result["checks"]) == [
-        "corpus",
-        "freshness",
-        "gates",
-        "snapshot",
-        "verdict_store",
-        "blanks",
-        "diff",
-        "server",
+def call(repo, **kwargs):
+    kwargs.setdefault("recompute_table_diff", recompute)
+    return compute_status(
+        repo,
+        repo / "rebuild" / "out" / "review",
+        repo / "rebuild" / "out" / "m1",
+        repo / "verdicts-autosave.json",
+        repo / "rebuild" / "out" / "cycle_summary.json",
+        **kwargs,
+    )
+
+
+def _readiness(repo, **kwargs):
+    kwargs.setdefault("other_root", lambda root: None)
+    kwargs.setdefault("recompute_table_diff", recompute)
+    return verdict_ready.readiness(
+        repo_root=repo,
+        review_dir=repo / "rebuild" / "out" / "review",
+        m1_out=repo / "rebuild" / "out" / "m1",
+        autosave_path=repo / "verdicts-autosave.json",
+        cycle_summary_path=repo / "rebuild" / "out" / "cycle_summary.json",
+        **kwargs,
+    )
+
+
+def _gate_map(**overrides):
+    base = {name: {"status": "passed", "green": True, "skip": None} for name in GATE_NAMES}
+    base.update(overrides)
+    return base
+
+
+# --- the corpus row ---------------------------------------------------------------------
+
+
+def test_a_missing_manifest_fails_the_corpus_row_and_never_raises(tmp_path):
+    (tmp_path / "rebuild" / "out" / "review").mkdir(parents=True)
+    write_summary(tmp_path)
+    result = call(tmp_path)
+    assert result["ready"] is False
+    assert result["checks"]["corpus"]["level"] == "fail"
+    assert result["checks"]["corpus"]["remedy"] == "make artifact-cycle"
+    assert "freshness" not in result["checks"] and "diff" not in result["checks"]
+    assert result["checks"]["blanks"]["count"] is None
+
+
+def test_a_corpus_that_is_not_a_table_diff_corpus_fails_and_gets_no_freshness_or_diff_row(tmp_path):
+    setup(tmp_path, mode="m1-audit")
+    result = call(tmp_path)
+    corpus = result["checks"]["corpus"]
+    assert corpus["level"] == "fail" and "'m1-audit' corpus, not the table-diff corpus" in corpus["detail"]
+    assert corpus["remedy"] == "make artifact-cycle"
+    assert "freshness" not in result["checks"] and "diff" not in result["checks"]
+    assert result["ready"] is False
+
+
+def test_ready_only_when_every_blocking_row_passes(tmp_path):
+    setup(tmp_path)
+    result = call(tmp_path)
+    assert result["ready"] is True
+    for name in status.BLOCKING:
+        assert result["checks"][name]["level"] == "ok", name
+    assert result["corpus"] == {
+        "dir": str(tmp_path / "rebuild" / "out" / "review"),
+        "generated_at": STAMP,
+        "repo_head": "abc1234",
+        "mode": "table-diff",
+    }
+
+
+# --- the freshness row ------------------------------------------------------------------
+
+
+def test_a_manifest_without_an_input_fingerprint_fails_all_unknown(tmp_path):
+    setup(tmp_path, inputs_fp="omit")
+    freshness = call(tmp_path)["checks"]["freshness"]
+    assert freshness["level"] == "fail"
+    assert set(freshness["components"].values()) == {"unknown"}
+    assert freshness["remedy"] == "make artifact-cycle"
+
+
+def test_a_moved_component_fails_and_a_running_pass_replaces_the_remedy(tmp_path):
+    setup(tmp_path)
+    moved = lambda _repo: {**FP, "font_inputs": "kern edit"}  # noqa: E731
+    freshness = call(tmp_path, recompute_table_diff=moved)["checks"]["freshness"]
+    assert freshness["level"] == "fail" and freshness["components"]["font_inputs"] == "stale"
+    assert "font_inputs" in freshness["detail"] and freshness["remedy"] == "make artifact-cycle"
+    with store_lock.hold_flock(tmp_path / "var" / "cycle" / "pass.lock") as fd:
+        os.pwrite(fd, b"4242\n", 0)
+        freshness = call(tmp_path, recompute_table_diff=moved)["checks"]["freshness"]
+    assert freshness["remedy"] == "wait for the running pass (pid 4242) to finish"
+
+
+def test_a_corpus_with_no_snapshot_is_fresh_while_the_sources_give_none_either(tmp_path):
+    setup(tmp_path, inputs_fp={**FP, "snapshot": None})
+    freshness = call(tmp_path, recompute_table_diff=lambda _repo: {**FP, "snapshot": None})["checks"][
+        "freshness"
     ]
-    assert ready is True and result["checks"]["freshness"]["level"] == "ok"
+    assert freshness["level"] == "ok" and freshness["components"]["snapshot"] == "fresh"
+
+
+def test_static_only_stale_warns_and_points_at_the_cycle(tmp_path):
+    """`static` is the only component whose staleness warns instead of failing: the cycle copies the new assets over the served corpus and keeps the server running."""
+    setup(tmp_path)
+    result = call(tmp_path, recompute_table_diff=lambda _repo: {**FP, "static": "new"})
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "warn" and freshness["components"]["static"] == "stale"
+    assert freshness["remedy"] == "make artifact-cycle"
+    assert result["ready"] is True
+
+
+@pytest.mark.parametrize("after_font", ["moved", "omit"])
+def test_freshness_fails_unless_the_after_font_is_the_m1_font_on_disk(tmp_path, after_font):
+    """The components do not hash M1.otf itself, so a `run_m1` after the corpus build leaves every component fresh while the corpus serves the previous build's letters; comparing the manifest's after-font sha256 with the font on disk catches that, and a corpus that records no sha256 cannot be checked."""
+    setup(tmp_path, after_font=after_font)
+    result = call(tmp_path)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail" and "rebuild/out/m1/M1.otf" in freshness["detail"]
+    assert set(freshness["components"].values()) == {"fresh"}
+    assert result["ready"] is False
+
+
+def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
+    """The per-unit index and both app sidecars are written after the manifest and are not part of it, so a build killed between them, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus; the check names the file, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
+    setup(tmp_path)
+    row_delta.head_path(tmp_path / "rebuild" / "out" / "review", unit_index.INDEX_NAME).unlink()
+    result = call(tmp_path)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail" and unit_index.INDEX_NAME in freshness["detail"]
+    assert result["ready"] is False
+
+
+# --- the gates row ----------------------------------------------------------------------
+
+
+def test_the_gates_row_fails_without_a_summary_for_the_served_corpus(tmp_path):
+    setup(tmp_path)
+    (tmp_path / "rebuild" / "out" / "cycle_summary.json").unlink()
+    assert "no recorded" in call(tmp_path)["checks"]["gates"]["detail"].lower()
+    write_summary(tmp_path, generated_at=OTHER_STAMP)
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail" and "different corpus" in gates["detail"]
+    write_summary(tmp_path, inputs_fp={**FP, "tables": "X"})
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail" and "different corpus" in gates["detail"]
+
+
+def test_the_gates_row_names_the_failing_gates_of_a_failed_pass(tmp_path):
+    setup(tmp_path)
+    write_summary(tmp_path, exit_="failed", gates=_gate_map(rebuild={"status": "failed", "green": False}))
+    gates = call(tmp_path)["checks"]["gates"]
+    assert gates["level"] == "fail" and "rebuild" in gates["detail"]
+
+
+@pytest.mark.parametrize(
+    "gates, level, words",
+    [
+        (_gate_map(), "ok", "finished green"),
+        (
+            _gate_map(
+                conform={"status": "skipped (inputs unchanged)", "green": False, "skip": "proved"},
+                make_test={"status": "skipped (closure unchanged)", "green": False, "skip": "proved"},
+            ),
+            "ok",
+            "already proved",
+        ),
+        (
+            _gate_map(conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"}),
+            "fail",
+            "unverified: conform",
+        ),
+        (
+            {name: {"status": "not run", "green": False, "skip": None} for name in GATE_NAMES},
+            "fail",
+            "unverified",
+        ),
+        (
+            _gate_map(
+                rebuild={"status": "FAILED (exit 1)", "green": False, "skip": None},
+                conform={"status": "skipped (--skip-conform)", "green": False, "skip": "forced"},
+            ),
+            "fail",
+            "failing gates: rebuild",
+        ),
+    ],
+    ids=["green", "proved-skips", "forced-skip", "not-run", "failing-beside-forced"],
+)
+def test_the_gates_row_reads_each_gates_skip_field(tmp_path, gates, level, words):
+    """A proved skip counts toward readiness; a forced skip or a gate that did not run blocks as unverified, and anything else as failing. The status string cannot make the distinction, since every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY."""
+    setup(tmp_path)
+    write_summary(tmp_path, gates=gates)
+    row = call(tmp_path)["checks"]["gates"]
+    assert row["level"] == level and words in row["detail"]
+    assert row["remedy"] == (None if level == "ok" else "make artifact-cycle")
+
+
+# --- the snapshot row -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("case", ["no-current", "another", "no-pointer", "other-format"])
+def test_the_snapshot_row_fails_unless_the_current_snapshot_is_the_one_the_pointer_names(tmp_path, case):
+    from rebuild.review import snapshot
+
+    digest = setup(tmp_path)
+    home = tmp_path / status.SNAPSHOT_HOME
+    if case == "no-current":
+        (home / snapshot.CURRENT_NAME).unlink()
+    elif case == "another":
+        write_pointer(tmp_path, "0" * 64)
+    elif case == "no-pointer":
+        (tmp_path / status.POINTER).unlink()
+    else:
+        write_pointer(tmp_path, digest, snapshot_format="ams-review-snapshot/1")
+    result, ready = _readiness(tmp_path, listening=lambda: True)
+    row = result["checks"]["snapshot"]
+    assert row["level"] == "fail" and result["ready"] is False and ready is False
+    expected = (
+        "make review-snapshot-remake"
+        if case in ("no-current", "another")
+        else "make review-accept ARGS='--apply --retake'"
+    )
+    assert row["remedy"] == expected
+
+
+# --- the verdict-store and blanks rows --------------------------------------------------
+
+
+def test_a_missing_store_warns_with_no_remedy_and_no_blank_count(tmp_path):
+    setup(tmp_path)
+    (tmp_path / "verdicts-autosave.json").unlink()
+    result = call(tmp_path)
+    store = result["checks"]["verdict_store"]
+    assert (store["level"], store["remedy"]) == ("warn", None) and "no autosave" in store["detail"].lower()
+    assert result["checks"]["blanks"]["count"] is None and result["ready"] is True
+
+
+def test_a_store_stamped_for_another_corpus_points_at_the_cycle(tmp_path):
+    """The land carries the store onto the corpus it lands, so a store stamped for another corpus waits for the next pass."""
+    setup(tmp_path)
+    write_autosave(tmp_path, stamp=OTHER_STAMP)
+    result = call(tmp_path)
+    store = result["checks"]["verdict_store"]
+    assert (store["level"], store["remedy"]) == ("fail", "make artifact-cycle")
+    assert result["checks"]["blanks"]["count"] is None and result["ready"] is False
+
+
+@pytest.mark.parametrize(
+    "record, where",
+    [
+        ({**verdict("u-2"), "at": 5}, "on u-2"),
+        ({"verdict": "approve", "at": "2026-07-17T21:00:00Z"}, "at index 1"),
+    ],
+    ids=["numeric-at", "no-unit"],
+)
+@pytest.mark.parametrize("stamp", [STAMP, OTHER_STAMP], ids=["aligned", "stamped-elsewhere"])
+def test_a_store_holding_a_record_it_refuses_fails_naming_it(tmp_path, record, where, stamp):
+    """The review server serves no verdict from such a store and refuses every save (`VerdictStore.reload`), so the readiness check fails on it, naming the record, instead of counting its verdicts, and writes nothing."""
+    setup(tmp_path)
+    write_autosave(tmp_path, stamp=stamp, records=[verdict("u-1"), record])
+    stored = (tmp_path / "verdicts-autosave.json").read_bytes()
+    result = call(tmp_path)
+    store = result["checks"]["verdict_store"]
+    assert store["level"] == "fail" and not result["ready"]
+    assert f"verdicts-autosave.json holds a verdict record {where}" in store["detail"]
+    assert "Replace the store with a readable one" in store["remedy"]
+    assert result["checks"]["blanks"]["count"] is None
+    assert (tmp_path / "verdicts-autosave.json").read_bytes() == stored
+
+
+def test_the_store_row_counts_its_effective_verdicts_and_the_blanks_count_a_skip_as_blank(tmp_path):
+    setup(tmp_path, records=[verdict("u-1"), verdict("u-2", "skip"), verdict("u-9")])
+    result = call(tmp_path)
+    assert result["checks"]["verdict_store"]["detail"] == (
+        "The autosave is aligned with this corpus and holds 2 effective verdicts."
+    )
+    blanks = result["checks"]["blanks"]
+    assert (blanks["level"], blanks["count"], blanks["detail"]) == ("ok", 2, "2 blanks remaining.")
+    assert call(tmp_path, human_ids=frozenset({"u-1", "u-2"}))["checks"]["blanks"]["count"] == 1
+
+
+def test_the_latest_record_per_unit_is_the_one_the_rows_read(tmp_path):
+    setup(
+        tmp_path,
+        records=[
+            verdict("u-1", "reject", at="2026-07-17T22:00:00Z"),
+            verdict("u-1", "skip", at="2026-07-17T21:00:00Z"),
+        ],
+    )
+    result = call(tmp_path)
+    assert result["checks"]["blanks"]["count"] == 2 and result["checks"]["diff"]["rejected"] == 1
+
+
+def test_count_effective_ignores_skip():
+    records = {"u-1": verdict("u-1"), "u-2": verdict("u-2", "skip"), "u-3": verdict("u-3", "neither")}
+    assert count_effective(records) == 2
+
+
+def test_the_saves_the_store_kept_aside_are_counted_by_reason(tmp_path):
+    from rebuild.review.verdict_store import append_orphans, orphans_dir_for
+
+    setup(tmp_path)
+    directory = orphans_dir_for(tmp_path / "verdicts-autosave.json")
+    append_orphans(directory, OTHER_STAMP, [{**verdict("u-8"), "reason": "orphan"}])
+    append_orphans(directory, STAMP, [{**verdict("u-1", "reject"), "reason": "conflict"}])
+    result = call(tmp_path)
+    assert (result["orphans"]["count"], result["conflicts"]["count"]) == (1, 1)
+    assert result["orphans"]["file"].startswith("var/verdict-orphans/")
+
+
+# --- the diff row and the checklist -----------------------------------------------------
+
+
+def test_the_checklist_prints_the_rows_in_their_order(tmp_path):
+    setup(tmp_path)
+    result, ready = _readiness(tmp_path, listening=lambda: True)
+    assert list(result["checks"]) == list(verdict_ready.CHECK_ORDER)
     lines = verdict_ready.checklist(result, ready)
     rows = [line[4:].split(":")[0] for line in lines if line[2:3] in ("✓", "!", "✗")]
-    assert rows == list(verdict_ready.TABLE_DIFF_CHECK_ORDER)
-    assert not any("fullest_verdicts" in line or "journal" in line for line in lines)
+    assert rows == list(verdict_ready.CHECK_ORDER)
     assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
 
 
 def test_the_diff_row_counts_each_kind_of_change_and_names_the_accept_once_every_unit_is_accepted(tmp_path):
-    setup_table_diff(tmp_path, records=[verdict("u-1"), verdict("u-2", "reject"), verdict("u-3", "skip")])
-    result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    setup(tmp_path, records=[verdict("u-1"), verdict("u-2", "reject"), verdict("u-3", "skip")])
+    result, _ready = _readiness(tmp_path, listening=lambda: True)
     diff = result["checks"]["diff"]
     assert diff["detail"] == (
         "7 unaccepted changes since the snapshot taken at 2026-11-26T00:00:00Z: 3 need a verdict "
@@ -1495,8 +534,8 @@ def test_the_diff_row_counts_each_kind_of_change_and_names_the_accept_once_every
     assert verdict_ready.diff_summary_line(result) == (
         "review diff: 7 unaccepted changes since the snapshot taken at 2026-11-26T00:00:00Z (3 need a verdict)"
     )
-    write_autosave(tmp_path, records=[verdict(unit, "either") for unit in TD_HUMAN])
-    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    write_autosave(tmp_path, records=[verdict(unit, "either") for unit in HUMAN])
+    result, ready = _readiness(tmp_path, listening=lambda: True)
     diff = result["checks"]["diff"]
     assert (diff["level"], diff["remedy"], diff["blank"], diff["rejected"]) == (
         "warn",
@@ -1508,9 +547,9 @@ def test_the_diff_row_counts_each_kind_of_change_and_names_the_accept_once_every
     assert "      remedy: make review-accept ARGS=--apply" in verdict_ready.checklist(result, ready)
 
 
-def test_a_table_diff_corpus_with_no_change_says_so_on_its_ready_line(tmp_path):
-    setup_table_diff(tmp_path, units=0, records=[])
-    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+def test_a_corpus_with_no_change_says_so_on_its_ready_line(tmp_path):
+    setup(tmp_path, units=0, records=[])
+    result, ready = _readiness(tmp_path, listening=lambda: True)
     assert ready is True
     assert result["checks"]["diff"]["count"] == 0 and result["checks"]["diff"]["level"] == "ok"
     assert verdict_ready.checklist(result, ready)[-1] == (
@@ -1518,66 +557,45 @@ def test_a_table_diff_corpus_with_no_change_says_so_on_its_ready_line(tmp_path):
     )
 
 
-@pytest.mark.parametrize("case", ["no-current", "another", "no-pointer", "other-format"])
-def test_the_snapshot_row_fails_unless_the_current_snapshot_is_the_one_the_pointer_names(tmp_path, case):
-    from rebuild.review import snapshot
-
-    digest = setup_table_diff(tmp_path)
-    home = tmp_path / status.SNAPSHOT_HOME
-    if case == "no-current":
-        (home / snapshot.CURRENT_NAME).unlink()
-    elif case == "another":
-        write_pointer(tmp_path, "0" * 64)
-    elif case == "no-pointer":
-        (tmp_path / status.POINTER).unlink()
-    else:
-        write_pointer(tmp_path, digest, snapshot_format="ams-review-snapshot/1")
-    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
-    row = result["checks"]["snapshot"]
-    assert row["level"] == "fail" and result["ready"] is False and ready is False
-    expected = (
-        "make review-snapshot-remake"
-        if case in ("no-current", "another")
-        else "make review-accept ARGS='--apply --retake'"
-    )
-    assert row["remedy"] == expected
+# --- the server row ---------------------------------------------------------------------
 
 
-def test_a_table_diff_corpus_is_stale_on_a_moved_component_or_after_font_byte_for_byte(tmp_path):
-    setup_table_diff(tmp_path)
-    moved = lambda _repo: {**TD_FP, "font_inputs": "kern edit"}  # noqa: E731
-    result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=moved)
-    freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail" and freshness["components"]["font_inputs"] == "stale"
-    (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
-    result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
-    assert "after font is not the M1 font on disk" in result["checks"]["freshness"]["detail"]
+def test_readiness_adds_the_server_row_and_gates_ready_on_it(tmp_path):
+    setup(tmp_path)
+    result, ready = _readiness(tmp_path, listening=lambda: False)
+    assert ready is False
+    assert result["ready"] is True
+    assert result["checks"]["server"]["level"] == "fail"
+    assert result["checks"]["server"]["remedy"] == "make review-serve"
+    lines = verdict_ready.checklist(result, ready)
+    assert "  ✗ server: not listening on port 7294" in lines
+    assert "      remedy: make review-serve" in lines
+    assert lines[-1] == "NOT READY"
 
-
-def test_a_table_diff_corpus_reads_its_store_with_no_accepted_list(tmp_path):
-    """A table-diff corpus's store reads no accepted list (`verdict_store.accepted_path_for`), so a store that holds verdicts and names no list passes the verdict-store row beside the tracked list, and none of the list's units counts among its effective verdicts or leaves the blanks, while the same store beside an m1-audit corpus does not pair with that list."""
-    setup_table_diff(tmp_path, records=[verdict("u-1")])
-    list_path = tmp_path / accepted.RELATIVE_PATH
-    list_path.write_bytes(
-        accepted.render("2026-11-01T00:00:00Z", {"u-" + "2" * 11: "approve", "u-" + "3" * 11: "either"})
-    )
-    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
-    row = result["checks"]["verdict_store"]
-    assert row["level"] == "ok", row
-    assert row["detail"] == "The autosave is aligned with this corpus and holds 1 effective verdicts."
-    assert result["checks"]["blanks"]["count"] == 2
+    result, ready = _readiness(tmp_path, listening=lambda: True)
     assert ready is True
+    lines = verdict_ready.checklist(result, ready)
+    assert "  ✓ server: listening on port 7294" in lines
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
 
-    manifest_path = tmp_path / "rebuild" / "out" / "review" / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["mode"] = "m1-audit"
-    _write(manifest_path, manifest)
-    refused = status._verdict_store_check(
-        tmp_path / "verdicts-autosave.json",
-        STAMP,
-        "make artifact-cycle",
-        None,
-        None,
-        listed_path=status.accepted_path_for(tmp_path / "verdicts-autosave.json"),
-    )[0]
-    assert refused["level"] == "fail" and "names no accepted list" in refused["detail"]
+
+def test_readiness_fails_the_server_row_for_a_server_that_serves_another_checkout(tmp_path):
+    setup(tmp_path)
+    result, ready = _readiness(tmp_path, listening=lambda: True, other_root=lambda root: "/elsewhere")
+    assert ready is False
+    assert result["checks"]["server"]["level"] == "fail"
+    lines = verdict_ready.checklist(result, ready)
+    assert "  ✗ server: a review server for another checkout (/elsewhere) holds port 7294" in lines
+    assert "      remedy: stop that checkout's review server, then make review-serve" in lines
+    assert lines[-1] == "NOT READY"
+
+
+def test_readiness_without_the_server_row_answers_for_the_corpus_alone(tmp_path):
+    """Under `make review-cycle` the Makefile recipe handles the server after the cycle, so the cycle calls `readiness` with `with_server=False`. There is no server row, and READY depends on the corpus alone."""
+    setup(tmp_path)
+    result, ready = _readiness(tmp_path, with_server=False, listening=lambda: False)
+    assert ready is True
+    assert "server" not in result["checks"]
+    lines = verdict_ready.checklist(result, ready)
+    assert not any("server" in line for line in lines)
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"

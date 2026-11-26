@@ -25,7 +25,7 @@ def server_listening(port: int = REVIEW_PORT) -> bool:
 
 
 def force_reload(path: str, port: int = REVIEW_PORT) -> bool:
-    """Send `path` to every tab connected to the review server's livereload socket, through livereload's /forcereload, and return whether the server took it. The app's plugin acts on `ams:corpus/<generated_at>` and `ams:assets/<static hash>` (rebuild/review/static/reload.js). No server listening, or any failure, returns False: the tabs then find the change on their next save or status check."""
+    """Send `path` to every tab connected to the review server's livereload socket, through livereload's /forcereload, and return whether the server took it. The app's plugin acts on `ams:corpus/<generated_at>`, `ams:assets/<static hash>` and `ams:store/<snapshot digest>` (rebuild/review/static/reload.js). No server listening, or any failure, returns False: the tabs then find the change on their next save or status check."""
     url = f"http://127.0.0.1:{port}/forcereload?{urllib.parse.urlencode({'path': path})}"
     try:
         with urllib.request.urlopen(url, timeout=FORCE_RELOAD_TIMEOUT_S) as response:

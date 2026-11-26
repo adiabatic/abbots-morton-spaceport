@@ -16,7 +16,7 @@ import pytest
 import yaml
 
 from rebuild.pipeline import fingerprint, row_delta
-from rebuild.review import accepted, app_index, facts, unit_cache
+from rebuild.review import app_index, facts, unit_cache
 from rebuild.review import build as review_build
 from rebuild.review import unit_index
 from rebuild.review.audit import (
@@ -1103,8 +1103,8 @@ def test_export_round_trip(tmp_path):
     }
 
 
-def test_export_reads_the_accepted_list_beside_an_export_of_the_stores_records(tmp_path, capsys):
-    """An Export from the review app holds the store's records alone, so the triage export reads the accepted list beside it: a listed id on the corpus with no record in the file counts under its mark and drafts with an empty note, a record on a listed id is read in its place, and a listed id off the corpus is passed over without a warning."""
+def test_export_reads_the_latest_record_per_unit_of_the_stores_records(capsys):
+    """The triage export reads the store's records, the latest per unit where a file holds two: an approve on a pinned unit drafts with its note, a neither lists the unit under `neither`, and a record off the corpus is counted apart with a warning."""
     manifest, units = _export_corpus()
     ids = sorted(
         uid
@@ -1112,36 +1112,28 @@ def test_export_reads_the_accepted_list_beside_an_export_of_the_stores_records(t
         if not uid.startswith("u-clone") and not unit["no_verdict"] and not machine_approved(unit)
     )
     pinned = next(uid for uid in ids if units[uid]["drafts"]["pin"])
-    overridden = next(uid for uid in ids if uid != pinned)
-    listed = tmp_path / "accepted-units.txt"
-    listed.write_bytes(
-        accepted.render(
-            "2026-11-05T18:00:00Z", {pinned: "approve", overridden: "approve", "u-1ZZZZZZZZZZ": "either"}
-        )
-    )
+    other = next(uid for uid in ids if uid != pinned)
     verdicts = {
         "format": "ams-review-verdicts/1",
         "manifest_generated_at": manifest["generated_at"],
         "verdicts": [
+            {"unit": pinned, "verdict": "approve", "note": "", "at": "2026-11-06T09:00:00.000Z"},
+            {"unit": other, "verdict": "approve", "note": "", "at": "2026-11-06T08:00:00.000Z"},
             {
-                "unit": overridden,
+                "unit": other,
                 "verdict": "neither",
                 "note": "both look wrong",
                 "at": "2026-11-06T09:00:00.000Z",
-            }
+            },
+            {"unit": "u-1ZZZZZZZZZZ", "verdict": "either", "note": "", "at": "2026-11-06T09:00:00.000Z"},
         ],
     }
-    triage = build_triage(
-        manifest,
-        units,
-        verdicts,
-        accepted.view_of_file(verdicts, accepted.read(listed), path="verdicts.json"),
-    )
+    triage = build_triage(manifest, units, verdicts)
     counts = triage["review"]["counts"]
     assert (counts["approve"], counts["either"], counts["neither"]) == (1, 0, 1)
     assert [(pin["unit"], pin["note"]) for pin in triage["pins"]] == [(pinned, "")]
-    assert [entry["unit"] for entry in triage["neither"]] == [overridden]
-    assert "unknown units" not in capsys.readouterr().err
+    assert [entry["unit"] for entry in triage["neither"]] == [other]
+    assert "unknown units" in capsys.readouterr().err
 
 
 def test_export_rejects_bad_format(tmp_path):

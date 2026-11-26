@@ -64,7 +64,7 @@ class TestForbiddenPaths:
             "var/keep/notes.md",
             "rebuild/review-facts-pins.json",
             "verdicts-autosave.json",
-            "verdicts-journal.ndjson",
+            "verdicts-export.json",
             "verdicts-carried-abc1234.json",
         ],
     )

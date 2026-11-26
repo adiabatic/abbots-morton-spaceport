@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 
 from rebuild.conftest import is_live_artifact_path
-from rebuild.review import journal, landing
+from rebuild.review import landing
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
@@ -53,17 +53,11 @@ def _no_stated_widths(monkeypatch):
     monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
 
 
-REAL_DO_STORE_SNAPSHOT = ac._do_store_snapshot
 REAL_DO_LAND = ac._do_land
 
 
-def _snapshot_ok(report, *, emit, plan):
-    report.snapshot_status = "snapshot"
-    return True
-
-
 def _land_ok(report, *, spawn, emit, registry, plan):
-    report.land = {"landed": True, "overlaid": 0, "records": 0, "new_stamp": None}
+    report.land = {"landed": True, "carried": False, "records": 0, "new_stamp": None}
     report.land_status = "landed"
     return report.land
 
@@ -72,7 +66,7 @@ def _land_ok(report, *, spawn, emit, registry, plan):
 def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     """Make this module see the live review corpus and build artifacts as absent. The conftest's `_redirect_cycle_writes` redirects writes only, but the cycle also resolves its read paths from the live repo at call time, so a test driving `_run_cycle` over mocked stages would otherwise read whatever corpus and behavior-class sidecar sit in rebuild/out. Every test here is in the contracts lane, so no live read needs to be kept, and the lane's audit guard fails any read this misses.
 
-    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The two build-lane steps that need a real store beside them, the store snapshot and the land, are stubbed as the other build-lane stages are in each test; a test of one of them sets the real function back (`REAL_DO_STORE_SNAPSHOT`, `REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
+    `REVIEW_OUT`, `AUTOSAVE` and the deep replay's green record are constants and are redirected directly. The land, the build-lane step that needs a real store beside it, is stubbed as the other build-lane stages are in each test; a test of it sets the real function back (`REAL_DO_LAND`). The review server's /capabilities answers `NO_CAPABILITIES` (a 404), as a server from before the land protocol does, so no test probes the live port, and starting a server fails the test; a test that checks the probe patches `capabilities` itself. The behavior-class sidecar is not: `deep_sweep_skip_lines` re-roots `BEHAVIOR_CLASSES` against the root it is given, so redirecting the constant outside ROOT would break the tests that pass their own root, and the function is patched for the default root only. The gates' `*_skip_lines(ROOT)` also read through two globs over rebuild/out (`baselines_value`, `_subset_tables`) and the per-file digest `_sha256_path`, which returns "absent" for a live path, and the deep replay's status reads the tables' heads through `tables_imports_digest`, which reads as no tables for the live root. Each patch changes the result only for the live root or a live path, so a test that passes its own root runs the real function.
     """
     from rebuild.pipeline import fingerprint
 
@@ -94,7 +88,6 @@ def _redirect_contracts_lane_reads(monkeypatch, tmp_path):
     monkeypatch.setattr(ac, "AUTOSAVE", tmp_path / "verdicts-autosave.json")
     monkeypatch.setattr(ac, "capabilities", lambda port=ac.REVIEW_PORT: ac.NO_CAPABILITIES)
     monkeypatch.setattr(ac, "start_review_server", lambda: pytest.fail("started a review server"))
-    monkeypatch.setattr(ac, "_do_store_snapshot", _snapshot_ok)
     monkeypatch.setattr(ac, "_do_land", _land_ok)
     monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
     monkeypatch.setattr(
@@ -323,7 +316,7 @@ def test_dry_run_plan_default():
         "--out",
         str(ac.next_corpus_dir()),
     ]
-    assert [step.name for step in plan.steps][:4] == ["run_m1", "corpus-build", "store-snapshot", "land"]
+    assert [step.name for step in plan.steps][:3] == ["run_m1", "corpus-build", "land"]
     for gone in ("corpus-seed", "review-facts"):
         assert gone not in by_name
     contracts_record = ac.contracts_green()
@@ -416,23 +409,23 @@ def test_dry_run_plan_skip_conform():
     assert by_name["gate:rebuild-contracts"].argv is not None
 
 
-def test_the_plan_lands_the_table_diff_corpus_with_no_prepared_store_and_no_orphan_guard():
-    """The pass builds the table-diff corpus beside the served one, snapshots the store and lands both: no corpus seed or review-facts step. The land is handed no prepared store, so on a stamp move it carries the snapshot onto the new corpus by unit id itself (`landing.carry_snapshot`), and `--allow-orphans`, since a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep; it is told which corpus to swap in and the scan state retention saves."""
+def test_the_plan_lands_the_table_diff_corpus_right_after_its_build():
+    """The pass builds the table-diff corpus beside the served one and lands it: no corpus seed or review-facts step. The land reads the live store under the store's lock, so it is handed no store but the live one, and it is told which corpus to swap in and to leave the tree it swaps out to the pass, which deletes it once the tabs are told."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
-    assert names.index("store-snapshot") == names.index("corpus-build") + 1
-    assert names.index("land") == names.index("store-snapshot") + 1
+    assert names.index("land") == names.index("corpus-build") + 1
     for gone in ("corpus-seed", "review-facts"):
         assert gone not in names
     assert plan.scratch_dir is not None and plan.land
     argv = _argv({step.name: step for step in plan.steps}["land"])
     assert argv[:5] == ["uv", "run", "python", "-m", "rebuild.review.landing"]
-    assert "--prepared" not in argv
+    for gone in ("--prepared", "--journal", "--scan-state", "--allow-orphans"):
+        assert gone not in argv
     assert argv[argv.index("--run-dir") + 1] == str(plan.scratch_dir)
     assert argv[argv.index("--corpus") + 1] == str(ac.next_corpus_dir())
     assert argv[argv.index("--staged") + 1] == str(ac.next_corpus_dir())
     assert argv[argv.index("--live") + 1] == str(ac.REVIEW_OUT)
-    assert "--keep-discard" in argv and argv[-1] == "--allow-orphans"
+    assert argv[-1] == "--keep-discard"
 
 
 def test_dry_run_plan_staging_pass_never_touches_the_autosave(tmp_path):
@@ -702,7 +695,7 @@ def test_a_corpus_build_without_a_holder_waits_for_its_store_write(tmp_path):
         assert built.result(timeout=30)
 
 
-def _store_write_cycle(monkeypatch, *, store_rc, review_out=None, snapshot_ok=True):
+def _store_write_cycle(monkeypatch, *, store_rc, review_out=None):
     """Run a pass whose corpus build, through the real `_do_corpus_build`, prints its review-facts line, as the review crate's build does, and then writes its stores and exits `store_rc`. Return the exit status, what the stages did in order, and the report."""
     order: list[str] = []
 
@@ -715,16 +708,11 @@ def _store_write_cycle(monkeypatch, *, store_rc, review_out=None, snapshot_ok=Tr
         order.append("store written")
         return _step(name, store_rc)
 
-    def snapshot(report, *, emit, plan):
-        order.append("store-snapshot")
-        return snapshot_ok
-
     def land(report, *, spawn, emit, registry, plan):
         order.append("land")
         return _land_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
 
     monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_store_snapshot", snapshot)
     monkeypatch.setattr(ac, "_do_land", land)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
     monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
@@ -751,27 +739,20 @@ def _store_write_cycle(monkeypatch, *, store_rc, review_out=None, snapshot_ok=Tr
 
 @pytest.mark.parametrize("store_rc", [0, 1])
 def test_the_land_waits_for_the_corpus_builds_child(monkeypatch, capsys, store_rc):
-    """The store snapshot and the land run only once the corpus build's child has exited, whatever line it printed before, and a build that exits nonzero after its review-facts line fails the pass as a failed build does and stops both."""
+    """The land runs only once the corpus build's child has exited, whatever line it printed before, and a build that exits nonzero after its review-facts line fails the pass as a failed build does and stops it."""
     rc, order, report = _store_write_cycle(monkeypatch, store_rc=store_rc)
     assert order[:2] == ["review facts", "store written"]
     assert report.step_returncodes["corpus-build"] == store_rc
     out = capsys.readouterr().out
     if store_rc == 0:
         assert rc == 0
-        assert order[2:] == ["store-snapshot", "land"]
+        assert order[2:] == ["land"]
         assert "corpus rebuild failed" not in out
     else:
         assert rc == 1
         assert order[2:] == []
         assert "review.build exited 1" in out
         assert out.count("corpus rebuild failed") == 1
-
-
-def test_a_failed_store_snapshot_stops_the_pass_before_the_land(monkeypatch, capsys):
-    rc, order, _report = _store_write_cycle(monkeypatch, store_rc=0, snapshot_ok=False)
-    assert rc == 1
-    assert order == ["review facts", "store written", "store-snapshot"]
-    assert "store snapshot failed" in capsys.readouterr().out
 
 
 def test_a_pass_that_does_not_land_still_waits_for_the_store_write(monkeypatch, tmp_path):
@@ -2539,7 +2520,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane rebuild-contracts" in text
     assert "Lane conform" in text
     assert "Lane kernel" not in text
-    assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> store-snapshot -> land\n" in text
+    assert "run_m1 -> submit gate:rebuild-contracts -> corpus-build -> land\n" in text
     assert "CO-RESIDENT with gate:make-test's pool and gate:rebuild-contracts' pool (overlap policy)" in text
     assert (
         f"Lane rebuild-contracts           : submitted beside the corpus build, -n {plan.contracts_workers} ({plan.contracts_reason});"
@@ -2805,19 +2786,14 @@ def test_cycle_summary_payload_records_an_assets_refresh():
     assert payload["assets_status"].startswith("refreshed in place")
 
 
-def test_the_land_row_says_whether_the_land_journaled_a_base_or_sets_and_clears():
-    """The land row names what the land journaled, so whether a land that moved the stamp wrote a base shows in the cycle's output and not only in the journal, and says when the land left the store in place because the prepared store changed nothing."""
+def test_the_land_row_says_whether_the_land_carried_the_store_and_what_it_kept_aside():
+    """The land row names the stamp the land landed and the verdicts the store holds after it, whether it carried the store onto that stamp, what it orphaned and dropped, and how long it held the store's lock."""
     landed = {"landed": True, "records": 1200, "new_stamp": "B", "locked_s": 0.4}
-    as_base = {**landed, "journal_base": True, "journal_sets": 1200, "journal_clears": 0}
-    as_diff = {**landed, "journal_base": False, "journal_sets": 3, "journal_clears": 1500}
-    assert ac.land_detail(as_base) == "landed 1,200 verdicts on B, journaled as a base, store locked 0.4 s"
-    assert ac.land_detail(as_diff) == (
-        "landed 1,200 verdicts on B, journaled as 3 sets and 1,500 clears, store locked 0.4 s"
+    assert ac.land_detail({**landed, "carried": True, "orphaned": 3, "skips_dropped": 1500}) == (
+        "carried 1,200 verdicts onto B, 3 orphaned, 1,500 skips dropped, store locked 0.4 s"
     )
-    assert "journaled" not in ac.land_detail({**landed, "journal_base": None})
-    assert ac.land_detail({**landed, "journal_base": None, "store_kept": True, "overlaid": 2}) == (
-        "left the store's 1,200 verdicts in place on B, since the prepared store changed nothing, "
-        "2 saved during the pass, store locked 0.4 s"
+    assert ac.land_detail({**landed, "carried": False, "orphaned": 0, "skips_dropped": 0}) == (
+        "landed B, the store's 1,200 verdicts as they were, store locked 0.4 s"
     )
 
 
@@ -3538,7 +3514,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     gated = _plan(pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
-        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> store-snapshot -> land\n"
+        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> land\n"
         in text
     )
     assert (
@@ -3576,7 +3552,7 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
     assert "submitted beside the corpus build" not in solo_text
     assert (
-        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> store-snapshot -> land\n"
+        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> land\n"
         in solo_text
     )
     assert {step.name: step for step in solo.steps}["gate:rebuild-contracts"].note == (
@@ -3604,7 +3580,7 @@ def test_a_pass_with_no_other_gate_pool_holds_the_suite_until_the_units_pool_fin
     assert (held.corpus_jobs, held.corpus_gates_idle_jobs, held.contracts_workers) == (8, 17, 9)
     text = _plan_text(held)
     assert (
-        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes) -> corpus-build -> store-snapshot -> land"
+        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes) -> corpus-build -> land"
         in text
     )
     assert (
@@ -4951,39 +4927,6 @@ def _stamped_corpus(root):
     return corpus
 
 
-def _stamped_m1_audit_corpus(root):
-    """Write an m1-audit review corpus stamped for the current inputs under `root`, which the readiness check's freshness row reads by `fingerprint.COMPONENTS`."""
-    from rebuild.pipeline import fingerprint
-    from rebuild.review import app_index, unit_cache, unit_index
-
-    stage_a = fingerprint.stage_a(root)
-    m1 = root / "rebuild" / "out" / "m1"
-    (m1 / fingerprint.STAGE_A_FILENAME).write_text(json.dumps({"format": fingerprint.FORMAT, **stage_a}))
-    corpus = root / "rebuild" / "out" / "review"
-    corpus.mkdir(parents=True)
-    (corpus / "units-000.json").write_text("[]")
-    before_font, junior_font = fingerprint.font_paths(root)
-    (corpus / "manifest.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-01-01T00:00:00Z",
-                "inputs_fingerprint": {
-                    **stage_a,
-                    **fingerprint.stage_b(root, before_font, junior_font),
-                },
-                "classes": [{"id": "c", "shards": ["units-000.json"]}],
-                "fonts": {
-                    "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(b"OTTO").hexdigest()}
-                },
-            }
-        )
-    )
-    unit_index.write_index(corpus, [])
-    app_index.write_app_artifacts(corpus, {}, {})
-    unit_cache.write_store(corpus, "environment", [], parts=["units-000.json"])
-    return corpus
-
-
 def _upstream_keys(root):
     from rebuild.pipeline import fingerprint
 
@@ -5013,10 +4956,10 @@ def test_a_refuse_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_pa
     assert _upstream_keys(root) == upstream
 
 
-def test_a_site_pin_edit_makes_an_m1_audit_corpus_stale_for_verdict_ready(tmp_path):
-    """The approval drafter sets a pin draft's `attribute` and `duplicate_of` from the pins on the site corpus pages, so pinning a word there must fail `make verdict-ready`'s freshness check on an m1-audit corpus, naming `draft_inputs` as the one component that moved."""
+def test_a_site_pin_edit_moves_the_m1_audit_corpus_draft_inputs_and_no_other_component(tmp_path):
+    """The approval drafter sets a pin draft's `attribute` and `duplicate_of` from the pins on the site corpus pages, so pinning a word there moves the `draft_inputs` component an m1-audit corpus records, and that one alone."""
     from rebuild.pipeline import fingerprint
-    from rebuild.review import drafts, status
+    from rebuild.review import drafts
 
     root = _fake_run_m1_root(tmp_path)
     subprocess.run(["git", "init", "-q"], cwd=root, check=True)
@@ -5025,25 +4968,17 @@ def test_a_site_pin_edit_makes_an_m1_audit_corpus_stale_for_verdict_ready(tmp_pa
     page.parent.mkdir()
     word = "\ue652\ue653"
     page.write_text(f"<table><tr><td>{word}</td></tr></table>\n")
-    corpus = _stamped_m1_audit_corpus(root)
+    before_font, junior_font = fingerprint.font_paths(root)
 
-    def freshness() -> dict:
-        return status.compute_status(
-            root,
-            corpus,
-            root / "rebuild" / "out" / "m1",
-            root / "verdicts-autosave.json",
-            root / "rebuild" / "out" / "cycle_summary.json",
-        )["checks"]["freshness"]
+    def components() -> dict:
+        return {**fingerprint.stage_a(root), **fingerprint.stage_b(root, before_font, junior_font)}
 
-    assert freshness()["level"] == "ok"
     unpinned = drafts.corpus_index_from_pages(fingerprint.read_site_corpus(root))
-
+    before = components()
     page.write_text(f'<table><tr><td data-expect="·Tea ~b~ ·Day">{word}</td></tr></table>\n')
     assert drafts.corpus_index_from_pages(fingerprint.read_site_corpus(root)) != unpinned
-    stale = freshness()
-    assert stale["level"] == "fail"
-    assert [name for name, state in stale["components"].items() if state != "fresh"] == ["draft_inputs"]
+    after = components()
+    assert [name for name in before if before[name] != after[name]] == ["draft_inputs"]
 
 
 def test_a_ledger_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_path):
@@ -6261,7 +6196,7 @@ def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
     report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
     report.gate_contracts = "FAILED (3 unexplained)"
     report.gate_contracts_green = False
-    report.retention_detail = "removed 0 build logs, 0 stashes; journal intact"
+    report.retention_detail = "removed 0 build logs"
     report.step_seconds = {"run_m1": 1988.0, "corpus-build": 61.0, "gate:rebuild-contracts": 92.0}
     report.step_returncodes = {"run_m1": 0, "corpus-build": 0, "gate:rebuild-contracts": 1}
     report.step_written = {"run_m1": (31_000_000_000, True)}
@@ -6900,7 +6835,6 @@ def test_main_stops_a_server_from_before_the_land_protocol_when_the_pass_rebuild
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
     assert ac.main(["--stop-server"]) == 0
     assert stops == [1]
-    assert ran[0].legacy_server is True
     out = capsys.readouterr().out
     assert "Stopping the review server" in out and "the last stop a pass needs" in out
 
@@ -6988,7 +6922,7 @@ def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeyp
     assert plan.broadcast is True
     assert plan.scratch_dir is not None
     names = [step.name for step in plan.steps]
-    assert names[: names.index("land") + 1] == ["run_m1", "corpus-build", "store-snapshot", "land"]
+    assert names[: names.index("land") + 1] == ["run_m1", "corpus-build", "land"]
     build = plan.argv("corpus-build")
     assert build[build.index("--mode") + 1] == "table-diff"
     assert build[build.index("--out") + 1] == str(ac.next_corpus_dir())
@@ -6997,7 +6931,6 @@ def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeyp
     assert land[land.index("--staged") + 1] == str(ac.next_corpus_dir())
     assert land[land.index("--live") + 1] == str(ac.REVIEW_OUT)
     assert land[land.index("--autosave") + 1] == str(ac.AUTOSAVE)
-    assert land[land.index("--scan-state") + 1] == str(ac.journal_scan_path())
 
 
 def test_preflight_restarts_a_server_running_other_code_and_refuses_when_it_does_not_return(
@@ -7062,7 +6995,7 @@ def test_only_a_pass_that_moves_the_corpus_lands():
 
     settled = _plan(skip_corpus=True, corpus_note="same")
     assert not settled.land
-    assert {"land", "store-snapshot"}.isdisjoint(step.name for step in settled.steps)
+    assert "land" not in {step.name for step in settled.steps}
 
     first = _plan(first_run=True)
     assert not first.land
@@ -7070,7 +7003,7 @@ def test_only_a_pass_that_moves_the_corpus_lands():
 
 
 def test_the_planned_land_carries_the_store_by_unit_id_and_keeps_a_tombstone_of_any_age():
-    """The land the cycle plans, run with its own arguments, carries the store onto the new corpus by unit id with no prepared store: a verdict on a unit the new corpus still has stays, one the new corpus lacks goes to the orphan document of the old stamp, and a clear has no age limit, so a tombstone decades older than the pass on one of the landed corpus's human units stays, and an older verdicts file cannot bring the cleared verdict back."""
+    """The land the cycle plans, run with its own arguments, carries the live store onto the new corpus by unit id: a verdict on a unit the new corpus still has stays, one the new corpus lacks goes to the orphan document of the old stamp, and a clear has no age limit, so a tombstone decades older than the pass on one of the landed corpus's human units stays, and an older verdicts file cannot bring the cleared verdict back."""
     plan = _plan()
     argv = plan.argv("land")
     argv = argv[argv.index("rebuild.review.landing") + 1 :]
@@ -7081,8 +7014,6 @@ def test_the_planned_land_carries_the_store_by_unit_id_and_keeps_a_tombstone_of_
         )
     cleared = [{"unit": "u-2", "at": "2001-01-01T00:00:00Z"}]
     ac.AUTOSAVE.write_text(json.dumps({**_verdicts_doc("A", ["u-1", "u-3"]), "cleared": cleared}))
-    ac.landing.snapshot(ac.AUTOSAVE, Path(argv[argv.index("--run-dir") + 1]))
-
     assert ac.landing.main(argv) == 0
     landed = json.loads(ac.AUTOSAVE.read_text())
     assert landed["manifest_generated_at"] == "B"
@@ -7139,157 +7070,13 @@ def test_a_promoting_pass_stops_a_review_server_from_before_the_land_protocol(tm
     assert "Stopping the review server" in capsys.readouterr().out
 
 
-def test_prune_stashes_keeps_from_the_last_base_onward(tmp_path):
-    journal_path = tmp_path / "verdicts-journal.ndjson"
-    journal.record_transition(
-        journal_path,
-        source="autosave",
-        stamp="S1",
-        old_stamp=None,
-        old_verdicts=[],
-        new_verdicts=[],
-        stashed="verdicts-autosave-A.json",
-        at="2026-07-10T01:00:00Z",
-    )
-    journal.record_transition(
-        journal_path,
-        source="autosave",
-        stamp="S1",
-        old_stamp="S1",
-        old_verdicts=[],
-        new_verdicts=[],
-        stashed="verdicts-autosave-B.json",
-        at="2026-07-10T02:00:00Z",
-    )
-    journal.record_transition(
-        journal_path,
-        source="merge",
-        stamp="S2",
-        old_stamp="S1",
-        old_verdicts=[],
-        new_verdicts=[],
-        stashed="verdicts-autosave-C.json",
-        at="2026-07-10T03:00:00Z",
-    )
-    journal.record_transition(
-        journal_path,
-        source="autosave",
-        stamp="S2",
-        old_stamp="S2",
-        old_verdicts=[],
-        new_verdicts=[],
-        stashed="verdicts-autosave-D.json",
-        at="2026-07-10T04:00:00Z",
-    )
-    stashes = {}
-    for tag in ("A", "B", "C", "D", "E"):
-        path = tmp_path / f"verdicts-autosave-{tag}.json"
-        path.write_text("{}")
-        stashes[tag] = path
-    live = tmp_path / "verdicts-autosave.json"
-    live.write_text("{}")
-
-    removed = ac.prune_stashes(tmp_path, journal_path)
-
-    assert removed == [stashes["A"], stashes["B"], stashes["E"]]
-    assert not stashes["A"].exists()
-    assert not stashes["B"].exists()
-    assert not stashes["E"].exists()
-    assert stashes["C"].exists()
-    assert stashes["D"].exists()
-    assert live.exists()
-
-
-def _land_history(journal_path, *, base):
-    """Journal a store's history with every land journaled as a base (`base` None) or as sets and clears (`base` False): a merge base, a land that stashes S1, a same-stamp restore that stashes the store it replaced, a land onto the same records that stashes S2, and an autosave."""
-    store = [{"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-10T00:00:00Z"}]
-    landed = [*store, {"unit": "u-2", "verdict": "approve", "note": "", "at": "2026-07-10T02:00:00Z"}]
-    for source, stamp, old_stamp, old, new, stashed, hour, land in (
-        ("merge", "S1", None, [], store, None, 1, False),
-        ("land", "S2", "S1", store, landed, "verdicts-autosave-S1.json", 2, True),
-        ("restore", "S2", "S2", landed, store, "verdicts-autosave-pre-restore-a.json", 3, False),
-        ("land", "S3", "S2", store, store, "verdicts-autosave-S2.json", 4, True),
-        ("autosave", "S3", "S3", store, landed, None, 5, False),
-    ):
-        journal.record_transition(
-            journal_path,
-            source=source,
-            stamp=stamp,
-            old_stamp=old_stamp,
-            old_verdicts=old,
-            new_verdicts=new,
-            stashed=stashed,
-            at=f"2026-07-10T0{hour}:00:00Z",
-            base=base if land else None,
-        )
-
-
-@pytest.mark.parametrize("base", [None, False])
-def test_prune_stashes_keeps_the_same_stashes_whether_lands_journal_bases_or_sets_and_clears(tmp_path, base):
-    """The sweep anchors on the last event that is a base or moves the stamp, so a land journaled as sets and clears anchors it where the base it replaced did: the sweep keeps the stash the latest land named and those named since, and drops the earlier ones."""
-    journal_path = tmp_path / "verdicts-journal.ndjson"
-    _land_history(journal_path, base=base)
-    assert [event.base for event in journal.scan(journal_path).events] == [
-        True,
-        base is None,
-        False,
-        base is None,
-        False,
-    ]
-    names = ["S1", "pre-restore-a", "S2", "stray"]
-    for name in names:
-        (tmp_path / f"verdicts-autosave-{name}.json").write_text("{}")
-
-    removed = ac.prune_stashes(tmp_path, journal_path)
-
-    assert removed == [
-        tmp_path / f"verdicts-autosave-{name}.json" for name in ("S1", "pre-restore-a", "stray")
-    ]
-    assert (tmp_path / "verdicts-autosave-S2.json").exists()
-
-
-def test_prune_stashes_returns_none_without_a_base_event(tmp_path):
-    journal_path = tmp_path / "verdicts-journal.ndjson"
-    journal.record_transition(
-        journal_path,
-        source="autosave",
-        stamp="S1",
-        old_stamp="S1",
-        old_verdicts=[],
-        new_verdicts=[],
-        stashed="verdicts-autosave-Z.json",
-        at="2026-07-10T01:00:00Z",
-    )
-    orphan = tmp_path / "verdicts-autosave-Z.json"
-    orphan.write_text("{}")
-
-    result = ac.prune_stashes(tmp_path, journal_path)
-
-    assert result is None
-    assert orphan.exists()
-
-
-def test_journal_history_cutoff_is_the_window_before_now():
-    from datetime import datetime, timedelta, timezone
-
-    now = datetime(2026, 7, 21, 12, 0, 0, tzinfo=timezone.utc)
-    expected = (
-        (now - timedelta(days=ac.JOURNAL_HISTORY_DAYS))
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-    assert ac.journal_history_cutoff(now) == expected
-    assert ac.journal_history_cutoff(now) == "2026-04-22T12:00:00Z"
-
-
 def test_build_plan_retention_default_on():
     plan = _plan()
     assert plan.retention is True
     by_name = {step.name: step for step in plan.steps}
     note = by_name["retention"].note
     assert "green finish" in note
-    assert str(ac.JOURNAL_HISTORY_DAYS) in note
+    assert str(cycle_paths.BUILD_LOGS_KEEP) in note
 
 
 def test_build_plan_retention_skipped_with_keep_history():
@@ -7314,7 +7101,7 @@ def test_build_plan_retention_off_on_a_staging_pass(tmp_path):
 
 
 def test_retention_never_runs_for_real_during_the_suite(monkeypatch):
-    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would delete the live repo's autosave stashes and compact its verdict journal; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served corpus and the root autosave, so it is switched off too."""
+    """Checks the autouse switches that keep retention and readiness from running for real in the suite. Retention resolves its targets from ac.ROOT at call time, which no fixture redirects, so a real run from a test would prune the live repo's build logs; any test reaching a green finish with record_greens set would trigger it. The readiness checklist reads the served corpus and the root autosave, so it is switched off too."""
     assert cycle_paths.RETENTION_ENABLED is False
     assert cycle_paths.READINESS_ENABLED is False
     calls = {"retention": 0, "readiness": 0}
@@ -7389,229 +7176,22 @@ def test_finish_runs_retention_on_a_real_green_finish(monkeypatch):
     assert calls["n"] == 1
 
 
-def _retention_repo(tmp_path, monkeypatch):
-    monkeypatch.setattr(ac, "ROOT", tmp_path)
-    monkeypatch.setattr(cycle_paths, "DEEP_REPLAY_GREEN", tmp_path / "deep-replay-green.json")
-    journal_path = tmp_path / journal.JOURNAL_NAME
-    for stamp, old_stamp, stashed, at in (
-        ("S1", None, "verdicts-autosave-old.json", "2020-01-01T00:00:00Z"),
-        ("S2", "S1", "verdicts-autosave-S1.json", "2020-02-01T00:00:00Z"),
-    ):
-        journal.record_transition(
-            journal_path,
-            source="merge",
-            stamp=stamp,
-            old_stamp=old_stamp,
-            old_verdicts=[],
-            new_verdicts=[{"unit": "u-1", "verdict": "approve", "note": "", "at": at}],
-            stashed=stashed,
-            at=at,
-        )
-    for name in ("verdicts-autosave-old.json", "verdicts-autosave-S1.json"):
-        (tmp_path / name).write_text("{}")
-    return journal_path
-
-
-@pytest.mark.parametrize("listening", [False, True])
-def test_retention_compacts_the_journal_and_sweeps_stashes_under_the_store_lock(
-    tmp_path, monkeypatch, listening
-):
-    """Retention prunes the stashes and compacts the journal whether or not the review server is up, since the server keeps running through every pass. Both read the journal without the verdict store's lock and take it only for the tail, the deletions, and the rewrite, and the server answers a save in that window with a retryable 503, as during a land."""
-    plan = _plan(skip_corpus=True, corpus_note="same")
-    journal_path = _retention_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: listening)
-
-    swept_up = ac.run_retention(plan)
-    out = "\n".join(swept_up.lines)
-
-    assert "stashes   : removed 1 " in out
-    assert not (tmp_path / "verdicts-autosave-old.json").exists()
-    assert (tmp_path / "verdicts-autosave-S1.json").exists()
-    assert "restore floor now 2020-02-01T00:00:00Z" in out
-    assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2"]
-
-
-def test_retention_keeps_ninety_days_of_journal_history(tmp_path, monkeypatch):
-    """The compaction starts the journal at the newest base event at least ninety days old, so a base from 89 days ago, and every moment from the floor on, stays restorable. The report warns of no close-out, which retires with the m1-audit corpus: the table-diff store's journal starts again at each accept."""
-    from datetime import datetime, timedelta, timezone
-
+def test_retention_prunes_the_build_logs_beyond_the_newest_runs(tmp_path, monkeypatch):
+    """Retention prunes the build logs only, keeping the newest `cycle_paths.BUILD_LOGS_KEEP` runs, and reports how many it removed."""
     plan = _plan()
     monkeypatch.setattr(ac, "ROOT", tmp_path)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    journal_path = tmp_path / journal.JOURNAL_NAME
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    ats = {}
-    old_stamp = None
-    for days, stamp in ((92, "S1"), (91, "S2"), (89, "S3"), (1, "S4")):
-        ats[stamp] = (now - timedelta(days=days)).isoformat().replace("+00:00", "Z")
-        journal.record_transition(
-            journal_path,
-            source="merge",
-            stamp=stamp,
-            old_stamp=old_stamp,
-            old_verdicts=[],
-            new_verdicts=[{"unit": "u-1", "verdict": "approve", "note": "", "at": ats[stamp]}],
-            at=ats[stamp],
-        )
-        old_stamp = stamp
-
-    out = "\n".join(ac.run_retention(plan).lines)
-
-    assert f"restore floor now {ats['S2']}" in out
-    assert [event["stamp"] for event in journal.iter_events(journal_path)] == ["S2", "S3", "S4"]
-    assert journal.replay(journal_path, as_of=ats["S3"])[0] == "S3"
-    assert "close-out" not in out
-
-
-@pytest.mark.parametrize("floored", [True, False])
-def test_retention_says_why_it_left_the_journal_intact(tmp_path, monkeypatch, floored):
-    """Every pass after a compaction, until a newer base ages past the window, finds the journal already starting at the newest complete base event older than the window; a journal whose bases are all inside the window has none that old. Retention leaves either journal as it is and says which, naming the floor in the first case, so the first is never reported as having no base event that old."""
-    plan = _plan()
-    journal_path = _retention_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    if floored:
-        ac.run_retention(plan)
-        said = f"it already starts at the newest complete base event older than {ac.JOURNAL_HISTORY_DAYS} days; restore floor 2020-02-01T00:00:00Z"
-    else:
-        monkeypatch.setattr(ac, "journal_history_cutoff", lambda now=None: "2019-12-31T00:00:00Z")
-        said = f"no complete base event older than {ac.JOURNAL_HISTORY_DAYS} days"
-    before = journal_path.read_bytes()
-
-    out = "\n".join(ac.run_retention(plan).lines)
-
-    assert f"journal   : left intact ({said})" in out
-    assert journal_path.read_bytes() == before
-
-
-def test_retention_leaves_the_journal_and_stashes_alone_beside_a_server_from_before_the_land_protocol(
-    tmp_path, monkeypatch
-):
-    """A server from before the land protocol appends to the journal and moves stashes without the verdict store's lock, so a save it appended between the compaction's tail copy and its replacement of the journal would be lost. While one listens, retention leaves both for a later pass; once it is gone, they are pruned."""
-    plan = _plan(skip_corpus=True, corpus_note="same")
-    plan.legacy_server = True
-    journal_path = _retention_repo(tmp_path, monkeypatch)
-    before = journal_path.read_bytes()
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: True)
-
-    out = "\n".join(ac.run_retention(plan).lines)
-    assert "stashes   : left intact (a review server from before the land protocol" in out
-    assert "journal   : left intact" in out
-    assert (tmp_path / "verdicts-autosave-old.json").exists()
-    assert journal_path.read_bytes() == before
-
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    out = "\n".join(ac.run_retention(plan).lines)
-    assert "stashes   : removed 1 " in out
-    assert not (tmp_path / "verdicts-autosave-old.json").exists()
-
-
-def test_retention_leaves_the_journal_and_stashes_for_a_later_pass_while_the_store_stays_locked(
-    tmp_path, monkeypatch
-):
-    plan = _plan()
-    journal_path = _retention_repo(tmp_path, monkeypatch)
-    before = journal_path.read_bytes()
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    monkeypatch.setattr(ac, "RETENTION_LOCK_TIMEOUT_S", 0.05)
-
-    with ac.store_lock.store_lock(tmp_path / "verdicts-autosave.json"):
-        swept_up = ac.run_retention(plan)
-    out = "\n".join(swept_up.lines)
-
-    assert "stashes   : left intact (the verdict store stayed locked" in out
-    assert "journal   : left intact (the verdict store stayed locked" in out
-    assert (tmp_path / "verdicts-autosave-old.json").exists()
-    assert journal_path.read_bytes() == before
-    assert not journal_path.with_name(journal_path.name + ".tmp").exists()
-
-
-def _two_retention_passes(root, monkeypatch, plan, *, resume):
-    """Run retention over `_retention_repo`, append a later base that stashes the S2 store, and run it again, keeping the scan state the first pass saved when `resume` and removing it otherwise. Returns the journal path, the second pass's lines, and the offset each of the second pass's scans began reading at."""
-    root.mkdir()
-    monkeypatch.setattr(cycle_paths, "CYCLE_VAR", root / "cycle")
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    journal_path = _retention_repo(root, monkeypatch)
-    ac.run_retention(plan)
-    assert journal.load_scan_state(ac.journal_scan_path()) == journal.scan(journal_path).state
-    if not resume:
-        ac.journal_scan_path().unlink()
-    journal.record_transition(
-        journal_path,
-        source="land",
-        stamp="S3",
-        old_stamp="S2",
-        old_verdicts=[],
-        new_verdicts=[{"unit": "u-2", "verdict": "approve", "note": "", "at": "2020-03-01T00:00:00Z"}],
-        stashed="verdicts-autosave-S2.json",
-        at="2020-03-01T00:00:00Z",
-    )
-    (root / "verdicts-autosave-S2.json").write_text("{}")
-    starts: list[int] = []
-    real_scan = journal.scan
-
-    def spy(path, *, resume=None):
-        scanned = real_scan(path, resume=resume)
-        starts.append(scanned.start)
-        return scanned
-
-    monkeypatch.setattr(journal, "scan", spy)
-    lines = ac.run_retention(plan).lines
-    monkeypatch.setattr(journal, "scan", real_scan)
-    return journal_path, lines, starts
-
-
-def test_retention_resumes_its_journal_scan_where_the_last_pass_stopped(tmp_path, monkeypatch):
-    """Retention reads the journal once per pass and saves where that scan stopped, rebased onto the compacted file when it compacts. The next pass parses only what was appended since, and it removes the same stashes, reports the same lines, and leaves the same journal bytes as a pass that scans from the start."""
-    plan = _plan(skip_corpus=True, corpus_note="same")
-    resumed_path, resumed_lines, resumed_starts = _two_retention_passes(
-        tmp_path / "resumed", monkeypatch, plan, resume=True
-    )
-    full_path, full_lines, full_starts = _two_retention_passes(
-        tmp_path / "full", monkeypatch, plan, resume=False
-    )
-
-    assert full_starts[0] == 0 < resumed_starts[0]
-    assert resumed_lines == full_lines
-    assert any("stashes   : removed 1 " in line for line in resumed_lines)
-    assert any("restore floor now 2020-03-01T00:00:00Z" in line for line in resumed_lines)
-    assert resumed_path.read_bytes() == full_path.read_bytes()
-    assert sorted(path.name for path in (tmp_path / "resumed").glob("verdicts-autosave-*.json")) == sorted(
-        path.name for path in (tmp_path / "full").glob("verdicts-autosave-*.json")
-    )
-    assert journal.load_scan_state(ac.journal_scan_path()) == journal.scan(full_path).state
-
-
-def test_prune_stashes_keeps_a_stash_journaled_while_it_waited_for_the_lock(tmp_path):
-    """The sweep reads the journal before it holds the lock, so it re-reads the tail under it: a stash another writer made and journaled in between is kept."""
-    journal_path = tmp_path / "verdicts-journal.ndjson"
-    journal.record_transition(
-        journal_path,
-        source="merge",
-        stamp="S1",
-        old_stamp=None,
-        old_verdicts=[],
-        new_verdicts=[],
-        at="2026-07-10T01:00:00Z",
-    )
-    late = tmp_path / "verdicts-autosave-late.json"
-
-    @contextlib.contextmanager
-    def lock_after_a_late_writer():
-        late.write_text("{}")
-        journal.record_transition(
-            journal_path,
-            source="merge",
-            stamp="S2",
-            old_stamp="S1",
-            old_verdicts=[],
-            new_verdicts=[],
-            stashed=late.name,
-            at="2026-07-10T02:00:00Z",
-        )
-        yield
-
-    assert ac.prune_stashes(tmp_path, journal_path, lock=lock_after_a_late_writer()) == []
-    assert late.exists()
+    logs = tmp_path / "var" / "build-logs"
+    monkeypatch.setattr(cycle_paths, "BUILD_LOGS_ROOT", logs)
+    monkeypatch.setattr(cycle_paths, "BUILD_LOGS_KEEP", 2)
+    for name in ("20200101T000000Z-a", "20200102T000000Z-b", "20200103T000000Z-c"):
+        (logs / name).mkdir(parents=True)
+    swept = ac.run_retention(plan)
+    assert swept.lines == [
+        "Retention (skip with --keep-history):",
+        "  build logs: removed 1; kept the last 2 runs under var/build-logs",
+    ]
+    assert swept.detail == "removed 1 build log"
+    assert sorted(path.name for path in logs.iterdir()) == ["20200102T000000Z-b", "20200103T000000Z-c"]
 
 
 def test_a_second_pass_waits_on_the_pass_lock_and_names_the_holder(monkeypatch, capsys):
@@ -7721,136 +7301,6 @@ def test_main_runs_a_live_pass_under_the_pass_lock_with_its_own_scratch_director
     monkeypatch.setattr(ac, "_run_pass", lambda args: dry.append(pass_lock_held()) or real_run_pass(args))
     assert ac.main(["--dry-run"]) == 0
     assert dry == [True]
-
-
-def test_main_finishes_a_stopped_land_before_it_sweeps_the_run_directories(tmp_path, monkeypatch, capsys):
-    """A land killed after it swapped the corpus in leaves its result in its run directory and its intent beside the store. The next pass finishes it under the store's lock before it sweeps the run directories, so the store follows the corpus; a dry run only says it is there."""
-    _settled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: 0)
-    run_dir = cycle_paths.CYCLE_VAR / "20200101T000000Z-dead"
-    run_dir.mkdir(parents=True)
-    result = run_dir / landing.LANDING_NAME
-    result.write_text(json.dumps(_verdicts_doc("2026-07-17T20:24:44Z", ["u-1", "u-landed"])))
-    intent = landing.intent_path_for(ac.AUTOSAVE)
-    intent.parent.mkdir(parents=True, exist_ok=True)
-    intent.write_text(
-        json.dumps(
-            {
-                "run_dir": str(run_dir),
-                "landing": str(result),
-                "staged": None,
-                "live": None,
-                "old_stamp": "2026-07-17T20:24:44Z",
-                "new_stamp": "2026-07-17T20:24:44Z",
-                "stash": None,
-                "journal": str(tmp_path / journal.JOURNAL_NAME),
-                "journal_inode": None,
-                "journal_length": None,
-            }
-        )
-    )
-    assert ac.main(["--dry-run"]) == 0
-    assert "Left the land a stopped pass began" in capsys.readouterr().out
-    assert intent.exists()
-    assert ac.main([]) == 0
-    assert (
-        "Recovered a stopped pass's land: finished the land of 20200101T000000Z-dead"
-        in capsys.readouterr().out
-    )
-    assert not intent.exists() and not run_dir.exists()
-    landed = json.loads(ac.AUTOSAVE.read_text())
-    assert {entry["unit"] for entry in landed["verdicts"]} == {"u-1", "u-landed"}
-
-
-def test_a_pass_catches_the_store_up_with_its_journal_before_its_plan_reads_the_store(
-    tmp_path, monkeypatch, capsys
-):
-    """The review server journals each save and writes the store on idle, so a pass can start with the store lagging its journal. Every pass but a dry run and a staging pass takes the store's lock once at its start, which writes into the store the saves the journal holds past its last write, in a short child under the lock the driver holds, and says how many journal events from the store's last write on it applied (here the base that seeds the journal and the save), before its steps run; a dry run and a staging pass, which write no store, leave it as it is, and a pass whose store already holds the journal's tail says nothing."""
-    from rebuild.review.verdict_store import DELTA_FORMAT, VerdictStore
-
-    _settled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    read: list[set[str]] = []
-
-    def run_cycle(plan, report, emit, registry, **_):
-        read.append({record["unit"] for record in json.loads(ac.AUTOSAVE.read_text())["verdicts"]})
-        return 0
-
-    monkeypatch.setattr(ac, "_run_cycle", run_cycle)
-    server = VerdictStore(ac.AUTOSAVE, journal.journal_path_for(ac.AUTOSAVE))
-    sent = {"unit": "u-saved", "verdict": "reject", "note": "", "at": "2026-07-18T00:00:00Z"}
-    body = {"format": DELTA_FORMAT, "manifest_generated_at": server.stamp, "sets": [sent]}
-    assert server.receive(json.dumps(body).encode())[0] == 200 and server.pending
-    before = ac.AUTOSAVE.read_bytes()
-    for argv in (["--dry-run"], ["--review-out", str(tmp_path / "staged")]):
-        assert ac.main(argv) == 0
-        assert "Caught the verdict store up" not in capsys.readouterr().out
-        assert ac.AUTOSAVE.read_bytes() == before
-    assert ac.main([]) == 0
-    assert (
-        "Caught the verdict store up with its journal, which held changes its file lacked: applied the 2 journal "
-        "events from its last write on." in capsys.readouterr().out
-    )
-    assert read[-1] == {"u-1", "u-saved"}
-    assert ac.main([]) == 0
-    assert "Caught the verdict store up" not in capsys.readouterr().out
-
-
-def test_main_stops_with_the_refusal_when_a_stopped_lands_recovery_refuses(tmp_path, monkeypatch, capsys):
-    """A stopped land's result hand-edited to hold two records on one unit, one with an `at` that is not a string, stops the recovery `recover_land` runs (`landing.LandUnrecoverable`). The pass then prints the refusal and exits 1 before its first step instead of ending in a traceback, and the store, the result and the intent are left byte for byte as they were."""
-    _settled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    cycles: list[object] = []
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, *_, **__: cycles.append(plan) or 0)
-    run_dir = cycle_paths.CYCLE_VAR / "20200101T000000Z-dead"
-    run_dir.mkdir(parents=True)
-    result = run_dir / landing.LANDING_NAME
-    doc = _verdicts_doc("2026-07-17T20:24:44Z", ["u-1"])
-    doc["verdicts"].append({**doc["verdicts"][0], "at": 5})
-    result.write_text(json.dumps(doc))
-    intent = landing.intent_path_for(ac.AUTOSAVE)
-    intent.parent.mkdir(parents=True, exist_ok=True)
-    intent.write_text(
-        json.dumps(
-            {
-                "run_dir": str(run_dir),
-                "landing": str(result),
-                "staged": None,
-                "live": None,
-                "old_stamp": "2026-07-17T20:24:44Z",
-                "new_stamp": "2026-07-17T20:24:44Z",
-                "stash": None,
-                "journal": str(tmp_path / journal.JOURNAL_NAME),
-                "journal_inode": None,
-                "journal_length": None,
-            }
-        )
-    )
-    kept = [path for path in (ac.AUTOSAVE, result, intent) if path.exists()]
-    before = {path: path.read_bytes() for path in kept}
-    assert ac.main([]) == 1
-    out = capsys.readouterr().out
-    assert out.startswith(f"ERROR: the result {result} holds a verdict record on u-1 that is not an object")
-    assert "The pass stops before it starts." in out
-    assert cycles == [] and {path: path.read_bytes() for path in kept} == before
-
-
-def test_a_store_read_child_that_dies_stops_a_pass_at_its_catch_up(tmp_path, monkeypatch, capsys):
-    """A pass first reads the store in the catch-up at its start, in a short child under the store's lock. A child that dies with no answer stops the pass before its first step, naming what it said, and leaves the store as it was. A dry run takes no catch-up and reads no store, so it plans."""
-    _settled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    cycles: list[object] = []
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, *_, **__: cycles.append(plan) or 0)
-    before = ac.AUTOSAVE.read_bytes()
-    monkeypatch.setattr(ac, "_STORE_READ_CHILD", "import sys; sys.exit('the child died')")
-    assert ac.main(["--dry-run"]) == 0
-    capsys.readouterr()
-    assert ac.main([]) == 1
-    out = capsys.readouterr().out
-    assert "the child that reads the verdict store for the catch-up read exited 1" in out
-    assert "(the child died)" in out and "The pass stops before it starts." in out
-    assert cycles == [] and ac.AUTOSAVE.read_bytes() == before
 
 
 def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):
@@ -8269,7 +7719,7 @@ def test_a_stop_during_the_land_still_moves_the_tabs_and_reports_the_land(monkey
     assert rc == 128 + signal.SIGINT
     assert sent == ["ams:corpus/2026-09-30T11:00:00Z"]
     assert not discard.exists()
-    assert report.land_status.startswith("landed 1 verdicts")
+    assert report.land_status.startswith("landed 2026-09-30T11:00:00Z, the store's 1 verdicts")
     outcomes = {row.name: row.outcome for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert outcomes["land"] == "ok"
 
@@ -8354,7 +7804,7 @@ def test_a_failed_build_never_lands(monkeypatch):
 def test_a_rebuilding_pass_lands_its_corpus_and_carries_the_store_with_the_saves_made_during_it(
     monkeypatch, tmp_path
 ):
-    """The store snapshot and the land run for real around a stubbed build. The build writes only beside the served corpus, into an emptied `review.next`, and a save the server applies to the live store while the pass runs is laid over the store the land carries onto the new corpus by unit id. The land swaps the corpus in, keeps the verdict whose unit the new corpus still has, sends the one whose unit it lacks to the orphan document, stashes the old store, journals the move, deletes the outgoing tree, and the tabs are told the new stamp once. The new corpus drops one of the store's two units, half its verdicts, and the pass's land takes `--allow-orphans`, so the land goes ahead."""
+    """The land runs for real around a stubbed build. The build writes only beside the served corpus, into an emptied `review.next`, and the land reads the live store under its lock, so a save the server applied while the pass ran is among what it carries onto the new corpus by unit id. The land swaps the corpus in, keeps the verdict whose unit the new corpus still has, sends the one whose unit it lacks to the orphan document, deletes the outgoing tree, and the tabs are told the new stamp once. The new corpus drops one of the store's two units, half its verdicts, and the land goes ahead, since no pass refuses over an orphan."""
     _patch_timing_cycle(monkeypatch)
     sent = _record_reloads(monkeypatch)
     monkeypatch.setattr(ac, "ROOT", tmp_path)
@@ -8397,7 +7847,6 @@ def test_a_rebuilding_pass_lands_its_corpus_and_carries_the_store_with_the_saves
         return _step(name)
 
     monkeypatch.setattr(ac, "_do_corpus_build", build)
-    monkeypatch.setattr(ac, "_do_store_snapshot", REAL_DO_STORE_SNAPSHOT)
     monkeypatch.setattr(ac, "_do_land", land)
     plan = _plan(record_greens=True)
     assert plan.scratch_dir is not None
@@ -8405,7 +7854,6 @@ def test_a_rebuilding_pass_lands_its_corpus_and_carries_the_store_with_the_saves
     rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
 
     assert rc == 0
-    assert report.snapshot_status == "snapshot of the store on A"
     assert json.loads((live / "manifest.json").read_text())["generated_at"] == "B"
     assert (live / "units-000.json").read_text() == "new"
     assert not next_dir.exists()
@@ -8413,25 +7861,22 @@ def test_a_rebuilding_pass_lands_its_corpus_and_carries_the_store_with_the_saves
     landed = json.loads(ac.AUTOSAVE.read_text())
     assert landed["manifest_generated_at"] == "B"
     assert [(record["unit"], record["note"]) for record in landed["verdicts"]] == [("u-1", "late")]
-    assert json.loads((tmp_path / "verdicts-autosave-A.json").read_text())["manifest_generated_at"] == "A"
     orphans = json.loads((tmp_path / "var" / "verdict-orphans" / "A.json").read_text())
     assert [(record["unit"], record["reason"]) for record in orphans["verdicts"]] == [("u-2", "orphan")]
-    events = list(journal.iter_events(tmp_path / journal.JOURNAL_NAME))
-    assert [(event["source"], event["stashed"]) for event in events] == [("land", "verdicts-autosave-A.json")]
-    assert report.land is not None and report.land["overlaid"] == 1 and report.land["orphaned"] == 1
-    assert not ac.landing.intent_path_for(ac.AUTOSAVE).exists()
+    assert report.land is not None and report.land["carried"] and report.land["orphaned"] == 1
+    assert sorted(path.name for path in tmp_path.glob("verdicts-*.json")) == ["verdicts-autosave.json"]
     assert sent == ["ams:corpus/B"]
 
 
-def test_the_land_always_allows_orphans_and_the_cycle_takes_no_carry_flags(tmp_path, monkeypatch, capsys):
-    """Every planned land takes `--allow-orphans`: a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep, so no pass refuses over them. The cycle's command line takes no flag that names a verdicts master or a form of carry."""
+def test_the_cycle_takes_no_carry_flags(tmp_path, monkeypatch, capsys):
+    """The land carries the store onto every corpus it lands by unit id, and a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep, so no pass refuses over them: the cycle's command line takes no flag that names a verdicts master or a form of carry."""
     _unsettled_repo(tmp_path, monkeypatch)
     _capable_server(monkeypatch)
     ran: list[ac.Plan] = []
     monkeypatch.setattr(ac, "_run_cycle", lambda plan, report, emit, registry, **_: ran.append(plan) or 0)
     assert ac.main([]) == 0
     (plan,) = ran
-    assert plan.argv("land")[-1] == "--allow-orphans"
+    assert "--allow-orphans" not in plan.argv("land")
     for flag in ("--allow-orphans", "--verdicts=v.json", "--no-carry", "--no-merge", "--carry-out=c.json"):
         with pytest.raises(SystemExit):
             ac.main([flag])

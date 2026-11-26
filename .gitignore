@@ -38,5 +38,4 @@ rebuild/out/
 # Review-app verdict files
 /verdicts-*.json
 /verdicts.json
-/verdicts-journal.ndjson
 /verdicts-autosave.json.lock

@@ -19,7 +19,6 @@ import {
   acknowledgeDelta,
   noteServerRecords,
   adoptServerRecord,
-  applyAccepted,
   DELTA_FORMAT,
   EXPORT_FORMAT,
 } from '../static/verdicts.js';
@@ -30,17 +29,6 @@ const verdictRecordSamples = JSON.parse(
 const deltaSetSamples = JSON.parse(
   await readFile(new URL('../fixtures/delta-set-samples.json', import.meta.url), 'utf8'),
 );
-const acceptedSamples = JSON.parse(
-  await readFile(new URL('../fixtures/accepted-samples.json', import.meta.url), 'utf8'),
-);
-const acceptedField = acceptedSamples.view.field;
-
-function acceptedStore() {
-  const store = createStore();
-  applyAccepted(store, acceptedField);
-  return store;
-}
-
 test('recordVerdict stores the whole-unit record shape', () => {
   const store = createStore();
   recordVerdict(store, 'u-0413', 'reject', { note: 'junction looks reached-for', at: '2026-06-10T18:21:40Z' });
@@ -86,18 +74,16 @@ test('undo restores the previous record, not just deletes', () => {
   assert.equal(store.records.has('u-0001'), false);
 });
 
-test('groupApprove only touches unverdicted units, an accepted one counting as verdicted, and undoes as one action', () => {
-  const store = acceptedStore();
-  const [accepted] = acceptedField.identical;
+test('groupApprove only touches unverdicted units, and undoes as one action', () => {
+  const store = createStore();
   recordVerdict(store, 'u-0002', 'reject', { at: 't1' });
-  const applied = groupApprove(store, ['u-0001', 'u-0002', accepted, 'u-0003'], { at: 't2' });
+  const applied = groupApprove(store, ['u-0001', 'u-0002', 'u-0003'], { at: 't2' });
   assert.deepEqual(applied, ['u-0001', 'u-0003']);
   assert.equal(store.records.get('u-0002').verdict, 'reject');
-  assert.equal(store.records.get(accepted).accepted, true);
   const result = undo(store);
   assert.deepEqual(result.units, ['u-0001', 'u-0003']);
   assert.equal(result.cursor, 'u-0001');
-  assert.equal(store.records.size, 4);
+  assert.equal(store.records.size, 1);
 });
 
 test('groupApprove with nothing to do pushes no undo action', () => {
@@ -107,18 +93,16 @@ test('groupApprove with nothing to do pushes no undo action', () => {
   assert.equal(store.undoStack.length, 1);
 });
 
-test('recordVerdictWithDuplicates fills unverdicted duplicate siblings as one undo step, passing over an accepted one', () => {
-  const store = acceptedStore();
-  const [accepted] = acceptedField.either;
+test('recordVerdictWithDuplicates fills unverdicted duplicate siblings as one undo step', () => {
+  const store = createStore();
   recordVerdict(store, 'u-0003', 'reject', { at: 't0' });
-  const applied = recordVerdictWithDuplicates(store, 'u-0001', 'approve', ['u-0002', accepted, 'u-0003', 'u-0001'], {
+  const applied = recordVerdictWithDuplicates(store, 'u-0001', 'approve', ['u-0002', 'u-0003', 'u-0001'], {
     note: 'same change',
     at: 't1',
   });
   assert.deepEqual(applied, ['u-0001', 'u-0002']);
   assert.deepEqual(store.records.get('u-0002'), { unit: 'u-0002', verdict: 'approve', note: 'same change', at: 't1' });
   assert.equal(store.records.get('u-0003').verdict, 'reject');
-  assert.equal(store.records.get(accepted).verdict, 'either');
   const result = undo(store);
   assert.deepEqual(result.units, ['u-0001', 'u-0002']);
   assert.equal(result.cursor, 'u-0001');
@@ -248,7 +232,7 @@ test('import rejects non-export documents', () => {
   assert.equal(importVerdicts(store, null, 'gen-1').ok, false);
 });
 
-test('a strict import refuses a file holding a record the carry and the merge refuse, naming it, and imports nothing from it, forced or not', () => {
+test('a strict import refuses a file holding a record the store refuses, naming it, and imports nothing from it, forced or not', () => {
   const good = { unit: 'u-1', verdict: 'approve', note: '', at: 't1' };
   const cases = [
     [{ unit: 'u-2', verdict: 'approve', at: 5 }, 'on u-2'],
@@ -287,7 +271,7 @@ test('a strict import of a file stamped for another manifest refuses a malformed
   assert.equal(store.records.size, 0);
 });
 
-test('a strict import takes a record whose note is missing or false-valued, as the carry and the merge do, writes the note as empty so a save takes it, and skips one whose verdict is not a known kind', () => {
+test('a strict import takes a record whose note is missing or false-valued, as the store does, writes the note as empty so a save takes it, and skips one whose verdict is not a known kind', () => {
   const store = createStore();
   const doc = {
     format: EXPORT_FORMAT,
@@ -321,7 +305,7 @@ test('a strict import takes or refuses each shared sample as verdict_store.well_
   }
 });
 
-test('a restore of the server store takes a record the carry refuses but whose verdict is a known kind, so a duplicate fill passes over it', () => {
+test('a restore of the server store takes a record the store refuses but whose verdict is a known kind, so a duplicate fill passes over it', () => {
   const store = createStore();
   const payload = {
     format: EXPORT_FORMAT,
@@ -361,7 +345,6 @@ test('markExported clears the dirty set and counts stay accurate', () => {
     identical: 1,
     neither: 1,
     skip: 1,
-    accepted: 0,
   });
 });
 
@@ -438,130 +421,6 @@ test('recentNotes caps the result at the requested limit', () => {
 test('recentNotes never returns an empty note', () => {
   const store = createStore();
   recordVerdict(store, 'u-0001', 'reject', { at: '2026-06-10T09:00:00Z' });
-  recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
-  assert.deepEqual(recentNotes(store), ['real note']);
-});
-
-test('recentNotes strips stacked carried-forward provenance markers from a note', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: '[carried u-23958@review-pre-85f66b0, verdicted 2026-07-17] [carried u-23697@review-pre-0f5155b, verdicted 2026-07-17] the new way fails to join for no obvious reason',
-    at: '2026-06-10T09:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), ['the new way fails to join for no obvious reason']);
-});
-
-test('recentNotes merges a carried copy with its hand-typed twin under the newest stamp', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', { note: 'junction overshoots', at: '2026-06-10T09:00:00Z' });
-  recordVerdict(store, 'u-0002', 'reject', {
-    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01] junction overshoots',
-    at: '2026-06-10T10:00:00Z',
-  });
-  recordVerdict(store, 'u-0003', 'reject', { note: 'later note', at: '2026-06-10T11:00:00Z' });
-  assert.deepEqual(recentNotes(store), ['later note', 'junction overshoots']);
-});
-
-test('recentNotes drops a carried note whose stripped text matches an exclude entry', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the old way seems nicer to write out by hand',
-    at: '2026-06-10T09:00:00Z',
-  });
-  const excluded = recentNotes(store, 'reject', { exclude: ['the old way seems nicer to write out by hand'] });
-  assert.deepEqual(excluded, []);
-});
-
-test('recentNotes drops a note that is nothing but provenance markers', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: '[carried u-0100@review-pre-abc1234, verdicted 2026-07-01]',
-    at: '2026-06-10T09:00:00Z',
-  });
-  recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
-  assert.deepEqual(recentNotes(store), ['real note']);
-});
-
-test('recentNotes leaves a carried mention after real text untouched', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: 'compare with [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] handling',
-    at: '2026-06-10T09:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), [
-    'compare with [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] handling',
-  ]);
-});
-
-test('recentNotes strips leading duplicate-fill and duplicate-harmonize markers ahead of the note', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: '[duplicate-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the junction overshoots',
-    at: '2026-06-10T09:00:00Z',
-  });
-  recordVerdict(store, 'u-0002', 'reject', {
-    note: '[duplicate-harmonize e-1007 — review queue 2026-07-18T00:00:00Z] harmonize to approve',
-    at: '2026-06-10T10:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the junction overshoots']);
-});
-
-test('recentNotes strips the echo-fill and echo-harmonize markers older notes carry', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: '[echo-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01] the junction overshoots',
-    at: '2026-06-10T09:00:00Z',
-  });
-  recordVerdict(store, 'u-0002', 'reject', {
-    note: '[echo-harmonize e-1007 — docket 2026-07-18T00:00:00Z] harmonize to approve',
-    at: '2026-06-10T10:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), ['harmonize to approve', 'the junction overshoots']);
-});
-
-test('recentNotes strips a leading deferred marker, or the parked marker older defer files carry, ahead of the note', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'skip', {
-    note: '[deferred: qsLow.yaml policy.prefer(+) — complaint list 2026-07-18T00:00:00Z] fix the prefer first',
-    at: '2026-06-10T09:00:00Z',
-  });
-  recordVerdict(store, 'u-0002', 'skip', {
-    note: '[parked: qsLow.yaml policy.prefer(+) — docket 2026-07-18T00:00:00Z] from an older defer file',
-    at: '2026-06-10T10:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), ['from an older defer file', 'fix the prefer first']);
-});
-
-test('recentNotes strips a leading standing marker ahead of the note', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'approve', {
-    note: '[standing: tea-oy-ligature-break] never going to have a different opinion unless ·X is ·Out',
-    at: '2026-06-10T09:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), [
-    'never going to have a different opinion unless ·X is ·Out',
-  ]);
-});
-
-test('recentNotes merges a standing-filled note with its hand-typed twin', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'approve', {
-    note: '[standing: tea-oy-ligature-break] the ligature break is fine here',
-    at: '2026-06-10T09:00:00Z',
-  });
-  recordVerdict(store, 'u-0002', 'approve', {
-    note: 'the ligature break is fine here',
-    at: '2026-06-10T10:00:00Z',
-  });
-  assert.deepEqual(recentNotes(store), ['the ligature break is fine here']);
-});
-
-test('recentNotes drops a note that is nothing but duplicate-fill provenance', () => {
-  const store = createStore();
-  recordVerdict(store, 'u-0001', 'reject', {
-    note: '[duplicate-fill from u-0282] [carried u-0100@review-pre-abc1234, verdicted 2026-07-01]',
-    at: '2026-06-10T09:00:00Z',
-  });
   recordVerdict(store, 'u-0002', 'reject', { note: 'real note', at: '2026-06-10T10:00:00Z' });
   assert.deepEqual(recentNotes(store), ['real note']);
 });
@@ -706,97 +565,3 @@ test('a sync keeps a clear or an undo waiting to be sent over an older record an
   assert.equal(store.records.get('u-1').verdict, 'reject');
 });
 
-test("applyAccepted makes the shared sample's field into its records, as what the server holds, dirtying nothing, and passes over a unit the tab holds a record for", () => {
-  const { records } = acceptedSamples.view;
-  const store = createStore();
-  assert.deepEqual(
-    applyAccepted(store, acceptedField),
-    records.map((record) => record.unit),
-  );
-  assert.deepEqual([...store.records.values()], records);
-  for (const record of records) assert.equal(store.serverAt.get(record.unit), acceptedField.closed_at);
-  assert.equal(store.dirty.size, 0);
-  assert.equal(store.unexported.size, 0);
-  const held = createStore();
-  recordVerdict(held, records[0].unit, 'reject', { at: 't1' });
-  assert.deepEqual(
-    applyAccepted(held, acceptedField),
-    records.slice(1).map((record) => record.unit),
-  );
-  assert.equal(held.records.get(records[0].unit).verdict, 'reject');
-  const none = { sha256: null, closed_at: null, approve: [], either: [], identical: [] };
-  assert.deepEqual(applyAccepted(createStore(), none), []);
-});
-
-test('an accepted record counts under its verdict and apart from the verdicts recorded since the close-out, and Export leaves it out', () => {
-  const store = acceptedStore();
-  recordVerdict(store, 'u-0009', 'reject', { at: 't1' });
-  assert.deepEqual(verdictCounts(store), {
-    approve: 1,
-    reject: 1,
-    either: 1,
-    identical: 1,
-    neither: 0,
-    skip: 0,
-    accepted: 3,
-  });
-  assert.deepEqual(
-    assembleExport(store, 's', 'x').verdicts.map((record) => record.unit),
-    ['u-0009'],
-  );
-});
-
-test('another verdict on an accepted unit is sent over the close-out as an override, and undo puts the accepted record back and sends it by value', () => {
-  const store = acceptedStore();
-  const [unit] = acceptedField.approve;
-  const at = '2026-11-06T10:00:00.000Z';
-  recordVerdict(store, unit, 'reject', { at });
-  assert.deepEqual(assembleDelta(store, 's', [unit]).sets, [
-    { unit, verdict: 'reject', note: '', at, base_at: acceptedField.closed_at },
-  ]);
-  undo(store);
-  assert.equal(store.records.get(unit).accepted, true);
-  assert.deepEqual(assembleDelta(store, 's', [unit]).sets, [
-    { unit, verdict: 'approve', note: '', at: acceptedField.closed_at, base_at: acceptedField.closed_at },
-  ]);
-});
-
-test('clearing an accepted unit sends a dated clear over the close-out, which the server keeps as a tombstone', () => {
-  const store = acceptedStore();
-  const [unit] = acceptedField.identical;
-  recordVerdict(store, unit, null);
-  assert.equal(store.records.has(unit), false);
-  const delta = assembleDelta(store, 's', [unit]);
-  assert.deepEqual(delta.sets, []);
-  assert.deepEqual(delta.clears, [{ unit, base_at: acceptedField.closed_at, at: store.clearedAt.get(unit) }]);
-});
-
-test('a note typed on an accepted unit makes a record of its verdict stamped now, which is sent as an override', () => {
-  const store = acceptedStore();
-  const [unit] = acceptedField.either;
-  const before = new Date().toISOString();
-  assert.equal(updateNote(store, unit, 'the join is fine'), true);
-  const record = store.records.get(unit);
-  assert.deepEqual({ ...record, at: null }, { unit, verdict: 'either', note: 'the join is fine', at: null });
-  assert.ok(record.at >= before);
-  assert.ok(store.dirty.has(unit));
-  assert.equal(verdictCounts(store).accepted, 2);
-});
-
-test('a sync or an Import replaces an accepted record only with one dated after the close-out, and a record the server reports as accepted keeps its flag', () => {
-  const store = acceptedStore();
-  const [unit] = acceptedField.approve;
-  const document = (verdicts) => ({ format: EXPORT_FORMAT, manifest_generated_at: 's', verdicts });
-  const older = { unit, verdict: 'reject', note: 'from before the close-out', at: '2026-11-05T17:59:59.999Z' };
-  assert.equal(importVerdicts(store, document([older]), 's', { strict: true }).keptNewer, 1);
-  assert.equal(store.records.get(unit).accepted, true);
-  const newer = { unit, verdict: 'reject', note: '', at: '2026-11-06T09:00:00.000Z' };
-  assert.deepEqual(importVerdicts(store, document([newer]), 's').units, [unit]);
-  assert.deepEqual(store.records.get(unit), newer);
-  const accepted = { unit, verdict: 'approve', note: '', at: acceptedField.closed_at, accepted: true };
-  adoptServerRecord(store, unit, accepted);
-  assert.deepEqual(store.records.get(unit), accepted);
-  const synced = createStore();
-  importVerdicts(synced, document([accepted]), 's');
-  assert.deepEqual(synced.records.get(unit), accepted);
-});

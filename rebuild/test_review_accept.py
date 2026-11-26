@@ -1,6 +1,6 @@
-"""Tests for the table-diff accept and the remake (`rebuild/review/accept.py`): each refusal of the accept, the dry run, which writes nothing, an `--apply`, which takes the snapshot, writes the pointer and empties the store with its journal started again, `--retake`, and the remake, over a stubbed export and build, in a git tree whose last commit to the pointer names the snapshot.
+"""Tests for the table-diff accept and the remake (`rebuild/review/accept.py`): each refusal of the accept, the dry run, which writes nothing, an `--apply`, which takes the snapshot, writes the pointer, empties the store under its lock beside a listening review server and tells the open tabs, `--retake`, and the remake, over a stubbed export and build, in a git tree whose last commit to the pointer names the snapshot.
 
-The build is a real table build of the pipeline's mini fixture spec with the frozen mini bundle's font and a small kern table beside it, as rebuild/test_review_snapshot.py builds one; the corpus is a manifest written by hand, since the accept reads only its mode, its stamp, its human units, its after font and its `tables` component. The readiness check and the review server are stubbed.
+The build is a real table build of the pipeline's mini fixture spec with the frozen mini bundle's font and a small kern table beside it, as rebuild/test_review_snapshot.py builds one; the corpus is a manifest written by hand, since the accept reads only its mode, its stamp, its human units, its after font and its `tables` component. The readiness check and the reload sent to the open tabs are stubbed.
 """
 
 import functools
@@ -13,8 +13,9 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import fingerprint, fixtures, run_m1
-from rebuild.review import accept, journal, snapshot
-from rebuild.review.store_lock import hold_flock
+from rebuild.review import accept, snapshot
+from rebuild.review.store_lock import hold_flock, holder, lock_path_for
+from rebuild.review.verdict_store import AUTOSAVE_NAME
 from rebuild.tools import store_guards
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -60,7 +61,7 @@ def repo(tmp_path, built):
 
 def _store(root: Path, verdicts) -> None:
     _write_json(
-        root / journal.AUTOSAVE_NAME,
+        root / AUTOSAVE_NAME,
         {
             "format": "ams-review-verdicts/1",
             "manifest_generated_at": STAMP,
@@ -72,10 +73,10 @@ def _store(root: Path, verdicts) -> None:
 
 def _run(root: Path, built: Path, **kwargs) -> int:
     kwargs.setdefault("readiness", lambda: READY)
-    kwargs.setdefault("serving", lambda _store: False)
+    kwargs.setdefault("tell", lambda _store, _digest: False)
     kwargs.setdefault("take", functools.partial(snapshot.take, spec=SPEC))
     return accept.run(
-        store=root / journal.AUTOSAVE_NAME,
+        store=root / AUTOSAVE_NAME,
         corpus=root / "rebuild" / "out" / "review",
         tables=built,
         home=root / "home",
@@ -85,18 +86,17 @@ def _run(root: Path, built: Path, **kwargs) -> int:
 
 
 def _untouched(root: Path, before: bytes) -> None:
-    assert (root / journal.AUTOSAVE_NAME).read_bytes() == before
+    assert (root / AUTOSAVE_NAME).read_bytes() == before
     assert not (root / snapshot.POINTER_RELATIVE).exists()
     assert not (root / "home").exists() or snapshot.current(root / "home") is None
-    assert not (root / journal.JOURNAL_NAME).exists()
 
 
-def test_the_accept_refuses_an_m1_audit_corpus_whose_store_the_close_out_folds(repo, built, capsys):
-    """Before the cycle serves the table-diff corpus, the corpus is the m1-audit one, whose store holds the verdicts the close-out folds: the accept refuses it, dry run, apply and retake alike, and writes nothing."""
+def test_the_accept_refuses_a_corpus_that_is_not_a_table_diff_corpus(repo, built, capsys):
+    """Only a table-diff corpus shows changes against the accepted snapshot, so the accept refuses an m1-audit corpus, dry run, apply and retake alike, and a corpus with no manifest, and writes nothing."""
     manifest_path = repo / "rebuild" / "out" / "review" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     _write_json(manifest_path, {**manifest, "mode": "m1-audit"})
-    before = (repo / journal.AUTOSAVE_NAME).read_bytes()
+    before = (repo / AUTOSAVE_NAME).read_bytes()
     for flags in ({}, {"apply": True}, {"apply": True, "retake": True}):
         assert _run(repo, built, **flags) == 1
         assert "not a table-diff corpus" in capsys.readouterr().out
@@ -106,8 +106,8 @@ def test_the_accept_refuses_an_m1_audit_corpus_whose_store_the_close_out_folds(r
     assert "has no manifest that reads" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("case", ["not-ready", "other-font", "other-tables", "pass", "server"])
-def test_the_accept_refuses_while_the_corpus_is_not_ready_or_not_this_build_or_a_writer_may_run(
+@pytest.mark.parametrize("case", ["not-ready", "other-font", "other-tables", "pass"])
+def test_the_accept_refuses_while_the_corpus_is_not_ready_or_not_this_build_or_a_pass_runs(
     repo, built, capsys, case
 ):
     manifest_path = repo / "rebuild" / "out" / "review" / "manifest.json"
@@ -128,19 +128,14 @@ def test_the_accept_refuses_while_the_corpus_is_not_ready_or_not_this_build_or_a
         _write_json(manifest_path, {**manifest, "fonts": {"after": {"sha256": "0" * 64}}})
     elif case == "other-tables":
         _write_json(manifest_path, {**manifest, "inputs_fingerprint": {"tables": "fp-other"}})
-    elif case == "server":
-        kwargs["serving"] = lambda _store: True
-    before = (repo / journal.AUTOSAVE_NAME).read_bytes()
+    before = (repo / AUTOSAVE_NAME).read_bytes()
     expected = {
         "not-ready": "blocking checks fail",
         "other-font": "after font is not",
         "other-tables": "built over other tables",
         "pass": "a pass holds",
-        "server": "a review server listening on port 7294",
     }[case]
-    held = (
-        hold_flock(store_guards.pass_lock_path_for(repo / journal.AUTOSAVE_NAME)) if case == "pass" else None
-    )
+    held = hold_flock(store_guards.pass_lock_path_for(repo / AUTOSAVE_NAME)) if case == "pass" else None
     try:
         if held is not None:
             held.__enter__()
@@ -160,7 +155,7 @@ def test_the_accept_refuses_while_a_human_unit_is_blank_skipped_rejected_or_neit
     repo, built, capsys, verdict
 ):
     _store(repo, [(HUMAN[0], "approve")] + ([(HUMAN[1], verdict)] if verdict is not None else []))
-    before = (repo / journal.AUTOSAVE_NAME).read_bytes()
+    before = (repo / AUTOSAVE_NAME).read_bytes()
     assert _run(repo, built, apply=True) == 1
     out = capsys.readouterr().out
     assert f"1 {verdict or 'blank'}" in out and "of the corpus's 2 human units" in out
@@ -168,7 +163,7 @@ def test_the_accept_refuses_while_a_human_unit_is_blank_skipped_rejected_or_neit
 
 
 def test_the_dry_run_prints_what_the_apply_writes_and_writes_nothing(repo, built, capsys):
-    before = (repo / journal.AUTOSAVE_NAME).read_bytes()
+    before = (repo / AUTOSAVE_NAME).read_bytes()
     assert _run(repo, built) == 0
     out = capsys.readouterr().out
     assert (
@@ -180,11 +175,29 @@ def test_the_dry_run_prints_what_the_apply_writes_and_writes_nothing(repo, built
     _untouched(repo, before)
 
 
-def test_the_apply_takes_the_snapshot_writes_the_pointer_and_empties_the_store(repo, built, capsys):
-    store = repo / journal.AUTOSAVE_NAME
+def test_the_apply_takes_the_snapshot_writes_the_pointer_and_empties_the_store(
+    repo, built, capsys, monkeypatch
+):
+    """The apply runs beside a listening review server: it writes the empty store holding the store's lock, which the server's saves take without waiting, so a save made meanwhile gets a retryable 503, and then tells the open tabs to reload onto the empty store by the snapshot's digest."""
+    store = repo / AUTOSAVE_NAME
     before = store.read_bytes()
-    assert _run(repo, built, apply=True) == 0
+    locked: list[bool] = []
+    write_store = accept.write_store
+
+    def write_locked(path, *args, **kwargs):
+        locked.append(holder(lock_path_for(path)) is not None)
+        return write_store(path, *args, **kwargs)
+
+    monkeypatch.setattr(accept, "write_store", write_locked)
+    told: list[tuple[Path, str, list]] = []
+
+    def tell(path: Path, digest: str) -> bool:
+        told.append((path, digest, json.loads(path.read_text(encoding="utf-8"))["verdicts"]))
+        return True
+
+    assert _run(repo, built, apply=True, tell=tell) == 0
     out = capsys.readouterr().out
+    assert locked == [True]
     current = snapshot.current(repo / "home")
     assert current is not None
     taken = snapshot.load(current)
@@ -192,10 +205,22 @@ def test_the_apply_takes_the_snapshot_writes_the_pointer_and_empties_the_store(r
     document = json.loads(store.read_text(encoding="utf-8"))
     assert document["manifest_generated_at"] == STAMP and document["verdicts"] == []
     assert "accepted" not in document and "cleared" not in document
-    lines = (repo / journal.JOURNAL_NAME).read_text(encoding="utf-8").splitlines()
-    assert len(lines) == 1 and json.loads(lines[0])["source"] == accept.SOURCE
     assert gzip.decompress((repo / accept.KEEP / accept.KEPT_STORE).read_bytes()) == before
     assert f"the snapshot {taken.digest[:12]} is current" in out
+    assert told == [(store, taken.digest[:12], [])] and "the open review tabs reload onto it" in out
+
+
+def test_the_open_tabs_are_told_only_while_this_checkouts_server_listens(tmp_path, monkeypatch):
+    """`tell_open_tabs` sends `ams:store/<digest>` to livereload's /forcereload only while a review server listens that may write the store (`store_guards.serves`), and returns whether the server took it."""
+    from rebuild.tools import review_server
+
+    sent: list[str] = []
+    monkeypatch.setattr(review_server, "force_reload", lambda path: sent.append(path) or True)
+    monkeypatch.setattr(store_guards, "serves", lambda _store: False)
+    assert accept.tell_open_tabs(tmp_path / AUTOSAVE_NAME, "95eaed0f44db") is False and sent == []
+    monkeypatch.setattr(store_guards, "serves", lambda _store: True)
+    assert accept.tell_open_tabs(tmp_path / AUTOSAVE_NAME, "95eaed0f44db") is True
+    assert sent == ["ams:store/95eaed0f44db"]
 
 
 def test_a_retake_skips_the_verdicts_and_the_readiness_and_names_the_span_it_accepts_unreviewed(
@@ -268,7 +293,7 @@ def _remake(root: Path, home: Path, built: Path, source: Path | None = None) -> 
     return accept.remake(
         home=home,
         work=root / "work",
-        store=root / journal.AUTOSAVE_NAME,
+        store=root / AUTOSAVE_NAME,
         repo_root=root,
         export=export,
         build=build,

@@ -1,8 +1,8 @@
 """Build the review app's output directory, rebuild/out/review/ (rebuild/REVIEW-PLAN.md §1.3). The m1-audit build (`build_m1`) runs in the review crate's build process (`rebuild/review-rs/`, `ams-review build`), which assembles units and precomputes their enrichment and, for every unit that takes a verdict, all three verdict drafts, and writes manifest.json, one unit shard per class (split into byte-capped parts when a class is too large for one file, with the overflow parts a cached build appends changed units to after them), the review-facts.json sidecar that the artifact cycle copies into the checked-in review-facts pins, copies of both fonts, and the static app files. This module computes what the process reads before it starts, the units init and the build input with every stamp in it, and runs it. The table-diff mode (`build_table_diff`) builds here, in Python, against a snapshot of the accepted build (`rebuild/review/snapshot.py`), with the units `rebuild/review/diff_units.py` finds. The §7 contract checker (`check_unit`, `check_shards`, `check_output_dir`) and the corpus's materialized form (`MaterializedCorpus`) read a written corpus. The `snapshot` subcommand takes a snapshot of a run_m1 build (`snapshot.take`). `refresh-assets` copies the static app files over an existing corpus and restamps only that fingerprint component, without rebuilding any unit. A build into rebuild/out/review/ refuses while a review server that may serve this checkout listens (`refuse_the_served_corpus`); the artifact cycle builds beside it, at rebuild/out/review.next. Every form of the command refuses while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`).
 
 Usage:
-    uv run python -m rebuild.review.build
-    uv run python -m rebuild.review.build --mode table-diff [--snapshot <dir>] [--new rebuild/out/m1] --out <dir>
+    uv run python -m rebuild.review.build [--mode table-diff] [--snapshot <dir>] [--new rebuild/out/m1] --out <dir>
+    uv run python -m rebuild.review.build --mode m1-audit
     uv run python -m rebuild.review.build snapshot [--tables rebuild/out/m1] [--home var/keep/review-snapshot]
     uv run python -m rebuild.review.build refresh-assets
 """
@@ -2460,7 +2460,7 @@ def main(argv: list[str] | None = None) -> None:
     corpus_jobs = corpus_job_budget(skip_gates=True)
     signature_jobs = signature_job_budget()
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("m1-audit", "table-diff"), default="m1-audit")
+    parser.add_argument("--mode", choices=("m1-audit", "table-diff"), default="table-diff")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     parser.add_argument(

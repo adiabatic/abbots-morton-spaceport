@@ -47,7 +47,7 @@ Between the run_m1 skip and a full rebuild there is a third mode, the gates-only
 
 A fourth mode is the kern-only rebuild. When the diff against the run_m1 green is confined to runes' kern lines and the font's non-Quikscript data (`font_only_label`: a rune's `kern` block is in the run_m1 skip key through `fingerprint.kern_lines` and in no other key, and the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map through `fingerprint.font_data_lines`), rebuild/out/m1 holds the build a gates-only rerun would read, and its Stage A record matches the sources on disk (`m1_stage_a_current`), the cycle spawns `run_m1 --kern-only`. It runs the glyph chain alone over the tables on disk (`run_m1.kern_only_run`): the kern stage, the defect gates at the kerned offsets, the GSUB and GPOS emission, the compile and read-back. The string replay, the witness stage, the shipped-order walk, the Manual-pin gate and the oracle read nothing a kern block or a Latin glyph feeds, so their summaries stand, and the pass records a green over the new inputs as a gates-only rerun does (`kern_only_rebuild`). The matching Stage A record is what shows those summaries are a passing run's over these inputs, so without it the cycle rebuilds. The child carries that record forward and publishes its files only once read-back passes, so a kern-only child that fails leaves the prior build, its summaries and the record in place, and the next pass plans a kern-only rebuild again.
 
-The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites the shards the tab reads by byte range and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes either in place. A corpus-changing pass builds the table-diff corpus at rebuild/out/review.next, which it empties first, links the live store's file into its scratch directory under the store's lock as the snapshot (`store-snapshot`), and the land (`rebuild.review.landing`, run without a prepared store and with `--allow-orphans`) then swaps the corpus in and, when the stamp moves, carries the snapshot onto it by unit id (`landing.carry_snapshot`) in one short section under the store's lock: a verdict whose unit the new corpus still has, its content unchanged and so its id, stays, a skip is dropped, the rest go to var/verdict-orphans/, which no pass refuses over, and the saves made during the pass are laid over the result. The land runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed inside that section is finished by the next holder of the lock: the review server's next request, the next pass (`recover_land`), or any writer that takes the lock through `landing.locked_store`. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
+The review server keeps running through every pass. Two things a cycle writes belong to the running app: the corpus it serves (a rebuild rewrites the shards the tab reads by byte range and restamps the manifest the tab's saves are keyed on) and the verdict store it saves into. So no pass writes the corpus in place. A corpus-changing pass builds the table-diff corpus at rebuild/out/review.next, which it empties first, and the land (`rebuild.review.landing`) then swaps the corpus in and, when the stamp moves, carries the store onto it by unit id (`verdict_store.carry`) in one short section under the store's lock: a verdict whose unit the new corpus still has, its content unchanged and so its id, stays, a skip is dropped, and the rest go to var/verdict-orphans/, which no pass refuses over. The store is small and the review server writes it whole on every save, so the land reads every save made before it takes the lock, and a save made while it holds the lock gets a retryable 503. The land runs as a child in its own session that a stop signal does not reach and the driver waits for (`_ChildRegistry`). A land killed between its swap and its store write leaves a store on the old stamp, which the next save stamped for the served corpus, or the next pass's land, carries onto the new one. After the land the pass sends `ams:corpus/<generated_at>` through livereload's /forcereload, and the open tabs save, wait while the reader types, and reload onto the new corpus. Only the first run builds in place, since no server can serve a corpus that does not exist yet.
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
@@ -55,11 +55,9 @@ An edit confined to rebuild/review/static/ also has its own mode. The copied app
 
 A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, the stamp changes with it, and the land carries the store onto it by unit id.
 
-Retention holds the store's lock only for the tail of the journal appended since it read it, the deletions, and the journal's replacement (`run_retention`), and the server answers a save made in that window with the same retryable 503 it gives during a land.
-
 Every pass holds the pass lock (`pass_lock`, var/cycle/pass.lock) from before it recovers a superseded corpus and resolves its plan until it ends, so a second pass waits for the first instead of planning against a tree the first is still writing. The land inherits the lock, so a driver killed while its land runs still holds the next pass back until the land has finished. A staging pass holds it too, because a live pass's promotion reads the corpus a staging pass writes. A dry run takes it without waiting, and when another pass holds it the dry run skips the recovery, which could rename a tree that pass is landing. Each non-staging pass gets a scratch directory under var/cycle/ named like its build-log run directory and deletes it when it ends; the next pass deletes any that a killed pass left (`sweep_run_dirs`). A staging pass and a dry run get no scratch directory.
 
-A green finish ends with a retention pass over the cycle's own files, all of them regenerable or covered by the journal. verdicts-autosave-* stashes not referenced by a journal event at or after the last event that moved the stamp or wrote a base are deleted. The journal, not the stashes, is the supported recovery path, and the check uses the journal's references because a stash's mtime predates the event that created it. The journal is compacted to the newest complete base event older than JOURNAL_HISTORY_DAYS, keeping at least that many days of --restore-as-of history; a journal that already starts there, or holds no such base, is left as it is. Build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` are deleted. Both journal steps share one scan, which resumes from where the last pass's scan stopped (`journal_scan_path`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
+A green finish ends with a retention pass, which deletes the build-log run directories beyond the newest `cycle_paths.BUILD_LOGS_KEEP` (`run_retention`). Failed, interrupted, first-run, and staging passes never prune, --keep-history turns retention off, and a retention error prints a warning and never turns a green cycle red.
 
 Run as: uv run python rebuild/tools/artifact_cycle.py.
 """
@@ -85,15 +83,15 @@ import threading
 import time
 from collections.abc import Callable, Collection, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import accepted, app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
+from rebuild.review import app_index, facts, landing, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools import contracts_closure as contracts  # noqa: E402
@@ -158,7 +156,7 @@ _GATE_POOL_WORKERS = 6
 CORPUS_BUILD_RS_PROCESS_BYTES = 2_810_000_000
 CORPUS_BUILD_RS_THREAD_BYTES = 70_000_000
 CORPUS_BUILD_RS_LAUNCHER_BYTES = 140_000_000
-# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the corpus build that moves the corpus and the store into place. It holds no parsed store: it reads the snapshot, the prepared store and the live store as streams, one record at a time through read buffers of about 1 MiB (`accepted.read_tail`, `accepted.iter_records`), writes its result through a buffer of that size, or, when the live store is the snapshot and the prepared store holds the result's bytes, renames the prepared store into place as its result and writes none, reading it once more a block at a time to compare, and splices the journal's set lines from the result's record lines. What it holds follows the corpus and the store's tails, not the store's records: the new corpus's human unit ids and, on a pass that moves the stamp under the orphan guard, the live corpus's; each store's tombstones and override section; the orphan entries and the units saved during the pass; and the journal's diff, 12 bytes a set line (its offset and length in the result, in `array`s) and a unit and its tombstone a clear line. Before any of that, its lock catches the live store up with the journal (`landing.catch_up`), whose events since the store's last write always take in the last journaling land's own event, its `at` being after the store's `exported_at`: it holds each unit those events name as its id and an 8-byte digest of its state, streams the store a record at a time to compare, and holds whole records only for the units the store lacks, the saves the review server journaled and has not written, freeing all of it before the walk. By tracemalloc on synthetic records with 225-byte notes over a 100,000-record store, that is 12.2 MB for a 50,000-set land diff the store already holds, 244 bytes a unit, and 5.1 MB for one of 7,762 sets, the largest land diff on record, with ten saves to write; it comes and goes before the walk, inside the quarter the constant keeps above its highest reading. The measurement set is the land step of cycle pass 65de92ca6254 at 55 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), taken on 2026-11-22 with the catch-up in the tree, read as the land row reads it, by its resident peak: 0.218 GB (217,956,352 bytes), the row's highest reading. The land series' after lines on the same machine at 45 runes, taken on 2026-11-09 before the catch-up, show which work raises the peak: `after/runs.ndjson` in var/keep/ram-inventory/v4/change17-readings/, whose `before/land_series.py` is the recipe and whose `README.md` says how the lines were taken, each land alone through the cycle's own command line in a fresh clone under `/usr/bin/time -l`, three runs an arm. The stores are cut from the 2026-11-06 close-out's archive, 332,250 records on as many human units, and each corpus's manifest names all 332,250 ids. The `moved` arm, a land that moves the stamp and journals the verdict update's fills as sets, reads 0.139 GB over a store with no records of its own and 0.147 to 0.148 GB from 33,058 records (15.9 MB) to 297,529 (92.4 MB), so the peak does not climb with the store's records. At ·Gay's four-letter interval, 164,703 records in 48.6 MB, `moved-base`, which journals its result as a base, reads 0.150 GB; `same`, a verdict-only land that holds the new corpus's ids alone, 0.109 GB, 0.038 below `moved`; and `saves`, with 400 records changed, 100 cleared, 50 fill targets and 50 overrides set during the pass, so the live store is not the snapshot and the walk runs again under the lock, reads highest, 0.153 GB (152,813,568 bytes). Those are peak resident; every line's peak footprint reads 0.011 GB lower. The constant is the highest reading, the higher of peak resident and peak footprint, plus a quarter, rounded up to the next tenth of a gigabyte: a quarter on 0.218 GB, 0.272, rounds up to 0.3. It is below the corpus build's process and launcher together (CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES), which `test_the_land_holds_less_than_the_build_lane_step_before_it` checks, and the land runs after the corpus build in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the build, covers it too, and no width depends on it. The land row of `make job-costs` checks it against the land step's peak, so re-measure it from that row as the alphabet grows.
+# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the corpus build that moves the corpus and the store into place. It holds the store whole, which lasts from one accept to the next and holds the verdicts made since, a few hundred records at most, and the new corpus's human unit ids, so its peak is its interpreter's. The constant comes from the land step of cycle pass 65de92ca6254 at 55 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), taken on 2026-11-22, when the land streamed stores of up to 332,250 records beside a journal: 0.218 GB peak resident, plus a quarter, rounded up to the next tenth of a gigabyte, 0.3. It is below the corpus build's process and launcher together (CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES), which `test_the_land_holds_less_than_the_build_lane_step_before_it` checks, and the land runs after the corpus build in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the build, covers it too, and no width depends on it. The land row of `make job-costs` checks it against the land step's peak.
 LAND_BYTES = 300_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's guard verdict map. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded from the store's base, its segments' upserts in the range merged by ordinal as they stream, and the range's slice of the ages column (`oracle_cache.load_store`), without scanning the whole member where its base has one that spans the range, so it holds its range's rows and not the configuration's. On a pass whose row stamp moved it holds only each record's position part, the row check digest, the settled digest, the position verdict and both ages, with the row verdict cut away as the records load (`oracle_cache._position_part`), about 44 bytes of a record's 160 at 45 runes: that pass walks every row, as a pass with the row cache dropped does, and serves each stored position whose settled digest still matches (`oracle_cache.RowStore.position_servable`), so it holds the position parts and the dropped pass's walk at once. A pass whose row stamp moved where no position can be served, because the position stamp moved too or there is no font, loads no records (`oracle_cache.load_store`) and holds the dropped pass's walk alone. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does: a writing pass re-derives one row in `oracle_cache.MAX_RECORD_AGE` on schedule, and a pass that serves rows walks its verification samples. `conform._MemoStore` maps the base and every segment its head lists, at most `row_delta.SEGMENT_CAP` plus `row_delta.FOLD_OVERRUN`, 21, and reads each part's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over its mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them), and each segment's Bloom filter, 10 bits a row of the segment, about 0.5 MB a segment at 45 runes, is a view too, whose pages a probe touches one block a segment on each base hit. Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a writing pass's walk with the row cache filled probes the one row in twenty the cache does not serve, a `--gates-only` pass's walk only the rows the cache refuses and its verification samples, and a walk with the row cache dropped probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the measurement set's readings are taken with no family changed, every `[t] settle_memo` line at stale=0, so that fold is outside the measurement set and inside the headroom. The worker's own heap holds the parts' interned label and outcome tables, a dead byte and a reached byte a row over the segments' rows beside the base's, 0.005 GB at the load with a base alone, the segments adding their own share. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of the windows the walk settles fresh and of the store hits a later row can read again. A hit whose window spells out its whole row's text, which that row alone reads, stays in the mapped store (`conform._SettledWindowWalk`'s `promote_pinned`). That saves the window's key tuple, 96 bytes, and halves the dict's table where the count `windows` holds stays under a power of two it would otherwise pass: in the measurement set below `default 2/4` keeps 511,019 of the 1,235,286 hits it reaches out of `windows` and reads 0.047 GB less peak footprint than a walk that copies every hit, 92 bytes a kept window, while `default 1/3` keeps 637,851 of 1,642,266, its table falls from 2^22 slots to 2^21, and it reads 0.138 GB less, 217 bytes a kept window. On a pass that serves from its store it also holds each chunk's offers to the two verification samples (`oracle_cache.VerificationSample.offer_many`), and while a range on one segment of a joined store loads, that segment's compressed bytes beside its inflated records (`oracle_cache._indexed_records`), or, with the row stamp moved, beside the position parts it cuts from each piece it inflates (`oracle_cache._inflated_position_parts`). The cyclic collector is held off for the range (`oracle._collector_held`), so the few reference cycles a range builds stay until it ends. It also holds what it sends home until it has copied it into shared memory (`oracle.ship`): its range's audit lines, compressed a block at a time with at most `oracle.ORACLE_AUDIT_BLOCK` bytes uncompressed (`oracle.AuditBlocks`), on a pass that writes a store, a cut configuration's range's store segment, one gzip member built in memory (`oracle_cache.RowWriter` with no path), and the settle memo windows it settled fresh, compressed a block at a time (`conform.FreshMemo`), a few megabytes on a range that settles every window fresh and far less on a rune edit's. While it copies, the shared memory's pages count in its footprint beside the pieces not yet dropped, and they leave it when it closes its mapping. These grow with the range's share of the audit and of the stores. The range probe that takes the measurement set below ships nothing, so its readings leave them to the headroom: at 45 runes the whole audit compresses to about 0.15 GB and a writing pass's segments come to 0.379 GB, about 0.03 GB a range over the width-twelve plan's seventeen ranges; those figures are derived from the outputs' sizes, not measured.
 # No range writes the memo. Every range, whether or not its configuration is split, returns the windows it settled fresh in a shared memory segment (`run_m1_gates.run_oracle`), and each configuration's absorb, a task of its own on this same pool, runs in a fresh process in the slot a range frees once all of the configuration's ranges have landed and the witness stage has returned (`run_oracle`'s `memo_ready`). Its reading is recorded in the pool record beside the ranges' as `<config> absorb`, and ORACLE_ABSORB_BYTES prices it; the absorbs are outside this constant's measurement set.
@@ -184,9 +182,6 @@ COMPILE_CODE_FILES = (
     "rebuild/pipeline/pack_gsub.py",
     "rebuild/pipeline/compile_font.py",
 )
-JOURNAL_HISTORY_DAYS = journal.HISTORY_DAYS
-# How long retention waits for the verdict store's lock before it leaves the stashes or the journal for a later pass. A merge of the whole store holds the lock for seconds, and a server POST for milliseconds.
-RETENTION_LOCK_TIMEOUT_S = 60.0
 
 
 def contracts_green() -> Path:
@@ -1158,15 +1153,14 @@ STEP_DESCRIPTIONS = {
     "run_m1:kern-only": "Recompiles the font over the tables already on disk after a kern edit or an edit to the font's non-Quikscript data: the kern stage, the defect gates, the GSUB and GPOS emission, the compile and read-back. Taken when only runes' kern blocks or the font data moved since the last green build, which no table, settlement or oracle row reads.",
     "corpus-build": "Builds the table-diff corpus: the accepted snapshot of the build (rebuild/review-snapshot.json names it, var/keep/review-snapshot/ holds it) against rebuild/out/m1, each unit one visible change, into rebuild/out/review.next beside the served corpus (in place only on a first run).",
     "assets-refresh": "Overwrites each served copy of the review app's JS, CSS, and HTML whose bytes changed, leaving the others in place, and restamps only the manifest's static component. No shard or sidecar moves, so the open tab's store stays aligned.",
-    "store-snapshot": "Links the live verdict store's file into this pass's scratch directory under the store's lock, as the snapshot the land carries onto the new corpus by unit id and compares the saves made during the pass against, which every writer replaces by rename rather than writing through. Under the lock it first catches the store up with its journal in a short child, which streams the store once to compare it with the journal's events since its last write, the last land's own event among them, and writes it only when the review server has journaled saves it has not written; the review server keeps saving into the live store.",
-    "land": "Moves the new corpus into place and carries the verdict store onto it by unit id, under the verdict store's lock, in one child that a stop signal does not interrupt: a verdict whose unit the new corpus still has stays, a skip is dropped, the rest go to var/verdict-orphans/, verdicts saved during the pass are laid over the result, the corpus is swapped in with one rename, and the change is journaled. The open tabs then move onto it.",
+    "land": "Moves the new corpus into place and carries the verdict store onto it by unit id, under the verdict store's lock, in one child that a stop signal does not interrupt: a verdict whose unit the new corpus still has stays, a skip is dropped, the rest go to var/verdict-orphans/, and the corpus is swapped in with one rename. The open tabs then move onto it.",
     "gates": "The four post-build gates, skipped together under --skip-gates.",
     "gate:js": "Runs the review app's node test suite over its JavaScript. Fast, and independent of every build artifact.",
     "gate:conform": "Shapes the compiled font with HarfBuzz over the swept texts, up to the pass's maximum length (`CONFORM_MAX_LENGTH_DEFAULT` unless `--conform-max-length` sets it), and checks it against a fresh re-settlement window by window, the split-buffer check included; the ss10 overlay runs its own short-text case (`conform.OVERLAY_MAX_LENGTH`) against the bare rendering. The check that HarfBuzz does what the tables say over every rule shape the lookup emits; that the tables are complete over the same texts is run_m1's string replay, on every build.",
     "gate:rebuild-contracts": "Runs the rebuild suite: every test whose subject is the code, over checked-in fixtures and the hermetic mini bundle. Reads no live build artifact.",
     "gate:make-test": "Runs the main font suite and pyright over the whole tree, the same make test you run by hand, once the run_m1 gate has passed: its session checks the data-expect pins against the rebuilt Senior that build leaves. Skips when its input closure, the rebuilt fonts' inputs among it, is unchanged since its last green run.",
     "job-costs": "Checks the recorded per-worker peaks against the memory-budget constants that size every fan-out. A drift here means a width somewhere is derived from stale numbers.",
-    "retention": f"Prunes the regenerable files a green cycle leaves behind: stashes the journal already replays, the journal past its {JOURNAL_HISTORY_DAYS}-day floor, and build logs beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
+    "retention": f"Prunes the build logs a green cycle leaves behind beyond the last {cycle_paths.BUILD_LOGS_KEEP}.",
 }
 
 
@@ -1180,7 +1174,7 @@ SUBSTEP_PARENTS = {"invariant-diff": "review-facts", "job-costs-diff": "job-cost
 
 @dataclass
 class Step:
-    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the store-snapshot and retention steps, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
+    """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention step, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
     The review-facts step's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
@@ -1195,7 +1189,7 @@ class Step:
 
 @dataclass
 class Plan:
-    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `legacy_server` says the listening server predates the land protocol, so it writes the store and the journal without the store's lock and retention leaves both alone while it listens. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped. `seed_kept` keeps its default: only the step function of the corpus seed, which no plan holds, reads it (`_do_corpus_seed`), and it goes with the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4)."""
+    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped. `seed_kept` keeps its default: only the step function of the corpus seed, which no plan holds, reads it (`_do_corpus_seed`), and it goes with the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4)."""
 
     short_id: str
     first_run: bool
@@ -1250,7 +1244,6 @@ class Plan:
     seed_kept: bool = False
     land: bool = False
     broadcast: bool = True
-    legacy_server: bool = False
     retention: bool = False
     recipe_serves: bool = False
     stamp: str = ""
@@ -1274,7 +1267,7 @@ class Plan:
         return None
 
     def describe(self, name: str) -> str:
-        """Return the named step's banner text, for the steps that run in this process and never reach `_run_step` (store-snapshot and retention)."""
+        """Return the named step's banner text, for the steps that run in this process and never reach `_run_step` (retention)."""
         step = self.step(name)
         return "" if step is None else step.describe
 
@@ -2190,14 +2183,6 @@ def build_plan(
         plan.steps.append(Step("corpus-build", corpus_argv, corpus_note_text, lane="build"))
 
     if land_dir is not None:
-        plan.steps.append(
-            Step(
-                "store-snapshot",
-                None,
-                f"links the live store's file to {land_dir / landing.SNAPSHOT_NAME} under the store's lock once the corpus build has finished, the store the land carries onto the new corpus and the point it compares the saves made during the pass against",
-                lane="build",
-            )
-        )
         land_argv = [
             "uv",
             "run",
@@ -2206,8 +2191,6 @@ def build_plan(
             "rebuild.review.landing",
             "--autosave",
             str(AUTOSAVE),
-            "--journal",
-            str(AUTOSAVE.with_name(journal.JOURNAL_NAME)),
             "--run-dir",
             str(land_dir),
             "--corpus",
@@ -2215,8 +2198,7 @@ def build_plan(
         ]
         if next_corpus is not None:
             land_argv += ["--staged", str(next_corpus), "--live", str(REVIEW_OUT), "--keep-discard"]
-        land_argv += ["--scan-state", str(journal_scan_path()), "--allow-orphans"]
-        land_note = f"swaps {next_corpus} in for rebuild/out/review and, when the stamp moves, carries the verdict store onto it by unit id under the verdict store's lock, with the saves made during the pass laid over it: a verdict whose unit the new corpus still has stays, a skip is dropped, and the rest go to var/verdict-orphans/; the review server keeps running"
+        land_note = f"swaps {next_corpus} in for rebuild/out/review and, when the stamp moves, carries the verdict store onto it by unit id under the verdict store's lock: a verdict whose unit the new corpus still has stays, a skip is dropped, and the rest go to var/verdict-orphans/; the review server keeps running"
         plan.steps.append(Step("land", land_argv, land_note, lane="build"))
 
     if skip_gates:
@@ -2290,7 +2272,7 @@ def build_plan(
             Step(
                 "retention",
                 None,
-                f"on green finish: drop verdicts-autosave-* stashes older than the journal's last stamp change or base event, compact the journal to a {JOURNAL_HISTORY_DAYS}-day restore floor; --keep-history skips",
+                f"on green finish: keep the newest {cycle_paths.BUILD_LOGS_KEEP} build-log runs and delete the older ones; --keep-history skips",
             )
         )
     elif keep_history:
@@ -2316,81 +2298,6 @@ def build_plan(
     return plan
 
 
-class StoreReadFailed(RuntimeError):
-    """Raised when the child a store read runs in (`_store_read`) dies or answers nothing, which the pass reports and stops on."""
-
-
-# `-P` keeps the caller's working directory off the child's path, so the child puts this module's checkout first itself, whatever tree the caller's `ROOT` names.
-_STORE_READ_CHILD = "import sys; sys.path.insert(0, sys.argv[1]); from rebuild.tools.artifact_cycle import _answer_store_read; _answer_store_read(sys.argv[2])"
-_REFUSALS = {
-    refusal.__name__: refusal for refusal in (accepted.Refused, accepted.Malformed, accepted.Mismatch)
-}
-
-
-def _store_read(request: dict, pass_fds: tuple[int, ...] = ()) -> object:
-    """Run a catch-up of the verdict store with its journal under the lock this process holds (`_catch_up_in_child`) in a short spawned child, a fresh interpreter and never a fork of this process, and return its answer, which comes back on a pipe as a few bytes of JSON. The cycle's own process lives for the whole pass, and macOS's allocator keeps the large blocks a whole parse frees in its footprint, so a parse made here would stay beside every later pool. `request` names every path the read takes, or the descriptor `pass_fds` hands the child, and the manifest's stamp, so the child reads nothing from its own module globals. An `accepted.Refused` in the child is raised here as the same class with its reason and message (`_refusal`), and a child that dies or answers nothing raises `StoreReadFailed`, naming the last line it wrote to stderr."""
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "-P",
-            "-c",
-            _STORE_READ_CHILD,
-            str(Path(__file__).resolve().parents[2]),
-            json.dumps(request),
-        ],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        errors="replace",
-        check=False,
-        pass_fds=pass_fds,
-    )
-    lines = completed.stdout.splitlines()
-    try:
-        reply = json.loads(lines[-1]) if completed.returncode == 0 and lines else None
-    except ValueError:
-        reply = None
-    if not isinstance(reply, dict) or not ("answer" in reply or "refused" in reply):
-        said = completed.stderr.strip().splitlines()
-        raise StoreReadFailed(
-            f"the child that reads the verdict store for the {request['read']} read exited {completed.returncode} with no answer"
-            + (f" ({said[-1]})" if said else "")
-        )
-    if "refused" in reply:
-        raise _refusal(reply["refused"])
-    return reply["answer"]
-
-
-def _refusal(held: dict) -> accepted.Refused:
-    """Return the `accepted.Refused` a store read's child reported, as the class it raised, with its message and, for `accepted.Malformed`, the path and line it names."""
-    refusal = _REFUSALS.get(held.get("class", ""), accepted.Refused)
-    error = refusal.__new__(refusal)
-    ValueError.__init__(error, held["message"])
-    if isinstance(error, accepted.Malformed):
-        error.path = Path(held["path"])
-        error.line = held["line"]
-    return error
-
-
-def _answer_store_read(request_text: str) -> None:
-    """Answer one `_store_read` request in its child, as one line of JSON on stdout: `{"answer": ...}`, or `{"refused": {...}}` for an `accepted.Refused`, naming its class, message and, for `accepted.Malformed`, its path and line. Any other failure ends the child with a traceback and no answer."""
-    request = json.loads(request_text)
-    try:
-        caught = landing.catch_up(
-            Path(request["autosave"]),
-            Path(request["journal"]) if request["journal"] is not None else None,
-            Path(request["accepted"]) if request["accepted"] is not None else None,
-        )
-        reply: dict = {"answer": None if caught is None else asdict(caught)}
-    except accepted.Refused as refused:
-        held: dict = {"class": type(refused).__name__, "message": str(refused)}
-        if isinstance(refused, accepted.Malformed):
-            held.update(path=str(refused.path), line=refused.line)
-        reply = {"refused": held}
-    sys.stdout.write(json.dumps(reply) + "\n")
-    sys.stdout.flush()
-
-
 def resolve_short_id() -> str:
     try:
         result = subprocess.run(
@@ -2409,7 +2316,7 @@ def resolve_short_id() -> str:
 
 
 def server_can_keep_running(*, skip_corpus: bool, writes_store: bool, promotes_corpus: bool = False) -> bool:
-    """Return whether a review server that predates the land protocol (`probe_server`'s `legacy`: no /capabilities) can keep running through this pass. Such a server takes no part in the land, so the answer depends on what the plan writes under it: the corpus's units and stamp, which the land swaps, and the verdict store the app saves into. A pass that moves no corpus and merges nothing into the store (a --no-carry pass, a --no-merge carry over an unchanged corpus, a pass with no artifact work, an assets refresh, which rewrites no shard and leaves `generated_at` unchanged) writes neither, so that server keeps running. A promotion sets the corpus skip flag but swaps in the staged corpus, so `promotes_corpus` requires stopping the server even when the store is untouched. A server that speaks the land protocol keeps running through every pass (`_preflight`)."""
+    """Return whether a review server that predates the land protocol (`probe_server`'s `legacy`: no /capabilities) can keep running through this pass. Such a server takes no part in the land, so the answer depends on what the plan writes under it: the corpus's units and stamp, which the land swaps, and the verdict store the app saves into. A pass that moves no corpus (a pass with no artifact work, or an assets refresh, which rewrites no shard and leaves `generated_at` unchanged) writes neither, so that server keeps running. A promotion sets the corpus skip flag but swaps in the staged corpus, so `promotes_corpus` requires stopping the server even when the store is untouched. A server that speaks the land protocol keeps running through every pass (`_preflight`)."""
     return skip_corpus and not promotes_corpus and not writes_store
 
 
@@ -2542,7 +2449,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         "    Lane t0   [from t=0, background]  : gate:js",
-        f"    Lane build[main thread]          : run_m1 -> {submit} -> corpus-build -> store-snapshot -> land",
+        f"    Lane build[main thread]          : run_m1 -> {submit} -> corpus-build -> land",
         f"    Lane make-test                   : {make_test_lane}",
     ]
     if plan.skip_conform:
@@ -2684,7 +2591,6 @@ class CycleReport:
     duplicate_groups: int | None = None
     assets_status: str = "not run"
     seed_status: str = "not run"
-    snapshot_status: str = "not run"
     land_status: str = "not run"
     land: dict | None = None
     land_started: float | None = None
@@ -3274,20 +3180,6 @@ def _do_corpus_seed(report: CycleReport, *, emit: console.CycleConsole, plan: Pl
     return detail is not None
 
 
-def _do_store_snapshot(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Link the live store's file into the pass's scratch directory as the snapshot the land carries onto the new corpus and compares the saves made during the pass against (`landing.snapshot`), holding the store's lock for the links, under which the store is first caught up with its journal in a short child (`_catch_up_in_child`)."""
-    assert plan.scratch_dir is not None
-    scratch = plan.scratch_dir
-
-    def take() -> str:
-        stamp = landing.snapshot(AUTOSAVE, scratch, catch_up_with=_catch_up_in_child)
-        return "no verdict store yet" if stamp is None else f"snapshot of the store on {stamp}"
-
-    detail = _in_process_step(report, emit, plan, "store-snapshot", take)
-    report.snapshot_status = detail if detail is not None else "FAILED"
-    return detail is not None
-
-
 def _land_report(plan: Plan) -> dict | None:
     if plan.scratch_dir is None:
         return None
@@ -3299,29 +3191,15 @@ def _land_report(plan: Plan) -> dict | None:
 
 
 def land_detail(data: dict) -> str:
-    """Return the land row's detail from the report the land wrote: the stamp it landed, or that it left the store in place (`landing.LandResult.store_kept`), what it laid over, orphaned and dropped, and whether it journaled a base or sets and clears."""
+    """Return the land row's detail from the report the land wrote: the stamp it landed and the verdicts the store holds after it, whether it carried the store onto that stamp with what it orphaned and dropped, and how long it held the store's lock."""
     records = console.fmt_count(data.get("records") or 0)
-    kept = data.get("store_kept") is True
-    parts = [
-        (
-            f"left the store's {records} verdicts in place on {data.get('new_stamp')}, since the prepared store changed nothing"
-            if kept
-            else f"landed {records} verdicts on {data.get('new_stamp')}"
-        )
-    ]
-    for key, label in (
-        ("overlaid", "saved during the pass" if kept else "laid over from saves made during the pass"),
-        ("orphaned", "orphaned"),
-        ("skips_dropped", "skips dropped"),
-    ):
+    if data.get("carried"):
+        parts = [f"carried {records} verdicts onto {data.get('new_stamp')}"]
+    else:
+        parts = [f"landed {data.get('new_stamp')}, the store's {records} verdicts as they were"]
+    for key, label in (("orphaned", "orphaned"), ("skips_dropped", "skips dropped")):
         if data.get(key):
             parts.append(f"{console.fmt_count(data[key])} {label}")
-    if data.get("journal_base") is True:
-        parts.append("journaled as a base")
-    elif data.get("journal_base") is False:
-        sets = console.fmt_count(data.get("journal_sets") or 0)
-        clears = console.fmt_count(data.get("journal_clears") or 0)
-        parts.append(f"journaled as {sets} sets and {clears} clears")
     if data.get("locked_s") is not None:
         parts.append(f"store locked {data['locked_s']:.1f} s")
     return ", ".join(parts)
@@ -3330,7 +3208,7 @@ def land_detail(data: dict) -> str:
 def _do_land(
     report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
 ) -> dict | None:
-    """Run the land as its own child (`rebuild.review.landing`), which neither a Ctrl-C nor a signal to the cycle's group reaches, and which the registry waits for rather than signals. Returns the report the land wrote when it landed, and None when it aborted or failed. A land that died inside its locked section leaves an intent file; the cycle finishes that land at once, holding the store's lock, so the pass never ends with a half-moved corpus or store (`landing.finish_interrupted_land`), or, when that recovery refuses (`landing.LandUnrecoverable`), notes the refusal on the failed step."""
+    """Run the land as its own child (`rebuild.review.landing`), which neither a Ctrl-C nor a signal to the cycle's group reaches, and which the registry waits for rather than signals. Returns the report the land wrote when it landed, and None when it aborted or failed."""
     report.land_started = time.monotonic()
     result = spawn(
         "land", plan.argv("land"), emit=emit, registry=registry, stream=False, uninterruptible=True
@@ -3341,14 +3219,6 @@ def _do_land(
         report.land_status = land_detail(data)
         _close_step(emit, report, "land", result)
         return data
-    if landing.intent_path_for(AUTOSAVE).exists():
-        try:
-            recovery = landing.finish_interrupted_land(AUTOSAVE, quiet=True, catch_up_with=_catch_up_in_child)
-        except (landing.LandUnrecoverable, StoreReadFailed) as refused:
-            emit.note("land", f"ERROR: {refused}")
-        else:
-            if recovery is not None:
-                emit.note("land", f"{recovery.message}, under the verdict store's lock")
     reason = (data or {}).get("reason") or f"exit {result.returncode}"
     report.land_status = f"FAILED ({reason})"
     emit.note("land", f"ERROR: the land did not complete: {reason}")
@@ -3389,7 +3259,7 @@ CORPUS_FACTS_LINE = f"{console.TIMING}review.build review-facts "
 
 
 class _HeldCorpusBuild:
-    """The corpus build's child, run on a thread of its own so that `_do_corpus_build` can return once the build has printed `CORPUS_FACTS_LINE` while the child goes on writing the unit store and the ink-signature store. Nothing the build lane runs before the land reads either store, and the land, which moves the corpus into place, comes after the join. `_run_cycle` joins the child on every way out of the build lane: before the land, on a pass that does not land, and in `stop_here`, which a failed store snapshot takes. A stopped pass needs nothing here: the child is in the registry, which `terminate_all` signals with every other child, and `_run_cycle`'s `finally` waits for the thread (`wait_for_thread`).
+    """The corpus build's child, run on a thread of its own so that `_do_corpus_build` can return once the build has printed `CORPUS_FACTS_LINE` while the child goes on writing the unit store and the ink-signature store. Nothing the build lane runs before the land reads either store, and the land, which moves the corpus into place, comes after the join. `_run_cycle` joins the child on every way out of the build lane: before the land, and on a pass that does not land. A stopped pass needs nothing here: the child is in the registry, which `terminate_all` signals with every other child, and `_run_cycle`'s `finally` waits for the thread (`wait_for_thread`).
 
     A holder that never started a child, as on a pass that skips the build or under a test's stand-in for `_do_corpus_build`, joins as a success, and so does one already joined, so each failure is reported once.
     """
@@ -4102,8 +3972,6 @@ def _run_cycle(
         # The corpus build's child is joined here, on a pass that does not land too, so a build that failed after the line `_do_corpus_build` returns at stops the pass before the land.
         if not corpus_child.join(emit, report):
             return stop_here("corpus rebuild failed")
-        if plan.includes("store-snapshot") and not _do_store_snapshot(report, emit=emit, plan=plan):
-            return stop_here("store snapshot failed")
         landed: dict | None = None
         if plan.runs("land"):
             landed = _do_land(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
@@ -4193,8 +4061,6 @@ def step_detail(report: CycleReport, name: str) -> str:
         return prose(report.assets_status)
     if name == "corpus-seed":
         return prose(report.seed_status)
-    if name == "store-snapshot":
-        return prose(report.snapshot_status)
     if name == "land":
         return prose(report.land_status)
     if name == "review-facts":
@@ -4614,48 +4480,6 @@ def _preflight(
     return False
 
 
-def prune_stashes(
-    root: Path,
-    journal_path: Path,
-    *,
-    lock: contextlib.AbstractContextManager | None = None,
-    scan: journal.JournalScan | None = None,
-) -> list[Path] | None:
-    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the anchor references, and return them. The anchor is the last event that is a base or moves the stamp (its stamp differs from the event's before it), so it falls on the latest land that moved the stamp whether that land was journaled as a base or as sets and clears (`journal.base_due`), and the sweep keeps the stash that land named and those named since. Anchoring on bases alone would keep every stash named since the last base, about one per land between two bases. Returns None and deletes nothing when the journal has no anchor. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest stamp change created looks older than that change. The journal replays a deleted stash's state back to its compaction floor.
-
-    The journal is read in two phases (`journal.scan`): first without `lock`, the verdict store's lock (the caller's `scan`, or a scan of the whole file made here when the caller passes none), then under it only the tail appended since, together with the glob and the deletions. Every writer that stashes a store and journals it holds that lock, so no stash can appear between the check and the deletion without its event being in the tail.
-    """
-    first = scan if scan is not None else journal.scan(journal_path)
-    with lock if lock is not None else contextlib.nullcontext():
-        events = journal.scan(journal_path, resume=first.state).events
-        anchor_at = None
-        previous = None
-        for event in events:
-            if event.base or (previous is not None and event.stamp != previous.stamp):
-                anchor_at = event.at or ""
-            previous = event
-        if anchor_at is None:
-            return None
-        keep_names = {event.stashed for event in events if event.stashed and (event.at or "") >= anchor_at}
-        removed: list[Path] = []
-        for path in sorted(root.glob("verdicts-autosave-*.json")):
-            if path.name in keep_names:
-                continue
-            path.unlink(missing_ok=True)
-            removed.append(path)
-    return removed
-
-
-def journal_scan_path() -> Path:
-    """The scan state retention saves after each pass (`journal.save_scan_state`), from which the next pass's scan of the journal resumes, and the land's read of it too (`--scan-state`)."""
-    return cycle_paths.CYCLE_VAR / "journal-scan.json"
-
-
-def journal_history_cutoff(now: datetime | None = None) -> str:
-    moment = (now or datetime.now(timezone.utc)) - timedelta(days=JOURNAL_HISTORY_DAYS)
-    return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
 def prune_build_logs(root: Path, keep: int) -> list[Path]:
     """Delete every run directory under `root` except the newest `keep`, and return the deleted paths. Run directories are named `<UTC stamp>-<short sha>`, so a lexical sort is chronological and mtime is not read. The `latest` symlink is skipped; it points at the newest run, which is kept."""
     if not root.is_dir():
@@ -4677,107 +4501,19 @@ class RetentionResult:
     detail: str
 
 
-def _retention_detail(removed: list[str], intact: list[str], journal_state: str) -> str:
-    """Format the retention detail: the removal counts, the kinds of file left intact, and the journal's state. A kind left intact is named instead of counted as zero, because "nothing to remove" and "not pruned on this pass" are different facts."""
-    clauses = ["removed " + (", ".join(removed) if removed else "nothing")]
-    if intact:
-        named = intact[0] if len(intact) == 1 else f"{', '.join(intact[:-1])} and {intact[-1]}"
-        clauses.append(f"{named} left intact")
-    if journal_state:
-        clauses.append(journal_state)
-    return "; ".join(clauses)
-
-
 def run_retention(plan: Plan) -> RetentionResult:
-    """Prune build logs, autosave stashes, and old journal history after a green pass, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table. The stash sweep and the compaction share one scan of the journal, made without the verdict store's lock and resumed from the state the last pass saved (`journal_scan_path`), so a pass parses only what was appended since the last one. They take the lock only for the tail appended since, the deletions, and the journal's replacement (`prune_stashes`, `journal.compact_prepare`, `journal.compact_finish`), so another writer (the review server, a merge, a re-key) waits for at most that long; the server answers a save made in that window with a retryable 503, as it does during a land. Every append holds the lock, so no line can fall between the scan and the replacement. A lock still held after `RETENTION_LOCK_TIMEOUT_S` leaves that part for a later pass. A review server from before the land protocol (`Plan.legacy_server`) appends to the journal and moves stashes without the lock, so while one listens the stashes and the journal are left for a later pass. The land stashes the store on every stamp move, so the stash sweep keeps the stashes from piling up between accepts."""
-
-    def rel(path: Path) -> str:
-        try:
-            return str(path.relative_to(ROOT))
-        except ValueError:
-            return str(path)
-
-    def swept(count: int, singular: str, plural: str) -> str:
-        return f"{console.fmt_count(count)} {singular if count == 1 else plural}"
-
-    lines = ["Retention (skip with --keep-history):"]
-    removed_counts: list[str] = []
-    intact: list[str] = []
-    journal_path = ROOT / journal.JOURNAL_NAME
-
-    def reported(journal_state: str) -> RetentionResult:
-        return RetentionResult(lines, _retention_detail(removed_counts, intact, journal_state))
-
-    dropped_logs = prune_build_logs(cycle_paths.BUILD_LOGS_ROOT, cycle_paths.BUILD_LOGS_KEEP)
-    removed_counts.append(swept(len(dropped_logs), "build log", "build logs"))
-    lines.append(
-        f"  build logs: removed {console.fmt_count(len(dropped_logs))}; kept the last {cycle_paths.BUILD_LOGS_KEEP} runs under {rel(cycle_paths.BUILD_LOGS_ROOT)}"
-    )
-
-    if plan.legacy_server and server_listening():
-        lines.append(
-            "  stashes   : left intact (a review server from before the land protocol is listening, and it moves stashes and appends to the journal without the verdict store's lock)"
-        )
-        lines.append(
-            "  journal   : left intact (the same server's appends could fall between the compaction's tail copy and its replacement of the journal)"
-        )
-        intact.extend(["stashes", "journal"])
-        return reported("")
-    store = ROOT / "verdicts-autosave.json"
-
-    def locked() -> contextlib.AbstractContextManager:
-        return landing.locked_store(
-            store, timeout=RETENTION_LOCK_TIMEOUT_S, quiet=True, catch_up_with=_catch_up_in_child
-        )
-
-    busy = f"left intact (the verdict store stayed locked for {RETENTION_LOCK_TIMEOUT_S:g} s)"
-    state_path = journal_scan_path()
-    scan = journal.scan(journal_path, resume=journal.load_scan_state(state_path))
+    """Prune the build logs after a green pass, keeping the newest `cycle_paths.BUILD_LOGS_KEEP` runs, and return the summary lines and detail. It returns the lines instead of printing them so they appear in the summary block below the table."""
     try:
-        removed_stashes = prune_stashes(ROOT, journal_path, lock=locked(), scan=scan)
-    except store_lock.LockBusy:
-        lines.append(f"  stashes   : {busy}")
-        intact.append("stashes")
-    else:
-        if removed_stashes is None:
-            lines.append(
-                "  stashes   : left intact (the journal holds no base event or stamp change to anchor on)"
-            )
-            intact.append("stashes")
-        else:
-            removed_counts.append(swept(len(removed_stashes), "stash", "stashes"))
-            lines.append(
-                f"  stashes   : removed {console.fmt_count(len(removed_stashes))} verdicts-autosave-* stashes older than the journal's last stamp change or base"
-            )
-
-    prepared = journal.compact_prepare(journal_path, cutoff=journal_history_cutoff(), resume=scan.state)
-    try:
-        result = journal.compact_finish(prepared, lock=locked())
-    except store_lock.LockBusy:
-        journal.save_scan_state(state_path, prepared.read)
-        lines.append(f"  journal   : {busy}")
-        return reported("journal intact")
-    journal.save_scan_state(state_path, result["resume"])
-    if result["compacted"]:
-        total = result["dropped_lines"] + result["kept_lines"]
-        lines.append(
-            f"  journal   : compacted {console.fmt_count(total)} -> {console.fmt_count(result['kept_lines'])} lines (restore floor now {result['floor_at']})"
-        )
-        journal_state = f"journal compacted to {console.fmt_count(result['kept_lines'])} lines"
-    elif result.get("replaced"):
-        lines.append("  journal   : left intact (another writer replaced it while it was being compacted)")
-        journal_state = "journal intact"
-    elif result["floor_at"] is not None:
-        lines.append(
-            f"  journal   : left intact (it already starts at the newest complete base event older than {JOURNAL_HISTORY_DAYS} days; restore floor {result['floor_at']})"
-        )
-        journal_state = "journal intact"
-    else:
-        lines.append(
-            f"  journal   : left intact (no complete base event older than {JOURNAL_HISTORY_DAYS} days)"
-        )
-        journal_state = "journal intact"
-    return reported(journal_state)
+        shown = str(cycle_paths.BUILD_LOGS_ROOT.relative_to(ROOT))
+    except ValueError:
+        shown = str(cycle_paths.BUILD_LOGS_ROOT)
+    dropped = prune_build_logs(cycle_paths.BUILD_LOGS_ROOT, cycle_paths.BUILD_LOGS_KEEP)
+    count = console.fmt_count(len(dropped))
+    lines = [
+        "Retention (skip with --keep-history):",
+        f"  build logs: removed {count}; kept the last {cycle_paths.BUILD_LOGS_KEEP} runs under {shown}",
+    ]
+    return RetentionResult(lines, f"removed {count} build log{'' if len(dropped) == 1 else 's'}")
 
 
 def pass_lock_path() -> Path:
@@ -4809,39 +4545,6 @@ def pass_lock(*, blocking: bool = True) -> Iterator[None]:
             yield
         finally:
             _held_pass_lock.remove(fd)
-
-
-def recover_land(*, dry_run: bool = False) -> str | None:
-    """Finish or drop the land a killed pass left (`landing.finish_interrupted_land`), holding the verdict store's lock, and return the line to print, or None when no land was left. It runs before `sweep_run_dirs`, because an unfinished land's result waits in its run directory. The review server finishes such a land on its next request too, so usually nothing is left by the next pass. A dry run changes nothing and says what the next real pass will do. A recovery that refuses raises `landing.LandUnrecoverable`, and `_run_pass` stops the pass with its message before anything else runs."""
-    if not landing.intent_path_for(AUTOSAVE).exists():
-        return None
-    if dry_run:
-        return f"Left the land a stopped pass began ({landing.intent_path_for(AUTOSAVE)}) for the next real pass or the review server to finish."
-    recovery = landing.finish_interrupted_land(AUTOSAVE, quiet=True, catch_up_with=_catch_up_in_child)
-    if recovery is None:
-        return None
-    return f"Recovered a stopped pass's land: {recovery.message}."
-
-
-def _catch_up_in_child(
-    store: Path, journal_path: Path | None, accepted_path: Path | None
-) -> landing.CatchUp | None:
-    """Run `landing.catch_up` on the store in a short child (`_store_read`) under the store's lock this process already holds, and return what it did: the `catch_up_with` every lock the driver takes passes to `landing.locked_store` (the pass's start, the store snapshot, a land's recovery and retention), since this process lives for the whole pass and a catch-up streams the store and, for a store out of unit order, reads it whole. A child that answers nothing, as when the catch-up cannot write, raises `StoreReadFailed`."""
-    caught = _store_read(
-        {
-            "read": "catch-up",
-            "autosave": str(store),
-            "journal": str(journal_path) if journal_path is not None else None,
-            "accepted": str(accepted_path) if accepted_path is not None else None,
-        }
-    )
-    return landing.CatchUp(**caught) if isinstance(caught, dict) else None
-
-
-def catch_up_store() -> str | None:
-    """Take the verdict store's lock once at a pass's start, before the pass reads the store, so the lock writes into the store the saves the review server journaled and has not written yet (`landing.catch_up_store`, `landing.catch_up`) and the store snapshot holds every save journaled so far. The catch-up runs in a short child under the lock this process holds (`_catch_up_in_child`), so nothing of the store stays in this process. Return the line to print (`landing.CatchUp.line`): that it applied the journal's events since the store's last write when they changed the store, or why it left the store as it stands, and None otherwise, as when the tail was empty or the store already held it. A child that answers nothing, as when the catch-up cannot write, raises `StoreReadFailed`, and a land's recovery that refuses `landing.LandUnrecoverable`. A dry run and a staging pass, which write no store, do not take it (`_run_pass`)."""
-    caught = landing.catch_up_store(AUTOSAVE, quiet=True, catch_up_with=_catch_up_in_child)
-    return caught.line() if caught is not None else None
 
 
 def sweep_run_dirs() -> list[Path]:
@@ -4911,7 +4614,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--keep-history",
         action="store_true",
-        help="skip the green-finish retention pass (stashes and the journal's pre-window history stay on disk)",
+        help="skip the green-finish retention pass (every build log stays on disk)",
     )
     parser.add_argument(
         "--yes",
@@ -4946,25 +4649,11 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). Then every pass but a dry run and a staging pass takes the verdict store's lock once (`catch_up_store`), which writes into the store the saves the review server journaled and has not written, so the land reads a store holding every save; a catch-up that cannot write stops the pass with exit 1 (`StoreReadFailed`)."""
-    try:
-        landed = recover_land(dry_run=args.dry_run) if recover else None
-    except (landing.LandUnrecoverable, StoreReadFailed) as refused:
-        print(f"ERROR: {refused}. The pass stops before it starts.")
-        return 1
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`)."""
     recovered = recover_superseded_corpus(delete=not args.dry_run) if recover else None
     if recover and not args.dry_run:
         sweep_run_dirs()
     kept_next = recover_next_corpus(delete=not args.dry_run) if recover else None
-    caught = None
-    if not args.dry_run and args.review_out is None:
-        try:
-            caught = catch_up_store()
-        except (StoreReadFailed, landing.LandUnrecoverable) as failed:
-            print(
-                f"ERROR: the verdict store's catch-up with its journal failed: {failed}. The pass stops before it starts."
-            )
-            return 1
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     skip_make_test = False
@@ -5062,7 +4751,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         preamble.append(text)
         print(text)
 
-    for line in (landed, recovered, kept_next, caught):
+    for line in (recovered, kept_next):
         if line is not None:
             announce(line)
 
@@ -5117,7 +4806,6 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
         cycle_console.plan_block(render_plan(plan))
         probe = probe_server() if args.review_out is None else ServerProbe("none")
         plan.broadcast = probe.kind != "foreign"
-        plan.legacy_server = probe.kind == "legacy"
         if not _preflight(
             args,
             can_keep_running=server_can_keep_running(
@@ -5154,7 +4842,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
                 return _run_cycle(plan, report, cycle_console, registry, timings=timings)
         finally:
             timings.drop_output_counts()
-            if plan.scratch_dir is not None and not landing.intent_path_for(AUTOSAVE).exists():
+            if plan.scratch_dir is not None:
                 shutil.rmtree(plan.scratch_dir, ignore_errors=True)
 
 

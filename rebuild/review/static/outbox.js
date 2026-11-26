@@ -125,27 +125,13 @@ export function sameRecord(a, b) {
   return a.verdict === b.verdict && (a.note ?? '') === (b.note ?? '') && (a.at ?? '') === (b.at ?? '');
 }
 
-const CARRIED_PREFIX = /^(?:\[carried [^\]]*\]\s*)+/u;
-
-// Whether the server's record is the entry's, allowing for `[carried …]` markers at the head of either note: the carry drops them from each note it moves onto a rebuilt corpus, so a tab can hold a marked note whose record the server holds bare.
-export function heldByServer(record, serverRecord) {
-  if (sameRecord(record, serverRecord)) return true;
-  if (!record || !serverRecord) return false;
-  const bare = (note) => (note ?? '').replace(CARRIED_PREFIX, '');
-  return (
-    record.verdict === serverRecord.verdict &&
-    (record.at ?? '') === (serverRecord.at ?? '') &&
-    bare(record.note) === bare(serverRecord.note)
-  );
-}
-
 // The entries among `entries` (each with its `unit`) whose outbox entry is still the one with their tab and seq, so a page about to send what it read at boot skips an entry its tab has since replaced or saved.
 export function currentEntries(storage, entries) {
   const outbox = readOutbox(storage);
   return entries.filter((entry) => outbox[entry.unit]?.tab === entry.tab && outbox[entry.unit]?.seq === entry.seq);
 }
 
-// Sorts the outbox against the server's records at boot. An entry with no corpus stamp is dropped. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included, and a record whose note differs from the entry's only by leading `[carried …]` markers) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs` and the server would take their set (`replayable` in `verdicts.js`), grouped by the stamp they were made on, and the others are left for the reader to download, since the server refuses a whole replay holding one set it refuses. `serverRecords` is null when the server refuses the store it holds (`missingStoreRecords`), whose records are then unknown: the plan drops, replays and offers nothing, so every entry stays for a later boot that can read the store, where sorting against no record would drop each pending clear as one the server holds.
+// Sorts the outbox against the server's records at boot. An entry with no corpus stamp is dropped. The entries of the tabs in `live` are left alone, because those tabs are still open to send them. An entry whose record the server already holds (a clear the server has no record for included) was saved, so it is dropped. The rest are replayed when written within `maxAgeMs` and the server would take their set (`replayable` in `verdicts.js`), grouped by the stamp they were made on, and the others are left for the reader to download, since the server refuses a whole replay holding one set it refuses. `serverRecords` is null when the server refuses the store it holds (`missingStoreRecords`), whose records are then unknown: the plan drops, replays and offers nothing, so every entry stays for a later boot that can read the store, where sorting against no record would drop each pending clear as one the server holds.
 export function planOutboxReplay(
   outbox,
   serverRecords,
@@ -161,7 +147,7 @@ export function planOutboxReplay(
       continue;
     }
     if (live.has(entry.tab)) continue;
-    if (heldByServer(entry.record, serverRecords.get(unit) ?? null)) {
+    if (sameRecord(entry.record, serverRecords.get(unit) ?? null)) {
       drop.push(unit);
       continue;
     }
@@ -176,8 +162,8 @@ export function planOutboxReplay(
   return { drop, replay, stale };
 }
 
-// The reasons the server gives when it refuses the store it holds until a person replaces a file: a store holding a verdict record the carry refuses, a dead land whose recovery cannot finish or undo it (`landing.LandUnrecoverable`), a malformed accepted list, and a store that does not name the accepted list beside it (`rebuild.review.accepted.Malformed` and `Mismatch`).
-const STORE_REFUSALS = new Set(['store-malformed', 'land-unrecoverable', 'accepted-malformed', 'accepted-mismatch']);
+// The reasons the server gives when it refuses the store it holds until a person replaces the file: a store holding a verdict record `verdict_store.well_formed` refuses.
+const STORE_REFUSALS = new Set(['store-malformed']);
 
 // The error of a reply `body` in which the server refuses the store it holds (`STORE_REFUSALS`), or null for any other body.
 export function storeRefusalOf(body) {

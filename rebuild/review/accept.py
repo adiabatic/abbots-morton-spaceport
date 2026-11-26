@@ -2,17 +2,18 @@
 
 The accept, `uv run python -m rebuild.review.accept [--apply] [--retake]` (`make review-accept`), makes the build the corpus shows the accepted one. Without `--apply` it is a dry run: it prints every refusal `--apply` would make and what `--apply` would write, writes nothing, and exits 1 when `--apply` would refuse. Its refusals, each with nothing written, in this order:
 
-- the corpus under rebuild/out/review is not a table-diff corpus, so the accept never clears the store of the m1-audit corpus, whose verdicts the close-out folds;
+- the corpus under rebuild/out/review is not a table-diff corpus, which alone holds changes against the accepted snapshot;
 - `make verdict-ready`'s blocking checks fail (`store_guards.readiness_refusal`), among them the snapshot row and the freshness of the corpus against the sources;
 - the corpus does not show rebuild/out/m1: its after font is not M1.otf byte for byte, or its `tables` component is not the stamp of that build's windows heads (`snapshot.tables_stamp`);
-- a pass holds the artifact cycle's pass lock (taken without waiting and held to the end, `store_guards.pass_lock`), or a review server listens that may write the store (`store_guards.serves`);
+- a pass holds the artifact cycle's pass lock (taken without waiting and held to the end, `store_guards.pass_lock`);
 - a human unit of the corpus is blank, skipped, rejected or neither.
 
-`--apply`, holding the pass lock and the store's lock (`landing.locked_store`, which first writes into the store the saves the journal holds past its last write), checks the verdicts again, then:
+`--apply`, holding the pass lock and the store's lock (`landing.locked`, the path every writer of the store but the review server's saves takes, so it runs while the review server listens, which answers a save made meanwhile with a retryable 503), checks the verdicts again, then:
 
 1. takes a snapshot of rebuild/out/m1 (`snapshot.take`, into a staging directory under var/keep/review-snapshot renamed into place, keeping the snapshot it replaces as the previous one);
 2. writes the tracked pointer, rebuild/review-snapshot.json, naming it (`snapshot.write_pointer`), which goes into the commit with the edit it accepts, so the commit that last changed the pointer is the one the snapshot stands for (`snapshot.pointer_commit`);
-3. keeps the store as found, gzipped, at var/keep/review-accept/store.json.gz, replacing the one the last accept kept, writes an empty store stamped for the served corpus, which pairs with any accepted list (`accepted.pair`), and starts the journal again at one base event of it, as the close-out does, removing the unjournaled marker and the journal's scan state.
+3. keeps the store as found, gzipped, at var/keep/review-accept/store.json.gz, replacing the one the last accept kept, and writes an empty store stamped for the served corpus (`verdict_store.write_store`);
+4. tells the open review tabs, when this checkout's review server listens (`store_guards.serves`), to reload onto the empty store (`ams:store/<snapshot digest>` through livereload's /forcereload, `review_server.force_reload`), so none goes on showing the verdicts the accept consumed.
 
 `--retake` skips the verdict refusals and the readiness and corpus refusals, for a snapshot-format bump, which leaves no snapshot this checkout reads, and for a snapshot no build of its commit remakes, both of which leave the snapshot row failing and the corpus stale. It checks instead that rebuild/out/m1's tables carry the stamp the sources on disk give (`run_m1.tables_inputs`), so the snapshot is of this tree's build, and it prints the span it accepts unreviewed: the commit the old snapshot stands for, or that none is known, and the corpus's counts when it can read them.
 
@@ -41,16 +42,20 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from rebuild.pipeline import fingerprint  # noqa: E402
-from rebuild.review import accepted, journal, snapshot  # noqa: E402
-from rebuild.review.landing import LandUnrecoverable, Store, document_bytes, locked_store  # noqa: E402
+from rebuild.review import landing, snapshot  # noqa: E402
 from rebuild.review.store_lock import LockBusy, holder  # noqa: E402
-from rebuild.review.verdict_store import MalformedStore, read_store_document  # noqa: E402
+from rebuild.review.verdict_store import (  # noqa: E402
+    AUTOSAVE_NAME,
+    MalformedStore,
+    latest_by_unit,
+    read_store_document,
+    write_store,
+)
 from rebuild.tools import store_guards  # noqa: E402
 
 CORPUS = ROOT / "rebuild" / "out" / "review"
 KEEP = Path("var") / "keep" / "review-accept"
 KEPT_STORE = "store.json.gz"
-SOURCE = "review-accept"
 REMAKE_WORK = ROOT / "var" / "cycle" / "snapshot-remake"
 REMAKE_CARGO_TARGET = ROOT / "rebuild" / "kernel-rs" / "target" / "snapshot-remake"
 UV_CACHE = ROOT / ".uv-cache"
@@ -64,7 +69,7 @@ class Refused(RuntimeError):
 
 
 def read_corpus(corpus: Path) -> dict:
-    """The corpus's manifest, refused unless it is a table-diff corpus's, so the accept never clears the store an m1-audit corpus's verdicts are in."""
+    """The corpus's manifest, refused unless it is a table-diff corpus's, which alone holds changes against the accepted snapshot."""
     try:
         manifest = json.loads((Path(corpus) / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
@@ -72,8 +77,8 @@ def read_corpus(corpus: Path) -> dict:
     if not isinstance(manifest, dict) or manifest.get("mode") != "table-diff":
         found = manifest.get("mode") if isinstance(manifest, dict) else None
         raise Refused(
-            f"the corpus {corpus} is an {found!r} corpus, not a table-diff corpus, so its store holds verdicts the "
-            "accept must not clear; the accept runs once the cycle serves the table-diff corpus"
+            f"the corpus {corpus} is an {found!r} corpus, not a table-diff corpus, so it shows no change against "
+            "the accepted snapshot; run `make artifact-cycle`, which builds the table-diff corpus"
         )
     return manifest
 
@@ -141,7 +146,7 @@ def read_standing(store: Path, human: frozenset[str], raw: bytes | None = None) 
             document = read_store_document(raw, f"the store {store}")
         except MalformedStore as malformed:
             raise Refused(str(malformed)) from None
-    records = journal.latest_by_unit(accepted.records_of(document)) if document is not None else {}
+    records = latest_by_unit(document["verdicts"]) if document is not None else {}
     verdicts = {unit: (records.get(unit) or {}).get("verdict") for unit in human}
     return Standing(raw, human, verdicts)
 
@@ -182,7 +187,7 @@ def plan_lines(
             else f"keep no store ({store.name} does not exist)"
         ),
         f"write an empty {store.name} stamped for the corpus {stamp}, dropping its {records:,} verdicts on the corpus's human units",
-        f"start {journal.JOURNAL_NAME} again at one base event of the empty store",
+        "tell the open review tabs to reload onto the empty store, when this checkout's review server listens",
     ]
 
 
@@ -194,17 +199,17 @@ def _write_atomic(path: Path, data: bytes) -> None:
 
 
 def _clear_store(store: Path, stamp: str, raw: bytes | None) -> None:
-    """Keep the store as found, write the empty store stamped `stamp`, and start the journal again at one base event of it. The caller holds the store's lock."""
+    """Keep the store as found and write the empty store stamped `stamp`. The caller holds the store's lock."""
     if raw is not None:
         _write_atomic(store.parent / KEEP / KEPT_STORE, gzip.compress(raw, compresslevel=6, mtime=0))
-    _write_atomic(store, document_bytes(Store(stamp)))
-    journal_path = journal.journal_path_for(store)
-    tmp = journal_path.with_name(journal_path.name + ".tmp")
-    tmp.unlink(missing_ok=True)
-    journal.record_transition(tmp, source=SOURCE, stamp=stamp, old_stamp=None)
-    os.replace(tmp, journal_path)
-    journal.unjournaled_marker_for(store).unlink(missing_ok=True)
-    journal.save_scan_state(store.parent / store_guards.CYCLE / "journal-scan.json", None)
+    write_store(store, stamp, {}, {})
+
+
+def tell_open_tabs(store: Path, digest: str) -> bool:
+    """Tell the tabs open on this checkout's review server, when it listens and may write `store` (`store_guards.serves`), to reload onto the store the accept emptied (`ams:store/<digest>`, `review_server.force_reload`), and return whether the server took it."""
+    from rebuild.tools.review_server import force_reload
+
+    return store_guards.serves(store) and force_reload(f"ams:store/{digest}")
 
 
 def tables_current(tables: Path) -> bool:
@@ -224,11 +229,11 @@ def run(
     apply: bool = False,
     retake: bool = False,
     readiness: Callable[[], tuple[dict, bool]] | None = None,
-    serving: Callable[[Path], bool] = store_guards.serves,
     stamped: Callable[[Path], bool] = tables_current,
     take: Callable[..., snapshot.Snapshot] = snapshot.take,
+    tell: Callable[[Path, str], bool] = tell_open_tabs,
 ) -> int:
-    """Run the accept of the corpus at `corpus` into `home` and `pointer` from the build in `tables`, clearing `store`: the dry run, or with `apply` the accept. `readiness` is `make verdict-ready`'s answer without the server row, `serving` whether a review server may write the store, `stamped` whether the build's tables carry the sources' stamp (the retake's check), and `take` takes the snapshot."""
+    """Run the accept of the corpus at `corpus` into `home` and `pointer` from the build in `tables`, clearing `store`: the dry run, or with `apply` the accept. `readiness` is `make verdict-ready`'s answer without the server row, `stamped` whether the build's tables carry the sources' stamp (the retake's check), `take` takes the snapshot, and `tell` tells the open review tabs to reload onto the emptied store (`tell_open_tabs`)."""
     if readiness is None:
         from rebuild.tools import verdict_ready
 
@@ -267,8 +272,6 @@ def run(
     if not apply:
         if holder(store_guards.pass_lock_path_for(store)) is not None:
             refusals.append(store_guards.pass_refusal(store))
-        if serving(store):
-            refusals.append(store_guards.server_refusal(store, "the accept"))
         standing: Standing | None = None
         try:
             standing = read_standing(store, human)
@@ -291,9 +294,7 @@ def run(
         if not isinstance(stamp, str):
             raise Refused(f"the corpus {corpus} names no generated_at")
         with store_guards.pass_lock(store):
-            if serving(store):
-                raise Refused(store_guards.server_refusal(store, "the accept"))
-            with locked_store(store):
+            with landing.locked(store):
                 standing = read_standing(store, human)
                 if retake:
                     print(span_line(manifest, standing, store.parent))
@@ -307,18 +308,19 @@ def run(
                     raise Refused(str(error)) from None
                 snapshot.write_pointer(taken, pointer)
                 _clear_store(store, stamp, standing.raw)
+        told = tell(store, taken.digest[:12])
         print(
             f"accepted: the snapshot {taken.digest[:12]} is current and {pointer.name} names it; {store.name} is "
-            "empty and the journal starts again at it"
+            "empty" + ("; the open review tabs reload onto it" if told else "")
         )
         print(
-            f"next: commit {pointer.name} with the edit it accepts, restart the review server (`make review-serve`), "
-            "and run `make artifact-cycle`, which builds the corpus against the new snapshot"
+            f"next: commit {pointer.name} with the edit it accepts, and run `make artifact-cycle`, which builds the "
+            "corpus against the new snapshot"
         )
         return 0
     except LockBusy:
         message = store_guards.pass_refusal(store)
-    except (LandUnrecoverable, Refused) as refused:
+    except Refused as refused:
         message = str(refused)
     print(f"ERROR: {message}. Nothing was written.")
     return 1
@@ -388,7 +390,7 @@ def remake(
     revision: str | None = None,
     home: Path = snapshot.DEFAULT_HOME,
     work: Path = REMAKE_WORK,
-    store: Path = ROOT / journal.AUTOSAVE_NAME,
+    store: Path = ROOT / AUTOSAVE_NAME,
     repo_root: Path = ROOT,
     export: Callable[[str, Path], None] | None = None,
     build: Callable[[Path, Path, Path], None] | None = None,
@@ -507,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--autosave",
         type=Path,
-        default=ROOT / journal.AUTOSAVE_NAME,
+        default=ROOT / AUTOSAVE_NAME,
         help="the store to empty (default: %(default)s)",
     )
     parser.add_argument(
@@ -533,10 +535,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     store = args.autosave.absolute()
-    if store.name != journal.AUTOSAVE_NAME:
-        parser.error(
-            f"--autosave {store} is not named {journal.AUTOSAVE_NAME}, and the accept finds its journal beside a store of that name"
-        )
     return run(
         store=store,
         corpus=(args.corpus or store.parent / "rebuild" / "out" / "review").absolute(),
