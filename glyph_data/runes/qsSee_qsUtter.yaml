@@ -41,3 +41,5 @@ policy:
       right: {family: qsMay}
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsOut_qsTea}, by: -1}

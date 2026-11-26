@@ -143,6 +143,8 @@ kern:
 - {right: {family: qsMay}, by: -1}
 - {stance: normal, entry: baseline, right: {family: qsMay, stance: grounded-loop}, by: 0}
 - {stance: normal, entry: none, right: {family: qsMay, stance: grounded-loop}, by: 0}
+- {stance: normal, entry: baseline, right: {family: qsNo, stance: flipped}, by: -1}
+- {stance: normal, entry: none, right: {family: qsNo, stance: flipped}, by: -1}
 - {right: {family: qsLow}, by: -1}
 - {right: {family: qsAt}, by: -2}
 - {right: {family: qsAh}, by: -2}

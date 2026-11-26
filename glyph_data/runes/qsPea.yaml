@@ -169,3 +169,5 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsWay, stance: half}, by: -1}

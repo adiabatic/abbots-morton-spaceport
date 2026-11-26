@@ -234,3 +234,5 @@ policy:
         - qsJai_qsUtter
   resolve: []
   groups: {}
+kern:
+- {right: {family: qsWay, stance: half}, by: -1}

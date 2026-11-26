@@ -73,3 +73,5 @@ policy:
   contract: []
   resolve: []
   groups: {}
+kern:
+- {stance: full, right: {family: qsOut_qsTea}, by: -1}

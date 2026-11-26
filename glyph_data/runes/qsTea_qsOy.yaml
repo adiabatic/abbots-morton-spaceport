@@ -87,3 +87,9 @@ policy:
 
       This is the `oy-it-baseline` grouping, but for ·Tea+Oy.
   groups: {}
+kern:
+- {right: {family: qsEt}, by: 0}
+- {right: {family: qsAwe}, by: -1}
+- {right: {family: qsOx}, by: -1}
+- {right: {family: qsOy}, by: 0}
+- {right: {family: qsFoot}, by: 0}

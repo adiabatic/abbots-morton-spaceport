@@ -59,6 +59,8 @@ policy:
 kern:
 - {right: {family: qsBay}, by: -1}
 - {right: {family: qsThey}, by: -1}
+- {right: {family: qsThey_qsZoo}, by: -1}
+- {right: {family: qsThey_qsUtter}, by: -1}
 - {right: {family: qsWay}, by: -2}
 - {right: {family: qsWay, stance: half}, by: -3}
 - {right: {family: qsWhy}, by: -2}

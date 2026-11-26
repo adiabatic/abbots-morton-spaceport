@@ -72,4 +72,5 @@ kern:
 - {right: {family: qsUtter}, by: -2}
 - {right: {family: qsUtter, stance: alternate}, by: -1}
 - {right: {family: qsOut}, by: -2}
+- {right: {family: qsOut_qsTea}, by: -1}
 - {right: {family: qsOoze}, by: -1}

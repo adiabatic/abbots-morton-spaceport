@@ -63,3 +63,10 @@ policy:
       left: {family: qsSee}
   resolve: []
   groups: {}
+kern:
+- {stance: sole, entry: baseline, right: {family: qsVie}, by: -1}
+- {stance: sole, entry: none, right: {family: qsVie}, by: -1}
+- {stance: sole, entry: baseline, bitmap: low-bend, right: {family: qsVie}, by: -1}
+- {stance: sole, entry: baseline, right: {family: qsNo, stance: flipped}, by: -1}
+- {stance: sole, entry: none, right: {family: qsNo, stance: flipped}, by: -1}
+- {stance: sole, entry: baseline, bitmap: low-bend, right: {family: qsNo, stance: flipped}, by: -1}
