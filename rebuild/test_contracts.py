@@ -80,7 +80,7 @@ class TestForbiddenPaths:
             "rebuild/review/build.py",
             "rebuild/m1-contact-allow.yaml",
             "rebuild/review-snapshot.json",
-            "glyph_data/quikscript.yaml",
+            "glyph_data/latin_letters.yaml",
             "glyph_data/runes/qsPea.yaml",
             "site/index.html",
         ],

@@ -28,7 +28,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
   - The rule is scoped exactly that narrowly: the `why:` fields in `rebuild/m1-contact-allow.yaml` are agent-written.
     - Draft them yourself in the pattern of the surrounding entries; "Human-reviewed" there means the user decides whether the entry belongs, not who drafts the sentence.
   - The allow-list's hash ignores prose, so rewording a `why:` re-runs no gate.
-- When a request names a letter ("after ·Pea") and the family has several variants (half/full, alt, `en-y6`, `ex-y0`, …), don't default to a bare `{family: qsX}` selector: enumerate the variants from `glyph_data/quikscript.yaml` and ask which subset is meant.
+- When a request names a letter ("after ·Pea") and the letter has several stances (half/full, alt, …), don't default to the whole letter: enumerate the stances from its rune file (`glyph_data/runes/qsX.yaml`) and ask which subset is meant.
 - A change to a letter's entry does not reach the ligatures that begin with it: a ligature rune (`glyph_data/runes/qsX_qsY.yaml`) keeps its own entry-side records, and right-facing selectors (`toward:`, `when.right`, `then:`) name each ligature explicitly (`doc/rebuild-design.md` §3.4). Decide for each such ligature whether the change belongs on it too.
   - Make the same change to the ligature without asking when it enters with the letter's own stroke at that height (·Day+Utter.half begins with ·Day.half's foot hook) and it carries a matching record or already appears beside the letter in the selector being changed. Name the ligature in the summary and the commit message.
   - Ask when the ligature enters differently, or when a record or `why:` of its own argues for keeping the difference the change would remove.
@@ -121,10 +121,9 @@ Git holds the history, so a checked-in note earns its place only by recording th
 
 ## Locations of things
 
-- Quikscript source data lives under `glyph_families` in `glyph_data/quikscript.yaml`, with separate `mono`, `prop`, `shapes`, and `stances` records.
-  - `entry` / `exit` anchors (under `anchors:`) go in the proportional record or stance that compiles into the proportional font; mono-only records carry no `curs` anchors.
-  - Shared bitmaps go under a family’s `shapes`; contextual/alternate stances go under `stances` with `anchors`, `select`, `derive`, `traits`, and `modifiers`.
-  - Keep `traits: [alt]` and `traits: [half]` when those concepts are real; other suffixes belong under ordered `modifiers`.
+- Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `rebuild/schema/rune.schema.json`: its `mono:` block is the Mono drawing, and its `stances:` are the proportional shapes, each a `bitmap` with its join surface.
+  - Keep `traits: [alt]` and `traits: [half]` when those concepts are real; anything else that distinguishes a stance lives in named bitmaps or policy records.
+- The other glyphs, the metadata and the Latin kern rules are the other `glyph_data/*.yaml` files, and the variation sequences and stylistic sets are in the registry, `rebuild/script.yaml`.
 
 ## Dev-server URLs
 
@@ -137,48 +136,29 @@ Git holds the history, so a checked-in note earns its place only by recording th
 
 ## YAML files
 
-- Stance keys (`alt_reaches_way_back`, `entry_xheight`) are local labels; compiled identity and compatibility come from each stance’s explicit `traits` and `modifiers`, and selectors in `select` / `derive` can combine all three.
-- Keep `{family: qsX}` entries in code-point order (qsPea … qsOoze, per `postscript_glyph_names.yaml`) in `select` / `derive` lists and `context_sets`. Ligatures sort by the lead family, bare lead first.
-- Prefer `inherits` over copying a stance; clear an inherited nested key with `null`.
-- `doc/quikscript-yaml-conventions.md` holds the old engine’s selector, ligature, and `ex-noentry` mechanism, and the recipe that proves a selector change is a pure cleanup.
-
 ### Ductus
 
 `ductus` says how a letter is drawn by hand: pen direction, stroke order, where the stroke enters and exits. `notes` records join constraints, never how-to-draw.
 
-- The canonical `ductus` sits at the family level, a sibling of `mono` / `prop` / `shapes` / `stances`; it covers `mono` and `prop` at once because the motion is the same even when the bitmaps differ. Never hang it off the `mono` record.
-- Several valid drawing orders for one bitmap go in that single family-level block scalar as `-` bullets (see `qsIt`).
-- A `shapes:` or `stances:` entry gets its own `ductus` only when it is drawn differently from the family default (see `qsFee.shapes.connect_from_short_height`).
-  - A variant’s `ductus` fully replaces the family one, so write it as a complete stroke description; a variant without one inherits.
+- A rune's `ductus:` is its top-level map of motions, one entry each, and every stance names the motion it draws with `motion:`; `spec_load` checks that every motion has a stance and every stance a motion.
+- Several valid drawing orders for one motion go in that motion's prose as `-` bullets (see `qsIt`).
+- A stance gets a motion of its own only when it is drawn differently; ink that changes only at a join is a binding on the same motion (`rebuild/M1-PLAN.md` §8). Join constraints are never ductus: they are `pairings` and `unlocks` data.
 
 ### Formatting
 
-- `tools/reflow_yaml.py` is the authority on flow-vs-block style and picks a policy by path; its docstring states both.
+- `tools/reflow_yaml.py` is the authority on the runes' flow-vs-block style; its docstring states the rule.
 - Reflow after editing; the pass is idempotent, so a second run is a no-op:
 
   ```sh
-  uv run python tools/reflow_yaml.py                       # quikscript.yaml plus every rune
+  uv run python tools/reflow_yaml.py                       # every rune
   uv run python tools/reflow_yaml.py glyph_data/runes/qsMay.yaml
   ```
 
-- Reflow only `glyph_data/quikscript.yaml` and the runes, the files the bare command covers. The other YAML files are not kept in reflowed form, so passing one by path can reformat the whole file.
-
-### Selectors
-
-- For “every letter with an anchor at y=N” use `{exit_y: N}` / `{entry_y: N}`, with `except:` to drop families, instead of a hand-curated `context_set`.
-- A family-scoped anchor selector (`{family: qsMay, exit_y: 5}`) narrows a family to the variants with a compatible anchor at that Y. `tools/suggest_scoped_anchor_selectors.py` finds candidates.
-- Never narrow a broad family selector, or swap a long family list for an anchor selector, without proving the generated Senior feature code is byte-identical; the recipe is in `doc/quikscript-yaml-conventions.md`. A divergence is a shaping change to surface for review, never a cleanup.
-
-### Anchors
-
-- `exit.x = max_ink_x_at_exit_y + 1`: one pixel right of the stroke, which can land inside the bitmap when the stroke exits from the left or middle (·He, ·Ye, `qsThey.ex-y5`).
-- `entry.x = min_ink_x_at_entry_y`: on the leftmost ink of the entry row, so an inset stroke lands at its actual ink rather than `x = 0`.
-- `tools/audit_anchor_geometry.py` reports every deviation; its docstring names the derived buckets (`*.en-con-1`, `*.en-trim-N`) that deviate by design.
+- Only the runes are kept in reflowed form, so the tool refuses any other YAML file.
 
 ## Procedures that live in skills
 
-- A one-line join tweak to the old font's `glyph_data/quikscript.yaml` edits an existing stance rather than authoring a new one.
-  - Patterns and worked examples: the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`); the rebuild's runes take expand-or-contract-a-join instead.
+- Lengthening or shortening a join that already happens: the expand-or-contract-a-join skill.
 - Version bumps: the bump-major and bump-minor skills edit both version files, refresh the lockfile, and open the `FONTLOG.md` heading.
 - Review sessions: `just-verdicted-now-what` turns a finished review's rejects into rune changes.
 

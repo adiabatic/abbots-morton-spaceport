@@ -1,66 +1,30 @@
 #!/usr/bin/env python3
-"""
-Build a pixel font from bitmap glyph definitions. Uses fonttools FontBuilder to create OTF output.
+"""Assemble one pixel font from glyph records with fontTools' FontBuilder: the generic font assembly the rebuild's builds call, `rebuild/pipeline/compile_font.py` for Senior and `rebuild/pipeline/build_family.py` for Mono and Junior.
 
-Usage:
-    uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]
-
-    The first argument can be a single YAML file or a directory of YAML files. When a directory is given, all *.yaml files are loaded and merged.
-
-Outputs (Regular and Bold, six static OTFs):
-    output_dir/AbbotsMortonSpaceportMono-Regular.otf
-    output_dir/AbbotsMortonSpaceportMono-Bold.otf
-    output_dir/AbbotsMortonSpaceportSansJunior-Regular.otf  (proportional, no cursive joins)
-    output_dir/AbbotsMortonSpaceportSansJunior-Bold.otf
-    output_dir/AbbotsMortonSpaceportSansSenior-Regular.otf  (proportional, with cursive/calt)
-    output_dir/AbbotsMortonSpaceportSansSenior-Bold.otf
+`build_font` takes a font's records (`glyph_records.GlyphData`, as `load_glyph_data` reads the glyph files and the rebuild hands in its own beside them) and a variant, `mono`, `junior` or `senior`, and returns the unsaved TTFont: the glyph order and cmap, the outlines and metrics, the name, OS/2, post, gasp and head tables, and the layout. Mono bundles Departure Mono's glyphs and copies its GDEF, GSUB and GPOS. Junior and Senior compile the Latin `kern`, `ccmp` and `mark` features the records give, then the caller's Quikscript feature code (`quikscript_fea`), and Senior trims a pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening).
 
 Each glyph's outline is the union of one rectangle per filled pixel, traced into contours that neither overlap nor share an edge, with outer contours counter-clockwise and holes clockwise (`union_contours`). Bold draws each pixel's rectangle 1.5 pixels wide, extended half a pixel to the right. The pixel grid, advance widths, kerning, and anchors are the same as Regular.
 """
 
 import hashlib
-import io
 import logging
-import re
-import struct
-import sys
-import warnings
-from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 
 from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
 from fontTools.fontBuilder import FontBuilder
-from fontTools.otlLib.maxContextCalc import maxCtxFont
 from fontTools.pens.t2CharStringPen import T2CharStringPen
 from fontTools.ttLib import TTFont, newTable
 from fontTools.ttLib.tables.DefaultTable import DefaultTable
-from fontTools.ttLib.tables._c_m_a_p import cmap_format_14
 from departure_mono_import import import_departure_mono
-from glyph_compiler import CompiledGlyphSet, compile_glyph_set, is_proportional_glyph
-from quikscript_fea import emit_namer_dot_calt, emit_quikscript_senior_features, emit_quikscript_ss
-from typing import Any, cast
-
-from quikscript_ir import (
-    GlyphData,
-    GlyphDef,
-    JoinGlyph,
-    family_names_from_compiled,
-    get_base_glyph_name,
-    resolve_compiled_name,
-)
+from glyph_records import CompiledGlyphSet, GlyphData, GlyphDef, compile_glyph_records, is_proportional_glyph
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-# `memory_budget` reaches `peak_rss` by package path, so the repo root is what has to go on `sys.path`; `rebuild/tools/` is not enough.
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from rebuild.tools.memory_budget import usable_cores  # noqa: E402
-
 _DEPARTURE_MONO_OTF = _REPO_ROOT / "reference" / "DepartureMono-Regular.otf"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
@@ -71,35 +35,15 @@ def load_postscript_glyph_names() -> dict[str, int]:
         return yaml.load(f, Loader=_SAFE_LOADER)
 
 
-# Top-level keys that mark a YAML document as one of the structured glyph-data records. A document carrying none of these is read as a bare Senior-only kerning rule (see senior_quikscript_kerning.yaml).
-_STRUCTURAL_KEYS = frozenset(
-    {
-        "metadata",
-        "glyphs",
-        "glyph_families",
-        "context_sets",
-        "kerning",
-        "restore_isolated_form_overrides",
-        "predecessor_demote_overrides",
-        "trailing_demote_overrides",
-    }
-)
+# The top-level keys a glyph file's document may carry.
+_GLYPH_FILE_KEYS = frozenset({"metadata", "glyphs", "kerning"})
 
 
 def load_glyph_data(path: Path) -> GlyphData:
-    """Load glyph definitions from a YAML file or directory of YAML files.
-
-    Each file may hold one document or several `---`-separated documents. A mapping with none of `_STRUCTURAL_KEYS` is one Senior-only kerning rule. Such rules have no names, so `_assemble_fea` names each lookup by its position.
-    """
+    """Load the glyph records of a YAML file, or of every `*.yaml` file in a directory, merged in name order: the last `metadata` wins, and `glyphs` and the Latin `kerning` rules merge by name. Each file may hold several `---`-separated documents. Raises ValueError for a document with any other top-level key, which no build reads."""
     metadata: dict[str, Any] = {}
     glyphs: dict[str, Any] = {}
-    glyph_families: dict[str, Any] = {}
-    context_sets: dict[str, Any] = {}
     kerning_defs: dict[str, Any] = {}
-    senior_kerning_rules: list[dict[str, Any]] = []
-    restore_isolated_form_overrides: list[Any] = []
-    predecessor_demote_overrides: list[Any] = []
-    trailing_demote_overrides: list[Any] = []
 
     files = sorted(path.glob("*.yaml")) if path.is_dir() else [path]
     for yaml_file in files:
@@ -108,57 +52,17 @@ def load_glyph_data(path: Path) -> GlyphData:
         for data in documents:
             if not isinstance(data, dict) or not data:
                 continue
+            unknown = sorted(set(data) - _GLYPH_FILE_KEYS)
+            if unknown:
+                raise ValueError(
+                    f"{yaml_file} has top-level keys no build reads: {', '.join(map(str, unknown))}"
+                )
             if "metadata" in data:
                 metadata = data["metadata"]
-            if "glyphs" in data:
-                glyphs.update(data["glyphs"])
-            if "glyph_families" in data:
-                glyph_families.update(data["glyph_families"])
-            if "context_sets" in data:
-                context_sets.update(data["context_sets"])
-            if "kerning" in data:
-                kerning_defs.update(data["kerning"])
-            if "restore_isolated_form_overrides" in data:
-                restore_isolated_form_overrides.extend(data["restore_isolated_form_overrides"] or [])
-            if "predecessor_demote_overrides" in data:
-                predecessor_demote_overrides.extend(data["predecessor_demote_overrides"] or [])
-            if "trailing_demote_overrides" in data:
-                trailing_demote_overrides.extend(data["trailing_demote_overrides"] or [])
-            if not _STRUCTURAL_KEYS.intersection(data):
-                senior_kerning_rules.append(data)
+            glyphs.update(data.get("glyphs") or {})
+            kerning_defs.update(data.get("kerning") or {})
 
-    return {
-        "metadata": metadata,
-        "glyphs": glyphs,
-        "glyph_families": glyph_families,
-        "context_sets": context_sets,
-        "kerning": kerning_defs,
-        "senior_kerning": senior_kerning_rules,
-        "restore_isolated_form_overrides": restore_isolated_form_overrides,
-        "predecessor_demote_overrides": predecessor_demote_overrides,
-        "trailing_demote_overrides": trailing_demote_overrides,
-    }
-
-
-def _extract_feature_lookup_names(fea_code: str | None, feature_tag: str) -> list[str]:
-    if fea_code is None:
-        return []
-
-    names = []
-    in_feature = False
-    for line in fea_code.splitlines():
-        stripped = line.strip()
-        if not in_feature:
-            if stripped.startswith(f"feature {feature_tag} ") and stripped.endswith("{"):
-                in_feature = True
-            continue
-        if stripped == f"}} {feature_tag};":
-            break
-        if stripped.startswith("lookup ") and stripped.endswith("{"):
-            parts = stripped.split()
-            if len(parts) >= 2:
-                names.append(parts[1])
-    return names
+    return {"metadata": metadata, "glyphs": glyphs, "kerning": kerning_defs}
 
 
 def _write_if_changed(path: Path, data: bytes) -> bool:
@@ -171,83 +75,6 @@ def _write_if_changed(path: Path, data: bytes) -> bool:
         pass
     path.write_bytes(data)
     return True
-
-
-def _read_u16(data: bytes, offset: int) -> int:
-    return struct.unpack_from(">H", data, offset)[0]
-
-
-def _report_gsub_budget(font_path: Path, fea_code: str | None) -> None:
-    font = TTFont(font_path)
-    try:
-        reader = cast(Any, font.reader)
-        if "GSUB" not in font or reader is None or "GSUB" not in reader.tables:
-            return
-
-        record = reader.tables["GSUB"]
-        reader.file.seek(record.offset)
-        data = reader.file.read(record.length)
-        if len(data) < 10:
-            return
-
-        lookup_list_offset = _read_u16(data, 8)
-        lookup_count = _read_u16(data, lookup_list_offset)
-        lookup_offsets = [_read_u16(data, lookup_list_offset + 2 + 2 * i) for i in range(lookup_count)]
-
-        max_lookup_offset = max(lookup_offsets, default=0)
-        max_subtable_offset = 0
-        max_subtable_lookup_index: int | None = None
-        for lookup_index, lookup_offset in enumerate(lookup_offsets):
-            lookup_table_offset = lookup_list_offset + lookup_offset
-            subtable_count = _read_u16(data, lookup_table_offset + 4)
-            for subtable_index in range(subtable_count):
-                subtable_offset = _read_u16(
-                    data,
-                    lookup_table_offset + 6 + 2 * subtable_index,
-                )
-                if subtable_offset > max_subtable_offset:
-                    max_subtable_offset = subtable_offset
-                    max_subtable_lookup_index = lookup_index
-
-        lookup_list = font["GSUB"].table.LookupList
-        lookups = lookup_list.Lookup if lookup_list else []
-        subtable_total = sum(len(lookup.SubTable) for lookup in lookups)
-
-        print(
-            "  GSUB budget: "
-            f"{record.length:,} bytes, "
-            f"{lookup_count:,} lookups, "
-            f"{subtable_total:,} subtables"
-        )
-        print(
-            "  GSUB offset headroom: "
-            f"LookupList {65_535 - max_lookup_offset:,} bytes, "
-            f"subtable {65_535 - max_subtable_offset:,} bytes"
-            + (f" in lookup {max_subtable_lookup_index}" if max_subtable_lookup_index is not None else "")
-        )
-
-        feature_records = font["GSUB"].table.FeatureList.FeatureRecord
-        calt_indices = []
-        for feature_record in feature_records:
-            if feature_record.FeatureTag == "calt":
-                calt_indices = list(feature_record.Feature.LookupListIndex)
-                break
-        if not calt_indices:
-            return
-
-        calt_names = _extract_feature_lookup_names(fea_code, "calt")
-        rows = []
-        for position, lookup_index in enumerate(calt_indices):
-            lookup = lookups[lookup_index]
-            lookup_name = calt_names[position] if position < len(calt_names) else f"lookup[{lookup_index}]"
-            rows.append((len(lookup.SubTable), lookup_index, lookup_name))
-
-        top_rows = sorted(rows, reverse=True)[:5]
-        if top_rows:
-            top = ", ".join(f"{name}={subtable_count}" for subtable_count, _, name in top_rows)
-            print(f"  Largest calt lookups by subtable count: {top}")
-    finally:
-        font.close()
 
 
 def _resolve_codepoint(glyph_name: str, postscript_names: dict[str, int]) -> int | None:
@@ -267,48 +94,6 @@ def _resolve_codepoint(glyph_name: str, postscript_names: dict[str, int]) -> int
     return postscript_names.get(glyph_name)
 
 
-def build_cmap14(
-    variation_sequences: dict[str, dict[str, str]],
-    glyphs_def: dict[str, GlyphDef],
-    name_to_codepoint: dict[str, int],
-) -> cmap_format_14 | None:
-    if not variation_sequences:
-        return None
-
-    # Variation-sequence targets in metadata.yaml, such as `qsWay.half`, lack the modifiers `_synthesize_anchor_modifiers` adds, so the compiled stance is `qsWay.half.ex-y0`. Resolve each target against the compiled glyph set. A target that resolves to no single stance, such as `qsTea.half`, is skipped without a warning.
-    available_names = frozenset(glyphs_def)
-    family_names = family_names_from_compiled(available_names)
-    uvsDict = {}
-    for vs_cp, mappings in variation_sequences.items():
-        entries = []
-        for base_name, target_name in mappings.items():
-            base_cp = name_to_codepoint.get(base_name)
-            if base_cp is None:
-                continue
-            try:
-                resolved = resolve_compiled_name(target_name, family_names, available_names)
-            except ValueError:
-                resolved = target_name
-            if resolved not in glyphs_def:
-                resolved = get_base_glyph_name(resolved)
-            if resolved not in glyphs_def:
-                continue
-            entries.append((base_cp, resolved))
-        if entries:
-            uvsDict[vs_cp] = entries
-
-    if not uvsDict:
-        return None
-
-    subtable = cmap_format_14(14)
-    subtable.platformID = 0  # pyright: ignore[reportAttributeAccessIssue]
-    subtable.platEncID = 5  # pyright: ignore[reportAttributeAccessIssue]
-    subtable.language = 0
-    subtable.cmap = {}
-    subtable.uvsDict = uvsDict
-    return subtable
-
-
 def collect_kerning_groups(glyphs_def: dict[str, GlyphDef]) -> dict[str, list[str]]:
     groups = {}
     for glyph_name, glyph_def in glyphs_def.items():
@@ -324,15 +109,8 @@ def generate_kern_fea(
     kerning_groups: dict[str, list[str]],
     all_glyph_names: list[str],
     pixel_width: int,
-    copy_by_bare: dict[str, str] | None = None,
 ) -> str:
-    """Emit the `kern` feature for `kerning_defs`. `copy_by_bare` maps each letter's bare glyph to its ss10 copy. A copy is kerned wherever its bare glyph is and nowhere else, whatever the rule's selectors match by name."""
-    copies = copy_by_bare or {}
-    copy_names = set(copies.values())
-
-    def with_copies(glyphs: list[str]) -> list[str]:
-        kept = [g for g in glyphs if g not in copy_names]
-        return kept + [copies[g] for g in kept if g in copies]
+    """Emit the `kern` feature for `kerning_defs`: one lookup per rule, kerning its left glyphs before its right glyphs by `value` pixels. A rule with no left side kerns every glyph that does not carry its tag in a `kerning` list (`collect_kerning_groups`)."""
 
     def matches_prefix(glyph: str, prefix: str) -> bool:
         return glyph == prefix or glyph.startswith(prefix + ".")
@@ -343,7 +121,6 @@ def generate_kern_fea(
     def subtract_prefixes(glyphs: list[str], prefixes: list[str]) -> list[str]:
         return [g for g in glyphs if not any(matches_prefix(g, p) for p in prefixes)]
 
-    preamble = []
     lines = ["feature kern {"]
     for tag_name, definition in kerning_defs.items():
         if "left_family" in definition:
@@ -357,7 +134,6 @@ def generate_kern_fea(
             left_glyphs = [g for g in all_glyph_names if g not in excluded]
         if "except_left" in definition:
             left_glyphs = subtract_prefixes(left_glyphs, definition["except_left"])
-        left_glyphs = with_copies(left_glyphs)
         if not left_glyphs:
             continue
         if "right_group" in definition:
@@ -371,27 +147,16 @@ def generate_kern_fea(
             right_glyphs = definition["right"]
         if "except_right" in definition and "right_group" not in definition:
             right_glyphs = subtract_prefixes(right_glyphs, definition["except_right"])
-        right_glyphs = with_copies(right_glyphs)
         if not right_glyphs:
             continue
         value = definition["value"] * pixel_width
         left = " ".join(sorted(left_glyphs))
         right = " ".join(sorted(right_glyphs))
-        if definition.get("right_group") == "noentry":
-            val_lookup = f"kern_{tag_name}_val"
-            preamble.append(f"lookup {val_lookup} {{")
-            for g in sorted(left_glyphs):
-                preamble.append(f"    pos {g} <0 0 {value} 0>;")
-            preamble.append(f"}} {val_lookup};")
-            lines.append(f"    lookup kern_{tag_name} {{")
-            lines.append(f"        pos [{left}]' lookup {val_lookup} uni200C;")
-            lines.append(f"    }} kern_{tag_name};")
-        else:
-            lines.append(f"    lookup kern_{tag_name} {{")
-            lines.append(f"        pos [{left}] [{right}] {value};")
-            lines.append(f"    }} kern_{tag_name};")
+        lines.append(f"    lookup kern_{tag_name} {{")
+        lines.append(f"        pos [{left}] [{right}] {value};")
+        lines.append(f"    }} kern_{tag_name};")
     lines.append("} kern;")
-    return "\n".join(preamble + [""] + lines) if preamble else "\n".join(lines)
+    return "\n".join(lines)
 
 
 def generate_ccmp_fea(glyphs_def: dict[str, GlyphDef]) -> str | None:
@@ -795,27 +560,6 @@ def resolve_composite(
     return result_bitmap, result_y_offset
 
 
-_NAMER_DOT = "periodcentered"
-_NAMER_DOT_LOWERED = "periodcentered.lowered"
-
-
-def _resolve_short_families(context_sets: dict[str, Any]) -> set[str]:
-    """Collect the family names in the `shorts` context set, following any nested context-set references."""
-    families: set[str] = set()
-
-    def walk(items: Any) -> None:
-        for item in items or []:
-            if not isinstance(item, dict):
-                continue
-            if "family" in item:
-                families.add(item["family"])
-            elif "context_set" in item:
-                walk(context_sets.get(item["context_set"], []))
-
-    walk(context_sets.get("shorts", []))
-    return families
-
-
 def _is_orthodox_letter_or_digit(codepoint: int | None) -> bool:
     """True for ASCII and Latin letters and digits, the glyphs after which a `·` is a mid-word middot and not a namer dot. The Quikscript letters are excluded, so in back-to-back names like ·Bay·No the second dot is still lowered."""
     if codepoint is None:
@@ -829,39 +573,9 @@ def _is_orthodox_letter_or_digit(codepoint: int | None) -> bool:
     return in_latin_range and chr(codepoint).isalnum()
 
 
-def _namer_dot_calt_fea(
-    glyph_data: GlyphData,
-    join_glyphs: dict[str, JoinGlyph],
-    glyph_order: list[str],
-    name_to_codepoint: dict[str, int],
-) -> str | None:
-    """Build the namer-dot `calt` for a proportional variant. The follower class is every compiled short-family stance present in this variant (base stances only in Junior, base plus contextual variants in Senior), plus ligatures whose lead component is a short."""
-    order = set(glyph_order)
-    if _NAMER_DOT_LOWERED not in order or _NAMER_DOT not in order:
-        return None
-    short_families = _resolve_short_families(glyph_data.get("context_sets", {}))
-    if not short_families:
-        return None
-
-    followers = []
-    for name in glyph_order:
-        meta = join_glyphs.get(name)
-        if meta is None:
-            continue
-        family = meta.family
-        if family is None and meta.sequence:
-            lead = join_glyphs.get(meta.sequence[0])
-            family = lead.family if lead else None
-        if family in short_families:
-            followers.append(name)
-
-    midword = [name for name in glyph_order if _is_orthodox_letter_or_digit(name_to_codepoint.get(name))]
-    return emit_namer_dot_calt(_NAMER_DOT, _NAMER_DOT_LOWERED, followers, midword)
-
-
 @dataclass(frozen=True)
 class _GlyphInventory:
-    """A variant's glyph definitions (with Departure Mono's merged in for mono), glyph order, cmap, and code point for each glyph name. `build_font` and `compile_senior_otl` both use it, so the Senior layout tables are compiled against the glyph order the Senior fonts have."""
+    """A variant's glyph definitions (with Departure Mono's merged in for mono), glyph order, cmap, and code point for each glyph name."""
 
     glyphs_def: dict[str, GlyphDef]
     glyph_order: list[str]
@@ -880,7 +594,7 @@ def _glyph_inventory(compiled: CompiledGlyphSet, variant: str, pixel_height: int
     else:
         dm_codepoints = {}
 
-    # `.notdef` must come first in the glyph order. The mono build excludes `.prop` glyphs. The IR already keeps contextual stances out of mono and Junior, so no other name filter is needed.
+    # `.notdef` must come first in the glyph order. The mono build excludes `.prop` glyphs.
     glyph_names = [
         name
         for name in glyphs_def.keys()
@@ -924,195 +638,73 @@ def _glyph_inventory(compiled: CompiledGlyphSet, variant: str, pixel_height: int
 def _assemble_fea(
     glyph_data: GlyphData,
     inventory: _GlyphInventory,
-    join_glyphs: dict[str, JoinGlyph],
-    ss10_copies: dict[str, JoinGlyph],
     variant: str,
     pixel_width: int,
     pixel_height: int,
     quikscript_fea: str | None,
 ) -> str | None:
-    """Return the feature file a variant compiles, or None for mono, which copies Departure Mono's tables. `quikscript_fea` is the caller's Quikscript feature code, which goes after `mark` (see `build_font`): Senior's join code, or Junior's stylistic sets and namer dot. When it is None, a Senior build emits its own join code and a Junior build its own stylistic sets from the compiled glyph set. `ss10_copies` (empty outside Senior) are kerned like their bare glyphs and are in the namer-dot follower class like their bare glyphs."""
-    is_proportional = variant != "mono"
-    is_senior = variant == "senior"
+    """Return the feature file a variant compiles, or None for mono, which copies Departure Mono's tables. Junior and Senior compile the Latin `kern`, `ccmp` and `mark` features their records give, then `quikscript_fea`, the caller's Quikscript feature code (see `build_font`)."""
+    if variant == "mono":
+        return None
     glyphs_def = inventory.glyphs_def
-    copy_by_bare = {meta.base_name: name for name, meta in ss10_copies.items()}
     fea_code_parts = []
 
     kerning_defs = glyph_data.get("kerning", {})
-    if is_proportional and kerning_defs:
+    if kerning_defs:
         kerning_groups = collect_kerning_groups(glyphs_def)
         fea_code_parts.append(
-            generate_kern_fea(
-                kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width, copy_by_bare
-            )
+            generate_kern_fea(kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width)
         )
 
-    if is_proportional:
-        ccmp_fea = generate_ccmp_fea(glyphs_def)
-        if ccmp_fea:
-            fea_code_parts.append(ccmp_fea)
+    ccmp_fea = generate_ccmp_fea(glyphs_def)
+    if ccmp_fea:
+        fea_code_parts.append(ccmp_fea)
 
-        mark_fea = generate_mark_fea(glyphs_def, pixel_width, pixel_height)
-        if mark_fea:
-            fea_code_parts.append(mark_fea)
+    mark_fea = generate_mark_fea(glyphs_def, pixel_width, pixel_height)
+    if mark_fea:
+        fea_code_parts.append(mark_fea)
 
-    if is_senior:
-        # The Senior FEA is the same for Regular and Bold, and emitting it takes ≈1.8s, so `main()` emits it once and passes it as `quikscript_fea`. A caller that builds a Senior font directly, such as a test, gets it emitted here.
-        if quikscript_fea is None:
-            quikscript_fea = build_senior_fea(glyph_data, join_glyphs, pixel_width, pixel_height)
-        if quikscript_fea:
-            fea_code_parts.append(quikscript_fea)
-
-        senior_kerning_rules = glyph_data.get("senior_kerning", [])
-        if senior_kerning_rules:
-            kerning_groups = collect_kerning_groups(glyphs_def)
-            senior_kerning_defs = {f"senior_{i}": rule for i, rule in enumerate(senior_kerning_rules)}
-            fea_code_parts.append(
-                generate_kern_fea(
-                    senior_kerning_defs, kerning_groups, list(glyphs_def.keys()), pixel_width, copy_by_bare
-                )
-            )
-    elif is_proportional:
-        ss_fea = quikscript_fea if quikscript_fea is not None else emit_quikscript_ss(join_glyphs)
-        if ss_fea:
-            fea_code_parts.append(ss_fea)
-
-    if is_proportional:
-        # The namer-dot calt goes last so its lookup runs after the join lookups. The join rules, some of which list `periodcentered` in `not_after`, see the dot unchanged, and the dot is lowered before a Short letter only after the join lookups have chosen that letter's stance. In Senior this is a second `feature calt {}` block, which feaLib merges with the first. In Junior it is the only calt.
-        namer_dot_fea = _namer_dot_calt_fea(
-            glyph_data, {**join_glyphs, **ss10_copies}, inventory.glyph_order, inventory.name_to_codepoint
-        )
-        if namer_dot_fea:
-            fea_code_parts.append(namer_dot_fea)
+    if quikscript_fea:
+        fea_code_parts.append(quikscript_fea)
 
     if not fea_code_parts:
         return None
     return "\n\n".join(fea_code_parts)
 
 
-SENIOR_OTL_TAGS = ("GDEF", "GSUB", "GPOS")
-
-
 @dataclass(frozen=True)
 class CompiledSeniorOTL:
-    """The Senior layout tables as compiled bytes, keyed by tag, with the `usMaxContext` value feaLib computes for them. The font that receives the tables does not run feaLib, so it takes its OS/2 `usMaxContext` from here."""
+    """The Senior layout tables as compiled bytes, keyed by tag, with the `usMaxContext` value feaLib computes for them. The font that receives the tables does not run feaLib, so it takes its OS/2 `usMaxContext` from here; rebuild/pipeline/compile_font.py hands Bold the tables Regular compiled this way."""
 
     tables: dict[str, bytes]
     max_context: int
 
 
-def compile_senior_otl(
-    glyph_data: GlyphData,
-    compiled: CompiledGlyphSet,
-    quikscript_fea: str | None,
-    pixel_width: int | None = None,
-) -> CompiledSeniorOTL:
-    """Compile the Senior GDEF, GSUB, and GPOS once, on a font that has only the glyph order. Senior Regular and Bold share their glyph order and feature file, so these tables are byte-identical, and the feaLib compile is the slowest and most memory-intensive step of a Senior build. `main()` runs this in a pool worker beside the other builds and passes the result to both Senior jobs as `build_font(senior_otl=…)`."""
-    metadata = glyph_data.get("metadata", {})
-    pixel_height: int = metadata["pixel_size"]
-    if pixel_width is None:
-        pixel_width = pixel_height
-    inventory = _glyph_inventory(compiled, "senior", pixel_height)
-    fea_code = _assemble_fea(
-        glyph_data,
-        inventory,
-        compiled.join_glyphs,
-        compiled.ss10_copies,
-        "senior",
-        pixel_width,
-        pixel_height,
-        quikscript_fea,
-    )
-    assert fea_code is not None, "the senior build always carries feature code"
-    font = TTFont()
-    font.setGlyphOrder(inventory.glyph_order)
-    addOpenTypeFeaturesFromString(font, fea_code)
-    tables = {tag: font.getTableData(tag) for tag in SENIOR_OTL_TAGS if tag in font}
-    return CompiledSeniorOTL(tables, maxCtxFont(font))
-
-
-def build_senior_fea(
-    glyph_data: GlyphData,
-    join_glyphs: dict[str, JoinGlyph],
-    pixel_width: int,
-    pixel_height: int,
-) -> str | None:
-    """Emit the Senior feature code (curs, calt, ss…) for the compiled join glyphs. It is the same for Regular and Bold, so `main()` emits it once for both."""
-    # The override tables name stances without the anchor-Y modifiers `_synthesize_anchor_modifiers` adds, so `resolve_compiled_name` maps each name to its compiled stance.
-    senior_family_names = set(glyph_data.get("glyph_families", {}))
-    senior_available_names = frozenset(join_glyphs)
-
-    def _resolve(name: str) -> str:
-        return resolve_compiled_name(name, senior_family_names, senior_available_names)
-
-    raw_restore_isolated_form = glyph_data.get("restore_isolated_form_overrides", []) or []
-    restore_isolated_form_tuples = tuple(
-        (
-            _resolve(entry["prior"]),
-            _resolve(entry["target"]),
-            _resolve(entry["follower"]),
-            _resolve(entry["isolated_form"]),
-        )
-        for entry in raw_restore_isolated_form
-    )
-    raw_pred_demote = glyph_data.get("predecessor_demote_overrides", []) or []
-    predecessor_demote_tuples = tuple(
-        (
-            _resolve(entry["backtrack_stance"]) if "backtrack_stance" in entry else None,
-            _resolve(entry["predecessor_stance"]),
-            _resolve(entry["trigger_stance"]),
-            _resolve(entry["isolated_form"]),
-        )
-        for entry in raw_pred_demote
-    )
-    raw_trailing_demote = glyph_data.get("trailing_demote_overrides", []) or []
-    trailing_demote_tuples = tuple(
-        (
-            _resolve(entry["leader_stance"]),
-            _resolve(entry["trailing_stance"]),
-            _resolve(entry["isolated_form"]),
-        )
-        for entry in raw_trailing_demote
-    )
-    return emit_quikscript_senior_features(
-        join_glyphs,
-        pixel_width,
-        pixel_height,
-        restore_isolated_form_overrides=restore_isolated_form_tuples,
-        predecessor_demote_overrides=predecessor_demote_tuples,
-        trailing_demote_overrides=trailing_demote_tuples,
-    )
-
-
 def build_font(
     glyph_data: GlyphData,
-    output_path: Path | None = None,
     variant: str = "mono",
     pixel_width: int | None = None,
     bold: bool = False,
     quikscript_fea: str | None = None,
     compiled: CompiledGlyphSet | None = None,
     senior_otl: CompiledSeniorOTL | None = None,
-    quiet: bool = False,
 ) -> TTFont:
-    """Build a CFF OpenType font for one variant and style, write it to *output_path* unless that is None, and return the TTFont.
+    """Build a CFF OpenType font for one variant and style and return the unsaved TTFont, its feature code in the `_fea_code` attribute (None for Mono). The callers save it and the feature code themselves.
 
     Args:
         variant: "mono", "junior", or "senior".
         pixel_width: Width of each pixel in font units. Defaults to metadata["pixel_size"], which is always the pixel height.
         bold: Widen each drawn pixel by `pixel_width // 2` units to the right, and name and style-link the font as Bold. The pixel grid, advance widths, and anchors do not change.
-        quikscript_fea: The caller's Quikscript feature code, which goes after `mark`: for Senior, the join code (`build_senior_fea`), and for Junior, the stylistic sets and the namer dot (rebuild/pipeline/build_family.py writes Junior's from the runes). Mono ignores it. When None, a Senior or Junior build emits its own from the compiled glyph set.
-        compiled: The variant's compiled glyph set. `bold` does not affect it, so `main()` compiles Senior once for both Senior jobs. When None, the build compiles its own.
-        senior_otl: The Senior GDEF, GSUB, and GPOS from `compile_senior_otl`, used only for Senior. When given, the build writes these bytes instead of compiling the feature code.
-        quiet: Print nothing: no save or feature-code lines, no GSUB budget, and no summary.
+        quikscript_fea: The caller's Quikscript feature code, which goes after `mark`: for Senior, the rune FEA (rebuild/pipeline/compile_font.py), and for Junior, the stylistic sets and the namer dot (rebuild/pipeline/build_family.py). Mono ignores it.
+        compiled: The variant's records (`glyph_records.compile_glyph_records`). `bold` does not affect them, so a caller building both styles compiles them once. When None, the build compiles its own.
+        senior_otl: Senior's GDEF, GSUB and GPOS as another build of the same glyph order compiled them, used only for Senior. When given, the build writes these bytes instead of compiling the feature code.
     """
     metadata = glyph_data.get("metadata", {})
     is_proportional = variant != "mono"
     is_senior = variant == "senior"
     style_name = "Bold" if bold else "Regular"
     if compiled is None:
-        compiled = compile_glyph_set(glyph_data, variant)
-    join_glyphs = compiled.join_glyphs
+        compiled = CompiledGlyphSet(compile_glyph_records(glyph_data, variant))
 
     base_font_name = metadata["font_name"]
     suffixes = {"mono": " Mono", "junior": " Sans Junior", "senior": " Sans Senior"}
@@ -1126,7 +718,6 @@ def build_font(
     inventory = _glyph_inventory(compiled, variant, pixel_height)
     glyphs_def = inventory.glyphs_def
     glyph_order = inventory.glyph_order
-    name_to_codepoint = inventory.name_to_codepoint
     ascender = metadata["ascender"]
     descender = metadata["descender"]
     cap_height = metadata["cap_height"]
@@ -1341,21 +932,7 @@ def build_font(
     if bold:
         fb.font["head"].macStyle |= 0x01  # pyright: ignore[reportAttributeAccessIssue]  # Bold bit
 
-    vs_defs = metadata.get("variation_sequences", {})
-    cmap14 = build_cmap14(vs_defs, glyphs_def, name_to_codepoint)
-    if cmap14:
-        fb.font["cmap"].tables.append(cmap14)
-
-    fea_code = _assemble_fea(
-        glyph_data,
-        inventory,
-        join_glyphs,
-        compiled.ss10_copies,
-        variant,
-        pixel_width,
-        pixel_height,
-        quikscript_fea,
-    )
+    fea_code = _assemble_fea(glyph_data, inventory, variant, pixel_width, pixel_height, quikscript_fea)
     if fea_code is not None:
         if is_senior and senior_otl is not None:
             for tag, data in senior_otl.tables.items():
@@ -1368,16 +945,6 @@ def build_font(
         else:
             addOpenTypeFeaturesFromString(fb.font, fea_code)
 
-        if output_path is not None:
-            fea_path = output_path.with_suffix(".fea")
-            fea_saved = _write_if_changed(fea_path, (fea_code + "\n").encode())
-            if not quiet:
-                print(
-                    f"  Feature code saved to: {fea_path}"
-                    if fea_saved
-                    else f"  Feature code unchanged: {fea_path}"
-                )
-
     # The mono build has no feature code of its own. It copies Departure Mono's layout tables so DM's shaping (its substitutions, such as ccmp and locl, and its mark positioning) works for the DM glyphs. The Quikscript letters are in none of these lookups.
     if variant == "mono":
         assert fea_code is None, "mono build should emit no authored FEA; DM owns its OTL"
@@ -1387,54 +954,9 @@ def build_font(
         for tag in ("GDEF", "GSUB", "GPOS"):
             fb.font[tag] = dm_font[tag]  # pyright: ignore[reportArgumentType]
 
-    if output_path is not None:
-        buffer = io.BytesIO()
-        if variant == "mono":
-            with _quiet_dm_coverage_sort_warning():
-                fb.save(buffer)
-        else:
-            fb.save(buffer)
-        font_saved = _write_if_changed(output_path, buffer.getvalue())
-        if not quiet:
-            print(f"Font saved to: {output_path}" if font_saved else f"Font unchanged: {output_path}")
-            if is_senior:
-                _report_gsub_budget(output_path, fea_code)
-
-    if not quiet:
-        print(f"  Variant: {variant}")
-        print(f"  Glyphs: {len(glyph_order)}")
-        print(f"  Units per em: {units_per_em}")
-        print(f"  Pixel: {pixel_width}×{pixel_height} units")
-
     font = fb.font
     font._fea_code = fea_code  # pyright: ignore[reportAttributeAccessIssue]
     return font
-
-
-_CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
-
-
-def _show_build_warning(
-    message: Warning | str,
-    category: type[Warning],
-    filename: str,
-    lineno: int,
-    file: Any = None,
-    line: str | None = None,
-) -> None:
-    if issubclass(category, UserWarning):
-        name = category.__name__
-        if name.endswith("Warning"):
-            name = name[: -len("Warning")]
-        tag = _CAMEL_BOUNDARY.sub("-", name).lower()
-        sys.stdout.write(f"WARN[{tag}]: {message}\n")
-        return
-    sys.stdout.write(warnings.formatwarning(message, category, filename, lineno, line))
-
-
-def _install_warning_hook() -> None:
-    warnings.filterwarnings("always", category=UserWarning)
-    warnings.showwarning = _show_build_warning
 
 
 class _DropCoverageSortMessage(logging.Filter):
@@ -1452,101 +974,3 @@ def _quiet_dm_coverage_sort_warning() -> Any:
         yield
     finally:
         logger.removeFilter(log_filter)
-
-
-def _build_one_font(
-    input_path_str: str,
-    output_path_str: str,
-    variant: str,
-    bold: bool,
-    compiled: CompiledGlyphSet | None = None,
-    quikscript_fea: str | None = None,
-    senior_otl: CompiledSeniorOTL | None = None,
-) -> None:
-    # Pool worker entry point. Each worker reloads the glyph data from disk (≈15 ms) so the parent does not have to pickle it. The Senior jobs receive the shared compiled glyph set, feature code, and layout tables.
-    _install_warning_hook()
-    glyph_data = load_glyph_data(Path(input_path_str))
-    build_font(
-        glyph_data,
-        Path(output_path_str),
-        variant=variant,
-        bold=bold,
-        quikscript_fea=quikscript_fea,
-        compiled=compiled,
-        senior_otl=senior_otl,
-    )
-
-
-def _compile_senior_otl_job(
-    input_path_str: str, compiled: CompiledGlyphSet, quikscript_fea: str | None
-) -> CompiledSeniorOTL:
-    _install_warning_hook()
-    glyph_data = load_glyph_data(Path(input_path_str))
-    return compile_senior_otl(glyph_data, compiled, quikscript_fea)
-
-
-def main() -> None:
-    _install_warning_hook()
-    if len(sys.argv) < 2:
-        print("Usage: uv run python tools/build_font.py <glyph_data.yaml|glyph_data/> [output_dir]")
-        print("\nOutputs:")
-        print("  output_dir/AbbotsMortonSpaceportMono-Regular.otf")
-        print("  output_dir/AbbotsMortonSpaceportMono-Bold.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansJunior-Regular.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansJunior-Bold.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansSenior-Regular.otf")
-        print("  output_dir/AbbotsMortonSpaceportSansSenior-Bold.otf")
-        print("\nExample:")
-        print("  uv run python tools/build_font.py glyph_data/ build/")
-        sys.exit(1)
-
-    input_path = Path(sys.argv[1])
-
-    if len(sys.argv) > 2:
-        output_dir = Path(sys.argv[2])
-    else:
-        output_dir = Path(".")
-
-    if not input_path.exists():
-        print(f"Error: Input path not found: {input_path}")
-        sys.exit(1)
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Senior Regular and Bold share one compiled glyph set, one feature file, and one set of layout tables. The glyph set and feature code are made here. The layout tables, which need the feature code, are compiled in a pool worker beside the mono and Junior builds. The two Senior jobs then only draw outlines.
-    parent_data = load_glyph_data(input_path)
-    pixel_size: int = parent_data.get("metadata", {})["pixel_size"]
-    senior_compiled = compile_glyph_set(parent_data, "senior")
-    shared_senior_fea = build_senior_fea(parent_data, senior_compiled.join_glyphs, pixel_size, pixel_size)
-
-    families = (
-        ("AbbotsMortonSpaceportMono", "mono"),
-        ("AbbotsMortonSpaceportSansJunior", "junior"),
-        ("AbbotsMortonSpaceportSansSenior", "senior"),
-    )
-    jobs: list[tuple[str, str, str, bool]] = []
-    for style_suffix, bold in (("-Regular", False), ("-Bold", True)):
-        for file_prefix, variant in families:
-            output_path = output_dir / f"{file_prefix}{style_suffix}.otf"
-            jobs.append((str(input_path), str(output_path), variant, bold))
-    other_jobs = [job for job in jobs if job[2] != "senior"]
-    senior_jobs = [job for job in jobs if job[2] == "senior"]
-
-    # Half the machine's cores, because the pool often shares the machine: when the test suite's `conftest.py` runs this build, pyright runs beside it, and `build_check_html.py` runs that suite in-process.
-    max_workers = max(1, min(len(other_jobs) + 1, usable_cores() // 2))
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        otl_future = executor.submit(
-            _compile_senior_otl_job, str(input_path), senior_compiled, shared_senior_fea
-        )
-        futures = [executor.submit(_build_one_font, *job) for job in other_jobs]
-        senior_otl = otl_future.result()
-        futures.extend(
-            executor.submit(_build_one_font, *job, senior_compiled, shared_senior_fea, senior_otl)
-            for job in senior_jobs
-        )
-        for future in futures:
-            future.result()
-
-
-if __name__ == "__main__":
-    main()

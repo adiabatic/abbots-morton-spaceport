@@ -1,6 +1,6 @@
 """Build Mono and Junior, Regular and Bold, from the rune files and the non-Quikscript glyph files (`build_mono_and_junior`). The command that publishes the six shipped fonts into site/, rebuild/tools/build_fonts.py (`make all`), builds these two through it and takes Senior from the rebuild's own build.
 
-Mono and Junior read the spec (`load_family_spec`), the font's non-Quikscript part (`compile_font.load_font_sources`) and, for Mono, the Departure Mono glyphs and layout tables `tools/build_font.py` copies in, and nothing else: no settlement table, so they build while the tables are stale or absent, and nothing of the old engine's family and stance compile, Senior emitter or join analysis. `family_glyphs` turns the runes into legacy `glyphs:` records beside the non-Quikscript ones, and `tools/build_font.build_font` compiles them from a glyph set that holds only those records. A record keyed by a bare glyph name is a Mono drawing and one keyed `<name>.prop` a Junior drawing, as in the glyph files, so Junior takes a bare record only where no `.prop` record has its name.
+Mono and Junior read the spec (`load_family_spec`), the font's non-Quikscript part (`compile_font.load_font_sources`) and, for Mono, the Departure Mono glyphs and layout tables `tools/build_font.py` copies in, and nothing else: no settlement table, so they build while the tables are stale or absent. `family_glyphs` turns the runes into glyph records (`tools/glyph_records.py`) beside the non-Quikscript ones, and `tools/build_font.build_font` compiles them. A record keyed by a bare glyph name is a Mono drawing and one keyed `<name>.prop` a Junior drawing, as in the glyph files, so Junior takes a bare record only where no `.prop` record has its name.
 
 - Each letter's Mono drawing is its rune's `mono:` block, and its Junior drawing its isolated cell (`geometry.isolated_cell`), drawn as `run_m1.mint_raw_glyphs` draws Senior's raw cmap glyph. A ligature forms only in Senior, so neither font holds a ligature glyph, nor any glyph no text reaches.
 - A variation sequence reaches the fonts its registry record's `fonts:` names (`model.ScriptRegistry.variation_sequences`) as a cmap format 14 entry (`compile_font.add_variation_sequences`). Its Junior glyph is drawn and named as Senior's (`surface.variation_plan`, `settle.cell_label`), and its Mono glyph, under the same name, is the stance's base bitmap, which must be `MONO_COLUMNS` wide.
@@ -182,17 +182,11 @@ def _namer_dot_fea(followers: Iterable[str], midword: Iterable[str]) -> str | No
 
 
 def _glyph_data(sources: compile_font.FontSources, family: FamilyGlyphs) -> dict[str, Any]:
-    """The glyph-data dict `tools/build_font.build_font` reads: the non-Quikscript records and the runes' beside them, the metadata without its variation sequences, which come from the registry, and the Latin kern rules."""
+    """The glyph-data dict `tools/build_font.build_font` reads: the non-Quikscript records and the runes' beside them, the metadata, and the Latin kern rules."""
     return {
-        "metadata": {key: value for key, value in sources.metadata.items() if key != "variation_sequences"},
+        "metadata": dict(sources.metadata),
         "glyphs": {**sources.glyphs, **family.records},
-        "glyph_families": {},
-        "context_sets": {},
         "kerning": dict(sources.kerning),
-        "senior_kerning": [],
-        "restore_isolated_form_overrides": [],
-        "predecessor_demote_overrides": [],
-        "trailing_demote_overrides": [],
     }
 
 
@@ -211,7 +205,7 @@ def build_mono_and_junior(
 ) -> list[Path]:
     """Build the fonts `fonts` names of Mono and Junior, Regular and Bold, from the runes and glyph files under `root` into `out_dir` under their shipped file names, with Junior's `.fea` sidecar beside it, and return the font paths. A font whose bytes are already on disk is left alone (`tools/build_font._write_if_changed`)."""
     import build_font as builder
-    from glyph_compiler import CompiledGlyphSet, _compile_legacy_glyphs
+    from glyph_records import CompiledGlyphSet, compile_glyph_records
 
     if not fonts:
         return []
@@ -224,19 +218,15 @@ def build_mono_and_junior(
     junior_code = junior_fea(spec, family, sources.midword_glyphs())
     written: list[Path] = []
     for font in fonts:
-        compiled = CompiledGlyphSet(
-            legacy_glyphs=_compile_legacy_glyphs(cast(Any, glyph_data), font), join_glyphs={}, glyph_meta={}
-        )
+        compiled = CompiledGlyphSet(compile_glyph_records(cast(Any, glyph_data), font))
         for style, bold in STYLES:
             path = out_dir / font_file_name(font, style)
             built = builder.build_font(
                 cast(Any, glyph_data),
-                None,
                 variant=font,
                 bold=bold,
                 quikscript_fea=junior_code if font == "junior" else None,
                 compiled=compiled,
-                quiet=True,
             )
             try:
                 compile_font.add_variation_sequences(built, family.sequences[font])

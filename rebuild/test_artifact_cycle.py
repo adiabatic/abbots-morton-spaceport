@@ -2623,7 +2623,7 @@ def test_make_test_exempt_classification():
     ):
         assert ac.make_test_exempt(path), path
     for path in (
-        "glyph_data/quikscript.yaml",
+        "glyph_data/latin_letters.yaml",
         "glyph_data/punctuation.yaml",
         "tools/build_font.py",
         "test/test_outlines.py",

@@ -27,18 +27,5 @@ metadata:
   # 6 pixels, the top of flat lowercase letters such as x and e. Matches Departure Mono.
   x_height: 300
 
-  variation_sequences:
-    0xFE00:  # VS1: alternate forms
-      qsUtter: qsUtter.alt
-      qsNo: qsNo.alt
-    0xFE01:  # VS2: half-letters
-      qsPea: qsPea.prop.half
-      qsTea: qsTea.half
-      qsDay: qsDay.half
-      qsHe: qsHe.half
-      qsWay: qsWay.half
-      qsWhy: qsWhy.half
-      qsZoo: qsZoo.half
-
   # Name ID 19, the text font managers show in previews.
   sample_text: "\uE657\uE65A \uE65B \uE657 \uE661\uE673 \uE652 \uE653 \uE670" # reads "this is the way to do it"

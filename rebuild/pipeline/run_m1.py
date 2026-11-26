@@ -1548,7 +1548,6 @@ def _run_glyph_chain(
         "kern_rules": len(kern_plan.rules),
         **_defect_summary_fields(defect_report),
         "variation_sequences": list(variation.report),
-        "latin_kern_rules_left_out": list(sources.dropped_kerning),
         "font": str(font_path),
         "bold_font": str(bold_path),
     }

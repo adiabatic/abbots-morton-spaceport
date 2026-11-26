@@ -244,7 +244,7 @@ MAKE_TEST_RECIPE_PINS = ("FORCE=",)
 def make_test_exempt(path: str) -> bool:
     """Return whether a repo-relative path is outside gate:make-test's input closure. Each exemption follows from what the gate runs: pyright, and pytest test/ site/, whose session publishes the six fonts into site/ before it collects (rebuild/tools/build_fonts.py).
 
-    Nothing the gate runs reads the exempt trees as files, apart from `MAKE_TEST_REBUILD_FILES`, which the exemption leaves in the closure, and the inputs of the published fonts, which `make_test_font_lines` covers. test/, site/, tools/ and conftest.py read no rune file, and reach the rest of rebuild/ through the root conftest's imports of rebuild/tools/ leaf modules (`CONFTEST_EDGES` in rebuild/test_contracts_closure.py lists them) and through the publish, which runs in a child. The leaf modules are peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, suite_fonts for the font paths, and pyright_gate for the type check's own skip; none of them can change what the suite asserts, and the rebuild suite tests each of them. The publish reads the runes and the pipeline, but the fonts it writes change only with what `make_test_font_lines` keys on (the rebuild's Senior, and Mono's and Junior's code and data), so every other edit under rebuild/ or glyph_data/runes/ stays outside the closure. Markdown is not an input to any gate. .vscode/ is editor configuration, and no import reaches its schema files: tools/quikscript_ir.py names them only in the error messages it raises. .github/ is CI, which runs the suite and is not read by it.
+    Nothing the gate runs reads the exempt trees as files, apart from `MAKE_TEST_REBUILD_FILES`, which the exemption leaves in the closure, and the inputs of the published fonts, which `make_test_font_lines` covers. test/, site/, tools/ and conftest.py read no rune file, and reach the rest of rebuild/ through the root conftest's imports of rebuild/tools/ leaf modules (`CONFTEST_EDGES` in rebuild/test_contracts_closure.py lists them) and through the publish, which runs in a child. The leaf modules are peak_rss for the summary line, cycle_timings for the pool record, memory_budget for the pool width, suite_fonts for the font paths, and pyright_gate for the type check's own skip; none of them can change what the suite asserts, and the rebuild suite tests each of them. The publish reads the runes and the pipeline, but the fonts it writes change only with what `make_test_font_lines` keys on (the rebuild's Senior, and Mono's and Junior's code and data), so every other edit under rebuild/ or glyph_data/runes/ stays outside the closure. Markdown is not an input to any gate. .vscode/ is editor configuration, which no test reads. .github/ is CI, which runs the suite and is not read by it.
 
     reference/csur/ and the reference PDFs and PNGs are human reference material that nothing compiles. reference/DepartureMono-Regular.otf stays in the closure, because tools/build_font.py bundles it into Mono and test/test_mono_matches_departure_mono.py shapes against it. site/icons/, site/*.svg, site/gear-menu.js and site/shared.css are browser assets the served pages load, and site/print.typ is the source `make all` typesets; nothing the gate runs reads any of them. site/shared.js stays, because test/test_shared.py runs it under node. The dotfile configs and the OFL text are read by git, the linters and the formatters, not by the suite.
 
@@ -407,10 +407,7 @@ REBUILD_GATE_HARNESS_PATHS = (
     "site/the-manual.html",
     "tools/build_font.py",
     "tools/departure_mono_import.py",
-    "tools/glyph_compiler.py",
-    "tools/quikscript_fea.py",
-    "tools/quikscript_ir.py",
-    "tools/quikscript_join_analysis.py",
+    "tools/glyph_records.py",
 )
 
 

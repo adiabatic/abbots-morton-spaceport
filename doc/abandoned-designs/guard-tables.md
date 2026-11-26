@@ -1,0 +1,20 @@
+# The guard tables
+
+Commit `d23c0a87`, the last before the cutover to the rebuild, holds the old Senior engine's code and data. `demote-oracle.md` describes how its `calt` commits a stance early and repairs it later; this chapter covers the other half, the rules that keep a substitution from firing where a later lookup would undo it, and the checks that policed what those rules missed.
+
+## The design
+
+Ahead of a contextual substitution, the old engine writes `ignore sub` rules naming the contexts in which a later lookup is known to strip the join that the substitution is made for, often a wall of them per lookup. The emitter derives most of them from its own plan: ZWNJ coverage (HarfBuzz skips a ZWNJ a rule does not name), two-glyph lookbehind guards, and guards for a follower that triggers a substitution with its entry and later loses that entry. The backward-entry guards it cannot derive, because their right context depends on where the emitter's call sites put each rule, so `_PENDING_BK_ENTRY_GUARDS` holds them by hand: for a substitution of a source stance by a replacement without an entry at some height, the glyphs after which it must not happen and the follower bases the guard covers. Adding an entry means reading the call site and checking the emitted FEA with a byte diff.
+
+Two checks police what the guards miss:
+
+- **The neighbor join filter.** For each contextual rule that selects a variant, the emitter drops from the rule's context every neighbor the variant does not cursively join, unless the variant carries a `before-<family>` or `after-<family>` modifier that declares the change cosmetic. A warning fires when the number of dropped neighbors moves from a checked-in expected count.
+- **The leak gate.** A sweep shapes every letter sequence up to three letters (in `make test`) or four (in a slower target) and compares each non-joining break with the two sides shaped alone. A classifier calls a difference bad when a side gained a connector on its break-facing edge, a dangle, and benign otherwise, with per-signature force-bad and force-benign lists for the cases its modifier test reads wrong. Checked-in backlog and benign lists hold the accepted leaks, and the gate fails on a new bad leak or a changed benign list.
+
+## Why it was abandoned
+
+A guard is a prediction that some later lookup will undo a join, and it is only as right as its author's reading of a chain of hundreds of lookups; the hand-written table exists because the emitter could not derive its own guards. The leak investigation found that most visible leaks are emergent: they come from several lookups and a ligature together, with no single rule naming both sides of the break. A per-rule contract such as the neighbor join filter cannot see them, a static scan of the FEA cannot find them without reimplementing the shaper, and no sweep depth is provably complete. So the gate could only freeze a backlog and report what moved, and the leak-fixing loop its definition called for was never built.
+
+## What replaced it
+
+Settled emission makes the guards unnecessary. Every settlement rule's backtrack matches settled neighbors and its lookahead raw ones, as the settlement function read them (`doc/rebuild-design.md` §7), so no later lookup changes a decision and nothing needs guarding against one; the rebuild's few `ignore sub` rules are generated from the settlement (the late-formation guards and the namer dot's ZWNJ exception), never written by hand. What the leak gate approximated is checked exactly: the conformance sweep shapes the compiled font through HarfBuzz and compares every swept text with the settlement function, its split-buffer check compares a text across a space or ZWNJ with its segments shaped alone, and the defect gates fail a settled connector with nothing to join (`E-UNACCEPTED-EXIT`) or ink that reaches toward a missing neighbor (`E-DANGLE`). A join that does not happen mid-word is not isolated by definition, and the author ruled that the rebuild has no leak gate; a pin's `|` is where a break that must isolate is asserted.

@@ -2,7 +2,7 @@
 
 ## The main thread — the cutover
 
-**The rebuild is taking over every font, stage by stage, and `rebuild/CUTOVER-PLAN.md` is the plan: its rulings, the stages left, and the open forks.** `make all` publishes the six fonts from the runes into `site/`, and every test checks them there; the old engine's code leaves the tree in stage 4's last commit.
+**The rebuild is taking over every font, stage by stage, and `rebuild/CUTOVER-PLAN.md` is the plan: its rulings, the stages left, and the open forks.** `make all` publishes the six fonts from the runes into `site/`, every test checks them there, and the old engine is out of the tree, so stages 5 to 7 are left.
 
 **The pins and regression checks the rebuild disagrees with wait on the author's ruling.** Each pending pin keeps the author's text and carries `data-expect-pending` with what the rebuild does instead (`doc/data-expect.md` § Pending pins); the attributes on the three site pages are the list, and `rebuild/out/m1/manual_pins_summary.json`'s `pending` list names them after each build. The any-of regression checks whose joins, breaks, ligation or extensions the rebuilt Senior shapes otherwise are strict expected failures in `test/test_calt_expectations.py`, whose `REBUILD_SHAPES` names each with what the rebuild shapes. For each, the ruling is to rewrite the pin or check to the rebuild's shaping, or to change the runes, and either way to drop the mark.
 

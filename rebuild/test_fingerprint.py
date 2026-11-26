@@ -45,7 +45,7 @@ def _fake_repo(tmp_path):
     (root / "rebuild" / "review" / "serve.py").write_text("SERVE = 1\n")
     (root / "rebuild" / "review" / "static" / "app.js").write_text("export const app = 1;\n")
     (root / "tools" / "build_font.py").write_text("BUILD_FONT = 1\n")
-    (root / "tools" / "glyph_compiler.py").write_text("GLYPH_COMPILER = 1\n")
+    (root / "tools" / "glyph_records.py").write_text("GLYPH_RECORDS = 1\n")
     (root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf").write_bytes(b"senior-font")
     (root / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf").write_bytes(b"junior-font")
     return root
@@ -352,15 +352,11 @@ def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_p
 
 
 def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
-    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. No compile reads glyph_data/quikscript.yaml, so an edit to the old engine's Quikscript families moves nothing, the angle parentheses' families included; glyph_data/punctuation.yaml, which holds the angle parentheses, keeps its table-side data line, because the namer dot's glyphs come from it."""
+    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. glyph_data/punctuation.yaml, which holds the angle parentheses, keeps its table-side data line, because the namer dot's glyphs come from it."""
     root = _fake_repo(tmp_path)
     latin = root / "glyph_data" / "latin_letters.yaml"
     latin.write_text("glyphs:\n  a: {bitmap: ['#']}\n")
     (root / "postscript_glyph_names.yaml").write_text("a: 0x61\n")
-    quikscript = root / "glyph_data" / "quikscript.yaml"
-    quikscript.write_text(
-        "glyph_families:\n  qsAngleParenLeft: {mono: {bitmap: ['#']}}\n  qsAngleParenRight: {mono: {bitmap: ['#']}}\n  qsPea: {mono: {bitmap: ['#']}}\n"
-    )
 
     def keys():
         return (
@@ -386,16 +382,6 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
     moved = artifact_cycle.moved_input_labels({"files": before[2]}, edited[2])
     assert moved == ["glyph_data/latin_letters.yaml#font"]
     assert artifact_cycle.kern_only_rebuild({"files": before[2]}, edited[2]) == moved
-    quikscript.write_text(
-        quikscript.read_text().replace("qsPea: {mono: {bitmap: ['#']}}", "qsPea: {mono: {bitmap: ['##']}}")
-    )
-    assert keys() == edited
-    quikscript.write_text(
-        quikscript.read_text().replace(
-            "qsAngleParenLeft: {mono: {bitmap: ['#']}}", "qsAngleParenLeft: {mono: {bitmap: ['##']}}"
-        )
-    )
-    assert keys() == edited
 
 
 def test_a_comparison_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
@@ -446,7 +432,7 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
     assert root / "rebuild" / "kernel-rs" / "Cargo.lock" in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.pipeline_code_paths(root)
     assert root / "tools" / "build_font.py" in fingerprint.pipeline_code_paths(root)
-    assert root / "tools" / "glyph_compiler.py" in fingerprint.pipeline_code_paths(root)
+    assert root / "tools" / "glyph_records.py" in fingerprint.pipeline_code_paths(root)
     before = _components(root)
     (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 2\n")
     after = _components(root)
@@ -463,9 +449,9 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
 
 
 def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
-    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check and the review corpus's `tables` component)."""
+    """compile_font passes the mini font to tools/build_font.py, which compiles the glyph records, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check and the review corpus's `tables` component)."""
     root = _fake_repo(tmp_path)
-    for name in ("build_font.py", "glyph_compiler.py"):
+    for name in ("build_font.py", "glyph_records.py"):
         assert root / "tools" / name in fingerprint.pipeline_code_paths(root)
         assert root / "tools" / name in fingerprint.table_code_paths(root)
     before = _components(root)

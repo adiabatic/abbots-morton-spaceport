@@ -211,7 +211,7 @@ class TestTheFullFont:
         }
 
     def test_the_latin_features_come_ahead_of_the_rune_features(self, full):
-        """`ccmp`, `kern` and `mark` come from glyph_data/, written ahead of the rune FEA as the old build writes them, so their lookups take the first places in each lookup list; the kern rule that names ·He is left out."""
+        """`ccmp`, `kern` and `mark` come from glyph_data/, written ahead of the rune FEA, so their lookups take the first places in each lookup list."""
         font = _open(full.regular)
         features = {
             tag: {
@@ -223,10 +223,9 @@ class TestTheFullFont:
         assert set(features["GSUB"]) == {"calt", "ccmp"}
         assert set(features["GPOS"]) == {"kern", "mark"}
         assert max(features["GSUB"]["ccmp"]) < min(features["GSUB"]["calt"])
-        assert full.sources.dropped_kerning == ("he-before-noentry",)
         assert "leave-space-for-j" in full.sources.kerning
 
-    def test_a_kern_rule_that_names_a_rune_glyph_is_left_out(self):
+    def test_a_kern_rule_that_names_a_rune_glyph_is_recognized(self):
         assert compile_font._names_a_rune({"left_family": ["qsHe"], "right_group": "noentry", "value": -3})
         assert compile_font._names_a_rune({"left": ["f"], "right": ["a", "qsPea"], "value": -1})
         assert not compile_font._names_a_rune({"right": ["j"], "value": -1})
@@ -281,15 +280,20 @@ class TestTheFullFont:
         for path in (full.regular, full.bold):
             assert readback._cmap14_sequences(_open(path)) == full.variation.sequences
 
-    def test_a_font_source_with_quikscript_families_is_refused(self, tmp_path):
+    def test_a_font_source_with_a_key_no_build_reads_is_refused(self, tmp_path):
         (tmp_path / "glyph_data").mkdir()
         (tmp_path / "glyph_data" / "extra.yaml").write_text(
             "glyph_families:\n  qsPea: {mono: {bitmap: []}}\n"
         )
-        (tmp_path / "glyph_data" / "quikscript.yaml").write_text(
-            (REPO_ROOT / "glyph_data" / "quikscript.yaml").read_text()
+        with pytest.raises(compile_font.FontSourceError, match="glyph_families"):
+            compile_font.load_font_sources(tmp_path)
+
+    def test_a_latin_kern_rule_that_names_a_rune_glyph_is_refused(self, tmp_path):
+        (tmp_path / "glyph_data").mkdir()
+        (tmp_path / "glyph_data" / "kern.yaml").write_text(
+            "kerning:\n  he-before-a:\n    left_family: [qsHe]\n    right: [a]\n    value: -1\n"
         )
-        with pytest.raises(compile_font.FontSourceError, match="Quikscript families"):
+        with pytest.raises(compile_font.FontSourceError, match="he-before-a"):
             compile_font.load_font_sources(tmp_path)
 
 

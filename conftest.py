@@ -15,10 +15,10 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent
 
-# Put `tools/` and `test/` on the path for the xdist controller as well as the workers, so a test imports a tools/ module by its bare name (`build_font`, `reflow_yaml`) and the controller can deserialize a warning class a tools/ module defines, such as `quikscript_join_analysis.NonJoiningNeighborSelectionWarning`, when a worker sends one. Without these paths, such an import raises ModuleNotFoundError and aborts the session.
-for _p in (str(ROOT / "tools"), str(ROOT / "test")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+# Put `tools/` on the path for the xdist controller as well as the workers, so a test imports a tools/ module by its bare name (`build_font`, `reflow_yaml`), the way the tools/ modules import each other.
+_tools = str(ROOT / "tools")
+if _tools not in sys.path:
+    sys.path.insert(0, _tools)
 
 # The pages whose `data-expect` pins the session collects as items (`corpus.PIN_PAGES` names them with their directory).
 PIN_PAGE_NAMES = ("index.html", "the-manual.html", "extra-senior-words.html")

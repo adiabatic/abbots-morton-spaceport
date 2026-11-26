@@ -1,4 +1,4 @@
-.PHONY: all test test-rebuild test-rebuild-slow test-slowly typecheck print-job serve explainer review-build review-serve review-cycle artifact-cycle verdict-ready review-accept review-snapshot-remake cycle-timings job-costs kernel-build kernel-check kernel-gate kernel-proofs conform-deep replay-deep fault-kit memory-series prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly typecheck print-job serve review-build review-serve review-cycle artifact-cycle verdict-ready review-accept review-snapshot-remake cycle-timings job-costs kernel-build kernel-check kernel-gate kernel-proofs conform-deep replay-deep fault-kit memory-series prettier woff2 clean
 
 # Publishes the six shipped fonts into site/ under their shipped file names (rebuild/tools/build_fonts.py, whose module docstring says what each font reads), then copies Departure Mono beside them and typesets site/print.pdf. Mono and Junior, Regular and Bold, build from the rune files and the glyph files in a few seconds, and Senior is the copy of the rebuild's own build under rebuild/out/m1/, so with that build current the target takes a few seconds. When the build does not cover the inputs on disk, `--build` runs it first (`uv run python -m rebuild.pipeline.run_m1`) and publishes only once it is green. On the M5 Pro MacBook Pro (doc/fleet.md) that build takes about 2 minutes when its table-reuse record lets it reuse the tables on disk, as after an edit to a Latin glyph, about 5 minutes when it reuses them but a pipeline code edit makes its string replay walk every text, and about 4 to 6 minutes when it builds the tables, as after a rune edit; `make cycle-timings ARGS='--by-step'` reports what run_m1 costs on each machine.
 all:
@@ -30,9 +30,6 @@ test-slowly:
 
 print-job: all
 	lp site/print.pdf
-
-explainer:
-	cd doc/explainer && typst compile main.typ
 
 serve:
 	uv run python tools/serve.py

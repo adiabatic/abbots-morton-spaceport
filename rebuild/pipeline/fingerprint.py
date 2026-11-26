@@ -71,17 +71,13 @@ def data_paths(repo_root: Path) -> list[Path]:
     return paths
 
 
-# The glyph_data files no font compile reads: the old engine's Quikscript families, which the runes replace, and the Senior kerning the runes' `kern:` blocks replace.
-FONT_DATA_EXCLUDED = ("quikscript.yaml", "senior_quikscript_kerning.yaml")
 FONT_LINE_SUFFIX = "#font"  # the suffix of a font-data line in the run_m1 skip key (`font_data_lines`)
 
 
 def font_data_paths(repo_root: Path) -> list[Path]:
-    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml outside `FONT_DATA_EXCLUDED` (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`)."""
+    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`)."""
     root = Path(repo_root)
-    glyph_files = [
-        path for path in sorted((root / "glyph_data").glob("*.yaml")) if path.name not in FONT_DATA_EXCLUDED
-    ]
+    glyph_files = sorted((root / "glyph_data").glob("*.yaml"))
     return glyph_files + [root / "postscript_glyph_names.yaml"]
 
 
@@ -116,25 +112,20 @@ FONT_COMPILE_TOOL_MODULES = frozenset(
     {
         "build_font.py",
         "departure_mono_import.py",
-        "glyph_compiler.py",
-        "quikscript_fea.py",
-        "quikscript_ir.py",
-        "quikscript_join_analysis.py",
+        "glyph_records.py",
     }
 )
 
 
 def font_compile_tool_paths(repo_root: Path) -> list[Path]:
-    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the font and puts tools/ on sys.path, so these modules import each other by bare name; rebuild/pipeline/build_family.py calls the same module for Mono and Junior. Most of tools/ is authoring and audit scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
+    """Return the tools/ modules the M1 font compile runs. rebuild/pipeline/compile_font.py calls tools/build_font.py to build the font and puts tools/ on sys.path, so these modules import each other by bare name; rebuild/pipeline/build_family.py calls the same module for Mono and Junior. The rest of tools/ is scripts that no build runs, so this is a fixed list instead of the whole directory. rebuild/test_build_code_closure.py checks that it equals the import closure within tools/ of every tools/ module the pipeline imports, tools/build_font.py among them. Paths are returned whether or not they exist; `hash_paths` skips missing files."""
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
 
 
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
     """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, the junction classifier, and the `data-expect` grammar, collector and checker the pin gate runs. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
 
-    The tools/ modules are included because compile_font passes the font to tools/build_font.py, so an edit to the glyph compiler, the IR, the FEA emitter, or the join analysis changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
-
-    tools/build_font.py also imports `rebuild.tools.memory_budget`, and through it `rebuild.tools.peak_rss`, to size its worker pool. Neither module is in this list or in any other component this module computes.
+    The tools/ modules are included because compile_font passes the font to tools/build_font.py, so an edit to the font assembly, the glyph records' compile or the Departure Mono import changes M1.otf. They are build-side, so `table_code_paths` keeps them as well.
     """
     root = Path(repo_root)
     kernel = root / "rebuild" / "kernel-rs"

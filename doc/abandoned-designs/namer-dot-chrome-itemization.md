@@ -2,7 +2,7 @@
 
 ## The finding
 
-The contextual namer-dot lowering (`periodcentered` → `periodcentered.lowered` before a short letter, gated behind `calt`; see `emit_namer_dot_calt` in `tools/quikscript_fea.py`) works in Firefox and Safari but **does not fire in Chrome** when the dot is typed as U+00B7. Chrome still applies the font’s `calt` for letter-to-letter joins, so it is not that `calt` is off — only the dot refuses to drop.
+The contextual namer-dot lowering (`periodcentered` → `periodcentered.lowered` before a short letter, gated behind `calt`; see `namer_dot_lookup` in `rebuild/pipeline/emit_gsub.py`) works in Firefox and Safari but **does not fire in Chrome** when the dot is typed as U+00B7. Chrome still applies the font’s `calt` for letter-to-letter joins, so it is not that `calt` is off — only the dot refuses to drop.
 
 ## Root cause
 

@@ -1,6 +1,6 @@
 # Quikscript glyph names
 
-This table maps each Quikscript letter to its name (used in conversation and `data-expect` attributes), code point, and PostScript family name (used in `glyph_data/quikscript.yaml`).
+This table maps each Quikscript letter to its name (used in conversation and `data-expect` attributes), code point, and PostScript family name (used in the rune files under `glyph_data/runes/`).
 
 | Name        | Code point | PostScript name |
 | ----------- | ---------- | --------------- |

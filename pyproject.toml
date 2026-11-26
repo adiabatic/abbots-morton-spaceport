@@ -40,5 +40,5 @@ target-version = ["py314"]
 pythonVersion = "3.14"
 typeCheckingMode = "standard"
 include = ["tools", "test", "conftest.py", "rebuild"]
-extraPaths = ["tools", "test"]
+extraPaths = ["tools"]
 stubPath = "typings"

@@ -1,16 +1,12 @@
-"""Reflow the data YAML to the project's flow-vs-block style rules.
+"""Reflow the rune files (`glyph_data/runes/*.yaml`) to the project's flow-vs-block style rule.
 
-The policy depends on the file's directory. A file in a directory named `runes` (`glyph_data/runes/`) gets the structural rule. Every other file, `glyph_data/quikscript.yaml` among them, gets the width rule.
+Every collection is block style except three leaf shapes that stay flow: an empty collection (`{}` or `[]`), a single-key mapping whose value is a single-line scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width plays no part, so an edit cannot change a neighboring collection's style, and diffs stay limited to the changed values. The pass also rewrites every multi-line string that is not already a `|` block scalar as one. A rune's top-level `kern:` list is the one exception: it stays a block list with each record in flow style on its own line (`- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}`), the form the kern editor writes.
 
-Width rule: a mapping or list stays inline (flow style) while its whole line fits in `MAX_WIDTH` (100) columns. Past that, the outermost flow collection on the line becomes block style and the rule is applied again to the resulting lines. The break is at the outermost collection because YAML does not allow a block collection inside a flow one.
-
-Structural rule: every collection is block style except three leaf shapes that stay flow: an empty collection (`{}` or `[]`), a single-key mapping whose value is a single-line scalar (`{family: qsDay_qsUtter}`), and a pair of numbers (`[1, 1]`). Width plays no part, so an edit cannot change a neighboring collection's style, and diffs stay limited to the changed values. This rule also rewrites every multi-line string that is not already a `|` block scalar as one. A rune's top-level `kern:` list is the one exception: it stays a block list with each record in flow style on its own line (`- {stance: flipped, right: {family: qsTea, stance: half}, by: -1}`), the form the kern editor writes.
-
-Under both rules, a collection with a comment anywhere in its subtree stays block, because flow style cannot hold per-item comments and inlining a `bitmap:` list would drop its `#` row markers. A long scalar (a `ductus`, a paragraph-length `why:`) is never wrapped and may exceed the width. Running the pass on already-reflowed YAML changes nothing. The file is round-tripped through ruamel, so comments, block scalars, and quoting are kept.
+A collection with a comment anywhere in its subtree stays block, because flow style cannot hold per-item comments and inlining a `bitmap:` list would drop its `#` row markers. A long scalar (a `ductus`, a paragraph-length `why:`) is never wrapped. Running the pass on already-reflowed YAML changes nothing. The file is round-tripped through ruamel, so comments, block scalars, and quoting are kept. The pass refuses a file outside a directory named `runes`, since no other YAML is kept in this form.
 
 Usage::
 
-    uv run python tools/reflow_yaml.py                       # quikscript.yaml + every glyph_data/runes/*.yaml
+    uv run python tools/reflow_yaml.py                       # every glyph_data/runes/*.yaml
     uv run python tools/reflow_yaml.py glyph_data/runes/qsMay.yaml [more.yaml ...]
 """
 
@@ -22,30 +18,10 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml.scalarstring import LiteralScalarString
 
-MAX_WIDTH = 100
-
 _yaml = YAML()
 _yaml.preserve_quotes = True
 _yaml.width = 1 << 30  # never let the emitter line-wrap scalars
 _yaml.indent(mapping=2, sequence=2, offset=0)
-
-_flow = YAML()
-_flow.default_flow_style = True
-_flow.width = 1 << 30
-
-
-def _strip_to_plain(node):
-    if isinstance(node, CommentedMap):
-        return {k: _strip_to_plain(v) for k, v in node.items()}
-    if isinstance(node, CommentedSeq):
-        return [_strip_to_plain(v) for v in node]
-    return node
-
-
-def _inline_len(node):
-    buf = StringIO()
-    _flow.dump(_strip_to_plain(node), buf)
-    return len(buf.getvalue().rstrip("\n"))
 
 
 def _has_comments(node):
@@ -56,23 +32,6 @@ def _has_comments(node):
         children = node.values() if isinstance(node, CommentedMap) else node
         return any(_has_comments(child) for child in children)
     return False
-
-
-def _decide_by_width(node, start_col, anchor):
-    """Set `node`'s flow or block style under the width rule. `start_col` is the column where its inline form would begin. `anchor` is the column its block children are indented from: a mapping's keys sit at `anchor + 2`, and a list's dashes sit at `anchor`."""
-    if not isinstance(node, (CommentedMap, CommentedSeq)):
-        return
-    if not _has_comments(node) and start_col + _inline_len(node) <= MAX_WIDTH:
-        node.fa.set_flow_style()
-        return
-    node.fa.set_block_style()
-    if isinstance(node, CommentedMap):
-        child_anchor = anchor + 2
-        for key, value in node.items():
-            _decide_by_width(value, child_anchor + len(str(key)) + 2, child_anchor)
-    else:
-        for item in node:
-            _decide_by_width(item, anchor + 2, anchor + 2 if isinstance(item, CommentedSeq) else anchor)
 
 
 def _is_number(value):
@@ -132,19 +91,20 @@ def _decide_kern(node):
 
 
 def reflow(path):
-    """Reflow one YAML file in place. Returns True when the file's bytes changed."""
+    """Reflow one rune file in place. Returns True when the file's bytes changed, and raises ValueError for a file outside a directory named `runes`."""
+    if path.resolve().parent.name != "runes":
+        raise ValueError(
+            f"{path} is not a rune file; only the files under glyph_data/runes/ are kept reflowed"
+        )
     before = path.read_text()
     data = _yaml.load(before)
-    structural = path.resolve().parent.name == "runes"
     if isinstance(data, CommentedMap):
         data.fa.set_block_style()
         for key, value in data.items():
-            if structural and key == "kern":
+            if key == "kern":
                 _decide_kern(value)
-            elif structural:
-                _decide_structurally(value)
             else:
-                _decide_by_width(value, len(str(key)) + 2, 0)
+                _decide_structurally(value)
     buf = StringIO()
     _yaml.dump(data, buf)
     after = buf.getvalue()
@@ -155,7 +115,6 @@ def reflow(path):
 
 def default_targets():
     root = Path(__file__).resolve().parent.parent
-    yield root / "glyph_data" / "quikscript.yaml"
     yield from sorted((root / "glyph_data" / "runes").glob("*.yaml"))
 
 

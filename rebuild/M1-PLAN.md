@@ -153,7 +153,7 @@ policy:
   groups: {}                       # rune-local sets: {union: [...], minus: [...]} over family literals, traits, classes
 ```
 
-Scope a `from:` or `toward:` list from what the old font shapes, never from reading FEA. The old font joins a bare pair by GPOS cursive attachment alone whenever both bare glyphs carry anchors at the same height. No calt rule fires, so an FEA grep reports the pair as having no interaction, and a scope written from that reading drops real joins in both directions. `tools/inspect_join.py` shapes a sequence with the old font and prints each pair's join height.
+Scope a `from:` or `toward:` list from what the old font shapes, never from reading FEA. The old font joins a bare pair by GPOS cursive attachment alone whenever both bare glyphs carry anchors at the same height. No calt rule fires, so an FEA grep reports the pair as having no interaction, and a scope written from that reading drops real joins in both directions.
 
 ### `rebuild/script.yaml` contents
 
