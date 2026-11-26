@@ -1,4 +1,4 @@
-.PHONY: all rebuild-fonts test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate kernel-proofs review-rs-build review-rs-check conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all rebuild-fonts test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out review-accept review-snapshot-remake cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate kernel-proofs review-rs-build review-rs-check conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -139,6 +139,14 @@ verdict-ready:
 # Folds the verdict store's approve, either and identical verdicts into rebuild/accepted-units.txt, which goes into the "Close the ·X batch" commit, and leaves the store and a new journal holding only the rejects, neithers, skips and tombstones. Bare `make close-out` is a dry run that prints the report and every refusal and writes nothing; ARGS=--apply writes, keeping the store as found and both lists under var/keep/close-outs/; ARGS=--undo puts back that archive's list and store with the verdicts made since laid over it. Run it by hand with the review server stopped, never beside a pass. rebuild/tools/close_out.py's module docstring gives the fold, its checks, its archive and its recovery.
 close-out:
 	uv run python -m rebuild.tools.close_out $(ARGS)
+
+# Accepts a table-diff corpus's changes: takes a snapshot of rebuild/out/m1 under var/keep/review-snapshot/, points the tracked rebuild/review-snapshot.json at it, which goes into the commit with the edit it accepts, and empties the verdict store, keeping the store as found under var/keep/review-accept/. Bare `make review-accept` is a dry run that prints what ARGS=--apply would write and every refusal, and writes nothing. It refuses on an m1-audit corpus, while `make verdict-ready`'s blocking checks fail, while a pass runs or the review server is up, and while a human unit is blank, skipped, rejected or neither; ARGS='--apply --retake' takes the snapshot over those refusals, for a snapshot-format bump or a snapshot no build remakes. rebuild/review/accept.py's module docstring gives the checks and the order of the writes.
+review-accept:
+	uv run python -m rebuild.review.accept $(ARGS)
+
+# Installs the snapshot rebuild/review-snapshot.json names on a machine without it, from a build of the commit that last changed the pointer: `git archive` of that commit into var/cycle/snapshot-remake/, that tree's own table build, glyph chain and snapshot, holding the pass lock; it runs the whole table build, so never beside a gate. ARGS takes --rev and --home; rebuild/review/accept.py's module docstring gives the rest.
+review-snapshot-remake:
+	uv run python -m rebuild.review.accept remake $(ARGS)
 
 # Reports what the cycle's steps and the checks cost on this machine and how the checks came out, from the journal rebuild/tools/cycle_timings.py describes; ARGS takes that tool's flags, and ARGS=--help lists them.
 cycle-timings:

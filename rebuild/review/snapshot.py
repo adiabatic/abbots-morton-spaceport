@@ -5,9 +5,11 @@ A snapshot directory holds, for each configuration it covers (the settled config
 - `settlement-<config>.tsv.gz` and `joins-<config>.tsv.gz`, the build's two tables, gzipped with no name or time in the gzip header, so one table always gives the same bytes;
 - `certificates-<config>.ndjson.gz`, one line per settlement rule in rule order, `{"rule": i, "text": [code points], "under": null}`: the text of the certificate the crate wrote beside the rule, read from the configuration's windows head through `table.read_windows_head`, the one reader of a table's head, and spelled out over the spec the build was loaded from (`certificate_text`). A guard rule's certificate settles under another configuration (`GUARD_MARKER`), which `under` names.
 
-and once: `M1.otf`, the Regular font the tables shipped in, `kern.tsv.gz`, the build's kern table, and `snapshot.json`. That record holds the format, the digest, the commit HEAD named when the snapshot was taken, when it was taken (`taken_at`), the tables' stamp (the `inputs` stamp every configuration's windows head records), the configurations, the directory it was taken from, and each file's sha256 and size.
+and once: `M1.otf`, the Regular font the tables shipped in, `kern.tsv.gz`, the build's kern table, and `snapshot.json`. That record holds the format, the digest, when the snapshot was taken (`taken_at`), the tables' stamp (the `inputs` stamp every configuration's windows head records), the configurations, the directory it was taken from, and each file's sha256 and size.
 
-The digest is the sha256 of the format, the commit, the tables' stamp, the configurations and each file's sha256, written as canonical JSON (`_digest`). It leaves out when the snapshot was taken and where from, so a build of the same commit taken again gives the same digest, and its first `DIGEST_NAME_LENGTH` hex digits name the directory. `take` keeps the snapshot it writes and the one `current` named before it, and deletes any older snapshot directory under the home.
+The digest is the sha256 of the format, the tables' stamp, the configurations and each file's sha256, written as canonical JSON (`_digest`). It leaves out when the snapshot was taken and where from, so the same build taken again, in this checkout or in a tree exported from a commit, gives the same digest, and its first `DIGEST_NAME_LENGTH` hex digits name the directory. `take` keeps the snapshot it writes and the one `current` named before it, and deletes any older snapshot directory under the home; `install` does the same for a snapshot taken elsewhere, which the remake (`rebuild/review/accept.py`) takes in an exported tree.
+
+The tracked pointer, `rebuild/review-snapshot.json` (`POINTER_PATH`), names the accepted snapshot: `{format, snapshot_format, digest, taken_at}` (`pointer_record`). It records no commit. The accept (`rebuild/review/accept.py`) writes it before the author commits, and the pointer's change goes into the commit with the edit it accepts, so the commit a snapshot stands for is the last commit that changed the pointer (`pointer_commit`), and a build of that commit remakes the snapshot.
 
 `certificate_text` restates `witness._token_text`, because importing the witness stage would bring the conformance sweep into the corpus build's import closure (`unit_cache.PIPELINE_NON_CORPUS_MODULES`); `rebuild/test_review_snapshot.py` holds the two to the same text over every certificate of a built table. The reader accepts only `SNAPSHOT_FORMAT`.
 
@@ -42,8 +44,11 @@ from rebuild.review.enrich import load_spec
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 M1_DIR = REPO_ROOT / "rebuild" / "out" / "m1"
 DEFAULT_HOME = REPO_ROOT / "var" / "keep" / "review-snapshot"
+POINTER_RELATIVE = "rebuild/review-snapshot.json"
+POINTER_PATH = REPO_ROOT / POINTER_RELATIVE
 
-SNAPSHOT_FORMAT = "ams-review-snapshot/2"
+SNAPSHOT_FORMAT = "ams-review-snapshot/3"
+POINTER_FORMAT = "ams-review-snapshot-pointer/1"
 RECORD_NAME = "snapshot.json"
 # A one-line file beside the snapshot directories naming the current one; a plain file, written by rename, so a reader never sees half a name and the home copies or archives as ordinary files.
 CURRENT_NAME = "current"
@@ -151,25 +156,14 @@ def _rule_inputs(path: Path) -> list[str]:
 
 
 def _digest(record: dict) -> str:
-    """The snapshot's digest: the sha256 of its format, commit, tables' stamp, configurations and each file's sha256 as canonical JSON. When it was taken and from where are left out, so one build gives one digest."""
+    """The snapshot's digest: the sha256 of its format, tables' stamp, configurations and each file's sha256 as canonical JSON. When it was taken and from where are left out, so one build gives one digest wherever it is taken."""
     canonical = {
         "format": record.get("format"),
-        "commit": record.get("commit"),
         "tables_stamp": record.get("tables_stamp"),
         "configs": record.get("configs"),
         "files": {name: entry.get("sha256") for name, entry in sorted((record.get("files") or {}).items())},
     }
     return hashlib.sha256(json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-def head_commit(repo_root: Path = REPO_ROOT) -> str | None:
-    """The full sha of the commit HEAD names in `repo_root`, or None outside a git tree."""
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=repo_root, capture_output=True, text=True, check=True
-        ).stdout.strip()
-    except OSError, subprocess.CalledProcessError:
-        return None
 
 
 def utc_now() -> str:
@@ -191,10 +185,6 @@ class Snapshot:
     @property
     def digest(self) -> str:
         return str(self.record["digest"])
-
-    @property
-    def commit(self) -> str | None:
-        return self.record.get("commit")
 
     @property
     def taken_at(self) -> str | None:
@@ -233,6 +223,12 @@ class Snapshot:
             return {}
         return tablediff.load_joins(self.joins_path(config), config)
 
+    def outcomes(self, config: str) -> list[str]:
+        """The cell each accepted settlement rule of `config` settles its input to, in rule order, the order `certificates` follows."""
+        if config not in self.configs:
+            return []
+        return tablediff.load_outcomes(self.settlement_path(config))
+
     def certificates(self, config: str) -> list[Certificate]:
         """The accepted certificates of `config`, one per settlement rule in rule order."""
         if config not in self.configs:
@@ -249,9 +245,9 @@ class Snapshot:
                 )
         return certificates
 
-    def baseline(self) -> dict:
-        """The manifest's `baseline` record for a corpus built against this snapshot."""
-        return {"commit": self.commit, "taken_at": self.taken_at, "digest": self.digest, "present": True}
+    def baseline(self, commit: str | None = None) -> dict:
+        """The manifest's `baseline` record for a corpus built against this snapshot: `commit` is the commit it stands for (`pointer_commit`), None while the accept that took it is not committed."""
+        return {"commit": commit, "taken_at": self.taken_at, "digest": self.digest, "present": True}
 
 
 ABSENT_BASELINE = {"commit": None, "taken_at": None, "digest": None, "present": False}
@@ -383,7 +379,6 @@ def take(
         record: dict = {
             "format": SNAPSHOT_FORMAT,
             "digest": None,
-            "commit": head_commit(repo_root),
             "taken_at": utc_now(),
             "tables_stamp": next(iter(stamps)),
             "configs": list(configs),
@@ -395,22 +390,145 @@ def take(
         }
         record["digest"] = _digest(record)
         (staging / RECORD_NAME).write_text(json.dumps(record, indent=1) + "\n", encoding="utf-8")
-        final = home / str(record["digest"])[:DIGEST_NAME_LENGTH]
-        if final.exists():
-            try:
-                load(final)
-            except SnapshotError:
-                shutil.rmtree(final)
-        if not final.exists():
-            staging.chmod(0o755)
-            staging.rename(final)
+        return install(staging, home)
     finally:
         if staging.exists():
             shutil.rmtree(staging)
+
+
+def install(directory: Path, home: Path = DEFAULT_HOME) -> Snapshot:
+    """Move the snapshot in `directory`, which must read (`load`), into `home` under the first `DIGEST_NAME_LENGTH` hex digits of its digest by one rename, and make it current: `current` is pointed at it, and every other snapshot directory but the one `current` named before is deleted. A directory under `home` that already holds that digest is kept and `directory` is deleted; one under that name that does not read is replaced. `directory` must be on the file system that holds `home`."""
+    staged = load(Path(directory))
+    home = Path(home)
+    home.mkdir(parents=True, exist_ok=True)
+    final = home / staged.digest[:DIGEST_NAME_LENGTH]
+    if final.exists():
+        try:
+            load(final)
+        except SnapshotError:
+            shutil.rmtree(final)
+    if final.exists():
+        shutil.rmtree(staged.directory)
+    else:
+        staged.directory.chmod(0o755)
+        staged.directory.rename(final)
     previous = current(home)
     _point(home, final.name)
     _prune(home, {final.name, *([previous.name] if previous is not None else [])})
     return load(final)
+
+
+def find(home: Path, digest: str) -> Snapshot | None:
+    """The snapshot under `home` with the digest `digest`, kept there as the current or the previous one, or None when no directory there holds it."""
+    directory = Path(home) / digest[:DIGEST_NAME_LENGTH]
+    if not (directory / RECORD_NAME).is_file():
+        return None
+    try:
+        found = load(directory)
+    except SnapshotError:
+        return None
+    return found if found.digest == digest else None
+
+
+def make_current(found: Snapshot, home: Path = DEFAULT_HOME) -> None:
+    """Point `current` under `home` at `found`, a snapshot directory there, keeping the one `current` named before and deleting older ones, as `take` does."""
+    home = Path(home)
+    previous = current(home)
+    _point(home, found.directory.name)
+    _prune(home, {found.directory.name, *([previous.name] if previous is not None else [])})
+
+
+def pointer_record(snapshot: Snapshot) -> dict:
+    """The tracked pointer's record for `snapshot`: the pointer's format, the snapshot's format, its digest and when it was taken."""
+    return {
+        "format": POINTER_FORMAT,
+        "snapshot_format": snapshot.record.get("format"),
+        "digest": snapshot.digest,
+        "taken_at": snapshot.taken_at,
+    }
+
+
+def write_pointer(snapshot: Snapshot, path: Path = POINTER_PATH) -> dict:
+    """Write the pointer naming `snapshot` to `path` through a staging file renamed into place, and return its record."""
+    record = pointer_record(snapshot)
+    path = Path(path)
+    staging = path.with_name(f".{path.name}.partial")
+    staging.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    os.replace(staging, path)
+    return record
+
+
+def parse_pointer(text: str, name: str) -> dict:
+    """Read a pointer's text, naming it `name` in a refusal: a record in `POINTER_FORMAT` whose `digest` is a sha256 hex digest. Raises `SnapshotError` for anything else."""
+    try:
+        record = json.loads(text)
+    except ValueError as error:
+        raise SnapshotError(f"{name} does not read: {error}") from None
+    if not isinstance(record, dict) or record.get("format") != POINTER_FORMAT:
+        raise SnapshotError(f"{name} is not an {POINTER_FORMAT} record")
+    digest = record.get("digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise SnapshotError(f"{name} names no snapshot digest")
+    return record
+
+
+def read_pointer(path: Path = POINTER_PATH) -> dict | None:
+    """The pointer at `path` (`parse_pointer`), or None when there is no such file. Raises `SnapshotError` for one that does not read."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except OSError as error:
+        raise SnapshotError(f"{path} does not read: {error}") from None
+    return parse_pointer(text, str(path))
+
+
+def _git(repo_root: Path, *arguments: str) -> str | None:
+    try:
+        return subprocess.run(
+            ["git", *arguments], cwd=repo_root, capture_output=True, text=True, check=True
+        ).stdout
+    except OSError, subprocess.CalledProcessError:
+        return None
+
+
+def last_pointer_commit(repo_root: Path = REPO_ROOT) -> str | None:
+    """The full sha of the last commit that changed the pointer in `repo_root`, the commit the accepted snapshot stands for, or None outside a git tree or when no commit has changed it."""
+    found = _git(repo_root, "log", "-1", "--format=%H", "--", POINTER_RELATIVE)
+    if found is None:
+        return None
+    return found.strip() or None
+
+
+def pointer_at(revision: str, repo_root: Path = REPO_ROOT) -> dict:
+    """The pointer that `revision`, a commit or a tree, holds (`parse_pointer`). Raises `SnapshotError` when git cannot show it or it does not read."""
+    shown = _git(repo_root, "show", f"{revision}:{POINTER_RELATIVE}")
+    if shown is None:
+        raise SnapshotError(f"{revision} holds no {POINTER_RELATIVE}")
+    return parse_pointer(shown, f"{revision}:{POINTER_RELATIVE}")
+
+
+def pointer_commit(digest: str, repo_root: Path = REPO_ROOT) -> str | None:
+    """The commit the snapshot with `digest` stands for: the last commit that changed the pointer, when the pointer it holds names `digest`. None outside a git tree, when no commit has changed the pointer, and when the last one names another snapshot, as while the accept that wrote the pointer on disk is not committed."""
+    commit = last_pointer_commit(repo_root)
+    if commit is None:
+        return None
+    try:
+        return commit if pointer_at(commit, repo_root).get("digest") == digest else None
+    except SnapshotError:
+        return None
+
+
+def tables_stamp(tables_dir: Path, configs: Sequence[str] = tablediff.SETTLED_CONFIGS) -> str | None:
+    """The tables' stamp of the run_m1 build in `tables_dir`: the `inputs` stamp every configuration's windows head records (`table.windows_head`, which reads the head and not the head file), or None when a head does not read or two disagree. The table-diff manifest copies it as its `tables` component, as the m1-audit manifest copies the Stage A record, and the accept compares it with the corpus's."""
+    stamps: set[object] = set()
+    for config in configs:
+        try:
+            stamps.add(table.windows_head(Path(tables_dir), config).stamps.get(table.INPUTS_STAMP))
+        except OSError, ValueError:
+            return None
+    found = stamps.pop() if len(stamps) == 1 else None
+    return found if isinstance(found, str) else None
 
 
 def _relative(path: Path, repo_root: Path) -> str:
@@ -423,7 +541,6 @@ def _relative(path: Path, repo_root: Path) -> str:
 def describe(snapshot: Snapshot) -> Iterator[str]:
     yield f"{snapshot.directory}"
     yield f"  digest     {snapshot.digest}"
-    yield f"  commit     {snapshot.commit}"
     yield f"  taken_at   {snapshot.taken_at}"
     yield f"  configs    {', '.join(snapshot.configs)}"
     yield f"  tables     {snapshot.tables_stamp}"

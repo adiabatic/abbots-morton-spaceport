@@ -1,10 +1,11 @@
-"""Tests for the snapshot of the accepted build (`rebuild/review/snapshot.py`): what `take` writes from a run_m1 build directory, its certificates' texts against the witness stage's spelling of the same token streams, the guard certificates, the digest and the directory it names, the `current` file and how many snapshots are kept, and what `load` refuses.
+"""Tests for the snapshot of the accepted build (`rebuild/review/snapshot.py`): what `take` writes from a run_m1 build directory, its certificates' texts against the witness stage's spelling of the same token streams, the guard certificates, the digest and the directory it names, the `current` file and how many snapshots are kept, what `load` refuses, `install` and `find`, the tables' stamp, and the tracked pointer: its record, the commit it stands for in a git tree, and the checked-in pointer's format, which must be the reader's, so a format bump takes the snapshot again in the same commit.
 
 The build directory is a real table build of the pipeline's mini fixture spec (`run_m1.build_tables`, which writes the tables and each configuration's windows head), with the frozen mini bundle's font and a small kern table copied beside it: a snapshot copies the font and the kern table and reads neither.
 """
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -149,12 +150,12 @@ def test_load_refuses_another_format_a_changed_file_and_a_digest_that_is_not_its
 
         return edit
 
-    with pytest.raises(snapshot.SnapshotError, match="reads only ams-review-snapshot/2"):
-        snapshot.load(broken(record_edit(lambda record: record.update(format="ams-review-snapshot/1"))))
+    with pytest.raises(snapshot.SnapshotError, match=f"reads only {snapshot.SNAPSHOT_FORMAT}"):
+        snapshot.load(broken(record_edit(lambda record: record.update(format="ams-review-snapshot/2"))))
     with pytest.raises(snapshot.SnapshotError, match="is not the file"):
         snapshot.load(broken(lambda directory: (directory / snapshot.KERN_NAME).write_bytes(b"other")))
     with pytest.raises(snapshot.SnapshotError, match="digest is not the digest"):
-        snapshot.load(broken(record_edit(lambda record: record.update(commit="0" * 40))))
+        snapshot.load(broken(record_edit(lambda record: record.update(tables_stamp="fp-other"))))
     with pytest.raises(snapshot.SnapshotError, match="names none of"):
         snapshot.load(broken(record_edit(lambda record: record["files"].pop(snapshot.FONT_NAME))))
 
@@ -173,3 +174,93 @@ def test_show_describes_the_current_snapshot(taken, capsys):
     assert taken.digest in out and "default, ss03" in out
     with pytest.raises(SystemExit, match="has no current snapshot"):
         snapshot.main(["show", "--home", str(taken.directory)])
+
+
+def test_the_tracked_pointer_names_a_snapshot_in_the_readers_format():
+    """`rebuild/review-snapshot.json` names the accepted snapshot; a change to `SNAPSHOT_FORMAT` leaves every snapshot unreadable to the new reader, so the commit that bumps it takes the snapshot again (`make review-accept ARGS='--apply --retake'`) and writes the pointer beside the bump."""
+    pointer = snapshot.read_pointer(REPO_ROOT / snapshot.POINTER_RELATIVE)
+    assert pointer is not None
+    assert pointer["snapshot_format"] == snapshot.SNAPSHOT_FORMAT
+    assert set(pointer) == {"format", "snapshot_format", "digest", "taken_at"}
+
+
+def test_the_digest_leaves_out_where_and_when_a_build_was_taken(built, tmp_path):
+    """A build taken in another directory, as the remake takes one in an exported tree, at another time, names the same digest."""
+    first = snapshot.take(built, tmp_path / "one", spec=SPEC)
+    moved = tmp_path / "elsewhere"
+    shutil.copytree(built, moved)
+    second = snapshot.take(moved, tmp_path / "two", spec=SPEC)
+    assert first.digest == second.digest and first.record["source"] != second.record["source"]
+    assert "commit" not in first.record
+
+
+def test_install_find_and_make_current_move_a_snapshot_taken_elsewhere_into_the_home(built, tmp_path):
+    scratch = snapshot.take(built, tmp_path / "scratch", spec=SPEC)
+    home = tmp_path / "home"
+    other = tmp_path / "build-other"
+    shutil.copytree(built, other)
+    (other / "kern.tsv").write_text("# another kern table\n", encoding="utf-8")
+    earlier = snapshot.take(other, home, spec=SPEC)
+    installed = snapshot.install(scratch.directory, home)
+    assert installed.digest == scratch.digest and not scratch.directory.exists()
+    assert snapshot.current(home) == installed.directory
+    assert snapshot.find(home, earlier.digest) is not None
+    assert snapshot.find(home, "0" * 64) is None
+    found = snapshot.find(home, earlier.digest)
+    assert found is not None
+    snapshot.make_current(found, home)
+    assert snapshot.current(home) == earlier.directory
+
+
+def test_tables_stamp_is_the_stamp_every_head_records_or_none(built, tmp_path):
+    assert snapshot.tables_stamp(built) == "fp-snapshot"
+    mixed = tmp_path / "mixed"
+    shutil.copytree(built, mixed)
+    run_m1.build_tables(SPEC, mixed, inputs="fp-other", configs=["ss04"])
+    assert snapshot.tables_stamp(mixed) is None
+    assert snapshot.tables_stamp(tmp_path / "nothing") is None
+
+
+def _git(root: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", *arguments],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_the_commit_a_snapshot_stands_for_is_the_last_one_that_changed_the_pointer(taken, tmp_path):
+    root = tmp_path / "repo"
+    pointer = root / snapshot.POINTER_RELATIVE
+    pointer.parent.mkdir(parents=True)
+    _git(root, "init", "-q")
+    assert snapshot.last_pointer_commit(root) is None
+    record = snapshot.write_pointer(taken, pointer)
+    assert snapshot.read_pointer(pointer) == record
+    assert record == {
+        "format": snapshot.POINTER_FORMAT,
+        "snapshot_format": snapshot.SNAPSHOT_FORMAT,
+        "digest": taken.digest,
+        "taken_at": taken.taken_at,
+    }
+    assert (
+        snapshot.pointer_commit(taken.digest, root) is None
+    ), "an accept not yet committed stands for no commit"
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "accept")
+    commit = _git(root, "rev-parse", "HEAD")
+    (root / "other.txt").write_text("a later edit\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "later")
+    assert snapshot.last_pointer_commit(root) == commit
+    assert snapshot.pointer_commit(taken.digest, root) == commit
+    assert snapshot.pointer_commit("0" * 64, root) is None
+    assert snapshot.pointer_at(commit, root)["digest"] == taken.digest
+    with pytest.raises(snapshot.SnapshotError, match="holds no"):
+        snapshot.pointer_at(_git(root, "rev-parse", "HEAD~1^{tree}") + "x", root)
+    pointer.write_text("{}", encoding="utf-8")
+    with pytest.raises(snapshot.SnapshotError, match="is not an"):
+        snapshot.read_pointer(pointer)
+    assert snapshot.read_pointer(root / "missing.json") is None

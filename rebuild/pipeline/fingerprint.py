@@ -2,7 +2,7 @@
 
 Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds of the same inputs produce the same value. Most lines are `label\\tdigest` pairs over file contents. The baseline TSVs are the exception: they are large, and `rebuild/out/digests.tsv` already holds their content digests, so `baselines_value` hashes their sizes and that file. The corpus manifest's `generated_at` is mtime-based and identifies a corpus build, so that exported verdicts and sidecars can be matched to it. It cannot tell whether the corpus matches the sources on disk; these fingerprints can.
 
-run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that wrote there and then stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`, `draft_inputs`) itself.
+run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that wrote there and then stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`, `draft_inputs`) itself. Those eight are the m1-audit corpus's fingerprint; a table-diff corpus carries `TABLE_DIFF_COMPONENTS` instead (`table_diff_values`), whose `tables` component the build copies from the windows heads of the build it compares, as it copies Stage A here.
 
 `draft_inputs` covers the approval drafter's site pages and harness: the `SITE_CORPUS_FILES` pages by raw bytes (their pins set a pin draft's `attribute` and `duplicate_of`), and the draft harness (`draft_harness_paths`) through `hash_paths`. `data`, `pipeline_code`, and `review_code` hold the drafter's other file and code inputs (the alias map, the rune schema, the validation code, and the review crate). The after font the drafter shapes and classifies with is in no component; `artifact_cycle.corpus_build_skippable` and `status._freshness_check` compare the manifest's after-font sha256 with rebuild/out/m1/M1.otf instead. The shaping packages `uv.lock` pins are in no corpus component. The component's value is the digest of `draft_input_lines`, the two lines the review unit store's stamp (`unit_cache.environment_stamp`) also carries. The review build reads the pages once, before the crate drafts anything, and takes the drafters' index of pinned cells (the units init's corpus index), the store's two lines, and the manifest's `draft_inputs` (through `stage_b`'s `draft_lines`) from that one read, so all three see the same page bytes. It hashes the harness at that point too, and the units init's glyph names come from the harness the build imports then (`drafts._import_test_shaping`). Every other caller streams the pages through `file_sha256`.
 
@@ -58,6 +58,8 @@ _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "baselines", "pipeline_code")
 STAGE_B_COMPONENTS = ("review_code", "static", "fonts", "explain_prose", "draft_inputs")
 COMPONENTS = STAGE_A_COMPONENTS + STAGE_B_COMPONENTS
+# The inputs fingerprint of a table-diff corpus (`table_diff_values`), which compares a snapshot of the accepted build with a run_m1 build and reads neither the oracle's audit nor the site fonts.
+TABLE_DIFF_COMPONENTS = ("snapshot", "tables", "font_inputs", "review_code", "static")
 STAGE_A_FILENAME = "inputs_fingerprint.json"
 
 
@@ -220,6 +222,7 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
 
 REVIEW_NON_BUILD_MODULES = frozenset(
     {
+        "accept.py",
         "serve.py",
         "verdict_store.py",
         "status.py",
@@ -235,7 +238,7 @@ REVIEW_NON_BUILD_MODULES = frozenset(
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
@@ -661,26 +664,38 @@ def cursive_anchor_map(font) -> dict[str, list]:
 RUNE_HELPER_GLYPHS = frozenset({".notdef", "space", "uni200C", "periodcentered", "periodcentered.lowered"})
 
 
+def glyph_facts(font, names: Iterable[str] | None = None) -> dict[str, tuple]:
+    """Return, for each glyph `names` lists (every glyph of the font, sorted, when it is None), what decides how the compiled glyph renders apart from GSUB: its decomposed outline (`DecomposingRecordingPen`, so a change inside a subroutine still shows), its `hmtx` advance and left sidebearing, and its cursive-attachment records (`cursive_anchor_map`, None for a glyph none names), as one (outline, metrics, anchors) tuple. `after_font_glyph_digests` hashes each glyph's facts, and the review corpus's table-diff mode compares them between the accepted font and an edit's (`rebuild/review/diff_units.py`)."""
+    from fontTools.pens.recordingPen import DecomposingRecordingPen
+
+    glyph_set = font.getGlyphSet()
+    metrics = font["hmtx"].metrics
+    anchors = cursive_anchor_map(font)
+    facts: dict[str, tuple] = {}
+    for name in sorted(glyph_set.keys()) if names is None else names:
+        pen = DecomposingRecordingPen(glyph_set)
+        glyph_set[name].draw(pen)
+        facts[name] = (tuple(pen.value), metrics.get(name), anchors.get(name))
+    return facts
+
+
 def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
-    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the helper glyphs a Quikscript run can reach outside the families (`RUNE_HELPER_GLYPHS`), the cmap entries of those glyphs and the family glyphs, and the GPOS feature-to-lookup wiring less the `kern` feature and the lookups only it reaches (`gpos_kern_blind_wiring`): every reader of this digest shapes with `kern` off, so whether the font has a kern lookup moves none of its keys. Every reader shapes Quikscript windows, which reach no Latin glyph, so an edit to a Latin glyph or its code point moves neither digest. The function lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
+    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its facts (`glyph_facts`): its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the helper glyphs a Quikscript run can reach outside the families (`RUNE_HELPER_GLYPHS`), the cmap entries of those glyphs and the family glyphs, and the GPOS feature-to-lookup wiring less the `kern` feature and the lookups only it reaches (`gpos_kern_blind_wiring`): every reader of this digest shapes with `kern` off, so whether the font has a kern lookup moves none of its keys. Every reader shapes Quikscript windows, which reach no Latin glyph, so an edit to a Latin glyph or its code point moves neither digest. The function lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
 
     The GSUB wiring is left out. A rune edit changes the GSUB lookup list on nearly every cycle, so including it would drop every cache keyed on this digest after each rune edit. A window's glyph selection is covered by two other things. The caches' keys include the settled cells the window resolves to (the audit row's `new` column for a unit, the per-family rune keys for an oracle row). And `gate:conform` shapes the compiled font through HarfBuzz every cycle and checks that its selection matches settlement. So while conform passes, the glyph the font selects for a window is a function of the window's settled cells, which cannot change without the key changing. Every glyph a window can reach, in every variant of every family, is in the per-family digests. GPOS stays in because it can move a run without changing a glyph name or a cell.
     """
-    from fontTools.pens.recordingPen import DecomposingRecordingPen
     from fontTools.ttLib import TTFont
 
     font = TTFont(str(after_font))
-    glyph_set = font.getGlyphSet()
-    metrics = font["hmtx"].metrics  # pyright: ignore[reportAttributeAccessIssue]
-    anchors = cursive_anchor_map(font)
-    per_glyph: dict[str, str] = {}
-    for name in sorted(glyph_set.keys()):
-        if not name.split(".")[0].startswith("qs") and name not in RUNE_HELPER_GLYPHS:
-            continue
-        pen = DecomposingRecordingPen(glyph_set)
-        glyph_set[name].draw(pen)
-        payload = repr((name, tuple(pen.value), metrics.get(name), anchors.get(name)))
-        per_glyph[name] = hashlib.sha256(payload.encode()).hexdigest()
+    names = [
+        name
+        for name in sorted(font.getGlyphSet().keys())
+        if name.split(".")[0].startswith("qs") or name in RUNE_HELPER_GLYPHS
+    ]
+    per_glyph: dict[str, str] = {
+        name: hashlib.sha256(repr((name, *facts)).encode()).hexdigest()
+        for name, facts in glyph_facts(font, names).items()
+    }
 
     families: dict[str, list[str]] = {}
     helper_lines: list[str] = []
@@ -1113,6 +1128,25 @@ def stage_b(
         "fonts": fonts_value(root, [Path(before_font), Path(junior_font)]),
         "explain_prose": explain_prose_value(root, spec_root),
         "draft_inputs": draft_inputs_value(draft_input_lines(root) if draft_lines is None else draft_lines),
+    }
+
+
+def font_inputs_value(repo_root: Path) -> str:
+    """Return the digest of what reaches the Regular font without moving the tables' stamp: the non-Quikscript font data (`font_data_lines`) and the runes' `kern` blocks (`kern_lines`), the two kinds of line a kern-only rebuild answers for."""
+    root = Path(repo_root)
+    return digest_lines(font_data_lines(root) + kern_lines(root))
+
+
+def table_diff_values(repo_root: Path, snapshot_record: Path | None, tables: str | None) -> dict:
+    """Return the table-diff corpus's inputs fingerprint (`TABLE_DIFF_COMPONENTS`): `snapshot`, the sha256 of the record of the snapshot it compares against (`rebuild/review/snapshot.py`), None with no snapshot; `tables`, the tables' stamp, which the build copies from the windows heads of the build it compares and the readiness check recomputes from the sources (`run_m1.tables_inputs`); `font_inputs` (`font_inputs_value`); and `review_code` and `static`, as `stage_b` computes them."""
+    root = Path(repo_root)
+    record = Path(snapshot_record) if snapshot_record is not None else None
+    return {
+        "snapshot": file_sha256(record) if record is not None and record.is_file() else None,
+        "tables": tables,
+        "font_inputs": font_inputs_value(root),
+        "review_code": hash_paths(root, review_code_paths(root) + review_crate_paths(root)),
+        "static": hash_paths(root, static_paths(root)),
     }
 
 

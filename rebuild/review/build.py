@@ -28,7 +28,7 @@ import tempfile
 import urllib.request
 import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
@@ -979,8 +979,8 @@ def _new_certificates(
 
 
 def _diff_inputs(accepted: snapshot.Snapshot | None, new_dir: Path, after_font: Path) -> list[Path]:
-    """The files a table-diff build reads, whose latest modification time is its `generated_at`: the snapshot's record, the new build's tables and windows heads, and its font."""
-    paths = [after_font]
+    """The files a table-diff build reads, whose latest modification time is its `generated_at`: the snapshot's record, the new build's tables and windows heads, its font, its kern table and its kerning inventory."""
+    paths = [after_font, new_dir / snapshot.KERN_SOURCE, new_dir / "kern-inventory.json"]
     if accepted is not None:
         paths.append(accepted.directory / snapshot.RECORD_NAME)
     for config in tablediff.SETTLED_CONFIGS:
@@ -992,15 +992,29 @@ def _diff_inputs(accepted: snapshot.Snapshot | None, new_dir: Path, after_font: 
     return paths
 
 
+@dataclass
+class FontChanges:
+    """What a table-diff build found outside the tables: the glyphs both fonts have that draw differently, by what changed in them (`diff_units.glyph_changes`), and the kern pairs whose value moved, by bucket (`diff_units.kern_changes`)."""
+
+    glyphs: dict[str, int] = field(default_factory=dict)
+    kern: dict[str, int] = field(default_factory=dict)
+
+    def record(self) -> dict:
+        return {"glyphs": dict(sorted(self.glyphs.items())), "kern": dict(sorted(self.kern.items()))}
+
+
 def table_diff_units(
     accepted: snapshot.Snapshot,
     new_dir: Path,
     fonts: diff_units.Fonts,
     spec=None,
     repo_root: Path = REPO_ROOT,
+    font_changes: FontChanges | None = None,
 ) -> tuple[list[diff_units.Unit], dict[str, diff_units.ConfigCounts]]:
-    """Diff every settled configuration's tables in `accepted` against `new_dir`'s and find the units that show the changes (`diff_units.UnitFinder`). A configuration whose two tables hold the same bytes on both sides is passed over unparsed. The spec, which spells the new build's certificates out, is loaded from `repo_root` only when some configuration's rows changed."""
+    """Diff every settled configuration's tables in `accepted` against `new_dir`'s and find the units that show the changes (`diff_units.UnitFinder`), then the glyph bucket, the glyphs the two fonts draw differently (`diff_units.glyph_units`), and the kern bucket, the facing pairs whose value moved between the two `kern.tsv` (`diff_units.kern_units`), and merge them all (`diff_units.merge`). A configuration whose two tables hold the same bytes on both sides is passed over unparsed. The spec, which spells the new build's certificates out, is loaded from `repo_root` only when some configuration's rows changed. A glyph unit's certificates are the snapshot's in every configuration, and the new build's in each configuration whose rows changed; in one whose tables did not move they are the snapshot's. `font_changes`, when given, is filled with the counts of the two buckets."""
     finder: diff_units.UnitFinder | None = None
+    new_outcomes: dict[str, list[tuple[str, tuple[int, ...] | None]]] = {}
+    inventory = diff_units.load_inventory(new_dir / "kern-inventory.json")
     for config in tablediff.SETTLED_CONFIGS:
         new_settlement = new_dir / f"settlement-{config}.tsv"
         new_joins = new_dir / f"joins-{config}.tsv"
@@ -1031,10 +1045,7 @@ def table_diff_units(
                     warnings.simplefilter("ignore")
                     spec = load_spec(repo_root)
             finder = diff_units.UnitFinder(
-                spec,
-                fonts,
-                tablediff.SETTLED_CONFIGS,
-                diff_units.inventory_texts(new_dir / "kern-inventory.json"),
+                spec, fonts, tablediff.SETTLED_CONFIGS, diff_units.inventory_texts(inventory)
             )
         old_certificates = accepted.certificates(config)
         if len(old_certificates) != len(old_rows):
@@ -1046,6 +1057,10 @@ def table_diff_units(
             if settlement_entries
             else []
         )
+        if new_certificates:
+            new_outcomes[config] = [
+                (value.outcome, text) for value, (_label, text) in zip(new_rows.values(), new_certificates)
+            ]
         finder.add_config(
             config,
             settlement_entries,
@@ -1054,18 +1069,53 @@ def table_diff_units(
             new_certificates,
         )
         del old_rows, new_rows, settlement_entries, join_entries
+
+    changed_glyphs = diff_units.glyph_changes(accepted.font, fonts.paths[1])
+    extra: list[diff_units.Unit] = []
+    if changed_glyphs:
+        certificates = diff_units.certificate_witnesses(
+            {
+                config: list(zip(accepted.outcomes(config), (c.text for c in accepted.certificates(config))))
+                for config in accepted.configs
+            },
+            "before",
+        ) + diff_units.certificate_witnesses(new_outcomes, "after")
+        extra += diff_units.glyph_units(
+            changed_glyphs,
+            fonts,
+            tablediff.SETTLED_CONFIGS,
+            certificates,
+            diff_units.inventory_texts(inventory),
+        )
+    new_kern = new_dir / snapshot.KERN_SOURCE
+    new_kern_rows = diff_units.load_kern(new_kern) if new_kern.is_file() else []
+    changed_kern = diff_units.kern_changes(diff_units.load_kern(accepted.kern), new_kern_rows)
+    extra += diff_units.kern_units(changed_kern, tablediff.SETTLED_CONFIGS, inventory, new_kern_rows)
+    if font_changes is not None:
+        for change in changed_glyphs:
+            for kind in change.differs:
+                font_changes.glyphs[kind] = font_changes.glyphs.get(kind, 0) + 1
+        for change, _row, _index in changed_kern:
+            font_changes.kern[change.bucket] = font_changes.kern.get(change.bucket, 0) + 1
     if finder is None:
-        return [], {}
-    return finder.units(), finder.counts
+        return diff_units.merge(extra), {}
+    return finder.units(extra), finder.counts
 
 
 def _unit_rows(unit: diff_units.Unit) -> set[tuple[str, str, str]]:
-    return {
+    """The rows a unit stands for, for its class's `row_count`: each changed table row by configuration, each redrawn glyph and each kern pair."""
+    rows = {
         (config, entry.table, entry.key.label())
         for config, entries in unit.rows.items()
         for entry in entries
         for _member in (entry.paired or (entry,))
     }
+    for part in unit.parts:
+        if isinstance(part.subject, diff_units.GlyphChange):
+            rows.add(("font", "glyph", part.subject.name))
+        elif isinstance(part.subject, diff_units.KernChange):
+            rows.add(("font", "kern", f"{part.subject.leading_side} + {part.subject.following_side}"))
+    return rows
 
 
 def build_table_diff(
@@ -1079,7 +1129,7 @@ def build_table_diff(
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
 ) -> dict:
-    """Build the table-diff corpus into `out_dir`: the accepted build in `snapshot_dir` (a snapshot, `rebuild/review/snapshot.py`) against the run_m1 build in `new_dir`, its tables, windows heads and `M1.otf` (or `after_font`), and return the manifest. Each unit is one visible change (`diff_units`), in one of `diff_units.CLASSES`, shaped in the snapshot's font as before and the new build's as after. An empty diff gives a corpus with no units, and so does a `snapshot_dir` of None, the build of a machine with no snapshot, whose manifest's `baseline` says no snapshot is present and whose before font is the after font, so the app shell and the kerning view still boot. The manifest's `configs` is every settled configuration, the universe every unit's config badge is resolved against, and `table_rows` counts each configuration's changed rows. The written corpus is checked with `check_shards` before the build returns."""
+    """Build the table-diff corpus into `out_dir`: the accepted build in `snapshot_dir` (a snapshot, `rebuild/review/snapshot.py`) against the run_m1 build in `new_dir`, its tables, windows heads, `M1.otf` (or `after_font`), `kern.tsv` and kerning inventory, and return the manifest. Each unit is one visible change (`diff_units`), in one of `diff_units.CLASSES`, shaped in the snapshot's font as before and the new build's as after. An empty diff gives a corpus with no units, and so does a `snapshot_dir` of None, the build of a machine with no snapshot, whose manifest's `baseline` says no snapshot is present and whose before font is the after font, so the app shell and the kerning view still boot. The manifest's `configs` is every settled configuration, the universe every unit's config badge is resolved against, `table_rows` counts each configuration's changed rows and `font_changes` the redrawn glyphs and moved kern pairs (`FontChanges`), `baseline.commit` is the commit the snapshot stands for (`snapshot.pointer_commit`), and `inputs_fingerprint` is `fingerprint.table_diff_values` over the snapshot's record and the tables' stamp of `new_dir` (`snapshot.tables_stamp`). The written corpus is checked with `check_shards` before the build returns."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     new_dir = Path(new_dir)
@@ -1094,8 +1144,11 @@ def build_table_diff(
     before_font = accepted.font if accepted is not None else after_font
     font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
     fonts = diff_units.Fonts(before_font, after_font)
+    font_changes = FontChanges()
     units, counts = (
-        table_diff_units(accepted, new_dir, fonts, spec, repo_root) if accepted is not None else ([], {})
+        table_diff_units(accepted, new_dir, fonts, spec, repo_root, font_changes)
+        if accepted is not None
+        else ([], {})
     )
 
     by_class: dict[str, list[dict]] = {cls.id: [] for cls in diff_units.CLASSES}
@@ -1199,12 +1252,20 @@ def build_table_diff(
         "mode": "table-diff",
         "generated_at": _generated_at(*_diff_inputs(accepted, new_dir, after_font)),
         "repo_head": _repo_head(repo_root),
-        "inputs_fingerprint": {key: None for key in fingerprint.COMPONENTS},
+        "inputs_fingerprint": fingerprint.table_diff_values(
+            repo_root,
+            accepted.directory / snapshot.RECORD_NAME if accepted is not None else None,
+            snapshot.tables_stamp(new_dir),
+        ),
         "source": {
             "snapshot": None if accepted is None else _relative(accepted.directory, repo_root),
             "new": _relative(new_dir, repo_root),
         },
-        "baseline": accepted.baseline() if accepted is not None else dict(snapshot.ABSENT_BASELINE),
+        "baseline": (
+            accepted.baseline(snapshot.pointer_commit(accepted.digest, repo_root))
+            if accepted is not None
+            else dict(snapshot.ABSENT_BASELINE)
+        ),
         "fonts": fonts_meta,
         "alphabet": _alphabet_meta(),
         "configs": universe,
@@ -1231,6 +1292,7 @@ def build_table_diff(
             },
         },
         "table_rows": {config: counts[config].record() for config in universe if config in counts},
+        "font_changes": font_changes.record(),
         "classes": classes_meta,
         "ledger_classes": {},
         "build_command": BUILD_COMMAND + " --mode table-diff",
@@ -1250,11 +1312,7 @@ def build_table_diff(
     seconds = sum(record.seconds for record in counts.values())
     console.say(
         f"review.build table-diff: {len(units)} units against "
-        + (
-            f"the snapshot of {str(accepted.commit or 'an unknown commit')[:12]}"
-            if accepted is not None
-            else "no snapshot"
-        )
+        + (f"the snapshot {accepted.digest[:12]}" if accepted is not None else "no snapshot")
         + f"; {shaped} texts shaped in {seconds:.1f}s",
         file=sys.stderr,
     )
@@ -1284,12 +1342,13 @@ def check_manifest(manifest: dict) -> list[str]:
     if isinstance(human_unit_ids, list) and all(isinstance(unit, str) for unit in human_unit_ids):
         need(len(human_unit_ids) == len(set(human_unit_ids)), "human_unit_ids must be unique")
     inputs = manifest.get("inputs_fingerprint")
-    need(
-        isinstance(inputs, dict)
-        and set(inputs) == set(fingerprint.COMPONENTS)
-        and all(value is None or isinstance(value, str) for value in inputs.values()),
-        f"inputs_fingerprint must map exactly the input components ({', '.join(fingerprint.COMPONENTS)}) to hashes or null",
-    )
+    if manifest.get("mode") != "table-diff":
+        need(
+            isinstance(inputs, dict)
+            and set(inputs) == set(fingerprint.COMPONENTS)
+            and all(value is None or isinstance(value, str) for value in inputs.values()),
+            f"inputs_fingerprint must map exactly the input components ({', '.join(fingerprint.COMPONENTS)}) to hashes or null",
+        )
     need(
         isinstance(manifest.get("configs"), list) and manifest.get("configs"),
         "configs must be a nonempty list",
@@ -1441,8 +1500,31 @@ def check_manifest(manifest: dict) -> list[str]:
 
 
 def _table_diff_manifest_errors(manifest: Mapping) -> list[str]:
-    """The table-diff manifest's own predicates: `baseline` names the snapshot the corpus was built against, or says none is present, in which case the corpus holds no units; `configs` is every settled configuration, the universe the badges are resolved against; and every class is one of `diff_units.CLASS_IDS`, taking no verdict exactly when it is one of `diff_units.NO_VERDICT_CLASS_IDS`."""
+    """The table-diff manifest's own predicates: `inputs_fingerprint` maps exactly `fingerprint.TABLE_DIFF_COMPONENTS` to hashes or null, with `snapshot` null exactly when no snapshot is present; `baseline` names the snapshot the corpus was built against, or says none is present, in which case the corpus holds no units; `configs` is every settled configuration, the universe the badges are resolved against; `font_changes` counts the redrawn glyphs and the moved kern pairs; and every class is one of `diff_units.CLASS_IDS`, taking no verdict exactly when it is one of `diff_units.NO_VERDICT_CLASS_IDS`."""
     errors: list[str] = []
+    inputs = manifest.get("inputs_fingerprint")
+    if not (
+        isinstance(inputs, dict)
+        and set(inputs) == set(fingerprint.TABLE_DIFF_COMPONENTS)
+        and all(value is None or isinstance(value, str) for value in inputs.values())
+    ):
+        errors.append(
+            f"inputs_fingerprint must map exactly the table-diff input components ({', '.join(fingerprint.TABLE_DIFF_COMPONENTS)}) to hashes or null"
+        )
+    elif isinstance(manifest.get("baseline"), dict) and (inputs.get("snapshot") is None) is (
+        manifest["baseline"].get("present") is True
+    ):
+        errors.append("inputs_fingerprint.snapshot must be a hash exactly when a snapshot is present")
+    changes = manifest.get("font_changes")
+    if not (
+        isinstance(changes, dict)
+        and set(changes) == {"glyphs", "kern"}
+        and all(
+            isinstance(counts, dict) and all(isinstance(count, int) for count in counts.values())
+            for counts in changes.values()
+        )
+    ):
+        errors.append("font_changes must map glyphs and kern to counts")
     baseline = manifest.get("baseline")
     keys = ("commit", "taken_at", "digest")
     if not (
@@ -1872,13 +1954,23 @@ def check_unit(unit: dict, mode: str = "m1-audit") -> list[str]:
             f"kinds must name the row buckets and {diff_units.CONTEXT_KIND} ({', '.join(diff_units.KINDS)})",
         )
         need(duplicate_group is None, "table-diff units carry duplicate_group null")
-        # A unit that shows several changes names each in its row key, joined by `; `, and stands in `joins` when any of them is a join row (`diff_units.KIND_PRECEDENCE`).
+        # A unit that shows several changes names each in its row key, joined by `; `, and stands in `joins` when any of them is a join row, else in `settlement` when any is a cell change (`diff_units.KIND_PRECEDENCE`); a unit in `glyphs` shows only redrawn glyphs, and one in `kerning` only kern pairs.
         changes = str(unit.get("row_key") or "").split("; ")
         if unit.get("class") in ("joins", "settlement"):
             need(
                 (unit.get("class") == "joins") == any(change.startswith("join ") for change in changes),
                 "a unit that shows a join row is in joins, and one that shows none is not",
             )
+        for class_id, prefix in (("glyphs", "glyph "), ("kerning", "kern ")):
+            if unit.get("class") == class_id:
+                need(
+                    all(change.startswith(prefix) for change in changes),
+                    f"a unit in {class_id} names only {prefix.strip()} changes in its row key",
+                )
+        need(
+            unit.get("kerning") is (unit.get("class") == "kerning"),
+            "kerning must be true exactly on a unit of the kerning class, which is drawn with kerning on",
+        )
         if codepoints is None:
             need(
                 all(
@@ -2212,15 +2304,15 @@ def check_shards(
     return check.finish(manifest)
 
 
-def _font_copy_current(side: str, copy: Path, digest: str, source: Path) -> bool:
-    """Return whether a corpus's copied font still stands for the font it was copied from. The before font must equal its source byte for byte. The after font may differ from `rebuild/out/m1/M1.otf` in the `kern` feature's lookups alone (`fingerprint.after_font_current`): the corpus shapes with kerning off, so a kern edit recompiles M1.otf without making the corpus's copy stale (rebuild/KERN-PLAN.md section 7)."""
-    if side == "after":
+def _font_copy_current(side: str, copy: Path, digest: str, source: Path, mode: str = "m1-audit") -> bool:
+    """Return whether a corpus's copied font still stands for the font it was copied from. The before font must equal its source byte for byte, and so must a table-diff corpus's after font, whose kern units show the `kern` lookup. An m1-audit corpus's after font may differ from `rebuild/out/m1/M1.otf` in the `kern` feature's lookups alone (`fingerprint.after_font_current`): that corpus shapes with kerning off, so a kern edit recompiles M1.otf without making the corpus's copy stale (rebuild/KERN-PLAN.md section 7)."""
+    if side == "after" and mode != "table-diff":
         return fingerprint.after_font_current(copy, digest, source)
     return _sha256(source) == digest
 
 
 def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = None) -> list[str]:
-    """Check the files beside the manifest: every shard part the manifest lists, base and overflow, is present and non-empty, a reader of part names that never opens one, the per-unit index and the app's two sidecars are present and stamped for this manifest, index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `rebuild/out/m1/M1.otf`; the comparison here is for `check_output_dir` and `refresh_assets`. The after font is compared as those two compare it (`_font_copy_current`), so a kern-only rebuild of M1.otf leaves the copy current."""
+    """Check the files beside the manifest: every shard part the manifest lists, base and overflow, is present and non-empty, a reader of part names that never opens one, the per-unit index and the app's two sidecars are present and stamped for this manifest, index.html exists, and each copied font matches the sha256 the manifest records and, when `repo_root` resolves its `source`, the font it was copied from. A build already guarantees the source comparison (`_copy_font` checks the copy against the digest taken at load), and the cycle's corpus skip and `make verdict-ready` compare the manifest's after-font sha256 with `rebuild/out/m1/M1.otf`; the comparison here is for `check_output_dir` and `refresh_assets`. The after font is compared as those two compare it (`_font_copy_current`), so a kern-only rebuild of M1.otf leaves an m1-audit corpus's copy current and makes a table-diff corpus's stale."""
     errors: list[str] = []
     for meta in manifest.get("classes", ()):
         for part in unit_index.class_shards(meta):
@@ -2241,7 +2333,9 @@ def _check_output_files(out_dir: Path, manifest: dict, repo_root: Path | None = 
             source = Path(record["source"])
             if not source.is_absolute():
                 source = Path(repo_root) / source
-            if source.is_file() and not _font_copy_current(side, font_path, digest, source):
+            if source.is_file() and not _font_copy_current(
+                side, font_path, digest, source, manifest.get("mode", "m1-audit")
+            ):
                 errors.append(f"fonts.{side}: the copy is not {record['source']} as it stands on disk")
     if not (Path(out_dir) / "index.html").exists():
         errors.append("index.html is missing")

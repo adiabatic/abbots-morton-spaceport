@@ -22,3 +22,5 @@ Start here:
 `console.py` is a library, not a script. It defines the line protocol every in-house child of the cycle prints (the `[t]`, `[phase]`, `[progress]`, and `[warn]` prefixes) and `CycleConsole`, the terminal renderer the artifact cycle shows that output with: the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding output to anything the cycle spawns.
 
 `suite_fonts.py` is a library too, one the root conftest can import: it names the rebuilt fonts and the glyph-facts sidecar the font suite checks the `data-expect` pins against, as `build_fonts.py` writes them.
+
+`store_guards.py` is a library as well: the pass lock, the review-server check and the refusals every hand-run writer of the verdict store shares, the close-out, the re-key and the table-diff accept (`rebuild/review/accept.py`).

@@ -12,6 +12,8 @@ make review-cycle SERVE=bg       # same pass; starts the server detached if it i
 make verdict-ready               # the readiness checklist; the app's banner shows the same status
 make review-serve                # serve rebuild/out/review/ on http://localhost:7294/
 make close-out                   # the close-out's dry run; ARGS=--apply folds, ARGS=--undo puts the last one back
+make review-accept               # a table-diff corpus's accept, a dry run; ARGS=--apply takes the snapshot and empties the store
+make review-snapshot-remake      # remake the accepted snapshot rebuild/review-snapshot.json names on a machine without it
 make cycle-timings               # what each step and check costs on this machine; ARGS=--help lists its flags
 ```
 
@@ -117,6 +119,15 @@ uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply
 - keeps the store it found and the lists before and after, gzipped, under `var/keep/close-outs/<closed_at>/`, and deletes every older archive, so the notes and provenance markers of the folded verdicts, and each one's own time, survive only there, until the next close-out.
 
 The new list goes into the "Close the ·X batch" commit. A close-out killed between renaming the list and renaming the store leaves every reader refusing on the pairing with `make close-out ARGS=--apply` as the remedy, and that apply finishes it from its intent file, `var/cycle/close-out.json`, or drops one killed before it renamed the list. `make close-out ARGS=--undo`, under the same locks and with the server stopped, puts back the archive's list and lays the live store's records and tombstones over the archive's store, so the verdicts made since the close-out survive; the list it puts back is a tracked change to commit, never to revert, since the store then names it (when the close-out's commit was never made, the tree already matches `HEAD`). A re-key moves the list's ids with the store's and re-keys the last close-out's archive too, so an undo still lands after one.
+
+## The table-diff accept and the snapshot
+
+The cycle builds and serves the m1-audit corpus. The table-diff corpus (`rebuild/REVIEW-PLAN.md` §2.3) compares a snapshot of the accepted build, under `var/keep/review-snapshot/`, with `rebuild/out/m1`, and `rebuild/review/accept.py`'s module docstring is the authority on its accept and remake. In outline:
+
+- The tracked pointer, `rebuild/review-snapshot.json`, names the accepted snapshot by digest and records no commit; the commit the snapshot stands for is the last commit that changed the pointer.
+- `make verdict-ready` and the app's banner choose their rows by the served corpus's mode. On a table-diff corpus they check its `fingerprint.TABLE_DIFF_COMPONENTS` and its after font byte for byte, add a `snapshot` row, which fails while the current snapshot is not the one the pointer names (remedy `make review-snapshot-remake`), and a `diff` row, which never fails and counts the unaccepted changes, `N` of them since the pointer's commit, `H` needing a verdict (`B` blank, `R` rejected or neither), `M` machine-approved and `K` needing none, and print no fullest-verdicts or journal row.
+- `make review-accept ARGS=--apply` takes the snapshot of `rebuild/out/m1`, writes the pointer and empties the store, starting its journal again at one base event, and keeps the store it found under `var/keep/review-accept/`. It refuses on an m1-audit corpus, so it never clears the store the close-out folds, while `make verdict-ready`'s blocking checks fail or the corpus does not show `rebuild/out/m1`, while a pass holds the pass lock or this checkout's review server listens, and while a human unit is blank, skipped, rejected or neither. `ARGS='--apply --retake'` takes the snapshot over the verdict, readiness and corpus refusals, for a snapshot-format bump or a snapshot no build remakes.
+- `make review-snapshot-remake` exports the pointer's commit with `git archive` into `var/cycle/snapshot-remake/`, which a pass deletes, runs that commit's own table build, glyph chain and snapshot there, holding the pass lock, and installs the snapshot once its digest is the pointer's. It runs the whole table build, so it never runs beside a pass or a gate.
 
 ## Retention
 

@@ -14,7 +14,7 @@ from rebuild.pipeline import compile_font, emit_gpos, emit_gsub, fixtures, run_m
 from rebuild.review import app_index, build, diff_units, snapshot, tablediff, unit_cache
 from rebuild.review.enrich import LETTERS
 from rebuild.review.ink import IDENTITY_DIFF
-from rebuild.validation.shaping import ShapeResult
+from rebuild.validation.shaping import ShapeResult, Shaper
 
 CHANGED = ("default", "ss04", "ss05", "ss07", "ss08")
 
@@ -401,3 +401,234 @@ def test_the_fold_takes_the_text_that_shows_the_change_under_the_most_configurat
     shows = {("ab", "ss05"), ("cd", "default")}
     covered = list(finder._cover(per_config, lambda text, config: (text, config) in shows))
     assert covered == [("cd", frozenset({"default", "ss03", "ss04"})), ("abc", frozenset({"ss05"}))]
+
+
+# --- the glyph and kern buckets ------------------------------------------------------
+
+MOVED_GLYPH = "qsDay.full.ex-y0"
+
+
+def _edited_font(source: Path, target: Path) -> None:
+    """Copy the font at `source` to `target` with ·Day's full baseline exit a pixel further right and the namer dot's advance a pixel wider, two edits that leave every table as it was."""
+    from fontTools.ttLib import TTFont
+
+    font = TTFont(str(source))
+    for lookup in font["GPOS"].table.LookupList.Lookup:
+        for subtable in lookup.SubTable:
+            subtable = subtable.ExtSubTable if lookup.LookupType == 9 else subtable
+            if getattr(subtable, "LookupType", lookup.LookupType) != 3:
+                continue
+            for name, record in zip(subtable.Coverage.glyphs, subtable.EntryExitRecord):
+                if name == MOVED_GLYPH and record.ExitAnchor is not None:
+                    record.ExitAnchor.XCoordinate += 50
+    advance, lsb = font["hmtx"].metrics["periodcentered"]
+    font["hmtx"].metrics["periodcentered"] = (advance + 50, lsb)
+    font.save(str(target))
+
+
+@pytest.fixture(scope="module")
+def glyph_corpus(builds, tmp_path_factory):
+    accepted, _edited, taken = builds
+    root = tmp_path_factory.mktemp("glyph-corpus")
+    new = _copy(accepted, root / "new")
+    _edited_font(accepted / "M1.otf", new / "M1.otf")
+    out = root / "out"
+    manifest = build.build_table_diff(out, taken.directory, new, spec=fixtures.mini_spec())
+    (meta,) = manifest["classes"]
+    return out, manifest, json.loads((out / meta["shards"][0]).read_text(encoding="utf-8"))
+
+
+def test_a_drawing_edit_that_leaves_the_tables_is_a_glyph_unit_over_a_certificate(glyph_corpus):
+    """Moving a glyph's exit anchor changes no table row, so only the glyph bucket sees it: one unit in `glyphs`, over the shortest certificate whose rule settles to the glyph, under every configuration whose run of that text holds it, with the follower moved a pixel."""
+    out, manifest, units = glyph_corpus
+    assert build.check_output_dir(out) == []
+    assert manifest["table_rows"] == {}
+    assert manifest["font_changes"] == {"glyphs": {"anchors": 1, "metrics": 1}, "kern": {}}
+    (moved,) = [unit for unit in units if unit["row_key"] == f"glyph {MOVED_GLYPH}: anchors"]
+    assert moved["class"] == "glyphs" and moved["kinds"] == ["anchors"] and moved["group"] == "qsDay"
+    assert moved["kerning"] is False and moved["no_verdict"] is False
+    assert MOVED_GLYPH in moved["after"]["cells"] and len(moved["codepoints"].split(":")) >= 2
+    assert not moved["ink_identical"] and not moved["picture_identical"]
+    assert moved["cluster"] and moved["id"] in manifest["human_unit_ids"]
+    assert "the shortest certificate of the accepted" in moved["explain"]
+    assert "cursive anchors changed" in moved["summary"]
+
+
+def test_a_glyph_outside_quikscript_is_shown_by_its_code_point_alone_in_its_own_group(glyph_corpus):
+    """The namer dot is in no Quikscript family, so its unit is in the non-Quikscript group, over U+00B7 alone; its wider advance moves no ink in that text, so the unit is machine-approved."""
+    _out, manifest, units = glyph_corpus
+    (dot,) = [unit for unit in units if unit["row_key"] == "glyph periodcentered: metrics"]
+    assert dot["codepoints"] == "00B7" and dot["group"] == diff_units.NON_QUIKSCRIPT_GROUP
+    assert "its code point alone" in dot["explain"]
+    assert dot["ink_identical"] is True and dot["cluster"] is None
+    assert dot["id"] not in manifest["human_unit_ids"]
+
+
+def test_glyph_changes_read_outline_metrics_and_anchors_and_leave_out_the_lookup_an_anchor_sits_in(
+    builds, tmp_path
+):
+    accepted, _edited, _taken = builds
+    assert diff_units.glyph_changes(accepted / "M1.otf", accepted / "M1.otf") == []
+    edited = tmp_path / "M1.otf"
+    _edited_font(accepted / "M1.otf", edited)
+    changes = diff_units.glyph_changes(accepted / "M1.otf", edited)
+    assert [(change.name, change.differs) for change in changes] == [
+        ("periodcentered", ("metrics",)),
+        (MOVED_GLYPH, ("anchors",)),
+    ]
+    assert all(change.old != change.new for change in changes)
+    records = [(0, [1, 2], None), (3, None, [4, 5])]
+    assert diff_units._anchor_pairs(records) == diff_units._anchor_pairs(
+        [(7, [1, 2], None), (9, None, [4, 5])]
+    )
+
+
+def test_a_glyph_unit_merges_with_a_join_unit_over_the_same_text_and_a_kern_unit_merges_with_neither():
+    def unit(kind, subject, text="ab", kinds=("changed",)):
+        return diff_units.Unit(kind, subject, ("default",), text, kinds, "a test")
+
+    join = unit(
+        diff_units.JOIN, diff_units.JoinChange("qsIt.a", "qsTea.x", ("x-height", 1), None), kinds=("removed",)
+    )
+    glyph = unit(
+        diff_units.GLYPH, diff_units.GlyphChange("qsTea.x", "a", "b", ("outline",)), kinds=("outline",)
+    )
+    other = unit(
+        diff_units.GLYPH, diff_units.GlyphChange("qsTea.y", "a", "c", ("anchors",)), kinds=("anchors",)
+    )
+    kern = unit(diff_units.KERN, diff_units.KernChange("qsIt", "qsTea[half]", "qsIt", "qsTea", -1, 0))
+    kern_too = unit(diff_units.KERN, diff_units.KernChange("qsIt", "qsTea[full]", "qsIt", "qsTea", None, -1))
+    merged = diff_units.merge([glyph, kern, join, other, kern_too])
+    assert [[part.kind for part in item.parts] for item in merged] == [
+        [diff_units.JOIN, diff_units.GLYPH, diff_units.GLYPH],
+        [diff_units.KERN, diff_units.KERN],
+    ]
+    assert merged[0].kinds == ("anchors", "outline", "removed")
+    assert diff_units.CLASS_OF_KIND[merged[0].kind] == "joins"
+    assert merged[1].kerning and not merged[0].kerning
+    assert "1 join row and 2 redrawn glyphs" in diff_units._summary(merged[0])
+    (glyphs,) = diff_units.merge([glyph, other])
+    assert diff_units.CLASS_OF_KIND[glyphs.kind] == "glyphs"
+    assert diff_units._label(glyphs) == "glyph qsTea.x: outline; glyph qsTea.y: anchors"
+
+
+def _kern_table(rows) -> str:
+    header = "# kern table\nleading\tleading_side\tfollowing\tfollowing_side\tby\trecord\tconfigs\tmixed\n"
+    return header + "".join("\t".join(map(str, row)) + "\n" for row in rows)
+
+
+def test_kern_changes_diff_by_side_pair_and_pass_over_a_pair_kerned_by_nothing(tmp_path):
+    every = ",".join(tablediff.SETTLED_CONFIGS)
+    old = tmp_path / "old.tsv"
+    new = tmp_path / "new.tsv"
+    old.write_text(
+        _kern_table(
+            [
+                ("qsIt", "qsIt", "qsTea", "qsTea[half]", -1, "glyph_data/runes/qsIt.yaml:kern[0]", every, ""),
+                ("qsIt", "qsIt", "qsMay", "qsMay", 0, "", every, ""),
+                ("qsIt", "qsIt", "qsDay", "qsDay", -1, "glyph_data/runes/qsIt.yaml:kern[1]", every, ""),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    new.write_text(
+        _kern_table(
+            [
+                ("qsIt", "qsIt", "qsTea", "qsTea[half]", -2, "glyph_data/runes/qsIt.yaml:kern[0]", every, ""),
+                ("qsIt", "qsIt", "qsPea", "qsPea", 1, "glyph_data/runes/qsIt.yaml:kern[1]", "default", ""),
+                ("qsIt", "qsIt", "qsLow", "qsLow", 0, "", every, ""),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    changes = diff_units.kern_changes(diff_units.load_kern(old), diff_units.load_kern(new))
+    assert [
+        (change.following_side, change.old, change.new, change.bucket, index)
+        for change, _row, index in changes
+    ] == [
+        ("qsDay", -1, None, "removed", None),
+        ("qsPea", None, 1, "added", 1),
+        ("qsTea[half]", -1, -2, "changed", 0),
+    ]
+    units = diff_units.kern_units(changes, tablediff.SETTLED_CONFIGS)
+    assert [unit.text for unit in units] == ["", "", ""]
+    assert units[1].configs == ("default",) and units[2].configs == tablediff.SETTLED_CONFIGS
+    assert units[2].records == ("glyph_data/runes/qsIt.yaml:kern[0]",)
+    assert all(unit.kind == diff_units.KERN and unit.found_by == "the two letters alone" for unit in units)
+
+
+def test_a_moved_kern_value_is_a_unit_drawn_with_kerning_on_that_takes_no_verdict(builds, tmp_path):
+    """A kern edit leaves the tables and every glyph as they were and moves a row of `kern.tsv`: one unit in `kerning`, drawn with kerning on over the kerning inventory's witness of the pair, outside the triage index."""
+    accepted, _edited, taken = builds
+    new = _copy(accepted, tmp_path / "new")
+    every = ",".join(tablediff.SETTLED_CONFIGS)
+    (new / "kern.tsv").write_text(
+        _kern_table(
+            [("qsTea", "qsTea", "qsMay", "qsMay[loop]", -1, "glyph_data/runes/qsTea.yaml:kern[0]", every, "")]
+        ),
+        encoding="utf-8",
+    )
+    inventory = {
+        "sides": [{"name": "qsTea"}, {"name": "qsMay[loop]"}],
+        "pairs": [{"lead": 0, "follow": 1, "witness": 0, "at": 1}],
+        "texts": [{"cp": [0xE670, 0xE652, 0xE665], "config": 0, "glyphs": []}],
+        "configs": ["default"],
+        "glyphs": [],
+    }
+    (new / "kern-inventory.json").write_text(json.dumps(inventory), encoding="utf-8")
+    out = tmp_path / "out"
+    manifest = build.build_table_diff(out, taken.directory, new, spec=fixtures.mini_spec())
+    assert build.check_output_dir(out) == []
+    assert manifest["font_changes"] == {"glyphs": {}, "kern": {"added": 1}}
+    (meta,) = manifest["classes"]
+    assert (meta["id"], meta["section"], meta["no_verdict"]) == ("kerning", "no-review-needed", True)
+    (unit,) = json.loads((out / meta["shards"][0]).read_text(encoding="utf-8"))
+    assert unit["row_key"] == "kern qsTea + qsMay[loop]: none -> -1"
+    assert unit["codepoints"] == "E670:E652:E665" and unit["kerning"] is True and unit["no_verdict"] is True
+    assert unit["cluster"] is None and manifest["human_unit_ids"] == []
+    assert unit["provenance"] == ["glyph_data/runes/qsTea.yaml:kern[0]"]
+    assert "the kerning inventory's witness of the pair" in unit["explain"]
+    assert any(
+        "kerning must be true" in error
+        for error in build.check_unit({**unit, "kerning": False}, "table-diff")
+    )
+
+
+def test_the_kerned_comparator_shapes_with_kerning_on_where_the_other_turns_it_off(builds):
+    accepted, _edited, _taken = builds
+    seen: list[dict] = []
+
+    class Recording(Shaper):
+        def __init__(self, shaper):
+            self.shaper = shaper
+
+        def shape(self, text, features=None):
+            seen.append(dict(features or {}))
+            return self.shaper.shape(text, features)
+
+    fonts = diff_units.Fonts(accepted / "M1.otf", accepted / "M1.otf")
+    for kerning in (False, True):
+        comparator = fonts.comparator_for(kerning)
+        shaper, outlines = comparator._sides["before"]
+        comparator._sides["before"] = (Recording(shaper), outlines)
+        comparator.run_ink("before", TEXT, {"ss03": True})
+    assert seen == [{"ss03": True, "kern": False}, {"ss03": True, "kern": True}]
+    assert fonts.comparator_for(True) is fonts.comparator_for(True)
+    assert isinstance(fonts.comparator_for(True), diff_units.KernedInkComparator)
+
+
+def test_the_manifest_carries_the_table_diff_fingerprint(corpus, builds):
+    from rebuild.pipeline import fingerprint
+
+    _out, manifest, _shards = corpus
+    _accepted, _edited, taken = builds
+    fp = manifest["inputs_fingerprint"]
+    assert tuple(fp) == fingerprint.TABLE_DIFF_COMPONENTS
+    assert fp["snapshot"] == fingerprint.file_sha256(taken.directory / snapshot.RECORD_NAME)
+    assert fp["tables"] == "fp-edited"
+    for broken, phrase in (
+        ({"inputs_fingerprint": {**fp, "fonts": "x"}}, "table-diff input components"),
+        ({"inputs_fingerprint": {**fp, "snapshot": None}}, "a hash exactly when a snapshot is present"),
+        ({"font_changes": {"glyphs": {}}}, "font_changes must map"),
+    ):
+        assert any(phrase in error for error in build.check_manifest({**manifest, **broken})), phrase

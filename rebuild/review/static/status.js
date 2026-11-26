@@ -1,7 +1,8 @@
 import { storeRefusalOf } from './outbox.js';
 import { formatCount } from './render.js';
 
-const FAIL_SCAN = ['corpus', 'freshness', 'gates', 'verdict_store'];
+// A table-diff corpus's status adds the `snapshot` check, which an m1-audit corpus's lacks.
+const FAIL_SCAN = ['corpus', 'freshness', 'gates', 'snapshot', 'verdict_store'];
 export const SERVER_UNREACHABLE_GRACE_MS = 60_000;
 const RETRY_AFTER_DEFAULT_MS = 1000;
 

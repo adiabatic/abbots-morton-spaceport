@@ -65,6 +65,11 @@ export function carriesSamples(unit) {
   return Boolean(unit) && typeof unit.text_entities === 'string';
 }
 
+// Whether a unit's samples render with kerning on: a table-diff corpus's kern unit, which shows a kern value and which the build shapes with kerning on in both fonts (`diff_units.KernedInkComparator`). Every other unit renders with kerning off, as the build shapes it.
+export function drawnWithKerning(unit) {
+  return unit?.kerning === true;
+}
+
 // A unit id is `u-` followed by eleven base58 symbols (the alphabet without 0, O, I and l), made from the unit's content key by `unit_cache.unit_id_for`. Ids sort by string order, which is the order the build writes a class's fragments and locator rows in.
 const UNIT_ID = /^u-[1-9A-HJ-NP-Za-km-z]{11}$/;
 export function isUnitId(unitId) {

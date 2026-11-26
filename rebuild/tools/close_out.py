@@ -19,7 +19,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import contextlib
 import functools
 import gzip
 import hashlib
@@ -30,7 +29,7 @@ import shutil
 import subprocess
 import sys
 from collections import Counter
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,7 +48,7 @@ from rebuild.review.landing import (
     read_manifest,
 )  # noqa: E402
 from rebuild.review.landing import intent_path_for as land_intent_path_for  # noqa: E402
-from rebuild.review.store_lock import LockBusy, hold_flock, holder  # noqa: E402
+from rebuild.review.store_lock import LockBusy, holder  # noqa: E402
 from rebuild.review.verdict_store import (  # noqa: E402
     EXPORT_FORMAT,
     MalformedStore,
@@ -58,14 +57,13 @@ from rebuild.review.verdict_store import (  # noqa: E402
     read_store_document,
     summarize_orphans,
 )
-from rebuild.tools import verdict_ready  # noqa: E402
+from rebuild.tools import store_guards, verdict_ready  # noqa: E402
 from rebuild.tools.merge_verdicts import merge_into  # noqa: E402
-from rebuild.tools.review_server import capabilities, server_listening  # noqa: E402
+from rebuild.tools.store_guards import pass_lock, pass_lock_path_for, pass_refusal, serves  # noqa: E402
 
 KEEP = Path("var") / "keep" / "close-outs"
-CYCLE = Path("var") / "cycle"
+CYCLE = store_guards.CYCLE
 STAGING = Path("var") / "close-out"
-PASS_LOCK_NAME = "pass.lock"
 SCAN_STATE_NAME = "journal-scan.json"
 INTENT_FORMAT = "ams-close-out-intent/1"
 LIST_FILE = "accepted-units.txt"
@@ -94,11 +92,6 @@ def intent_path_for(store: Path) -> Path:
 def staging_path_for(store: Path) -> Path:
     """Return the close-out's staging directory beside the store, var/close-out/, outside var/cycle/, whose directories every pass deletes when it starts (`artifact_cycle.sweep_run_dirs`), so a pass started after a killed close-out leaves what the next `--apply` finishes from."""
     return Path(store).parent / STAGING
-
-
-def pass_lock_path_for(store: Path) -> Path:
-    """Return the artifact cycle's pass lock beside the store, var/cycle/pass.lock, which for the live store is `artifact_cycle.pass_lock_path()`."""
-    return Path(store).parent / CYCLE / PASS_LOCK_NAME
 
 
 def scan_state_path_for(store: Path) -> Path:
@@ -176,36 +169,8 @@ def _write_atomic(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
-@contextlib.contextmanager
-def pass_lock(store: Path) -> Iterator[None]:
-    """Hold the artifact cycle's pass lock beside `store` without waiting, writing this process's pid into it as a pass does (`artifact_cycle.pass_lock`), so a pass that starts meanwhile names the holder while it waits. Raise `store_lock.LockBusy` while a pass holds it."""
-    with hold_flock(pass_lock_path_for(store), blocking=False) as fd:
-        os.ftruncate(fd, 0)
-        os.pwrite(fd, f"{os.getpid()}\n".encode(), 0)
-        yield
-
-
-def serves(store: Path) -> bool:
-    """Return whether a review server listens that may write `store`: its /capabilities answer names that store, or names none, as a server that predates /capabilities or does not answer does. `rebuild.tools.rekey_verdicts` applies the same rule."""
-    if not server_listening():
-        return False
-    answer = capabilities()
-    served = answer.get("autosave") if isinstance(answer, dict) else None
-    return not isinstance(served, str) or Path(served).resolve() == Path(store).resolve()
-
-
-def pass_refusal(store: Path) -> str:
-    """Return the refusal of a writer that found the pass lock beside `store` held (`pass_lock`), naming the holder's pid. A pass between its snapshot and its land would lay the saves made since over a prepared store from before the write."""
-    who = holder(pass_lock_path_for(store)) or "unknown"
-    return f"a pass holds {pass_lock_path_for(store)} (pid {who}); wait for it to finish"
-
-
 def _server_refusal(store: Path) -> str:
-    return (
-        f"a review server listening on port 7294 may write {store.name}: its /capabilities answer names that store, or "
-        "names none. Stop it for the close-out and restart it afterwards, and the open tabs fetch the store and the "
-        "list again at the restart"
-    )
+    return store_guards.server_refusal(store, "the close-out")
 
 
 def _intent_refusal(store: Path) -> str:
@@ -216,16 +181,8 @@ def _intent_refusal(store: Path) -> str:
 
 
 def _readiness_refusal(result: dict, ready: bool) -> str | None:
-    if ready:
-        return None
-    failing = [
-        f"{name}: {check['detail']}" + (f" (remedy: {check['remedy']})" if check.get("remedy") else "")
-        for name, check in result["checks"].items()
-        if check.get("level") == "fail"
-    ]
-    return (
-        "`make verdict-ready`'s blocking checks fail, so the human unit ids the fold reads may not belong to a "
-        f"corpus built from this tree: {'; '.join(failing)}"
+    return store_guards.readiness_refusal(
+        result, ready, "the human unit ids the fold reads may not belong to a corpus built from this tree"
     )
 
 

@@ -11,6 +11,7 @@ import {
   candidateBlocks,
   carriesSamples,
   checkIndexHeader,
+  drawnWithKerning,
   coalesceSpans,
   createLineSplitter,
   createRecordCache,
@@ -165,6 +166,13 @@ test('carriesSamples tells a shard record, slim fragment included, from an app-i
   assert.equal(carriesSamples(row), false);
   assert.equal(carriesSamples({ text_entities: null }), false);
   assert.equal(carriesSamples(null), false);
+});
+
+test('drawnWithKerning is true only on a unit that says it shows a kern value', () => {
+  assert.equal(drawnWithKerning({ ...human, kerning: true }), true);
+  assert.equal(drawnWithKerning({ ...human, kerning: false }), false);
+  assert.equal(drawnWithKerning(human), false, 'an m1-audit fragment carries no kerning field');
+  assert.equal(drawnWithKerning(null), false);
 });
 
 test('isUnitId accepts exactly the content-addressed shape: u- and eleven base58 symbols', () => {

@@ -98,6 +98,17 @@ def open_table(path: Path) -> IO[str]:
     return open(path, encoding="utf-8")
 
 
+def load_outcomes(path: Path) -> list[str]:
+    """Read only the outcome of each rule of a settlement table, in rule order: the cell its input settles to, the third column from the end at every width `load_settlement` reads."""
+    outcomes: list[str] = []
+    with open_table(path) as handle:
+        for line in handle:
+            if line.startswith("#") or line.startswith("input\t") or not line.strip():
+                continue
+            outcomes.append(line.rstrip("\n").split("\t")[-3])
+    return outcomes
+
+
 def load_settlement(path: Path, config: str | None = None) -> dict[SettlementKey, SettlementValue]:
     """Read a settlement table into its rows, in rule order. `config` names the configuration the keys carry, which defaults to the one the file's name gives."""
     rows: dict[SettlementKey, SettlementValue] = {}

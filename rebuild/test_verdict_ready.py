@@ -1506,3 +1506,217 @@ def test_resolve_carry_source_counts_the_stores_accepted_units_on_the_served_cor
     write_list(tmp_path, LISTED[:1], closed_at="2026-07-18T00:00:00Z")
     with pytest.raises(accepted.Mismatch):
         resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
+
+
+# --- a table-diff corpus's rows ---------------------------------------------------------
+
+TD_FP = {"snapshot": "s", "tables": "t", "font_inputs": "f", "review_code": "r", "static": "x"}
+TD_HUMAN = ["u-1", "u-2", "u-3"]
+
+
+def recompute_table_diff(_repo):
+    return dict(TD_FP)
+
+
+def write_snapshot(repo: Path, *, current: bool = True) -> str:
+    """Write a snapshot `snapshot.load` reads, with no configuration, under the repo's snapshot home, point `current` at it when asked, and return its digest."""
+    import gzip
+
+    from rebuild.review import snapshot
+
+    home = repo / status.SNAPSHOT_HOME
+    staging = home / "staging"
+    staging.mkdir(parents=True)
+    (staging / snapshot.FONT_NAME).write_bytes(b"OTTO-snapshot")
+    (staging / snapshot.KERN_NAME).write_bytes(gzip.compress(b"# kern table\n", mtime=0))
+    record = {
+        "format": snapshot.SNAPSHOT_FORMAT,
+        "digest": None,
+        "taken_at": "2026-11-26T00:00:00Z",
+        "tables_stamp": "t",
+        "configs": [],
+        "source": "rebuild/out/m1",
+        "files": {
+            path.name: {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "bytes": path.stat().st_size}
+            for path in sorted(staging.iterdir())
+        },
+    }
+    record["digest"] = snapshot._digest(record)
+    (staging / snapshot.RECORD_NAME).write_text(json.dumps(record), encoding="utf-8")
+    final = home / record["digest"][: snapshot.DIGEST_NAME_LENGTH]
+    staging.rename(final)
+    if current:
+        (home / snapshot.CURRENT_NAME).write_text(final.name + "\n", encoding="utf-8")
+    return record["digest"]
+
+
+def write_pointer(repo: Path, digest: str, snapshot_format: str | None = None) -> None:
+    from rebuild.review import snapshot
+
+    _write(
+        repo / status.POINTER,
+        {
+            "format": snapshot.POINTER_FORMAT,
+            "snapshot_format": snapshot_format or snapshot.SNAPSHOT_FORMAT,
+            "digest": digest,
+            "taken_at": "2026-11-26T00:00:00Z",
+        },
+    )
+
+
+def write_table_diff_corpus(repo: Path, digest: str | None, *, units: int = 7, human=TD_HUMAN) -> None:
+    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict."""
+    review_dir = repo / "rebuild" / "out" / "review"
+    none = units - len(human) - 2 if units else 0
+    classes = (
+        [
+            {
+                "id": "joins",
+                "shards": ["units/joins.json"],
+                "status": None,
+                "section": "open-questions",
+                "no_verdict": False,
+                "unit_count": len(human) + 2,
+            },
+            {
+                "id": "kerning",
+                "shards": ["units/kerning.json"],
+                "status": None,
+                "section": "no-review-needed",
+                "no_verdict": True,
+                "unit_count": none,
+            },
+        ]
+        if units
+        else []
+    )
+    manifest = {
+        "format": "ams-review-manifest/2",
+        "mode": "table-diff",
+        "generated_at": STAMP,
+        "repo_head": "abc1234",
+        "classes": classes,
+        "human_unit_ids": list(human) if units else [],
+        "inputs_fingerprint": dict(TD_FP),
+        "totals": {"units": units, "rows": units, "batches": 1 if units else 0},
+        "baseline": {
+            "commit": None,
+            "taken_at": "2026-11-26T00:00:00Z",
+            "digest": digest,
+            "present": digest is not None,
+        },
+        "fonts": {
+            "after": {"file": "fonts/after.otf", "sha256": hashlib.sha256(AFTER_FONT_BYTES).hexdigest()}
+        },
+    }
+    font = repo / "rebuild" / "out" / "m1" / "M1.otf"
+    font.parent.mkdir(parents=True, exist_ok=True)
+    font.write_bytes(AFTER_FONT_BYTES)
+    _write(review_dir / "manifest.json", manifest)
+    for meta in classes:
+        (review_dir / meta["shards"][0]).parent.mkdir(parents=True, exist_ok=True)
+        (review_dir / meta["shards"][0]).write_text("[]")
+    unit_index.write_index(review_dir, [])
+    app_index.write_app_artifacts(review_dir, {}, {})
+
+
+def setup_table_diff(repo: Path, *, units: int = 7, records=None) -> str:
+    digest = write_snapshot(repo)
+    write_pointer(repo, digest)
+    write_table_diff_corpus(repo, digest, units=units)
+    write_summary(repo, inputs_fp=dict(TD_FP))
+    write_autosave(repo, records=records if records is not None else [verdict(unit) for unit in TD_HUMAN])
+    return digest
+
+
+def test_a_table_diff_corpus_prints_its_own_rows_in_their_order(tmp_path):
+    setup_table_diff(tmp_path)
+    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    assert result["corpus"]["mode"] == "table-diff"
+    assert list(result["checks"]) == [
+        "corpus",
+        "freshness",
+        "gates",
+        "snapshot",
+        "verdict_store",
+        "blanks",
+        "diff",
+        "server",
+    ]
+    assert ready is True and result["checks"]["freshness"]["level"] == "ok"
+    lines = verdict_ready.checklist(result, ready)
+    rows = [line[4:].split(":")[0] for line in lines if line[2:3] in ("✓", "!", "✗")]
+    assert rows == list(verdict_ready.TABLE_DIFF_CHECK_ORDER)
+    assert not any("fullest_verdicts" in line or "journal" in line for line in lines)
+    assert lines[-1] == f"READY - adjudicate at {verdict_ready.QUEUE_URL}"
+
+
+def test_the_diff_row_counts_each_kind_of_change_and_names_the_accept_once_every_unit_is_accepted(tmp_path):
+    setup_table_diff(tmp_path, records=[verdict("u-1"), verdict("u-2", "reject"), verdict("u-3", "skip")])
+    result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    diff = result["checks"]["diff"]
+    assert diff["detail"] == (
+        "7 unaccepted changes since the snapshot taken at 2026-11-26T00:00:00Z: 3 need a verdict "
+        "(1 blank, 1 rejected), 2 machine-approved, 2 need none."
+    )
+    assert (diff["level"], diff["remedy"]) == ("ok", None)
+    assert verdict_ready.diff_summary_line(result) == (
+        "review diff: 7 unaccepted changes since the snapshot taken at 2026-11-26T00:00:00Z (3 need a verdict)"
+    )
+    write_autosave(tmp_path, records=[verdict(unit, "either") for unit in TD_HUMAN])
+    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    diff = result["checks"]["diff"]
+    assert (diff["level"], diff["remedy"], diff["blank"], diff["rejected"]) == (
+        "warn",
+        "make review-accept ARGS=--apply",
+        0,
+        0,
+    )
+    assert ready is True
+    assert "      remedy: make review-accept ARGS=--apply" in verdict_ready.checklist(result, ready)
+
+
+def test_a_table_diff_corpus_with_no_change_says_so_on_its_ready_line(tmp_path):
+    setup_table_diff(tmp_path, units=0, records=[])
+    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    assert ready is True
+    assert result["checks"]["diff"]["count"] == 0 and result["checks"]["diff"]["level"] == "ok"
+    assert verdict_ready.checklist(result, ready)[-1] == (
+        "READY - no unaccepted changes since the snapshot taken at 2026-11-26T00:00:00Z"
+    )
+
+
+@pytest.mark.parametrize("case", ["no-current", "another", "no-pointer", "other-format"])
+def test_the_snapshot_row_fails_unless_the_current_snapshot_is_the_one_the_pointer_names(tmp_path, case):
+    from rebuild.review import snapshot
+
+    digest = setup_table_diff(tmp_path)
+    home = tmp_path / status.SNAPSHOT_HOME
+    if case == "no-current":
+        (home / snapshot.CURRENT_NAME).unlink()
+    elif case == "another":
+        write_pointer(tmp_path, "0" * 64)
+    elif case == "no-pointer":
+        (tmp_path / status.POINTER).unlink()
+    else:
+        write_pointer(tmp_path, digest, snapshot_format="ams-review-snapshot/1")
+    result, ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    row = result["checks"]["snapshot"]
+    assert row["level"] == "fail" and result["ready"] is False and ready is False
+    expected = (
+        "make review-snapshot-remake"
+        if case in ("no-current", "another")
+        else "make review-accept ARGS='--apply --retake'"
+    )
+    assert row["remedy"] == expected
+
+
+def test_a_table_diff_corpus_is_stale_on_a_moved_component_or_after_font_byte_for_byte(tmp_path):
+    setup_table_diff(tmp_path)
+    moved = lambda _repo: {**TD_FP, "font_inputs": "kern edit"}  # noqa: E731
+    result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=moved)
+    freshness = result["checks"]["freshness"]
+    assert freshness["level"] == "fail" and freshness["components"]["font_inputs"] == "stale"
+    (tmp_path / "rebuild" / "out" / "m1" / "M1.otf").write_bytes(OTHER_FONT_BYTES)
+    result, _ready = _readiness(tmp_path, listening=lambda: True, recompute_table_diff=recompute_table_diff)
+    assert "after font is not the M1 font on disk" in result["checks"]["freshness"]["detail"]

@@ -13,7 +13,7 @@ The crate's ink signature, which the ink-duplicate merge groups windows by, is t
 
 The third machine check, Junior equivalence, approves a unit divergent only under ss10 when the rebuild's ss10 rendering places the same ink the old Junior font places for the same string, once Junior's letter tracking is removed (`junior_tracking`). Junior has Senior's isolated letterforms plus one pixel of extra advance on every Quikscript glyph. A pass means the rebuild draws every letter fully isolated, which is the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml), so approval does not depend on what the old font did. The crate runs the check.
 
-All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), so both fonts shape with `kern` off: a kern edit changes no unit, and neither font's kerning enters a before-and-after comparison.
+All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), so both fonts shape with `kern` off: a kern edit changes no m1-audit unit, and neither font's kerning enters a before-and-after comparison. A table-diff corpus's kern unit, which shows a moved kern value, is the one reading taken with kerning on, through `rebuild.review.diff_units.KernedInkComparator`.
 """
 
 from __future__ import annotations

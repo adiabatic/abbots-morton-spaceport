@@ -1,5 +1,7 @@
 """Compute the review corpus's readiness: whether the served corpus exists, whether it matches the runes and code on disk (its after font is the M1 font on disk, and its per-unit index, both app sidecars and its unit store are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, and whether the verdict store (the autosave) is stamped for it. The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs.
 
+The checks follow the manifest's `mode`. An m1-audit corpus is checked against `fingerprint.COMPONENTS` and its after font outside the `kern` lookup, and names the fullest verdicts file. A table-diff corpus (rebuild/REVIEW-PLAN.md §2.3) is checked against `fingerprint.TABLE_DIFF_COMPONENTS` and its after font byte for byte (`_table_diff_freshness_check`), adds the `snapshot` check, which fails when no snapshot is current or the current one is not the one the tracked pointer names (`_snapshot_check`), and the `diff` check, which never fails and counts the unaccepted changes by what each needs (`_diff_check`), and names no fullest verdicts file, since its units are new to every store.
+
 An effective verdict is a unit's latest verdict when that verdict is not skip, a store's override records on listed units (`rebuild.review.accepted.Overrides`) counted with its own. The store's count also takes the accepted list beside it (`rebuild.review.accepted`): each listed unit of the served corpus's human units that holds no override is an effective verdict of the store's, under its mark, so a store a close-out emptied counts the units it folded and no verdicts file at the root outranks it. A root file's count takes no listed unit, or a ten-record export would outrank the store. A list the readers cannot read, or a store that does not pair with it (`accepted.pair`), fails the verdict-store check, as the review server and every pass refuse it.
 
 Two kinds of state are kept between calls. `_MEMO`, in the process, is keyed on each verdicts file's stat. It records the file's stamp and, once the file has been parsed, its effective count, so a long-lived server checks an unchanged file with one stat. The store record, `var/cycle/store-record.json` under the directory that holds the verdicts files (`store_record_path`), is kept between processes and keyed on each verdicts file's SHA-256 and on the code of its readers (`store_record_code`). For each of the `STORE_RECORD_KEEP` files it filled last, it holds two fields that fill independently: `digest`, the file's records digest (`records_digest`), which the verdict update's key reads (`artifact_cycle.verdicts_records_digest`), and `carry`, what the carry source and the fullest-verdicts pick read of the file (`_Carried`). A pass over an unchanged store then reads and hashes it instead of parsing it. A reader hashes the bytes it would parse, read once, and records a field only once it has computed the field from those bytes, never on a failed or refused read. The verdict-store check parses the store on every call, since the blank count needs its records, and records the carry field from that parse.
@@ -31,6 +33,9 @@ from rebuild.review.verdict_store import (
 
 CORPUS_REMEDY = "uv run python -m rebuild.review.build"
 MERGE_TOOL = "uv run python -m rebuild.tools.merge_verdicts"
+# Where a table-diff corpus's snapshots and tracked pointer are under the repo root (`rebuild.review.snapshot.DEFAULT_HOME`, `POINTER_PATH`), named here so the readiness check of an m1-audit corpus imports nothing of the snapshot.
+SNAPSHOT_HOME = Path("var") / "keep" / "review-snapshot"
+POINTER = Path("rebuild") / "review-snapshot.json"
 
 
 def _latest_from_list(verdicts) -> dict[str, dict]:
@@ -564,6 +569,212 @@ def _freshness_check(
     }
 
 
+def table_diff_inputs(repo_root, snapshot_home=None) -> dict:
+    """Return the table-diff components the sources and the current snapshot give now (`fingerprint.table_diff_values`): the record of the snapshot `current` names under `snapshot_home`, by default `var/keep/review-snapshot` under `repo_root`, and the tables' stamp the sources give (`run_m1.tables_inputs`). The two modules are imported here, at the call, so a server serving an m1-audit corpus never loads them."""
+    from rebuild.pipeline import run_m1
+    from rebuild.review import snapshot
+
+    home = Path(snapshot_home) if snapshot_home is not None else Path(repo_root) / SNAPSHOT_HOME
+    directory = snapshot.current(home)
+    return fingerprint.table_diff_values(
+        Path(repo_root),
+        directory / snapshot.RECORD_NAME if directory is not None else None,
+        run_m1.tables_inputs(),
+    )
+
+
+def _table_diff_freshness_check(
+    manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, m1_out
+) -> dict:
+    """The freshness check of a table-diff corpus: every `fingerprint.TABLE_DIFF_COMPONENTS` value the manifest records against `recompute(repo_root)`, a `snapshot` both leave null (no snapshot) counting as fresh, then the after font against rebuild/out/m1/M1.otf byte for byte, since the corpus's kern units show its `kern` lookup, then the files a finished build leaves (`app_index.outputs_not_current`); a change in the asset component alone warns, as for an m1-audit corpus."""
+    names = fingerprint.TABLE_DIFF_COMPONENTS
+    unknown = {name: "unknown" for name in names}
+    if not isinstance(manifest_fp, dict):
+        return {
+            "level": "fail",
+            "detail": "The corpus manifest records no input fingerprint, so its freshness cannot be verified.",
+            "remedy": artifact_cycle_remedy,
+            "components": unknown,
+        }
+    try:
+        current = recompute(repo_root)
+    except Exception:
+        return {
+            "level": "fail",
+            "detail": "The current build inputs could not be recomputed, so the corpus freshness is unknown.",
+            "remedy": artifact_cycle_remedy,
+            "components": unknown,
+        }
+    components: dict[str, str] = {}
+    for name in names:
+        recorded = manifest_fp.get(name)
+        if recorded == current.get(name) and (recorded is not None or name == "snapshot"):
+            components[name] = "fresh"
+        elif recorded is None:
+            components[name] = "unknown"
+        else:
+            components[name] = "stale"
+    hard = [name for name in names if name not in unit_index.ASSET_COMPONENTS and components[name] != "fresh"]
+    if hard:
+        stale = [name for name in hard if components[name] == "stale"]
+        detail = (
+            f"The build inputs changed since the corpus was generated: {', '.join(stale)}."
+            if stale
+            else f"These components cannot be verified until the next build records them: {', '.join(hard)}."
+        )
+        return {"level": "fail", "detail": detail, "remedy": artifact_cycle_remedy, "components": components}
+    fonts = manifest.get("fonts")
+    after_record = fonts.get("after") if isinstance(fonts, dict) else None
+    recorded_sha = after_record.get("sha256") if isinstance(after_record, dict) else None
+    try:
+        after_sha = fingerprint.file_sha256(Path(m1_out) / "M1.otf")
+    except OSError:
+        after_sha = None
+    if not isinstance(recorded_sha, str) or after_sha != recorded_sha:
+        return {
+            "level": "fail",
+            "detail": "The corpus's after font is not the M1 font on disk: rebuild/out/m1/M1.otf is missing or has moved on since this corpus was built, so the review app is serving last build's font.",
+            "remedy": artifact_cycle_remedy,
+            "components": components,
+        }
+    missing = app_index.outputs_not_current(review_dir)
+    if missing:
+        return {
+            "level": "fail",
+            "detail": f"These files are missing or stamped for another manifest: {', '.join(missing)}. Either the build that wrote this corpus did not finish, or the manifest was rewritten without them.",
+            "remedy": artifact_cycle_remedy,
+            "components": components,
+        }
+    if any(components[name] != "fresh" for name in unit_index.ASSET_COMPONENTS if name in components):
+        return {
+            "level": "warn",
+            "detail": "Only the review UI assets changed since the corpus was generated; the units are unchanged, and the cycle refreshes the served copy in place.",
+            "remedy": artifact_cycle_remedy,
+            "components": components,
+        }
+    return {
+        "level": "ok",
+        "detail": "The corpus reflects the current build inputs.",
+        "remedy": None,
+        "components": components,
+    }
+
+
+REMAKE_REMEDY = "make review-snapshot-remake"
+RETAKE_REMEDY = "make review-accept ARGS='--apply --retake'"
+
+
+def _snapshot_check(pointer_path, snapshot_home) -> dict:
+    """Check that the snapshot the corpus compares with is the accepted one: the tracked pointer (`snapshot.read_pointer`) reads and names a snapshot in this checkout's format, a snapshot is current under `snapshot_home` and reads (`snapshot.load`), and its digest is the pointer's. A missing or mismatched snapshot is remade from the commit that last changed the pointer (`make review-snapshot-remake`); a pointer that does not read or names another format is replaced by a retake."""
+    from rebuild.review import snapshot
+
+    try:
+        pointer = snapshot.read_pointer(Path(pointer_path))
+    except snapshot.SnapshotError as error:
+        return {
+            "level": "fail",
+            "detail": f"{error}, so no snapshot is the accepted one.",
+            "remedy": RETAKE_REMEDY,
+        }
+    if pointer is None:
+        return {
+            "level": "fail",
+            "detail": f"{Path(pointer_path).name} is missing, so no snapshot is the accepted one.",
+            "remedy": RETAKE_REMEDY,
+        }
+    digest = str(pointer["digest"])
+    if pointer.get("snapshot_format") != snapshot.SNAPSHOT_FORMAT:
+        return {
+            "level": "fail",
+            "detail": f"The pointer names an {pointer.get('snapshot_format')!r} snapshot, and this checkout reads only {snapshot.SNAPSHOT_FORMAT}.",
+            "remedy": RETAKE_REMEDY,
+        }
+    directory = snapshot.current(Path(snapshot_home))
+    if directory is None:
+        return {
+            "level": "fail",
+            "detail": f"No snapshot is current on this machine; the pointer names {digest[:12]}.",
+            "remedy": REMAKE_REMEDY,
+        }
+    try:
+        found = snapshot.load(directory)
+    except snapshot.SnapshotError as error:
+        return {
+            "level": "fail",
+            "detail": f"The current snapshot does not read: {error}.",
+            "remedy": REMAKE_REMEDY,
+        }
+    if found.digest != digest:
+        return {
+            "level": "fail",
+            "detail": f"The current snapshot, {found.digest[:12]}, is not the accepted one the pointer names, {digest[:12]}.",
+            "remedy": REMAKE_REMEDY,
+        }
+    return {
+        "level": "ok",
+        "detail": f"The current snapshot is the accepted one the pointer names, {digest[:12]}, taken at {found.taken_at}.",
+        "remedy": None,
+    }
+
+
+ACCEPT_REMEDY = "make review-accept ARGS=--apply"
+REFUSED_VERDICTS = frozenset({"reject", "neither"})
+
+
+def baseline_since(manifest, repo_root) -> str:
+    """What the corpus's changes are since: the first twelve hex digits of the commit the snapshot stands for, read from git now (`snapshot.pointer_commit`) or else from the manifest's `baseline`, or when the accept that took it is not committed yet, when it was taken; `no snapshot` for a corpus built with none."""
+    from rebuild.review import snapshot
+
+    baseline = manifest.get("baseline") if isinstance(manifest, dict) else None
+    if not isinstance(baseline, dict) or not baseline.get("present"):
+        return "no snapshot"
+    digest = baseline.get("digest")
+    commit = (
+        snapshot.pointer_commit(digest, Path(repo_root)) if isinstance(digest, str) else None
+    ) or baseline.get("commit")
+    if isinstance(commit, str) and commit:
+        return commit[:12]
+    return f"the snapshot taken at {baseline.get('taken_at')}"
+
+
+def _diff_check(manifest, aligned: _Aligned | None, human_ids, repo_root) -> dict:
+    """Count the corpus's unaccepted changes: every unit (`count`), the human units that need a verdict (`human`), of which `blank` read blank or skipped and `rejected` read reject or neither, the machine-approved units (`machine`), and the units of the classes that take no verdict (`none`). It never fails. Once every human unit is verdicted and none is rejected, it warns with the accept as its remedy."""
+    totals = manifest.get("totals")
+    units = totals.get("units") if isinstance(totals, dict) else None
+    count = units if isinstance(units, int) else 0
+    human = frozenset(human_ids or ())
+    none = sum(
+        meta.get("unit_count", 0)
+        for meta in manifest.get("classes") or ()
+        if isinstance(meta, dict)
+        and meta.get("no_verdict") is True
+        and isinstance(meta.get("unit_count"), int)
+    )
+    machine = max(count - len(human) - none, 0)
+    records = aligned.records if aligned is not None else {}
+    verdicts = [records.get(unit, {}).get("verdict") for unit in human]
+    blank = sum(1 for verdict in verdicts if verdict is None or verdict == "skip")
+    rejected = sum(1 for verdict in verdicts if verdict in REFUSED_VERDICTS)
+    since = baseline_since(manifest, repo_root)
+    detail = (
+        f"{count:,} unaccepted change{'' if count == 1 else 's'} since {since}: {len(human):,} need a verdict "
+        f"({blank:,} blank, {rejected:,} rejected), {machine:,} machine-approved, {none:,} need none."
+    )
+    due = count > 0 and blank == 0 and rejected == 0
+    return {
+        "level": "warn" if due else "ok",
+        "detail": detail,
+        "remedy": ACCEPT_REMEDY if due else None,
+        "count": count,
+        "human": len(human),
+        "blank": blank,
+        "rejected": rejected,
+        "machine": machine,
+        "none": none,
+        "since": since,
+    }
+
+
 def _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy) -> dict:
     """Check the recorded cycle's gates by each gate entry's `skip` field. A "proved" skip means a matching green record showed that this content already passed, so it counts toward readiness. Every other non-green gate blocks a review session: a "forced" skip or a gate that did not run is reported as unverified, and anything else as failing. The status string cannot make this distinction, because every skip kind's status starts with "skipped (", so reading it would let a `--skip-conform` pass report READY."""
     if summary is None:
@@ -793,8 +1004,14 @@ def compute_status(
     autosave=None,
     listed: Accepted | None = None,
     accepted_path=None,
+    recompute_table_diff=None,
+    pointer_path=None,
+    snapshot_home=None,
 ) -> dict:
-    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), with `listed`, the accepted list it paired with, and None to read `autosave_path` and the list at `accepted_path`, by default the one beside it (`verdict_store.accepted_path_for`), and pair them. The store's accepted units count among its effective verdicts and leave the blanks. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused."""
+    """Return the readiness dict. Beside the checks, `orphans` and `conflicts` count the saves the verdict store kept aside in its orphan documents (`verdict_store.summarize_orphans`), with the newest one's `recorded_at` and document and the counts per recent `recorded_at`, so the app can count those kept since it loaded. While an artifact-cycle pass holds its pass lock (var/cycle/pass.lock, `artifact_cycle.pass_lock`), the checks that would name `make artifact-cycle` as their remedy tell the reader to wait for that pass instead. `autosave` is the parsed autosave when the caller already holds it (serve.py passes its in-memory store so that each /status request does not read and parse the file again), with `listed`, the accepted list it paired with, and None to read `autosave_path` and the list at `accepted_path`, by default the one beside it (`verdict_store.accepted_path_for`), and pair them. The store's accepted units count among its effective verdicts and leave the blanks. A store file that holds a record `verdict_store.well_formed` refuses fails the verdict-store check, naming the first such record (`verdict_store.read_store_document`), since the review server serves no verdict from it and refuses every save (`VerdictStore.reload`); serve.py passes None while its store is refused.
+
+    A table-diff corpus is checked by its own rows (the module docstring): `recompute_table_diff` gives its components now, `table_diff_inputs` by default; `pointer_path` is the tracked pointer, by default `rebuild/review-snapshot.json` under `repo_root`; and `snapshot_home` holds the snapshots, by default `var/keep/review-snapshot` under it. The result's `corpus` names the mode.
+    """
     if recompute is None:
         recompute = fingerprint.compute_all
     repo_root = Path(repo_root)
@@ -804,8 +1021,14 @@ def compute_status(
     generated_at = manifest.get("generated_at") if manifest else None
     repo_head = manifest.get("repo_head") if manifest else None
     manifest_fp = manifest.get("inputs_fingerprint") if manifest else None
+    mode = manifest.get("mode", "m1-audit") if manifest else None
+    table_diff = mode == "table-diff"
+    if snapshot_home is None:
+        snapshot_home = repo_root / SNAPSHOT_HOME
+    if pointer_path is None:
+        pointer_path = repo_root / POINTER
 
-    fullest_hit = pick_fullest_verdicts(repo_root, generated_at)
+    fullest_hit = None if table_diff else pick_fullest_verdicts(repo_root, generated_at)
     fullest_rel = _rel(repo_root, fullest_hit[0]) if fullest_hit else None
     running_pass = store_lock.holder(repo_root / "var" / "cycle" / "pass.lock")
     if running_pass is None:
@@ -837,26 +1060,57 @@ def compute_status(
         ),
         human_ids_of=human_ids_of,
     )
-    checks = {
-        "corpus": _corpus_check(manifest),
-        "freshness": _freshness_check(
-            manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, m1_out
-        ),
-        "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
-        "verdict_store": verdict_store,
-        "fullest_verdicts": _fullest_verdicts_check(
-            fullest_hit, fullest_rel, _rel(repo_root, autosave_path), aligned
-        ),
-        "blanks": _blanks_check(aligned, human_ids_of() if aligned is not None else None),
-    }
-    ready = all(checks[name]["level"] != "fail" for name in ("corpus", "freshness", "gates", "verdict_store"))
+    if table_diff:
+        assert manifest is not None
+        checks = {
+            "corpus": _corpus_check(manifest),
+            "freshness": _table_diff_freshness_check(
+                manifest,
+                manifest_fp,
+                repo_root,
+                (
+                    recompute_table_diff
+                    if recompute_table_diff is not None
+                    else (lambda root: table_diff_inputs(root, snapshot_home))
+                ),
+                artifact_cycle_remedy,
+                review_dir,
+                m1_out,
+            ),
+            "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
+            "snapshot": _snapshot_check(pointer_path, snapshot_home),
+            "verdict_store": verdict_store,
+            "blanks": _blanks_check(aligned, human_ids_of() if aligned is not None else None),
+            "diff": _diff_check(manifest, aligned, human_ids_of(), repo_root),
+        }
+        blocking: tuple[str, ...] = ("corpus", "freshness", "gates", "snapshot", "verdict_store")
+    else:
+        checks = {
+            "corpus": _corpus_check(manifest),
+            "freshness": _freshness_check(
+                manifest, manifest_fp, repo_root, recompute, artifact_cycle_remedy, review_dir, m1_out
+            ),
+            "gates": _gates_check(summary, generated_at, manifest_fp, artifact_cycle_remedy),
+            "verdict_store": verdict_store,
+            "fullest_verdicts": _fullest_verdicts_check(
+                fullest_hit, fullest_rel, _rel(repo_root, autosave_path), aligned
+            ),
+            "blanks": _blanks_check(aligned, human_ids_of() if aligned is not None else None),
+        }
+        blocking = ("corpus", "freshness", "gates", "verdict_store")
+    ready = all(checks[name]["level"] != "fail" for name in blocking)
     kept_aside = summarize_orphans(orphans_dir_for(Path(autosave_path)))
     for entry in kept_aside.values():
         if entry["file"] is not None:
             entry["file"] = _rel(repo_root, entry["file"])
     return {
         "ready": ready,
-        "corpus": {"dir": str(review_dir), "generated_at": generated_at, "repo_head": repo_head},
+        "corpus": {
+            "dir": str(review_dir),
+            "generated_at": generated_at,
+            "repo_head": repo_head,
+            "mode": mode,
+        },
         "checks": checks,
         "orphans": kept_aside["orphan"],
         "conflicts": kept_aside["conflict"],

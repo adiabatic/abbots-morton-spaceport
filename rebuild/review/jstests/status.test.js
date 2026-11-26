@@ -271,3 +271,13 @@ test('a Retry-After header is read in seconds, with a second when it names none'
   assert.equal(retryAfterMs(null), 1000);
   assert.equal(retryAfterMs('soon'), 1000);
 });
+
+test('a table-diff corpus whose snapshot check fails stales the banner with the remake as its command', () => {
+  const failing = { level: 'fail', detail: 'No snapshot is current on this machine; the pointer names d015524b1f7e.', remedy: 'make review-snapshot-remake' };
+  const model = bannerModel(withChecks({ snapshot: failing, fullest_verdicts: undefined }), 'gen-1');
+  assert.equal(model.level, 'stale');
+  assert.equal(model.text, failing.detail);
+  assert.equal(model.command, 'make review-snapshot-remake');
+  const passing = bannerModel(withChecks({ snapshot: { level: 'ok', detail: 'the accepted one', remedy: null } }), 'gen-1');
+  assert.equal(passing.level, 'ready');
+});

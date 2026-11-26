@@ -248,7 +248,7 @@ export function queueEmptyNote(manifest) {
   }
   const baseline = manifest.baseline ?? {};
   if (!baseline.present) {
-    return 'No snapshot of an accepted build is on this machine, so there is nothing to compare with — take one with uv run python -m rebuild.review.snapshot take.';
+    return 'No snapshot of an accepted build is on this machine, so there is nothing to compare with — make review-snapshot-remake builds the one rebuild/review-snapshot.json names.';
   }
   const since = typeof baseline.commit === 'string' && baseline.commit ? baseline.commit.slice(0, 12) : 'the accepted build';
   const units = manifest.totals?.units ?? 0;

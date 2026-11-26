@@ -121,6 +121,7 @@ import {
   candidateBlocks,
   carriesSamples,
   checkIndexHeader,
+  drawnWithKerning,
   coalesceSpans,
   createLineSplitter,
   createRecordCache,
@@ -661,9 +662,10 @@ function rationaleEl(why, rows = null) {
   return details;
 }
 
-// One side's sample: the magnified cell with its bands and marks, and to its right the same run with no markup at a middle size and at one font pixel per CSS pixel. An app-index row has no text yet, so the sample starts empty and hydrateSamples rebuilds it from the record; the sample stores its side and feature settings for that.
+// One side's sample: the magnified cell with its bands and marks, and to its right the same run with no markup at a middle size and at one font pixel per CSS pixel. An app-index row has no text yet, so the sample starts empty and hydrateSamples rebuilds it from the record; the sample stores its side and feature settings for that. A kern unit's sample is marked `kerned`, which renders its runs with kerning on (`drawnWithKerning`).
 function buildSample(unit, side, featureSettings) {
   const sample = el('div', 'sample');
+  sample.classList.toggle('kerned', drawnWithKerning(unit));
   sample.style.fontFeatureSettings = featureSettings;
   sample.dataset.side = side;
   sample.dataset.features = featureSettings;

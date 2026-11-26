@@ -6,12 +6,16 @@ A settlement row is a class-compressed rule over hundreds of windows, and one jo
 - A join unit is one changed join row (`JoinChange`): its left and right cells, and the junction and extension each table gives the pair, None on a side whose table lacks the pair.
 - A quiet unit stands for a letter whose settlement rows changed under a configuration where no candidate text shows it settled differently. It is machine-approved when every candidate draws alike in both fonts or differs only where another glyph's name differs, which is that glyph's own change; otherwise it is a human unit over the shortest text whose ink differs with every glyph name alike.
 - A provenance unit stands for a letter whose rows differ only in the records they credit, and takes no verdict.
+- A glyph unit is one glyph both fonts have that draws differently (`GlyphChange`, `glyph_changes`): its decomposed outline, its advance and left sidebearing, or its cursive anchors (`fingerprint.glyph_facts`, the anchors without the lookup each sits in). A bitmap, anchor or advance edit leaves the settlement and join tables as they were, so only this bucket shows it. A glyph only one font has is the row diff's business: a stance rename shows there as removed and added rows whose drawings match, which the ink check approves. The glyphs outside Quikscript count too, a Latin glyph's edit being as visible as a letter's.
+- A kern unit is one facing pair whose kern value moved (`KernChange`, `kern_changes`), from the snapshot's `kern.tsv` against the new build's by (leading side, following side), where a pair one table lacks has no value. It is drawn with kerning on (`Unit.kerning`, the fragment's `kerning`) and takes no verdict: the kerning view (`#view=kern`) is where kern values are authored and judged.
 
 Finding the texts, one configuration at a time (`UnitFinder.add_config`): a letter whose rows changed there (by its spelling, so a `.noentry` input is its letter, `spelling`) takes as candidates the certificates of its old rules (from the snapshot) and of its new rules (from the new windows head), and every text of at most three letters, boundary tokens among them, that holds it (the input sweep, `sweep_texts`). Each candidate is shaped in both fonts with kern off under the configuration, shortest first, and every position where the glyph that starts a cluster differs gives a substitution (`substitutions`), whichever letter is there. A join row takes the shortest text whose runs hold its two cells side by side in the font of each side the row exists on, from the shaped candidates, the kerning inventory's texts, the shortest candidate prefix that settles its left cell followed by its right letter and one more token or none (`UnitFinder._extended_texts`), and a bounded search: the two letters with a letter, a ZWNJ, a space, a namer dot or nothing on each side (`pair_texts`). A row no text is found for is a unit with no text. A context that needs more than three letters can be missed; diffing the window rows themselves is the sound fix.
 
-Folding (`UnitFinder.units`): a unit's configurations are those its one text shows its change under. Of the texts the unit's configurations found, the one that shows the change under the most of them is taken, the shortest first on a tie, and the configurations it leaves take another text the same way, so every unit's text shows its change under every configuration it lists. Then the join and settlement units that show the same thing become one (`merge`): units with the same text under the same configurations, which shape to the same runs in both fonts, as a removed join row, its added twin and the substitution at that junction do, are one unit that carries all their kinds and rows and stands in the `joins` class when any of them is a join row (`KIND_PRECEDENCE`). Units whose configurations differ stay apart.
+A glyph unit's text (`glyph_units`) is the shortest certificate, of either table, whose rule settles to the glyph, shaped in the font of its side; else a code point the font maps to the glyph, alone, the one text a glyph outside Quikscript has; else the shortest kerning-inventory text that holds it. Each is taken only once a run of it holds the glyph, and the unit lists every configuration under which a run of it does. A glyph none of them holds is a unit with no text. A kern unit's text is the kerning inventory's witness of its pair (`pairs`, in `kern.tsv` order), or for a pair the new table lacks, the two letters alone.
 
-`fragment` writes a unit as the corpus's shard JSON (rebuild/REVIEW-PLAN.md §7.2): the before and after runs, the pair band and highlight from HarfBuzz's clusters, the machine checks (`ink.InkComparator`), the cluster, a digest of the ink deltas the unit's configurations show, so units that show the same pixels share a Queue card, and the id, `unit_cache.unit_id_for` of a digest of what the unit is (`unit_identity`). Shaping is kern-neutral (`ink.kern_neutral`), as everywhere in the corpus.
+Folding (`UnitFinder.units`): a unit's configurations are those its one text shows its change under. Of the texts the unit's configurations found, the one that shows the change under the most of them is taken, the shortest first on a tie, and the configurations it leaves take another text the same way, so every unit's text shows its change under every configuration it lists. Then the units that show the same thing become one (`merge`): join, settlement and glyph units with the same text under the same configurations, which shape to the same runs in both fonts, as a removed join row, its added twin, the substitution at that junction and a glyph redrawn in it do, are one unit that carries all their kinds and rows and stands in the class of its first member by `KIND_PRECEDENCE`: `joins` when any of them is a join row, else `settlement` when any is a cell change, else `glyphs`. Kern units with the same text under the same configurations fold the same way among themselves and with no other kind, since they are drawn with kerning on. Units whose configurations differ stay apart.
+
+`fragment` writes a unit as the corpus's shard JSON (rebuild/REVIEW-PLAN.md §7.2): the before and after runs, the pair band and highlight from HarfBuzz's clusters, the machine checks (`ink.InkComparator`), the cluster, a digest of the ink deltas the unit's configurations show, so units that show the same pixels share a Queue card, and the id, `unit_cache.unit_id_for` of a digest of what the unit is (`unit_identity`). Shaping is kern-neutral (`ink.kern_neutral`), as everywhere in the corpus, but for a kern unit's, which shapes, compares and draws with kerning on in both fonts (`KernedInkComparator`).
 """
 
 from __future__ import annotations
@@ -25,6 +29,9 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from fontTools.ttLib import TTFont
+
+from rebuild.pipeline import fingerprint
 from rebuild.pipeline.labels import spec_alphabet
 from rebuild.pipeline.model import ResolvedSpec
 from rebuild.review import tablediff, unit_cache
@@ -58,11 +65,21 @@ SETTLEMENT = "settlement"
 QUIET = "quiet"
 JOIN = "join"
 PROVENANCE = "provenance"
+GLYPH = "glyph"
+KERN = "kern"
 
 FAMILIES = frozenset(LETTERS.values())
 # The kind a substitution unit carries when its letter's own rows did not change, so the change comes from its context.
 CONTEXT_KIND = "context"
-KINDS = (*tablediff.DIFF_BUCKETS, CONTEXT_KIND)
+# What a glyph unit's glyph changed in: its decomposed outline, its advance and left sidebearing, or its cursive anchors.
+GLYPH_KINDS = ("outline", "metrics", "anchors")
+KINDS = (*tablediff.DIFF_BUCKETS, CONTEXT_KIND, *GLYPH_KINDS)
+# The group of a glyph unit whose glyph is in no Quikscript family (Latin, Shavian, punctuation, symbols, the boundary glyphs), so the batch list folds them together and the family filter offers them as one entry.
+NON_QUIKSCRIPT_GROUP = "non-quikscript"
+# How many of a glyph's shortest certificates are shaped before the next kind of text is tried.
+GLYPH_CERTIFICATE_TRIES = 8
+# The overlay configuration, which settles nothing: each letter is its own copy (`rebuild/pipeline/kern_inventory.py`). A glyph only it reaches, a letter's ss10 copy, is a glyph unit listed under it alone.
+OVERLAY_CONFIG = "ss10"
 
 
 @dataclass(frozen=True)
@@ -88,6 +105,19 @@ SETTLEMENT_CLASS = DiffClass(
     "A letter settles to a different cell than in the accepted build after the same neighbor, or its rules changed with nothing visible.",
     "Each unit is one substitution, a letter after its left neighbor settling to another cell, found by shaping the certificates of the letter's rules and every text of at most three letters that holds it in both fonts. A letter whose rules changed and that no such text shows differently is a unit of its own, machine-approved when every candidate draws alike.",
 )
+GLYPHS_CLASS = DiffClass(
+    "glyphs",
+    "Glyphs",
+    "A glyph draws differently than in the accepted build: its outline, its advance and sidebearing, or its cursive anchors moved, with the tables unchanged.",
+    "Each unit is one glyph both fonts have whose drawing differs, shown in the shortest certificate that settles to it, else its code point alone, else a kerning-inventory text that holds it. Glyphs outside Quikscript are listed under the group non-quikscript.",
+)
+KERNING_CLASS = DiffClass(
+    "kerning",
+    "Kerning",
+    "A facing pair is kerned by another value than in the accepted build; judged in the kerning view.",
+    "Each unit is one facing pair whose kern value moved, drawn with kerning on in its kerning-inventory text. Kern values are authored and judged in the kerning view (the header's Kerning button), so these take no verdict here.",
+    no_verdict=True,
+)
 PROVENANCE_CLASS = DiffClass(
     "provenance-only",
     "Provenance only",
@@ -95,12 +125,20 @@ PROVENANCE_CLASS = DiffClass(
     "These letters' settlement rows keep their keys, outcomes and joint flags and differ only in the records they name, so no text renders differently.",
     no_verdict=True,
 )
-# The classes in the sidebar's order. `glyphs` (a glyph drawn differently with the tables unchanged) and `kerning` (a changed kern value, which takes no verdict) are reserved for the glyph and kern buckets, which this build does not emit yet.
-CLASSES = (JOINS_CLASS, SETTLEMENT_CLASS, PROVENANCE_CLASS)
-RESERVED_CLASS_IDS = ("glyphs", "kerning")
-CLASS_IDS = ("joins", "settlement", "glyphs", "kerning", "provenance-only")
-NO_VERDICT_CLASS_IDS = frozenset({"kerning", "provenance-only"})
-CLASS_OF_KIND = {SETTLEMENT: "settlement", QUIET: "settlement", JOIN: "joins", PROVENANCE: "provenance-only"}
+# The classes in the sidebar's order within each section.
+CLASSES = (JOINS_CLASS, SETTLEMENT_CLASS, GLYPHS_CLASS, KERNING_CLASS, PROVENANCE_CLASS)
+CLASS_IDS = tuple(cls.id for cls in CLASSES)
+NO_VERDICT_CLASS_IDS = frozenset(cls.id for cls in CLASSES if cls.no_verdict)
+CLASS_OF_KIND = {
+    SETTLEMENT: "settlement",
+    QUIET: "settlement",
+    JOIN: "joins",
+    PROVENANCE: "provenance-only",
+    GLYPH: "glyphs",
+    KERN: "kerning",
+}
+# The kinds whose units take no verdict.
+NO_VERDICT_KINDS = frozenset({PROVENANCE, KERN})
 
 
 def base_label(name: str) -> str:
@@ -257,8 +295,156 @@ def join_value_text(value: JoinValueTuple | None) -> str:
     return f"a join at the {junction}" + (f", extended {extension}" if extension else "")
 
 
+@dataclass(frozen=True, order=True)
+class GlyphChange:
+    """One glyph both fonts have that draws differently: its name, the digest of its facts in each font (`facts_digest`), and what differs, in `GLYPH_KINDS` order."""
+
+    name: str
+    old: str
+    new: str
+    differs: tuple[str, ...]
+
+
+def _anchor_pairs(records) -> tuple:
+    """A glyph's cursive anchors as `fingerprint.cursive_anchor_map` gives them, without the lookup each record sits in, sorted: a lookup added or moved elsewhere in the font renumbers every glyph's records and moves no anchor."""
+    pairs = {
+        (None if entry is None else tuple(entry), None if exit_ is None else tuple(exit_))
+        for _index, entry, exit_ in records or ()
+    }
+    return tuple(sorted(pairs, key=repr))
+
+
+def facts_digest(facts: tuple) -> str:
+    """The sha256 of one glyph's facts (`fingerprint.glyph_facts`) with its anchors as `_anchor_pairs` reads them."""
+    outline, metrics, anchors = facts
+    return hashlib.sha256(repr((outline, metrics, _anchor_pairs(anchors))).encode()).hexdigest()
+
+
+def glyph_changes(before: Path, after: Path) -> list[GlyphChange]:
+    """Every glyph both fonts name whose facts differ (`fingerprint.glyph_facts`): its outline, its metrics, or its anchors without their lookups (`_anchor_pairs`), sorted by name. Two fonts with the same bytes have none."""
+    if fingerprint.file_sha256(Path(before)) == fingerprint.file_sha256(Path(after)):
+        return []
+    fonts = (TTFont(str(before), lazy=True), TTFont(str(after), lazy=True))
+    try:
+        names = sorted(set(fonts[0].getGlyphOrder()) & set(fonts[1].getGlyphOrder()))
+        old_facts, new_facts = (fingerprint.glyph_facts(font, names) for font in fonts)
+    finally:
+        for font in fonts:
+            font.close()
+    changes: list[GlyphChange] = []
+    for name in names:
+        old, new = old_facts[name], new_facts[name]
+        differs = tuple(
+            kind
+            for kind, first, second in (
+                ("outline", old[0], new[0]),
+                ("metrics", old[1], new[1]),
+                ("anchors", _anchor_pairs(old[2]), _anchor_pairs(new[2])),
+            )
+            if first != second
+        )
+        if differs:
+            changes.append(GlyphChange(name, facts_digest(old), facts_digest(new), differs))
+    return changes
+
+
+@dataclass(frozen=True)
+class KernRow:
+    """One row of a `kern.tsv` (rebuild/KERN-PLAN.md §3): the two runes, the two sides that face each other, the value in pixels, the record that sets it, and the configurations that reach the pair."""
+
+    leading: str
+    leading_side: str
+    following: str
+    following_side: str
+    by: int
+    record: str
+    configs: tuple[str, ...]
+
+
+def load_kern(path: Path) -> list[KernRow]:
+    """Read a `kern.tsv`, as run_m1 writes it or gzipped, as a snapshot holds it (`tablediff.open_table`), into its rows in table order."""
+    rows: list[KernRow] = []
+    with tablediff.open_table(path) as handle:
+        for line in handle:
+            if line.startswith("#") or line.startswith("leading\t") or not line.strip():
+                continue
+            fields = line.rstrip("\n").split("\t")
+            leading, leading_side, following, following_side, by, record = fields[:6]
+            configs = tuple(config for config in (fields[6] if len(fields) > 6 else "").split(",") if config)
+            try:
+                value = int(by)
+            except ValueError:
+                value = 0
+            rows.append(KernRow(leading, leading_side, following, following_side, value, record, configs))
+    return rows
+
+
+@dataclass(frozen=True, order=True)
+class KernChange:
+    """One facing pair whose kern value moved: its two sides as `kern.tsv` names them, their runes, and the value each table gives the pair, None in the table that lacks it."""
+
+    leading_side: str
+    following_side: str
+    leading: str
+    following: str
+    old: int | None
+    new: int | None
+
+    @property
+    def bucket(self) -> str:
+        if self.old is None:
+            return "added"
+        if self.new is None:
+            return "removed"
+        return "changed"
+
+
+def kern_changes(
+    old: Sequence[KernRow], new: Sequence[KernRow]
+) -> list[tuple[KernChange, KernRow, int | None]]:
+    """Diff two kern tables by (leading side, following side): every pair whose value differs, and every pair one table lacks whose value in the other is not 0, since a pair kerned by 0 draws as one the table lacks. Each comes with the row it stands for, the new table's where it has the pair, and that row's index in the new table, which indexes the kerning inventory's `pairs`; None for a pair only the old table has."""
+    old_rows = {(row.leading_side, row.following_side): row for row in old}
+    new_rows = {(row.leading_side, row.following_side): (index, row) for index, row in enumerate(new)}
+    changes: list[tuple[KernChange, KernRow, int | None]] = []
+    for key in sorted(set(old_rows) | set(new_rows)):
+        before = old_rows.get(key)
+        index, after = new_rows.get(key, (None, None))
+        old_value = None if before is None else before.by
+        new_value = None if after is None else after.by
+        if (old_value or 0) == (new_value or 0):
+            continue
+        row = after if after is not None else before
+        assert row is not None
+        changes.append(
+            (KernChange(key[0], key[1], row.leading, row.following, old_value, new_value), row, index)
+        )
+    return changes
+
+
+def kern_value_text(value: int | None) -> str:
+    if value is None:
+        return "no such pair"
+    return f"kerned {value:+d}" if value else "not kerned"
+
+
+class KernedInkComparator(InkComparator):
+    """An `InkComparator` whose runs shape with `kern` on in both fonts, for the kern units, which show a kern value. `named_run` is `InkComparator.named_run` with the features' `kern` set on, where that one turns it off (`ink.kern_neutral`); every reading of the comparator goes through it."""
+
+    def named_run(self, side: str, text: str, features: dict[str, bool]) -> tuple[tuple[str, ...], list]:
+        shaper, outlines = self._sides[side]
+        result = shaper.shape(text, {**features, "kern": True})
+        pieces = []
+        pen_x = 0
+        for name, (x_offset, y_offset, x_advance) in zip(result.names, result.positions):
+            key, origin_x, origin_y = outlines.shape_key(name)
+            if key:
+                pieces.append((name, key, pen_x + x_offset + origin_x, y_offset + origin_y, origin_x))
+            pen_x += x_advance
+        return result.names, pieces
+
+
 class Fonts:
-    """The two fonts a diff shapes in, the snapshot's (`before`) and the new build's (`after`), with their outlines, junction classifiers and ink comparator. `runs` shapes one text in both under one configuration, kern-neutral, and counts what it shaped."""
+    """The two fonts a diff shapes in, the snapshot's (`before`) and the new build's (`after`), with their outlines, junction classifiers and ink comparators. `runs` shapes one text in both under one configuration, kern-neutral unless asked for kerning, and counts what it shaped."""
 
     def __init__(self, before: Path, after: Path) -> None:
         self.paths = (Path(before), Path(after))
@@ -268,12 +454,21 @@ class Fonts:
         self._outlines = (OutlineCache(before, intern), OutlineCache(after, intern))
         self._alike: dict[str, bool] = {}
         self.comparator = InkComparator(before, after)
+        self._kerned: KernedInkComparator | None = None
         self.classifiers = (_classifier(before), _classifier(after))
         self.shaped = 0
         self.seconds = 0.0
 
-    def runs(self, text: str, config: str) -> tuple[ShapeResult, ShapeResult]:
-        features = kern_neutral(features_for(config))
+    def comparator_for(self, kerning: bool) -> InkComparator:
+        """The kern-neutral comparator, or with `kerning` the one that shapes with kerning on, made the first time it is asked for."""
+        if not kerning:
+            return self.comparator
+        if self._kerned is None:
+            self._kerned = KernedInkComparator(*self.paths)
+        return self._kerned
+
+    def runs(self, text: str, config: str, kerning: bool = False) -> tuple[ShapeResult, ShapeResult]:
+        features = {**features_for(config), "kern": True} if kerning else kern_neutral(features_for(config))
         start = time.perf_counter()
         runs = self.before.shape(text, features), self.after.shape(text, features)
         self.seconds += time.perf_counter() - start
@@ -324,10 +519,10 @@ def _offer(table: dict, key, config: str, text: str) -> None:
 
 @dataclass(frozen=True)
 class Unit:
-    """One review unit before it is written: its kind (`SETTLEMENT`, `QUIET`, `JOIN` or `PROVENANCE`), what it is (`subject`, a `CellChange`, a `JoinChange` or a rune name), the configurations it holds under in the universe's order, its text (None for a join row no text was found for), its `kinds`, how the text was found, and the changed rows it stands for, by configuration. A settlement unit also carries the (before, after) left glyphs its substitutions were seen after (`lefts`) and the after font's left glyph in its own text (`left`). A unit `merge` made of several carries them as `members`, the first of which, by `KIND_PRECEDENCE`, gives its kind and subject."""
+    """One review unit before it is written: its kind (`SETTLEMENT`, `QUIET`, `JOIN`, `PROVENANCE`, `GLYPH` or `KERN`), what it is (`subject`, a `CellChange`, a `JoinChange`, a `GlyphChange`, a `KernChange` or a rune name), the configurations it holds under in the universe's order, its text (None for a change no text was found for), its `kinds`, how the text was found, and the changed rows it stands for, by configuration. A settlement unit also carries the (before, after) left glyphs its substitutions were seen after (`lefts`) and the after font's left glyph in its own text (`left`), and a kern unit the record that sets its value (`records`). A unit `merge` made of several carries them as `members`, the first of which, by `KIND_PRECEDENCE`, gives its kind and subject."""
 
     kind: str
-    subject: CellChange | JoinChange | str
+    subject: CellChange | JoinChange | GlyphChange | KernChange | str
     configs: tuple[str, ...]
     text: str | None
     kinds: tuple[str, ...]
@@ -337,15 +532,21 @@ class Unit:
     lefts: tuple[tuple[str, str], ...] = ()
     left: str | None = None
     members: tuple[Unit, ...] = ()
+    records: tuple[str, ...] = ()
 
     @property
     def parts(self) -> tuple[Unit, ...]:
         """The units this one shows: its members, or itself."""
         return self.members or (self,)
 
+    @property
+    def kerning(self) -> bool:
+        """Whether the unit is shaped, compared and drawn with kerning on: a kern unit, which shows a kern value."""
+        return self.kind == KERN
 
-# The order a merged unit's members take, whose first gives the unit its kind and class: a join row before a substitution.
-KIND_PRECEDENCE = {JOIN: 0, SETTLEMENT: 1}
+
+# The order a merged unit's members take, whose first gives the unit its kind and class: a join row before a substitution, and a substitution before a redrawn glyph. Kern units fold only with each other.
+KIND_PRECEDENCE = {JOIN: 0, SETTLEMENT: 1, GLYPH: 2, KERN: 3}
 MERGED_KINDS = frozenset(KIND_PRECEDENCE)
 
 
@@ -354,10 +555,14 @@ def _entry_key(entry: tablediff.DiffEntry) -> tuple[str, str, str]:
 
 
 def merge(units: Sequence[Unit]) -> list[Unit]:
-    """Make the join and settlement units with the same text under the same configurations one unit each: the same text shaped under the same configurations gives the same runs in both fonts, so they show the same thing. The merged unit's members are sorted by `KIND_PRECEDENCE` and what they are, it takes the first's kind, subject and how its text was found, and it carries every member's kinds and rows. A unit with no text, a quiet unit and a provenance unit are never merged, and units whose configurations differ stay apart."""
+    """Make the join, settlement and glyph units with the same text under the same configurations one unit each, and the kern units likewise among themselves: the same text shaped under the same configurations gives the same runs in both fonts, so they show the same thing, while a kern unit's runs are shaped with kerning on. The merged unit's members are sorted by `KIND_PRECEDENCE` and what they are, it takes the first's kind, subject and how its text was found, and it carries every member's kinds, rows and records. A unit with no text, a quiet unit and a provenance unit are never merged, and units whose configurations differ stay apart."""
     groups: dict[tuple, list[Unit]] = {}
     for index, unit in enumerate(units):
-        key = (unit.text, unit.configs) if unit.text is not None and unit.kind in MERGED_KINDS else (index,)
+        key = (
+            (unit.text, unit.configs, unit.kerning)
+            if unit.text is not None and unit.kind in MERGED_KINDS
+            else (index,)
+        )
         groups.setdefault(key, []).append(unit)
     merged: list[Unit] = []
     for group in groups.values():
@@ -382,17 +587,22 @@ def merge(units: Sequence[Unit]) -> list[Unit]:
                 {config: tuple(entries.values()) for config, entries in rows.items()},
                 left=next((unit.left for unit in group if unit.left is not None), None),
                 members=tuple(group),
+                records=tuple(dict.fromkeys(record for unit in group for record in unit.records)),
             )
         )
     return merged
 
 
-def _subject_key(subject: CellChange | JoinChange | str) -> list:
+def _subject_key(subject: CellChange | JoinChange | GlyphChange | KernChange | str) -> list:
     """What a unit is, as its id and the merge order read it."""
     if isinstance(subject, CellChange):
         return [SETTLEMENT, subject.rune, subject.old, subject.new]
     if isinstance(subject, JoinChange):
         return [JOIN, subject.left, subject.right, subject.old, subject.new]
+    if isinstance(subject, GlyphChange):
+        return [GLYPH, subject.name, subject.old, subject.new]
+    if isinstance(subject, KernChange):
+        return [KERN, subject.leading_side, subject.following_side, subject.old, subject.new]
     return ["letter", subject]
 
 
@@ -712,8 +922,8 @@ class UnitFinder:
         }
         return tuple(sorted(kinds)) or (CONTEXT_KIND,)
 
-    def units(self) -> list[Unit]:
-        """Fold every change found into units, in a fixed order."""
+    def units(self, extra: Sequence[Unit] = ()) -> list[Unit]:
+        """Fold every change found into units, in a fixed order, and merge them with `extra`, the glyph and kern units, which come after them (`merge`)."""
         units: list[Unit] = []
         for cell in sorted(self._substitutions):
             per_config = {config: shortest.texts for config, shortest in self._substitutions[cell].items()}
@@ -824,11 +1034,195 @@ class UnitFinder:
                         {config: (entries[config],) for config in missing},
                     )
                 )
-        return merge(units)
+        return merge([*units, *extra])
 
 
 def _join_sort_key(change: JoinChange) -> tuple:
     return (change.left, change.right, repr(change.old), repr(change.new))
+
+
+# --- the glyph and kern buckets ------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class OutcomeText:
+    """A certificate as the glyph bucket reads it: the cell its rule settles to, its text, the configuration it is in, and which font settles it, `before` (the snapshot's table) or `after` (the new one)."""
+
+    outcome: str
+    text: str
+    config: str
+    side: str
+
+
+def certificate_witnesses(
+    outcomes: Mapping[str, Sequence[tuple[str, tuple[int, ...] | None]]], side: str
+) -> list[OutcomeText]:
+    """The certificates of one side's tables as `OutcomeText`s, from each configuration's (outcome, certificate text) pairs, one per rule in rule order, leaving out a rule whose certificate is empty."""
+    found: list[OutcomeText] = []
+    for config, pairs in outcomes.items():
+        for outcome, values in pairs:
+            if values:
+                found.append(OutcomeText(outcome, "".join(map(chr, values)), config, side))
+    return found
+
+
+def _cmap_texts(fonts: Fonts) -> dict[str, list[str]]:
+    """Each glyph name either font's cmap maps a code point to, with those code points as one-character texts, the lowest first."""
+    found: dict[str, set[int]] = {}
+    for path in fonts.paths:
+        font = TTFont(str(path), lazy=True)
+        try:
+            for codepoint, name in (font.getBestCmap() or {}).items():
+                found.setdefault(name, set()).add(codepoint)
+        finally:
+            font.close()
+    return {name: [chr(value) for value in sorted(values)] for name, values in found.items()}
+
+
+def _glyph_configs(fonts: Fonts, text: str, name: str, universe: Sequence[str]) -> tuple[str, ...]:
+    """The configurations of `universe` under which a run of `text`, in either font, holds the glyph `name`."""
+    held: list[str] = []
+    for config in universe:
+        before, after = fonts.runs(text, config)
+        if name in before.names or name in after.names:
+            held.append(config)
+    return tuple(held)
+
+
+def glyph_units(
+    changes: Sequence[GlyphChange],
+    fonts: Fonts,
+    universe: Sequence[str],
+    certificates: Sequence[OutcomeText] = (),
+    inventory: Mapping[str, Sequence[tuple[str, tuple[str, ...]]]] | None = None,
+) -> list[Unit]:
+    """One unit for each changed glyph, over the first text of these that holds it: the shortest of `certificates` whose rule settles to the glyph, a run of it in its side's font holding the glyph, trying `GLYPH_CERTIFICATE_TRIES` of them; then a code point either font maps to the glyph, alone, the lowest first; then the shortest of the kerning inventory's texts (`inventory_texts`) whose run holds it. The unit lists every configuration of `universe` under which a run of its text in either font holds the glyph (`_glyph_configs`). Then the glyph's rune's letters alone under the overlay (`OVERLAY_CONFIG`), which reach a letter's ss10 copy, listed under the overlay alone. A glyph none of them holds, such as a letter's bare glyph, which settlement always replaces and which only a text with `calt` off draws, is a unit with no text listed under every configuration of `universe`; its cluster is its group's (`structural_cluster`), so one edit's textless glyphs of one letter share a Queue card. `merge` folds the units with one text."""
+    by_outcome: dict[str, list[OutcomeText]] = {}
+    wanted = {change.name for change in changes}
+    for certificate in certificates:
+        if certificate.outcome in wanted:
+            by_outcome.setdefault(certificate.outcome, []).append(certificate)
+    order = {config: index for index, config in enumerate(universe)}
+    cmap = _cmap_texts(fonts) if changes else {}
+    units: list[Unit] = []
+    for change in changes:
+        name = change.name
+        found: tuple[str, str] | None = None
+        candidates = sorted(
+            by_outcome.get(name, ()),
+            key=lambda item: (len(item.text), item.text, order.get(item.config, len(order)), item.side),
+        )
+        for certificate in candidates[:GLYPH_CERTIFICATE_TRIES]:
+            before, after = fonts.runs(certificate.text, certificate.config)
+            if name in (before.names if certificate.side == "before" else after.names):
+                found = (
+                    certificate.text,
+                    f"the shortest certificate of the {'accepted' if certificate.side == 'before' else 'new'} {certificate.config} table that settles to it",
+                )
+                break
+        if found is None:
+            for text in cmap.get(name, ()):
+                if _glyph_configs(fonts, text, name, universe):
+                    found = (text, "its code point alone")
+                    break
+        if found is None:
+            listed = sorted(
+                {text for texts in (inventory or {}).values() for text, names in texts if name in names},
+                key=lambda text: (len(text), text),
+            )
+            for text in listed[:GLYPH_CERTIFICATE_TRIES]:
+                if _glyph_configs(fonts, text, name, universe):
+                    found = (text, "the shortest kerning-inventory text that holds it")
+                    break
+        if found is None:
+            letters = spelling_text(base_label(name))
+            if letters:
+                before, after = fonts.runs(letters, OVERLAY_CONFIG)
+                if name in before.names or name in after.names:
+                    units.append(
+                        Unit(
+                            GLYPH,
+                            change,
+                            (OVERLAY_CONFIG,),
+                            letters,
+                            change.differs,
+                            "its letters alone under the overlay",
+                        )
+                    )
+                    continue
+            units.append(
+                Unit(
+                    GLYPH,
+                    change,
+                    tuple(universe),
+                    None,
+                    change.differs,
+                    "no text: no certificate, code point, kerning-inventory text or overlay copy holds it",
+                )
+            )
+            continue
+        text, found_by = found
+        configs = _glyph_configs(fonts, text, name, universe) or tuple(universe)
+        units.append(Unit(GLYPH, change, configs, text, change.differs, found_by))
+    return units
+
+
+def kern_units(
+    changes: Sequence[tuple[KernChange, KernRow, int | None]],
+    universe: Sequence[str],
+    inventory: Mapping | None = None,
+    new_rows: Sequence[KernRow] = (),
+) -> list[Unit]:
+    """One unit for each changed facing pair (`kern_changes`), over the kerning inventory's witness of the pair, the text and the configuration its `pairs` entry at the row's index in the new table names, when the inventory's pairs are the new table's rows, side for side (`inventory_matches`); otherwise, and for a pair only the old table has, over the two letters alone. The unit lists the configurations of `universe` the pair's row names, in the universe's order, or `default` when it names none of them, and carries the row's record. `merge` folds the units with one text."""
+    witnesses = inventory if inventory is not None and inventory_matches(inventory, new_rows) else None
+    units: list[Unit] = []
+    for change, row, index in changes:
+        text: str | None = None
+        found_by = "the two letters alone"
+        if witnesses is not None and index is not None:
+            pair = witnesses["pairs"][index]
+            witness = pair.get("witness")
+            if witness is not None:
+                text = "".join(map(chr, witnesses["texts"][witness]["cp"]))
+                found_by = "the kerning inventory's witness of the pair"
+        if text is None:
+            text = spelling_text(change.leading) + spelling_text(change.following) or None
+        configs = tuple(config for config in universe if config in row.configs) or ("default",)
+        units.append(
+            Unit(
+                KERN,
+                change,
+                configs,
+                text,
+                (change.bucket,),
+                found_by if text is not None else "no text: neither rune spells out",
+                records=(row.record,) if row.record else (),
+            )
+        )
+    return units
+
+
+def load_inventory(path: Path) -> dict | None:
+    """The kerning inventory at `path` (`rebuild/pipeline/kern_inventory.py`), or None when there is none that reads."""
+    try:
+        inventory = json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return None
+    return inventory if isinstance(inventory, dict) else None
+
+
+def inventory_matches(inventory: Mapping, rows: Sequence[KernRow]) -> bool:
+    """Whether the inventory's `pairs` are `rows`, the new `kern.tsv`'s, in order, side for side, as a build writes the two beside each other; a kern-only rebuild keeps both, since a kern value moves no facing pair."""
+    try:
+        sides = inventory["sides"]
+        pairs = inventory["pairs"]
+        return len(pairs) == len(rows) and all(
+            sides[pair["lead"]]["name"] == row.leading_side
+            and sides[pair["follow"]]["name"] == row.following_side
+            for pair, row in zip(pairs, rows)
+        )
+    except KeyError, IndexError, TypeError:
+        return False
 
 
 # --- writing a unit ------------------------------------------------------------------
@@ -875,22 +1269,34 @@ def _glyph_span(result: ShapeResult, glyph: int, length: int) -> tuple[int, int]
 
 
 def _focus(unit: Unit, text: str, before: ShapeResult, after: ShapeResult) -> tuple[int, int] | None:
-    """The code point span of the change a unit shows in its text: the cell change's cluster, the join row's two cells, or the letter a quiet or provenance unit stands for; a merged unit's is its first member's."""
+    """The code point span of the change a unit shows in its text: the cell change's cluster, the join row's two cells, the redrawn glyph's cluster, the first two glyphs of the kern pair's runes that meet, or the letter a quiet or provenance unit stands for; a merged unit's is its first member's."""
     length = len(text)
-    if isinstance(unit.subject, CellChange):
+    subject = unit.subject
+    if isinstance(subject, CellChange):
         for position, substitution in substitutions(text, before, after):
-            if CellChange.of(substitution) == unit.subject:
+            if CellChange.of(substitution) == subject:
                 index = _cluster_starts(after, length)[position][0]
                 return _glyph_span(after, index, length)
         return None
-    if isinstance(unit.subject, JoinChange):
-        pair = (unit.subject.left, unit.subject.right)
-        run = after if unit.subject.new is not None else before
+    if isinstance(subject, JoinChange):
+        pair = (subject.left, subject.right)
+        run = after if subject.new is not None else before
         for index, adjacent in enumerate(zip(run.names, run.names[1:])):
             if adjacent == pair:
                 return _glyph_span(run, index, length)[0], _glyph_span(run, index + 1, length)[1]
         return None
-    spelled = spelling_text(unit.subject)
+    if isinstance(subject, GlyphChange):
+        for run in (after, before):
+            if subject.name in run.names:
+                return _glyph_span(run, run.names.index(subject.name), length)
+        return None
+    if isinstance(subject, KernChange):
+        run = after if subject.new is not None else before
+        for index, (left, right) in enumerate(zip(run.names, run.names[1:])):
+            if base_label(left) == subject.leading and base_label(right) == subject.following:
+                return _glyph_span(run, index, length)[0], _glyph_span(run, index + 1, length)[1]
+        return None
+    spelled = spelling_text(subject)
     if spelled and spelled in text:
         start = text.index(spelled)
         return start, start + len(spelled) - 1
@@ -912,12 +1318,12 @@ def spelling_text(rune: str) -> str:
 
 
 def _pair_of(after: ShapeResult, focus: tuple[int, int], kind: str) -> tuple[int, int] | None:
-    """The after run's glyph indices the pair band covers: a join's two cells, or a letter and its left neighbor (its right one at the run's start)."""
+    """The after run's glyph indices the pair band covers: a join's or a kern pair's two glyphs, or a letter or glyph and its left neighbor (its right one at the run's start)."""
     left = first_glyph_covering(after.clusters, focus[0])
     right = last_glyph_covering(after.clusters, focus[1])
     if right > left:
         return left, right
-    if kind == JOIN:
+    if kind in (JOIN, KERN):
         return None
     if left > 0:
         return left - 1, left
@@ -927,10 +1333,17 @@ def _pair_of(after: ShapeResult, focus: tuple[int, int], kind: str) -> tuple[int
 
 
 def _group(unit: Unit) -> str:
-    """The unit's family pair as the app's group folds and family filter read it: the two families that meet at a join, or at a cell change in the unit's own text, or the letter alone after a boundary or the run's start; a merged unit's is its first member's."""
+    """The unit's family pair as the app's group folds and family filter read it: the two families that meet at a join or a kern pair, or at a cell change in the unit's own text, or the letter alone after a boundary or the run's start, or a redrawn glyph's family, `NON_QUIKSCRIPT_GROUP` for a glyph in none; a merged unit's is its first member's."""
     subject = unit.subject
-    if isinstance(subject, JoinChange):
-        left, right = label_families(subject.left), label_families(subject.right)
+    if isinstance(subject, GlyphChange):
+        return ":".join(label_families(subject.name)[:1]) or NON_QUIKSCRIPT_GROUP
+    if isinstance(subject, (JoinChange, KernChange)):
+        left_name, right_name = (
+            (subject.left, subject.right)
+            if isinstance(subject, JoinChange)
+            else (subject.leading, subject.following)
+        )
+        left, right = label_families(left_name), label_families(right_name)
         parts = ([left[-1]] if left else []) + ([right[0]] if right else [])
     elif isinstance(subject, CellChange):
         left = label_families(unit.left or EDGE)
@@ -952,7 +1365,16 @@ def _part_label(unit: Unit) -> str:
         return f"settlement {subject.rune}: {subject.old} -> {subject.new}"
     if isinstance(subject, JoinChange):
         return f"join {subject.left} + {subject.right}: {join_value_label(subject.old)} -> {join_value_label(subject.new)}"
+    if isinstance(subject, GlyphChange):
+        return f"glyph {subject.name}: {', '.join(subject.differs)}"
+    if isinstance(subject, KernChange):
+        return f"kern {subject.leading_side} + {subject.following_side}: {kern_value_label(subject.old)} -> {kern_value_label(subject.new)}"
     return f"{unit.kind} {subject}"
+
+
+def kern_value_label(value: int | None) -> str:
+    """A kern value as the row key writes it: signed pixels, or `none` for a table without the pair."""
+    return "none" if value is None else f"{value:+d}"
 
 
 def _label(unit: Unit) -> str:
@@ -979,15 +1401,18 @@ def _summary(unit: Unit) -> str:
     """The unit's one line: its first member's change, and for a merged unit how many changes the picture shows."""
     line = _part_summary(unit)
     if len(unit.parts) > 1:
-        joins = sum(1 for part in unit.parts if part.kind == JOIN)
-        cells = len(unit.parts) - joins
         counted = [
             f"{count} {noun}{'' if count == 1 else 's'}"
-            for count, noun in ((joins, "join row"), (cells, "cell change"))
-            if count
+            for kind, noun in PART_NOUNS.items()
+            if (count := sum(1 for part in unit.parts if part.kind == kind))
         ]
         line += f" (one picture for {' and '.join(counted)})"
     return line
+
+
+# What a merged unit's summary calls each kind of member it counts.
+PART_NOUNS = {JOIN: "join row", SETTLEMENT: "cell change", GLYPH: "redrawn glyph", KERN: "kern pair"}
+GLYPH_KIND_TEXT = {"outline": "outline", "metrics": "advance or sidebearing", "anchors": "cursive anchors"}
 
 
 def _left_phrase(lefts: Sequence[tuple[str, str]]) -> str:
@@ -1006,6 +1431,17 @@ def _part_summary(unit: Unit) -> str:
         return (
             f"{_display(subject.left)} meets {_display(subject.right)} ({subject.left} + {subject.right}) in "
             f"{join_value_text(subject.new)}, where the accepted build has {join_value_text(subject.old)}"
+        )
+    if isinstance(subject, GlyphChange):
+        changed = " and ".join(GLYPH_KIND_TEXT[kind] for kind in subject.differs)
+        shown = _display(subject.name)
+        named = "" if shown == subject.name else f" ({subject.name})"
+        return f"{shown}{named} is drawn differently than in the accepted build: its {changed} changed"
+    if isinstance(subject, KernChange):
+        return (
+            f"{_display(subject.leading)} before {_display(subject.following)} ({subject.leading_side} | "
+            f"{subject.following_side}) is {kern_value_text(subject.new)}, where the accepted build has it "
+            f"{kern_value_text(subject.old)}"
         )
     if unit.kind == PROVENANCE:
         return f"{_display(subject)}'s rules credit other records and settle as before"
@@ -1054,7 +1490,7 @@ def _entry_lines(
 
 
 def _explain(unit: Unit) -> str:
-    """The explain panel's text: the unit's class and kinds, its configurations and its text, then each change it shows with the changed rows it stands for, each configuration's list once for every configuration that has the same one. A cell change names the left glyphs it was seen after, cut to `EXPLAIN_LEFTS`, and lists the rows that settle to one of its two cells after one of them."""
+    """The explain panel's text: the unit's class and kinds, its configurations and its text, then each change it shows with the changed rows it stands for, each configuration's list once for every configuration that has the same one. A cell change names the left glyphs it was seen after, cut to `EXPLAIN_LEFTS`, and lists the rows that settle to one of its two cells after one of them; a redrawn glyph names what changed and its facts' digests, and a kern pair its two values and the record that sets the new one."""
     lines = [f"{CLASS_OF_KIND[unit.kind]} ({', '.join(unit.kinds)}): {_summary(unit)}."]
     lines.append(f"  configurations: {', '.join(unit.configs)}")
     lines.append(f"  text: {notation(tuple(map(ord, unit.text))) if unit.text else 'none'} ({unit.found_by})")
@@ -1073,6 +1509,14 @@ def _explain(unit: Unit) -> str:
         elif isinstance(subject, JoinChange):
             lines.append(f"  before: {join_value_text(subject.old)}")
             lines.append(f"  after:  {join_value_text(subject.new)}")
+        elif isinstance(subject, GlyphChange):
+            lines.append(f"  changed: {', '.join(GLYPH_KIND_TEXT[kind] for kind in subject.differs)}")
+            lines.append(f"  facts:   {subject.old[:12]} -> {subject.new[:12]}")
+        elif isinstance(subject, KernChange):
+            lines.append(f"  before: {kern_value_text(subject.old)}")
+            lines.append(f"  after:  {kern_value_text(subject.new)}")
+            if part.records:
+                lines.append(f"  set by: {', '.join(part.records)}")
         listed: dict[tuple[str, ...], list[str]] = {}
         for config, entries in part.rows.items():
             rows = [line for entry in entries for line in _entry_lines(entry, cell, lefts)]
@@ -1090,9 +1534,10 @@ def _explain(unit: Unit) -> str:
 
 
 def _provenance(unit: Unit) -> list[str]:
-    """The records the unit's rows credit: every pointer on the changed rows whose outcome is a cell a cell change shows, or on every changed row of a quiet or provenance unit, over every member of a merged unit."""
+    """The records the unit's rows credit: every pointer on the changed rows whose outcome is a cell a cell change shows, or on every changed row of a quiet or provenance unit, and the record that sets a kern pair's value, over every member of a merged unit."""
     pointers: set[str] = set()
     for part in unit.parts:
+        pointers.update(part.records)
         wanted = {part.subject.old, part.subject.new} if isinstance(part.subject, CellChange) else None
         for entries in part.rows.values():
             for entry in entries:
@@ -1130,20 +1575,22 @@ def cluster_id(digests: Iterable[str]) -> str:
 
 
 def structural_cluster(unit: Unit) -> str:
-    """The cluster of a unit with no text: what it is, its old and new values, without its configurations."""
+    """The cluster of a unit with no text: what it is, its old and new values, without its configurations; for a redrawn glyph, which the reviewer judges from its explain alone, its group, so the textless glyphs of one letter share a card."""
     subject = unit.subject
-    shape = (
-        (unit.kind, subject.old, subject.new)
-        if isinstance(subject, (CellChange, JoinChange))
-        else (unit.kind, subject)
-    )
+    if isinstance(subject, GlyphChange):
+        shape: tuple = (unit.kind, _group(unit), "no text")
+    elif isinstance(subject, (CellChange, JoinChange, KernChange)):
+        shape = (unit.kind, subject.old, subject.new)
+    else:
+        shape = (unit.kind, subject)
     return "c-" + hashlib.sha1(repr(shape).encode()).hexdigest()[:8]
 
 
 def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
-    """Write one unit as its shard fragment. `badge(configs, universe)` is `build.config_badge`."""
+    """Write one unit as its shard fragment. `badge(configs, universe)` is `build.config_badge`. A kern unit is shaped, checked and drawn with kerning on (`kerning`), and a provenance unit takes no ink check, having nothing that draws differently."""
     gate, note = badge(unit.configs, universe)
-    no_verdict = unit.kind == PROVENANCE
+    no_verdict = unit.kind in NO_VERDICT_KINDS
+    kerning = unit.kerning
     text = unit.text
     before_names: list[str] = []
     after_names: list[str] = []
@@ -1159,7 +1606,7 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
     if text:
         values = tuple(map(ord, text))
         codepoints = ":".join(f"{value:04X}" for value in values)
-        runs = {config: fonts.runs(text, config) for config in unit.configs}
+        runs = {config: fonts.runs(text, config, kerning) for config in unit.configs}
         before, after = runs[unit.configs[0]]
         before_names, after_names = list(before.names), list(after.names)
         before_record = {"glyphs": before_names, "junctions": _junctions(before, fonts.classifiers[0])}
@@ -1202,14 +1649,15 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
             kind = BOUNDARY_KINDS.get(values[cluster_value])
             if kind is not None:
                 boundary_marks.append({"index": index, "kind": kind, "x": pens[index]})
-        if not no_verdict:
-            ink_identical = fonts.comparator.ink_identical(text, unit.configs)
-            picture_identical = not ink_identical and fonts.comparator.picture_identical(text, unit.configs)
+        comparator = fonts.comparator_for(kerning)
+        if unit.kind != PROVENANCE:
+            ink_identical = comparator.ink_identical(text, unit.configs)
+            picture_identical = not ink_identical and comparator.picture_identical(text, unit.configs)
             if unit.unattributed:
                 ink_identical = picture_identical = False
         if not (ink_identical or picture_identical or no_verdict):
             cluster = cluster_id(
-                delta_digest(fonts.comparator.config_diff(text, config)) for config in unit.configs
+                delta_digest(comparator.config_diff(text, config)) for config in unit.configs
             )
     elif not no_verdict:
         cluster = structural_cluster(unit)
@@ -1221,6 +1669,7 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
         "picture_identical": picture_identical,
         "junior_equivalent": False,
         "no_verdict": no_verdict,
+        "kerning": kerning,
         "duplicate_group": None,
         "cluster": cluster,
         "class": CLASS_OF_KIND[unit.kind],
@@ -1250,10 +1699,13 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
     }
 
 
-def inventory_texts(path: Path) -> dict[str, list[tuple[str, tuple[str, ...]]]]:
-    """The kerning inventory's texts by configuration (`rebuild/pipeline/kern_inventory.py`'s `texts`), each as its text and the glyph names its run holds, or none when there is no readable inventory at `path`."""
+def inventory_texts(inventory: Mapping | Path | None) -> dict[str, list[tuple[str, tuple[str, ...]]]]:
+    """The kerning inventory's texts by configuration (`rebuild/pipeline/kern_inventory.py`'s `texts`), each as its text and the glyph names its run holds, from the inventory or the path of one (`load_inventory`), or none when there is no readable inventory."""
+    if inventory is None or isinstance(inventory, Path):
+        inventory = load_inventory(inventory) if inventory is not None else None
+        if inventory is None:
+            return {}
     try:
-        inventory = json.loads(Path(path).read_text(encoding="utf-8"))
         configs = inventory["configs"]
         glyphs = [glyph["name"] for glyph in inventory["glyphs"]]
         found: dict[str, list[tuple[str, tuple[str, ...]]]] = {}
@@ -1263,5 +1715,5 @@ def inventory_texts(path: Path) -> dict[str, list[tuple[str, tuple[str, ...]]]]:
                 (text, tuple(glyphs[index] for index in entry["glyphs"]))
             )
         return found
-    except OSError, ValueError, KeyError, IndexError, TypeError:
+    except KeyError, IndexError, TypeError:
         return {}

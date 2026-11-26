@@ -1,0 +1,552 @@
+"""Accept the table-diff corpus's changes, and remake the accepted snapshot on a machine without it (rebuild/REVIEW-PLAN.md §2.3).
+
+The accept, `uv run python -m rebuild.review.accept [--apply] [--retake]` (`make review-accept`), makes the build the corpus shows the accepted one. Without `--apply` it is a dry run: it prints every refusal `--apply` would make and what `--apply` would write, writes nothing, and exits 1 when `--apply` would refuse. Its refusals, each with nothing written, in this order:
+
+- the corpus under rebuild/out/review is not a table-diff corpus, so the accept never clears the store of the m1-audit corpus, whose verdicts the close-out folds;
+- `make verdict-ready`'s blocking checks fail (`store_guards.readiness_refusal`), among them the snapshot row and the freshness of the corpus against the sources;
+- the corpus does not show rebuild/out/m1: its after font is not M1.otf byte for byte, or its `tables` component is not the stamp of that build's windows heads (`snapshot.tables_stamp`);
+- a pass holds the artifact cycle's pass lock (taken without waiting and held to the end, `store_guards.pass_lock`), or a review server listens that may write the store (`store_guards.serves`);
+- a human unit of the corpus is blank, skipped, rejected or neither.
+
+`--apply`, holding the pass lock and the store's lock (`landing.locked_store`, which first writes into the store the saves the journal holds past its last write), checks the verdicts again, then:
+
+1. takes a snapshot of rebuild/out/m1 (`snapshot.take`, into a staging directory under var/keep/review-snapshot renamed into place, keeping the snapshot it replaces as the previous one);
+2. writes the tracked pointer, rebuild/review-snapshot.json, naming it (`snapshot.write_pointer`), which goes into the commit with the edit it accepts, so the commit that last changed the pointer is the one the snapshot stands for (`snapshot.pointer_commit`);
+3. keeps the store as found, gzipped, at var/keep/review-accept/store.json.gz, replacing the one the last accept kept, writes an empty store stamped for the served corpus, which pairs with any accepted list (`accepted.pair`), and starts the journal again at one base event of it, as the close-out does, removing the unjournaled marker and the journal's scan state.
+
+`--retake` skips the verdict refusals and the readiness and corpus refusals, for a snapshot-format bump, which leaves no snapshot this checkout reads, and for a snapshot no build of its commit remakes, both of which leave the snapshot row failing and the corpus stale. It checks instead that rebuild/out/m1's tables carry the stamp the sources on disk give (`run_m1.tables_inputs`), so the snapshot is of this tree's build, and it prints the span it accepts unreviewed: the commit the old snapshot stands for, or that none is known, and the corpus's counts when it can read them.
+
+The remake, `uv run python -m rebuild.review.accept remake [--rev REV] [--home DIR]` (`make review-snapshot-remake`), installs the snapshot the pointer names on a clone or machine without it. It reads the pointer at `--rev`, by default the last commit that changed it (`snapshot.last_pointer_commit`); a snapshot under the home that already holds the pointer's digest is made current with no build. Otherwise, holding the pass lock, it exports that revision's tree with `git archive` into var/cycle/snapshot-remake/tree (no worktree, and no `.git`: the build names no commit it cannot read, `run_m1.head_commit` answering None there), runs that tree's own build there (`build`, run_m1's table build and glyph chain, then that tree's `rebuild.review.snapshot take` into a scratch home beside it), and installs the result (`snapshot.install`) once its digest is the pointer's. The children run with `UV_CACHE_DIR` at this checkout's uv cache, and with `CARGO_TARGET_DIR`, and the tree's `rebuild/kernel-rs/target` linked to it, at `REMAKE_CARGO_TARGET` inside this checkout's crate target, so the crate's dependencies compile once across remakes and the tree's crate never replaces this checkout's own binary, at `target/release`. A digest that is not the pointer's is reported with `make review-accept ARGS='--apply --retake'` as the remedy, and the work directory is left for inspection; a pass deletes it.
+
+`uv run python -m rebuild.review.accept build --out DIR` is the remake's build, which it runs inside the exported tree: the tables of the tree's sources stamped as a full run stamps them, and the glyph chain over them, which writes M1.otf and kern.tsv.
+"""
+
+from __future__ import annotations
+
+import argparse
+import functools
+import gzip
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from rebuild.pipeline import fingerprint  # noqa: E402
+from rebuild.review import accepted, journal, snapshot  # noqa: E402
+from rebuild.review.landing import LandUnrecoverable, Store, document_bytes, locked_store  # noqa: E402
+from rebuild.review.store_lock import LockBusy, holder  # noqa: E402
+from rebuild.review.verdict_store import MalformedStore, read_store_document  # noqa: E402
+from rebuild.tools import store_guards  # noqa: E402
+
+CORPUS = ROOT / "rebuild" / "out" / "review"
+KEEP = Path("var") / "keep" / "review-accept"
+KEPT_STORE = "store.json.gz"
+SOURCE = "review-accept"
+REMAKE_WORK = ROOT / "var" / "cycle" / "snapshot-remake"
+REMAKE_CARGO_TARGET = ROOT / "rebuild" / "kernel-rs" / "target" / "snapshot-remake"
+UV_CACHE = ROOT / ".uv-cache"
+RETAKE_REMEDY = "make review-accept ARGS='--apply --retake'"
+# The verdicts that stand between a human unit and the accept: a blank (no record) counts too, and so does a skip.
+OPEN_VERDICTS = ("skip", "reject", "neither")
+
+
+class Refused(RuntimeError):
+    """A refusal of the accept or the remake; the message names the cause and the remedy, and nothing was written."""
+
+
+def read_corpus(corpus: Path) -> dict:
+    """The corpus's manifest, refused unless it is a table-diff corpus's, so the accept never clears the store an m1-audit corpus's verdicts are in."""
+    try:
+        manifest = json.loads((Path(corpus) / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise Refused(f"the corpus {corpus} has no manifest that reads ({error})") from None
+    if not isinstance(manifest, dict) or manifest.get("mode") != "table-diff":
+        found = manifest.get("mode") if isinstance(manifest, dict) else None
+        raise Refused(
+            f"the corpus {corpus} is an {found!r} corpus, not a table-diff corpus, so its store holds verdicts the "
+            "accept must not clear; the accept runs once the cycle serves the table-diff corpus"
+        )
+    return manifest
+
+
+def match_refusal(manifest: Mapping, tables: Path) -> str | None:
+    """Why the corpus does not show the run_m1 build in `tables`, or None when it does: its after font is that build's M1.otf byte for byte, and its `tables` component is the stamp that build's windows heads record (`snapshot.tables_stamp`)."""
+    fonts = manifest.get("fonts")
+    after = fonts.get("after") if isinstance(fonts, dict) else None
+    recorded = after.get("sha256") if isinstance(after, dict) else None
+    try:
+        built = fingerprint.file_sha256(Path(tables) / snapshot.FONT_NAME)
+    except OSError:
+        built = None
+    if built is None or recorded != built:
+        return (
+            f"the corpus's after font is not {Path(tables) / snapshot.FONT_NAME}; run `make artifact-cycle`"
+        )
+    fp = manifest.get("inputs_fingerprint")
+    stamp = snapshot.tables_stamp(tables)
+    if stamp is None or not isinstance(fp, dict) or fp.get("tables") != stamp:
+        return f"the corpus was built over other tables than {tables} holds; run `make artifact-cycle`"
+    return None
+
+
+@dataclass(frozen=True)
+class Standing:
+    """The store as the accept reads it against the corpus: its bytes (None with no store file), the corpus's human unit ids, and each human unit's verdict, None for a blank."""
+
+    raw: bytes | None
+    human: frozenset[str]
+    verdicts: Mapping[str, str | None]
+
+    def units(self, verdict: str | None) -> list[str]:
+        return sorted(unit for unit, found in self.verdicts.items() if found == verdict)
+
+    def refusal(self) -> str | None:
+        """Why the corpus's changes cannot be accepted as the store stands, or None: every human unit holds a verdict, and none is a skip, a reject or a neither."""
+        parts = [
+            f"{len(units):,} {label}"
+            for label, units in (
+                ("blank", self.units(None)),
+                *((verdict, self.units(verdict)) for verdict in OPEN_VERDICTS),
+            )
+            if units
+        ]
+        if not parts:
+            return None
+        return (
+            f"of the corpus's {len(self.human):,} human units, {', '.join(parts)}: verdict every unit, "
+            "approving, finding either fine or calling identical, before the accept, or fix what was rejected and "
+            "run `make artifact-cycle` first"
+        )
+
+
+def read_standing(store: Path, human: frozenset[str], raw: bytes | None = None) -> Standing:
+    """Read the store, or its bytes `raw`, as `Standing`, refusing one that does not read or holds a record the carry refuses (`verdict_store.read_store_document`)."""
+    if raw is None:
+        try:
+            raw = Path(store).read_bytes()
+        except FileNotFoundError:
+            raw = None
+    document = None
+    if raw is not None:
+        try:
+            document = read_store_document(raw, f"the store {store}")
+        except MalformedStore as malformed:
+            raise Refused(str(malformed)) from None
+    records = journal.latest_by_unit(accepted.records_of(document)) if document is not None else {}
+    verdicts = {unit: (records.get(unit) or {}).get("verdict") for unit in human}
+    return Standing(raw, human, verdicts)
+
+
+def human_units(manifest: Mapping) -> frozenset[str]:
+    ids = manifest.get("human_unit_ids")
+    return frozenset(unit for unit in ids if isinstance(unit, str)) if isinstance(ids, list) else frozenset()
+
+
+def span_line(manifest: Mapping | None, standing: Standing | None, root: Path) -> str:
+    """What a retake accepts unreviewed: every change since the commit the old snapshot stands for, and the corpus's counts when it reads."""
+    since = "an unknown commit (no snapshot this checkout reads is current)"
+    if manifest is not None:
+        from rebuild.review import status
+
+        since = status.baseline_since(manifest, root)
+    line = f"--retake accepts unreviewed every change since {since}"
+    if manifest is not None and standing is not None:
+        units = (manifest.get("totals") or {}).get("units")
+        open_units = sum(1 for verdict in standing.verdicts.values() if verdict in (None, *OPEN_VERDICTS))
+        line += f": the corpus lists {units} changes, {len(standing.human):,} of them human units, {open_units:,} not accepted"
+    return line
+
+
+def plan_lines(
+    store: Path, tables: Path, home: Path, pointer: Path, standing: Standing | None, stamp: str | None
+) -> list[str]:
+    """What `--apply` writes, in its order."""
+    previous = snapshot.current(home)
+    records = sum(1 for verdict in (standing.verdicts.values() if standing else ()) if verdict is not None)
+    return [
+        f"take a snapshot of {tables} (tables {snapshot.tables_stamp(tables)}) into {home}, make it current"
+        + (f", and keep {previous.name} as the previous one" if previous is not None else ""),
+        f"write {pointer} naming it",
+        (
+            f"keep {store.name} as found at {store.parent / KEEP / KEPT_STORE}"
+            if standing is not None and standing.raw is not None
+            else f"keep no store ({store.name} does not exist)"
+        ),
+        f"write an empty {store.name} stamped for the corpus {stamp}, dropping its {records:,} verdicts on the corpus's human units",
+        f"start {journal.JOURNAL_NAME} again at one base event of the empty store",
+    ]
+
+
+def _write_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def _clear_store(store: Path, stamp: str, raw: bytes | None) -> None:
+    """Keep the store as found, write the empty store stamped `stamp`, and start the journal again at one base event of it. The caller holds the store's lock."""
+    if raw is not None:
+        _write_atomic(store.parent / KEEP / KEPT_STORE, gzip.compress(raw, compresslevel=6, mtime=0))
+    _write_atomic(store, document_bytes(Store(stamp)))
+    journal_path = journal.journal_path_for(store)
+    tmp = journal_path.with_name(journal_path.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    journal.record_transition(tmp, source=SOURCE, stamp=stamp, old_stamp=None)
+    os.replace(tmp, journal_path)
+    journal.unjournaled_marker_for(store).unlink(missing_ok=True)
+    journal.save_scan_state(store.parent / store_guards.CYCLE / "journal-scan.json", None)
+
+
+def tables_current(tables: Path) -> bool:
+    """Whether the tables in `tables` carry the stamp the sources on disk give (`run_m1.tables_inputs`), which a retake requires of the build it snapshots."""
+    from rebuild.pipeline import run_m1
+
+    return snapshot.tables_stamp(tables) == run_m1.tables_inputs()
+
+
+def run(
+    *,
+    store: Path,
+    corpus: Path,
+    tables: Path,
+    home: Path,
+    pointer: Path,
+    apply: bool = False,
+    retake: bool = False,
+    readiness: Callable[[], tuple[dict, bool]] | None = None,
+    serving: Callable[[Path], bool] = store_guards.serves,
+    stamped: Callable[[Path], bool] = tables_current,
+    take: Callable[..., snapshot.Snapshot] = snapshot.take,
+) -> int:
+    """Run the accept of the corpus at `corpus` into `home` and `pointer` from the build in `tables`, clearing `store`: the dry run, or with `apply` the accept. `readiness` is `make verdict-ready`'s answer without the server row, `serving` whether a review server may write the store, `stamped` whether the build's tables carry the sources' stamp (the retake's check), and `take` takes the snapshot."""
+    if readiness is None:
+        from rebuild.tools import verdict_ready
+
+        readiness = functools.partial(
+            verdict_ready.readiness,
+            with_server=False,
+            repo_root=store.parent,
+            review_dir=corpus,
+            m1_out=tables,
+            autosave_path=store,
+        )
+    refusals: list[str] = []
+    manifest: dict | None = None
+    try:
+        manifest = read_corpus(corpus)
+    except Refused as refused:
+        print(f"ERROR: {refused}. Nothing was written.")
+        return 1
+    human = human_units(manifest)
+    stamp = manifest.get("generated_at")
+    if retake:
+        if not stamped(tables):
+            refusals.append(
+                f"{tables}'s tables do not carry the stamp the sources on disk give, so a snapshot of them is not of this tree's build; run `uv run python -m rebuild.pipeline.run_m1` or `make artifact-cycle`"
+            )
+    else:
+        refusal = store_guards.readiness_refusal(
+            *readiness(), "the corpus may not show the build the accept would take"
+        )
+        if refusal is not None:
+            refusals.append(refusal)
+        else:
+            mismatch = match_refusal(manifest, tables)
+            if mismatch is not None:
+                refusals.append(mismatch)
+    if not apply:
+        if holder(store_guards.pass_lock_path_for(store)) is not None:
+            refusals.append(store_guards.pass_refusal(store))
+        if serving(store):
+            refusals.append(store_guards.server_refusal(store, "the accept"))
+        standing: Standing | None = None
+        try:
+            standing = read_standing(store, human)
+            if not retake and (verdicts := standing.refusal()) is not None:
+                refusals.append(verdicts)
+        except Refused as refused:
+            refusals.append(str(refused))
+        if retake:
+            print(span_line(manifest, standing, store.parent))
+        print("--apply would:")
+        for line in plan_lines(store, tables, home, pointer, standing, stamp):
+            print(f"  {line}")
+        for refusal in refusals:
+            print(f"ERROR: --apply would refuse: {refusal}.")
+        print("dry run: nothing written; `make review-accept ARGS=--apply` writes the accept")
+        return 1 if refusals else 0
+    try:
+        if refusals:
+            raise Refused(refusals[0])
+        if not isinstance(stamp, str):
+            raise Refused(f"the corpus {corpus} names no generated_at")
+        with store_guards.pass_lock(store):
+            if serving(store):
+                raise Refused(store_guards.server_refusal(store, "the accept"))
+            with locked_store(store):
+                standing = read_standing(store, human)
+                if retake:
+                    print(span_line(manifest, standing, store.parent))
+                elif (verdicts := standing.refusal()) is not None:
+                    raise Refused(verdicts)
+                for line in plan_lines(store, tables, home, pointer, standing, stamp):
+                    print(line)
+                try:
+                    taken = take(tables, home)
+                except snapshot.SnapshotError as error:
+                    raise Refused(str(error)) from None
+                snapshot.write_pointer(taken, pointer)
+                _clear_store(store, stamp, standing.raw)
+        print(
+            f"accepted: the snapshot {taken.digest[:12]} is current and {pointer.name} names it; {store.name} is "
+            "empty and the journal starts again at it"
+        )
+        print(
+            f"next: commit {pointer.name} with the edit it accepts, restart the review server (`make review-serve`), "
+            "and run `make artifact-cycle`, which builds the corpus against the new snapshot"
+        )
+        return 0
+    except LockBusy:
+        message = store_guards.pass_refusal(store)
+    except (LandUnrecoverable, Refused) as refused:
+        message = str(refused)
+    print(f"ERROR: {message}. Nothing was written.")
+    return 1
+
+
+# --- the remake ------------------------------------------------------------------------
+
+
+def export_tree(revision: str, target: Path, repo_root: Path = ROOT) -> None:
+    """Write the tree `revision` names into `target` with `git archive`, which leaves out `.git` and every ignored file."""
+    target.mkdir(parents=True)
+    archive = subprocess.Popen(
+        ["git", "archive", "--format=tar", revision], cwd=repo_root, stdout=subprocess.PIPE
+    )
+    try:
+        subprocess.run(["tar", "-x", "-f", "-", "-C", str(target)], stdin=archive.stdout, check=True)
+    finally:
+        assert archive.stdout is not None
+        archive.stdout.close()
+        status = archive.wait()
+    if status != 0:
+        raise Refused(f"`git archive {revision}` exited {status}")
+
+
+def remake_environment(repo_root: Path = ROOT) -> dict[str, str]:
+    """The environment the remake's children run with: this one without the virtual environment `uv run` names for this checkout, so the tree's `uv run` makes its own, with `UV_CACHE_DIR` at this checkout's uv cache unless it names one already, and `CARGO_TARGET_DIR` at `REMAKE_CARGO_TARGET`."""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")
+    }
+    environment.setdefault("UV_CACHE_DIR", str(Path(repo_root) / ".uv-cache"))
+    environment["CARGO_TARGET_DIR"] = str(Path(repo_root) / REMAKE_CARGO_TARGET.relative_to(ROOT))
+    return environment
+
+
+def build_in_tree(tree: Path, out: Path, scratch_home: Path, environment: Mapping[str, str]) -> None:
+    """Run the exported tree's own build and snapshot: its `rebuild.review.accept build` into `out`, then its `rebuild.review.snapshot take` of `out` into `scratch_home`, each with `uv run` in the tree, its output on this terminal."""
+    target = tree / "rebuild" / "kernel-rs" / "target"
+    cargo_target = Path(environment["CARGO_TARGET_DIR"])
+    cargo_target.mkdir(parents=True, exist_ok=True)
+    if not target.exists():
+        target.symlink_to(cargo_target, target_is_directory=True)
+    for argv in (
+        ["uv", "run", "python", "-m", "rebuild.review.accept", "build", "--out", str(out)],
+        [
+            "uv",
+            "run",
+            "python",
+            "-m",
+            "rebuild.review.snapshot",
+            "take",
+            "--tables",
+            str(out),
+            "--home",
+            str(scratch_home),
+        ],
+    ):
+        print(f"remake: {' '.join(argv[3:])}", flush=True)
+        finished = subprocess.run(argv, cwd=tree, env=dict(environment), stdin=subprocess.DEVNULL)
+        if finished.returncode != 0:
+            raise Refused(f"`{' '.join(argv)}` in {tree} exited {finished.returncode}")
+
+
+def remake(
+    *,
+    revision: str | None = None,
+    home: Path = snapshot.DEFAULT_HOME,
+    work: Path = REMAKE_WORK,
+    store: Path = ROOT / journal.AUTOSAVE_NAME,
+    repo_root: Path = ROOT,
+    export: Callable[[str, Path], None] | None = None,
+    build: Callable[[Path, Path, Path], None] | None = None,
+) -> int:
+    """Install the snapshot the pointer at `revision` names (the module docstring). `export(revision, tree)` writes the tree and `build(tree, out, scratch_home)` builds and snapshots it; both default to the real ones. The pass lock is the one beside `store`."""
+    started = time.perf_counter()
+    try:
+        revision = revision or snapshot.last_pointer_commit(repo_root)
+        if revision is None:
+            raise Refused(
+                f"no commit has changed {snapshot.POINTER_RELATIVE}, so no build remakes a snapshot; take one with {RETAKE_REMEDY}"
+            )
+        try:
+            pointer = snapshot.pointer_at(revision, repo_root)
+        except snapshot.SnapshotError as error:
+            raise Refused(f"{error}; take a snapshot with {RETAKE_REMEDY}") from None
+        digest = str(pointer["digest"])
+        if pointer.get("snapshot_format") != snapshot.SNAPSHOT_FORMAT:
+            raise Refused(
+                f"{revision}'s pointer names an {pointer.get('snapshot_format')!r} snapshot, and this checkout reads only "
+                f"{snapshot.SNAPSHOT_FORMAT}; take one with {RETAKE_REMEDY}"
+            )
+        found = snapshot.find(home, digest)
+        if found is not None:
+            snapshot.make_current(found, home)
+            print(
+                f"remake: {home} already holds {digest[:12]}, the snapshot {revision[:12]}'s pointer names; it is current"
+            )
+            return 0
+        with store_guards.pass_lock(store):
+            shutil.rmtree(work, ignore_errors=True)
+            tree, out, scratch_home = work / "tree", work / "out", work / "home"
+            print(f"remake: exporting {revision[:12]} into {tree}", flush=True)
+            (export or functools.partial(export_tree, repo_root=repo_root))(revision, tree)
+            environment = remake_environment(repo_root)
+            (build or functools.partial(build_in_tree, environment=environment))(tree, out, scratch_home)
+            directory = snapshot.current(scratch_home)
+            if directory is None:
+                raise Refused(f"the build of {revision[:12]} took no snapshot into {scratch_home}")
+            try:
+                remade = snapshot.load(directory)
+            except snapshot.SnapshotError as error:
+                raise Refused(
+                    f"the snapshot the build of {revision[:12]} took does not read here: {error}"
+                ) from None
+            if remade.digest != digest:
+                raise Refused(
+                    f"the build of {revision[:12]} gives the snapshot {remade.digest[:12]}, not {digest[:12]}, the one its "
+                    f"pointer names, so that commit does not remake it ({work} is left for inspection); take one with "
+                    f"{RETAKE_REMEDY}"
+                )
+            installed = snapshot.install(remade.directory, home)
+            shutil.rmtree(work, ignore_errors=True)
+        print(
+            f"remake: installed {installed.digest[:12]}, the snapshot {revision[:12]}'s pointer names, as current under "
+            f"{home} in {time.perf_counter() - started:.0f}s"
+        )
+        return 0
+    except LockBusy:
+        message = store_guards.pass_refusal(store)
+    except Refused as refused:
+        message = str(refused)
+    print(f"ERROR: {message}.")
+    return 1
+
+
+def build_sources(out: Path) -> None:
+    """Build what a snapshot is taken from into `out` from this tree's sources: run_m1's table build (`run_m1.build_tables`), stamped with `run_m1.tables_inputs` as a full run stamps them, and its glyph chain over the tables (`run_m1._run_glyph_chain`), which writes M1.otf and kern.tsv beside them."""
+    from rebuild.pipeline import run_m1
+    from rebuild.pipeline.spec_load import load_default_spec
+
+    out.mkdir(parents=True, exist_ok=True)
+    inputs = run_m1.tables_inputs()
+    spec = load_default_spec()
+    tables, _digests = run_m1.build_tables(spec, out, inputs=inputs)
+    run_m1._run_glyph_chain(spec, tables, out, None)
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "build":
+        parser = argparse.ArgumentParser(
+            prog="rebuild.review.accept build", description=build_sources.__doc__
+        )
+        parser.add_argument("--out", type=Path, required=True, help="the directory to build into")
+        args = parser.parse_args(argv[1:])
+        build_sources(args.out.absolute())
+        return 0
+    if argv and argv[0] == "remake":
+        parser = argparse.ArgumentParser(
+            prog="rebuild.review.accept remake",
+            description="Install the snapshot rebuild/review-snapshot.json names, from a build of the commit that last changed it.",
+        )
+        parser.add_argument(
+            "--rev",
+            help="the commit or tree whose pointer and sources to remake from (default: the last commit that changed the pointer)",
+        )
+        parser.add_argument(
+            "--home",
+            type=Path,
+            default=snapshot.DEFAULT_HOME,
+            help="where the snapshots live (default: %(default)s)",
+        )
+        args = parser.parse_args(argv[1:])
+        return remake(revision=args.rev, home=args.home.absolute())
+    parser = argparse.ArgumentParser(
+        prog="rebuild.review.accept",
+        description="Accept the table-diff corpus's changes: take a snapshot of rebuild/out/m1, point rebuild/review-snapshot.json at it and empty the verdict store; without --apply, a dry run.",
+    )
+    parser.add_argument("--apply", action="store_true", help="write the accept")
+    parser.add_argument(
+        "--retake",
+        action="store_true",
+        help="skip the verdict, readiness and corpus refusals, for a snapshot-format bump or a snapshot no build remakes, and say what span is accepted unreviewed",
+    )
+    parser.add_argument(
+        "--autosave",
+        type=Path,
+        default=ROOT / journal.AUTOSAVE_NAME,
+        help="the store to empty (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--corpus", type=Path, help="the served corpus (default: rebuild/out/review beside --autosave)"
+    )
+    parser.add_argument(
+        "--tables",
+        type=Path,
+        default=snapshot.M1_DIR,
+        help="the run_m1 build to accept (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--home",
+        type=Path,
+        default=snapshot.DEFAULT_HOME,
+        help="where the snapshots live (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--pointer",
+        type=Path,
+        default=snapshot.POINTER_PATH,
+        help="the pointer to write (default: %(default)s)",
+    )
+    args = parser.parse_args(argv)
+    store = args.autosave.absolute()
+    if store.name != journal.AUTOSAVE_NAME:
+        parser.error(
+            f"--autosave {store} is not named {journal.AUTOSAVE_NAME}, and the accept finds its journal beside a store of that name"
+        )
+    return run(
+        store=store,
+        corpus=(args.corpus or store.parent / "rebuild" / "out" / "review").absolute(),
+        tables=args.tables.absolute(),
+        home=args.home.absolute(),
+        pointer=args.pointer.absolute(),
+        apply=args.apply,
+        retake=args.retake,
+    )
+
+
+if __name__ == "__main__":
+    sys.exit(main())
