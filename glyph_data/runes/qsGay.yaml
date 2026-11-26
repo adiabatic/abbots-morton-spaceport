@@ -254,4 +254,6 @@ policy:
   groups: {}
 kern:
 - {right: {family: qsPea}, by: -1}
+- {stance: sole, entry: x-height, right: {family: qsPea, stance: half, exit: x-height}, by: -2}
+- {stance: sole, entry: x-height, right: {family: qsPea, stance: half, exit: y6}, by: -2}
 - {right: {family: qsEt}, by: -1}

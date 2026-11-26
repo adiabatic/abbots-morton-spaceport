@@ -136,10 +136,16 @@ kern:
 - {right: {family: qsBay}, by: -3}
 - {right: {family: qsVie}, by: -1}
 - {right: {family: qsWay}, by: -2}
+- {stance: normal, entry: baseline, right: {family: qsWay, stance: half}, by: -3}
+- {stance: normal, entry: none, right: {family: qsWay, stance: half}, by: -3}
 - {right: {family: qsWhy}, by: -2}
 - {right: {family: qsIng}, by: -1}
 - {right: {family: qsMay}, by: -1}
+- {stance: normal, entry: baseline, right: {family: qsMay, stance: grounded-loop}, by: 0}
+- {stance: normal, entry: none, right: {family: qsMay, stance: grounded-loop}, by: 0}
 - {right: {family: qsLow}, by: -1}
 - {right: {family: qsAt}, by: -2}
 - {right: {family: qsAh}, by: -2}
 - {right: {family: qsOut}, by: -1}
+- {stance: normal, entry: baseline, right: {family: qsOut, stance: swept-up}, by: 0}
+- {stance: normal, entry: none, right: {family: qsOut, stance: swept-up}, by: 0}

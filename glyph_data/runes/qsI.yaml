@@ -146,11 +146,15 @@ policy:
 kern:
 - {right: {family: qsVie}, by: -1}
 - {right: {family: qsWay}, by: -2}
+- {right: {family: qsWay, stance: half}, by: -4}
 - {right: {family: qsWhy}, by: -2}
+- {right: {family: qsWhy, stance: full, exit: none}, by: -3}
+- {right: {family: qsWhy, stance: full, exit: x-height}, by: -3}
 - {right: {family: qsIng}, by: -1}
 - {right: {family: qsLow}, by: -2}
 - {right: {family: qsAt}, by: -2}
-- {right: {family: qsAh}, by: -3}
+- {right: {family: qsAh}, by: -2}
 - {right: {family: qsUtter}, by: -2}
+- {right: {family: qsUtter, stance: alternate}, by: -1}
 - {right: {family: qsOut}, by: -1}
 - {right: {family: qsOoze}, by: -1}

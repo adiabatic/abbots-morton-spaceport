@@ -107,8 +107,12 @@ kern:
 - {right: {family: qsPea}, by: -3}
 - {right: {family: qsLlan}, by: -1}
 - {right: {family: qsEt}, by: -1}
+- {stance: sole, entry: x-height, right: {family: qsEt}, by: 0}
 - {right: {family: qsEight}, by: -1}
+- {stance: sole, entry: none, right: {family: qsEight}, by: -2}
 - {right: {family: qsAwe}, by: -2}
 - {right: {family: qsOx}, by: -2}
 - {right: {family: qsOy}, by: -1}
+- {stance: sole, entry: x-height, right: {family: qsOy}, by: 0}
 - {right: {family: qsFoot}, by: -1}
+- {stance: sole, entry: x-height, right: {family: qsFoot}, by: 0}

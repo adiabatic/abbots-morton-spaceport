@@ -64,4 +64,3 @@ kern:
 - {right: {family: qsLlan}, by: -1}
 - {right: {family: qsEight}, by: -1}
 - {right: {family: qsOx}, by: -1}
-- {right: {family: qsFoot}, by: -1}

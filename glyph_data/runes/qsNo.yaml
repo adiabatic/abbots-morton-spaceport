@@ -205,8 +205,12 @@ kern:
 - {stance: flipped, right: {family: qsPea, stance: half, exit: x-height}, by: -2}
 - {stance: flipped, right: {family: qsPea, stance: half, exit: y6}, by: -2}
 - {right: {family: qsBay}, by: -2}
-- {stance: flipped, right: {family: qsTea, stance: full}, by: -1}
+- {stance: flipped, right: {family: qsBay}, by: 0}
 - {stance: flipped, right: {family: qsTea, stance: half, exit: x-height}, by: -1}
+- {stance: flipped, right: {family: qsGay}, by: -1}
 - {stance: loop, right: {family: qsGay}, by: -1}
 - {right: {family: qsThey}, by: -1}
+- {stance: flipped, right: {family: qsThey}, by: 0}
 - {right: {family: qsWay}, by: -2}
+- {stance: flipped, right: {family: qsWay, stance: full}, by: 0}
+- {stance: loop, right: {family: qsWay, stance: half}, by: -3}

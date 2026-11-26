@@ -86,13 +86,18 @@ policy:
 kern:
 - {right: {family: qsThey}, by: -1}
 - {right: {family: qsSee}, by: -1}
+- {right: {family: qsSee, stance: straighter}, by: 0}
+- {right: {family: qsSee, stance: straightest}, by: 0}
 - {right: {family: qsWay}, by: -2}
+- {right: {family: qsWay, stance: half}, by: -3}
 - {right: {family: qsWhy}, by: -2}
 - {right: {family: qsIng}, by: -1}
 - {right: {family: qsMay}, by: -1}
+- {right: {family: qsMay, stance: grounded-loop}, by: 0}
 - {right: {family: qsLow}, by: -1}
 - {right: {family: qsAt}, by: -1}
 - {right: {family: qsAh}, by: -1}
 - {right: {family: qsUtter}, by: -1}
+- {right: {family: qsUtter, stance: alternate}, by: 0}
 - {right: {family: qsOut}, by: -1}
-- {right: {family: qsOoze}, by: -1}
+- {right: {family: qsOut, stance: swept-up}, by: 0}

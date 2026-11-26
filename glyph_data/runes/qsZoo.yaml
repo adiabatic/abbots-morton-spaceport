@@ -162,6 +162,10 @@ kern:
 - {right: {family: qsLlan}, by: -1}
 - {right: {family: qsEt}, by: -1}
 - {right: {family: qsEight}, by: -1}
+- {stance: half, right: {family: qsEight}, by: -2}
 - {right: {family: qsAwe}, by: -1}
+- {stance: half, right: {family: qsAwe}, by: -2}
 - {right: {family: qsOx}, by: -1}
+- {stance: half, right: {family: qsOx}, by: -2}
 - {right: {family: qsOy}, by: -1}
+- {stance: half, right: {family: qsOy}, by: -2}

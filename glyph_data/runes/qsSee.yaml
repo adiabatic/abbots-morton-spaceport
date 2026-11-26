@@ -189,10 +189,14 @@ kern:
 - {right: {family: qsZoo}, by: -1}
 - {right: {family: qsShe}, by: -1}
 - {right: {family: qsWay}, by: -2}
+- {right: {family: qsWay, stance: half}, by: -3}
 - {right: {family: qsWhy}, by: -2}
+- {right: {family: qsWhy, stance: full, exit: none}, by: -1}
+- {right: {family: qsWhy, stance: full, exit: x-height}, by: -1}
 - {right: {family: qsIng}, by: -1}
 - {right: {family: qsMay}, by: -1}
 - {right: {family: qsNo}, by: -2}
+- {right: {family: qsNo, stance: flipped}, by: -1}
 - {right: {family: qsLoch}, by: -1}
 - {right: {family: qsLlan}, by: -1}
 - {right: {family: qsIt}, by: -1}

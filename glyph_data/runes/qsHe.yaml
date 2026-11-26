@@ -152,7 +152,10 @@ kern:
 - {right: {family: qsGay}, by: -3}
 - {right: {family: qsFee}, by: -2}
 - {right: {family: qsSee}, by: -1}
+- {right: {family: qsSee, stance: curled-over}, by: -2}
+- {right: {family: qsSee, stance: normal}, by: -2}
 - {right: {family: qsWay}, by: -2}
+- {right: {family: qsWay, stance: half}, by: -3}
 - {right: {family: qsWhy}, by: -2}
 - {right: {family: qsLoch}, by: -2}
 - {right: {family: qsOy}, by: -2}

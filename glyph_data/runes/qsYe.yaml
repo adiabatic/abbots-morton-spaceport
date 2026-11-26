@@ -225,13 +225,28 @@ policy:
   groups: {}
 kern:
 - {right: {family: qsBay}, by: -2}
+- {stance: climbing-loop, right: {family: qsBay}, by: -3}
 - {right: {family: qsGay}, by: -4}
+- {stance: climbing-loop, right: {family: qsGay}, by: -3}
+- {stance: loop, right: {family: qsGay}, by: -3}
 - {right: {family: qsFee}, by: -1}
+- {stance: climbing-loop, right: {family: qsFee}, by: -2}
+- {stance: loop, right: {family: qsFee}, by: -2}
 - {right: {family: qsShe}, by: -1}
+- {stance: climbing-loop, right: {family: qsShe}, by: -2}
+- {stance: loop, right: {family: qsShe}, by: -2}
 - {right: {family: qsJai}, by: -1}
+- {stance: climbing-loop, right: {family: qsJai}, by: -2}
+- {stance: loop, right: {family: qsJai}, by: -2}
 - {right: {family: qsWay}, by: -2}
+- {stance: climbing-loop, right: {family: qsWay, stance: full}, by: -3}
+- {stance: climbing-loop, right: {family: qsWay, stance: half}, by: -4}
+- {stance: loop, right: {family: qsWay, stance: half}, by: -3}
 - {right: {family: qsWhy}, by: -2}
+- {stance: climbing-loop, right: {family: qsWhy, stance: full, exit: none}, by: -3}
+- {stance: climbing-loop, right: {family: qsWhy, stance: full, exit: x-height}, by: -3}
 - {right: {family: qsLoch}, by: -1}
+- {stance: climbing-loop, right: {family: qsLoch}, by: -2}
 - {right: {family: qsIt}, by: -1}
 - {right: {family: qsEt}, by: -1}
 - {right: {family: qsEight}, by: -1}

@@ -95,6 +95,7 @@ kern:
 - {right: {family: qsBay}, by: -1}
 - {right: {family: qsYe}, by: -1}
 - {right: {family: qsWay}, by: -1}
+- {right: {family: qsWay, stance: half}, by: -2}
 - {right: {family: qsWhy}, by: -1}
 - {right: {family: qsEt}, by: -1}
 - {right: {family: qsEight}, by: -2}

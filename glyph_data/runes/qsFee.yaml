@@ -150,4 +150,7 @@ policy:
   groups: {}
 kern:
 - {right: {family: qsWay}, by: -1}
+- {right: {family: qsWay, stance: full}, by: 0}
 - {right: {family: qsWhy}, by: -1}
+- {right: {family: qsWhy, stance: full, exit: none}, by: 0}
+- {right: {family: qsWhy, stance: full, exit: x-height}, by: 0}

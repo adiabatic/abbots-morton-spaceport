@@ -113,7 +113,9 @@ kern:
 - {right: {family: qsBay}, by: -1}
 - {right: {family: qsThey}, by: -1}
 - {right: {family: qsWay}, by: -1}
+- {right: {family: qsWay, stance: half}, by: -2}
 - {right: {family: qsWhy}, by: -1}
 - {right: {family: qsLow}, by: -1}
 - {right: {family: qsAh}, by: -1}
 - {right: {family: qsOut}, by: -1}
+- {right: {family: qsOut, stance: swept-up}, by: 0}

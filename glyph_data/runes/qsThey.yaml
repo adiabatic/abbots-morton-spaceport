@@ -124,15 +124,17 @@ kern:
 - {right: {family: qsThaw}, by: -1}
 - {right: {family: qsFee}, by: -2}
 - {right: {family: qsSee}, by: -1}
+- {right: {family: qsSee, stance: curled-over}, by: -2}
+- {right: {family: qsSee, stance: normal}, by: -2}
 - {right: {family: qsCheer}, by: -1}
 - {right: {family: qsYe}, by: -2}
 - {right: {family: qsHe}, by: -2}
 - {right: {family: qsIng}, by: -2}
 - {right: {family: qsLow}, by: -2}
 - {right: {family: qsEat}, by: -1}
-- {right: {family: qsAt}, by: -1}
+- {right: {family: qsAt}, by: -2}
 - {right: {family: qsI}, by: -2}
 - {right: {family: qsAh}, by: -1}
 - {right: {family: qsOy}, by: -2}
 - {right: {family: qsOut}, by: -1}
-- {right: {family: qsOoze}, by: -3}
+- {right: {family: qsOoze}, by: -2}
