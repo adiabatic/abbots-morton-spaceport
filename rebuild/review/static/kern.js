@@ -805,3 +805,97 @@ export function nextAfterApart(model, values, valueOf, cursor, facing, keys) {
   const skip = entry?.pairs[facing] === undefined ? null : classMembers(model, entry.pairs[facing]);
   return nextSplit(model, splitStanding(model, after, valueOf).pairs, cursor, facing, 1, skip);
 }
+
+// Comparables (rebuild/KERN-PLAN.md section 6): the facing pairs that share one side with the selected pair and whose other side is shaped like the selected pair's. Two sides are alike when their facing edges, row by row, differ by a constant, the distance each is set back from its glyph's boundary, and by little else: the likeness distance is the pixels left once that constant (`offset`, the median difference) is taken out, plus `MISSING_ROW` for every row only one of them inks. A side counts as shaped like another within one pixel a row of the other's edge.
+export const COMPARE_JUNCTION = 'junction';
+export const COMPARE_LEAD = 'lead';
+export const COMPARE_FOLLOW = 'follow';
+export const COMPARISONS = [COMPARE_JUNCTION, COMPARE_LEAD, COMPARE_FOLLOW];
+export const MISSING_ROW = 4;
+const comparablesCache = new WeakMap();
+
+// A side's facing edge, from its first cell: the blank pixels on each inked row (`edgeBlanks`).
+export function sideEdge(model, sideId) {
+  const side = model.doc.sides[sideId];
+  return edgeBlanks(model.doc.glyphs[side.cells[0]], model.doc.ink_x ?? 1, side.facing === 'leading');
+}
+
+// How alike two edges are: `offset`, how many pixels further from its boundary `other`'s ink sits than `mine`'s (the median over the rows both ink), and `distance`, the pixels by which the two differ in all once that is taken out, with `MISSING_ROW` for each row only one inks. Null when they ink no row in common.
+export function edgeLikeness(mine, other) {
+  const differences = [];
+  let lone = 0;
+  for (const [y, blank] of mine) {
+    if (other.has(y)) differences.push(other.get(y) - blank);
+    else lone += 1;
+  }
+  for (const y of other.keys()) if (!mine.has(y)) lone += 1;
+  if (differences.length === 0) return null;
+  const sorted = [...differences].sort((one, two) => one - two);
+  const offset = sorted[Math.floor((sorted.length - 1) / 2)];
+  let distance = lone * MISSING_ROW;
+  for (const difference of differences) distance += Math.abs(difference - offset);
+  return { distance, offset };
+}
+
+function comparablesIndex(model) {
+  const held = comparablesCache.get(model);
+  if (held) return held;
+  const byLead = new Map();
+  const byFollow = new Map();
+  for (const [id, pair] of model.doc.pairs.entries()) {
+    if (!byLead.has(pair.lead)) byLead.set(pair.lead, []);
+    byLead.get(pair.lead).push(id);
+    if (!byFollow.has(pair.follow)) byFollow.set(pair.follow, []);
+    byFollow.get(pair.follow).push(id);
+  }
+  const index = { byLead, byFollow, edges: new Map() };
+  comparablesCache.set(model, index);
+  return index;
+}
+
+// The facing pairs to compare `pairId` with across one of its sides. With `part` `COMPARE_LEAD` they are the pairs with the same following side, each with how alike its leading side is to this pair's (`edgeLikeness`); with `COMPARE_FOLLOW`, the pairs with the same leading side and their following sides. `like` holds those shaped like this pair's side, within `budget` (a pixel for each row of its edge), most alike first; `rest` the others, in the same order, a side with no row in common last.
+export function comparablesOf(model, pairId, part) {
+  const index = comparablesIndex(model);
+  const pair = model.doc.pairs[pairId];
+  const own = part === COMPARE_LEAD ? pair.lead : pair.follow;
+  const edgeOf = (sideId) => {
+    if (!index.edges.has(sideId)) index.edges.set(sideId, sideEdge(model, sideId));
+    return index.edges.get(sideId);
+  };
+  const mine = edgeOf(own);
+  const budget = mine.size;
+  const found = [];
+  for (const id of (part === COMPARE_LEAD ? index.byFollow.get(pair.follow) : index.byLead.get(pair.lead)) ?? []) {
+    if (id === pairId) continue;
+    const other = model.doc.pairs[id];
+    const likeness = edgeLikeness(mine, edgeOf(part === COMPARE_LEAD ? other.lead : other.follow));
+    found.push({ id, distance: likeness?.distance ?? Infinity, offset: likeness?.offset ?? 0 });
+  }
+  found.sort((one, two) => one.distance - two.distance || one.id - two.id);
+  return { budget, like: found.filter((one) => one.distance <= budget), rest: found.filter((one) => one.distance > budget) };
+}
+
+// How far apart a facing pair's ink is at `value`, in pixels, where it is closest, ink on rows one apart counted: its junction's closest gap moved by the value. Null for a pair whose sides ink no row in common or neighboring.
+export function clearanceOf(model, pairId, value) {
+  const closest = relativesIndex(model).closest[pairId];
+  return closest === null || closest === undefined ? null : closest + value;
+}
+
+// The value at which a facing pair's ink is `clearance` pixels apart where it is closest (`clearanceOf`), or null when it has no such place.
+export function valueForClearance(model, pairId, clearance) {
+  const closest = relativesIndex(model).closest[pairId];
+  return closest === null || closest === undefined || clearance === null ? null : clearance - closest;
+}
+
+// What the view says of a comparable's side beside the selected pair's: how far its shape is from that one's, and how much further from the junction, or nearer to it, its ink sits.
+export function likenessText(comparable) {
+  if (!Number.isFinite(comparable.distance)) return 'inks none of the same rows';
+  const shape = comparable.distance === 0 ? 'the same edge' : `${comparable.distance} px from the same edge in all`;
+  if (comparable.offset === 0) return shape;
+  return `${shape}, set ${Math.abs(comparable.offset)} px ${comparable.offset > 0 ? 'further from' : 'nearer to'} the junction`;
+}
+
+// The comparison after `current` in `COMPARISONS`' order, wrapping round, for the key that steps through them.
+export function nextComparison(current) {
+  return COMPARISONS[(COMPARISONS.indexOf(current) + 1) % COMPARISONS.length];
+}

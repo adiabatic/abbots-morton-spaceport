@@ -14,6 +14,9 @@ import {
   carriedCount,
   carriedTrouble,
   classMembers,
+  clearanceOf,
+  comparablesOf,
+  edgeLikeness,
   entryCarried,
   isCarried,
   marksOf,
@@ -37,6 +40,7 @@ import {
   junctionOf,
   lettersScope,
   lettersValue,
+  likenessText,
   liveValue,
   manualTexts,
   moveFacing,
@@ -44,6 +48,7 @@ import {
   moveGridCursor,
   nearRelativesOf,
   nextAfterApart,
+  nextComparison,
   nextSplit,
   notInFont,
   pairFromQuery,
@@ -70,6 +75,7 @@ import {
   stalenessLines,
   stateFromSelection,
   textFocus,
+  valueForClearance,
   valuesAfterFetch,
   worstInk,
 } from '../static/kern.js';
@@ -644,4 +650,50 @@ test('the server’s apart marks are read by facing pair key, and a side is name
   assert.deepEqual([...indexValues(null).apart], []);
   assert.equal(pairLabel(model, flippedHalf), '·No[flipped] | ·Tea[half exit=x-height]');
   assert.equal(pairLabel(relModel, AS), '·A | ·S');
+});
+
+test('the first shapes to compare before one second shape are those with a like edge, most alike first, and the rest of the column after', () => {
+  // ·C is ·A but for a pixel on one row; the stem, the Tall ·D and the mirrored ·B are further off than a pixel a row.
+  assert.deepEqual(comparablesOf(relModel, AS, 'lead'), {
+    budget: 6,
+    like: [{ id: CS, distance: 1, offset: 0 }],
+    rest: [
+      { id: SS, distance: 9, offset: -3 },
+      { id: DS, distance: 12, offset: 0 },
+      { id: BS, distance: 18, offset: -1 },
+    ],
+  });
+  // After ·S, ·A's diagonal and ·B's are as far from a stem as each other, and a pair is never its own comparable.
+  const after = comparablesOf(relModel, SB, 'follow');
+  assert.deepEqual(after.like, []);
+  assert.deepEqual(
+    after.rest.map((one) => one.id),
+    [SS, SA],
+  );
+});
+
+test('two edges are alike once the distance each is set from the junction is taken out, and a row only one inks counts against them', () => {
+  const edge = (blanks) => new Map(blanks.map((blank, y) => [y, blank]));
+  assert.deepEqual(edgeLikeness(edge([1, 2, 3]), edge([3, 4, 5])), { distance: 0, offset: 2 });
+  assert.deepEqual(edgeLikeness(edge([1, 2, 3]), edge([1, 2, 5])), { distance: 2, offset: 0 });
+  assert.deepEqual(edgeLikeness(edge([1, 2, 3]), edge([1, 2])), { distance: 4, offset: 0 });
+  assert.equal(edgeLikeness(edge([1]), new Map([[7, 1]])), null);
+  assert.equal(likenessText({ distance: 0, offset: 0 }), 'the same edge');
+  assert.equal(likenessText({ distance: 3, offset: 2 }), '3 px from the same edge in all, set 2 px further from the junction');
+  assert.equal(likenessText({ distance: 3, offset: -1 }), '3 px from the same edge in all, set 1 px nearer to the junction');
+  assert.equal(likenessText({ distance: Infinity, offset: 0 }), 'inks none of the same rows');
+});
+
+test('a pair’s clearance is its closest gap moved by its value, and the value for a clearance undoes that', () => {
+  assert.equal(clearanceOf(relModel, AS, 0), 2);
+  assert.equal(clearanceOf(relModel, AS, -1), 1);
+  assert.equal(valueForClearance(relModel, CS, 1), -1);
+  assert.equal(valueForClearance(relModel, SS, 1), -1);
+  assert.equal(valueForClearance(relModel, SS, null), null);
+});
+
+test('the comparison key steps through the relatives, the like first shapes and the like second shapes, and round again', () => {
+  assert.equal(nextComparison('junction'), 'lead');
+  assert.equal(nextComparison('lead'), 'follow');
+  assert.equal(nextComparison('follow'), 'junction');
 });

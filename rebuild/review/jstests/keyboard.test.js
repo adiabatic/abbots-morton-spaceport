@@ -202,6 +202,7 @@ const KERN_DETAIL = [
   ['t', 'kern-take'],
   ['v', 'kern-give'],
   ['a', 'kern-apart'],
+  ['c', 'kern-compare'],
   ['u', 'kern-undo'],
   [']', 'kern-next-carried'],
   ['[', 'kern-prev-carried'],
@@ -226,7 +227,7 @@ test('the grid’s - and = act on the letters and leave the detail panel’s arr
   assert.equal(actionForKey('0', { view: 'kern', kernPane: 'grid' }), null);
   assert.equal(actionForKey('n', { view: 'kern', kernPane: 'grid' }), null);
   assert.equal(actionForKey('g', { view: 'kern', kernPane: 'grid' }), null);
-  for (const key of ['t', 'v', 'a']) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'grid' }), null, `grid ${key}`);
+  for (const key of ['t', 'v', 'a', 'c']) assert.equal(actionForKey(key, { view: 'kern', kernPane: 'grid' }), null, `grid ${key}`);
   assert.equal(actionForKey('r', { view: 'kern', kernPane: 'grid' }), 'kern-next-split');
   assert.equal(actionForKey('r'), 'repeat');
   assert.equal(actionForKey(']', { view: 'kern', kernPane: 'grid' }), 'kern-next-carried');

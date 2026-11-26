@@ -2430,8 +2430,42 @@ body.kern-view {
       }
     }
 
-    .kern-value.differs {
+    .kern-value.differs,
+    .kern-clearance.differs {
       color: var(--either);
+    }
+
+    .kern-clearance.differs {
+      font-weight: 600;
+    }
+
+    .kern-scope-toggle {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+      align-items: center;
+      margin-top: 1.25rem;
+
+      button[aria-pressed="true"] {
+        border-color: var(--accent);
+        box-shadow: inset 0 -2px 0 var(--accent);
+        font-weight: 600;
+      }
+
+      + h4 {
+        margin-top: 0.6rem;
+      }
+    }
+
+    .kern-row-actions {
+      display: flex;
+      gap: 0.25rem;
+      align-items: center;
+
+      .kern-value {
+        min-width: 1.8rem;
+        text-align: center;
+      }
     }
   }
 

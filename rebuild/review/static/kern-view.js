@@ -5,10 +5,15 @@
 // Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `g` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), moving on too from a scope with nothing left to mark (the reviewed button takes a mark off instead, `reviewStep`), and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
 //
 // Relatives: under the facing pairs, the detail panel lists the selected facing pair's relatives (`relativesOf`, the facing pairs whose junction is the same one, mirrored, upside down or turned half round), grouped by the value each takes, and its near relatives (`nearRelativesOf`). A class of relatives that takes more than one value is kerned inconsistently (`splitStanding`): its members are marked in the grid and in their detail rows, `r` and `w` move to the next and the previous such class, `t` sets the selected facing pair to the value most of its relatives take, `v` gives its value to every relative that differs, and `a` marks it as apart on purpose (`POST kern/apart`), which leaves it out of the comparison, and moves on.
+//
+// Comparables: the section's three buttons, and `c`, choose what it lists (`view.compare`): the relatives, or the facing pairs with the same second shape whose first shape is like the selected pair's (`comparablesOf` with `COMPARE_LEAD`: every letter shaped like ·Ye before half ·Way), or those with the same first shape and a like second shape. Each row gives how alike the two shapes are, how far apart the pair's ink is where it is closest (`clearanceOf`) against the selected pair's, and buttons that tighten or loosen that pair in place or set it to the selected pair's clearance.
 
 import { formatCount } from './render.js';
 import {
   BY_LIMIT,
+  COMPARE_FOLLOW,
+  COMPARE_JUNCTION,
+  COMPARE_LEAD,
   SCOPE_FACING,
   SCOPE_LETTERS,
   VALUES_FORMAT,
@@ -17,6 +22,8 @@ import {
   carriedCount,
   carriedTrouble,
   classMembers,
+  clearanceOf,
+  comparablesOf,
   entryCarried,
   isCarried,
   marksOf,
@@ -42,12 +49,14 @@ import {
   lettersScope,
   lettersScopeOfPair,
   lettersValue,
+  likenessText,
   manualTexts,
   moveFacing,
   stepFacing,
   moveGridCursor,
   nearRelativesOf,
   nextAfterApart,
+  nextComparison,
   nextSplit,
   notInFont,
   pairFromQuery,
@@ -66,11 +75,13 @@ import {
   selectionFromState,
   selectionOfPair,
   shownValue,
+  sideLabel,
   signed,
   splitStanding,
   staleAnswer,
   stalenessLines,
   stateFromSelection,
+  valueForClearance,
   valuesAfterFetch,
   worstInk,
 } from './kern.js';
@@ -189,6 +200,7 @@ export function createKernView({ root, toast, writeSelection }) {
     split: { pairs: new Set(), classes: 0 },
     opened: new Set(),
     near: { id: null, found: [] },
+    compare: COMPARE_JUNCTION,
   };
 
   function valueOf(id) {
@@ -1163,13 +1175,21 @@ export function createKernView({ root, toast, writeSelection }) {
       jumpCarried(action === 'kern-next-carried' ? 1 : -1);
     } else if (action === 'kern-next-split' || action === 'kern-prev-split') {
       jumpSplit(action === 'kern-next-split' ? 1 : -1);
-    } else if (action === 'kern-take') {
-      takeRelatives();
-    } else if (action === 'kern-give') {
-      giveRelatives();
-    } else if (action === 'kern-apart') {
-      markApart();
+    } else if (action === 'kern-compare') {
+      setCompare(nextComparison(view.compare));
+    } else if (action === 'kern-take' || action === 'kern-give' || action === 'kern-apart') {
+      if (view.compare !== COMPARE_JUNCTION) toast('t, v and a act on the same-junction relatives; c shows them');
+      else if (action === 'kern-take') takeRelatives();
+      else if (action === 'kern-give') giveRelatives();
+      else markApart();
     }
+  }
+
+  // Choose what the relatives section lists: the same-junction relatives, or the pairs with a like first or second shape.
+  function setCompare(compare) {
+    view.compare = compare;
+    view.opened.clear();
+    renderRelatives();
   }
 
   // The facing pair the detail panel has selected, or null for two letters with none.
@@ -1274,12 +1294,36 @@ export function createKernView({ root, toast, writeSelection }) {
     } else if (data.action === 'kern-show-group') {
       view.opened.add(data.group);
       renderRelatives();
+    } else if (data.action === 'kern-compare-set') {
+      setCompare(data.compare);
+    } else if (data.action === 'kern-row-tighten' || data.action === 'kern-row-loosen') {
+      const other = Number(data.pair);
+      step(facingScope(view.model, other), valueOf(other), data.action === 'kern-row-tighten' ? -1 : 1);
+    } else if (data.action === 'kern-row-match') {
+      const other = Number(data.pair);
+      const value = valueForClearance(view.model, other, clearanceOf(view.model, id, valueOf(id)));
+      if (value === null) toast('These two shapes come near each other on no row, so there is no clearance to match');
+      else if (value === valueOf(other)) toast('That pair’s ink is already as far apart as this one’s');
+      else if (Math.abs(value) > BY_LIMIT) toast(`A kern value stays within ${BY_LIMIT} pixels either way`);
+      else change(facingScope(view.model, other), value);
     } else {
       handle(data.action);
     }
   }
 
-  function relativeRow(relative, own) {
+  // A row button that acts on the row's own facing pair, without leaving the selected one.
+  function rowButton(text, action, title, id) {
+    const node = button(text, action, title);
+    node.dataset.pair = String(id);
+    return node;
+  }
+
+  function clearanceText(clearance) {
+    return clearance === null ? 'no ink on the same or neighboring rows' : `closest ink ${clearance} px, rows one apart counted`;
+  }
+
+  // A row of the relatives section: a relative, with how its junction relates to the selected pair's, or with `ownClearance` given a comparable, with how alike its shape is and its clearance beside the selected pair's.
+  function relativeRow(relative, own, ownClearance = undefined) {
     const { model, values } = view;
     const pair = model.doc.pairs[relative.id];
     const value = valueOf(relative.id);
@@ -1289,15 +1333,100 @@ export function createKernView({ root, toast, writeSelection }) {
     row.title = 'Go to this shape pair';
     const what = el('div', 'kern-what');
     what.append(el('code', null, pairLabel(model, relative.id)));
-    what.append(el('span', null, `${relationText(relative)} · ${reachText(pair.reach)}`));
-    what.append(gapLine(draw.closest));
+    const comparable = ownClearance !== undefined;
+    what.append(el('span', null, `${comparable ? likenessText(relative) : relationText(relative)} · ${reachText(pair.reach)}`));
+    if (comparable) {
+      const clearance = clearanceOf(model, relative.id, value);
+      what.append(el('span', `kern-clearance${clearance === ownClearance ? '' : ' differs'}`, clearanceText(clearance)));
+    } else {
+      what.append(gapLine(draw.closest));
+    }
     const source = deciderText(decidersOf(model, values, relative.id));
     what.append(el('span', null, source ? `decided by ${source}` : 'no record: the default spacing'));
     const edit = editOf(relative.id);
     if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
-    const number = el('div', `kern-value${value === 0 ? ' zero' : ''}${value === own ? '' : ' differs'}`, signed(value));
-    row.append(stage(draw), what, number);
+    const number = el('div', `kern-value${value === 0 ? ' zero' : ''}${comparable || value === own ? '' : ' differs'}`, signed(value));
+    const adjust = el('div', 'kern-row-actions');
+    adjust.append(
+      rowButton('−', 'kern-row-tighten', 'Tighten this pair by a pixel, as its own record', relative.id),
+      number,
+      rowButton('+', 'kern-row-loosen', 'Loosen this pair by a pixel, as its own record', relative.id),
+    );
+    if (comparable) adjust.append(rowButton('match', 'kern-row-match', 'Set this pair so its ink is as far apart, where it is closest, as the selected pair’s', relative.id));
+    row.append(stage(draw), what, adjust);
     return row;
+  }
+
+  // The buttons that choose what the relatives section lists, named after the selected pair's two shapes.
+  function compareToggle(id) {
+    const pair = view.model.doc.pairs[id];
+    const lead = sideLabel(view.model, pair.lead);
+    const follow = sideLabel(view.model, pair.follow);
+    const toggle = el('div', 'kern-scope-toggle');
+    toggle.setAttribute('role', 'group');
+    toggle.setAttribute('aria-label', 'What to compare this shape pair with');
+    const choices = [
+      [COMPARE_JUNCTION, 'Same junction', 'The shape pairs whose junction is this one, mirrored, upside down or turned half round'],
+      [COMPARE_LEAD, `Like ${lead} before ${follow}`, `The first shapes shaped like ${lead} that meet ${follow} at a break`],
+      [COMPARE_FOLLOW, `Like ${follow} after ${lead}`, `The second shapes shaped like ${follow} that ${lead} meets at a break`],
+    ];
+    for (const [compare, text, title] of choices) {
+      const node = button(text, 'kern-compare-set', title);
+      node.dataset.compare = compare;
+      node.setAttribute('aria-pressed', String(view.compare === compare));
+      toggle.append(node);
+    }
+    toggle.append(el('kbd', null, 'c'));
+    return toggle;
+  }
+
+  // The relatives section while it compares across one side: the selected pair drawn alone, the pairs that share its other side and whose shape on this side is like its own, most alike first, and behind a button the rest of that row or column of the grid.
+  function comparableNodes(id) {
+    const { model } = view;
+    const pair = model.doc.pairs[id];
+    const lead = sideLabel(model, pair.lead);
+    const follow = sideLabel(model, pair.follow);
+    const leading = view.compare === COMPARE_LEAD;
+    const own = valueOf(id);
+    const ownClearance = clearanceOf(model, id, own);
+    const found = comparablesOf(model, id, view.compare);
+    const nodes = [el('h4', null, leading ? `Before ${follow}: first shapes like ${lead}` : `After ${lead}: second shapes like ${follow}`)];
+    const shape = leading ? lead : follow;
+    nodes.push(
+      el(
+        'p',
+        'kern-relatives-note',
+        found.like.length === 0
+          ? `No other ${leading ? 'first' : 'second'} shape ${leading ? `before ${follow}` : `after ${lead}`} has an edge like ${shape}’s.`
+          : `${found.like.length} ${leading ? 'first' : 'second'} shape${found.like.length === 1 ? ' has an edge' : 's have edges'} like ${shape}’s (within ${found.budget} px in all, once how far each is set from the junction is taken out) and meet${found.like.length === 1 ? 's' : ''} ${leading ? follow : lead} at a break; most alike first. A clearance in color differs from this pair’s.`,
+      ),
+    );
+    const reference = el('ol');
+    const row = el('li', 'kern-relative-row own');
+    const draw = pairDrawList(model, pair.member, own);
+    const what = el('div', 'kern-what');
+    what.append(el('code', null, pairLabel(model, id)), el('span', null, 'this shape pair, drawn alone'), el('span', 'kern-clearance', clearanceText(ownClearance)));
+    row.append(stage(draw), what, el('div', `kern-value${own === 0 ? ' zero' : ''}`, signed(own)));
+    reference.append(row);
+    nodes.push(reference);
+    if (found.like.length > 0) {
+      const list = el('ol');
+      for (const comparable of found.like) list.append(relativeRow(comparable, own, ownClearance));
+      nodes.push(list);
+    }
+    if (found.rest.length > 0) {
+      if (view.opened.has('rest')) {
+        nodes.push(el('h4', null, leading ? `The other first shapes before ${follow}` : `The other second shapes after ${lead}`));
+        const list = el('ol');
+        for (const comparable of found.rest) list.append(relativeRow(comparable, own, ownClearance));
+        nodes.push(list);
+      } else {
+        const more = button(`show the other ${found.rest.length} ${leading ? `before ${follow}` : `after ${lead}`}`, 'kern-show-group', 'List every other shape pair that shares this side, most alike first');
+        more.dataset.group = 'rest';
+        nodes.push(more);
+      }
+    }
+    return nodes;
   }
 
   function relativeGroup(name, title, relatives, own, buttons) {
@@ -1325,6 +1454,10 @@ export function createKernView({ root, toast, writeSelection }) {
       box.replaceChildren();
       return;
     }
+    if (view.compare !== COMPARE_JUNCTION) {
+      box.replaceChildren(compareToggle(id), ...comparableNodes(id));
+      return;
+    }
     const own = valueOf(id);
     const apart = isApart(model, values, id);
     const relatives = relativesOf(model, id);
@@ -1337,7 +1470,7 @@ export function createKernView({ root, toast, writeSelection }) {
       groups.get(value).push(relative);
     }
     const differing = counted.length - (groups.get(own)?.length ?? 0);
-    const nodes = [el('h4', null, `Relatives of ${pairLabel(model, id)}`)];
+    const nodes = [compareToggle(id), el('h4', null, `Relatives of ${pairLabel(model, id)}`)];
     let note;
     if (relatives.length === 0) note = 'No other shape pair has this junction.';
     else if (apart) note = 'Marked as kerned apart from its relatives on purpose, so it is compared with none of them.';
