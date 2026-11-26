@@ -524,6 +524,13 @@ export function nextAfterMark(model, values, cursor, facing, marked) {
   return { cursor: next, facing: entry.pairs.findIndex((id) => isCarried(model, after, id)) };
 }
 
+// What the mark key (`toggle` false) or the reviewed button (`toggle` true) does with a scope's `marks` (`marksOf`): `post` is the mark to send (true marks, false takes the mark off, null sends none), and `move` whether the selection moves on to the next carried-over facing pair. The key never takes a mark off, so on a scope already marked, as a change of value marks it, it moves on as it does from a scope with nothing carried over; the button takes the mark off and stays.
+export function reviewStep(marks, toggle) {
+  if (marks.imported.length === 0) return { post: null, move: true };
+  if (!marks.reviewed) return { post: true, move: true };
+  return toggle ? { post: false, move: false } : { post: null, move: true };
+}
+
 // The facing pairs a mark of `scope` reaches that the import set, and whether every one of them is marked reviewed already, so the mark key takes them off.
 export function marksOf(model, values, scope, entry) {
   const keys = scope.scope === SCOPE_FACING ? [`${scope.lead}|${scope.follow}`] : entry.pairs.map((id) => model.pairKeys[id]);

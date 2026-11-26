@@ -17,6 +17,7 @@ import {
   isCarried,
   marksOf,
   nextAfterMark,
+  reviewStep,
   nextCarried,
   closestInk,
   decidersOf,
@@ -444,6 +445,18 @@ test('the mark key moves to the next carried-over facing pair, reading the pairs
   assert.deepEqual(nextAfterMark(model, values, at, index - 1, []), { cursor: at, facing: index });
   assert.equal(nextAfterMark(model, values, at, index, [flippedKey]), null);
   assert.equal(nextAfterMark(model, values, { row: 0, col: 0 }, 0, [flippedKey]), null);
+});
+
+test('the mark key marks and moves on but never takes a mark off, and the reviewed button takes it off and stays', () => {
+  const none = { imported: [], reviewed: false };
+  const open = { imported: ['a|b'], reviewed: false };
+  const done = { imported: ['a|b'], reviewed: true };
+  assert.deepEqual(reviewStep(none, false), { post: null, move: true });
+  assert.deepEqual(reviewStep(open, false), { post: true, move: true });
+  assert.deepEqual(reviewStep(done, false), { post: null, move: true });
+  assert.deepEqual(reviewStep(none, true), { post: null, move: true });
+  assert.deepEqual(reviewStep(open, true), { post: true, move: true });
+  assert.deepEqual(reviewStep(done, true), { post: false, move: false });
 });
 
 test('a mark reaches the carried-over facing pairs of its scope, and takes the mark off when every one has it', () => {

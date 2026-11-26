@@ -2,7 +2,7 @@
 //
 // Editing: a change applies to the drawings at once, as an entry of `view.edits` that the drawings read before the server's values. Presses on one scope within `COALESCE_MS` of each other become one `POST kern`, and the view sends one request at a time, each against the block the last reply named. A reply that took the change gives the server's values, which replace the edit; a conflict whose reply carries the block as it stands is sent once more against that block; a refusal or a second conflict drops the edit, so the drawing goes back, and shows the server's message beside the pair; a reply that says a cycle pass holds the runes keeps the edit, marked as waiting, until `GET kern` reports no pending change. Each change the server wrote or queued goes on the tab's undo history with its journal seq (`historyAfterReply`). `u` drops the newest edit not sent yet, and otherwise asks the server to undo the history's newest change by its seq (`POST kern/undo`), which cancels it while it still waits for a pass.
 //
-// Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `g` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), moving on too from a scope with nothing carried over, and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
+// Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `g` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), moving on too from a scope with nothing left to mark (the reviewed button takes a mark off instead, `reviewStep`), and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
 
 import { formatCount } from './render.js';
 import {
@@ -18,6 +18,7 @@ import {
   isCarried,
   marksOf,
   nextAfterMark,
+  reviewStep,
   nextCarried,
   configNames,
   decidersOf,
@@ -197,7 +198,7 @@ export function createKernView({ root, toast, writeSelection }) {
       button('loosen', 'kern-loosen', 'Push the follower a pixel away', ['f', '→']),
       button('drop own value', 'kern-drop', 'Remove this scope’s own record, so it takes what it inherits', ['0']),
       button('note', 'kern-note', 'Write the why: of this scope’s record', ['n']),
-      button('reviewed', 'kern-review', 'Mark the carried-over facing pairs of this scope reviewed and move to the next one (moving on from a scope with nothing carried over too), or take the mark off', ['g']),
+      button('reviewed', 'kern-review-toggle', 'Mark the carried-over facing pairs of this scope reviewed and move to the next one, or take the mark off when they all have it (g marks and moves on, and never takes a mark off)', ['g']),
       button('undo', 'kern-undo', 'Undo the last change', ['u']),
     );
     const why = el('p', 'kern-why');
@@ -1089,8 +1090,8 @@ export function createKernView({ root, toast, writeSelection }) {
       editLetters(action);
     } else if (action === 'kern-undo') {
       undo();
-    } else if (action === 'kern-review') {
-      review();
+    } else if (action === 'kern-review' || action === 'kern-review-toggle') {
+      review({ toggle: action === 'kern-review-toggle' });
     } else if (action === 'kern-next-carried' || action === 'kern-prev-carried') {
       jumpCarried(action === 'kern-next-carried' ? 1 : -1);
     }
@@ -1104,17 +1105,16 @@ export function createKernView({ root, toast, writeSelection }) {
   }
 
   // Mark the selected scope's carried-over facing pairs reviewed and move to the next carried-over facing pair (`nextAfterMark`), or take the mark off, staying put, when every one has it. A scope with nothing carried over is left as it is, and the selection moves on all the same.
-  function review() {
+  function review({ toggle = false } = {}) {
     const entry = currentEntry();
     const scope = selectedScope();
     const marks = scope && entry ? marksOf(view.model, view.values, scope, entry) : { imported: [], reviewed: false };
-    if (marks.imported.length > 0) {
-      enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: !marks.reviewed } });
-      if (marks.reviewed) return;
-    }
+    const { post, move } = reviewStep(marks, toggle);
+    if (post !== null) enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: post } });
+    if (!move) return;
     const next = nextAfterMark(view.model, view.values, view.cursor, view.facing, marks.imported);
     if (!next) {
-      toast(marks.imported.length > 0 ? 'That was the last carried-over value left to review' : 'No carried-over value is left to review');
+      toast(post ? 'That was the last carried-over value left to review' : 'No carried-over value is left to review');
       return;
     }
     if (next.cursor.row !== view.cursor.row || next.cursor.col !== view.cursor.col) setCursor(next.cursor);
