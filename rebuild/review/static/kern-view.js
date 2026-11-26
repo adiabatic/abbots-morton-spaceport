@@ -2,7 +2,7 @@
 //
 // Editing: a change applies to the drawings at once, as an entry of `view.edits` that the drawings read before the server's values. Presses on one scope within `COALESCE_MS` of each other become one `POST kern`, and the view sends one request at a time, each against the block the last reply named. A reply that took the change gives the server's values, which replace the edit; a conflict whose reply carries the block as it stands is sent once more against that block; a refusal or a second conflict drops the edit, so the drawing goes back, and shows the server's message beside the pair; a reply that says a cycle pass holds the runes keeps the edit, marked as waiting, until `GET kern` reports no pending change. Each change the server wrote or queued goes on the tab's undo history with its journal seq (`historyAfterReply`). `u` drops the newest edit not sent yet, and otherwise asks the server to undo the history's newest change by its seq (`POST kern/undo`), which cancels it while it still waits for a pass.
 //
-// Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `f` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
+// Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `g` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), moving on too from a scope with nothing carried over, and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
 
 import { formatCount } from './render.js';
 import {
@@ -39,6 +39,7 @@ import {
   lettersValue,
   manualTexts,
   moveFacing,
+  stepFacing,
   moveGridCursor,
   notInFont,
   pairFromQuery,
@@ -88,13 +89,13 @@ function el(tag, className, text) {
   return node;
 }
 
-// A button of the detail panel, with its key shown after its label the way the verdict buttons show theirs.
-function button(text, action, title, key = null) {
+// A button of the detail panel, with its keys shown after its label the way the verdict buttons show theirs.
+function button(text, action, title, keys = []) {
   const node = el('button', null, text);
   node.type = 'button';
   node.dataset.action = action;
   if (title) node.title = title;
-  if (key) node.append(' ', el('kbd', null, key));
+  for (const key of keys) node.append(' ', el('kbd', null, key));
   return node;
 }
 
@@ -183,23 +184,21 @@ export function createKernView({ root, toast, writeSelection }) {
     const box = el('div', 'kern-scope');
     const toggle = el('div', 'kern-scope-toggle');
     toggle.setAttribute('role', 'group');
-    toggle.setAttribute('aria-label', 'What a change sets (s)');
-    const facingButton = button('This shape pair', 'kern-scope-facing', 'Set the selected facing pair’s own record (s switches)');
-    const lettersButton = button('All unjoined', 'kern-scope-letters', 'Set the record that names only the two letters, which every facing pair of the two without a record of its own takes (s switches)');
-    const switchKey = el('kbd', null, 's');
-    switchKey.title = 's switches between the two scopes';
-    toggle.append(facingButton, lettersButton, switchKey);
+    toggle.setAttribute('aria-label', 'What a change sets');
+    const facingButton = button('This shape pair', 'kern-scope-facing', 'Set the selected facing pair’s own record');
+    const lettersButton = button('All unjoined', 'kern-scope-letters', 'Set the record that names only the two letters, which every facing pair of the two without a record of its own takes');
+    toggle.append(facingButton, lettersButton);
     const record = el('p', 'kern-record');
     const actions = el('div', 'kern-actions');
     const amount = el('span', 'kern-scope-value');
     actions.append(
-      button('tighten', 'kern-tighten', 'Pull the follower a pixel closer', '←'),
+      button('tighten', 'kern-tighten', 'Pull the follower a pixel closer', ['s', '←']),
       amount,
-      button('loosen', 'kern-loosen', 'Push the follower a pixel away', '→'),
-      button('drop own value', 'kern-drop', 'Remove this scope’s own record, so it takes what it inherits', '0'),
-      button('note', 'kern-note', 'Write the why: of this scope’s record', 'n'),
-      button('reviewed', 'kern-review', 'Mark the carried-over facing pairs of this scope reviewed and move to the next one, or take the mark off', 'f'),
-      button('undo', 'kern-undo', 'Undo the last change', 'u'),
+      button('loosen', 'kern-loosen', 'Push the follower a pixel away', ['f', '→']),
+      button('drop own value', 'kern-drop', 'Remove this scope’s own record, so it takes what it inherits', ['0']),
+      button('note', 'kern-note', 'Write the why: of this scope’s record', ['n']),
+      button('reviewed', 'kern-review', 'Mark the carried-over facing pairs of this scope reviewed and move to the next one (moving on from a scope with nothing carried over too), or take the mark off', ['g']),
+      button('undo', 'kern-undo', 'Undo the last change', ['u']),
     );
     const why = el('p', 'kern-why');
     const noteForm = el('form', 'kern-note-form');
@@ -532,7 +531,7 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     const edit = editOf(id);
     if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
-    if (isCarried(model, values, id)) what.append(el('span', 'kern-carried', 'carried over from the old font and not reviewed yet (f marks it)'));
+    if (isCarried(model, values, id)) what.append(el('span', 'kern-carried', 'carried over from the old font and not reviewed yet (g marks it)'));
     if (notInFont(model, values, id)) what.append(el('span', 'kern-mark', `not in the built font yet, which has ${signed(builtValue(model, values, id))}`));
     const number = el('div', `kern-value${value === 0 ? ' zero' : ''}`, signed(value));
     row.append(stage(draw), what, number);
@@ -1077,7 +1076,10 @@ export function createKernView({ root, toast, writeSelection }) {
     } else if (action === 'kern-grid') {
       view.dom.grid.focus();
     } else if (action === 'kern-prev-pair' || action === 'kern-next-pair') {
-      setFacing(moveFacing(view.facing, action === 'kern-next-pair' ? 1 : -1, entry?.pairs.length ?? 0));
+      const step = action === 'kern-next-pair' ? 1 : -1;
+      const at = stepFacing(view.facing, step, entry?.pairs.length ?? 0);
+      if (at === null) jumpCarried(step);
+      else setFacing(at);
     } else if (action === 'kern-jump') {
       view.dom.input.focus();
       view.dom.input.select();
@@ -1085,34 +1087,34 @@ export function createKernView({ root, toast, writeSelection }) {
       editScope(action);
     } else if (action === 'kern-letters-tighten' || action === 'kern-letters-loosen') {
       editLetters(action);
-    } else if (action === 'kern-scope') {
-      setScope(view.scopeMode === SCOPE_LETTERS ? SCOPE_FACING : SCOPE_LETTERS);
     } else if (action === 'kern-undo') {
       undo();
     } else if (action === 'kern-review') {
       review();
     } else if (action === 'kern-next-carried' || action === 'kern-prev-carried') {
-      const found = nextCarried(view.model, view.values, view.cursor, action === 'kern-next-carried' ? 1 : -1);
-      if (found) setCursor(found);
-      else toast('No pair of letters has a carried-over value left to review');
+      jumpCarried(action === 'kern-next-carried' ? 1 : -1);
     }
   }
 
-  // Mark the selected scope's carried-over facing pairs reviewed and move to the next carried-over facing pair (`nextAfterMark`), or take the mark off, staying put, when every one has it.
+  // Move the cursor to the next (`step` 1) or the previous (`step` -1) pair of letters that still has a carried-over facing pair not reviewed.
+  function jumpCarried(step) {
+    const found = nextCarried(view.model, view.values, view.cursor, step);
+    if (found) setCursor(found);
+    else toast('No pair of letters has a carried-over value left to review');
+  }
+
+  // Mark the selected scope's carried-over facing pairs reviewed and move to the next carried-over facing pair (`nextAfterMark`), or take the mark off, staying put, when every one has it. A scope with nothing carried over is left as it is, and the selection moves on all the same.
   function review() {
     const entry = currentEntry();
     const scope = selectedScope();
-    if (!scope || !entry) return;
-    const marks = marksOf(view.model, view.values, scope, entry);
-    if (marks.imported.length === 0) {
-      toast('Nothing in this scope was carried over from the old font');
-      return;
+    const marks = scope && entry ? marksOf(view.model, view.values, scope, entry) : { imported: [], reviewed: false };
+    if (marks.imported.length > 0) {
+      enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: !marks.reviewed } });
+      if (marks.reviewed) return;
     }
-    enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: !marks.reviewed } });
-    if (marks.reviewed) return;
     const next = nextAfterMark(view.model, view.values, view.cursor, view.facing, marks.imported);
     if (!next) {
-      toast('That was the last carried-over value left to review');
+      toast(marks.imported.length > 0 ? 'That was the last carried-over value left to review' : 'No carried-over value is left to review');
       return;
     }
     if (next.cursor.row !== view.cursor.row || next.cursor.col !== view.cursor.col) setCursor(next.cursor);

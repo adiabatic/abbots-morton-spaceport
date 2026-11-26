@@ -166,6 +166,12 @@ export function moveFacing(index, delta, count) {
   return clamp(index + delta, 0, count - 1);
 }
 
+// The facing pair `step` from `facing` among `count`, or null past either end, where the up and down keys move on to the previous or the next pair of letters with a carried-over facing pair, as `[` and `]` do.
+export function stepFacing(facing, step, count) {
+  const at = facing + step;
+  return at >= 0 && at < count ? at : null;
+}
+
 function normalName(name) {
   return name.toLowerCase().replace(/[·.’'\-\s]/gu, '');
 }

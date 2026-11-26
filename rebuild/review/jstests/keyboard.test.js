@@ -168,8 +168,12 @@ test('digits stay unbound when no menu is open', () => {
 const KERN_GRID = [
   ['ArrowUp', 'kern-up'],
   ['ArrowDown', 'kern-down'],
+  ['e', 'kern-up'],
+  ['d', 'kern-down'],
   ['ArrowLeft', 'kern-left'],
   ['ArrowRight', 'kern-right'],
+  ['s', 'kern-left'],
+  ['f', 'kern-right'],
   ['Enter', 'kern-detail'],
   ['-', 'kern-letters-tighten'],
   ['=', 'kern-letters-loosen'],
@@ -184,12 +188,15 @@ const KERN_GRID = [
 const KERN_DETAIL = [
   ['ArrowUp', 'kern-prev-pair'],
   ['ArrowDown', 'kern-next-pair'],
+  ['e', 'kern-prev-pair'],
+  ['d', 'kern-next-pair'],
   ['ArrowLeft', 'kern-tighten'],
   ['ArrowRight', 'kern-loosen'],
+  ['s', 'kern-tighten'],
+  ['f', 'kern-loosen'],
   ['0', 'kern-drop'],
   ['n', 'kern-note'],
-  ['s', 'kern-scope'],
-  ['f', 'kern-review'],
+  ['g', 'kern-review'],
   ['u', 'kern-undo'],
   [']', 'kern-next-carried'],
   ['[', 'kern-prev-carried'],
@@ -211,7 +218,7 @@ test('the grid’s - and = act on the letters and leave the detail panel’s arr
   assert.equal(actionForKey('-', { view: 'kern', kernPane: 'detail' }), null);
   assert.equal(actionForKey('0', { view: 'kern', kernPane: 'grid' }), null);
   assert.equal(actionForKey('n', { view: 'kern', kernPane: 'grid' }), null);
-  assert.equal(actionForKey('f', { view: 'kern', kernPane: 'grid' }), null);
+  assert.equal(actionForKey('g', { view: 'kern', kernPane: 'grid' }), null);
   assert.equal(actionForKey(']', { view: 'kern', kernPane: 'grid' }), 'kern-next-carried');
   assert.equal(actionForKey(']'), 'next-class');
   assert.equal(actionForKey('ArrowLeft', { view: 'kern', kernPane: 'detail' }), 'kern-tighten');
@@ -224,7 +231,7 @@ test('no review key acts in the kerning view', () => {
     const action = actionForKey(key, { view: 'kern', kernPane: 'grid' });
     assert.ok(action === null || action.startsWith('kern-') || action === 'help', `key ${key} gave ${action}`);
   }
-  assert.equal(actionForKey('f', { view: 'kern' }), null);
+  assert.equal(actionForKey('a', { view: 'kern' }), null);
   assert.equal(actionForKey('Backspace', { view: 'kern', kernPane: 'detail' }), null);
 });
 

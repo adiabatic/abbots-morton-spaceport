@@ -39,12 +39,16 @@ export const NEITHER_MENU_MAP = new Map([
   ['Escape', 'neither-cancel'],
 ]);
 
-// The kerning view's keys (`#view=kern`), by the pane that has focus. The grid's arrows move its cursor, Enter moves to the detail panel, and `-` and `=` (or `+`) tighten and loosen the value set on the focused pair of letters, for every facing pair of the two that has no record of its own. In the detail panel up and down choose a facing pair, left and right tighten and loosen the selected scope, `0` drops the scope's own record, `n` opens the note of the scope's record, `s` switches the scope between the selected facing pair and every unjoined pair of the two letters, and Escape returns to the grid. In the detail panel `f` marks the selected scope's carried-over facing pairs reviewed and moves to the next carried-over facing pair, in this pair of letters or the next one that has one, or takes the mark off, staying put, when they all have it. `u` undoes the last change in either pane, and `]` and `[` move to the next and the previous pair of letters that still has a carried-over facing pair not reviewed. Anywhere else on the page (`page`, a header button among them) the grid's keys still act, but Enter keeps its own meaning.
+// The kerning view's keys (`#view=kern`), by the pane that has focus. The grid's arrows move its cursor, and `e`, `s`, `d` and `f` move it up, left, down and right too, Enter moves to the detail panel, and `-` and `=` (or `+`) tighten and loosen the value set on the focused pair of letters, for every facing pair of the two that has no record of its own. In the detail panel up and down (or `e` and `d`) choose a facing pair, and past the last or the first one move on as `]` and `[` do, left and right (or `s` and `f`) tighten and loosen the selected scope, `0` drops the scope's own record, `n` opens the note of the scope's record, and Escape returns to the grid. In the detail panel `g` marks the selected scope's carried-over facing pairs reviewed and moves to the next carried-over facing pair, in this pair of letters or the next one that has one, or takes the mark off, staying put, when they all have it; on a scope with nothing carried over it only moves. `u` undoes the last change in either pane, and `]` and `[` move to the next and the previous pair of letters that still has a carried-over facing pair not reviewed. Anywhere else on the page (`page`, a header button among them) the grid's keys still act, but Enter keeps its own meaning.
 export const KERN_GRID_MAP = new Map([
   ['ArrowUp', 'kern-up'],
   ['ArrowDown', 'kern-down'],
+  ['e', 'kern-up'],
+  ['d', 'kern-down'],
   ['ArrowLeft', 'kern-left'],
   ['ArrowRight', 'kern-right'],
+  ['s', 'kern-left'],
+  ['f', 'kern-right'],
   ['Enter', 'kern-detail'],
   ['-', 'kern-letters-tighten'],
   ['=', 'kern-letters-loosen'],
@@ -59,12 +63,15 @@ export const KERN_GRID_MAP = new Map([
 export const KERN_DETAIL_MAP = new Map([
   ['ArrowUp', 'kern-prev-pair'],
   ['ArrowDown', 'kern-next-pair'],
+  ['e', 'kern-prev-pair'],
+  ['d', 'kern-next-pair'],
   ['ArrowLeft', 'kern-tighten'],
   ['ArrowRight', 'kern-loosen'],
+  ['s', 'kern-tighten'],
+  ['f', 'kern-loosen'],
   ['0', 'kern-drop'],
   ['n', 'kern-note'],
-  ['s', 'kern-scope'],
-  ['f', 'kern-review'],
+  ['g', 'kern-review'],
   ['u', 'kern-undo'],
   [']', 'kern-next-carried'],
   ['[', 'kern-prev-carried'],

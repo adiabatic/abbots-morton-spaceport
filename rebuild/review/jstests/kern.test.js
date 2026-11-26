@@ -36,6 +36,7 @@ import {
   liveValue,
   manualTexts,
   moveFacing,
+  stepFacing,
   moveGridCursor,
   notInFont,
   pairFromQuery,
@@ -168,6 +169,14 @@ test('the grid cursor moves one cell an arrow and stays inside the grid', () => 
   assert.equal(moveFacing(0, -1, 4), 0);
   assert.equal(moveFacing(3, 1, 4), 3);
   assert.equal(moveFacing(1, 1, 4), 2);
+});
+
+test('up and down step through the facing pairs and report the ends, where they move on to another pair of letters', () => {
+  assert.equal(stepFacing(1, 1, 4), 2);
+  assert.equal(stepFacing(1, -1, 4), 0);
+  assert.equal(stepFacing(3, 1, 4), null);
+  assert.equal(stepFacing(0, -1, 4), null);
+  assert.equal(stepFacing(0, 1, 0), null);
 });
 
 test('a query names a pair of runes by their letters, ligatures with a plus', () => {
