@@ -3,6 +3,8 @@
 // Editing: a change applies to the drawings at once, as an entry of `view.edits` that the drawings read before the server's values. Presses on one scope within `COALESCE_MS` of each other become one `POST kern`, and the view sends one request at a time, each against the block the last reply named. A reply that took the change gives the server's values, which replace the edit; a conflict whose reply carries the block as it stands is sent once more against that block; a refusal or a second conflict drops the edit, so the drawing goes back, and shows the server's message beside the pair; a reply that says a cycle pass holds the runes keeps the edit, marked as waiting, until `GET kern` reports no pending change. Each change the server wrote or queued goes on the tab's undo history with its journal seq (`historyAfterReply`). `u` drops the newest edit not sent yet, and otherwise asks the server to undo the history's newest change by its seq (`POST kern/undo`), which cancels it while it still waits for a pass.
 //
 // Carried-over marks: a facing pair the importer set (`GET kern`'s `carried`) is marked on its grid cell and its detail row while it is unreviewed and keeps the imported value (`isCarried`); `g` posts a mark for the selected scope (`POST kern/reviewed`) and moves to the next carried-over facing pair (`nextAfterMark`), moving on too from a scope with nothing left to mark (the reviewed button takes a mark off instead, `reviewStep`), and `]` and `[` move the cursor to the next and the previous pair of letters that still has one (`nextCarried`).
+//
+// Relatives: under the facing pairs, the detail panel lists the selected facing pair's relatives (`relativesOf`, the facing pairs whose junction is the same one, mirrored, upside down or turned half round), grouped by the value each takes, and its near relatives (`nearRelativesOf`). A class of relatives that takes more than one value is kerned inconsistently (`splitStanding`): its members are marked in the grid and in their detail rows, `r` and `w` move to the next and the previous such class, `t` sets the selected facing pair to the value most of its relatives take, `v` gives its value to every relative that differs, and `a` marks it as apart on purpose (`POST kern/apart`), which leaves it out of the comparison, and moves on.
 
 import { formatCount } from './render.js';
 import {
@@ -14,6 +16,7 @@ import {
   builtValue,
   carriedCount,
   carriedTrouble,
+  classMembers,
   entryCarried,
   isCarried,
   marksOf,
@@ -34,6 +37,7 @@ import {
   inkGapText,
   inventoryMoved,
   inventoryRefusal,
+  isApart,
   journalLines,
   lettersScope,
   lettersScopeOfPair,
@@ -42,18 +46,28 @@ import {
   moveFacing,
   stepFacing,
   moveGridCursor,
+  nearRelativesOf,
+  nextAfterApart,
+  nextSplit,
   notInFont,
   pairFromQuery,
+  pairLabel,
   paneFor,
   reachChip,
   reachText,
   refusalText,
+  relationText,
+  relativesOf,
+  relativesToGive,
+  relativesValue,
   resendAfter,
   runePairAt,
   scopeRecord,
   selectionFromState,
+  selectionOfPair,
   shownValue,
   signed,
+  splitStanding,
   staleAnswer,
   stalenessLines,
   stateFromSelection,
@@ -79,7 +93,10 @@ const CELL_BOTTOM = 10;
 const CELL_SLACK = 4;
 const STAGE_MARGIN = 1;
 const COALESCE_MS = 330;
-const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark', 'carried'];
+const COLOR_ROLES = [...ROLES, 'guide', 'text', 'muted', 'mark', 'carried', 'differs'];
+// How many relatives a group of the detail panel lists before its "show all" button, and how many near relatives the panel lists.
+const GROUP_SHOWN = 4;
+const NEAR_SHOWN = 8;
 const GRID_CHIPS = { 'only across a ZWNJ': 'ZWNJ', 'only under ss10': 'ss10', 'only across a ZWNJ or under ss10': 'ZWNJ ss10' };
 const EDIT_STATES = { local: 'not sent yet', sending: 'being written', waiting: 'waiting for the cycle pass to end' };
 
@@ -169,10 +186,24 @@ export function createKernView({ root, toast, writeSelection }) {
     messages: new Map(),
     seenSeq: null,
     note: null,
+    split: { pairs: new Set(), classes: 0 },
+    opened: new Set(),
+    near: { id: null, found: [] },
   };
 
   function valueOf(id) {
     return shownValue(view.model, view.values, view.edits, id);
+  }
+
+  // The facing pairs kerned differently from a relative, with the view's changes applied.
+  function stand() {
+    view.split = splitStanding(view.model, view.values, valueOf);
+    return view.split;
+  }
+
+  // What a change of the values redraws when it differs from the last one drawn.
+  function drawnOf(body) {
+    return JSON.stringify([body?.live ?? null, body?.built ?? null, body?.journal ?? null, body?.apart ?? null]);
   }
 
   function readColors() {
@@ -272,8 +303,23 @@ export function createKernView({ root, toast, writeSelection }) {
       swatch.dataset.role = role;
       swatches.append(swatch);
     }
+    const relatives = el('section', 'kern-relatives');
+    relatives.setAttribute('aria-label', 'Relatives of the selected facing pair');
+    relatives.addEventListener('click', (event) => {
+      const pressed = event.target.closest?.('button[data-action]');
+      if (pressed) {
+        relativesAction(pressed.dataset);
+        view.dom.detail.focus();
+        return;
+      }
+      const row = event.target.closest?.('[data-goto]');
+      if (row) {
+        goTo(selectionOfPair(view.model, Number(row.dataset.goto)));
+        view.dom.detail.focus();
+      }
+    });
     root.replaceChildren(bar, status, panes, live, swatches);
-    view.dom = { summary, input, status, grid, detail, live, swatches, rows: [], cursor: null, head: null, scope: buildScopeBox() };
+    view.dom = { summary, input, status, grid, detail, live, swatches, relatives, rows: [], cursor: null, head: null, scope: buildScopeBox() };
 
     input.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
@@ -317,6 +363,7 @@ export function createKernView({ root, toast, writeSelection }) {
           ...stalenessLines(view.model, view.values, view.refreshError),
           ...journalLines(view.values, view.seenSeq),
           ...(carriedTrouble(view.values).error ? [{ level: 'error', text: `The reviewed marks cannot be read: ${carriedTrouble(view.values).error}` }] : []),
+          ...(view.values?.payload?.apart?.error ? [{ level: 'error', text: `The apart marks cannot be read: ${view.values.payload.apart.error}` }] : []),
         ];
     const nodes = [];
     for (const line of lines) {
@@ -341,12 +388,14 @@ export function createKernView({ root, toast, writeSelection }) {
     const unsent = view.edits.size - waitingCount();
     const carried = carriedCount(view.model, view.values);
     const trouble = carriedTrouble(view.values);
+    const split = stand().classes;
     view.dom.summary.textContent =
       `${formatCount(doc.pairs.length)} facing pairs over ${formatCount(withPairs)} pairs of letters; ${formatCount(kerned)} kerned` +
       (unbuilt ? `, ${formatCount(unbuilt)} not in the built font yet` : '') +
       (unsent ? `; ${formatCount(unsent)} change${unsent === 1 ? '' : 's'} being written` : '') +
       (carried ? `; ${formatCount(carried)} carried over from the old font and not reviewed ([ and ] find them)` : '') +
       (trouble.stale ? `; ${formatCount(trouble.stale)} carried-over or reviewed pair${trouble.stale === 1 ? ' names' : 's name'} a side this build no longer has` : '') +
+      (split ? `; ${formatCount(split)} group${split === 1 ? '' : 's'} of matching shape pairs ${split === 1 ? 'is' : 'are'} kerned differently (w and r find them)` : '') +
       '.';
   }
 
@@ -389,6 +438,7 @@ export function createKernView({ root, toast, writeSelection }) {
   }
 
   function paintRows() {
+    stand();
     for (const row of view.dom.rows.keys()) paintRow(row);
   }
 
@@ -431,6 +481,13 @@ export function createKernView({ root, toast, writeSelection }) {
         context.fillStyle = colors.carried;
         context.textAlign = 'right';
         context.fillText('old', x0 + cell.width - 2, cell.height - 2);
+      }
+      if (entry.pairs.some((id) => view.split.pairs.has(id))) {
+        context.fillStyle = colors.differs;
+        context.textAlign = 'center';
+        context.font = 'bold 11px system-ui, sans-serif';
+        context.fillText('≠', x0 + cell.width / 2, CELL_TOP - 2);
+        context.font = '9px system-ui, sans-serif';
       }
       if (entry.pairs.some((id) => notInFont(model, view.values, id))) {
         context.strokeStyle = colors.mark;
@@ -533,6 +590,8 @@ export function createKernView({ root, toast, writeSelection }) {
     const edit = editOf(id);
     if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
     if (isCarried(model, values, id)) what.append(el('span', 'kern-carried', 'carried over from the old font and not reviewed yet (g marks it)'));
+    if (view.split.pairs.has(id)) what.append(el('span', 'kern-differs', 'kerned differently from a relative: see Relatives below'));
+    if (isApart(model, values, id)) what.append(el('span', 'kern-apart', 'kerned apart from its relatives on purpose (a takes the mark off)'));
     if (notInFont(model, values, id)) what.append(el('span', 'kern-mark', `not in the built font yet, which has ${signed(builtValue(model, values, id))}`));
     const number = el('div', `kern-value${value === 0 ? ' zero' : ''}`, signed(value));
     row.append(stage(draw), what, number);
@@ -640,6 +699,7 @@ export function createKernView({ root, toast, writeSelection }) {
     const { model } = view;
     if (!model) return;
     const typing = document.activeElement === view.dom.scope.noteInput;
+    stand();
     const doc = model.doc;
     const lead = doc.runes[view.cursor.row];
     const follow = doc.runes[view.cursor.col];
@@ -659,6 +719,8 @@ export function createKernView({ root, toast, writeSelection }) {
       list.setAttribute('aria-label', 'Facing pairs');
       for (const [index, id] of entry.pairs.entries()) list.append(facingRow(id, index));
       nodes.push(list);
+      renderRelatives();
+      nodes.push(view.dom.relatives);
     }
     if (entry && entry.joined.length > 0) {
       nodes.push(el('h4', null, 'Joined, not kerned'));
@@ -696,6 +758,7 @@ export function createKernView({ root, toast, writeSelection }) {
     view.cursor = cursor;
     view.facing = 0;
     view.note = null;
+    view.opened.clear();
     placeCursor();
     renderDetail();
     announce();
@@ -712,6 +775,8 @@ export function createKernView({ root, toast, writeSelection }) {
       if (selected) option.scrollIntoView({ block: 'nearest' });
     }
     if (view.scopeMode === SCOPE_FACING) renderScope(entry);
+    view.opened.clear();
+    renderRelatives();
     writeState();
   }
 
@@ -733,7 +798,7 @@ export function createKernView({ root, toast, writeSelection }) {
     noteJournal(reply.values.journal);
     view.values = indexValues(reply.values);
     view.refreshError = null;
-    view.drawn = JSON.stringify([reply.values.live ?? null, reply.values.built ?? null, reply.values.journal ?? null]);
+    view.drawn = drawnOf(reply.values);
   }
 
   // Forget the undo history, and report every drop, when the server's journal is another file than the one the view's seqs came from.
@@ -752,7 +817,7 @@ export function createKernView({ root, toast, writeSelection }) {
   }
 
   // Set `scope` to `by` (null drops its record) and, when given, its note, in the drawings at once, and send it once no press has come for `COALESCE_MS`, or at once with `now`.
-  function change(scope, by, { why = undefined, now = false } = {}) {
+  function change(scope, by, { why = undefined, now = false, quiet = false } = {}) {
     const previous = view.edits.get(scope.key);
     let keptWhy = why !== undefined ? why : previous?.state === 'local' ? previous.why : undefined;
     if (by === null) keptWhy = undefined;
@@ -766,7 +831,7 @@ export function createKernView({ root, toast, writeSelection }) {
     if (now) send();
     else view.timers.set(scope.key, setTimeout(send, COALESCE_MS));
     view.dom.live.textContent = `${scope.lead} | ${scope.follow}: ${by === null ? 'its own value dropped' : signed(by)}`;
-    redraw();
+    if (!quiet) redraw();
   }
 
   function enqueue(item) {
@@ -782,6 +847,7 @@ export function createKernView({ root, toast, writeSelection }) {
     try {
       if (item.kind === 'undo') await sendUndo(item.entry);
       else if (item.kind === 'review') await sendReview(item.body);
+      else if (item.kind === 'apart') await sendApart(item.body);
       else await sendSet(item.key);
     } finally {
       view.sending = false;
@@ -957,11 +1023,12 @@ export function createKernView({ root, toast, writeSelection }) {
     }
     view.error = null;
     view.model = indexInventory(inventory.body);
+    view.near = { id: null, found: [] };
     const after = valuesAfterFetch(view.values, values);
     view.values = after.values;
     view.refreshError = after.error;
     view.seenSeq ??= values.body?.journal?.seq ?? null;
-    view.drawn = JSON.stringify([values.body?.live ?? null, values.body?.built ?? null, values.body?.journal ?? null]);
+    view.drawn = drawnOf(values.body);
     view.colors = readColors();
     renderGrid();
   }
@@ -1040,7 +1107,7 @@ export function createKernView({ root, toast, writeSelection }) {
         renderStatus();
         return;
       }
-      const drawn = JSON.stringify([body?.live ?? null, body?.built ?? null, body?.journal ?? null]);
+      const drawn = drawnOf(body);
       let changed = drawn !== view.drawn;
       noteJournal(body?.journal);
       view.drawn = drawn;
@@ -1094,7 +1161,244 @@ export function createKernView({ root, toast, writeSelection }) {
       review({ toggle: action === 'kern-review-toggle' });
     } else if (action === 'kern-next-carried' || action === 'kern-prev-carried') {
       jumpCarried(action === 'kern-next-carried' ? 1 : -1);
+    } else if (action === 'kern-next-split' || action === 'kern-prev-split') {
+      jumpSplit(action === 'kern-next-split' ? 1 : -1);
+    } else if (action === 'kern-take') {
+      takeRelatives();
+    } else if (action === 'kern-give') {
+      giveRelatives();
+    } else if (action === 'kern-apart') {
+      markApart();
     }
+  }
+
+  // The facing pair the detail panel has selected, or null for two letters with none.
+  function selectedPair() {
+    const entry = currentEntry();
+    return hasFacingPairs(entry) ? (entry.pairs[view.facing] ?? entry.pairs[0]) : null;
+  }
+
+  function goTo({ cursor, facing }) {
+    if (cursor.row !== view.cursor.row || cursor.col !== view.cursor.col) setCursor(cursor);
+    setFacing(facing);
+  }
+
+  // Move to the next (`step` 1) or the previous (`step` -1) facing pair kerned differently from a relative, past the selected pair's own class.
+  function jumpSplit(step) {
+    const id = selectedPair();
+    const found = nextSplit(view.model, stand().pairs, view.cursor, view.facing, step, id === null ? null : classMembers(view.model, id));
+    if (found) goTo(found);
+    else toast(view.split.classes > 0 ? 'This is the only group of matching shape pairs kerned differently' : 'No matching shape pairs are kerned differently');
+  }
+
+  // Set the selected facing pair's own record to `value`.
+  function takeValue(id, value) {
+    if (value === valueOf(id)) {
+      toast('This shape pair already has that value');
+      return;
+    }
+    change(facingScope(view.model, id), value);
+  }
+
+  // Set the selected facing pair to the value most of its relatives take.
+  function takeRelatives() {
+    const id = selectedPair();
+    if (id === null) return;
+    const found = relativesValue(view.model, view.values, valueOf, id);
+    if (found.value !== null) takeValue(id, found.value);
+    else if (found.tied.length === 0) toast('This shape pair has no relative to take a value from');
+    else toast(`Its relatives are split between ${found.tied.map(signed).join(' and ')}; choose one in the list`);
+  }
+
+  // Give the selected facing pair's value to every relative that has another and is not marked apart, each as its own record's change.
+  function giveRelatives() {
+    const id = selectedPair();
+    if (id === null) return;
+    const value = valueOf(id);
+    const targets = relativesToGive(view.model, view.values, valueOf, id, value);
+    if (targets.length === 0) {
+      toast('Every relative not marked apart already has this value');
+      return;
+    }
+    for (const target of targets) change(facingScope(view.model, target), value, { now: true, quiet: true });
+    view.dom.live.textContent = `${signed(value)} given to ${targets.length} relative${targets.length === 1 ? '' : 's'}`;
+    redraw();
+  }
+
+  function apartBody(ids, apart) {
+    return { pairs: ids.map((id) => ({ lead: view.model.doc.sides[view.model.doc.pairs[id].lead].name, follow: view.model.doc.sides[view.model.doc.pairs[id].follow].name })), apart };
+  }
+
+  // Mark the selected facing pair as kerned apart from its relatives on purpose and move to the next class kerned differently, or take the mark off and stay.
+  function markApart() {
+    const id = selectedPair();
+    if (id === null) return;
+    if (isApart(view.model, view.values, id)) {
+      enqueue({ kind: 'apart', body: apartBody([id], false) });
+      return;
+    }
+    if (relativesOf(view.model, id).length === 0) {
+      toast('This shape pair has no relative to be kerned apart from');
+      return;
+    }
+    enqueue({ kind: 'apart', body: apartBody([id], true) });
+    const next = nextAfterApart(view.model, view.values, valueOf, view.cursor, view.facing, [view.model.pairKeys[id]]);
+    if (next) goTo(next);
+    else toast('No other matching shape pairs are kerned differently');
+  }
+
+  async function sendApart(body) {
+    const { status, reply } = await postJson('kern/apart', body);
+    takeValues(reply);
+    if (status === 200) {
+      const count = reply.pairs?.length ?? 0;
+      view.dom.live.textContent = `${count} facing pair${count === 1 ? '' : 's'} ${body.apart ? 'marked apart' : 'no longer marked apart'}`;
+    } else {
+      toast(refusalText(reply, status).split('\n')[0]);
+    }
+    redraw();
+  }
+
+  // A button of the relatives section: take a group's value, mark a group apart or take its marks off, or list a group in full.
+  function relativesAction(data) {
+    const id = selectedPair();
+    if (id === null) return;
+    if (data.action === 'kern-take-value') {
+      takeValue(id, Number(data.value));
+    } else if (data.action === 'kern-apart-group' || data.action === 'kern-together-group') {
+      const apart = data.action === 'kern-apart-group';
+      const ids = relativesOf(view.model, id)
+        .map((relative) => relative.id)
+        .filter((one) => isApart(view.model, view.values, one) !== apart && (!apart || valueOf(one) === Number(data.value)));
+      if (ids.length > 0) enqueue({ kind: 'apart', body: apartBody(ids, apart) });
+    } else if (data.action === 'kern-show-group') {
+      view.opened.add(data.group);
+      renderRelatives();
+    } else {
+      handle(data.action);
+    }
+  }
+
+  function relativeRow(relative, own) {
+    const { model, values } = view;
+    const pair = model.doc.pairs[relative.id];
+    const value = valueOf(relative.id);
+    const draw = pairDrawList(model, pair.member, value);
+    const row = el('li', 'kern-relative-row');
+    row.dataset.goto = String(relative.id);
+    row.title = 'Go to this shape pair';
+    const what = el('div', 'kern-what');
+    what.append(el('code', null, pairLabel(model, relative.id)));
+    what.append(el('span', null, `${relationText(relative)} · ${reachText(pair.reach)}`));
+    what.append(gapLine(draw.closest));
+    const source = deciderText(decidersOf(model, values, relative.id));
+    what.append(el('span', null, source ? `decided by ${source}` : 'no record: the default spacing'));
+    const edit = editOf(relative.id);
+    if (edit) what.append(el('span', `kern-pending ${edit.state}`, `changed here, ${EDIT_STATES[edit.state]}`));
+    const number = el('div', `kern-value${value === 0 ? ' zero' : ''}${value === own ? '' : ' differs'}`, signed(value));
+    row.append(stage(draw), what, number);
+    return row;
+  }
+
+  function relativeGroup(name, title, relatives, own, buttons) {
+    const group = el('div', 'kern-relative-group');
+    const head = el('div', 'kern-relative-head');
+    head.append(el('span', null, title), ...buttons);
+    const list = el('ol');
+    const open = view.opened.has(name) || relatives.length <= GROUP_SHOWN + 1;
+    for (const relative of open ? relatives : relatives.slice(0, GROUP_SHOWN)) list.append(relativeRow(relative, own));
+    group.append(head, list);
+    if (!open) {
+      const more = button(`show all ${relatives.length}`, 'kern-show-group', 'List every relative of this group');
+      more.dataset.group = name;
+      group.append(more);
+    }
+    return group;
+  }
+
+  // The relatives section of the detail panel, for the selected facing pair: what its relatives are and whether they agree, the keys' buttons, the pair drawn alone for comparison, its relatives grouped by the value each takes (those that differ first, the largest group first), those marked apart, and its nearest near relatives.
+  function renderRelatives() {
+    const { model, values } = view;
+    const box = view.dom.relatives;
+    const id = selectedPair();
+    if (id === null) {
+      box.replaceChildren();
+      return;
+    }
+    const own = valueOf(id);
+    const apart = isApart(model, values, id);
+    const relatives = relativesOf(model, id);
+    const counted = relatives.filter((relative) => !isApart(model, values, relative.id));
+    const marked = relatives.filter((relative) => isApart(model, values, relative.id));
+    const groups = new Map();
+    for (const relative of counted) {
+      const value = valueOf(relative.id);
+      if (!groups.has(value)) groups.set(value, []);
+      groups.get(value).push(relative);
+    }
+    const differing = counted.length - (groups.get(own)?.length ?? 0);
+    const nodes = [el('h4', null, `Relatives of ${pairLabel(model, id)}`)];
+    let note;
+    if (relatives.length === 0) note = 'No other shape pair has this junction.';
+    else if (apart) note = 'Marked as kerned apart from its relatives on purpose, so it is compared with none of them.';
+    else if (differing === 0) note = `${counted.length === 1 ? 'The one shape pair' : `All ${counted.length} shape pairs`} with this junction (the same edges, mirrored, upside down or turned half round) ${counted.length === 1 ? 'has' : 'have'} this value.`;
+    else note = `${differing} of the ${counted.length} shape pair${counted.length === 1 ? '' : 's'} with this junction (the same edges, mirrored, upside down or turned half round) ${differing === 1 ? 'has' : 'have'} another value.`;
+    nodes.push(el('p', `kern-relatives-note${differing > 0 && !apart ? ' differs' : ''}`, note));
+    const actions = el('div', 'kern-actions');
+    actions.append(
+      button('take their value', 'kern-take', 'Set this shape pair to the value most of its relatives take', ['t']),
+      button('give them this value', 'kern-give', 'Set every relative that has another value, and is not marked apart, to this shape pair’s value', ['v']),
+      button(apart ? 'not apart' : 'apart on purpose', 'kern-apart', 'Mark this shape pair as kerned apart from its relatives on purpose, so it is compared with none of them, and move to the next group kerned differently; on a marked pair, take the mark off', ['a']),
+      button('previous', 'kern-prev-split', 'The previous group of matching shape pairs kerned differently', ['w']),
+      button('next', 'kern-next-split', 'The next group of matching shape pairs kerned differently', ['r']),
+    );
+    nodes.push(actions);
+    if (relatives.length > 0) {
+      const reference = el('ol');
+      const row = el('li', 'kern-relative-row own');
+      const draw = pairDrawList(model, model.doc.pairs[id].member, own);
+      const what = el('div', 'kern-what');
+      what.append(el('code', null, pairLabel(model, id)), el('span', null, 'this shape pair, drawn alone'), gapLine(draw.closest));
+      row.append(stage(draw), what, el('div', `kern-value${own === 0 ? ' zero' : ''}`, signed(own)));
+      reference.append(row);
+      nodes.push(reference);
+    }
+    const ordered = [...groups].sort((one, other) => Number(one[0] === own) - Number(other[0] === own) || other[1].length - one[1].length || one[0] - other[0]);
+    for (const [value, members] of ordered) {
+      const count = `${members.length} relative${members.length === 1 ? '' : 's'}`;
+      const buttons = [];
+      if (value !== own) {
+        const take = button(`take ${signed(value)}`, 'kern-take-value', `Set this shape pair to ${signed(value)}`);
+        take.dataset.value = String(value);
+        const part = button(members.length === 1 ? 'mark it apart' : `mark these ${members.length} apart`, 'kern-apart-group', 'Mark every relative at this value as kerned apart from the others on purpose');
+        part.dataset.value = String(value);
+        buttons.push(take, part);
+      }
+      nodes.push(relativeGroup(`value:${value}`, value === own ? `${count} at ${signed(value)}, as this one` : `${count} at ${signed(value)}`, members, own, buttons));
+    }
+    if (marked.length > 0) {
+      nodes.push(
+        relativeGroup('apart', `${marked.length} marked apart on purpose, and compared with none`, marked, own, [
+          button(marked.length === 1 ? 'take the mark off' : 'take the marks off', 'kern-together-group', 'Compare these with their relatives again'),
+        ]),
+      );
+    }
+    if (view.near.id !== id) view.near = { id, found: nearRelativesOf(model, id) };
+    const near = [...view.near.found].sort((one, other) => one.distance - other.distance || Number(valueOf(one.id) === own) - Number(valueOf(other.id) === own) || one.id - other.id);
+    if (near.length > 0) {
+      const open = view.opened.has('near') || near.length <= NEAR_SHOWN + 1;
+      nodes.push(el('h4', null, 'Near relatives'));
+      nodes.push(el('p', 'kern-relatives-note', `${near.length} shape pair${near.length === 1 ? ' has a junction' : 's have junctions'} within ${near[0].distance === near.at(-1).distance ? near[0].distance : `${near[0].distance} to ${near.at(-1).distance}`} px of this one, so a value may rightly differ; nearest first, and they are in no count.`));
+      const list = el('ol');
+      for (const relative of open ? near : near.slice(0, NEAR_SHOWN)) list.append(relativeRow(relative, own));
+      nodes.push(list);
+      if (!open) {
+        const more = button(`show all ${near.length}`, 'kern-show-group', 'List every near relative');
+        more.dataset.group = 'near';
+        nodes.push(more);
+      }
+    }
+    box.replaceChildren(...nodes);
   }
 
   // Move the cursor to the next (`step` 1) or the previous (`step` -1) pair of letters that still has a carried-over facing pair not reviewed.

@@ -13,6 +13,7 @@ import {
   builtValue,
   carriedCount,
   carriedTrouble,
+  classMembers,
   entryCarried,
   isCarried,
   marksOf,
@@ -31,7 +32,9 @@ import {
   inkGapText,
   inventoryMoved,
   inventoryRefusal,
+  isApart,
   journalLines,
+  junctionOf,
   lettersScope,
   lettersValue,
   liveValue,
@@ -39,19 +42,30 @@ import {
   moveFacing,
   stepFacing,
   moveGridCursor,
+  nearRelativesOf,
+  nextAfterApart,
+  nextSplit,
   notInFont,
   pairFromQuery,
+  pairLabel,
   paneFor,
   reachChip,
   reachText,
   refusalText,
+  relationText,
+  relativesIndex,
+  relativesOf,
+  relativesToGive,
+  relativesValue,
   resendAfter,
   runePairAt,
   scopeRecord,
   selectionFromState,
+  selectionOfPair,
   shiftedPositions,
   shownValue,
   signed,
+  splitStanding,
   staleAnswer,
   stalenessLines,
   stateFromSelection,
@@ -474,4 +488,160 @@ test('the marks that name lost sides and marks that cannot be read are reported'
   const lost = indexValues({ ...payload, carried: { ...payload.carried, stale: ['qsNo|qsTea'], error: 'var/kern/reviewed.json is not JSON' } });
   assert.deepEqual(carriedTrouble(lost), { stale: 1, error: 'var/kern/reviewed.json is not JSON' });
   assert.deepEqual(carriedTrouble(indexValues(null)), { stale: 0, error: null });
+});
+
+// A hand-made inventory for the relatives: ·A is a diagonal rising to the right and ·B its mirror image, which is also ·A upside down; ·S is a stem; ·C is ·A with one pixel of its second row from the top a column to the left; ·D is ·A under a Tall stem set far back from its right edge. Each rune has one leading and one following side, and the facing pairs are listed in `RELATIVE_PAIRS`' order.
+const DIAGONAL = ['     #', '    # ', '   #  ', '  #   ', ' #    ', '#     '];
+const RELATIVE_GLYPHS = {
+  qsA: { rows: DIAGONAL, adv: 8 },
+  qsB: { rows: DIAGONAL.map((row) => [...row].reverse().join('')), adv: 8 },
+  qsS: { rows: ['#', '#', '#', '#', '#', '#'], adv: 3 },
+  qsC: { rows: ['     #', '   #  ', '   #  ', '  #   ', ' #    ', '#     '], adv: 8 },
+  qsD: { rows: ['#     ', '#     ', '#     ', ...DIAGONAL], adv: 8 },
+};
+const RELATIVE_PAIRS = [
+  ['qsA', 'qsS'],
+  ['qsS', 'qsB'],
+  ['qsB', 'qsS'],
+  ['qsS', 'qsA'],
+  ['qsS', 'qsS'],
+  ['qsC', 'qsS'],
+  ['qsD', 'qsS'],
+];
+
+function relativesModel() {
+  const names = Object.keys(RELATIVE_GLYPHS);
+  const count = names.length;
+  const doc = {
+    format: INVENTORY_FORMAT,
+    ink_x: 1,
+    configs: ['default'],
+    runes: names.map((name) => ({ name, label: `·${name.slice(2)}`, letters: [] })),
+    glyphs: names.map((name, index) => ({ name: `${name}.sole`, rune: index, y: 0, ...RELATIVE_GLYPHS[name] })),
+    sides: [
+      ...names.map((name, index) => ({ facing: 'leading', name, rune: index, cells: [index] })),
+      ...names.map((name, index) => ({ facing: 'following', name, rune: index, cells: [index] })),
+    ],
+    pairs: RELATIVE_PAIRS.map(([lead, follow]) => ({
+      lead: names.indexOf(lead),
+      follow: count + names.indexOf(follow),
+      member: [names.indexOf(lead), names.indexOf(follow)],
+      reach: [WORD],
+      configs: [0],
+      members: 1,
+      witness: null,
+      at: null,
+    })),
+    joined: [],
+    texts: [],
+    rune_pairs: RELATIVE_PAIRS.map(([lead, follow], id) => ({ lead: names.indexOf(lead), follow: names.indexOf(follow), pairs: [id], rep: id, joined: [], manual: [] })),
+  };
+  return indexInventory(doc);
+}
+
+const relModel = relativesModel();
+const [AS, SB, BS, SA, SS, CS, DS] = RELATIVE_PAIRS.keys();
+const valuesWith = (by = {}, apart = []) => ({ values: { apart: new Set(apart.map((id) => relModel.pairKeys[id])) }, valueOf: (id) => by[id] ?? 0 });
+
+test('a junction is every gap between the two sides’ ink on one row or on neighboring rows, with the side bearings summed', () => {
+  const gaps = junctionOf(relModel, AS);
+  // ·A's blank right of its ink is 1 on its top row and 6 on its bottom row, and ·S's blank left of its ink is 1 on every row.
+  assert.deepEqual([...gaps.values()].sort((one, other) => one - other).slice(0, 2), [2, 2]);
+  assert.equal(Math.min(...gaps.values()), 2);
+  assert.equal(Math.max(...gaps.values()), 7);
+  assert.equal(gaps.size, 16);
+  assert.equal(junctionOf(relModel, SS).size, 16);
+});
+
+test('a facing pair’s relatives are the pairs with its junction as it is, mirrored, upside down or turned half round', () => {
+  assert.deepEqual(relativesOf(relModel, AS), [
+    { id: SB, relation: 'mirror', exact: true },
+    { id: BS, relation: 'flip', exact: true },
+    { id: SA, relation: 'turn', exact: true },
+    { id: DS, relation: 'same', exact: false },
+  ]);
+  assert.deepEqual(
+    relativesOf(relModel, SB).map((relative) => [relative.id, relative.relation]),
+    [
+      [AS, 'mirror'],
+      [BS, 'turn'],
+      [SA, 'flip'],
+      [DS, 'mirror'],
+    ],
+  );
+  assert.deepEqual(relativesOf(relModel, SS), []);
+  assert.deepEqual([...classMembers(relModel, AS)], [AS, SB, BS, SA, DS]);
+  assert.deepEqual([...classMembers(relModel, SS)], [SS]);
+  assert.equal(relativesIndex(relModel), relativesIndex(relModel));
+});
+
+test('ink set well back from the junction makes a relative that is not pixel for pixel one, and the view says which', () => {
+  assert.equal(relationText({ relation: 'mirror', exact: true }), 'its mirror image, pixel for pixel');
+  assert.equal(relationText({ relation: 'same', exact: false }), 'the same two edges, as far as 3 px past the closest ink');
+  assert.equal(relationText({ relation: 'flip', distance: 2 }), 'nearly the same junction upside down: 2 px of difference in all');
+});
+
+test('a near relative’s junction differs by a few pixels in all, and a pair further off is none', () => {
+  assert.deepEqual(nearRelativesOf(relModel, AS), [{ id: CS, relation: 'same', distance: 3 }]);
+  assert.deepEqual(
+    nearRelativesOf(relModel, CS).map((relative) => relative.id),
+    [AS, SB, BS, SA, DS],
+  );
+  assert.deepEqual(nearRelativesOf(relModel, SS), []);
+});
+
+test('relatives that take more than one value are kerned inconsistently, until the odd one is marked apart', () => {
+  const even = valuesWith();
+  assert.deepEqual(splitStanding(relModel, even.values, even.valueOf), { pairs: new Set(), classes: 0 });
+  const odd = valuesWith({ [AS]: -1 });
+  const standing = splitStanding(relModel, odd.values, odd.valueOf);
+  assert.equal(standing.classes, 1);
+  assert.deepEqual([...standing.pairs], [AS, SB, BS, SA, DS]);
+  const marked = valuesWith({ [AS]: -1 }, [AS]);
+  assert.equal(isApart(relModel, marked.values, AS), true);
+  assert.equal(isApart(relModel, marked.values, SB), false);
+  assert.equal(splitStanding(relModel, marked.values, marked.valueOf).classes, 0);
+  // A near relative is in no count.
+  const near = valuesWith({ [CS]: -2 });
+  assert.equal(splitStanding(relModel, near.values, near.valueOf).classes, 0);
+});
+
+test('the value to take is the one most relatives have, and the relatives to give a value to are those that differ', () => {
+  const odd = valuesWith({ [AS]: -1 });
+  assert.deepEqual(relativesValue(relModel, odd.values, odd.valueOf, AS), { value: 0, tied: [0] });
+  assert.deepEqual(relativesToGive(relModel, odd.values, odd.valueOf, AS, -1), [SB, BS, SA, DS]);
+  const tied = valuesWith({ [SB]: -1, [BS]: -1 });
+  assert.deepEqual(relativesValue(relModel, tied.values, tied.valueOf, AS), { value: null, tied: [-1, 0] });
+  assert.deepEqual(relativesValue(relModel, tied.values, tied.valueOf, SS), { value: null, tied: [] });
+  const apart = valuesWith({ [SB]: -1, [BS]: -1 }, [SB]);
+  assert.deepEqual(relativesValue(relModel, apart.values, apart.valueOf, AS), { value: 0, tied: [0] });
+  assert.deepEqual(relativesToGive(relModel, apart.values, apart.valueOf, AS, 0), [BS]);
+});
+
+test('the tour of inconsistent pairs moves in reading order, wraps round, and leaves the selected pair’s own class behind', () => {
+  const split = new Set([AS, SB, SS]);
+  const at = (id) => selectionOfPair(relModel, id);
+  assert.deepEqual(at(SB), { cursor: { row: 2, col: 1 }, facing: 0 });
+  assert.deepEqual(nextSplit(relModel, split, at(AS).cursor, 0, 1), at(SB));
+  assert.deepEqual(nextSplit(relModel, split, at(AS).cursor, 0, -1), at(SS));
+  assert.deepEqual(nextSplit(relModel, split, at(AS).cursor, 0, 1, classMembers(relModel, AS)), at(SS));
+  assert.deepEqual(nextSplit(relModel, split, at(SS).cursor, 0, 1), at(AS));
+  assert.equal(nextSplit(relModel, new Set([AS]), at(AS).cursor, 0, 1), null);
+  assert.equal(nextSplit(relModel, new Set(), at(AS).cursor, 0, 1), null);
+});
+
+test('marking a pair apart moves on to the next class still kerned inconsistently, reading the mark as made', () => {
+  const odd = valuesWith({ [AS]: -1 });
+  const from = selectionOfPair(relModel, AS);
+  assert.equal(nextAfterApart(relModel, odd.values, odd.valueOf, from.cursor, from.facing, [relModel.pairKeys[AS]]), null);
+});
+
+test('the server’s apart marks are read by facing pair key, and a side is named by its letter', () => {
+  assert.deepEqual([...values.apart], []);
+  const marked = indexValues({ ...payload, apart: { pairs: ['qsNo[loop]|qsTea[full]'], stale: [], error: null } });
+  assert.equal(isApart(model, marked, loopFull), true);
+  assert.equal(isApart(model, marked, flippedHalf), false);
+  assert.deepEqual([...indexValues(null).apart], []);
+  assert.equal(pairLabel(model, flippedHalf), '·No[flipped] | ·Tea[half exit=x-height]');
+  assert.equal(pairLabel(relModel, AS), '·A | ·S');
 });

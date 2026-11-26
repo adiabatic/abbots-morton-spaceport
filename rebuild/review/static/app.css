@@ -2362,6 +2362,79 @@ body.kern-view {
     font-weight: 600;
   }
 
+  .kern-differs {
+    color: var(--either);
+    font-weight: 600;
+  }
+
+  .kern-apart {
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  .kern-relatives {
+    font-size: 13px;
+
+    button {
+      font: inherit;
+    }
+
+    kbd {
+      font-size: 10px;
+    }
+
+    .kern-relatives-note {
+      margin: 0 0 0.5rem;
+      color: var(--muted);
+
+      &.differs {
+        color: var(--either);
+        font-weight: 600;
+      }
+    }
+
+    .kern-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.3rem;
+      margin-bottom: 0.6rem;
+    }
+
+    .kern-relative-group {
+      margin-top: 0.6rem;
+
+      > button {
+        margin-top: 0.4rem;
+      }
+    }
+
+    .kern-relative-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      align-items: center;
+      margin-bottom: 0.3rem;
+      font-weight: 600;
+    }
+
+    .kern-relative-row {
+      cursor: pointer;
+
+      &.own {
+        cursor: default;
+        border-style: dashed;
+      }
+
+      &:not(.own):hover {
+        border-color: var(--accent);
+      }
+    }
+
+    .kern-value.differs {
+      color: var(--either);
+    }
+  }
+
   .kern-pending {
     color: var(--accent);
 
@@ -2430,6 +2503,10 @@ body.kern-view {
 
     [data-role="carried"] {
       color: var(--neither);
+    }
+
+    [data-role="differs"] {
+      color: var(--either);
     }
   }
 }

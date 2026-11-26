@@ -796,6 +796,11 @@ def test_a_real_server_writes_a_copy_of_the_runes_journals_the_change_and_undoes
             port, "/kern/reviewed", {"scope": "letters", "lead": "qsNo", "follow": "qsTea", "reviewed": True}
         )
         assert (status, marked["status"]) == (422, "refused") and "carried over" in marked["message"]
+        status, apart, _seconds = post(
+            port, "/kern/apart", {"pairs": [{"lead": "qsNo[loop]", "follow": "qsTea[full]"}], "apart": True}
+        )
+        assert (status, apart["status"]) == (200, "apart")
+        assert apart["values"]["apart"]["pairs"] == ["qsNo[loop]|qsTea[full]"]
         status, reply, _seconds = post(port, "/kern/undo", {"undoes": seq})
         assert (status, reply["status"]) == (200, "undone")
         assert rune.read_bytes() == original
@@ -1181,3 +1186,80 @@ class TestMarksStayHonest:
         tree = Tree(tmp_path)
         import_pairs(tree, (*LOOP_FULL, 0), ("qsNo", "qsTea", -1))
         assert tree.routes.values_payload()["carried"]["stale"] == ["qsNo|qsTea"]
+
+
+@pytest.mark.usefixtures("no_kernel", "minted")
+class TestApartMarks:
+    def test_the_answer_lists_the_marks_and_a_mark_is_made_and_taken_off(self, tmp_path):
+        tree = Tree(tmp_path)
+        assert tree.routes.values_payload()["apart"] == {"pairs": [], "stale": [], "error": None}
+        both = [{"lead": lead, "follow": follow} for lead, follow in (LOOP_FULL, FLIPPED_HALF_PAIR)]
+        status, reply = tree.routes.post_apart({"pairs": both, "apart": True})
+        assert (status, reply["status"]) == (200, "apart")
+        assert reply["pairs"] == ["qsNo[flipped]|qsTea[half]", "qsNo[loop]|qsTea[full]"]
+        assert reply["values"]["apart"]["pairs"] == reply["pairs"]
+        assert kern_routes.check_values_payload(reply["values"]) == []
+        assert json.loads(tree.routes.apart_path.read_text())["format"] == kern_routes.APART_FORMAT
+        status, reply = tree.routes.post_apart({"pairs": both[:1], "apart": False})
+        assert (status, reply["status"]) == (200, "together")
+        assert reply["values"]["apart"]["pairs"] == ["qsNo[flipped]|qsTea[half]"]
+
+    def test_a_mark_changes_no_rune_file_and_is_not_journaled(self, tmp_path):
+        tree = Tree(tmp_path)
+        before = block(tree)
+        tree.routes.post_apart({"pairs": [{"lead": LOOP_FULL[0], "follow": LOOP_FULL[1]}], "apart": True})
+        assert block(tree) == before
+        assert not tree.routes.journal.path.exists()
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            None,
+            {"pairs": [{"lead": "qsNo[loop]", "follow": "qsTea[full]"}]},
+            {"pairs": [], "apart": True},
+            {"pairs": [{"lead": "qsNo[loop]"}], "apart": True},
+            {"pairs": "qsNo[loop]|qsTea[full]", "apart": True},
+            {"lead": "qsNo[loop]", "follow": "qsTea[full]", "apart": True},
+        ],
+    )
+    def test_a_body_that_is_not_a_mark_is_answered_400(self, tmp_path, body):
+        tree = Tree(tmp_path)
+        status, reply = tree.routes.post_apart(body)
+        assert (status, reply["status"]) == (400, "invalid") and "values" in reply
+
+    @pytest.mark.parametrize(("lead", "follow"), [("qsNo", "qsTea"), ("qsno[loop]", "qsTea[full]")])
+    def test_a_mark_of_a_pair_the_build_does_not_have_refuses_the_whole_request(self, tmp_path, lead, follow):
+        tree = Tree(tmp_path)
+        status, reply = tree.routes.post_apart(
+            {
+                "pairs": [{"lead": LOOP_FULL[0], "follow": LOOP_FULL[1]}, {"lead": lead, "follow": follow}],
+                "apart": True,
+            }
+        )
+        assert (status, reply["status"]) == (422, "refused")
+        assert not tree.routes.apart_path.exists()
+
+    def test_marks_that_cannot_be_read_are_reported_and_never_replaced(self, tmp_path):
+        tree = Tree(tmp_path)
+        tree.routes.apart_path.parent.mkdir(parents=True, exist_ok=True)
+        tree.routes.apart_path.write_text("[not json")
+        assert "is not JSON" in tree.routes.values_payload()["apart"]["error"]
+        status, reply = tree.routes.post_apart(
+            {"pairs": [{"lead": LOOP_FULL[0], "follow": LOOP_FULL[1]}], "apart": True}
+        )
+        assert (status, reply["status"]) == (409, "refused")
+        assert tree.routes.apart_path.read_text() == "[not json"
+
+    def test_a_marked_pair_the_build_lost_is_reported(self, tmp_path):
+        tree = Tree(tmp_path)
+        tree.routes.apart_path.parent.mkdir(parents=True, exist_ok=True)
+        tree.routes.apart_path.write_text(
+            json.dumps(
+                {"format": kern_routes.APART_FORMAT, "apart": ["qsNo|qsTea", "qsNo[loop]|qsTea[full]"]}
+            )
+        )
+        assert tree.routes.values_payload()["apart"] == {
+            "pairs": ["qsNo[loop]|qsTea[full]", "qsNo|qsTea"],
+            "stale": ["qsNo|qsTea"],
+            "error": None,
+        }

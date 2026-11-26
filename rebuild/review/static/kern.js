@@ -61,7 +61,7 @@ export function indexValues(payload) {
   const built = new Map();
   const imported = new Map();
   if (payload?.format !== VALUES_FORMAT) {
-    return { live, built, imported, reviewed: new Set(), liveError: null, builtPresent: false, payload: null };
+    return { live, built, imported, reviewed: new Set(), apart: new Set(), liveError: null, builtPresent: false, payload: null };
   }
   for (const value of payload.live?.values ?? []) live.set(`${value.lead}|${value.follow}`, { by: value.by, deciders: value.deciders ?? [] });
   for (const [lead, follow, by] of payload.built?.values ?? []) built.set(`${lead}|${follow}`, by);
@@ -71,6 +71,7 @@ export function indexValues(payload) {
     built,
     imported,
     reviewed: new Set(payload.carried?.reviewed ?? []),
+    apart: new Set(payload.apart?.pairs ?? []),
     liveError: payload.live?.error ?? null,
     builtPresent: Boolean(payload.built?.present),
     payload,
@@ -542,4 +543,265 @@ export function marksOf(model, values, scope, entry) {
 export function carriedTrouble(values) {
   const carried = values?.payload?.carried;
   return { stale: carried?.stale?.length ?? 0, error: carried?.error ?? null };
+}
+
+// Relatives (rebuild/KERN-PLAN.md section 6). A facing pair's junction is every horizontal gap between ink of its two sides on one row or on rows one apart, at a value of 0: the leading glyph's blank from its rightmost ink to its advance plus the following glyph's blank from its pen position to its leftmost ink, so the two letters' side bearings cancel out of it. Two facing pairs are relatives when their junctions are alike once one is left as it is (`same`), has its two sides exchanged (`mirror`, the junction seen in a mirror), is turned upside down (`flip`), or both (`turn`, a half turn). Alike means equal on every gap less than `CLOSE_REACH` pixels looser than the closest one, so ink set well back from the junction, a ligature's second letter's stem among it, counts for nothing. Relatives whose values differ are kerned inconsistently unless the author marks one as apart on purpose (`GET /kern`'s `apart`).
+export const RELATIONS = ['same', 'mirror', 'flip', 'turn'];
+export const CLOSE_REACH = 3;
+// A near relative's junction differs from the selected one's by at most this many pixels in all, over the gaps within `CLOSE_REACH` of the closer of the two.
+export const NEAR_BUDGET = 3;
+const RELATION_PHRASES = {
+  same: 'the same two edges',
+  mirror: 'its mirror image',
+  flip: 'the same junction upside down',
+  turn: 'the same junction turned half round',
+};
+const ROW_BIAS = 32;
+const ROW_SPAN = 128;
+// The row a vertical flip sends row y to is FLIP_SUM − y: the baseline row and the x-height row change places, and so do a Tall letter's top row and a Deep letter's bottom row.
+const FLIP_SUM = 5;
+const relativesCache = new WeakMap();
+
+function junctionKey(leadY, followY) {
+  return (leadY + ROW_BIAS) * ROW_SPAN + followY + ROW_BIAS;
+}
+
+function relatedKey(key, relation) {
+  const leadY = Math.floor(key / ROW_SPAN) - ROW_BIAS;
+  const followY = (key % ROW_SPAN) - ROW_BIAS;
+  if (relation === 1) return junctionKey(followY, leadY);
+  if (relation === 2) return junctionKey(FLIP_SUM - leadY, FLIP_SUM - followY);
+  if (relation === 3) return junctionKey(FLIP_SUM - followY, FLIP_SUM - leadY);
+  return key;
+}
+
+// A glyph's blank pixels on each inked row, by glyph-space y: from its rightmost ink to its advance when it leads, and from its pen position to its leftmost ink when it follows.
+function edgeBlanks(glyph, inkX, leading) {
+  const blanks = new Map();
+  const top = glyph.y + glyph.rows.length - 1;
+  for (const [row, line] of glyph.rows.entries()) {
+    const first = line.indexOf('#');
+    if (first < 0) continue;
+    blanks.set(top - row, leading ? glyph.adv - (inkX + line.lastIndexOf('#') + 1) : inkX + first);
+  }
+  return blanks;
+}
+
+// A facing pair's junction at a value of 0, as a map from a (leading row, following row) key to the gap between the two sides' ink there; over a pair with a mixed side, the smallest gap among its drawings.
+export function junctionOf(model, pairId) {
+  const doc = model.doc;
+  const inkX = doc.ink_x ?? 1;
+  const pair = doc.pairs[pairId];
+  const members = Array.isArray(pair.drawings) && pair.drawings.length > 1 ? pair.drawings : [pair.member];
+  const gaps = new Map();
+  for (const [lead, follow] of members) {
+    const right = edgeBlanks(doc.glyphs[lead], inkX, true);
+    const left = edgeBlanks(doc.glyphs[follow], inkX, false);
+    for (const [leadY, blank] of right) {
+      for (const step of [-1, 0, 1]) {
+        const other = left.get(leadY + step);
+        if (other === undefined) continue;
+        const key = junctionKey(leadY, leadY + step);
+        gaps.set(key, Math.min(gaps.get(key) ?? Infinity, blank + other));
+      }
+    }
+  }
+  return gaps;
+}
+
+function junctionText(gaps, relation, below) {
+  const parts = [];
+  for (const [key, gap] of gaps) if (gap < below) parts.push([relatedKey(key, relation), gap]);
+  parts.sort((one, other) => one[0] - other[0]);
+  return parts.map(([key, gap]) => `${key}:${gap}`).join(' ');
+}
+
+// Every facing pair's junction, its closest gap, and the classes of relatives: `classOf[pair]` indexes `classes`, each a list of facing pairs in the inventory's order, and is -1 for a pair whose two sides have no ink on one row or on neighboring rows. Computed once for an inventory.
+export function relativesIndex(model) {
+  const held = relativesCache.get(model);
+  if (held) return held;
+  const junctions = [];
+  const closest = [];
+  const texts = [];
+  const classOf = [];
+  const classes = [];
+  const byText = new Map();
+  for (const id of model.doc.pairs.keys()) {
+    const gaps = junctionOf(model, id);
+    junctions.push(gaps);
+    if (gaps.size === 0) {
+      closest.push(null);
+      texts.push(null);
+      classOf.push(-1);
+      continue;
+    }
+    const least = Math.min(...gaps.values());
+    closest.push(least);
+    const four = RELATIONS.map((_name, relation) => junctionText(gaps, relation, least + CLOSE_REACH));
+    texts.push(four);
+    const first = four.reduce((one, other) => (other < one ? other : one));
+    let at = byText.get(first);
+    if (at === undefined) {
+      at = classes.length;
+      classes.push([]);
+      byText.set(first, at);
+    }
+    classes[at].push(id);
+    classOf.push(at);
+  }
+  const index = { junctions, closest, texts, classOf, classes };
+  relativesCache.set(model, index);
+  return index;
+}
+
+// A facing pair's relatives, in the inventory's order: each one's id, how its junction relates to this pair's (the first of `RELATIONS` that holds), and whether the two junctions are equal on every gap (`exact`) or only on those within `CLOSE_REACH` of the closest.
+export function relativesOf(model, pairId) {
+  const index = relativesIndex(model);
+  const at = index.classOf[pairId];
+  if (at === undefined || at < 0) return [];
+  const own = index.texts[pairId];
+  const found = [];
+  for (const id of index.classes[at]) {
+    if (id === pairId) continue;
+    const relation = own.indexOf(index.texts[id][0]);
+    const exact = junctionText(index.junctions[id], 0, Infinity) === junctionText(index.junctions[pairId], relation, Infinity);
+    found.push({ id, relation: RELATIONS[relation], exact });
+  }
+  return found;
+}
+
+// The facing pairs that are no relatives of `pairId` but nearly are: each one's id, the relation under which its junction comes closest, and the distance, the pixels by which the two junctions differ in all over the gaps within `CLOSE_REACH` of the closer of the two (a gap one junction lacks reading as one that far off), at most `NEAR_BUDGET`. Nearest first, then in the inventory's order.
+export function nearRelativesOf(model, pairId) {
+  const index = relativesIndex(model);
+  const own = index.junctions[pairId];
+  if (!own || own.size === 0) return [];
+  const turned = RELATIONS.map((_name, relation) => {
+    const gaps = new Map();
+    for (const [key, gap] of own) gaps.set(relatedKey(key, relation), gap);
+    return gaps;
+  });
+  const found = [];
+  for (const [id, other] of index.junctions.entries()) {
+    if (id === pairId || other.size === 0 || index.classOf[id] === index.classOf[pairId]) continue;
+    const cap = Math.min(index.closest[id], index.closest[pairId]) + CLOSE_REACH;
+    let best = null;
+    for (const [relation, gaps] of turned.entries()) {
+      let distance = 0;
+      for (const [key, gap] of gaps) {
+        distance += Math.abs(Math.min(gap, cap) - Math.min(other.get(key) ?? cap, cap));
+        if (distance > NEAR_BUDGET) break;
+      }
+      if (distance > NEAR_BUDGET) continue;
+      for (const [key, gap] of other) {
+        if (!gaps.has(key)) distance += cap - Math.min(gap, cap);
+        if (distance > NEAR_BUDGET) break;
+      }
+      if (distance <= NEAR_BUDGET && (best === null || distance < best.distance)) best = { id, relation: RELATIONS[relation], distance };
+    }
+    if (best) found.push(best);
+  }
+  return found.sort((one, other) => one.distance - other.distance || one.id - other.id);
+}
+
+export function relationText(relative) {
+  const phrase = RELATION_PHRASES[relative.relation] ?? relative.relation;
+  if (relative.distance !== undefined) return `nearly ${phrase}: ${relative.distance} px of difference in all`;
+  return relative.exact ? `${phrase}, pixel for pixel` : `${phrase}, as far as ${CLOSE_REACH} px past the closest ink`;
+}
+
+// A side as the view names it beside a letter: the rune's label with the side's own keys, `·Ye[climbing-loop]`.
+export function sideLabel(model, sideId) {
+  const side = model.doc.sides[sideId];
+  const rune = model.doc.runes[side.rune];
+  return `${rune.label}${side.name.slice(rune.name.length)}`;
+}
+
+export function pairLabel(model, pairId) {
+  const pair = model.doc.pairs[pairId];
+  return `${sideLabel(model, pair.lead)} | ${sideLabel(model, pair.follow)}`;
+}
+
+// Whether the author has marked a facing pair as kerned apart from its relatives on purpose, which leaves it out of every comparison with them.
+export function isApart(model, values, pairId) {
+  return Boolean(values?.apart?.has(model.pairKeys[pairId]));
+}
+
+// The facing pairs kerned inconsistently: every member not marked apart of each class of relatives whose members not marked apart take more than one value (`valueOf`), and how many such classes there are.
+export function splitStanding(model, values, valueOf) {
+  const pairs = new Set();
+  let classes = 0;
+  for (const members of relativesIndex(model).classes) {
+    if (members.length < 2) continue;
+    const counted = members.filter((id) => !isApart(model, values, id));
+    const first = counted.length > 0 ? valueOf(counted[0]) : 0;
+    if (!counted.some((id) => valueOf(id) !== first)) continue;
+    classes += 1;
+    for (const id of counted) pairs.add(id);
+  }
+  return { pairs, classes };
+}
+
+// The value a facing pair's relatives hold: the one most of those not marked apart take, or null with `tied` listing the values that share the lead, or null with none when it has no relative to count.
+export function relativesValue(model, values, valueOf, pairId) {
+  const counts = new Map();
+  for (const relative of relativesOf(model, pairId)) {
+    if (isApart(model, values, relative.id)) continue;
+    const value = valueOf(relative.id);
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  const most = Math.max(0, ...counts.values());
+  const tied = [...counts].filter(([_value, count]) => count === most).map(([value]) => value);
+  return tied.length === 1 ? { value: tied[0], tied } : { value: null, tied: tied.sort((one, other) => one - other) };
+}
+
+// The relatives a facing pair's value would move if it were given to them: those not marked apart whose value differs from `value`.
+export function relativesToGive(model, values, valueOf, pairId, value) {
+  return relativesOf(model, pairId)
+    .map((relative) => relative.id)
+    .filter((id) => !isApart(model, values, id) && valueOf(id) !== value);
+}
+
+// The grid cursor and the facing-pair index of a facing pair, for a jump to it.
+export function selectionOfPair(model, pairId) {
+  const pair = model.doc.pairs[pairId];
+  const cursor = { row: model.doc.sides[pair.lead].rune, col: model.doc.sides[pair.follow].rune };
+  const entry = runePairAt(model, cursor.row, cursor.col);
+  return { cursor, facing: Math.max(entry?.pairs.indexOf(pairId) ?? 0, 0) };
+}
+
+// A facing pair with its relatives, as a set of ids: the class the tour of inconsistent pairs steps over as one.
+export function classMembers(model, pairId) {
+  const index = relativesIndex(model);
+  const at = index.classOf[pairId];
+  return new Set(at === undefined || at < 0 ? [pairId] : index.classes[at]);
+}
+
+// The next facing pair among `split` (`splitStanding`'s pairs) after the selected one (`step` 1) or the one before it (`step` -1): through the selected pair of letters' facing pairs, then through the grid in reading order, wrapping round, passing over the ids in `skip`, the selected pair's own class, so one press leaves a class behind. Null when no other facing pair is among them.
+export function nextSplit(model, split, cursor, facing, step, skip = null) {
+  const size = model.size;
+  const total = size * size;
+  const start = cursor.row * size + cursor.col;
+  for (let offset = 0; offset <= total; offset += 1) {
+    const cell = (((start + step * offset) % total) + total) % total;
+    const row = Math.floor(cell / size);
+    const col = cell % size;
+    const entry = runePairAt(model, row, col);
+    if (!entry) continue;
+    const order = [...entry.pairs.keys()];
+    if (step < 0) order.reverse();
+    for (const at of order) {
+      if (offset === 0 && (step > 0 ? at <= facing : at >= facing)) continue;
+      if (offset === total && at === facing) continue;
+      if (split.has(entry.pairs[at]) && !skip?.has(entry.pairs[at])) return { cursor: { row, col }, facing: at };
+    }
+  }
+  return null;
+}
+
+// Where the apart key moves the selection once it marks the facing pairs `keys` apart: the next facing pair of another class that is still kerned inconsistently, reading the marks as made, since their reply has not come back yet. Null when none is left.
+export function nextAfterApart(model, values, valueOf, cursor, facing, keys) {
+  const after = { ...values, apart: new Set([...(values?.apart ?? []), ...keys]) };
+  const entry = runePairAt(model, cursor.row, cursor.col);
+  const skip = entry?.pairs[facing] === undefined ? null : classMembers(model, entry.pairs[facing]);
+  return nextSplit(model, splitStanding(model, after, valueOf).pairs, cursor, facing, 1, skip);
 }
