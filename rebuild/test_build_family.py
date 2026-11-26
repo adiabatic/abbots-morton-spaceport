@@ -1,8 +1,12 @@
-"""Tests for `rebuild/pipeline/build_family.py`: Mono's and Junior's Quikscript glyphs, variation sequences and features over the checked-in spec, and the checks `family_glyphs` makes. rebuild/test_family_against_old_build.py compares the built fonts with the old build's."""
+"""Tests for `rebuild/pipeline/build_family.py`: Mono's and Junior's Quikscript glyphs, variation sequences and features over the checked-in spec, the checks `family_glyphs` makes, and that the build reads nothing of glyph_data/quikscript.yaml. rebuild/test_family_against_old_build.py compares the built fonts with the old build's."""
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import sys
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +14,8 @@ from rebuild.pipeline import build_family, run_m1
 from rebuild.pipeline.build_family import FamilyBuildError
 from rebuild.pipeline.model import Bitmap, CellId
 from rebuild.pipeline.settle import cell_label
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(scope="module")
@@ -129,3 +135,55 @@ class TestJuniorsFeatures:
         assert "qsOwe.sole.ss06" in followers and "qsNo.flipped" in followers
         assert "[a zero]" in fea
         assert "ignore sub @namer_midword periodcentered' @namer_short_followers;" in fea
+
+
+# The child the no-open test runs: it watches every `open` from before its first import, so a module that reads glyph_data/quikscript.yaml when it is imported is caught as well as one that reads it while it builds.
+_WATCHED_BUILD = """
+import sys
+from pathlib import Path
+
+opened = []
+
+
+def watch(event, args):
+    if event == "open" and args and Path(str(args[0])).name == "quikscript.yaml":
+        opened.append(str(args[0]))
+
+
+sys.addaudithook(watch)
+from rebuild.pipeline import build_family
+
+build_family.build_mono_and_junior(Path(sys.argv[1]))
+print("\\n".join(opened))
+"""
+
+
+class TestNoReadOfTheOldEngineData:
+    def test_mono_and_junior_build_the_same_from_a_glyph_data_without_quikscript_yaml(self, tmp_path):
+        root = tmp_path / "root"
+        shutil.copytree(
+            REPO_ROOT / "glyph_data", root / "glyph_data", ignore=shutil.ignore_patterns("quikscript.yaml")
+        )
+        shutil.copytree(REPO_ROOT / "rebuild" / "schema", root / "rebuild" / "schema")
+        shutil.copy(REPO_ROOT / "rebuild" / "script.yaml", root / "rebuild" / "script.yaml")
+        shutil.copy(REPO_ROOT / "postscript_glyph_names.yaml", root / "postscript_glyph_names.yaml")
+        assert not (root / "glyph_data" / "quikscript.yaml").exists()
+        copied = build_family.build_mono_and_junior(tmp_path / "copied", root=root)
+        live = build_family.build_mono_and_junior(tmp_path / "live")
+        assert [path.name for path in copied] == [path.name for path in live]
+        assert [path.read_bytes() for path in copied] == [path.read_bytes() for path in live]
+
+    def test_no_module_the_build_imports_opens_quikscript_yaml(self, tmp_path):
+        result = subprocess.run(
+            [sys.executable, "-c", _WATCHED_BUILD, str(tmp_path)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert sorted(path.name for path in tmp_path.glob("*.otf")) == sorted(
+            build_family.font_file_name(font, style)
+            for font in ("mono", "junior")
+            for style, _bold in build_family.STYLES
+        )
+        assert result.stdout.strip() == ""

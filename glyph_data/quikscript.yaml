@@ -623,7 +623,6 @@ trailing_demote_overrides:
   trailing_stance: qsTea.en-y8.ex-y0.ex-ext-1
   isolated_form: qsTea.ex-y0.ex-ext-1
 glyph_families:
-  space: {mono: {bitmap: [], advance_width: 7}}
   qsPea:
     ductus: |
       Standard (full):
@@ -2716,38 +2715,6 @@ glyph_families:
         anchors: {entry: null}
         select: {after: [family: qsPea, family: qsTea, family: qsYe, family: qsIt, family: qsEat]}
         modifiers: [nonjoining-left]
-  qsAngleParenLeft:
-    mono:
-      bitmap:
-      - "    #"
-      - "    #"
-      - "   ##"
-      - "   # "  #
-      - "  ## "
-      - "  #  "
-      - " ##  "
-      - " #   "
-      - "##   "  #
-      - "#    "
-      - "#    "
-      - "#####"
-      y_offset: -3
-  qsAngleParenRight:
-    mono:
-      bitmap:
-      - "#####"
-      - "    #"
-      - "    #"
-      - "   ##"  #
-      - "   # "
-      - "  ## "
-      - "  #  "
-      - " ##  "
-      - " #   "  #
-      - "##   "
-      - "#    "
-      - "#    "
-      y_offset: -3
   qsIt:
     ductus: |
       - Either written from top to bottom or bottom to top.

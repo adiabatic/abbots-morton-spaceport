@@ -16,7 +16,7 @@ The three human-reviewed ledgers have prose-insensitive digests, like the rune f
 
 `rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. It also drops the `kern` block whole. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
-The full font compile reads the non-Quikscript part of the font beside the runes (`font_data_paths`: the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, the Latin kern rules, the glyph-name map, and the angle parentheses of glyph_data/quikscript.yaml, `angle_paren_digest`). No table, settlement, oracle row or review unit reads them, so they are in no Stage A component and not in the tables' stamp. They reach the run_m1 skip key alone, one line per file (`font_data_lines`, labeled `<label>#font`), and a moved font-data line, like a moved kern line, makes the cycle recompile the font over the tables on disk (`artifact_cycle.kern_only_rebuild`). glyph_data/punctuation.yaml is the exception: the namer dot's glyphs come from it, so it keeps its data line. The review corpus and the oracle key on the after font's Quikscript glyphs and the helper glyphs a Quikscript run reaches (`after_font_glyph_digests`, `RUNE_HELPER_GLYPHS`), so a Latin glyph edit keeps their caches; the corpus's freshness check compares the fonts' tables (`kern_blind_font_digest`), so the corpus is rebuilt over that cache.
+The full font compile reads the non-Quikscript part of the font beside the runes (`font_data_paths`: the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, the Latin kern rules and the glyph-name map). No table, settlement, oracle row or review unit reads them, so they are in no Stage A component and not in the tables' stamp. They reach the run_m1 skip key alone, one line per file (`font_data_lines`, labeled `<label>#font`), and a moved font-data line, like a moved kern line, makes the cycle recompile the font over the tables on disk (`artifact_cycle.kern_only_rebuild`). glyph_data/punctuation.yaml is the exception: the namer dot's glyphs come from it, so it keeps its data line, and an edit to it, the angle parentheses and `space` among its records, rebuilds the tables. The review corpus and the oracle key on the after font's Quikscript glyphs and the helper glyphs a Quikscript run reaches (`after_font_glyph_digests`, `RUNE_HELPER_GLYPHS`), so a Latin glyph edit keeps their caches; the corpus's freshness check compares the fonts' tables (`kern_blind_font_digest`), so the corpus is rebuilt over that cache.
 
 A rune's `kern` block reaches no table, no settlement and nothing the review corpus shows, so it is in no key built from `rune_file_digest`: not the `data` component, the tables' stamp, the oracle row cache's or settle memo's family keys (`rune_digests`), the string replay's and deep replay's narrowing, or the review unit cache's family keys (`rune_explain_digests`). It reaches the run_m1 skip key alone, through one line per rune (`kern_lines`, `rune_kern_digest`: the records less their `why`), so a kern edit rebuilds the font and nothing else (`artifact_cycle.kern_only_rebuild`). The rebuild suite's input closure hashes rune files whole, kern block included (`rune_document_digest`), because a test can read any part of a file. The after font's kern lookup is likewise outside every key that reads the font for the review corpus or the oracle (`after_font_glyph_digests`, `kern_blind_font_digest`).
 
@@ -85,15 +85,13 @@ def data_paths(repo_root: Path) -> list[Path]:
     return paths
 
 
-# The glyph_data files the full font does not read whole: the old engine's Quikscript families, of which it takes only the angle parentheses (`ANGLE_PAREN_FAMILIES`), and the Senior kerning the runes' `kern:` blocks replace.
+# The glyph_data files no font compile reads: the old engine's Quikscript families, which the runes replace, and the Senior kerning the runes' `kern:` blocks replace.
 FONT_DATA_EXCLUDED = ("quikscript.yaml", "senior_quikscript_kerning.yaml")
-QUIKSCRIPT_DATA = "glyph_data/quikscript.yaml"
-ANGLE_PAREN_FAMILIES = ("qsAngleParenLeft", "qsAngleParenRight")
 FONT_LINE_SUFFIX = "#font"  # the suffix of a font-data line in the run_m1 skip key (`font_data_lines`)
 
 
 def font_data_paths(repo_root: Path) -> list[Path]:
-    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml outside `FONT_DATA_EXCLUDED` (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads; it also reads the angle parentheses from `QUIKSCRIPT_DATA` (`angle_paren_digest`)."""
+    """Return the files the full font compile reads beside the runes, in the order it merges them: every glyph_data/*.yaml outside `FONT_DATA_EXCLUDED` (the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, and the Latin `kern` rules), then postscript_glyph_names.yaml, which maps the glyph names to code points. `compile_font.load_font_sources` reads exactly these, so the list is the one authority on what the compile reads, for Senior and for Mono and Junior (`build_family`)."""
     root = Path(repo_root)
     glyph_files = [
         path for path in sorted((root / "glyph_data").glob("*.yaml")) if path.name not in FONT_DATA_EXCLUDED
@@ -101,20 +99,8 @@ def font_data_paths(repo_root: Path) -> list[Path]:
     return glyph_files + [root / "postscript_glyph_names.yaml"]
 
 
-def _projected_angle_parens(document: object) -> object:
-    families = document.get("glyph_families") if isinstance(document, dict) else None
-    if not isinstance(families, dict):
-        return None
-    return {name: families.get(name) for name in ANGLE_PAREN_FAMILIES}
-
-
-def angle_paren_digest(path: Path) -> str:
-    """Return the digest of the angle parentheses' families in glyph_data/quikscript.yaml, the one part of that file the full font compile reads, so an edit to the old engine's Quikscript families leaves the font's key alone."""
-    return _projected_digest(path, _projected_angle_parens)
-
-
 def font_data_lines(repo_root: Path) -> list[str]:
-    """Return one `<label>#font\\t<digest>` line per font-compile input outside `data_paths`, sorted: each `font_data_paths` file by `_data_digest`, and glyph_data/quikscript.yaml by `angle_paren_digest`. glyph_data/punctuation.yaml is in `data_paths` already, because the namer dot's glyphs come from it, so its line stays there. These lines are the run_m1 skip key's font-data lines (`artifact_cycle.run_m1_skip_lines`). They are in no Stage A component and not in the tables' stamp, because no table depends on a Latin or Shavian glyph: a moved font-data line alone makes the cycle recompile the font over the tables on disk, as a moved kern line does (`artifact_cycle.kern_only_rebuild`)."""
+    """Return one `<label>#font\\t<digest>` line per font-compile input outside `data_paths`, sorted: each `font_data_paths` file by `_data_digest`. glyph_data/punctuation.yaml is in `data_paths` already, because the namer dot's glyphs come from it, so its line stays there. These lines are the run_m1 skip key's font-data lines (`artifact_cycle.run_m1_skip_lines`). They are in no Stage A component and not in the tables' stamp, because no table depends on a Latin or Shavian glyph: a moved font-data line alone makes the cycle recompile the font over the tables on disk, as a moved kern line does (`artifact_cycle.kern_only_rebuild`)."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     table_side = set(data_paths(root))
@@ -123,9 +109,6 @@ def font_data_lines(repo_root: Path) -> list[str]:
         for path in font_data_paths(root)
         if path not in table_side and path.is_file()
     ]
-    quikscript = root / QUIKSCRIPT_DATA
-    if quikscript.is_file():
-        lines.append(f"{QUIKSCRIPT_DATA}{FONT_LINE_SUFFIX}\t{angle_paren_digest(quikscript)}")
     return sorted(lines)
 
 

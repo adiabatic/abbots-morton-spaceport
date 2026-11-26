@@ -533,7 +533,7 @@ def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_p
 
 
 def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
-    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules, the glyph-name map and the angle parentheses beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. Of glyph_data/quikscript.yaml only the angle parentheses count, so an edit to the old engine's Quikscript families moves nothing; glyph_data/punctuation.yaml keeps its table-side data line, because the namer dot's glyphs come from it."""
+    """The full font compile reads the Latin, Shavian and symbol glyphs, the metadata, the Latin kern rules and the glyph-name map beside the runes (`font_data_paths`). No table depends on them, so an edit to one moves neither the tables' stamp nor any Stage A component, only its own font-data line in the run_m1 skip key, which the cycle reads as a kern-only rebuild. No compile reads glyph_data/quikscript.yaml, so an edit to the old engine's Quikscript families moves nothing, the angle parentheses' families included; glyph_data/punctuation.yaml, which holds the angle parentheses, keeps its table-side data line, because the namer dot's glyphs come from it."""
     root = _fake_repo(tmp_path)
     latin = root / "glyph_data" / "latin_letters.yaml"
     latin.write_text("glyphs:\n  a: {bitmap: ['#']}\n")
@@ -554,7 +554,6 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
     labels = [label for label in before[2] if label.endswith(fingerprint.FONT_LINE_SUFFIX)]
     assert labels == [
         "glyph_data/latin_letters.yaml#font",
-        "glyph_data/quikscript.yaml#font",
         "postscript_glyph_names.yaml#font",
     ]
     assert fingerprint.font_data_paths(root) == [
@@ -577,9 +576,7 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
             "qsAngleParenLeft: {mono: {bitmap: ['#']}}", "qsAngleParenLeft: {mono: {bitmap: ['##']}}"
         )
     )
-    assert artifact_cycle.moved_input_labels({"files": edited[2]}, keys()[2]) == [
-        "glyph_data/quikscript.yaml#font"
-    ]
+    assert keys() == edited
 
 
 def test_the_kern_blind_digest_describes_the_mark_lookups(tmp_path):

@@ -2,13 +2,11 @@
 
 Mono and Junior read the spec (`load_family_spec`), the font's non-Quikscript part (`compile_font.load_font_sources`) and, for Mono, the Departure Mono glyphs and layout tables `tools/build_font.py` copies in, and nothing else: no settlement table, so they build while the tables are stale or absent, and nothing of the old engine's family and stance compile, Senior emitter or join analysis. `family_glyphs` turns the runes into legacy `glyphs:` records beside the non-Quikscript ones, and `tools/build_font.build_font` compiles them from a glyph set that holds only those records. A record keyed by a bare glyph name is a Mono drawing and one keyed `<name>.prop` a Junior drawing, as in the glyph files, so Junior takes a bare record only where no `.prop` record has its name.
 
-- Each letter's Mono drawing is its rune's `mono:` block, and its Junior drawing its isolated cell (`geometry.isolated_cell`), drawn as `run_m1.mint_raw_glyphs` draws Senior's raw cmap glyph.
+- Each letter's Mono drawing is its rune's `mono:` block, and its Junior drawing its isolated cell (`geometry.isolated_cell`), drawn as `run_m1.mint_raw_glyphs` draws Senior's raw cmap glyph. A ligature forms only in Senior, so neither font holds a ligature glyph, nor any glyph no text reaches.
 - A variation sequence reaches the fonts its registry record's `fonts:` names (`model.ScriptRegistry.variation_sequences`) as a cmap format 14 entry (`compile_font.add_variation_sequences`). Its Junior glyph is drawn and named as Senior's (`surface.variation_plan`, `settle.cell_label`), and its Mono glyph, under the same name, is the stance's base bitmap, which must be `MONO_COLUMNS` wide.
 - A letter whose unjoined cell a cosmetic set (`overlay: cosmetic`, ss06) redraws in Senior has its cosmetic copy in Junior, under the name Senior gives the copy of that cell (`model.cosmetic_copy_name`).
 
-The registry decides each font's features. Mono carries none of its own, since `tools/build_font.py` copies Departure Mono's layout tables into it. Junior carries the registry's overlay sets (`junior_fea`), the cosmetic sets first and the isolated overlay (ss10) after them so that it wins: a cosmetic set substitutes each letter by its copy, and the isolated overlay every Junior glyph that is not a bare letter by its letter. Then the namer dot lowers before a Junior glyph of a rune in the `shorts` predicate class, except after a mid-word glyph (`compile_font.FontSources.midword_glyphs`). `tools/build_font.build_font` takes that feature code after `mark` (`quikscript_fea=`).
-
-The module ends with the legacy data, held apart so the fonts match the old build's byte for byte while the old engine stays the reference.
+The registry decides each font's features. Mono carries none of its own, since `tools/build_font.py` copies Departure Mono's layout tables into it. Junior carries the registry's overlay sets (`junior_fea`), the cosmetic sets first and the isolated overlay (ss10) after them so that it wins: a cosmetic set substitutes each letter by its copy, and the isolated overlay every Junior glyph that is not a bare letter by its letter. Then the namer dot lowers before a Junior glyph of a rune in the `shorts` predicate class, except before a ZWNJ and after a mid-word glyph (`compile_font.FontSources.midword_glyphs`), by the rule shape Senior's emitter writes (`emit_gsub.namer_dot_lookup`). `tools/build_font.build_font` takes that feature code after `mark` (`quikscript_fea=`).
 """
 
 from __future__ import annotations
@@ -18,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence, cast
 
-from rebuild.pipeline import compile_font, geometry, spec_load, surface
+from rebuild.pipeline import compile_font, emit_gsub, geometry, spec_load, surface
 from rebuild.pipeline.model import (
     COSMETIC_OVERLAY,
     CellId,
@@ -170,17 +168,24 @@ def junior_fea(spec: ResolvedSpec, family: FamilyGlyphs, midword: Iterable[str])
     shorts = spec.registry.predicate_classes.get(SHORTS_CLASS, frozenset())
     followers = [glyph for glyph, letter in family.letters.items() if letter in shorts]
     stylistic = "\n".join(block for block in blocks if block)
-    namer_dot = _legacy_namer_dot_fea(followers, midword)
+    namer_dot = _namer_dot_fea(followers, midword)
     return "\n\n".join(part for part in (stylistic, namer_dot) if part)
+
+
+def _namer_dot_fea(followers: Iterable[str], midword: Iterable[str]) -> str | None:
+    """Junior's namer-dot `calt`: Senior's lookup (`emit_gsub.namer_dot_lookup`) under names without Senior's `m1_` prefix, as Junior's one `calt` lookup, or None without a follower."""
+    followers = list(followers)
+    if not followers:
+        return None
+    lookup = emit_gsub.namer_dot_lookup(NAMER_DOT, NAMER_DOT_LOWERED, followers, midword, prefix="")
+    return "\n".join(lookup.lines) + f"\nfeature calt {{\n    lookup {lookup.name};\n}} calt;"
 
 
 def _glyph_data(sources: compile_font.FontSources, family: FamilyGlyphs) -> dict[str, Any]:
     """The glyph-data dict `tools/build_font.build_font` reads: the non-Quikscript records and the runes' beside them, the metadata without its variation sequences, which come from the registry, and the Latin kern rules."""
-    glyphs = {**sources.glyphs, **family.records}
-    glyphs.setdefault("space", {"bitmap": [], "advance_width": 7})
     return {
         "metadata": {key: value for key, value in sources.metadata.items() if key != "variation_sequences"},
-        "glyphs": glyphs,
+        "glyphs": {**sources.glyphs, **family.records},
         "glyph_families": {},
         "context_sets": {},
         "kerning": dict(sources.kerning),
@@ -214,7 +219,7 @@ def build_mono_and_junior(
     out_dir.mkdir(parents=True, exist_ok=True)
     spec = load_family_spec(root)
     sources = compile_font.load_font_sources(root)
-    family = _with_legacy(spec, family_glyphs(spec))
+    family = family_glyphs(spec)
     glyph_data = _glyph_data(sources, family)
     junior_code = junior_fea(spec, family, sources.midword_glyphs())
     written: list[Path] = []
@@ -243,76 +248,3 @@ def build_mono_and_junior(
                 built.close()
             written.append(path)
     return written
-
-
-# Legacy data: what the old build's Mono and Junior hold that the runes do not, and the old engine's glyph names, held here only so the fonts this module builds match the old build's byte for byte (rebuild/test_family_against_old_build.py). Everything from here to the end of the module is that data and its one reader, `_with_legacy`, with `_legacy_namer_dot_fea`, the old engine's namer-dot rule shape.
-
-# The old names of the variation sequences' glyphs and the gapped ·Owe, keyed by the names Senior gives the same drawings.
-LEGACY_NAMES = {
-    "qsNo.flipped": "qsNo.alt.en-y0.ex-y0",
-    "qsOwe.sole.ss06": "qsOwe.gapped",
-    "qsUtter.alternate": "qsUtter.alt.ex-y0",
-}
-# The alternates' contextual siblings, which no text reaches, each a copy of the alternate it is keyed to.
-LEGACY_SIBLINGS = {
-    "qsNo.alt.en-y0.ex-y0.after-it-and-vie": "qsNo.flipped",
-    "qsNo.alt.en-y0.ex-y0.after-zoo": "qsNo.flipped",
-    "qsUtter.alt.ex-y0.before-may": "qsUtter.alternate",
-}
-# The old Junior's ·Vie+Utter, which no rune draws, as the rebuild joins ·Vie to ·Utter instead. Junior holds it as it holds every ligature, with no code point and no substitution that forms it.
-LEGACY_VIE_UTTER = "qsVie_qsUtter"
-LEGACY_VIE_UTTER_RECORD = {
-    "bitmap": [
-        "  ###     ##",
-        " #   #   #  ",
-        " #   #  #   ",
-        " #   #  #   ",
-        " #  #  #    ",
-        "####   #    ",
-        " #    #     ",
-        " #   #      ",
-        "  ###       ",
-    ],
-    "y_offset": -3,
-}
-
-
-def _with_legacy(spec: ResolvedSpec, family: FamilyGlyphs) -> FamilyGlyphs:
-    """Add to `family` the old Junior's ligature glyphs (each ligature rune's isolated cell, and `LEGACY_VIE_UTTER`), the alternates' contextual siblings in Mono and Junior, and give the alternates and the gapped ·Owe their old names."""
-    records = {name: dict(record) for name, record in family.records.items()}
-    letters = dict(family.letters)
-    for name, rune in spec.runes.items():
-        if rune.sequence:
-            records[f"{name}.prop"] = _isolated(spec, name)
-    records[f"{LEGACY_VIE_UTTER}.prop"] = dict(LEGACY_VIE_UTTER_RECORD)
-    for sibling, alternate in LEGACY_SIBLINGS.items():
-        for suffix in ("", ".prop"):
-            records[f"{sibling}{suffix}"] = dict(records[f"{alternate}{suffix}"])
-        letters[sibling] = letters[alternate]
-
-    def legacy(name: str) -> str:
-        bare = name.removesuffix(".prop")
-        return LEGACY_NAMES.get(bare, bare) + name[len(bare) :]
-
-    return FamilyGlyphs(
-        records={legacy(name): record for name, record in records.items()},
-        letters={legacy(name): letter for name, letter in letters.items()},
-        cosmetic={
-            tag: {letter: legacy(copy) for letter, copy in pairs.items()}
-            for tag, pairs in family.cosmetic.items()
-        },
-        sequences={
-            font: {
-                selector: {codepoint: legacy(glyph) for codepoint, glyph in mapping.items()}
-                for selector, mapping in by_selector.items()
-            }
-            for font, by_selector in family.sequences.items()
-        },
-    )
-
-
-def _legacy_namer_dot_fea(followers: Iterable[str], midword: Iterable[str]) -> str | None:
-    """The old Junior's namer-dot `calt`, which lowers the dot across a ZWNJ (`tools/quikscript_fea.emit_namer_dot_calt`)."""
-    from quikscript_fea import emit_namer_dot_calt
-
-    return emit_namer_dot_calt(NAMER_DOT, NAMER_DOT_LOWERED, list(followers), list(midword))

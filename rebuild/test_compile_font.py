@@ -144,7 +144,7 @@ def _open(path) -> Any:
 
 
 def _rune_owned(name: str) -> bool:
-    """A glyph the runes draw. The angle parentheses carry the `qs` prefix but no rune: the full font draws them from glyph_data/quikscript.yaml as the old Senior does."""
+    """A glyph the runes draw. The angle parentheses carry the `qs` prefix but no rune: the full font draws them from their records in glyph_data/punctuation.yaml, as the old Senior does."""
     return name.startswith(("qs", "uniE6")) and not name.startswith("qsAngleParen")
 
 

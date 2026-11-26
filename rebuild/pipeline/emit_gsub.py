@@ -8,7 +8,7 @@ Lookups are defined in the order they must apply, because definition order fixes
 4. The ZWNJ lock: `sub uni200C @m1_entry_capable' by @m1_entry_locked`.
 5. The settlement rows' outcome lookups, registered in no feature and referenced by name from those rows. Each is a single substitution, and lookup k holds each input glyph's k-th distinct outcome, for the input glyphs whose rows name that many, so there are as many as the most outcomes any input glyph has (`_settle_outcome_lookups`). feaLib resolves `lookup NAME` through a dict, while an inline `by` makes it rescan every rule since the last `subtable;` for a compatible inner lookup, which is quadratic in the rows per family.
 6. One settlement lookup, `m1_settle`, of chained-context rows of the form `sub <backtrack> X' lookup NAME <lookahead>;`, with a `subtable;` break between input families and positive rules only. It is marked `useExtension` so that its per-rule format-3 subtables sit behind 32-bit Extension offsets. Without it, the depth-4 rules push the uint16 subtable-offset headroom below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR`.
-7. The namer-dot calt, after settlement: the dot is lowered before a Short letter, except before a ZWNJ and after a mid-word glyph. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the rebuild's font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10. The mid-word glyphs (`namer_midword`, the Latin letters and digits `compile_font.FontSources.midword_glyphs` names) are the old font's exception: after one, a `·` is a mid-word middot, as in Catalan `l·l`, and keeps its height. A font without Latin glyphs has no mid-word row.
+7. The namer-dot calt, after settlement: the dot is lowered before a Short letter, except before a ZWNJ and after a mid-word glyph. It is emitted here because `tools/build_font.py`'s own namer-dot calt emits nothing for the rebuild's font: `compile_font` passes no context sets, so there is no `shorts` set. Its follower class includes the ss10 copies of the Short letters, so the dot still lowers under ss10. The mid-word glyphs (`namer_midword`, the Latin letters and digits `compile_font.FontSources.midword_glyphs` names) are the old font's exception: after one, a `·` is a mid-word middot, as in Catalan `l·l`, and keeps its height. A font without Latin glyphs has no mid-word row. `namer_dot_lookup` writes the lookup and its classes, and `build_family` writes Junior's namer dot through it.
 8. One single-substitution lookup per cosmetic set (`model.cosmetic_features`), `m1_<set>_cosmetic`, registered under that set alone: each unjoined cell glyph a `cosmetic:` record redraws to its cosmetic copy (`run_m1.mint_cosmetic_glyphs`). It comes last, so every settlement row and the namer dot have read the cell glyph before it is redrawn, and the set changes no join.
 
 The rules are read by duck typing against `table.Rule`: `input_glyph`, `backtrack`, `look1` to `look4` (tuples of glyph labels or None), `outcome`, `joint`, and `provenance`. `look3` and `look4` are read with `getattr`, so tables without them still work. A live `look3` compiles to a third lookahead class after `look2`, the raw third slot a depth-3 record reads, and a live `look4` to a fourth. The rule lists of all configurations in `tables_by_config` are folded into one by exact-duplicate union, after each configuration's raw labels are renamed to its marker copies (`model.raw_rename_map`). Two rules with the same window key and different outcomes raise EmitError.
@@ -778,6 +778,42 @@ def _assert_invariants(
         raise EmitError(f"selection-semantics ignore sub leaked into the emitted FEA: {selection_lines[:3]}")
 
 
+@dataclass(frozen=True)
+class NamerDotLookup:
+    """The namer-dot lookup `namer_dot_lookup` writes: its FEA lines in order (the follower class, the mid-word class when there is one, and the lookup), the lookup's name, and its mid-word row, or None without mid-word glyphs."""
+
+    lines: tuple[str, ...]
+    name: str
+    midword_ignore: str | None
+
+
+def namer_dot_lookup(
+    dot_glyph: str,
+    lowered_glyph: str,
+    followers: Iterable[str],
+    midword: Iterable[str] = (),
+    prefix: str = "m1_",
+) -> NamerDotLookup:
+    """The lookup that lowers the namer dot before a follower (stage 7), with its classes, its names starting with `prefix`: it keeps the dot's height before a ZWNJ and after a mid-word glyph. `emit_gsub` writes Senior's through it and `build_family` Junior's, so the two fonts share the rule shape."""
+    followers_class = f"@{prefix}namer_short_followers"
+    lines = [f"{followers_class} = [{' '.join(sorted(set(followers)))}];"]
+    body = [
+        # HarfBuzz skips default-ignorables such as ZWNJ in contextual matching unless a rule names them. Without this ignore the dot would lower across a ZWNJ, which must act as a word boundary (design section 3.4).
+        f"    ignore sub {dot_glyph}' uni200C;"
+    ]
+    midword_ignore: str | None = None
+    names = sorted(set(midword))
+    if names:
+        midword_class = f"@{prefix}namer_midword"
+        lines.append(f"{midword_class} = [{' '.join(names)}];")
+        midword_ignore = f"ignore sub {midword_class} {dot_glyph}' {followers_class};"
+        body.append(f"    {midword_ignore}")
+    body.append(f"    sub {dot_glyph}' {followers_class} by {lowered_glyph};")
+    name = f"{prefix}namer_dot_word_start"
+    lines.append(f"lookup {name} {{\n" + "\n".join(body) + f"\n}} {name};")
+    return NamerDotLookup(tuple(lines), name, midword_ignore)
+
+
 def emit_gsub(
     spec: ResolvedSpec,
     tables_by_config: Mapping,
@@ -859,19 +895,9 @@ def emit_gsub(
         followers = sorted(follower_names)
         if followers:
             namer_dot_stage = (dot_glyph, lowered_glyph, frozenset(followers))
-            namer_lines.append(f"@m1_namer_short_followers = [{' '.join(followers)}];")
-            body = [
-                # HarfBuzz skips default-ignorables such as ZWNJ in contextual matching unless a rule names them. Without this ignore the dot would lower across a ZWNJ, which must act as a word boundary (design section 3.4).
-                f"    ignore sub {dot_glyph}' uni200C;"
-            ]
-            if midword:
-                namer_lines.append(f"@m1_namer_midword = [{' '.join(midword)}];")
-                midword_ignore = f"ignore sub @m1_namer_midword {dot_glyph}' @m1_namer_short_followers;"
-                body.append(f"    {midword_ignore}")
-            body.append(f"    sub {dot_glyph}' @m1_namer_short_followers by {lowered_glyph};")
-            namer_lines.append(
-                "lookup m1_namer_dot_word_start {\n" + "\n".join(body) + "\n} m1_namer_dot_word_start;"
-            )
+            namer = namer_dot_lookup(dot_glyph, lowered_glyph, followers, midword)
+            namer_lines.extend(namer.lines)
+            midword_ignore = namer.midword_ignore
     if namer_lines:
         parts.append("")
         parts.extend(namer_lines)

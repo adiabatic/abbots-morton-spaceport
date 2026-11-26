@@ -1,4 +1,8 @@
 glyphs:
+  space:  # U+0020
+    advance_width: 7
+    bitmap: []
+
   exclam.prop:  # ! U+0021
     y_offset: -1
     bitmap:
@@ -1121,3 +1125,35 @@ glyphs:
       - " ## "
       - "##  " #
       - "##  "
+
+  qsAngleParenLeft:  # U+E66E
+    y_offset: -3
+    bitmap:
+      - "    #"
+      - "    #"
+      - "   ##"
+      - "   # " #
+      - "  ## "
+      - "  #  "
+      - " ##  "
+      - " #   "
+      - "##   " #
+      - "#    "
+      - "#    "
+      - "#####"
+
+  qsAngleParenRight:  # U+E66F
+    y_offset: -3
+    bitmap:
+      - "#####"
+      - "    #"
+      - "    #"
+      - "   ##" #
+      - "   # "
+      - "  ## "
+      - "  #  "
+      - " ##  "
+      - " #   " #
+      - "##   "
+      - "#    "
+      - "#    "

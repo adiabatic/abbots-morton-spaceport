@@ -2,7 +2,7 @@
 
 `build_font` passes `tools/build_font.build_font` a glyph-data dict that holds only legacy `glyphs:` records, with an empty `glyph_families` so the old IR emitter emits nothing, and passes the rune FEA as `quikscript_fea=`. Quikscript glyphs are keyed `<name>.prop` so the Senior build uses them as its proportional glyphs, and `tools/build_font.py` trims one pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening). `build_font` returns the unsaved TTFont (`output_path=None`), and this module packs it and writes the OTF and the `.fea` sidecar itself. The call passes `quiet=True` rather than redirecting stdout, because a redirect swaps `sys.stdout` for the whole process: run_m1's table-only branch writes its `[t]` and `[phase]` lines from another thread while the font compiles, and `rebuild/tools/console.py` resolves `sys.stdout` when each line is written.
 
-The non-Quikscript part of the font is optional, so the tests that compile a font from a few runes run the same code path as the build. Without `FontSources` the font holds the rune glyphs, `space` and `uni200C`, named by `METADATA`. With them (`load_font_sources`) it is the whole Senior Regular: the glyph records of every `fingerprint.font_data_paths` file and the angle parentheses from glyph_data/quikscript.yaml, with the rune pipeline's records winning where both name a glyph (the namer dot pair, `space`, `uni200C`); the metadata of glyph_data/metadata.yaml, so the name table is the shipped Senior's; and the Latin `kern`, `ccmp` and `mark` features, which `tools/build_font._assemble_fea` writes ahead of the rune FEA, the order the old build writes them in. A kern rule that names a Quikscript glyph (`_names_a_rune`) is left out, since the runes' `kern:` blocks own every kern between rune glyphs (rebuild/KERN-PLAN.md section 1). glyph_data/senior_quikscript_kerning.yaml is never read. `variation_sequences` adds a cmap format 14 subtable (`add_variation_sequences`), from the glyphs `run_m1.mint_variation_glyphs` minted. A `bold_path` also writes Bold beside Regular: the overstruck outlines, with Regular's packed GDEF, GSUB and GPOS bytes and its `usMaxContext` (`tools/build_font.CompiledSeniorOTL`), so the two fonts shape alike by construction and the layout is compiled and packed once. Read-back checks both (`readback.verify_bold`).
+The non-Quikscript part of the font is optional, so the tests that compile a font from a few runes run the same code path as the build. Without `FontSources` the font holds the rune glyphs, `space` and `uni200C`, named by `METADATA`. With them (`load_font_sources`) it is the whole Senior Regular: the glyph records of every `fingerprint.font_data_paths` file, the angle parentheses and `space` among them, with the rune pipeline's records winning where both name a glyph (the namer dot pair, `space`, `uni200C`); the metadata of glyph_data/metadata.yaml, so the name table is the shipped Senior's; and the Latin `kern`, `ccmp` and `mark` features, which `tools/build_font._assemble_fea` writes ahead of the rune FEA, the order the old build writes them in. A kern rule that names a Quikscript glyph (`_names_a_rune`) is left out, since the runes' `kern:` blocks own every kern between rune glyphs (rebuild/KERN-PLAN.md section 1). glyph_data/senior_quikscript_kerning.yaml is never read. `variation_sequences` adds a cmap format 14 subtable (`add_variation_sequences`), from the glyphs `run_m1.mint_variation_glyphs` minted. A `bold_path` also writes Bold beside Regular: the overstruck outlines, with Regular's packed GDEF, GSUB and GPOS bytes and its `usMaxContext` (`tools/build_font.CompiledSeniorOTL`), so the two fonts shape alike by construction and the layout is compiled and packed once. Read-back checks both (`readback.verify_bold`).
 
 Packing must happen before the first save. `pack_gsub.pack_font` repacks the settlement lookup's per-rule format-3 chained-context subtables into shared-ClassDef format-2 subtables on the in-memory font; that module's docstring says why. With follower prefer slots on (`kernel_exec.FOLLOWER_PREFER_SLOTS_DEFAULT`), the unpacked lookup can overflow its own uint16 subtable-offset array (at about 6,400 merged rules). fontTools' overflow resolution cannot fix an overflow of that array, so the unpacked font cannot be saved at all. `pack_font` runs on every build, so conform tests one code path. `readback.verify_font` checks the packed lookup in the written bytes and reports a failure when the subtable-offset headroom is below `readback.SUBTABLE_OFFSET_HEADROOM_FLOOR` or the largest packed group passes `readback.GROUP_RULE_BYTES_CEILING`.
 
@@ -16,8 +16,6 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, cast
-
-import yaml
 
 from rebuild.pipeline import fingerprint, pack_gsub
 from rebuild.pipeline.model import GlyphRecord
@@ -44,8 +42,6 @@ METADATA = {
     "cap_height": 400,
     "x_height": 300,
 }
-
-_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 class GroupTooLargeError(Exception):
@@ -99,28 +95,8 @@ def _names_a_rune(rule: Mapping[str, Any]) -> bool:
     return any(str(name).startswith("qs") for key in KERN_NAME_SELECTORS for name in rule.get(key) or ())
 
 
-def _angle_parens(root: Path) -> dict[str, Any]:
-    """The angle parentheses as legacy records, drawn from their families' `mono` bitmaps in glyph_data/quikscript.yaml, which is how the old Senior draws them: neither family has a proportional record, a stance or an anchor."""
-    path = Path(root) / fingerprint.QUIKSCRIPT_DATA
-    document = yaml.load(path.read_text(), Loader=_SAFE_LOADER)
-    families = (document or {}).get("glyph_families") or {}
-    records: dict[str, Any] = {}
-    for name in fingerprint.ANGLE_PAREN_FAMILIES:
-        family = families.get(name) or {}
-        mono = family.get("mono")
-        if not isinstance(mono, dict) or set(family) != {"mono"}:
-            raise FontSourceError(
-                f"{path}: {name} must be a family with a `mono` record alone, which the full font draws as the old Senior does"
-            )
-        record: dict[str, Any] = {"bitmap": list(mono["bitmap"])}
-        if mono.get("y_offset"):
-            record["y_offset"] = mono["y_offset"]
-        records[name] = record
-    return records
-
-
 def load_font_sources(root: Path = REPO_ROOT) -> FontSources:
-    """Read the non-Quikscript part of the full font from `fingerprint.font_data_paths` in its order, merged as `tools/build_font.load_glyph_data` merges a directory, and the angle parentheses from glyph_data/quikscript.yaml. Raises `FontSourceError` when one of those files carries Quikscript families or bare Senior kerning rules, which this compile would otherwise drop without a word."""
+    """Read the non-Quikscript part of the full font from `fingerprint.font_data_paths` in its order, merged as `tools/build_font.load_glyph_data` merges a directory. Raises `FontSourceError` when one of those files carries Quikscript families or bare Senior kerning rules, which this compile would otherwise drop without a word."""
     from build_font import load_glyph_data, load_postscript_glyph_names
 
     metadata: dict[str, Any] = {}
@@ -137,7 +113,6 @@ def load_font_sources(root: Path = REPO_ROOT) -> FontSources:
             metadata = dict(data["metadata"])
         glyphs.update(data.get("glyphs") or {})
         kerning.update(data.get("kerning") or {})
-    glyphs.update(_angle_parens(root))
     kept = {tag: rule for tag, rule in kerning.items() if not _names_a_rune(rule)}
     dropped = tuple(sorted(set(kerning) - set(kept)))
     return FontSources(
