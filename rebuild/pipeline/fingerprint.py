@@ -8,11 +8,10 @@ run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in 
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar), and hashes each rune file without its `kern` block (`rune_file_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
-The three human-reviewed ledgers have prose-insensitive digests, like the rune files below:
+The two human-reviewed ledgers have prose-insensitive digests, like the rune files below:
 
 - The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate without restamping the corpus or dropping the review unit cache. Each entry's `why` is left out of the digest.
 - The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's prose, the keys in `LEDGER_PROSE_KEYS`. `_projected_ledger` says which code reads each of the other fields. Changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's prose into the manifest, so the prose is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class costs a corpus rebuild that reuses every cached unit and nothing else. The change groups' prose, rebuild/review/change-groups.yaml, takes the same route through `group_prose_lines` and is in no other component.
-- The standing approvals are in no component. `standing_approvals_digest` leaves out each rule's `note` and is used only by the artifact cycle's rebuild-lane closure. The verdict-update key (`artifact_cycle.verdict_update_skip_fingerprint`) hashes the file's raw bytes instead, because `standing_verdicts` copies a rule's `note` into every verdict it fills.
 
 `rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. It also drops the `kern` block whole. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
@@ -238,7 +237,7 @@ REVIEW_NON_BUILD_MODULES = frozenset(
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py and journal.py belong to the verdict update, store_lock.py is the lock every writer of the verdict store holds, landing.py moves a pass's corpus and store into place, and `artifact_cycle.verdict_update_skip_fingerprint` hashes all six itself. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, journal.py the store's journal, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus and store into place. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. accepted.py reads the accepted list, through which every reader of the verdict store answers what a unit's verdict is. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
@@ -867,7 +866,6 @@ def contact_allow_digest(path: Path) -> str:
 
 
 DIVERGENCE_LEDGER_LABEL = "rebuild/m1-divergences.yaml"
-STANDING_APPROVALS_LABEL = "rebuild/standing-approvals.yaml"
 CHANGE_GROUPS_LABEL = "rebuild/review/change-groups.yaml"
 
 # The ledger keys only the review app's copy reads: the rationale, and the title, summary and caution note the sidebar and class header show.
@@ -891,21 +889,6 @@ def _projected_ledger(document: object) -> object:
 def divergence_ledger_digest(path: Path) -> str:
     """Return the divergence ledger's prose-insensitive digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why`, `title`, `summary` or `note` does not, because `ledger_prose_lines` hashes those into `explain_prose` instead."""
     return _projected_digest(path, _projected_ledger)
-
-
-def _projected_standing_rules(document: object) -> object:
-    """Return the parsed standing approvals with each rule's `note` set to None; every other field stays. A document `standing_verdicts.load_rules` would reject passes through unchanged, so its load failure stays visible in the digest."""
-    if not isinstance(document, dict):
-        return document
-    rules = document.get("rules")
-    if not isinstance(rules, list):
-        return document
-    return {**document, "rules": [_without_prose(rule, "note") for rule in rules]}
-
-
-def standing_approvals_digest(path: Path) -> str:
-    """Return the standing approvals' digest without each rule's `note`. No component here includes it; only the artifact cycle's rebuild-lane closure uses it. The verdict-update key hashes the file raw instead, because the standing fill copies each `note` into the verdicts it writes."""
-    return _projected_digest(path, _projected_standing_rules)
 
 
 SCHEMA_ANNOTATIONS = ("title", "description")

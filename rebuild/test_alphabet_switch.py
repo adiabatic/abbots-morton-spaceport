@@ -22,7 +22,7 @@ from rebuild.pipeline import (
     spec_load,
 )
 from rebuild.review import build, landing, unit_cache
-from rebuild.tools import artifact_cycle, cycle_timings, fault_kit, scaling_series, verdict_update
+from rebuild.tools import artifact_cycle, cycle_timings, fault_kit, scaling_series
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SMALL = "qsTea, qsUtter,qsDay_qsUtter,qsDay"
@@ -202,7 +202,6 @@ def _refuse_to_run(*args, **kwargs):
         "run_m1",
         "the subset refilter",
         "the review build",
-        "the verdict update",
         "the land",
     ],
 )
@@ -217,7 +216,6 @@ def test_each_entry_point_that_writes_the_live_tree_refuses_the_switch(monkeypat
     monkeypatch.setattr(gc, "disable", _refuse_to_run)
     monkeypatch.setattr(build, "build_m1", _refuse_to_run)
     monkeypatch.setattr(build, "build_table_diff", _refuse_to_run)
-    monkeypatch.setattr(verdict_update.unit_index, "iter_human_units", _refuse_to_run)
     monkeypatch.setattr(landing, "land", _refuse_to_run)
     monkeypatch.setattr(baseline_subset, "check_font_provenance", _refuse_to_run)
     monkeypatch.setattr(baseline_subset, "refresh", _refuse_to_run)
@@ -227,9 +225,6 @@ def test_each_entry_point_that_writes_the_live_tree_refuses_the_switch(monkeypat
         "run_m1": run_m1.cli,
         "the subset refilter": baseline_subset.main,
         "the review build": lambda: build.main(["--out", str(tmp_path / "corpus")]),
-        "the verdict update": lambda: verdict_update.main(
-            ["--corpus", scratch[3], "--autosave", scratch[0], "--journal", scratch[1], "--no-merge"]
-        ),
         "the land": lambda: landing.main(
             [
                 "--autosave",

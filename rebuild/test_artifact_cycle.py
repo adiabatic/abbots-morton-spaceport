@@ -22,14 +22,14 @@ from typing import Any
 import pytest
 
 from rebuild.conftest import is_live_artifact_path
-from rebuild.review import accepted, journal, landing, status
+from rebuild.review import journal, landing
 from rebuild.tools import artifact_cycle as ac
 from rebuild.tools import calibrate_budgets as cb
 from rebuild.tools import console
 from rebuild.tools import cycle_paths
 from rebuild.tools import cycle_timings as ct
 from rebuild.tools import make_test_gate as mtg
-from rebuild.tools import standing_client, write_meter
+from rebuild.tools import write_meter
 from rebuild.tools.peak_rss import format_gb
 from rebuild.tools.cycle_timings import CycleTimings, PassWrites
 
@@ -324,7 +324,7 @@ def test_dry_run_plan_default():
         str(ac.next_corpus_dir()),
     ]
     assert [step.name for step in plan.steps][:4] == ["run_m1", "corpus-build", "store-snapshot", "land"]
-    for gone in ("corpus-seed", "verdict-update", "review-facts"):
+    for gone in ("corpus-seed", "review-facts"):
         assert gone not in by_name
     contracts_record = ac.contracts_green()
     assert by_name["gate:rebuild-contracts"].argv == [
@@ -372,7 +372,6 @@ def test_dry_run_plan_conform_jobs_cap():
             skip_gates=plan.skip_gates,
             skip_make_test=plan.skip_make_test,
             skip_corpus=plan.skip_corpus,
-            verdict_update_runs=plan.runs("verdict-update"),
             pool_policy=plan.pool_policy,
             ncores=12,
             total_bytes=MACHINE_44_GB,
@@ -418,12 +417,12 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_the_plan_lands_the_table_diff_corpus_with_no_prepared_store_and_no_orphan_guard():
-    """The pass builds the table-diff corpus beside the served one, snapshots the store and lands both: no corpus seed, verdict update or review-facts step. The land is handed no prepared store, so on a stamp move it carries the snapshot onto the new corpus by unit id itself (`landing.carry_snapshot`), and `--allow-orphans`, since a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep; it is told which corpus to swap in and the scan state retention saves."""
+    """The pass builds the table-diff corpus beside the served one, snapshots the store and lands both: no corpus seed or review-facts step. The land is handed no prepared store, so on a stamp move it carries the snapshot onto the new corpus by unit id itself (`landing.carry_snapshot`), and `--allow-orphans`, since a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep; it is told which corpus to swap in and the scan state retention saves."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("store-snapshot") == names.index("corpus-build") + 1
     assert names.index("land") == names.index("store-snapshot") + 1
-    for gone in ("corpus-seed", "verdict-update", "review-facts"):
+    for gone in ("corpus-seed", "review-facts"):
         assert gone not in names
     assert plan.scratch_dir is not None and plan.land
     argv = _argv({step.name: step for step in plan.steps}["land"])
@@ -444,140 +443,6 @@ def test_dry_run_plan_staging_pass_never_touches_the_autosave(tmp_path):
     assert argv[argv.index("--out") + 1] == str(tmp_path / "staged")
     assert "land" not in by_name and not plan.land
     assert plan.scratch_dir is None
-
-
-def test_the_complaint_list_headline_is_scraped_and_never_fails_the_cycle():
-    plan = _plan()
-
-    report, failures = _run_verdict_update(
-        plan,
-        _verdict_update_stdout(
-            (
-                "complaints",
-                [
-                    "wrote /x/tmp/complaints-data.json: 3 open complaints (1 new / 2 older) in 2 "
-                    "groups — 5 defer candidates, 4 approved units a fix would likely change"
-                ],
-            )
-        ),
-    )
-    assert failures == []
-    assert report.complaints_status.startswith("3 open complaints")
-    assert report.complaints_ok is True
-
-    report, failures = _run_verdict_update(
-        plan, _verdict_update_stdout(("complaints", ["no open complaints"]))
-    )
-    assert report.complaints_status == "no open complaints"
-    assert report.complaints_ok is True
-
-    report, failures = _run_verdict_update(
-        plan, _verdict_update_stdout(("complaints", ["boom"]), failed="complaints"), returncode=2
-    )
-    assert report.complaints_status == "FAILED (exit 2) — informational"
-    assert report.complaints_ok is False
-    assert failures == []
-
-
-def test_the_verdict_update_row_counts_the_carry_and_the_summary_quotes_what_the_fills_wrote():
-    """The verdict update runs as one child, so its steps reach this process only through the lines they print. The carry count and the human queue before and after become the row's detail, the count read from the line of a carry fused into the first merge, which names no file, as from the line of one that wrote its carried file, and each step's lines are kept on the report."""
-    plan = _plan()
-    assert ac.carry_detail(["carried 15903 onto manifest S"]) == "15,903 carried"
-    assert (
-        ac.carry_detail(["wrote verdicts-carried-testid.json: 15903 carried onto manifest S"])
-        == "15,903 carried"
-    )
-
-    report, failures = _run_verdict_update(
-        plan,
-        _verdict_update_stdout(
-            (
-                "carry",
-                [
-                    "carried 15903 onto manifest 2026-09-04T12:00:00Z",
-                    "kinds: {'ok': 15903}",
-                    "human queue: 81 -> 12 still needing fresh verdicts",
-                ],
-            ),
-            ("merge", ["merged 15903 verdicts into verdicts-autosave.json"]),
-            ("duplicate-fill", ["wrote tmp/duplicate-fill.json: 4 duplicate-fill verdicts"]),
-            ("duplicate-merge", ["nothing changed: the autosave already holds all 4 verdicts"]),
-            ("standing-fill", ["wrote tmp/standing.json: 7 standing-approval verdicts"]),
-            ("standing-merge", ["merged 7 verdicts into verdicts-autosave.json"]),
-            ("complaints", ["wrote /x/tmp/complaints-data.json: 3 open complaints in 2 groups"]),
-        ),
-    )
-    assert failures == []
-    assert (
-        ac.step_detail(report, "verdict-update")
-        == "15,903 carried, queue 81 -> 12; 3 open complaints in 2 groups"
-    )
-
-    assert "human queue: 81 -> 12 still needing fresh verdicts" in report.carry_lines
-    assert "wrote tmp/standing.json: 7 standing-approval verdicts" in report.standing_fill_lines
-    assert "wrote tmp/duplicate-fill.json: 4 duplicate-fill verdicts" in report.duplicate_fill_lines
-    assert "merged 15903 verdicts into verdicts-autosave.json" in report.merge_lines
-    assert report.carry_out is None
-
-
-def test_the_verdict_update_row_falls_back_to_the_merge_when_no_carry_ran():
-    """A direct merge whose store's snapshot is absent or is an ams-review-verdicts/1 document stamped for the served corpus runs no carry, because the corpus did not change, so there is no carry count and no carried file. The row reports the merge instead of staying blank."""
-    plan = _verdict_update_plan(direct_merge=True)
-    report, failures = _run_verdict_update(
-        plan,
-        _verdict_update_stdout(
-            ("merge", ["merged 3 verdicts into verdicts-autosave.json"]),
-            ("complaints", ["no open complaints"]),
-        ),
-    )
-    assert failures == []
-    assert report.carry_out is None
-    assert ac.carry_detail(report.carry_lines) == ""
-    assert report.carry_counts is None
-    assert ac.cycle_summary_payload(report, [], plan, "ok")["carry"] is None
-    assert ac.step_detail(report, "verdict-update") == "merge merged; no open complaints"
-
-
-def test_the_verdict_update_row_adds_what_the_store_holds_after_the_merge_when_the_store_was_carried():
-    """A direct merge whose store's snapshot the merge would set aside carries that snapshot alone and then merges the carried file and any other master, so the carry's count and queue cover the snapshot only. The row adds what the store holds after that merge, and says how the merge ended when it printed no holding."""
-    plan = _verdict_update_plan(direct_merge=True)
-    carry = (
-        "carry",
-        [
-            "carry counts: human=21 matched=1 unmatched=18 orphaned=0 accepted=2",
-            "carried 1 onto manifest S1",
-            "human queue: 19 -> 18 still needing fresh verdicts",
-        ],
-    )
-    report, failures = _run_verdict_update(
-        plan,
-        _verdict_update_stdout(
-            carry,
-            (
-                "merge",
-                [
-                    "stashed the previous autosave as prepared-S0.json",
-                    "merged 2 file(s) into prepared.json: 2 added, 0 replaced, 1 kept newer; "
-                    "store holds 2 verdicts (2 effective) on manifest S1",
-                ],
-            ),
-            ("complaints", ["no open complaints"]),
-        ),
-    )
-    assert failures == [] and report.store_carried
-    assert report.carry_counts == {"human": 21, "matched": 1, "unmatched": 18, "orphaned": 0, "accepted": 2}
-    assert (
-        ac.step_detail(report, "verdict-update")
-        == "1 carried, queue 19 -> 18; store holds 2 verdicts after the merge; no open complaints"
-    )
-
-    report, _failures = _run_verdict_update(
-        plan, _verdict_update_stdout(carry, ("merge", ["boom"]), failed="merge"), returncode=1
-    )
-    assert (
-        ac.step_detail(report, "verdict-update")
-        == "1 carried, queue 19 -> 18; merge FAILED (exit 1); not run"
-    )
 
 
 def test_dry_run_plan_first_run_builds_in_place_and_lands_nothing():
@@ -983,90 +848,6 @@ def _corpus_ok(report, *, spawn, emit, registry, review_out, **_):
     return True
 
 
-def _verdict_update_stdout(*sections, complete=True, failed=None, died=None):
-    """Return a synthetic verdict_update stdout: for each step, the `[phase] <step>` line, the step's own lines and the closing `[t] <step>` line, then the completion or failure line. Those last two keep the verdict update's `[verdict-update] ` prefix, which `verdict_update_sections` uses to keep result lines out of the complaints section. The step named `died` prints its own lines and nothing after them, as a step that raises past `verdict_update._run` or is stopped by a signal does."""
-    lines = []
-    for name, body in sections:
-        lines.append(console.PHASE + name)
-        lines.extend(body)
-        if died == name:
-            return "\n".join(lines) + "\n"
-        lines.append(f"[t] {name} 0.1s")
-        if failed == name:
-            lines.append(f"{console.FAILED_LINE}{name} (exit 1)")
-            break
-    if failed is None and complete:
-        lines.append(f"{console.COMPLETE_LINE}duplicate, standing, duplicate")
-    return "\n".join(lines) + "\n"
-
-
-_FULL_VERDICT_UPDATE = (
-    (
-        "carry",
-        [
-            "wrote verdicts-carried-abc.json: 51946 carried onto manifest S1",
-            "kinds: {'approve': 5}",
-            "carry counts: human=60000 matched=51946 unmatched=8054 orphaned=12 accepted=0",
-        ],
-    ),
-    (
-        "merge",
-        [
-            "verdicts-carried-abc.json: 5 added, 0 replaced, 2 kept newer",
-            "merged 1 file(s) into verdicts-autosave.json: 5 added, 0 replaced, 2 kept newer; "
-            "store holds 7 verdicts (7 effective) on manifest S1",
-        ],
-    ),
-    (
-        "duplicate-fill",
-        [
-            "wrote verdicts-duplicate-fill.json: 37 duplicate-fill verdicts onto manifest S1",
-            "no duplicate group holds disagreeing verdicts",
-        ],
-    ),
-    (
-        "duplicate-merge",
-        [
-            "merged 1 file(s) into verdicts-autosave.json: 12 added, 0 replaced, 3 kept newer; "
-            "store holds 40 verdicts (40 effective) on manifest S1"
-        ],
-    ),
-    (
-        "standing-fill",
-        [
-            "wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1",
-            "  tea-oy-ligature-break: 25 filled, 0 blocked by except_left, left for review",
-            "  WARNING: a verdict outside approve/either/identical sits on 1 matched unit — u-9 under "
-            "tea-oy-ligature-break (reject); a rule reaching a window the user judged otherwise is the "
-            "shape an over-broad rule takes.",
-        ],
-    ),
-    (
-        "standing-merge",
-        ["nothing changed: the autosave already holds all 65 verdicts (65 effective)."],
-    ),
-    ("duplicate-fill-2", ["wrote verdicts-duplicate-fill.json: 3 duplicate-fill verdicts onto manifest S1"]),
-    (
-        "duplicate-merge-2",
-        [
-            "merged 1 file(s) into verdicts-autosave.json: 3 added, 0 replaced, 0 kept newer; "
-            "store holds 68 verdicts (68 effective) on manifest S1"
-        ],
-    ),
-    ("complaints", ["no open complaints"]),
-)
-
-
-def _verdict_update_plan(*, direct_merge: bool = False) -> ac.Plan:
-    """A plan for the tests of `_do_verdict_update` and the scrapers it reads the verdict update's output through, which stay in the cycle's module until the verdict update leaves the tree although no plan the cycle makes holds the step (`_run_verdict_update` gives it one): `direct_merge` is the field those read for a pass whose corpus did not move."""
-    plan = _plan()
-    plan.verdict_update_direct_merge = direct_merge
-    plan.steps.append(
-        ac.Step("verdict-update", ["uv", "run", "python", "-m", "rebuild.tools.verdict_update"])
-    )
-    return plan
-
-
 def _review_facts_plan() -> ac.Plan:
     """A plan holding the review-facts step, which no plan the cycle makes holds, for the tests of `_do_review_facts`, which stays in the cycle's module until the m1-audit corpus leaves the tree."""
     plan = _plan()
@@ -1077,27 +858,6 @@ def _review_facts_plan() -> ac.Plan:
         )
     )
     return plan
-
-
-def _run_verdict_update(plan, stdout, returncode=0, spy=None):
-    if plan.step("verdict-update") is None:
-        plan.steps.append(
-            ac.Step("verdict-update", ["uv", "run", "python", "-m", "rebuild.tools.verdict_update"])
-        )
-    """Run `_do_verdict_update` over a canned stdout. The fake spawn passes every line through the emitter as `_run_step` does, so the terminal output is what a real pass would print."""
-
-    def fake_spawn(name, argv, *, emit, registry, stream, **passthrough):
-        if spy is not None:
-            spy.append((name, argv))
-        for line in stdout.splitlines():
-            emit.child_line(name, console.STDOUT, line)
-        return _step(name, returncode, stdout=stdout)
-
-    report = ac.CycleReport()
-    failures = ac._do_verdict_update(
-        report, spawn=fake_spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan
-    )
-    return report, failures
 
 
 def _job_costs_clean(report, *, spawn, emit, registry, plan):
@@ -1133,288 +893,6 @@ def _patch_gate_fingerprints(monkeypatch):
 def _patch_build_chain(monkeypatch):
     monkeypatch.setattr(ac, "_do_corpus_build", _corpus_ok)
     monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
-
-
-def test_nothing_runs_after_the_carry_fails():
-    """The verdict update stops at its first failing step, and the driver reports every later step as not run because none of them printed its `[phase]` line."""
-    report, failures = _run_verdict_update(
-        _plan(),
-        _verdict_update_stdout(("carry", ["boom"]), failed="carry"),
-        returncode=1,
-    )
-    assert failures == ["carry_verdicts failed"]
-    assert report.merge_status == "not run (carry failed)"
-    assert report.duplicate_fill_status == "not run (carry failed)"
-    assert report.standing_merge_status == "not run (carry failed)"
-
-
-def test_a_failing_duplicate_fill_stops_the_cascade():
-    report, failures = _run_verdict_update(
-        _plan(),
-        _verdict_update_stdout(
-            *_FULL_VERDICT_UPDATE[:2], ("duplicate-fill", ["boom"]), failed="duplicate-fill"
-        ),
-        returncode=1,
-    )
-    assert failures == ["duplicate-fill failed"]
-    assert report.merge_status == "merged"
-    assert report.duplicate_fill_status == "FAILED (exit 1)"
-    assert report.duplicate_merge_status == "not run (duplicate-fill failed)"
-    assert report.standing_fill_status == "not run (duplicate-fill failed)"
-    assert report.standing_merge_status == "not run (duplicate-fill failed)"
-
-
-def test_a_failing_duplicate_merge_stops_the_cascade():
-    report, failures = _run_verdict_update(
-        _plan(),
-        _verdict_update_stdout(
-            *_FULL_VERDICT_UPDATE[:3], ("duplicate-merge", ["boom"]), failed="duplicate-merge"
-        ),
-        returncode=1,
-    )
-    assert failures == ["duplicate-merge failed"]
-    assert report.duplicate_fill_status == "filled"
-    assert report.duplicate_merge_status == "FAILED (exit 1)"
-    assert report.standing_fill_status == "not run (duplicate-merge failed)"
-    assert report.standing_merge_status == "not run (duplicate-merge failed)"
-
-
-def test_a_failing_standing_fill_stops_the_cascade():
-    report, failures = _run_verdict_update(
-        _plan(),
-        _verdict_update_stdout(
-            *_FULL_VERDICT_UPDATE[:4], ("standing-fill", ["boom"]), failed="standing-fill"
-        ),
-        returncode=1,
-    )
-    assert failures == ["standing-fill failed"]
-    assert report.standing_fill_status == "FAILED (exit 1)"
-    assert report.standing_merge_status == "not run (standing-fill failed)"
-
-
-@pytest.mark.parametrize(
-    ("rounds", "failed", "status"),
-    [
-        ([("duplicate-fill-2", ["boom"])], "duplicate-fill", "duplicate_fill_status"),
-        (
-            [_FULL_VERDICT_UPDATE[6], ("duplicate-merge-2", ["boom"])],
-            "duplicate-merge",
-            "duplicate_merge_status",
-        ),
-    ],
-)
-def test_a_later_duplicate_fill_round_failure_leaves_the_first_round_reported_as_run(rounds, failed, status):
-    """The verdict update runs the standing fill and merge in the first round, so a failure in round 2 reports them as done and names the round that failed."""
-    report, failures = _run_verdict_update(
-        _plan(),
-        _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:6], *rounds, failed=rounds[-1][0]),
-        returncode=1,
-    )
-    assert failures == [f"{failed} round 2 failed"]
-    statuses = {
-        "merge_status": "merged",
-        "duplicate_fill_status": "filled",
-        "duplicate_merge_status": "merged",
-        "standing_fill_status": "filled",
-        "standing_merge_status": "unchanged",
-    }
-    statuses[status] += ", round 2 FAILED (exit 1)"
-    assert {name: getattr(report, name) for name in statuses} == statuses
-
-
-@pytest.mark.parametrize(
-    ("steps", "statuses"),
-    [
-        (
-            (_FULL_VERDICT_UPDATE[0], ("merge", [])),
-            {
-                "merge_status": "FAILED (exit 1)",
-                "duplicate_fill_status": "not run (merge failed)",
-                "standing_merge_status": "not run (merge failed)",
-            },
-        ),
-        (
-            (*_FULL_VERDICT_UPDATE[:2], ("duplicate-fill", [])),
-            {
-                "merge_status": "merged",
-                "duplicate_fill_status": "FAILED (exit 1)",
-                "duplicate_merge_status": "not run (duplicate-fill failed)",
-                "standing_merge_status": "not run (duplicate-fill failed)",
-            },
-        ),
-        (
-            (*_FULL_VERDICT_UPDATE[:6], ("duplicate-fill-2", [])),
-            {
-                "duplicate_fill_status": "filled, round 2 FAILED (exit 1)",
-                "duplicate_merge_status": "merged",
-                "standing_merge_status": "unchanged",
-            },
-        ),
-    ],
-    ids=["merge", "duplicate-fill", "duplicate-fill-round-2"],
-)
-def test_a_step_that_died_without_a_failure_line_reports_as_failed(steps, statuses):
-    """A step that raises past `verdict_update._run`'s `SystemExit` catch, or that a signal stops, prints no `[t]` line and no failure line. Its status says it failed, in its round, instead of the word its lines give, and the failure list names the verdict update's exit."""
-    report, failures = _run_verdict_update(
-        _plan(), _verdict_update_stdout(*steps, died=steps[-1][0]), returncode=1
-    )
-    assert failures == ["the verdict update failed (exit 1)"]
-    assert {name: getattr(report, name) for name in statuses} == statuses
-
-
-@pytest.mark.parametrize("second_round", [False, True], ids=["quiet", "second-duplicate-round-fills"])
-def test_a_step_that_changed_nothing_says_so(second_round):
-    """A merge that found nothing to change reports `unchanged`, and a fill whose `wrote` line counts no verdict reports `filled nothing`, and the verdict-update row shows the merge's `unchanged`. The duplicate steps read both rounds, so a second round that fills and merges reports `filled` and `merged`."""
-    unchanged = "nothing changed: the autosave already holds all 9 verdicts (9 effective)."
-    duplicate_fill = "wrote verdicts-duplicate-fill.json: {} duplicate-fill verdicts onto manifest S1"
-    merged = "merged 1 file(s) into verdicts-autosave.json: 2 added, 0 replaced, 0 kept newer; store holds 11 verdicts (11 effective) on manifest S1"
-    report, failures = _run_verdict_update(
-        _verdict_update_plan(direct_merge=True),
-        _verdict_update_stdout(
-            ("merge", [unchanged]),
-            ("duplicate-fill", [duplicate_fill.format(0)]),
-            ("duplicate-merge", [unchanged]),
-            (
-                "standing-fill",
-                ["wrote verdicts-standing-fill.json: 0 standing-approval verdicts onto manifest S1"],
-            ),
-            ("standing-merge", [unchanged]),
-            ("duplicate-fill-2", [duplicate_fill.format(2 if second_round else 0)]),
-            ("duplicate-merge-2", [merged if second_round else unchanged]),
-            ("complaints", ["no open complaints"]),
-        ),
-    )
-    assert failures == []
-    duplicate = ("filled", "merged") if second_round else ("filled nothing", "unchanged")
-    assert (
-        report.merge_status,
-        report.duplicate_fill_status,
-        report.duplicate_merge_status,
-        report.standing_fill_status,
-        report.standing_merge_status,
-    ) == ("unchanged", *duplicate, "filled nothing", "unchanged")
-    assert ac.step_detail(report, "verdict-update") == "merge unchanged; no open complaints"
-
-
-def test_a_carry_only_verdict_update_reports_the_fills_as_never_run():
-    """--no-merge and a staging pass both stop the verdict update after the carry, so the fills print no `[phase]` line and the summary reports them as not run."""
-    report, failures = _run_verdict_update(
-        _verdict_update_plan(), _verdict_update_stdout(_FULL_VERDICT_UPDATE[0], complete=False)
-    )
-    assert failures == []
-    assert report.merge_status == "not run"
-    assert report.duplicate_fill_status == "not run"
-    assert report.duplicate_merge_status == "not run"
-    assert report.standing_fill_status == "not run"
-    assert report.standing_merge_status == "not run"
-    assert report.verdict_update_complete is False
-
-
-def test_the_driver_reads_a_line_per_step_out_of_one_child(capsys):
-    """One subprocess prints for all the verdict update's steps, and each step's summary lines are taken from that step's own section."""
-    spy: list = []
-    report, failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE), spy=spy)
-    assert failures == []
-    assert [name for name, _argv in spy] == ["verdict-update"]
-
-    assert report.merge_status == "merged"
-    assert any(line.startswith("merged 1 file(s)") for line in report.merge_lines)
-    assert report.duplicate_fill_status == "filled"
-    assert any(
-        line.startswith("wrote verdicts-duplicate-fill.json: 37 duplicate-fill verdicts")
-        for line in report.duplicate_fill_lines
-    )
-    assert report.duplicate_merge_status == "merged"
-    assert any(line.startswith("merged 1 file(s)") for line in report.duplicate_merge_lines)
-    assert report.standing_fill_status == "filled"
-    assert any(
-        line.startswith("wrote verdicts-standing-fill.json: 25 standing-approval verdicts")
-        for line in report.standing_fill_lines
-    )
-    assert any(
-        line.endswith("blocked by except_left, left for review") for line in report.standing_fill_lines
-    )
-    assert any(line.startswith("WARNING:") for line in report.standing_fill_lines)
-    assert report.standing_merge_status == "unchanged"
-    assert any(line.startswith("nothing changed") for line in report.standing_merge_lines)
-    assert any("carried onto manifest" in line for line in report.carry_lines)
-    assert report.carry_counts == {
-        "human": 60000,
-        "matched": 51946,
-        "unmatched": 8054,
-        "orphaned": 12,
-        "accepted": 0,
-    }
-    assert ac.cycle_summary_payload(report, [], _plan(), "ok")["carry"] == report.carry_counts
-    assert report.complaints_status == "no open complaints"
-    assert report.verdict_update_complete is True
-    assert len(report.duplicate_fill_lines) == 2
-    assert len(report.duplicate_merge_lines) == 2
-
-
-def test_standing_fill_news_keeps_rules_and_drops_steady_state_combined_matches():
-    """Per-rule lines are kept at any count, so a newly added rule shows even at 0 filled. A combined-match line is kept only when it filled or blocked something, which keeps the quadratic number of unchanged combined-match lines out of the console block and cycle_summary.json. The disputed-match warning is always kept. Both line formats are handled: the verdict update runs the fill with --open-only, which prints no already-verdicted column, while a dry run over the whole domain prints it."""
-    news = ac._standing_fill_news
-    assert news("wrote verdicts-standing-fill.json: 25 standing-approval verdicts onto manifest S1")
-    assert news("quiet-rule: 0 filled, 12 already verdicted, 0 blocked by except_left, left for review")
-    assert news("quiet-rule: 0 filled, 0 blocked by except_left, left for review")
-    assert news("rule-a + rule-b: 2 filled, 0 already verdicted, 0 blocked by except_left, left for review")
-    assert news("rule-a + rule-b: 0 filled, 3 already verdicted, 1 blocked by except_left, left for review")
-    assert news("rule-a + rule-b: 2 filled, 0 blocked by except_left, left for review")
-    assert not news(
-        "rule-a + rule-b: 0 filled, 9 already verdicted, 0 blocked by except_left, left for review"
-    )
-    assert not news("rule-a + rule-b: 0 filled, 0 blocked by except_left, left for review")
-    assert news(
-        "WARNING: a verdict outside approve/either/identical sits on 1 matched unit — u-9 under "
-        "quiet-rule (reject); a rule reaching a window the user judged otherwise is the shape an "
-        "over-broad rule takes."
-    )
-    assert not news(
-        "REACHED NOTHING: quiet-rule matched no window on its own and was counted in no combined match."
-    )
-    assert not news(
-        "except_left vocabulary: quiet-rule guards against qsOut, which no window on this corpus joins from."
-    )
-    assert not news("per-rule reach (3 rules):")
-
-
-def test_a_later_duplicate_fill_round_folds_into_the_first_rounds_lines():
-    """The second duplicate-fill round runs the same step again, so its lines are reported under the first round's name."""
-    stdout = _verdict_update_stdout(
-        *_FULL_VERDICT_UPDATE[:6],
-        (
-            "duplicate-fill-2",
-            ["wrote verdicts-duplicate-fill.json: 3 duplicate-fill verdicts onto manifest S1"],
-        ),
-    )
-    report, _failures = _run_verdict_update(_plan(), stdout)
-    assert len(report.duplicate_fill_lines) == 2
-    assert report.duplicate_fill_lines[-1].startswith(
-        "wrote verdicts-duplicate-fill.json: 3 duplicate-fill verdicts"
-    )
-
-
-def test_the_disagreement_audit_reaches_the_console(capsys):
-    stdout = _verdict_update_stdout(
-        (
-            "duplicate-fill",
-            [
-                "wrote verdicts-duplicate-fill.json: 0 duplicate-fill verdicts onto manifest S1",
-                "",
-                console.WARN + "2 duplicate groups hold disagreeing verdicts — the same change judged "
-                "differently; worth a re-check:",
-                "  e-123  #units=u-1,u-2",
-                "    u-1       ·Day ~b~ ·Tea                approve   looks right",
-                "    u-2       ·Day ~b~ ·Tea                reject    stub too long",
-            ],
-        )
-    )
-    _run_verdict_update(_plan(), stdout)
-    out = capsys.readouterr().out
-    assert "warn 2 duplicate groups hold disagreeing verdicts" in out
-    # The per-group listing stays in the step's log; the terminal shows only that a disagreement exists.
-    assert "e-123  #units=u-1,u-2" not in out
 
 
 def test_the_executor_spawns_the_argv_the_plan_holds():
@@ -2547,48 +2025,6 @@ class TestTheCorpusBuildWidth:
             assert derivation.startswith(f"{width} at ")
 
 
-class TestTheStandingFillWidth:
-    """The cycle sizes the standing fill's refill pool, and the fill uses the width it is given. The fill's code is part of its memo's stamp, so a width computed there would invalidate the memo on every edit to the arithmetic."""
-
-    def test_the_pytest_pool_comes_off_the_machine_but_not_off_the_cap(self):
-        """gate:make-test's pool shares the cores with the refill pool while both run, so only its bytes are subtracted, at the width that pool runs at: the gate lane's share while the build lane runs, and every core on a pass that runs neither run_m1 nor the corpus build."""
-        solo = ac._standing_fill_terms(skip_gates=True, skip_make_test=False, ncores=9)
-        beside = ac._standing_fill_terms(skip_gates=False, skip_make_test=False, ncores=9)
-        laneless = ac._standing_fill_terms(
-            skip_gates=False, skip_make_test=False, build_lane_runs=False, ncores=9
-        )
-        assert solo == (ac.STANDING_FILL_WORKER_BYTES, ac.STANDING_FILL_PARENT_BYTES, 9)
-        assert beside == (
-            ac.STANDING_FILL_WORKER_BYTES,
-            ac.STANDING_FILL_PARENT_BYTES + 4 * ac._font_suite_worker_bytes(),
-            9,
-        )
-        assert laneless == (
-            ac.STANDING_FILL_WORKER_BYTES,
-            ac.STANDING_FILL_PARENT_BYTES + 9 * ac._font_suite_worker_bytes(),
-            9,
-        )
-
-    def test_the_cores_bind_on_both_fleet_machines(self):
-        """A refill worker holds a chunk and two shapers, so on both fleet machines memory allows more workers than there are cores: gated, the eighteen-core 48 GiB machine runs eighteen beside gate:make-test's pool, and the twelve-core one alone runs twelve."""
-        assert ac.standing_fill_jobs(skip_gates=False, ncores=18, total_bytes=MACHINE_48_GIB) == 18
-        assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=MACHINE_48_GIB) == 12
-
-    def test_a_machine_that_cannot_hold_the_parent_floors_at_one(self):
-        assert ac.standing_fill_jobs(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
-        assert ac.standing_fill_jobs(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
-
-    def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
-        for skip_gates in (False, True):
-            width = ac.standing_fill_jobs(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB)
-            derivation = ac.standing_fill_derivation(
-                skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_32_GIB
-            )
-            assert derivation.startswith(f"{width} at ")
-        solo = ac.standing_fill_derivation(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
-        assert f"less {format_gb(ac.STANDING_FILL_PARENT_BYTES)} GB co-resident" in solo
-
-
 def _lane_conform_line(plan: ac.Plan) -> str:
     """Return the plan block's one Lane conform line."""
     (line,) = [line for line in _plan_text(plan).splitlines() if "Lane conform" in line]
@@ -2601,7 +2037,6 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
         skip_gates=plan.skip_gates,
         skip_make_test=plan.skip_make_test,
         skip_corpus=plan.skip_corpus,
-        verdict_update_runs=plan.runs("verdict-update"),
         pool_policy=plan.pool_policy,
         build_lane_runs=not (plan.skip_run_m1 and plan.skip_corpus),
         ncores=ncores,
@@ -2610,20 +2045,15 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 
 
 class TestTheConformSweepWidth:
-    """The cycle sizes gate:conform's sweep: one spawn process per unit, each holding `CONFORM_SWEEP_UNIT_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build or the verdict-update step after it, and the larger of the two that the pass runs is subtracted from memory before the division. Its cap is the cores less the corpus build's processes and gate:make-test's pool under the overlap policy, never below the acceptance-configuration count."""
+    """The cycle sizes gate:conform's sweep: one spawn process per unit, each holding `CONFORM_SWEEP_UNIT_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build, which is subtracted from memory before the division when the pass runs it. Its cap is the cores less the corpus build's processes and gate:make-test's pool under the overlap policy, never below the acceptance-configuration count."""
 
     def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's process and its launcher plus the threads `corpus_job_budget` gives the same pass. A pass that runs the verdict-update step without the build subtracts the verdict update's process and the refill pool `standing_fill_jobs` gives instead, and one that runs both subtracts that step with the build's process and launcher beside it, since the build writes its unit store as the verdict update starts. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
+        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's process and its launcher plus the threads `corpus_job_budget` gives the same pass. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
 
         process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
 
         def corpus(skip_make_test):
             return process + ac.CORPUS_BUILD_RS_THREAD_BYTES * ac.corpus_job_budget(
-                skip_gates=False, skip_make_test=skip_make_test, ncores=16, total_bytes=MACHINE_48_GIB
-            )
-
-        def verdict_update(skip_make_test):
-            return ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(
                 skip_gates=False, skip_make_test=skip_make_test, ncores=16, total_bytes=MACHINE_48_GIB
             )
 
@@ -2637,10 +2067,8 @@ class TestTheConformSweepWidth:
                 total_bytes=MACHINE_48_GIB,
             )
 
-        def terms(*, skip_make_test=False, skip_corpus=False, verdict_update_runs=False, pool_policy="queue"):
-            return ac._conform_fit_terms(
-                **flags(skip_make_test, skip_corpus, pool_policy), verdict_update_runs=verdict_update_runs
-            )
+        def terms(*, skip_make_test=False, skip_corpus=False, pool_policy="queue"):
+            return ac._conform_fit_terms(**flags(skip_make_test, skip_corpus, pool_policy))
 
         def cap(*, skip_make_test=False, skip_corpus=False, pool_policy="queue"):
             return ac._conform_core_cap(**flags(skip_make_test, skip_corpus, pool_policy))[0]
@@ -2667,63 +2095,19 @@ class TestTheConformSweepWidth:
         )
         assert terms(skip_make_test=True) == (per_unit, corpus(True), cap(skip_make_test=True))
 
-        store_write = process
-        assert 0 < corpus(False) < verdict_update(False) + store_write
-        assert terms(verdict_update_runs=True) == (per_unit, verdict_update(False) + store_write, cap())
-        assert terms(verdict_update_runs=True, pool_policy="overlap") == (
-            per_unit,
-            verdict_update(False) + store_write + make_test,
-            cap(pool_policy="overlap"),
-        )
-        assert terms(skip_corpus=True, verdict_update_runs=True) == (
-            per_unit,
-            verdict_update(False),
-            cap(skip_corpus=True),
-        )
-        assert terms(skip_corpus=True, verdict_update_runs=True, pool_policy="overlap") == (
-            per_unit,
-            verdict_update(False) + make_test,
-            cap(skip_corpus=True, pool_policy="overlap"),
-        )
-        assert terms(skip_corpus=True, verdict_update_runs=True, skip_make_test=True) == (
-            per_unit,
-            verdict_update(True),
-            cap(skip_corpus=True, skip_make_test=True),
-        )
-
-    def test_the_larger_build_lane_step_is_the_one_that_comes_off(self):
-        """The conformance sweep starts beside the corpus build, and a conformance sweep still running when the build finishes, or one the queue policy starts late, runs beside the verdict-update step, so a pass that runs both subtracts the larger. The corpus-build step holds the build's process and its launcher beside its threads. On a pass that runs the build, the verdict-update step counts the process and the launcher too, which write the unit store as the verdict update starts (`_do_corpus_build`); a pass that skips the build counts neither. The corpus build stops at the build lane's share of the cores while the standing fill takes all of them, so on a machine with enough cores the verdict-update step is the larger and is the one subtracted; the test states that ordering before relying on it. A pass that runs neither step subtracts nothing."""
+    def test_the_corpus_build_is_the_build_lane_step_that_comes_off(self):
+        """The conformance sweep starts beside the corpus build, so a pass that runs the build subtracts its process and launcher beside its threads, and a pass that skips it subtracts nothing."""
         machine: dict[str, Any] = dict(
             skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB, ncores=40
         )
         process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
         corpus = process + ac.CORPUS_BUILD_RS_THREAD_BYTES * ac.corpus_job_budget(**machine)
-        verdict_update = (
-            ac.STANDING_FILL_PARENT_BYTES + ac.STANDING_FILL_WORKER_BYTES * ac.standing_fill_jobs(**machine)
-        )
-        assert ac._conform_build_lane(**machine, skip_corpus=False, verdict_update_runs=False) == (
-            "corpus-build",
-            corpus,
-        )
-        assert verdict_update + process > corpus
-        assert ac._conform_build_lane(**machine, skip_corpus=False, verdict_update_runs=True) == (
-            "verdict-update",
-            verdict_update + process,
-        )
-        assert ac._conform_build_lane(**machine, skip_corpus=True, verdict_update_runs=True) == (
-            "verdict-update",
-            verdict_update,
-        )
-        assert (
-            ac._conform_fit_terms(
-                **machine, skip_corpus=False, verdict_update_runs=True, pool_policy="queue"
-            )[1]
-            == verdict_update + process
-        )
-        assert ac._conform_build_lane(**machine, skip_corpus=True, verdict_update_runs=False) == ("", 0)
+        assert ac._conform_build_lane(**machine, skip_corpus=False) == ("corpus-build", corpus)
+        assert ac._conform_fit_terms(**machine, skip_corpus=False, pool_policy="queue")[1] == corpus
+        assert ac._conform_build_lane(**machine, skip_corpus=True) == ("", 0)
 
     def test_every_fleet_machine_runs_the_conform_sweep_as_wide_as_its_cores_allow(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores, under either pool policy, the conformance sweep runs as many units as the machine has cores beside the verdict-update step alone, and beside a gated build lane (the corpus build and the verdict-update step) the cores less the build's main thread and threads, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores, under either pool policy, the conformance sweep runs as many units as the machine has cores with the corpus build skipped, and beside a gated corpus build the cores less the build's main thread and threads, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
@@ -2738,7 +2122,6 @@ class TestTheConformSweepWidth:
                     skip_gates=False,
                     skip_make_test=False,
                     skip_corpus=skip_corpus,
-                    verdict_update_runs=True,
                     pool_policy=pool_policy,
                     ncores=ncores,
                     total_bytes=total_bytes,
@@ -2747,7 +2130,7 @@ class TestTheConformSweepWidth:
                 assert ac.conform_job_budget(**gated) == width
                 assert ac.conform_job_derivation(**gated).startswith(f"{width} at ")
                 _per_unit, coresident, _cap = ac._conform_fit_terms(**gated)
-                assert coresident > 0
+                assert coresident > 0 or (skip_corpus and pool_policy == "queue")
                 assert (
                     memory_budget.how_many_fit(
                         ac.CONFORM_SWEEP_UNIT_BYTES, coresident_bytes=coresident, total_bytes=total_bytes
@@ -2772,7 +2155,7 @@ class TestTheConformSweepWidth:
             )
 
     def test_beside_a_corpus_build_the_conform_sweep_takes_the_cores_the_build_leaves(self):
-        """Beside a corpus build the conformance sweep's cap is the cores less the build's processes, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The verdict-update step's refill pool is not subtracted. The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
+        """Beside a corpus build the conformance sweep's cap is the cores less the build's processes, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         configs = len(ACCEPTANCE_CONFIGS)
@@ -2781,9 +2164,6 @@ class TestTheConformSweepWidth:
         make_test = ac.make_test_pool_width(ncores=40)
         beside: dict[str, Any] = dict(wide, skip_corpus=False, ncores=40)
         assert ac.conform_job_budget(**beside, pool_policy="queue") == 40 - 1 - corpus
-        assert (
-            ac.conform_job_budget(**beside, pool_policy="queue", verdict_update_runs=True) == 40 - 1 - corpus
-        )
         assert 40 - 1 - corpus - make_test == 0
         assert ac.conform_job_budget(**beside, pool_policy="overlap") == configs
         assert ac.conform_job_derivation(**beside, pool_policy="queue").endswith(
@@ -2816,7 +2196,7 @@ class TestTheConformSweepWidth:
         assert _argv(by_name["run_m1"])[5:7] == ["--jobs", str(plan.sweep_jobs)]
 
     def test_the_plan_prints_the_conform_sweep_width_with_its_derivation(self):
-        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the corpus build when it runs, plus gate:make-test's pool under the overlap policy; no plan runs the verdict-update step. For a pass whose corpus build does not run, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep."""
+        """Every Lane conform line that runs the conformance sweep quotes its width, the constant it divides by, and the derivation over the flags the plan resolved. The co-resident term is the corpus build when it runs, plus gate:make-test's pool under the overlap policy. For a pass whose corpus build does not run, the line says so and prints no co-resident term unless gate:make-test's pool runs beside the conformance sweep."""
         machine: dict[str, Any] = dict(ncores=16, total_bytes=MACHINE_32_GIB)
         cases = {
             "queued": _plan(pool_policy="queue", **machine),
@@ -2832,7 +2212,6 @@ class TestTheConformSweepWidth:
             in _lane_conform_line(cases["overlap"])
         )
         for plan in cases.values():
-            assert not plan.runs("verdict-update")
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **machine)
             assert (
@@ -2866,13 +2245,12 @@ class TestTheConformSweepWidth:
         """The plan line quotes the derivation, and it and the width come from the same three terms, so in every case the clause starts with the width it explains."""
         for total_bytes in (MACHINE_32_GIB, 20_000_000_000):
             for skip_make_test in (False, True):
-                for skip_corpus, verdict_update_runs in itertools.product((False, True), repeat=2):
+                for skip_corpus in (False, True):
                     for pool_policy in ac.POOL_POLICIES:
                         kw: dict[str, Any] = dict(
                             skip_gates=False,
                             skip_make_test=skip_make_test,
                             skip_corpus=skip_corpus,
-                            verdict_update_runs=verdict_update_runs,
                             pool_policy=pool_policy,
                             ncores=10,
                             total_bytes=total_bytes,
@@ -2881,11 +2259,9 @@ class TestTheConformSweepWidth:
                         assert ac.conform_job_derivation(**kw).startswith(f"{width} at ")
 
 
-def test_the_land_holds_less_than_either_build_lane_step_before_it():
-    """The land follows the corpus build and the verdict update in the build lane, and the lane's reservation (`_conform_build_lane`) covers the larger of those two, so it covers the land only while the land's constant stays below what each holds at any width: the corpus build's process and launcher together, and the verdict update's process."""
-    assert ac.LAND_BYTES < min(
-        ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES, ac.STANDING_FILL_PARENT_BYTES
-    )
+def test_the_land_holds_less_than_the_build_lane_step_before_it():
+    """The land follows the corpus build in the build lane, and the lane's reservation (`_conform_build_lane`) covers the build, so it covers the land only while the land's constant stays below what the build holds at any width, its process and launcher together."""
+    assert ac.LAND_BYTES < ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
@@ -3189,7 +2565,7 @@ def test_dry_run_renders_concurrency():
     assert "Lane conform                     : SKIPPED (--skip-conform)" in _plan_text(
         _plan(skip_conform=True)
     )
-    assert "corpus-build --jobs" not in text and "--standing-fill-jobs" not in text
+    assert "corpus-build --jobs" not in text
 
     by_name = {step.name: step for step in plan.steps}
     assert _argv(by_name["run_m1"])[1:6] == ["run", "python", "-m", "rebuild.pipeline.run_m1", "--jobs"]
@@ -3364,7 +2740,7 @@ def test_contracts_summary_tracks_the_runtime_decision(planned_skip, runtime):
 
 
 def test_the_summary_leads_with_the_review_diff_line_when_it_has_one():
-    """The summary's lines start with the table-diff corpus's `review diff` line when the pass's readiness gives one (`readiness_block`), and name no carry, verdict update, complaint list or review facts, which no pass runs."""
+    """The summary's lines start with the table-diff corpus's `review diff` line when the pass's readiness gives one (`readiness_block`), and name no carry or review facts, which no pass runs."""
     lines = ac.summary_cycle_lines(
         _green_report(),
         _plan(),
@@ -3375,10 +2751,10 @@ def test_the_summary_leads_with_the_review_diff_line_when_it_has_one():
     bare = ac.summary_cycle_lines(_green_report(), _plan(), [])
     assert bare[0].startswith("  job costs ")
     for line in lines:
-        for gone in ("carry output", "verdict update", "complaint groups", "review facts", "ledger coverage"):
+        for gone in ("carry output", "review facts", "ledger coverage"):
             assert gone not in line
     payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
-    for gone in ("carry_out", "carry_lines", "merge_status", "facts_status", "complaints_status"):
+    for gone in ("carry", "facts_status"):
         assert gone not in payload
 
 
@@ -3394,7 +2770,6 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "corpus_jobs": None,
         "corpus_gates_idle_jobs": None,
         "signature_jobs": None,
-        "standing_fill_jobs": None,
         "make_test_workers": plan.make_test_workers,
         "contracts_workers": plan.contracts_workers,
         "contracts_after_units": False,
@@ -3431,7 +2806,7 @@ def test_cycle_summary_payload_records_an_assets_refresh():
 
 
 def test_the_land_row_says_whether_the_land_journaled_a_base_or_sets_and_clears():
-    """The land row names what the land journaled, so whether a land that moved the stamp wrote a base shows in the cycle's output and not only in the journal, and says when the land left the store in place because the verdict update changed nothing."""
+    """The land row names what the land journaled, so whether a land that moved the stamp wrote a base shows in the cycle's output and not only in the journal, and says when the land left the store in place because the prepared store changed nothing."""
     landed = {"landed": True, "records": 1200, "new_stamp": "B", "locked_s": 0.4}
     as_base = {**landed, "journal_base": True, "journal_sets": 1200, "journal_clears": 0}
     as_diff = {**landed, "journal_base": False, "journal_sets": 3, "journal_clears": 1500}
@@ -3441,7 +2816,7 @@ def test_the_land_row_says_whether_the_land_journaled_a_base_or_sets_and_clears(
     )
     assert "journaled" not in ac.land_detail({**landed, "journal_base": None})
     assert ac.land_detail({**landed, "journal_base": None, "store_kept": True, "overlaid": 2}) == (
-        "left the store's 1,200 verdicts in place on B, since the verdict update changed nothing, "
+        "left the store's 1,200 verdicts in place on B, since the prepared store changed nothing, "
         "2 saved during the pass, store locked 0.4 s"
     )
 
@@ -3458,13 +2833,12 @@ def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_w
 
 
 def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_skips():
-    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1, and the table-diff corpus build, which takes none, and the verdict update, which no pass runs, never record one. The gates-only rerun still runs the oracle at the sweep width, so that width stays."""
+    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1, and the table-diff corpus build, which takes none, never records one. The gates-only rerun still runs the oracle at the sweep width, so that width stays."""
     widths = (
         "sweep_jobs",
         "corpus_jobs",
         "corpus_gates_idle_jobs",
         "signature_jobs",
-        "standing_fill_jobs",
         "make_test_workers",
         "contracts_workers",
         "conform_jobs",
@@ -3492,11 +2866,7 @@ def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_
         None,
         None,
     )
-    assert (gates_off["corpus_jobs"], gates_off["signature_jobs"], gates_off["standing_fill_jobs"]) == (
-        None,
-        None,
-        None,
-    )
+    assert (gates_off["corpus_jobs"], gates_off["signature_jobs"]) == (None, None)
     proved = _green_report()
     proved.conform_proven = True
     assert ac.cycle_summary_payload(proved, [], _plan(), "ok")["plan"]["conform_jobs"] is None
@@ -4146,7 +3516,7 @@ def test_the_plan_names_the_processes_of_the_corpus_build_that_will_run(monkeypa
     corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
     processes = f"the corpus build's process and its {corpus} threads"
     assert ac.contracts_pool_derivation(**kw).endswith(f"less {processes}")
-    assert ac.conform_job_derivation(**kw, skip_corpus=False, verdict_update_runs=False).endswith(
+    assert ac.conform_job_derivation(**kw, skip_corpus=False).endswith(
         f"since 10 cores less {processes} leave {10 - 1 - corpus}"
     )
 
@@ -5249,35 +4619,22 @@ def test_contracts_fingerprint_ignores_prose_in_runes(tmp_path):
 
 
 def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
-    """The closure includes the divergence ledger and the standing approvals, with prose-insensitive hashes like a rune's. Tests across the suite read the review facts and class ids from the divergence ledger and each rule's `match` from the standing approvals, never a `why` or `note`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class or changing a rule's verdict still changes the key."""
+    """The closure includes the divergence ledger with a prose-insensitive hash like a rune's. Tests across the suite read the review facts and class ids from the divergence ledger, never a `why`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class still changes the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
     ledger.write_text("- id: junction-moved\n  status: by-design\n  no_verdict: true\n  why: one\n")
-    standing = tmp_path / "rebuild" / "standing-approvals.yaml"
-    standing.write_text(
-        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
-    )
     before = ac.contracts_fingerprint(tmp_path)
 
     ledger.write_text(
         "# a header nobody classifies by\n- id: junction-moved\n  status: by-design\n  no_verdict: true\n  why: two, at greater length\n"
-    )
-    standing.write_text(
-        "format: ams-standing-approvals/1\n# a header nobody matches on\nrules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
     )
     assert ac.contracts_fingerprint(tmp_path) == before
 
     ledger.write_text(
         "- id: junction-moved\n  status: by-design\n  no_verdict: false\n  why: two, at greater length\n"
     )
-    reclassified = ac.contracts_fingerprint(tmp_path)
-    assert reclassified != before
-
-    standing.write_text(
-        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: neither\n    note: two, at greater length\n"
-    )
-    assert ac.contracts_fingerprint(tmp_path) != reclassified
+    assert ac.contracts_fingerprint(tmp_path) != before
 
 
 def test_every_harness_file_moves_the_contracts_key(tmp_path):
@@ -5413,7 +4770,7 @@ def _write_corpus(corpus, recorded, stamp, *, sidecars=True, mode="table-diff", 
 
 
 def test_promotable_corpus_names_a_current_staged_corpus_and_refuses_the_rest(tmp_path):
-    """`promotable_corpus` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a staged corpus whose fingerprint no longer matches, one stamped older than the live corpus, and an unreadable manifest on either side. `corpus_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it prevents `merge_verdicts` from refusing the store after the move."""
+    """`promotable_corpus` returns a directory a live pass may move into place, so each precondition must reject on its own: a missing directory, the live directory itself, a staged corpus whose fingerprint no longer matches, one stamped older than the live corpus, and an unreadable manifest on either side. `corpus_build_skippable` cannot detect the stamp case, because `generated_at` is the newest input mtime, not a build time. Rejecting it keeps a pass from landing a corpus older than the one the store was carried onto."""
     expected = _promotion_root(tmp_path)
     live = tmp_path / "rebuild" / "out" / "review"
     staged = tmp_path / "var" / "staged-review"
@@ -5717,38 +5074,6 @@ def test_a_ledger_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_pa
     assert reclassified["contracts"] != upstream["contracts"]
 
 
-def test_a_standing_note_reword_moves_the_verdict_update_key_and_nothing_else(tmp_path):
-    """The standing fill quotes a rule's `note` into every verdict note it writes, so rewording a note must change the verdict-update key. The corpus and every build key stay unchanged, and so does the lane key, because the tests read each rule's `match` and not its prose. Changing a rule's verdict must change the lane key and leave the run_m1 key unchanged."""
-    root = _fake_run_m1_root(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".gitignore").write_text("rebuild/out/\n")
-    standing = root / "rebuild" / "standing-approvals.yaml"
-    standing.write_text(
-        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one\n"
-    )
-    master = root / "verdicts-autosave.json"
-    master.write_text("{}")
-    corpus = _stamped_corpus(root)
-    assert ac.corpus_build_skippable(root, corpus)
-    upstream = _upstream_keys(root)
-    verdict_update_key = ac.verdict_update_skip_fingerprint(root, corpus, master)
-    assert verdict_update_key is not None
-
-    standing.write_text(
-        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: approve\n    note: one, said at greater length\n"
-    )
-    assert ac.verdict_update_skip_fingerprint(root, corpus, master) != verdict_update_key
-    assert ac.corpus_build_skippable(root, corpus)
-    assert _upstream_keys(root) == upstream
-
-    standing.write_text(
-        "format: ams-standing-approvals/1\nrules:\n  - id: r1\n    verdict: neither\n    note: one, said at greater length\n"
-    )
-    flipped = _upstream_keys(root)
-    assert flipped["run_m1"] == upstream["run_m1"]
-    assert flipped["contracts"] != upstream["contracts"]
-
-
 def test_the_review_facts_pins_are_outside_the_rebuild_closure(tmp_path):
     """The review-facts step rewrites the pins during a pass, so hashing them would change the gate's key before its green record is written on every pass that refreshes them. No test reads them, so they are exempt and a refresh leaves the key unchanged."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
@@ -5775,7 +5100,7 @@ def test_dry_run_plan_skip_run_m1_and_corpus_lands_nothing():
     assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
     assert by_name["corpus-build"].argv is None
     assert "land" not in by_name and not plan.land
-    assert "review-facts" not in by_name and "verdict-update" not in by_name
+    assert "review-facts" not in by_name
     assert by_name["gate:rebuild-contracts"].argv is not None
 
 
@@ -6899,33 +6224,6 @@ def test_the_corpus_build_runs_with_the_allocators_large_cache_off_on_macos_alon
     assert seen == [("corpus-build", {"MallocLargeCache": "0"}), ("corpus-build", None)]
 
 
-def test_the_verdict_update_runs_with_the_allocators_large_cache_off_on_macos_alone(monkeypatch):
-    """On macOS the cycle spawns the verdict update with `MallocLargeCache=0` overlaid on its environment through the step's `env`, since the allocator reads it as the process starts and the standing fill's refill workers inherit it; elsewhere it passes no environment, which leaves the child the cycle's own. Either way the child runs the argv the plan holds."""
-    plan = _verdict_update_plan()
-    seen: list[tuple[str, list[str] | None, dict[str, str] | None]] = []
-
-    def spawn(name, argv, *, emit, registry, stream, env=None):
-        seen.append((name, argv, env))
-        return _step(name, 0, stdout=_verdict_update_stdout(*_FULL_VERDICT_UPDATE))
-
-    for platform in ("darwin", "linux"):
-        monkeypatch.setattr(ac.sys, "platform", platform)
-        report = ac.CycleReport()
-        assert (
-            ac._do_verdict_update(
-                report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=plan
-            )
-            == []
-        )
-        assert report.verdict_update_complete
-    argv = plan.argv("verdict-update")
-    assert argv
-    assert seen == [
-        ("verdict-update", argv, {"MallocLargeCache": "0"}),
-        ("verdict-update", argv, None),
-    ]
-
-
 def test_the_invariant_diff_prints_under_the_review_facts_step_in_full(tmp_path, capsys, monkeypatch):
     """When the invariant block moved, its diff is what a commit of the pins accepts, so it is printed in full: verbatim, with no step column in front so it can be copied, and without the volatile hunks. The diff is a substep of review-facts, so its lines go to that step's log and column, with no second banner and no log of its own."""
     plan = _review_facts_plan()
@@ -7074,7 +6372,7 @@ def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
 
 
 def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path):
-    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the corpus build opens a manifest, the verdict update splits its sections), so the closing line is written by the stage that reads them."""
+    """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the corpus build opens a manifest), so the closing line is written by the stage that reads them."""
     corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16, duplicate_groups=402)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
@@ -7458,345 +6756,6 @@ def test_run_m1_failure_still_leaves_the_rebuild_suite_not_run(monkeypatch, caps
     assert rc == 1
     assert report.gate_contracts == "not run (run_m1 gate failed)"
     assert "Manual-pin gate failed" in capsys.readouterr().out
-
-
-def test_verdict_update_skip_fingerprint_moves_with_every_input(tmp_path):
-    """The verdict-update key moves with every input. The standing approvals are hashed by raw bytes here, although the rebuild lanes give them a prose-insensitive hash: the fill copies each rule's `note` into the verdict note it writes, so a reworded note changes what the verdict update writes and must re-run it."""
-    corpus = tmp_path / "review"
-    corpus.mkdir()
-    (corpus / "manifest.json").write_text(
-        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
-    )
-    master = tmp_path / "verdicts-autosave.json"
-    master.write_text("{}")
-    (tmp_path / "rebuild").mkdir()
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
-
-    base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    assert base is not None
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, None) is None
-
-    listed = tmp_path / "rebuild" / "accepted-units.txt"
-    listed.write_text("# ams-accepted-units/1 closed_at=2026-11-05T18:00:00Z\nu-1AAAAAAAAAA\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
-    listed.unlink()
-
-    master.write_text('{"verdicts": []}')
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
-
-    master.write_text("{}")
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: [{}]\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
-
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
-        "rules:\n  - id: r1\n    verdict: approve\n    note: one\n"
-    )
-    noted = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text(
-        "rules:\n  - id: r1\n    verdict: approve\n    note: two, at greater length\n"
-    )
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != noted
-
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
-    (corpus / "manifest.json").write_text(
-        json.dumps({"generated_at": "2026-07-18T00:00:00Z", "inputs_fingerprint": {"runes": "aaa"}})
-    )
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
-
-    (corpus / "manifest.json").write_text(
-        json.dumps(
-            {
-                "generated_at": "2026-07-17T20:24:44Z",
-                "inputs_fingerprint": {"runes": "aaa", "static": "refreshed"},
-            }
-        )
-    )
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
-
-    (corpus / "manifest.json").write_text(json.dumps({"generated_at": "2026-07-17T20:24:44Z"}))
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) is None
-
-
-def test_verdict_update_skip_fingerprint_covers_its_own_code(tmp_path):
-    """The verdict-update key covers the verdict update's own code, which lives in rebuild/tools/, where no other fingerprint reads it. Without it, a fix to a fill's matcher would be skipped as already checked. artifact_cycle.py, cycle_timings.py, memory_budget.py and peak_rss.py share that directory but run no step of the verdict update, so editing one leaves the key unchanged; serve.py and review_server.py, which the verdict update imports, move it, and so do landing.py, which puts the prepared store in place, and accepted.py, through which every step reads the accepted list."""
-    corpus = tmp_path / "review"
-    corpus.mkdir()
-    (corpus / "manifest.json").write_text(
-        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
-    )
-    master = tmp_path / "verdicts-autosave.json"
-    master.write_text("{}")
-    tools = tmp_path / "rebuild" / "tools"
-    tools.mkdir(parents=True)
-    (tmp_path / "rebuild" / "review").mkdir()
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
-    for name in ("duplicate_verdicts.py", "standing_verdicts.py", "carry_verdicts.py"):
-        (tools / name).write_text("x = 1\n")
-    (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 1\n")
-
-    base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    assert base is not None
-    for edited in (
-        tools / "duplicate_verdicts.py",
-        tools / "standing_verdicts.py",
-        tools / "carry_verdicts.py",
-    ):
-        original = edited.read_text()
-        edited.write_text("x = 2\n")
-        assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base, edited.name
-        edited.write_text(original)
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == base
-
-    (tmp_path / "rebuild" / "review" / "serve.py").write_text("y = 2\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != base
-
-    outside = ("artifact_cycle.py", "cycle_timings.py", "memory_budget.py", "peak_rss.py")
-    for name in outside:
-        (tools / name).write_text("x = 1\n")
-    unmoved = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    for name in outside:
-        (tools / name).write_text("x = 2\n")
-        assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) == unmoved, name
-        (tools / name).write_text("x = 1\n")
-
-    (tools / "review_server.py").write_text("x = 1\n")
-    probed = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    (tools / "review_server.py").write_text("x = 2\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != probed
-
-    landing_module = tmp_path / "rebuild" / "review" / "landing.py"
-    landing_module.write_text("z = 1\n")
-    landed = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    landing_module.write_text("z = 2\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != landed
-
-    accepted_module = tmp_path / "rebuild" / "review" / "accepted.py"
-    accepted_module.write_text("z = 1\n")
-    read = ac.verdict_update_skip_fingerprint(tmp_path, corpus, master)
-    accepted_module.write_text("z = 2\n")
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, master) != read
-
-
-def test_verdict_update_skip_fingerprint_sees_a_master_that_is_not_the_autosave(tmp_path):
-    """The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the store in the auto-resolution and hold verdicts the store has never had."""
-    corpus = tmp_path / "review"
-    corpus.mkdir()
-    (corpus / "manifest.json").write_text(
-        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
-    )
-    (tmp_path / "verdicts-autosave.json").write_text("{}")
-    export = tmp_path / "verdicts-export.json"
-    export.write_text('{"verdicts": [1]}')
-    before = ac.verdict_update_skip_fingerprint(tmp_path, corpus, export)
-    export.write_text('{"verdicts": [1, 2]}')
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, export) != before
-
-
-def test_verdict_update_skip_fingerprint_reads_the_stores_records_not_its_bytes(tmp_path, monkeypatch):
-    """Every write stamps the store with a new `exported_at`, and the review server, the merge and the land lay the records out one per line, where a restore and older stores indent them. Neither moves the key, and a changed record does. A master that resolved to the store is named `autosave` in the key, so spelling its path another way changes nothing. The store's digest streams the records a file in unit order holds, as every writer lays them out, and both of its reads read the file it opened, so a writer that renames another over the path between them changes neither. A file out of that order is read whole and sorted in a short child handed the open file, for the value a stream of the same records gives, and a child that answers nothing raises `StoreReadFailed`."""
-    corpus = tmp_path / "review"
-    corpus.mkdir()
-    (corpus / "manifest.json").write_text(
-        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
-    )
-    (tmp_path / "rebuild").mkdir()
-    (tmp_path / "rebuild" / "standing-approvals.yaml").write_text("rules: []\n")
-    autosave = tmp_path / "verdicts-autosave.json"
-    records = [
-        {"unit": "u-2", "verdict": "reject", "note": "", "at": "2026-07-17T21:00:00Z"},
-        {"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"},
-    ]
-
-    def store(exported_at, verdicts, indent=None):
-        document = {
-            "format": "ams-review-verdicts/1",
-            "manifest_generated_at": "2026-07-17T20:24:44Z",
-            "exported_at": exported_at,
-            "verdicts": verdicts,
-        }
-        autosave.write_text(json.dumps(document, indent=indent))
-
-    store("2026-07-17T21:00:00Z", records, indent=2)
-    base = ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave)
-    store("2026-07-17T22:30:00Z", list(reversed(records)))
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == base
-    held = landing.read_store(autosave)
-    assert held is not None
-    autosave.write_bytes(landing.document_bytes(held))
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == base
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, corpus / ".." / autosave.name) == base
-    store("2026-07-17T22:30:00Z", [records[0], {**records[1], "verdict": "either"}])
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != base
-
-    store_read = ac._store_read
-    read_whole: list[str] = []
-    monkeypatch.setattr(
-        ac,
-        "_store_read",
-        lambda request, **kwargs: read_whole.append(request["read"]) or store_read(request, **kwargs),
-    )
-    store("2026-07-17T22:30:00Z", list(reversed(records)))
-    streamed = ac.verdicts_records_digest(autosave)
-    assert read_whole == []
-    store("2026-07-17T22:30:00Z", records)
-    assert ac.verdicts_records_digest(autosave) == streamed and read_whole == ["digest"]
-    store("2026-07-17T22:30:00Z", list(reversed(records)))
-    renamed = tmp_path / "renamed.json"
-    renamed.write_text(json.dumps({**json.loads(autosave.read_text()), "verdicts": records[:1]}))
-    read_tail = ac.accepted.read_tail
-
-    def renamed_over(path, each=None):
-        tail = read_tail(path, each)
-        os.replace(renamed, autosave)
-        return tail
-
-    monkeypatch.setattr(ac.accepted, "read_tail", renamed_over)
-    assert ac.verdicts_records_digest(autosave) == streamed and read_whole == ["digest"]
-    monkeypatch.setattr(ac.accepted, "read_tail", read_tail)
-    store("2026-07-17T22:30:00Z", records)
-    monkeypatch.setattr(ac, "_STORE_READ_CHILD", "import sys; sys.exit('the child died')")
-    with pytest.raises(ac.StoreReadFailed, match="for the digest read exited 1"):
-        ac.verdicts_records_digest(autosave)
-
-
-def test_a_store_record_written_by_other_code_is_ignored(tmp_path):
-    """The store record answers for the code that wrote it alone (`status.store_record_code`). A record holding a wrong digest and a wrong carry field for the store's very bytes answers both readers while it carries this code's value, and once it carries another's, the readers digest and parse the store again and record their own fields under this code's value."""
-    stamp = "2026-07-17T20:24:44Z"
-    autosave = tmp_path / "verdicts-autosave.json"
-    records = [
-        {"unit": f"u-{n}", "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"} for n in (1, 2, 3)
-    ]
-    autosave.write_text(
-        json.dumps(
-            {
-                "format": "ams-review-verdicts/1",
-                "manifest_generated_at": stamp,
-                "exported_at": stamp,
-                "verdicts": records,
-            }
-        )
-    )
-    record = status.store_record_path(tmp_path)
-    key = hashlib.sha256(autosave.read_bytes()).hexdigest()
-    digest = ac.verdicts_records_digest(autosave)
-    planted = {"digest": "0" * 64, "carry": {"stamp": stamp, "count": 7, "accepted": None, "overridden": []}}
-
-    def plant(code: str) -> None:
-        record.parent.mkdir(parents=True, exist_ok=True)
-        record.write_text(json.dumps({"code": code, "files": {key: planted}}))
-
-    plant(status.store_record_code())
-    assert ac.verdicts_records_digest(autosave, record) == "0" * 64
-    assert (status.resolve_carry_source(tmp_path, stamp, autosave) or {}).get("count") == 7
-    plant("f" * 64)
-    assert ac.verdicts_records_digest(autosave, record) == digest != "0" * 64
-    assert (status.resolve_carry_source(tmp_path, stamp, autosave) or {}).get("count") == 3
-    held = json.loads(record.read_text())
-    assert held["code"] == status.store_record_code()
-    assert held["files"] == {
-        key: {"digest": digest, "carry": {"stamp": stamp, "count": 3, "accepted": None, "overridden": []}}
-    }
-
-
-def test_the_key_a_pass_records_over_its_landed_store_is_the_next_plans_key(tmp_path, monkeypatch):
-    """After a land that laid nothing over the prepared store, the cycle keys the green on the store the land wrote or left in place (`store=`), and the next plan keys the live store: the two match while no save has changed a record, whatever `exported_at` each carries, and a save made after the land moves the next plan's key. The master that resolved to the live store is named `autosave` both times. When the live store is the file the land left, as when no save came after it, the next plan takes the store's digest from the store record the key after the land filled, and digests nothing."""
-    corpus = tmp_path / "review"
-    corpus.mkdir()
-    (corpus / "manifest.json").write_text(
-        json.dumps({"generated_at": "2026-07-17T20:24:44Z", "inputs_fingerprint": {"runes": "aaa"}})
-    )
-    autosave = tmp_path / "verdicts-autosave.json"
-    landed = tmp_path / "var" / "cycle" / "run" / ac.landing.LANDED_NAME
-    landed.parent.mkdir(parents=True)
-    record = {"unit": "u-1", "verdict": "approve", "note": "", "at": "2026-07-17T21:00:00Z"}
-
-    def document(exported_at, verdicts):
-        return json.dumps(
-            {
-                "format": "ams-review-verdicts/1",
-                "manifest_generated_at": "2026-07-17T20:24:44Z",
-                "exported_at": exported_at,
-                "verdicts": verdicts,
-            }
-        )
-
-    landed.write_text(document("2026-07-17T21:00:00Z", [record]))
-    autosave.write_text(document("2026-07-17T23:00:00Z", [record]))
-    recorded = ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave, store=landed)
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == recorded
-    autosave.write_text(document("2026-07-17T23:00:00Z", [{**record, "verdict": "reject"}]))
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) != recorded
-    autosave.unlink()
-    os.link(landed, autosave)
-    digested: list[object] = []
-    monkeypatch.setattr(status, "records_digest", digested.append)
-    assert ac.verdict_update_skip_fingerprint(tmp_path, corpus, autosave) == recorded
-    assert digested == []
-
-
-def test_verdict_update_completed_requires_its_own_completion_line():
-    """The completion line names the schedule, and on a pass that lands it also says whether the update left the prepared store as its snapshot (`r_unchanged=true` or `false`); any other tail is not the update's line."""
-    report = ac.CycleReport()
-    assert ac._verdict_update_completed(report) is False
-    report, _failures = _run_verdict_update(
-        _plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE, complete=False)
-    )
-    assert ac._verdict_update_completed(report) is False
-    report, _failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE))
-    assert ac._verdict_update_completed(report) is True
-    schedule = "duplicate, standing, duplicate\n"
-    for tail, completed in (
-        (" r_unchanged=true", True),
-        (" r_unchanged=false", True),
-        (" r_unchanged=yes", False),
-    ):
-        stdout = _verdict_update_stdout(*_FULL_VERDICT_UPDATE).replace(schedule, schedule[:-1] + tail + "\n")
-        report, _failures = _run_verdict_update(_plan(), stdout)
-        assert ac._verdict_update_completed(report) is completed, tail
-
-
-def test_verdict_update_completion_requires_a_successful_child():
-    report, failures = _run_verdict_update(
-        _plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE), returncode=3
-    )
-    assert failures == ["the verdict update failed (exit 3)"]
-    assert ac._verdict_update_completed(report) is False
-
-
-@pytest.mark.parametrize("returncode", [0, 1])
-def test_verdict_update_completion_rejects_a_failed_phase(returncode):
-    stdout = _verdict_update_stdout(
-        *_FULL_VERDICT_UPDATE[:7],
-        ("duplicate-merge-2", ["boom"]),
-        failed="duplicate-merge-2",
-    )
-    stdout += console.COMPLETE_LINE + "duplicate, standing, duplicate\n"
-    report, failures = _run_verdict_update(_plan(), stdout, returncode=returncode)
-    assert failures == ["duplicate-merge round 2 failed"]
-    assert ac._verdict_update_completed(report) is False
-
-
-def test_verdict_update_completion_rejects_failed_complaints():
-    stdout = _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:-1], ("complaints", ["boom"]), failed="complaints")
-    stdout += console.COMPLETE_LINE + "duplicate, standing, duplicate\n"
-    report, failures = _run_verdict_update(_plan(), stdout, returncode=2)
-    assert failures == []
-    assert report.complaints_ok is False
-    assert report.complaints_status == "FAILED (exit 2) — informational"
-    assert ac._verdict_update_completed(report) is False
-
-
-def test_verdict_update_completion_line_stays_out_of_the_complaints_section():
-    sections = ac.verdict_update_sections(_verdict_update_stdout(*_FULL_VERDICT_UPDATE))
-    assert sections["complaints"] == ["no open complaints", "[t] complaints 0.1s"]
-
-
-def test_verdict_update_output_without_a_complaints_section_completes():
-    report, failures = _run_verdict_update(_plan(), _verdict_update_stdout(*_FULL_VERDICT_UPDATE[:-1]))
-    assert failures == []
-    assert ac._verdict_update_completed(report) is True
-    assert report.complaints_ok is None
 
 
 def _settled_repo(tmp_path, monkeypatch):
@@ -8894,43 +7853,6 @@ def test_a_store_read_child_that_dies_stops_a_pass_at_its_catch_up(tmp_path, mon
     assert cycles == [] and ac.AUTOSAVE.read_bytes() == before
 
 
-def test_a_pass_stops_a_standing_daemon_before_its_first_step_and_a_dry_run_leaves_it(
-    tmp_path, monkeypatch, capsys
-):
-    """A pass that is not a dry run sends a standing daemon that answers at the default socket the `stop` request before its first step, waits for its socket to go, and prints one line naming it; a dry run sends it nothing, and with no daemon answering a pass prints nothing about one. A listener at the scratch socket stands in for the daemon."""
-    _settled_repo(tmp_path, monkeypatch)
-    monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
-    requests: list[dict] = []
-    cycles: list[list[dict]] = []
-    monkeypatch.setattr(ac, "_run_cycle", lambda plan, *_, **__: cycles.append(list(requests)) or 0)
-    socket_path = standing_client.SOCKET
-    listener = standing_client.bind(socket_path)
-
-    def serve() -> None:
-        connection, _address = listener.accept()
-        with connection, connection.makefile("rb") as reader:
-            requests.append(json.loads(reader.readline()))
-            os.unlink(socket_path)
-            connection.sendall(json.dumps({"ok": True, "pid": 4242}).encode() + b"\n")
-
-    daemon = threading.Thread(target=serve, daemon=True)
-    daemon.start()
-    try:
-        assert ac.main(["--dry-run"]) == 0
-        assert requests == [] and "standing daemon" not in capsys.readouterr().out
-        assert ac.main([]) == 0
-        daemon.join(10)
-    finally:
-        listener.close()
-    assert cycles == [[{"tool": "stop"}]] and not os.path.lexists(socket_path)
-    stopped = [line for line in capsys.readouterr().out.splitlines() if "standing daemon" in line]
-    assert stopped == [
-        f"Stopped the standing daemon (pid 4242) at {socket_path} before the pass's first step; make standing-daemon starts it again."
-    ]
-    assert ac.main([]) == 0
-    assert "standing daemon" not in capsys.readouterr().out and len(cycles) == 2
-
-
 def test_a_dry_run_skips_the_recovery_while_a_pass_holds_the_lock(tmp_path, monkeypatch, capsys):
     """A dry run never waits on the pass lock. When a pass holds it, the dry run leaves the superseded corpus to that pass, whose land may be between its renames, and still prints its plan."""
     _settled_repo(tmp_path, monkeypatch)
@@ -9091,7 +8013,7 @@ def _still_meter(device):
 
 
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
-    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed verdict-update and review-facts stages spawn nothing and get no line. With a write meter, each step line carries its window and the run line the pass's `written` block, and the report keeps both for the summary."""
+    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed review-facts stage spawns nothing and gets no line. With a write meter, each step line carries its window and the run line the pass's `written` block, and the report keeps both for the summary."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"
@@ -9202,7 +8124,7 @@ def test_an_assets_refresh_tells_the_open_tabs_to_reload_onto_the_new_app_files(
     )
 
     assert rc == 0
-    assert [path for path in sent if path != "verdict-update"] == ["ams:assets/static-new"]
+    assert sent == ["ams:assets/static-new"]
 
 
 def test_no_reload_is_sent_after_a_failed_assets_refresh(monkeypatch):
@@ -9234,7 +8156,7 @@ def test_the_suites_switch_keeps_a_mocked_pass_from_reloading_the_live_tabs(monk
         spawn=lambda name, argv, **k: _step(name),
     )
 
-    assert [path for path in sent if path != "verdict-update"] == []
+    assert sent == []
 
 
 def _swapping_land(sent: list[str], source: Path):
@@ -9502,7 +8424,7 @@ def test_a_rebuilding_pass_lands_its_corpus_and_carries_the_store_with_the_saves
 
 
 def test_the_land_always_allows_orphans_and_the_cycle_takes_no_carry_flags(tmp_path, monkeypatch, capsys):
-    """Every planned land takes `--allow-orphans`: a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep, so no pass refuses over them. The flags that named the verdict update's master and form are gone from the cycle's command line."""
+    """Every planned land takes `--allow-orphans`: a revert or a second edit orphans every verdict on the units it changes, which the orphan documents keep, so no pass refuses over them. The cycle's command line takes no flag that names a verdicts master or a form of carry."""
     _unsettled_repo(tmp_path, monkeypatch)
     _capable_server(monkeypatch)
     ran: list[ac.Plan] = []
@@ -9932,7 +8854,6 @@ def test_main_hands_its_run_id_and_its_counts_file_to_every_child_through_the_en
 ):
     """`main` puts its run id in the environment, and every child inherits it. gate:make-test's wrapper and run_m1's CLI record their own check line unless this variable is set, so it keeps each check to one line. It is set on this process, not passed in a child's argv, because it must survive a Make recipe. The pass's counts file goes the same way (`cycle_timings.OUTPUT_COUNTS_ENV`), so every write through `output_sink`'s helper in any child counts toward the pass: it exists, empty, while the pass runs, and is gone once `main` returns, here from a pass that ended without its run line. The autouse fixture in rebuild/conftest.py removes both variables after the test, because a leftover run id would silence every check-recording test the worker ran next."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_verdict_update_green("plu")
     monkeypatch.setenv(ct.CYCLE_RUN_ENV, "a-stale-run-id")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen = {}
@@ -9954,7 +8875,6 @@ def test_main_hands_its_run_id_and_its_counts_file_to_every_child_through_the_en
 def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop_dispositions):
     """`main` runs `_run_cycle` with SIGTERM and SIGHUP handlers that raise `CycleStopped`, so a signal that reaches only the driver still reaps the children, and it restores the previous handlers when the pass returns."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen = {}
 
@@ -9976,7 +8896,6 @@ def test_main_runs_the_pass_under_the_stop_handlers(tmp_path, monkeypatch, _stop
 def test_main_mints_one_run_directory_and_points_latest_at_it(tmp_path, monkeypatch):
     """`main` creates one log directory per pass, named by stamp and short sha (what a summary cites), and points `latest` at it (what an agent tails while the pass runs)."""
     _settled_repo(tmp_path, monkeypatch)
-    ac.record_verdict_update_green("plu")
     monkeypatch.setattr(ac, "server_listening", lambda port=ac.REVIEW_PORT: False)
     seen: dict[str, ac.Plan] = {}
 

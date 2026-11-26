@@ -1,4 +1,4 @@
-"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store with its accepted list and the complaint list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
+"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store with its accepted list after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
 
 Run it with the tree under test's own interpreter and code, never the harness's:
 
@@ -14,7 +14,6 @@ The output is one `ams-perf-fingerprint/1` document:
 - `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which a report names apart.
 - `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, its override section's among them, as one store, without the keys `STORE_STAMPS` names and without any record's `at`, since the fills stamp `at` with the corpus stamp. The projection is hashed as the store streams, a record at a time, through the tree's `accepted.read_tail` and `accepted.iter_records`, and a store out of order, or a tree without those readers, is parsed whole for the same value (`store_digest`).
 - `accepted`: the raw digest of the accepted list beside the store, `rebuild/accepted-units.txt`, null when there is none. Every reader of the store reads the units the list names as accepted and no pass writes it, so a pass that did shows up here and not in `verdicts`.
-- `complaints`: the complaint list as canonical JSON without the keys `COMPLAINT_STAMPS` names and without any `at` inside `groups`.
 - `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 - `audit`: the digest of the divergence audit's materialized form (`oracle.materialized_audit` from the tree, its head's parts inflated and merged into the whole file over the live rows), null for a tree with neither a head nor the single file. A pass that changes no audit row leaves it where it was.
 - `oracle_stores`: for each configuration the oracle stores' set head lists, or each `oracle-rows-<config>.tsv.gz` a tree from before the segment format holds, two digests of its materialized store (`oracle_cache.materialized_store` from the tree): `materialized`, the bytes, and `records`, the records' inflated lines each cut before its two trailing ages, the header line left out and the trailer kept. Every pass that writes the stores moves its pass ordinal, which the header carries and the ages are counted from, and moves the ages of the rows it re-derives on schedule, so `materialized` differs across any two passes that wrote the stores; `records` differs only where a record's verdicts or settled digest moved, or where a record was added or removed.
@@ -55,7 +54,6 @@ SIDECAR_STAMPS = (
     "family_keys_digest",
 )
 STORE_STAMPS = ("manifest_generated_at", "exported_at")
-COMPLAINT_STAMPS = ("manifest_generated_at", "since")
 STORES = ("unit-cache.ndjson.gz", "ink-signatures.tsv.gz")
 STORE = STORES[0]
 HEAD = f"{STORE}.head"
@@ -77,7 +75,6 @@ M1 = Path("rebuild/out/m1")
 REVIEW = Path("rebuild/out/review")
 AUTOSAVE = Path("verdicts-autosave.json")
 ACCEPTED = Path("rebuild/accepted-units.txt")
-COMPLAINTS = Path("tmp/complaints-data.json")
 FACTS_PINS = Path("rebuild/review-facts-pins.json")
 # The audit's single file and its head, and the oracle stores' set head, single files and trailer line (`oracle.AUDIT_NAME`, `oracle_cache.SET_HEAD_NAME`, `oracle_cache.store_path`, `oracle_cache.ROW_COUNT_TRAILER`), restated because the script imports nothing of the tree under test before `--root` is on its path, and nothing of the oracle unless a tree holds one.
 AUDIT = "divergence-audit.tsv"
@@ -346,17 +343,6 @@ def _parsed_store_digest(path: Path) -> str:
     )
 
 
-def complaints_digest(path: Path) -> str | None:
-    if not path.is_file():
-        return None
-    document = json.loads(path.read_bytes())
-    for key in COMPLAINT_STAMPS:
-        document.pop(key, None)
-    if "groups" in document:
-        document["groups"] = _without_at(document["groups"])
-    return sha256_bytes(canonical(document))
-
-
 class DigestMismatch(Exception):
     """Raised when a configuration's table digest, recomputed from its materialized rows, is not the crate's digest its windows head records."""
 
@@ -477,7 +463,6 @@ def fingerprint_tree(
         "corpus": corpus,
         "verdicts": store_digest(root / AUTOSAVE),
         "accepted": file_sha256(root / ACCEPTED) if (root / ACCEPTED).is_file() else None,
-        "complaints": complaints_digest(root / COMPLAINTS),
         "stores": stores,
         "review_facts_pins": file_sha256(pins) if pins.is_file() else None,
     }

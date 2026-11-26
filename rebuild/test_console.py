@@ -183,8 +183,8 @@ def test_node_test_events_read_tap_failures_and_not_a_zero_fail_count():
 
 def test_warning_events_catch_both_shapes_anything_here_prints():
     assert console.warning_events("WARNING: a verdict outside approve sits on a filled unit") is not None
-    assert console.warning_events("  WARNING: indented by the standing fill") == console.Warn(
-        "WARNING: indented by the standing fill"
+    assert console.warning_events("  WARNING: an indented warning") == console.Warn(
+        "WARNING: an indented warning"
     )
     assert console.warning_events("warning: retention pass failed") is not None
     assert (
@@ -250,7 +250,7 @@ def test_fmt_bytes_keeps_each_figure_under_a_thousand_of_its_unit():
 
 
 def test_console_imports_nothing_else_in_this_tree():
-    """The verdict update calls `console.phase`, so console and everything it imports are in the verdict-update key's code closure. An import of the timings journal or a width module would make an edit to it re-run the whole verdict update, although neither can change a verdict. rebuild/test_verdict_update_closure.py catches the effect; this test points at the import line in console.py."""
+    """The pipeline and the review build import console to print the protocol, so everything console imports is in their import closures. This test points at the import line in console.py."""
     tree = ast.parse(pathlib.Path(console.__file__).read_text(encoding="utf-8"))
     reached = set()
     for node in ast.walk(tree):

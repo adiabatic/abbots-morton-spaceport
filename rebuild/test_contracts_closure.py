@@ -895,7 +895,7 @@ def test_multiprocessing_child():
 def test_dynamic_import():
     import importlib
 
-    assert importlib.import_module("rebuild.tools.verdict_notes")
+    assert importlib.import_module("rebuild.tools.unicode_tables")
 '''
 
 
@@ -932,7 +932,7 @@ class TestTheRecorderEndToEnd:
         assert not tests["test_child.py::test_kernel_child"]["untraced_inputs"]
         assert tests["test_child.py::test_ordinary_child"]["untraced_inputs"]
         assert tests["test_child.py::test_multiprocessing_child"]["untraced_inputs"]
-        assert "rebuild/tools/verdict_notes.py" in tests["test_child.py::test_dynamic_import"]["reads"]
+        assert "rebuild/tools/unicode_tables.py" in tests["test_child.py::test_dynamic_import"]["reads"]
 
     def test_a_selection_file_keeps_its_tests_off_and_they_stay_collected(
         self, pytester, monkeypatch, tmp_path
@@ -1016,7 +1016,6 @@ CONFTEST_EDGES = {
         "rebuild/tools/closure_record.py",
         "rebuild/tools/cycle_paths.py",
         "rebuild/tools/cycle_timings.py",
-        "rebuild/tools/standing_client.py",
     },
 }
 

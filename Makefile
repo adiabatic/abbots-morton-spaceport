@@ -1,4 +1,4 @@
-.PHONY: all rebuild-fonts test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out review-accept review-snapshot-remake cycle-timings job-costs complaint-list novelty-order kernel-build kernel-check kernel-gate kernel-proofs review-rs-build review-rs-check conform-deep replay-deep fault-kit memory-series standing-daemon standing-daemon-stop prettier woff2 clean
+.PHONY: all rebuild-fonts test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready close-out review-accept review-snapshot-remake cycle-timings job-costs kernel-build kernel-check kernel-gate kernel-proofs review-rs-build review-rs-check conform-deep replay-deep fault-kit memory-series prettier woff2 clean
 
 all:
 	uv run python tools/build_font.py glyph_data/ site/
@@ -115,23 +115,6 @@ review-cycle:
 		uv run python -m rebuild.review.serve; \
 	fi
 
-# Holds the review corpus in one process for the standing probe and the standing dry run. `serve` loads the corpus, its font pair, and the human units once, then answers probe and dry-run requests over var/standing-daemon.sock with byte-for-byte the output the in-process tools print. rebuild/tools/standing_daemon.py documents what it holds, when it declines a request, and when it exits by itself (when the corpus manifest, the fonts, the loaded code, or uv.lock changes). The tool serves in the foreground, so this recipe detaches it with nohup (log in var/standing-daemon.log) and waits until its `status` subcommand answers or the process dies. No width accounts for the memory it holds, so every cycle pass but a dry run stops it before its first step, and a gate run by hand needs it stopped first with `make standing-daemon-stop` or SIGTERM. Each removes the socket.
-standing-daemon:
-	@mkdir -p var; \
-	nohup uv run python rebuild/tools/standing_daemon.py serve < /dev/null > var/standing-daemon.log 2>&1 & \
-	pid=$$!; waited=0; \
-	while kill -0 $$pid 2>/dev/null && [ $$waited -lt 300 ] && ! uv run python rebuild/tools/standing_daemon.py status > /dev/null 2>&1; do \
-		sleep 2; waited=$$((waited + 2)); \
-	done; \
-	if uv run python rebuild/tools/standing_daemon.py status; then \
-		printf 'log: var/standing-daemon.log; stop it with make standing-daemon-stop\n'; \
-	else \
-		printf 'the standing daemon did not answer; see var/standing-daemon.log\n'; exit 1; \
-	fi
-
-standing-daemon-stop:
-	uv run python rebuild/tools/standing_daemon.py stop
-
 # Answers whether the corpus is ready to verdict: corpus freshness, gate status, the snapshot the pointer names, verdict-store alignment, blanks left, the unaccepted changes since the snapshot (a row that never fails), and the server. Exits 0 when ready. A green artifact cycle that is not a staging pass ends by printing the same checklist (without the server row under `make review-cycle`), so this target is for asking the question on its own.
 verdict-ready:
 	uv run python -m rebuild.tools.verdict_ready $(ARGS)
@@ -155,14 +138,6 @@ cycle-timings:
 # Checks whether the checked-in per-unit memory peaks still hold on this machine, printing each constant beside the peak measured here and the width it implies (rebuild/tools/calibrate_budgets.py); ARGS takes that tool's flags, and ARGS=--help lists them.
 job-costs:
 	uv run python -m rebuild.tools.calibrate_budgets $(ARGS)
-
-# Clusters the open complaints (reject and neither verdicts) by the rune records that decided them, lists defer candidates among the still-blank lookalikes, and writes tmp/complaints-data.json. Reads the live autosave unless ARGS names a verdicts file. ARGS='--defer g-XXXXXXXX' writes a verdicts-deferred-*.json for the app's Import dialog.
-complaint-list:
-	uv run python rebuild/tools/complaint_list.py $(ARGS)
-
-# Orders the blank queue for novelty and prints the worklist URL to paste into the review app. It takes one representative per duplicate group and picks each next unit to differ most from the last few shown, by class, families, letters, stances, junctions, configs, and provenance. Reads the live autosave unless ARGS names a verdicts file; any file but the store, such as an Export from the review app, also needs `--accepted rebuild/accepted-units.txt`. Emits the first 40 entries by default; ARGS='--limit 0' emits the whole queue.
-novelty-order:
-	uv run python rebuild/tools/novelty_order.py $(ARGS)
 
 # Builds the Rust M1 kernel (rebuild/kernel-rs) in release mode, with cargo's output on the terminal. It goes through `kernel_exec.cargo_build` so that it can run beside a suite or pass: `LOCK_PATH`'s comment in rebuild/pipeline/kernel_exec.py says what a build without the relink lock does to the kernels they start. The pipeline and the rebuild suite's spec-echo parity test both run the release binary, so there is no debug target.
 kernel-build:

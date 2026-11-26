@@ -1634,3 +1634,99 @@ def test_a_class_one_of_whose_parts_is_gone_is_written_plain_as_a_first_base(
     assert _held_deflated(corpus) == held - moved
     assert _live(corpus) == _live(scratch)
     assert _form(corpus, tmp_path) == _form(scratch, tmp_path)
+
+
+# The carry content key a unit's id derives from (`unit_cache.carry_projection`, `carry_content_hash`), checked over the shipped review fixtures under rebuild/review/fixtures/units/. The key leaves out `CARRY_PRESENTATION_KEYS`, the fields a rebuild changes without changing what the reviewer judged, so adding or changing one cannot move a unit's id, and every judged field stays in it, so a real change to the window moves the id.
+FIXTURE_UNITS = REPO_ROOT / "rebuild" / "review" / "fixtures" / "units"
+
+
+def _fixture_units():
+    units = []
+    for shard in sorted(FIXTURE_UNITS.glob("*.json")):
+        units.extend(json.loads(shard.read_text(encoding="utf-8")))
+    return units
+
+
+def test_ink_deltas_does_not_move_the_content_key():
+    """A unit keys the same with and without `ink_deltas`, so verdicts recorded on units without the field still name their units."""
+    units = _fixture_units()
+    assert any(unit["ink_deltas"] for unit in units), "no fixture unit records a delta"
+    for current in units:
+        prior = {key: value for key, value in current.items() if key != "ink_deltas"}
+        assert "ink_deltas" not in prior
+        assert unit_cache.carry_projection(prior) == unit_cache.carry_projection(current), current["id"]
+
+
+def test_ink_deltas_is_declared_presentation():
+    assert "ink_deltas" in unit_cache.CARRY_PRESENTATION_KEYS
+
+
+def test_every_presentation_key_is_invisible_to_the_content_key():
+    """Dropping any one presentation key from a unit leaves its content key unchanged."""
+    for current in _fixture_units():
+        for key in unit_cache.CARRY_PRESENTATION_KEYS:
+            prior = {name: value for name, value in current.items() if name != key}
+            assert unit_cache.carry_projection(prior) == unit_cache.carry_projection(
+                current
+            ), f"{current['id']}: {key}"
+
+
+def test_content_key_stamp_does_not_move_the_content_key():
+    """The `content_key` stamp is excluded from the projection it stamps, so a unit keys the same with or without it."""
+    units = _fixture_units()
+    assert all("content_key" in unit for unit in units), "the fixtures predate the stamp"
+    for current in units:
+        prior = {key: value for key, value in current.items() if key != "content_key"}
+        assert unit_cache.carry_projection(prior) == unit_cache.carry_projection(current), current["id"]
+
+
+def test_content_key_stamp_is_declared_presentation():
+    assert "content_key" in unit_cache.CARRY_PRESENTATION_KEYS
+
+
+def test_content_hash_is_the_sha256_of_the_projection():
+    """Each fixture's `content_key` is the sha256 of its projection, which catches a checked-in fixture stamp that is out of date."""
+    for current in _fixture_units():
+        stripped = {key: value for key, value in current.items() if key != "content_key"}
+        assert unit_cache.carry_content_hash(current) == unit_cache.carry_content_hash(stripped), current[
+            "id"
+        ]
+        assert (
+            current["content_key"]
+            == hashlib.sha256(unit_cache.carry_projection(stripped).encode()).hexdigest()
+        ), f"{current['id']}: run `uv run python rebuild/review/fixtures/restamp.py`"
+
+
+def test_a_change_to_the_judged_window_moves_the_content_key():
+    """Changing a judged field (the codepoints, the configs, either side's junctions, or `ink_identical`) changes the key, so the tests above cannot pass with a key that ignores every field. A unit whose judged content changes loses its old verdict."""
+    unit = _fixture_units()[0]
+    for key, replacement in (
+        ("codepoints", "E650:E650"),
+        ("configs", ["ss07"]),
+        ("after", {**unit["after"], "junctions": [*unit["after"]["junctions"], "break"]}),
+        ("before", {**unit["before"], "junctions": [*unit["before"]["junctions"], "break"]}),
+        ("ink_identical", not unit["ink_identical"]),
+    ):
+        assert unit_cache.carry_projection({**unit, key: replacement}) != unit_cache.carry_projection(
+            unit
+        ), key
+
+
+def test_picture_identity_is_invisible_to_the_content_key_unlike_ink_identity():
+    """`picture_identical` follows from the window and both fonts' placed glyphs, which the key already covers, so it is a presentation key. `ink_identical` is also derived but stays in the key, because removing it would change every recorded unit id."""
+    unit = _fixture_units()[0]
+    assert unit_cache.carry_projection(
+        {**unit, "picture_identical": not unit["picture_identical"]}
+    ) == unit_cache.carry_projection(unit)
+
+
+@pytest.mark.parametrize(
+    "key",
+    ("class", "ledger_class", "summary", "config_note", "config_gate", "config_classes", "config_class_note"),
+)
+def test_renaming_or_regrouping_a_class_or_rewording_a_unit_keeps_its_id(key):
+    """The class that lists a unit, the ledger class of a unit listed under another, and the summary and config badge that describe it are presentation, so giving any of them another value leaves every unit's id, and the verdicts that name it, where they were."""
+    for current in _fixture_units():
+        assert unit_cache.carry_projection({**current, key: "another value"}) == unit_cache.carry_projection(
+            current
+        ), current["id"]

@@ -377,27 +377,12 @@ LEDGER = textwrap.dedent("""\
     """)
 
 
-STANDING = textwrap.dedent("""\
-    # Once-and-for-all pattern rules, so a blessed delta shape never reaches the review queue again.
-    format: ams-standing-approvals/1
-    rules:
-      - id: tea-oy-ligature-break
-        verdict: approve
-        note: "never going to have a different opinion unless the left letter is \u00b7Out"
-        match:
-          before: {pivot: qsTea.half, follower: qsOy}
-          after: {ligature: qsTea_qsOy}
-          except_left: [qsOut]
-    """)
-
 REWORDED_CLASS = LEDGER.replace("never needs its own verdict", "wants no verdict of its own")
 REWORDED_COPY = (
     ("title", LEDGER.replace('"Join height after a ZWNJ"', '"Height of the join after a ZWNJ"')),
     ("summary", LEDGER.replace("so each piece draws", "so every piece draws")),
     ("note", LEDGER.replace("No unit reaches this class.", "This class reaches no unit.")),
 )
-REWORDED_RULE = STANDING.replace("never going to have a different opinion", "settled for good")
-
 GROUPS = textwrap.dedent("""\
     # The reviewer copy for the change groups.
     - id: join-lowered
@@ -443,28 +428,6 @@ def test_divergence_ledger_digest_ignores_prose_and_falls_back_to_bytes(tmp_path
     broken_digest = _ledger_digest(path, broken)
     assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
     assert _ledger_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
-
-
-def _standing_digest(path, text):
-    path.write_text(text)
-    return fingerprint.standing_approvals_digest(path)
-
-
-def test_standing_approvals_digest_ignores_notes_and_falls_back_to_bytes(tmp_path):
-    """`verdict`, `match`, and `except_left` move the digest; a rule's `note` and the file's comments don't. Only the artifact cycle's rebuild-lane closure reads this digest. The verdict-update key hashes the file raw, because the standing fill copies each `note` into the verdicts it writes. A malformed file digests to its raw bytes."""
-    path = tmp_path / "standing-approvals.yaml"
-    parsed = _standing_digest(path, STANDING)
-    assert _standing_digest(path, REWORDED_RULE) == parsed
-    assert _standing_digest(path, STANDING.replace("# Once-and", "# Edited: once-and")) == parsed
-    assert _standing_digest(path, STANDING.replace("verdict: approve", "verdict: reject")) != parsed
-    assert _standing_digest(path, STANDING.replace("follower: qsOy", "follower: qsI")) != parsed
-    assert _standing_digest(path, STANDING.replace("except_left: [qsOut]", "except_left: []")) != parsed
-    added = STANDING + "  - id: added\n    verdict: approve\n    match: {before: {pivot: qsMay}}\n"
-    assert _standing_digest(path, added) != parsed
-    broken = "format: ams-standing-approvals/1\nrules: [unclosed\n"
-    broken_digest = _standing_digest(path, broken)
-    assert broken_digest == hashlib.sha256(broken.encode()).hexdigest()
-    assert _standing_digest(path, broken.replace("unclosed", "still unclosed")) not in (parsed, broken_digest)
 
 
 def test_the_tables_stamp_still_tracks_the_runes_and_the_pipeline_code(tmp_path):
@@ -974,22 +937,6 @@ def test_group_prose_lines_name_the_group_and_the_key_and_move_the_explain_compo
     broken = "- id: join-lowered\n  title: [unclosed\n"
     groups.write_text(broken)
     assert fingerprint.group_prose_lines(root) == [f"group\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"]
-
-
-def test_the_standing_approvals_reach_no_fingerprint_component(tmp_path):
-    """No component includes the standing approvals, so neither a reworded note nor a changed rule changes `compute_all`, and neither can restamp the corpus or drop the review unit cache. A rule change moves `standing_approvals_digest`, which the rebuild-lane closure uses. The verdict-update key hashes the file raw, so a changed note moves that key too."""
-    root = _fake_repo(tmp_path)
-    rules = root / fingerprint.STANDING_APPROVALS_LABEL
-    rules.write_text(STANDING)
-    assert rules not in fingerprint.data_paths(root)
-    before = fingerprint.compute_all(root)
-    before_digest = fingerprint.standing_approvals_digest(rules)
-    rules.write_text(REWORDED_RULE)
-    assert fingerprint.compute_all(root) == before
-    assert fingerprint.standing_approvals_digest(rules) == before_digest
-    rules.write_text(STANDING.replace("verdict: approve", "verdict: reject"))
-    assert fingerprint.compute_all(root) == before
-    assert fingerprint.standing_approvals_digest(rules) != before_digest
 
 
 def test_data_value_tracks_semantic_edits(tmp_path):

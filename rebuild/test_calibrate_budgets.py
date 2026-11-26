@@ -241,30 +241,6 @@ def test_the_oracle_rows_count_only_the_settlement_configurations_the_oracle_com
         cb._oracle_settlement_config_count(unmarked)
 
 
-def test_a_verdict_update_step_peak_calibrates_the_standing_fill_parent():
-    """The verdict-update step peak is the max over the verdict update and any refill workers, and only the standing-fill-parent row reads it. The refill pool writes no pool record, so no worker row gets observations from it."""
-    steps = {"r1": [_step("verdict-update", 9_000_000_000)]}
-    observed, _, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
-    assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:verdict-update")]
-    assert all(
-        "verdict-update" not in unit.step_names for unit in cb.UNITS if unit.name != "standing-fill-parent"
-    )
-
-
-def test_the_standing_fill_parent_also_reads_the_journals_plumbing_rows(tmp_path):
-    """Older journal lines name the verdict-update step `plumbing`. `load_journal` reads them as `verdict-update`, so the standing-fill-parent row keeps their measured history."""
-    path = _journal(
-        tmp_path,
-        [_step("plumbing", 8_000_000_000, run="r1"), _step("verdict-update", 9_000_000_000, run="r2")],
-    )
-    _, steps, _ = cb.load_journal(path)
-    observed, _, _, _ = cb.observations(_unit("standing-fill-parent"), [], steps, host=HOST, recent=20)
-    assert sorted((item.peak_bytes, item.source) for item in observed) == [
-        (8_000_000_000, "step:verdict-update"),
-        (9_000_000_000, "step:verdict-update"),
-    ]
-
-
 def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footprint_lines(tmp_path, capsys):
     """A run_m1 step whose `[t] kernel_build_tables` line carries the build's peak footprint reads the higher of that and its step peak, so a footprint over the constant trips the check while the resident line fits, and the report prints both lines of the highest reading. A record without a footprint reads its resident line alone."""
     constant = CONSTANTS["kernel-build"]
@@ -617,7 +593,6 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
         f"{cb.CORPUS_BUILD_RS_PROCESS_NAME} = 8_000_000_000\n{cb.CORPUS_BUILD_RS_LAUNCHER_NAME} = 2_000_000_000\n"
         f"{cb.CORPUS_BUILD_RS_THREAD_NAME} = 5_000_000_000\n"
-        f"{cb.STANDING_FILL_PARENT_NAME} = 12_000_000_000\n{cb.STANDING_FILL_WORKER_NAME} = 2_000_000_000\n"
         f"{cb.ORACLE_SHARD_NAME} = {CONSTANTS['oracle-absorb']}\n{cb.ORACLE_ABSORB_NAME} = 3_000_000_000\n",
         encoding="utf-8",
     )
@@ -657,7 +632,6 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
         "the font suite takes the cores this process may run on (12) by hand and the gate lane's share (6) under a cycle whose build lane runs, not the division"
         in out
     )
-    assert "the refill pool runs 12 at 2.00 GB each out of 48.00 GB total" in out
     sweep_block = out.split("\nconform-sweep  ")[1].split("\n\n")[0]
     sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
     idle, beside = sweep_width.split(" with the build lane idle, and ")
@@ -688,7 +662,7 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     assert f"`make replay-deep` walks {deep}, one unit a crate process" in out
     land_block = out.split("\nland  ")[1].split("\n\n")[0]
     assert (
-        "it is below CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES together (10.00 GB) and STANDING_FILL_PARENT_BYTES (12.00 GB)"
+        "it is below CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES together (10.00 GB), what the build-lane step before it holds"
         in land_block
     )
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
@@ -768,7 +742,6 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
         "oracle-shard": (1.25, 100_000_000),
         "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),
-        "standing-fill-parent": (1.25, 1_000_000_000),
         "land": (1.25, 100_000_000),
         "deep-replay-walk": (1.25, 100_000_000),
     }

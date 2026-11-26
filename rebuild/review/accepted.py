@@ -880,8 +880,7 @@ def view_of_file(document: Mapping | None, accepted: Accepted, *, path: str | Pa
         except ValueError:
             raise Mismatch(
                 f"{store}, whose tombstones an Export of it lacks, is not JSON, so {path} cannot be read beside "
-                f"{accepted.path}: restore a readable store from the journal with "
-                "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`"
+                f"{accepted.path}: replace it with a readable store"
             ) from None
         if not isinstance(held, dict):
             held = {}

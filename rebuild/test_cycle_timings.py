@@ -332,7 +332,6 @@ def test_finish_copies_the_summary_blocks(tmp_path):
         "gates": {"js": {"status": "green"}},
         "plan": {"short_id": "abc"},
         "argv": ["prog", "--fresh"],
-        "carry": {"human": 60000, "matched": 51946, "unmatched": 8054, "orphaned": 12},
         "facts_status": "clean",
     }
     timings.finish(payload)
@@ -345,7 +344,7 @@ def test_finish_copies_the_summary_blocks(tmp_path):
     assert entry["mem_total_bytes"] == memory_budget.total_memory_bytes()
     assert entry["started_at"] == timings.started_at
     assert entry["wall_s"] >= 0.0
-    for key in ("exit", "interrupted", "failures", "gates", "plan", "argv", "carry"):
+    for key in ("exit", "interrupted", "failures", "gates", "plan", "argv"):
         assert entry[key] == payload[key]
     assert "facts_status" not in entry
 
@@ -363,7 +362,6 @@ def test_finish_defaults_missing_summary_keys_to_null(tmp_path):
             "gates",
             "plan",
             "argv",
-            "carry",
             "written",
             "alphabet",
         )

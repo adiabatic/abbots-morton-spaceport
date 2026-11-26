@@ -10,7 +10,7 @@ The apply writes the new list, the new store and the archive to the staging dire
 
 A close-out killed before it renamed the list changed nothing a reader sees, so the next `--apply`, which tells the two apart by the list's sha256 against the one it found and the one it wrote (both in the intent), drops it, deleting its staging directory, its archive and its intent; one killed before it wrote the intent leaves only the staging directory, which the next close-out writes over. One killed after it leaves the store a step behind the list, and every reader refuses on the pairing until the next `--apply` finishes it from the intent: that renames what is left in the staging directory into place, refusing when the list or the store has changed since or when the store is still to be renamed and the staged store is gone, and writes the journal from the store as it then stands, so a save made between the store's rename and the journal's is in both. The run that finishes or drops one folds nothing; the next run closes out. The dry run and `--undo` refuse while the intent is there.
 
-`--undo` puts back the latest archive's list from before, deleting the list when the archive holds none, and writes the store as the archive's store with the live store's records and tombstones laid over it, each store's override section read with its own records and tombstones (`accepted.joined`), a record over a record by `at` and the tombstones as `merge_verdicts.merge_into` keeps them, so the verdicts made since the close-out survive, with the records and tombstones on the ids of the list it puts back as the store's override section (`accepted.split`) and its `accepted` field naming that list; then it appends a base event of that store, source `close-out-undo`, to the journal, leaving the unjournaled marker until that append is made. It takes the same locks, refuses on the same server, and refuses unless the list and the list the store names are each the archive's list after or before, so an undo cut short runs again. The list it puts back is a tracked change to commit, never to revert, since the store it writes names that list; when the close-out's own commit was never made, the tree already matches `HEAD`. `rebuild.tools.rekey_verdicts` re-keys the latest archive with the store and the list, so an undo still lands after a re-key.
+`--undo` puts back the latest archive's list from before, deleting the list when the archive holds none, and writes the store as the archive's store with the live store's records and tombstones laid over it, each store's override section read with its own records and tombstones (`accepted.joined`), a record over a record by the strictly newer `at` and a record over a tombstone only when it is newer than the clear (`_lay_under`), so the verdicts made since the close-out survive, with the records and tombstones on the ids of the list it puts back as the store's override section (`accepted.split`) and its `accepted` field naming that list; then it appends a base event of that store, source `close-out-undo`, to the journal, leaving the unjournaled marker until that append is made. It takes the same locks, refuses on the same server, and refuses unless the list and the list the store names are each the archive's list after or before, so an undo cut short runs again. The list it puts back is a tracked change to commit, never to revert, since the store it writes names that list; when the close-out's own commit was never made, the tree already matches `HEAD`.
 
 Usage:
   uv run python -m rebuild.tools.close_out [--apply | --undo] [--autosave FILE] [--corpus DIR]
@@ -60,7 +60,6 @@ from rebuild.review.verdict_store import (  # noqa: E402
     summarize_orphans,
 )
 from rebuild.tools import store_guards, verdict_ready  # noqa: E402
-from rebuild.tools.merge_verdicts import merge_into  # noqa: E402
 from rebuild.tools.store_guards import pass_lock, pass_lock_path_for, pass_refusal, serves  # noqa: E402
 
 KEEP = Path("var") / "keep" / "close-outs"
@@ -234,14 +233,10 @@ def _read_store(store: Path, raw: bytes | None = None) -> tuple[bytes | None, di
         document = read_store_document(raw, f"the store {store}")
     except MalformedStore as malformed:
         raise Refused(
-            f"{malformed}, which no later pass could carry; restore a readable store from its journal with "
-            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply` first"
+            f"{malformed}, which no later pass could carry; replace it with a readable store first"
         ) from None
     if document is None:
-        raise Refused(
-            f"{store} is not an {EXPORT_FORMAT} document; restore a readable store from its journal with "
-            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply` first"
-        )
+        raise Refused(f"{store} is not an {EXPORT_FORMAT} document; replace it with a readable store first")
     return raw, document
 
 
@@ -709,6 +704,25 @@ def _pairs(document: dict | None, listed: accepted.Accepted, store: Path) -> boo
     return True
 
 
+def _lay_under(records: dict[str, dict], archived: Mapping[str, dict], cleared: dict[str, str]) -> None:
+    """Lay the archive's records `archived` under the live store's `records` and tombstones `cleared`, in place: an archived record takes its unit when the live store holds no record there with an `at` at or after its own, and no tombstone dated at or after it, and a record that takes a unit over a tombstone removes the tombstone."""
+    for unit, record in sorted(archived.items()):
+        at = record.get("at") or ""
+        current = records.get(unit)
+        if current is not None and (current.get("at") or "") >= at:
+            continue
+        if current is None and unit in cleared:
+            if cleared[unit] >= at:
+                continue
+            del cleared[unit]
+        records[unit] = {
+            "unit": unit,
+            "verdict": record["verdict"],
+            "note": record.get("note") or "",
+            "at": at,
+        }
+
+
 def _undo_locked(store: Path) -> int:
     root = store.parent
     if intent_path_for(store).exists():
@@ -738,8 +752,8 @@ def _undo_locked(store: Path) -> int:
     if not (_pairs(live, after, store) or _pairs(live, before, store)):
         raise Refused(
             f"{store.name} names neither the list the close-out archived at {archive_path.name} wrote nor the one "
-            "it replaced, so it was not written by that close-out or its undo; restore the store from its journal "
-            "with `uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply` first"
+            "it replaced, so it was not written by that close-out or its undo; put back the store that close-out "
+            "wrote first"
         )
     archived = None
     if archive.store is not None:
@@ -759,7 +773,7 @@ def _undo_locked(store: Path) -> int:
         for unit, at in archived_cleared.items():
             if unit not in records and at > cleared.get(unit, ""):
                 cleared[unit] = at
-        merge_into(records, list(archived_records.values()), cleared)
+        _lay_under(records, archived_records, cleared)
     source = live if live is not None else archived
     if source is None:
         raise Refused(

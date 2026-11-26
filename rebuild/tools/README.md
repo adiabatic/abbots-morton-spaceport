@@ -8,8 +8,6 @@ Start here:
 
 - `artifact_cycle.py` (`make artifact-cycle`; `make review-cycle` runs it and then serves the corpus): the commit-time artifact cycle
 - `verdict_ready.py` (`make verdict-ready`): the checklist that says whether the corpus is ready for a review session
-- `review_queue.py`: writes a snapshot of the review queue for a review session; the live view is `#view=queue`
-- `standing_probe.py`: explains, without writing anything, why a unit is still in the queue under the standing approvals
 - `probe.py`: compares the old-font baseline with the new settlement for one or more codepoint windows, in every configuration
 - `import_kerning.py`: carries the old font's Senior kerning over into the rune files' `kern:` blocks (rebuild/KERN-PLAN.md §8); a dry run by default, `--apply` writes
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
@@ -23,4 +21,4 @@ Start here:
 
 `suite_fonts.py` is a library too, one the root conftest can import: it names the rebuilt fonts and the glyph-facts sidecar the font suite checks the `data-expect` pins against, as `build_fonts.py` writes them.
 
-`store_guards.py` is a library as well: the pass lock, the review-server check and the refusals every hand-run writer of the verdict store shares, the close-out, the re-key and the table-diff accept (`rebuild/review/accept.py`).
+`store_guards.py` is a library as well: the pass lock, the review-server check and the refusals every hand-run writer of the verdict store shares, the close-out and the table-diff accept (`rebuild/review/accept.py`).

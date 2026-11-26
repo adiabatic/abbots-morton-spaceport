@@ -323,7 +323,7 @@ def test_an_identical_class_whose_every_unit_is_re_routed_leaves_the_class_list(
 
 
 def test_check_unit_leaves_ink_deltas_out_of_the_table_diff_contract():
-    """Table-diff units carry no `ink_deltas`, which the standing approvals match and only m1-audit mode requires. `rebuild/test_review_diff_units.py` runs the whole checker over real table-diff builds."""
+    """Table-diff units carry no `ink_deltas`, which only m1-audit mode requires. `rebuild/test_review_diff_units.py` runs the whole checker over real table-diff builds."""
     unit = _fixture_unit(ink_identical=False)
     without = {key: value for key, value in unit.items() if key != "ink_deltas"}
     assert not any("ink_deltas" in error for error in check_unit(without, "table-diff"))
@@ -910,7 +910,7 @@ def test_export_skips_verdicts_on_picture_identical_units():
 
 
 def test_load_units_keeps_exactly_the_fields_the_triage_export_reads():
-    """The field set is written out here rather than derived from `TRIAGE_KEYS`, as `test_the_index_covers_every_field_the_verdict_update_reads` in rebuild/test_unit_index.py does for the sidecar. Deriving it from the constant under test would only show that a dict comprehension keeps the keys it is given, and a field the export reads could be dropped from the projection with every test passing. Written out, adding a field is an explicit change, and dropping one fails here instead of showing up as a null in a triage YAML."""
+    """The field set is written out here rather than derived from `TRIAGE_KEYS`, as `test_the_index_covers_every_field_it_projects` in rebuild/test_unit_index.py does for the sidecar. Deriving it from the constant under test would only show that a dict comprehension keeps the keys it is given, and a field the export reads could be dropped from the projection with every test passing. Written out, adding a field is an explicit change, and dropping one fails here instead of showing up as a null in a triage YAML."""
     manifest, units = load_units(FIXTURES)
     fixture_units = {unit["id"]: unit for unit in _load_fixture_units()}
     assert set(units) == set(fixture_units)

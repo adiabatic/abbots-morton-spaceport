@@ -1,4 +1,4 @@
-"""Tests for the per-unit index sidecar the corpus build writes beside its manifest: that it is an accurate projection of the shards, that readers reject it when its stamp does not match the manifest on disk, and that the fallback to the shards returns the same records. The verdict-update tools read units through the index whenever it is current, so a field that drops out of the projection raises no error: a standing rule stops matching and a blessed delta returns to the queue. These tests check every field of every unit against the shipped fixture shards."""
+"""Tests for the per-unit index sidecar the corpus build writes beside its manifest: that it is an accurate projection of the shards, that readers reject it when its stamp does not match the manifest on disk, and that the fallback to the shards returns the same records. A reader of the index reads units through it whenever it is current, so a field that drops out of the projection raises no error and reads as absent. These tests check every field of every unit against the shipped fixture shards."""
 
 from __future__ import annotations
 
@@ -168,7 +168,7 @@ def test_the_index_is_the_shards_field_for_field(tmp_path):
                 assert value == fragment.get(field), f"{record['id']}.{field}"
 
 
-def test_the_index_covers_every_field_the_verdict_update_reads(tmp_path):
+def test_the_index_covers_every_field_it_projects(tmp_path):
     """The field set is written out rather than derived, so adding a field to the projection is an explicit change here, and removing one a tool reads fails here instead of in a fill that matches nothing."""
     corpus = _fixture_corpus(tmp_path)
     _write(corpus)
@@ -785,7 +785,7 @@ def test_repeated_nested_values_share_storage_without_changing_json_types(tmp_pa
 def test_an_unpooled_human_stream_yields_the_pooled_records_without_sharing_their_containers(
     tmp_path, mode, fields
 ):
-    """`iter_human_units(pooled=False)`, the verdict update's first walk and standing fill, yields records equal to the pooled stream's, in the same order and over the index, the shards and a stale index alike, collects the same corpus ids, and keeps the projection's strictness: an index field it did not select raises on subscription and `.get`. It shares no nested container across records and starts no pool, so a caller that drops each record holds nothing of it."""
+    """`iter_human_units(pooled=False)` yields records equal to the pooled stream's, in the same order and over the index, the shards and a stale index alike, collects the same corpus ids, and keeps the projection's strictness: an index field it did not select raises on subscription and `.get`. It shares no nested container across records and starts no pool, so a caller that drops each record holds nothing of it."""
     corpus, _full = _reader_corpus(tmp_path, mode)
     pooled_ids, plain_ids = set(), set()
     pooled = list(unit_index.iter_human_units(corpus, unit_ids=pooled_ids, fields=fields))
@@ -826,27 +826,6 @@ def test_an_unpooled_reader_interns_nothing_and_keeps_no_pool(tmp_path):
     assert reader.pool == {}
 
 
-def _standing_unit_fields(source: str) -> set[str]:
-    fields = set()
-    for node in ast.walk(ast.parse(source)):
-        key = None
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "unit":
-            key = node.slice
-        elif (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "unit"
-            and node.func.attr == "get"
-            and node.args
-        ):
-            key = node.args[0]
-        if key is not None:
-            assert isinstance(key, ast.Constant) and isinstance(key.value, str), ast.dump(node)
-            fields.add(key.value)
-    return fields
-
-
 def test_pool_preserves_distinct_json_scalar_types_inside_equal_containers(tmp_path):
     values = [True, 1, 1.0, False, 0, 0.0, -0.0]
     (tmp_path / "manifest.json").write_text(json.dumps({"classes": []}))
@@ -863,40 +842,6 @@ def test_pool_preserves_distinct_json_scalar_types_inside_equal_containers(tmp_p
     for actual, expected in zip(junctions, values):
         assert type(actual[0]) is type(expected)
         assert json.dumps(actual) == json.dumps([expected])
-
-
-def test_standing_projection_covers_the_fields_read_by_both_consumers(tmp_path):
-    from rebuild.tools import standing_daemon, standing_verdicts
-
-    expected = {
-        "id",
-        "batch",
-        "class",
-        "duplicate_group",
-        "notation",
-        "codepoints",
-        "configs",
-        "ink_deltas",
-        "no_verdict",
-        "content_key",
-        "render_groups",
-        "pair",
-        "secondary_junctions",
-        "before",
-        "after",
-    }
-    derived = set()
-    for name in ("standing_probe.py", "standing_verdicts.py"):
-        derived.update(_standing_unit_fields((REPO_ROOT / "rebuild" / "tools" / name).read_text()))
-    assert _standing_unit_fields("print(f\"{unit['class']} {unit.get('duplicate_group')}\")") == {
-        "class",
-        "duplicate_group",
-    }
-    assert derived - standing_verdicts.SPLIT_VIEW_FIELDS == expected == standing_daemon.UNIT_FIELDS
-    corpus, full = _reader_corpus(tmp_path, "current")
-    assert unit_index.load_units(corpus, fields=standing_daemon.UNIT_FIELDS) == [
-        {key: value for key, value in record.items() if key in expected} for record in full
-    ]
 
 
 def test_streaming_discards_unique_containers_after_the_reader_pool_fills(tmp_path, monkeypatch):
@@ -979,9 +924,9 @@ def _every_slot(corpus: Path) -> list[str]:
 
 
 def test_every_whole_part_reader_reads_the_live_fragments_its_materialized_form_holds(appended_corpus):
-    """A build that appends a changed fragment to its class's overflow parts leaves its old slot dead, so a reader that walked the parts would read units twice, and holds the append deflated (#618's change 35), which a reader that took its bytes as they are would fail to parse. Every reader of fragments goes through the live-fragment iterator instead, which reads the live slots and inflates a deflated one, so over a corpus with deflated overflow parts and dead slots each reads exactly what it reads over the corpus's materialized form, all plain, in the same order: the shard walk the verdict update's fallbacks take, the triage export, the re-key map, the build's output check and the dictionary's sample."""
+    """A build that appends a changed fragment to its class's overflow parts leaves its old slot dead, so a reader that walked the parts would read units twice, and holds the append deflated (#618's change 35), which a reader that took its bytes as they are would fail to parse. Every reader of fragments goes through the live-fragment iterator instead, which reads the live slots and inflates a deflated one, so over a corpus with deflated overflow parts and dead slots each reads exactly what it reads over the corpus's materialized form, all plain, in the same order: the shard walk the index readers fall back to, the triage export, the build's output check and the dictionary's sample."""
     from rebuild.review import build, export
-    from rebuild.tools import fragment_dictionary, rekey_verdicts
+    from rebuild.tools import fragment_dictionary
 
     corpus, form = appended_corpus
     with unit_index.LiveCorpus(corpus) as live:
@@ -992,7 +937,6 @@ def test_every_whole_part_reader_reads_the_live_fragments_its_materialized_form_
     assert [fragment["id"] for fragment in unit_index.iter_shard_fragments(form)] == walked
     assert list(unit_index.iter_shard_fragments(corpus)) == list(unit_index.iter_shard_fragments(form))
     assert list(export.load_units(corpus)[1].items()) == list(export.load_units(form)[1].items())
-    assert list(rekey_verdicts.iter_fragments(corpus)) == list(rekey_verdicts.iter_fragments(form))
     assert build.check_output_dir(corpus) == build.check_output_dir(form) == []
     assert fragment_dictionary.build_dictionary(corpus) == fragment_dictionary.build_dictionary(form)
 

@@ -1,4 +1,4 @@
-"""The guards a hand-run writer of the verdict store passes before it writes: the close-out (`rebuild.tools.close_out`), the re-key (`rebuild.tools.rekey_verdicts`) and the table-diff accept (`rebuild.review.accept`). Each takes the artifact cycle's pass lock beside the store without waiting and holds it to its end (`pass_lock`), so no pass that snapshotted the store before the write lands after it, refuses while a review server listens that may write the store (`serves`), and names the cause of either refusal (`pass_refusal`, `server_refusal`). A writer that reads the served corpus's human units first asks `make verdict-ready` and refuses while a blocking check fails (`readiness_refusal`)."""
+"""The guards a hand-run writer of the verdict store passes before it writes: the close-out (`rebuild.tools.close_out`) and the table-diff accept (`rebuild.review.accept`). Each takes the artifact cycle's pass lock beside the store without waiting and holds it to its end (`pass_lock`), so no pass that snapshotted the store before the write lands after it, refuses while a review server listens that may write the store (`serves`), and names the cause of either refusal (`pass_refusal`, `server_refusal`). A writer that reads the served corpus's human units first asks `make verdict-ready` and refuses while a blocking check fails (`readiness_refusal`)."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def pass_lock(store: Path) -> Iterator[None]:
 
 
 def serves(store: Path) -> bool:
-    """Return whether a review server listens that may write `store`: its /capabilities answer names that store, or names none, as a server that predates /capabilities or does not answer does. `rebuild.tools.rekey_verdicts` applies the same rule."""
+    """Return whether a review server listens that may write `store`: its /capabilities answer names that store, or names none, as a server that predates /capabilities or does not answer does."""
     if not server_listening():
         return False
     answer = capabilities()

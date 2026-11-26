@@ -2791,7 +2791,7 @@ async function flushAutosave() {
       const seq = outboxMirror.get(id)?.seq;
       if (seq !== undefined) sentSeqs.set(id, seq);
     }
-    // A normal flush is one decision and its duplicate fills, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
+    // A normal flush is one decision and the duplicate-group members `g` or a verdict fills beside it, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
     for (let start = 0; start < ids.length; start += AUTOSAVE_CHUNK) {
       const chunk = ids.slice(start, start + AUTOSAVE_CHUNK);
       const payload = assembleDelta(store, manifest.generated_at, chunk);

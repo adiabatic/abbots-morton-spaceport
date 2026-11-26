@@ -9,7 +9,6 @@ import errno
 import json
 import os
 import random
-import re
 import shutil
 import threading
 from datetime import datetime, timedelta, timezone
@@ -337,7 +336,7 @@ def test_a_snapshot_of_a_store_holding_a_record_the_carry_refuses_is_refused(rep
         f"the live store {repo['autosave']}, linked to {repo['run'] / landing.SNAPSHOT_NAME}, holds a verdict record {named} "
         "that is not an object"
     )
-    assert str(refused.value).endswith("--restore-as-of <time> --apply`")
+    assert str(refused.value).endswith("move it aside so the review server starts an empty one")
     assert {path: path.read_bytes() for path in before} == before
 
 
@@ -791,8 +790,8 @@ def test_a_recovery_that_reads_two_records_on_one_unit_one_with_an_at_that_is_no
         f"{landing.intent_path_for(repo['autosave'])} stays" in message
         and f"while {held} holds such a record; " in message
     )
-    restore = f"--autosave {repo['autosave']} --journal {repo['journal']} --restore-as-of"
-    assert (restore in message) == (held_by == "store")
+    replace = f"replacing {repo['autosave']} with a readable store"
+    assert (replace in message) == (held_by == "store")
     retried = land(repo, corpus=repo["live"], staged=None, live=None)
     assert not retried.landed and retried.reason == message
     assert files_under(repo["root"]) == before
@@ -865,7 +864,7 @@ MISSED_SAVE = [record("u-2", "reject", at="2026-09-02T00:00:00Z"), record("u-3",
 
 
 def miss_a_store_write(repo, monkeypatch, capsys, how: str) -> None:
-    """Change the live store in a way the journal does not record, as `how` names: a server save whose append fails, which writes the store at once, a save that moves the store onto the served corpus, which writes the store before its append, whose server is killed between the store write and the append or whose append is cut short partway through its lines, or a store a re-key's `--undo` asks to have copied back by hand, which the test then copies."""
+    """Change the live store in a way the journal does not record, as `how` names: a server save whose append fails, which writes the store at once, a save that moves the store onto the served corpus, which writes the store before its append, whose server is killed between the store write and the append or whose append is cut short partway through its lines."""
     body = json.dumps({"format": DELTA_FORMAT, "manifest_generated_at": "A", "sets": MISSED_SAVE}).encode()
     moving = json.dumps({"format": DELTA_FORMAT, "manifest_generated_at": "A1", "sets": MISSED_SAVE}).encode()
     store = VerdictStore(repo["autosave"], repo["journal"])
@@ -899,34 +898,11 @@ def miss_a_store_write(repo, monkeypatch, capsys, how: str) -> None:
             )
             with pytest.raises(Killed):
                 store.receive(moving, ServedCorpus("A1", frozenset({"u-1", "u-2", "u-3"})))
-    else:
-        from rebuild.tools import rekey_verdicts
-
-        backup = repo["root"] / "var" / "keep" / "rekey" / "t"
-        copy = {**document("A", [record("u-1"), *MISSED_SAVE]), "exported_at": "2026-01-01T00:00:00Z"}
-        write(backup / "00-verdicts-autosave.json", copy)
-        size = repo["journal"].stat().st_size
-        write(
-            backup / rekey_verdicts.BACKUP_RECORD,
-            {
-                "files": [{"path": "verdicts-autosave.json", "backup": "00-verdicts-autosave.json"}],
-                "journal": {
-                    "path": journal.JOURNAL_NAME,
-                    "appended": True,
-                    "size": size + 1,
-                    "tail_sha256": "",
-                },
-            },
-        )
-        assert rekey_verdicts.undo(repo["root"], backup) == 1
-        assert "this undo left var/cycle/unjournaled.json" in capsys.readouterr().out
-        shutil.copyfile(backup / "00-verdicts-autosave.json", repo["autosave"])
 
 
-@pytest.mark.parametrize("how", ["append-fails", "killed-before-append", "append-cut-short", "undo-refused"])
+@pytest.mark.parametrize("how", ["append-fails", "killed-before-append", "append-cut-short"])
 def test_a_land_after_a_store_write_the_journal_missed_journals_a_base(repo, monkeypatch, capsys, how):
-    """The journal replays to the store as it was before a write it missed, or, for a base event cut short, to no store from it on: a server save whose append failed, a move onto the served corpus whose append was cut short or never ran because the server was killed, or a store copied back by hand after `rekey_verdicts --undo` refused. Each leaves the marker that says the journal may lack a store write, so no lock holder replays the journal into the store (#618's decision 82), the copy among them, whose `exported_at` is older than the journal's events, and the next land that moves the stamp journals its result as a base although the journal's last base is minutes old and the result holds the same records as the store it replaces, removes the marker, and from that land on `merge_verdicts --restore-as-of` gives the live store."""
-    from rebuild.tools import merge_verdicts
+    """The journal replays to the store as it was before a write it missed, or, for a base event cut short, to no store from it on: a server save whose append failed, or a move onto the served corpus whose append was cut short or never ran because the server was killed. Each leaves the marker that says the journal may lack a store write, so no lock holder replays the journal into the store (#618's decision 82), and the next land that moves the stamp journals its result as a base although the journal's last base is minutes old and the result holds the same records as the store it replaces, removes the marker, and from that land on the journal replays to the live store."""
 
     journal.record_transition(
         repo["journal"],
@@ -952,12 +928,8 @@ def test_a_land_after_a_store_write_the_journal_missed_journals_a_base(repo, mon
     result = land(repo)
     assert result.landed and (result.journal_base, result.journal_sets) == (True, 3)
     assert not marker.exists()
-    landed_at = [event["at"] for event in journal.iter_events(repo["journal"]) if event["source"] == "land"]
-    restored = repo["root"] / "restored.json"
-    argv = ["--journal", str(repo["journal"]), "--autosave", str(repo["autosave"]), "--out", str(restored)]
-    assert merge_verdicts.main(["--restore-as-of", landed_at[-1], *argv]) == 0
-    assert json.loads(restored.read_text())["manifest_generated_at"] == "B"
-    assert units(restored) == units(repo["autosave"]) == live
+    assert journal.replay(repo["journal"]) == ("B", units(repo["autosave"]))
+    assert units(repo["autosave"]) == live
 
 
 def test_the_server_path_waits_while_a_land_holds_the_lock_and_finishes_a_dead_one(repo, monkeypatch):
@@ -1527,7 +1499,7 @@ def walk_store(rng, units, listed, day: int) -> tuple[dict, dict, accepted.Overr
 
 
 def write_walk_store(rng, path: Path, stamp: str, own, cleared, overrides, field, layout: str) -> None:
-    """Write a store through a temporary file and a rename in one of three layouts: the review server's, one record a line (`landing.document_bytes`); `merge_verdicts`', `indent=2`; or one line of `json.dumps` whose records may lack a note, hold a null one or carry another key, beside a tombstone on a unit that holds a record."""
+    """Write a store through a temporary file and a rename in one of three layouts: the review server's, one record a line (`landing.document_bytes`); an indented one, `indent=2`; or one line of `json.dumps` whose records may lack a note, hold a null one or carry another key, beside a tombstone on a unit that holds a record."""
     if layout == "server":
         data = landing.document_bytes(landing.Store(stamp, own, cleared, field, overrides))
     elif layout == "merge":
@@ -1739,79 +1711,6 @@ def test_the_walk_lands_the_bytes_the_stores_read_whole_land(tmp_path, monkeypat
     assert all(seen[key] for key in covered), seen
 
 
-@pytest.mark.parametrize("moved", [False, True])
-def test_a_land_over_the_snapshot_renames_the_prepared_store_into_place_as_its_result(
-    tmp_path, monkeypatch, moved
-):
-    """The verdict update writes the prepared store once, in the layout the land writes its result in (`rebuild.tools.held_store`). When no save landed during the pass, so the live store is the snapshot, the land renames that file over the store instead of writing its result, on a stamp kept or moved: the store takes the prepared store's inode and keeps its `exported_at`, the time the update wrote it, its bytes are those the land that writes its result leaves but for `exported_at`, and the journal gains the same lines. A save made during the pass makes the land write its result as it always has, leaving the prepared store in the run directory."""
-    from rebuild.tools import held_store
-
-    monkeypatch.setattr(journal, "now_stamp", lambda: FROZEN)
-    stamp = "B" if moved else "A"
-
-    def build(root: Path, saved: bool) -> dict:
-        repo = {
-            "root": root,
-            "live": corpus(root / "rebuild" / "out" / "review", "A", ["u-1", "u-2", "u-3", "u-4"]),
-            "autosave": root / "verdicts-autosave.json",
-            "journal": root / journal.JOURNAL_NAME,
-            "run": root / "var" / "cycle" / "run-1",
-        }
-        repo["next"] = corpus(repo["live"].with_name("review.next"), stamp, ["u-1", "u-2", "u-3", "u-4"])
-        field = write_list(repo, {ACCEPT_A: "approve", ACCEPT_B: "approve"})
-        sections = ([record(ACCEPT_A, "reject")], {ACCEPT_B: "2026-09-03T00:00:00Z"})
-        live = named(
-            document("A", [record("u-1"), record("u-2")], {"u-3": "2026-09-02T00:00:00Z"}), field, *sections
-        )
-        write(repo["autosave"], live)
-        journal.record_transition(
-            repo["journal"],
-            source="merge",
-            stamp="A",
-            old_stamp=None,
-            new_verdicts=live["verdicts"],
-            accepted=field,
-        )
-        landing.snapshot(repo["autosave"], repo["run"])
-        builder = held_store.Builder()
-        for held in (record("u-1"), record("u-2", "reject", "a fill", "2026-09-04T00:00:00Z"), record("u-4")):
-            builder.add(held)
-        overrides = accepted.Overrides(
-            {ACCEPT_A: record(ACCEPT_A, "reject")}, {ACCEPT_B: "2026-09-03T00:00:00Z"}
-        )
-        prepared = builder.held(stamp, field, {"u-3": "2026-09-02T00:00:00Z"}, overrides)
-        prepared.write(repo["run"] / landing.PREPARED_NAME, "2026-09-05T00:00:00Z")
-        if saved:
-            write(
-                repo["autosave"], {**live, "verdicts": [record("u-1", "either", at="2026-09-06T00:00:00Z")]}
-            )
-        return repo
-
-    def unstamped(data: bytes) -> bytes:
-        return re.sub(rb'"exported_at": "[^"]*"', b'"exported_at": ""', data)
-
-    renamed, written = build(tmp_path / "renamed", False), build(tmp_path / "written", False)
-    prepared = renamed["run"] / landing.PREPARED_NAME
-    prepared_inode, prepared_bytes = prepared.stat().st_ino, prepared.read_bytes()
-    assert land(renamed).landed
-    assert not prepared.exists() and renamed["autosave"].stat().st_ino == prepared_inode
-    assert renamed["autosave"].read_bytes() == prepared_bytes
-    assert json.loads(prepared_bytes)["exported_at"] == "2026-09-05T00:00:00Z"
-    with monkeypatch.context() as patched:
-        patched.setattr(landing, "_as_result", lambda *_args: None)
-        assert land(written).landed
-    assert (written["run"] / landing.PREPARED_NAME).exists()
-    assert unstamped(renamed["autosave"].read_bytes()) == unstamped(written["autosave"].read_bytes())
-    assert renamed["journal"].read_bytes() == written["journal"].read_bytes()
-
-    saved = build(tmp_path / "saved", True)
-    prepared_inode = (saved["run"] / landing.PREPARED_NAME).stat().st_ino
-    assert land(saved).landed
-    assert (saved["run"] / landing.PREPARED_NAME).stat().st_ino == prepared_inode
-    assert saved["autosave"].stat().st_ino != prepared_inode
-    assert units(saved["autosave"])["u-1"]["verdict"] == "either"
-
-
 def test_a_time_the_walk_takes_is_taken_under_the_lock(repo, monkeypatch):
     """A skip with no `at` in the override section the snapshot shares with the live store becomes a tombstone at the time of the land when the prepared store holds none for its unit and the stamp moves. The walk without the lock takes that time, so the land walks again under the lock, and the tombstone carries a time taken there, as the land that reads the stores whole takes it."""
     field = write_list(repo, {ACCEPT_A: "approve"})
@@ -1850,8 +1749,7 @@ def test_a_spliced_set_line_is_the_one_json_dumps_writes(tmp_path):
 
 
 def test_the_snapshot_links_the_store_and_no_writer_writes_through_a_link(repo, monkeypatch):
-    """The snapshot S and the prepared store R are the live store C's own file, so the review server's signature of C does not move. A save through the server replaces C by rename, leaving S and R as they were, and a merge into R replaces R the same way, leaving S and C. Where a link fails, as across filesystems, the snapshot copies instead."""
-    from rebuild.tools import merge_verdicts
+    """The snapshot S and the prepared store R are the live store C's own file, so the review server's signature of C does not move. A save through the server replaces C by rename, leaving S and R as they were, and a write of R replaces R the same way, leaving S and C. Where a link fails, as across filesystems, the snapshot copies instead."""
 
     signature = file_signature(repo["autosave"])
     before = repo["autosave"].read_bytes()
@@ -1864,7 +1762,9 @@ def test_the_snapshot_links_the_store_and_no_writer_writes_through_a_link(repo, 
     assert repo["autosave"].stat().st_ino != inode
     assert snapshot.read_bytes() == prepared.read_bytes() == before
     saved = repo["autosave"].read_bytes()
-    merge_verdicts._write_store(prepared, journal.payload_for("A", {"u-4": record("u-4")}))
+    staged = prepared.with_name(prepared.name + ".tmp")
+    staged.write_text(json.dumps(journal.payload_for("A", {"u-4": record("u-4")})))
+    os.replace(staged, prepared)
     assert snapshot.read_bytes() == before and repo["autosave"].read_bytes() == saved
     assert units(prepared) == {"u-4": record("u-4")}
 
@@ -2017,7 +1917,7 @@ def whole_answer(path: Path):
 
 @pytest.mark.parametrize("block", [1, 3, 64, 1 << 20])
 def test_the_stream_readers_give_the_answer_read_store_gives(tmp_path, monkeypatch, block):
-    """For every store a fixture holds and every store the random lands build, in the review server's layout, `merge_verdicts`' and as UTF-16 and with a UTF-8 byte order mark, which `json.loads` reads too, the stream readers (`accepted.read_tail`, `accepted.iter_records`) give `read_store`'s answer read a block of any size at a time: the store, or the refusal naming a malformed record among its own or in its override section first, or None for a file cut short, one that is not JSON, or one that is not an ams-review-verdicts/1 document."""
+    """For every store a fixture holds and every store the random lands build, in the review server's layout, indented, and as UTF-16 and with a UTF-8 byte order mark, which `json.loads` reads too, the stream readers (`accepted.read_tail`, `accepted.iter_records`) give `read_store`'s answer read a block of any size at a time: the store, or the refusal naming a malformed record among its own or in its override section first, or None for a file cut short, one that is not JSON, or one that is not an ams-review-verdicts/1 document."""
     monkeypatch.setattr(accepted, "_READ_BLOCK", block)
     blobs: list[bytes] = []
     for document in fixture_documents():

@@ -19,7 +19,6 @@ from rebuild.review.status import (
     count_effective,
     latest_verdicts,
     pick_fullest_verdicts,
-    resolve_carry_source,
 )
 from rebuild.review.verdict_store import parse_autosave_payload
 from rebuild.tools import verdict_ready
@@ -437,13 +436,13 @@ def test_gates_all_green_ok(tmp_path):
     assert "2026-07-17T21:30:00Z" in gates["detail"]
 
 
-def test_a_missing_store_points_at_the_journal_restore(tmp_path):
+def test_a_missing_store_warns_with_no_remedy(tmp_path):
     write_corpus(tmp_path / "rebuild" / "out" / "review")
     write_summary(tmp_path)
     store = call(tmp_path)["checks"]["verdict_store"]
     assert store["level"] == "warn"
     assert "no autosave" in store["detail"].lower()
-    assert "--restore-as-of <time> --apply" in store["remedy"]
+    assert store["remedy"] is None
 
 
 def test_a_store_stamped_for_another_corpus_points_at_the_cycle(tmp_path):
@@ -484,7 +483,7 @@ def test_a_store_holding_a_record_the_carry_refuses_fails_naming_it(tmp_path, re
     store = result["checks"]["verdict_store"]
     assert store["level"] == "fail" and not result["ready"]
     assert f"verdicts-autosave.json holds a verdict record {where}" in store["detail"]
-    assert "--restore-as-of <time> --apply" in store["remedy"]
+    assert "Replace the store with a readable one" in store["remedy"]
     assert result["checks"]["blanks"]["count"] is None
     assert (tmp_path / "verdicts-autosave.json").read_bytes() == stored
 
@@ -644,58 +643,6 @@ def test_a_verdicts_file_below_the_repo_root_is_never_a_candidate(tmp_path):
         verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]),
     )
     assert pick_fullest_verdicts(tmp_path, STAMP) is None
-    assert resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json") is None
-
-
-def test_resolve_carry_source_prefers_aligned_max_count(tmp_path):
-    write_autosave(tmp_path, records=[verdict("u-1")])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    _write(
-        tmp_path / "verdicts-old.json",
-        verdicts_doc(OTHER_STAMP, [verdict("u-1"), verdict("u-2"), verdict("u-3")]),
-    )
-    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
-    assert hit is not None
-    assert hit["path"].name == "verdicts-export.json"
-    assert hit["count"] == 2
-    assert hit["aligned"] is True
-
-
-def test_resolve_carry_source_autosave_breaks_aligned_tie(tmp_path):
-    write_autosave(tmp_path, records=[verdict("u-1"), verdict("u-2")])
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict("u-1"), verdict("u-2")]))
-    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
-    assert hit is not None
-    assert hit["path"].name == "verdicts-autosave.json"
-    assert hit["aligned"] is True
-
-
-def test_resolve_carry_source_falls_back_to_newest_stamp(tmp_path):
-    write_autosave(tmp_path, stamp=OTHER_STAMP, records=[verdict("u-1")])
-    _write(
-        tmp_path / "verdicts-export.json",
-        verdicts_doc("2026-07-12T00:00:00Z", [verdict("u-1"), verdict("u-2")]),
-    )
-    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
-    assert hit is not None
-    assert hit["aligned"] is False
-    assert hit["path"].name == "verdicts-export.json"
-    assert hit["stamp"] == "2026-07-12T00:00:00Z"
-    assert hit["count"] == 2
-
-
-def test_resolve_carry_source_empty_aligned_autosave_yields_to_stale_master(tmp_path):
-    write_autosave(tmp_path, records=[])
-    _write(tmp_path / "verdicts-master.json", verdicts_doc(OTHER_STAMP, [verdict("u-1")]))
-    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
-    assert hit is not None
-    assert hit["path"].name == "verdicts-master.json"
-    assert hit["aligned"] is False
-
-
-def test_resolve_carry_source_none_when_nothing_carryable(tmp_path):
-    write_autosave(tmp_path, records=[verdict("u-1", "skip")])
-    assert resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json") is None
 
 
 def test_no_parsed_verdicts_file_outlives_the_read_of_the_next(tmp_path, monkeypatch):
@@ -735,10 +682,6 @@ def test_no_parsed_verdicts_file_outlives_the_read_of_the_next(tmp_path, monkeyp
     assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-c.json", 3)
     picked = len(overlaps)
     assert picked == 3
-    status.store_record_path(tmp_path).unlink()
-    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
-    assert hit == {"path": tmp_path / "verdicts-autosave.json", "stamp": STAMP, "count": 4, "aligned": True}
-    assert len(overlaps) == picked + 4
     assert overlaps == [0] * len(overlaps)
 
 
@@ -861,33 +804,6 @@ def _reference_pick_fullest_verdicts(repo_root, manifest_stamp):
         if best is None or count > best[1]:
             best = (path, count)
     return best
-
-
-def _reference_resolve_carry_source(repo_root, manifest_stamp, autosave_path):
-    entries = []
-    autosave_path = Path(autosave_path)
-    try:
-        raw = autosave_path.read_bytes() if autosave_path.exists() else None
-    except OSError:
-        raw = None
-    autosave = parse_autosave_payload(raw) if raw is not None else None
-    if autosave is not None:
-        count = _reference_effective_count(autosave)
-        if count:
-            entries.append((autosave_path, autosave["manifest_generated_at"], count, True))
-    for path, data in _reference_verdict_files(repo_root):
-        count = _reference_effective_count(data)
-        if count:
-            entries.append((path, data["manifest_generated_at"], count, False))
-    if not entries:
-        return None
-    pool = [entry for entry in entries if manifest_stamp is not None and entry[1] == manifest_stamp]
-    aligned = bool(pool)
-    if not pool:
-        latest = max(stamp for _, stamp, _, _ in entries)
-        pool = [entry for entry in entries if entry[1] == latest]
-    path, stamp, count, _ = max(pool, key=lambda entry: (entry[2], entry[3]))
-    return {"path": path, "stamp": stamp, "count": count, "aligned": aligned}
 
 
 def _write_verdict_files(root):
@@ -1055,64 +971,36 @@ def test_a_stamp_far_from_the_head_of_its_file_is_still_read(tmp_path):
     assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
 
 
-def test_resolve_carry_source_falls_back_to_the_newest_stamp_on_a_tree_pick_fullest_verdicts_read_by_head(
-    tmp_path, monkeypatch
-):
+def test_pick_fullest_verdicts_reads_a_file_stamped_for_another_corpus_by_its_head(tmp_path, monkeypatch):
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
     newer_stamp = "2026-07-20T00:00:00Z"
     aligned = tmp_path / "verdicts-aligned.json"
     newer = tmp_path / "verdicts-newer.json"
-    autosave = tmp_path / "verdicts-autosave.json"
     _write(aligned, verdicts_doc(STAMP, _records(1)))
     _write(newer, verdicts_doc(newer_stamp, _records(3)))
     _write(tmp_path / "verdicts-older.json", verdicts_doc(OTHER_STAMP, _records(2)))
     assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 1)
     assert status._MEMO[newer][1].parsed is False
-    assert resolve_carry_source(tmp_path, "2026-07-01T00:00:00Z", autosave) == {
-        "path": newer,
-        "stamp": newer_stamp,
-        "count": 3,
-        "aligned": False,
-    }
-    assert resolve_carry_source(tmp_path, STAMP, autosave) == {
-        "path": aligned,
-        "stamp": STAMP,
-        "count": 1,
-        "aligned": True,
-    }
 
 
 @pytest.mark.parametrize("head_bytes", [1, 7, 64, DEFAULT_HEAD_BYTES])
-def test_the_fullest_verdicts_file_and_the_carry_source_answer_as_a_whole_parse_of_every_file_does(
+def test_the_fullest_verdicts_file_answers_as_a_whole_parse_of_every_file_does(
     tmp_path, monkeypatch, head_bytes
 ):
     stamps = [*_write_verdict_files(tmp_path), None, "no-such-stamp", 0]
-    autosave = tmp_path / "verdicts-autosave.json"
     monkeypatch.setattr(accepted, "HEAD_BYTES", head_bytes)
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
     for stamp in stamps:
         message = (stamp, accepted.HEAD_BYTES)
         expected_fullest = _reference_pick_fullest_verdicts(tmp_path, stamp)
-        expected_carry = _reference_resolve_carry_source(tmp_path, stamp, autosave)
         monkeypatch.setattr(status, "_MEMO", {})
         assert pick_fullest_verdicts(tmp_path, stamp) == expected_fullest, message
         assert pick_fullest_verdicts(tmp_path, stamp) == expected_fullest, message
-        monkeypatch.setattr(status, "_MEMO", {})
-        assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
-        assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
-        monkeypatch.setattr(status, "_MEMO", {})
-        assert pick_fullest_verdicts(tmp_path, stamp) == expected_fullest, message
-        assert resolve_carry_source(tmp_path, stamp, autosave) == expected_carry, message
     monkeypatch.setattr(status, "_MEMO", {})
     for stamp in stamps:
         message = (stamp, accepted.HEAD_BYTES)
         assert pick_fullest_verdicts(tmp_path, stamp) == _reference_pick_fullest_verdicts(
             tmp_path, stamp
-        ), message
-    for stamp in stamps:
-        message = (stamp, accepted.HEAD_BYTES)
-        assert resolve_carry_source(tmp_path, stamp, autosave) == _reference_resolve_carry_source(
-            tmp_path, stamp, autosave
         ), message
 
 
@@ -1125,7 +1013,6 @@ def test_the_head_read_agrees_with_a_whole_parse_at_every_window_size(tmp_path, 
     _write_raw(escaped, _escaped_value_text(_records(3)))
     for path in (compact, indented, escaped):
         assert path.read_bytes().index(b'"verdicts"') + len(b'"verdicts"') < 190
-    autosave = tmp_path / "verdicts-autosave.json"
     for size in range(1, 200):
         monkeypatch.setattr(accepted, "HEAD_BYTES", size)
         for stamp in (STAMP, OTHER_STAMP, ESCAPED_VALUE_STAMP, None, "no-such-stamp"):
@@ -1133,17 +1020,12 @@ def test_the_head_read_agrees_with_a_whole_parse_at_every_window_size(tmp_path, 
             assert pick_fullest_verdicts(tmp_path, stamp) == _reference_pick_fullest_verdicts(
                 tmp_path, stamp
             ), (stamp, size)
-            monkeypatch.setattr(status, "_MEMO", {})
-            assert resolve_carry_source(tmp_path, stamp, autosave) == _reference_resolve_carry_source(
-                tmp_path, stamp, autosave
-            ), (stamp, size)
 
 
 def test_pick_fullest_verdicts_answers_an_unchanged_tree_from_the_memo(tmp_path, monkeypatch):
     monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
     aligned = tmp_path / "verdicts-a.json"
     foreign = tmp_path / "verdicts-b.json"
-    autosave = tmp_path / "verdicts-autosave.json"
     _write(aligned, verdicts_doc(STAMP, _records(2)))
     _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
     write_autosave(tmp_path, records=_records(1))
@@ -1157,24 +1039,6 @@ def test_pick_fullest_verdicts_answers_an_unchanged_tree_from_the_memo(tmp_path,
     assert set(status._MEMO) == {aligned, foreign}
     assert pick_fullest_verdicts(tmp_path, STAMP) == (aligned, 2)
     assert (len(parsed), len(heads)) == first
-    carry = {"path": aligned, "stamp": STAMP, "count": 2, "aligned": True}
-    assert resolve_carry_source(tmp_path, STAMP, autosave) == carry
-    counted = len(parsed)
-    assert resolve_carry_source(tmp_path, STAMP, autosave) == carry
-    assert parsed[counted:] == []
-
-
-def test_the_verdict_store_check_records_what_the_next_carry_reads(tmp_path, monkeypatch):
-    """A readiness check that reads the store itself records the carry field for the store's bytes from its own parse (`status._Carried`), so the carry at the next pass's plan reads and hashes the store without parsing it and answers as a parse would."""
-    setup_green(tmp_path)
-    write_autosave(tmp_path, records=_records(3))
-    autosave = tmp_path / "verdicts-autosave.json"
-    assert call(tmp_path)["checks"]["verdict_store"]["level"] == "ok"
-    parsed = _spy_on_parses(monkeypatch)
-    hit = resolve_carry_source(tmp_path, STAMP, autosave)
-    assert hit == _reference_resolve_carry_source(tmp_path, STAMP, autosave)
-    assert hit is not None and hit["count"] == 3
-    assert parsed == []
 
 
 def test_a_same_size_rewrite_in_place_is_read_again(tmp_path, monkeypatch):
@@ -1255,23 +1119,6 @@ def test_a_candidate_changed_inside_the_settle_window_is_read_again(tmp_path, mo
     assert pick_fullest_verdicts(tmp_path, STAMP) == (path, 2)
     assert reads[path] == 2 * path.stat().st_size
     assert parsed == [_digest(path)]
-
-
-def test_resolve_carry_source_parses_only_what_pick_fullest_verdicts_read_by_its_head(tmp_path, monkeypatch):
-    monkeypatch.setattr(status, "_SETTLE_NS", -(10**18))
-    autosave = tmp_path / "verdicts-autosave.json"
-    foreign = tmp_path / "verdicts-c.json"
-    export = tmp_path / "verdicts-export.json"
-    write_autosave(tmp_path, records=_records(1))
-    _write(tmp_path / "verdicts-a.json", verdicts_doc(STAMP, _records(2)))
-    _write(tmp_path / "verdicts-b.json", verdicts_doc(STAMP, _records(3)))
-    _write(foreign, verdicts_doc(OTHER_STAMP, _records(200)))
-    _write(export, verdicts_doc("2026-07-20T00:00:00Z", _records(4)))
-    assert pick_fullest_verdicts(tmp_path, STAMP) == (tmp_path / "verdicts-b.json", 3)
-    parsed = _spy_on_parses(monkeypatch)
-    hit = resolve_carry_source(tmp_path, STAMP, autosave)
-    assert parsed == [_digest(autosave), _digest(foreign), _digest(export)]
-    assert hit == _reference_resolve_carry_source(tmp_path, STAMP, autosave)
 
 
 def test_a_deleted_candidate_drops_out_of_pick_fullest_verdicts(tmp_path, monkeypatch):
@@ -1491,21 +1338,6 @@ def test_a_store_that_does_not_pair_with_its_list_fails_the_verdict_store_check(
     store = result["checks"]["verdict_store"]
     assert store["level"] == "fail" and not result["ready"]
     assert "names the accepted list" in store["detail"] and result["checks"]["blanks"]["count"] is None
-
-
-def test_resolve_carry_source_counts_the_stores_accepted_units_on_the_served_corpus(tmp_path):
-    """An export made before the close-out holds every folded record, but the store's count takes its accepted units on the served corpus's human units, so the store stays the master; a store that does not pair with its list raises the pairing refusal."""
-    _write(
-        tmp_path / "rebuild" / "out" / "review" / "manifest.json",
-        {"generated_at": STAMP, "human_unit_ids": LISTED},
-    )
-    write_named_autosave(tmp_path, write_list(tmp_path))
-    _write(tmp_path / "verdicts-export.json", verdicts_doc(STAMP, [verdict(unit) for unit in LISTED]))
-    hit = resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
-    assert hit is not None and hit["path"].name == "verdicts-autosave.json" and hit["count"] == 3
-    write_list(tmp_path, LISTED[:1], closed_at="2026-07-18T00:00:00Z")
-    with pytest.raises(accepted.Mismatch):
-        resolve_carry_source(tmp_path, STAMP, tmp_path / "verdicts-autosave.json")
 
 
 # --- a table-diff corpus's rows ---------------------------------------------------------

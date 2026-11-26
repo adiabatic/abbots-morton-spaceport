@@ -515,8 +515,7 @@ class VerdictStore:
                     f"{malformed}. The review server serves no verdict from it and refuses every save, writing neither "
                     "the store nor the journal, until the file is replaced: it reads a store holding a record the carry "
                     "refuses (`verdict_store.well_formed`) as it reads an unreadable one, but never writes over it. "
-                    "Restore a readable store from the journal with "
-                    "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`."
+                    "Replace it with a readable store, or move it aside so the server starts an empty one."
                 )
             raw = None
             if self.refusal is None:

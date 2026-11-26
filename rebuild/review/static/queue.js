@@ -1,4 +1,4 @@
-// The in-app review queue as pure functions over the in-memory store. They follow rebuild/tools/review_queue.py's clustering, so the view agrees with a snapshot of the same verdicts. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster. Evidence comes from judged units with the same signature.
+// The in-app review queue as pure functions over the in-memory store. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster. Evidence comes from judged units with the same signature.
 
 export const TOP_CLUSTER_COUNT = 25;
 export const SINGLETON_CHUNK = 40;
@@ -20,7 +20,7 @@ function byTriageOrder(a, b) {
 }
 
 export function buildClusters(units, recordOf) {
-  // Sort in triage order, as review_queue.py does, so each exemplar, representative and evidence sample is the first unit in the order the app pages in.
+  // Sort in triage order, so each exemplar, representative and evidence sample is the first unit in the order the app pages in.
   const human = [];
   for (const unit of units) {
     if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') human.push(unit);
@@ -108,7 +108,7 @@ export function partitionClusters(clusters, ruledIds) {
 
 const ACCEPTING_MIX = ['approve', 'identical'];
 
-// Whether the recorded verdicts on one duplicate group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering. Mirrors verdicts_agree in rebuild/tools/review_queue.py.
+// Whether the recorded verdicts on one duplicate group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering.
 export function verdictsAgree(verdicts) {
   if (verdicts.size <= 1) return true;
   return verdicts.size === ACCEPTING_MIX.length && ACCEPTING_MIX.every((verdict) => verdicts.has(verdict));

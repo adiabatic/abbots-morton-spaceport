@@ -259,8 +259,8 @@ def snapshot(autosave: Path, run_dir: Path, *, catch_up_with: CatchUpWith | None
         )
     except MalformedStore as malformed:
         raise MalformedStore(
-            f"{malformed}; restore a readable store from the journal with "
-            "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`"
+            f"{malformed}; replace it with a readable store, or move it aside so the review server starts an "
+            "empty one"
         ) from None
     return taken.stamp if taken is not None else None
 
@@ -1534,8 +1534,8 @@ def _refuse_malformed(malformed: MalformedStore) -> LandResult:
     return LandResult(
         False,
         f"{malformed}, and the land refuses a store holding a record the carry refuses (`verdict_store.well_formed`) "
-        "so that it never lands one; if it is the live store, restore a readable store from the journal with "
-        "`uv run python -m rebuild.tools.merge_verdicts --restore-as-of <time> --apply`",
+        "so that it never lands one; if it is the live store, replace it with a readable store, or move it aside "
+        "so the review server starts an empty one",
     )
 
 
@@ -1920,8 +1920,7 @@ def _read_left(store: Path, landing: Path, run: str, intent_path: Path, journal_
             f"deleting {landing} makes the next recovery leave {store} as it stands, swapping the corpus back out when "
             "the store is on another stamp than the land's, as for a land whose run directory is gone"
             if left == landing
-            else f"`uv run python -m rebuild.tools.merge_verdicts --autosave {store} --journal {journal_path} "
-            "--restore-as-of <time> --out <file>` writes a store from the journal without the lock to put in its place"
+            else f"replacing {store} with a readable store, or moving it aside, lets the next recovery finish the land"
         )
         raise LandUnrecoverable(
             f"{malformed}, so the recovery of the land of {run} refuses to finish it, and {intent_path} stays: every "

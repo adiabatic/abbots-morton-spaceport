@@ -6,7 +6,7 @@ The terminal shows one banner per step with that step's description, the phases 
 
 The job-costs step never fails the pass: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
 
-The corpus seed, the verdict update and the review facts are in no plan. Their step functions and keys (`_do_corpus_seed`, `_do_verdict_update` with `verdict_update_skip_fingerprint` and the scrapers it uses, `_do_review_facts`), and the `Plan` and `CycleReport` fields only they read, stay in this module until the verdict machinery and the m1-audit corpus leave the tree (rebuild/CUTOVER-PLAN.md stage 4).
+The corpus seed and the review facts are in no plan. Their step functions (`_do_corpus_seed`, `_do_review_facts`), and the `Plan` and `CycleReport` fields only they read, stay in this module until the m1-audit corpus leaves the tree (rebuild/CUTOVER-PLAN.md stage 4).
 
 A pass refuses before it parses its command line while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`), so a shell that leaks it cannot build a small alphabet into the live tree.
 
@@ -18,7 +18,7 @@ This process, not its children, records each check's result in the timings journ
 
 gate:js depends on no build artifact, so it starts at t=0 in a small thread pool while the build steps run in sequence in the main thread. The corpus build runs on a thread of its own (`_HeldCorpusBuild`), which the driver joins before the land. gate:make-test checks the `data-expect` pins against the rebuilt Senior its session copies from the build run_m1 leaves (rebuild/tools/build_fonts.py), so it is submitted to that pool once the run_m1 gate passes, and not run when the gate fails. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes too, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's processes at `corpus_job_budget`'s width, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build prints the line that closes its units phase (`CORPUS_UNITS_LINE`), or until the build returns when it prints none, as the table-diff build does, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
 
-While a gated pass's build lane runs (run_m1, then the corpus build, then the land), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle, the corpus build's ink-signature shaping and the standing fill's refill pool, are capped at every core on every pass rather than at a lane's share. The last two share the cores with gate:make-test's pool while both run, which costs contention time rather than memory, and the refill pool subtracts gate:make-test's bytes; the oracle runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it. The table-diff build takes no width and runs in one Python process, so the widths that book the corpus build book the review crate's build (`CORPUS_BUILD_RS_PROCESS_BYTES` and its threads), which holds more, until the crate leaves the tree with the m1-audit corpus.
+While a gated pass's build lane runs (run_m1, then the corpus build, then the land), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle and the corpus build's ink-signature shaping, are capped at every core on every pass rather than at a lane's share. The ink-signature shaping shares the cores with gate:make-test's pool while both run, which costs contention time rather than memory; the oracle runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it. The table-diff build takes no width and runs in one Python process, so the widths that book the corpus build book the review crate's build (`CORPUS_BUILD_RS_PROCESS_BYTES` and its threads), which holds more, until the crate leaves the tree with the m1-audit corpus.
 
 `--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. A pass that runs gate:make-test and neither run_m1 nor the corpus build queues them so under either policy (`gates_queue`). Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets, less what the settle-memo absorbs hold beyond it (ORACLE_ABSORB_BYTES); the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build (`corpus_job_budget`) gets the build lane's share less its main thread, with gate:make-test's memory off the machine when that gate runs, and every core less its main thread for its units pool when the gate lane is idle as that pool starts. Under the overlap policy, on a pass that runs gate:make-test beside the build lane, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool, which already holds the gate lane, so beside a corpus build at its lane share the suite falls to its floor of one worker and the sweep to its floor of one process per acceptance configuration on every machine. When the gates queue, neither subtracts gate:make-test's pool, which has finished by the time they start. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
 
@@ -51,8 +51,6 @@ The review server keeps running through every pass. Two things a cycle writes be
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
-The standing daemon does not run beside a pass. Once the preflight has settled the review server, a pass that is not a dry run stops a daemon that answers at the default socket before its first step and prints one line saying so (`stop_standing_daemon`, #618's decision 8); with none answering it prints nothing. No width the pass computes leaves room for the corpus a daemon holds, and no step asks it.
-
 An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
 
 A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, the stamp changes with it, and the land carries the store onto it by unit id.
@@ -74,7 +72,6 @@ import contextlib
 import fnmatch
 import functools
 import hashlib
-import io
 import json
 import os
 import posixpath
@@ -98,7 +95,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from rebuild.review import accepted, app_index, facts, journal, landing, store_lock, unit_index  # noqa: E402
 from rebuild.review.audit import load_ledger  # noqa: E402
-from rebuild.tools import console, cycle_paths, standing_client  # noqa: E402
+from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools import contracts_closure as contracts  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
     _digest_lines,
@@ -129,8 +126,6 @@ if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings, PassWrites
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-DUPLICATE_FILL_NAME = "verdicts-duplicate-fill.json"
-STANDING_FILL_NAME = "verdicts-standing-fill.json"
 FACTS_PINS = ROOT / "rebuild" / "review-facts-pins.json"
 DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
@@ -139,8 +134,6 @@ JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
 
 POOL_POLICIES = ("queue", "overlap")
 REBUILD_POOL_POLICY_DEFAULT = "overlap"
-VERDICT_UPDATE_SKIP_NOTE = "corpus, verdicts master, live store, and standing approvals unchanged since the last complete verdict-update pass; --fresh overrides"
-DIRECT_MERGE_DECLINED_NOTE = "The corpus build is skipped, but the verdicts master is not an ams-review-verdicts/1 document stamped for the served corpus, so the merge would refuse it, and the verdict update takes the full carry by unit id instead of merging it straight in (the carry refuses a master it cannot read)."
 CONFORM_SKIP_NOTE = "no new rule shape, compile code or shaper since its last green sweep; --fresh overrides"
 CONFORM_MAYBE_NOTE = "runs unless run_m1 leaves the emitted lookup's behavior classes, the compile code and the shaper under the key of its last green sweep, in which case it is re-skipped after run_m1"
 MAKE_TEST_MAYBE_NOTE = "runs after run_m1 unless the rebuilt Senior it checks the pins against comes out, with the rest of its closure, under the key of its last green run, in which case its wrapper skips itself"
@@ -165,12 +158,7 @@ _GATE_POOL_WORKERS = 6
 CORPUS_BUILD_RS_PROCESS_BYTES = 2_810_000_000
 CORPUS_BUILD_RS_THREAD_BYTES = 70_000_000
 CORPUS_BUILD_RS_LAUNCHER_BYTES = 140_000_000
-# The peak memory of one worker in the standing fill's refill pool, the divisor of that pool's width (`standing_fill_jobs`). A worker is a spawn process holding its interpreter, the rules, a `SlideContext` over the corpus's font pair (two shapers), and one chunk of `_STANDING_POOL_CHUNK` units (rebuild/tools/standing_verdicts.py) with that chunk's shape and walk memos and its alignment cache. All three are emptied after every chunk, so the peak depends on the chunk, not on the pool's share of the units. The measurement set is three hand refills in the verdict update's form (`--open-only --require-reach`) with the memo dropped (`--fresh-memo`), each worker's resident set sampled every 0.1 s on the 18-core 48 GiB machine (`doc/fleet.md`). Two ran eighteen wide, and their thirty-six workers read 95 to 104 MB. One ran two wide, and its workers, which decided about fifty-eight chunks each, read 99 MB, so a worker's peak does not grow with the chunks it decides. The constant is more than three times the highest reading, because no journal row measures this worker: `make job-costs` has no standing-fill-worker row, since writing pool records from the fill would put cycle_timings and peak_rss into the memo's code stamp (`MEMO_CODE_MODULES`) and drop the memo on every width change. Re-measure by hand at the chunk width when the chunk size or what a decision holds changes. At this figure the cores, not memory, limit this pool on every fleet machine.
-STANDING_FILL_WORKER_BYTES = 350_000_000
-# The peak memory of the verdict update's process while the standing fill's pool runs, subtracted from the machine's memory before dividing by STANDING_FILL_WORKER_BYTES. The parent counts the corpus ids and keeps none. Of each human unit it keeps a projection of 12 bytes in arrays, its duplicate group's ordinal and its id's 64-bit word (`duplicate_verdicts.Projection`), and those ids again sorted as words beside their places, 12 bytes an id (`carry_verdicts._Human`), which the carry, `skip_clears` and the complaint list ask; the units those ids do not hold, which only the orphan and absent-unit counts need, are taken as a small set and settled by one more walk of the corpus's ids. Each walk of the units index, one at a time, also holds each human unit's place in the queue, read from the manifest beside the index once a walk (`unit_index.Places`, #618's change 32), a dict over the triage index's 332,250 ids at 45 runes. That term is each reader's highest peak on the tree with the places less its highest peak on the tree before them, the higher of resident and footprint, three runs a reader, each in a fresh process, on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) at 45 runes: `after/readers-summary.txt` in var/keep/ram-inventory/v4/change32-readings/, whose `README.md` says how the lines were taken. The streaming walk the complaint list, the standing fill, the carry and the duplicate fill take (`unit_index.iter_human_units`) reads 0.071 GB against 0.068, 0.003 GB more, and the review queue's load, which holds every human record beside the places (`review_queue.load_human_units`), 1.015 GB against 0.975, 0.040 GB more. The places hold 0.036 GB once the manifest goes (`after/places-size.txt`); a streaming walk's peak barely moves because its process parses the manifest before the walk on both trees, a high-water mark 0.039 GB above its base that the places stay under, while beside a peak far above that mark, as the review queue's and the standing fill's are, they add about their held size. The measurement set below predates the places, and the quarter above its highest line covers them while the term stays under 0.175 GB: the review queue's 0.040 GB on `gay-fresh`'s 0.625 is 0.665 GB, and a quarter on it, 0.831, still rounds up to 1. Full human records stream through the verdict update's steps. The first walk and the standing fill read them unpooled (`unit_index.iter_human_units`'s `pooled=False`), holding no interned strings and none of the reader's pool of up to `unit_index._CONTAINER_POOL_LIMIT` nested containers, and drop each record once they have taken what they keep, while the complaint list's walk keeps the pool, since its projections hold strings taken from the records. The measurement set below predates that: a walk alone in a fresh process over the 443,438 human units of the live corpus at f914ee98 peaks at 0.120 GB resident unpooled against 0.142 pooled for the first walk and 0.119 against 0.122 for the standing fill's, so the unpooled walks read no higher than the walks the set measured (var/keep/workflow-584/issue-589-walks/). The standing fill holds the previous memo as a table of 20 bytes an entry, a 16-byte key and a 4-byte ordinal into a vocabulary of its distinct decision records, beside that vocabulary and a hit bit an entry, and each new entry at 20 bytes until the write merges them into the file. It folds each decision as it arrives into the fills, the combined counts and the per-rule lists of the units the run can still change, and the `--require-reach` reach into a count a distinct decision, so it keeps no decision a unit. Refill misses go to the pool in chunks as the walk finds them, with no spool, and at most one wave of unit records is in flight, the width times `_STANDING_POOL_CHUNK` (rebuild/tools/standing_verdicts.py), about 18 MB a worker, beside the chunk the walk is filling. A serial refill, and the memo check `_prefill` runs on every served unit, hold one unit's `SlideContext` memos and alignment-cache entries at a time, because `Decider._release` empties both after each unit. No step parses the store whole. The carry reads its files a record at a time, joined with the corpus's human ids in id order with each id's place in the index's order, and is fused into the first merge, which streams it and the store and builds the prepared store as sorted record lines in one buffer with a table over them, 26 bytes a line (`held_store.Held`). That store is held from the first merge to the end of the step, so its lines, about the open store's size on disk, are resident beside everything else, and twice over while a merge that changes records copies them into the next buffer. Each merge after the first reads only the units its fill names; the fills and the complaint list read the store through the table, parsing a record when they ask for it, and their stamp checks read the held store's stamp. The complaint list builds its compact grouping projections of the human units only when a record in the store is a reject or a neither (`complaint_list._may_complain`); with no complaint open it reads no human record. None of this goes to the refill pool's workers, which take units.
-# On macOS the cycle runs the verdict update with the allocator's large cache off (`kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT`, overlaid by `_do_verdict_update`), and the refill workers inherit it, so the buffers and projections each phase frees go back to the system as they are freed rather than staying in the footprint and raising the floor of every later phase. A hand `rebuild.tools.verdict_update` runs without it and reads higher. The standing-fill-parent row of `make job-costs` reads the whole verdict-update step through `peak_rss.reap_peak_rss_bytes`. The measurement set is the verdict-update series' after lines on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) at 45 runes, taken on 2026-11-11 with the memo table, the folded decisions, the pool fed from the walk and the projection above in the tree: `after/runs.ndjson` in var/keep/ram-inventory/v4/change19-readings/, whose `before/vu_series.py` is the recipe (`--side after --form change18`) and whose `README.md` says how the lines were taken, each verdict update alone on the cycle's own command line for a pass that lands, with `--standing-fill-jobs 18` and `MallocLargeCache=0`, over a clone of the review corpus under `/usr/bin/time -l`, three runs an arm. The stores are cut from the 2026-11-06 close-out's archive, one record on each of 332,250 human units, keeping the newest, with every unit a store does not hold on a synthetic accepted list. The rule reads the `gay` share, the end of a batch at least as large as ·Gay's four-letter interval, 164,718 records in 48.7 MB: a corpus-only pass that carries the store and fills nothing (`gay-carried`) reads 0.332 GB; that pass over 163,065 records in 48.2 MB with every hundredth unit blank, so the fills fill and the merges after them change the held store (`gay-fills`), 0.339 GB; and that pass with the memo dropped (`gay-fresh`), 0.615 to 0.625 GB, the highest line. Those are peak resident; each `gay` line's peak footprint reads 0.04 to 0.15 GB lower. `gay-fresh` peaks in the standing fill while the pool's wave is in flight, and the other two read 0.30 to 0.32 GB resident in the carry and the standing fill alike (`after/phase-peaks.txt`, one run of each arm sampled phase by phase). The series names the snapshot `S.json`, not `landing.SNAPSHOT_NAME`, so its carry reads a store with an override section whole where the cycle's carry streams it, which lifts the carry to the standing fill's height at `gay` and above it at `s90`. The other shares read lower, each line's peak resident above its footprint: the `s00` arms, over a store with no records of its own, 0.237 to 0.239 GB, the one with an open complaint 0.320 to 0.321 GB, and the run that warms the memo 0.530 GB; 297,543 records in 92.4 MB with 33,046 units on the accepted list (`s90-carried`), 0.526 to 0.527 GB, set in its carry; the whole archive with no accepted list, 330,589 records in 95.8 MB (`whole-carried`), 0.313 GB; and a hand run on the `gay-fills` store that writes and journals each merge (`gay-hand`), 0.509 to 0.510 GB. Over the four shares' carried arms the peak climbs 0.052 GB resident and 0.050 GB footprint a 100,000 store records, a slope the series' whole read of the override section sets: `whole-carried`, whose store has none, reads 0.313 GB where `s90-carried`, with fewer records, reads 0.527. The constant is the highest `gay` reading, the higher of peak resident and peak footprint, plus a quarter, rounded up to the next whole gigabyte (`calibrate_budgets.proposed_constant`): a quarter on `gay-fresh`'s 0.625 GB (624,902,144 bytes), 0.781, rounds up to 1, and every other line sits under it, `s90-carried`'s 0.527 the highest of them. At this figure the cores, not memory, limit the refill pool and the conformance sweep beside it on both fleet machines. The projection and the memo's table grow with the human units, and the store's records with the verdicts made since the last close-out, so watch the row as letters are added and re-measure at each batch's end.
-STANDING_FILL_PARENT_BYTES = 1_000_000_000
-# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the verdict update that moves the corpus and the store into place. It holds no parsed store: it reads the snapshot, the prepared store and the live store as streams, one record at a time through read buffers of about 1 MiB (`accepted.read_tail`, `accepted.iter_records`), writes its result through a buffer of that size, or, when the live store is the snapshot and the prepared store holds the result's bytes, renames the prepared store into place as its result and writes none, reading it once more a block at a time to compare, and splices the journal's set lines from the result's record lines. What it holds follows the corpus and the store's tails, not the store's records: the new corpus's human unit ids and, on a pass that moves the stamp under the orphan guard, the live corpus's; each store's tombstones and override section; the orphan entries and the units saved during the pass; and the journal's diff, 12 bytes a set line (its offset and length in the result, in `array`s) and a unit and its tombstone a clear line. Before any of that, its lock catches the live store up with the journal (`landing.catch_up`), whose events since the store's last write always take in the last journaling land's own event, its `at` being after the store's `exported_at`: it holds each unit those events name as its id and an 8-byte digest of its state, streams the store a record at a time to compare, and holds whole records only for the units the store lacks, the saves the review server journaled and has not written, freeing all of it before the walk. By tracemalloc on synthetic records with 225-byte notes over a 100,000-record store, that is 12.2 MB for a 50,000-set land diff the store already holds, 244 bytes a unit, and 5.1 MB for one of 7,762 sets, the largest land diff on record, with ten saves to write; it comes and goes before the walk, inside the quarter the constant keeps above its highest reading. The measurement set is the land step of cycle pass 65de92ca6254 at 55 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), taken on 2026-11-22 with the catch-up in the tree, read as the land row reads it, by its resident peak: 0.218 GB (217,956,352 bytes), the row's highest reading. The land series' after lines on the same machine at 45 runes, taken on 2026-11-09 before the catch-up, show which work raises the peak: `after/runs.ndjson` in var/keep/ram-inventory/v4/change17-readings/, whose `before/land_series.py` is the recipe and whose `README.md` says how the lines were taken, each land alone through the cycle's own command line in a fresh clone under `/usr/bin/time -l`, three runs an arm. The stores are cut from the 2026-11-06 close-out's archive, 332,250 records on as many human units, and each corpus's manifest names all 332,250 ids. The `moved` arm, a land that moves the stamp and journals the verdict update's fills as sets, reads 0.139 GB over a store with no records of its own and 0.147 to 0.148 GB from 33,058 records (15.9 MB) to 297,529 (92.4 MB), so the peak does not climb with the store's records. At ·Gay's four-letter interval, 164,703 records in 48.6 MB, `moved-base`, which journals its result as a base, reads 0.150 GB; `same`, a verdict-only land that holds the new corpus's ids alone, 0.109 GB, 0.038 below `moved`; and `saves`, with 400 records changed, 100 cleared, 50 fill targets and 50 overrides set during the pass, so the live store is not the snapshot and the walk runs again under the lock, reads highest, 0.153 GB (152,813,568 bytes). Those are peak resident; every line's peak footprint reads 0.011 GB lower. The constant is the highest reading, the higher of peak resident and peak footprint, plus a quarter, rounded up to the next tenth of a gigabyte: a quarter on 0.218 GB, 0.272, rounds up to 0.3. It is below both the corpus build's process and launcher together (CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES) and STANDING_FILL_PARENT_BYTES, which `test_the_land_holds_less_than_either_build_lane_step_before_it` checks, and the land runs after the corpus build and the verdict update in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the larger of those two, covers it too, and no width depends on it. The land row of `make job-costs` checks it against the land step's peak, so re-measure it from that row as the alphabet grows.
+# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the corpus build that moves the corpus and the store into place. It holds no parsed store: it reads the snapshot, the prepared store and the live store as streams, one record at a time through read buffers of about 1 MiB (`accepted.read_tail`, `accepted.iter_records`), writes its result through a buffer of that size, or, when the live store is the snapshot and the prepared store holds the result's bytes, renames the prepared store into place as its result and writes none, reading it once more a block at a time to compare, and splices the journal's set lines from the result's record lines. What it holds follows the corpus and the store's tails, not the store's records: the new corpus's human unit ids and, on a pass that moves the stamp under the orphan guard, the live corpus's; each store's tombstones and override section; the orphan entries and the units saved during the pass; and the journal's diff, 12 bytes a set line (its offset and length in the result, in `array`s) and a unit and its tombstone a clear line. Before any of that, its lock catches the live store up with the journal (`landing.catch_up`), whose events since the store's last write always take in the last journaling land's own event, its `at` being after the store's `exported_at`: it holds each unit those events name as its id and an 8-byte digest of its state, streams the store a record at a time to compare, and holds whole records only for the units the store lacks, the saves the review server journaled and has not written, freeing all of it before the walk. By tracemalloc on synthetic records with 225-byte notes over a 100,000-record store, that is 12.2 MB for a 50,000-set land diff the store already holds, 244 bytes a unit, and 5.1 MB for one of 7,762 sets, the largest land diff on record, with ten saves to write; it comes and goes before the walk, inside the quarter the constant keeps above its highest reading. The measurement set is the land step of cycle pass 65de92ca6254 at 55 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), taken on 2026-11-22 with the catch-up in the tree, read as the land row reads it, by its resident peak: 0.218 GB (217,956,352 bytes), the row's highest reading. The land series' after lines on the same machine at 45 runes, taken on 2026-11-09 before the catch-up, show which work raises the peak: `after/runs.ndjson` in var/keep/ram-inventory/v4/change17-readings/, whose `before/land_series.py` is the recipe and whose `README.md` says how the lines were taken, each land alone through the cycle's own command line in a fresh clone under `/usr/bin/time -l`, three runs an arm. The stores are cut from the 2026-11-06 close-out's archive, 332,250 records on as many human units, and each corpus's manifest names all 332,250 ids. The `moved` arm, a land that moves the stamp and journals the verdict update's fills as sets, reads 0.139 GB over a store with no records of its own and 0.147 to 0.148 GB from 33,058 records (15.9 MB) to 297,529 (92.4 MB), so the peak does not climb with the store's records. At ·Gay's four-letter interval, 164,703 records in 48.6 MB, `moved-base`, which journals its result as a base, reads 0.150 GB; `same`, a verdict-only land that holds the new corpus's ids alone, 0.109 GB, 0.038 below `moved`; and `saves`, with 400 records changed, 100 cleared, 50 fill targets and 50 overrides set during the pass, so the live store is not the snapshot and the walk runs again under the lock, reads highest, 0.153 GB (152,813,568 bytes). Those are peak resident; every line's peak footprint reads 0.011 GB lower. The constant is the highest reading, the higher of peak resident and peak footprint, plus a quarter, rounded up to the next tenth of a gigabyte: a quarter on 0.218 GB, 0.272, rounds up to 0.3. It is below the corpus build's process and launcher together (CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES), which `test_the_land_holds_less_than_the_build_lane_step_before_it` checks, and the land runs after the corpus build in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the build, covers it too, and no width depends on it. The land row of `make job-costs` checks it against the land step's peak, so re-measure it from that row as the alphabet grows.
 LAND_BYTES = 300_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's guard verdict map. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded from the store's base, its segments' upserts in the range merged by ordinal as they stream, and the range's slice of the ages column (`oracle_cache.load_store`), without scanning the whole member where its base has one that spans the range, so it holds its range's rows and not the configuration's. On a pass whose row stamp moved it holds only each record's position part, the row check digest, the settled digest, the position verdict and both ages, with the row verdict cut away as the records load (`oracle_cache._position_part`), about 44 bytes of a record's 160 at 45 runes: that pass walks every row, as a pass with the row cache dropped does, and serves each stored position whose settled digest still matches (`oracle_cache.RowStore.position_servable`), so it holds the position parts and the dropped pass's walk at once. A pass whose row stamp moved where no position can be served, because the position stamp moved too or there is no font, loads no records (`oracle_cache.load_store`) and holds the dropped pass's walk alone. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does: a writing pass re-derives one row in `oracle_cache.MAX_RECORD_AGE` on schedule, and a pass that serves rows walks its verification samples. `conform._MemoStore` maps the base and every segment its head lists, at most `row_delta.SEGMENT_CAP` plus `row_delta.FOLD_OVERRUN`, 21, and reads each part's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over its mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them), and each segment's Bloom filter, 10 bits a row of the segment, about 0.5 MB a segment at 45 runes, is a view too, whose pages a probe touches one block a segment on each base hit. Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a writing pass's walk with the row cache filled probes the one row in twenty the cache does not serve, a `--gates-only` pass's walk only the rows the cache refuses and its verification samples, and a walk with the row cache dropped probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the measurement set's readings are taken with no family changed, every `[t] settle_memo` line at stale=0, so that fold is outside the measurement set and inside the headroom. The worker's own heap holds the parts' interned label and outcome tables, a dead byte and a reached byte a row over the segments' rows beside the base's, 0.005 GB at the load with a base alone, the segments adding their own share. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of the windows the walk settles fresh and of the store hits a later row can read again. A hit whose window spells out its whole row's text, which that row alone reads, stays in the mapped store (`conform._SettledWindowWalk`'s `promote_pinned`). That saves the window's key tuple, 96 bytes, and halves the dict's table where the count `windows` holds stays under a power of two it would otherwise pass: in the measurement set below `default 2/4` keeps 511,019 of the 1,235,286 hits it reaches out of `windows` and reads 0.047 GB less peak footprint than a walk that copies every hit, 92 bytes a kept window, while `default 1/3` keeps 637,851 of 1,642,266, its table falls from 2^22 slots to 2^21, and it reads 0.138 GB less, 217 bytes a kept window. On a pass that serves from its store it also holds each chunk's offers to the two verification samples (`oracle_cache.VerificationSample.offer_many`), and while a range on one segment of a joined store loads, that segment's compressed bytes beside its inflated records (`oracle_cache._indexed_records`), or, with the row stamp moved, beside the position parts it cuts from each piece it inflates (`oracle_cache._inflated_position_parts`). The cyclic collector is held off for the range (`oracle._collector_held`), so the few reference cycles a range builds stay until it ends. It also holds what it sends home until it has copied it into shared memory (`oracle.ship`): its range's audit lines, compressed a block at a time with at most `oracle.ORACLE_AUDIT_BLOCK` bytes uncompressed (`oracle.AuditBlocks`), on a pass that writes a store, a cut configuration's range's store segment, one gzip member built in memory (`oracle_cache.RowWriter` with no path), and the settle memo windows it settled fresh, compressed a block at a time (`conform.FreshMemo`), a few megabytes on a range that settles every window fresh and far less on a rune edit's. While it copies, the shared memory's pages count in its footprint beside the pieces not yet dropped, and they leave it when it closes its mapping. These grow with the range's share of the audit and of the stores. The range probe that takes the measurement set below ships nothing, so its readings leave them to the headroom: at 45 runes the whole audit compresses to about 0.15 GB and a writing pass's segments come to 0.379 GB, about 0.03 GB a range over the width-twelve plan's seventeen ranges; those figures are derived from the outputs' sizes, not measured.
 # No range writes the memo. Every range, whether or not its configuration is split, returns the windows it settled fresh in a shared memory segment (`run_m1_gates.run_oracle`), and each configuration's absorb, a task of its own on this same pool, runs in a fresh process in the slot a range frees once all of the configuration's ranges have landed and the witness stage has returned (`run_oracle`'s `memo_ready`). Its reading is recorded in the pool record beside the ranges' as `<config> absorb`, and ORACLE_ABSORB_BYTES prices it; the absorbs are outside this constant's measurement set.
@@ -394,11 +382,6 @@ def make_test_closure_fingerprint(root: Path = ROOT) -> str | None:
     return digest.hexdigest()
 
 
-def record_verdict_update_green(fingerprint: str, path: Path | None = None) -> None:
-    """Write the verdict update's green record: the key alone, like every record `read_green_record` parses."""
-    record_green(path if path is not None else cycle_paths.VERDICT_UPDATE_GREEN, fingerprint)
-
-
 def read_make_test_green(path: Path | None = None) -> dict | None:
     """Return the shared green record for `make test`, which rebuild.tools.make_test_gate writes on every green run, interactive or as gate:make-test."""
     return read_green_record(path if path is not None else cycle_paths.MAKE_TEST_GREEN)
@@ -451,12 +434,11 @@ REBUILD_GATE_HARNESS_PATHS = (
 
 
 def _closure_digest(root: Path, rel: str) -> str:
-    """Return one file's digest for the rebuild lane's closure. Rune YAMLs, the divergence ledger and the standing approvals get prose-insensitive hashes (`fingerprint.rune_document_digest`, which keeps the `kern` block's records, `divergence_ledger_digest`, `standing_approvals_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a changed pin re-runs the lane and the lock's copy of the project version does not; no test reads the project's own block, and the pinned packages decide the environment the lane runs in. A version bump still re-runs the whole lane, because it rewrites pyproject.toml, a global label (`contracts_closure.GLOBAL_LABELS`) hashed raw. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, statuses, `no_verdict`, `match` and the exemplar keys, never the text of a `why`, `title`, `summary` or `note`; `audit.load_ledger` checks only that a title and summary are present and nonempty, and the digest keeps which prose keys each entry has. The only live readers of that text are the corpus's sidebar, class header and explain panel, and the standing fill, and both are keyed elsewhere: the ledger's prose in the Stage B `explain_prose` component, and the fill's copy of a rule's `note` in `verdict_update_skip_fingerprint`, which hashes the file raw for that reason."""
+    """Return one file's digest for the rebuild lane's closure. Rune YAMLs and the divergence ledger get prose-insensitive hashes (`fingerprint.rune_document_digest`, which keeps the `kern` block's records, and `divergence_ledger_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a changed pin re-runs the lane and the lock's copy of the project version does not; no test reads the project's own block, and the pinned packages decide the environment the lane runs in. A version bump still re-runs the whole lane, because it rewrites pyproject.toml, a global label (`contracts_closure.GLOBAL_LABELS`) hashed raw. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, statuses, `no_verdict`, `match` and the exemplar keys, never the text of a `why`, `title` or `summary`; `audit.load_ledger` checks only that a title and summary are present and nonempty, and the digest keeps which prose keys each entry has. The only live readers of that text are the corpus's sidebar, class header and explain panel, and they are keyed elsewhere: the ledger's prose is in the Stage B `explain_prose` component."""
     from rebuild.pipeline import fingerprint
 
     prose_insensitive = {
         fingerprint.DIVERGENCE_LEDGER_LABEL: fingerprint.divergence_ledger_digest,
-        fingerprint.STANDING_APPROVALS_LABEL: fingerprint.standing_approvals_digest,
         "uv.lock": fingerprint.lock_digest,
     }
     digest = prose_insensitive.get(rel)
@@ -908,7 +890,7 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
 
     The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py and the checker's tests collect pins from the three site corpora through rebuild/validation/corpus.py, and the grammar (rebuild/validation/expect.py) reads postscript_glyph_names.yaml at the repo root when it is imported. rebuild/review/drafts.build_corpus_index reads the same three corpora. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ only through the font compile, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list. The Mono builds in rebuild/test_build_family.py and rebuild/test_family_against_old_build.py read reference/DepartureMono-Regular.otf, whose glyphs and layout tables tools/build_font.py copies into Mono. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
-    The review-facts pins are exempt because the suite does not read them and the review-facts step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger and the standing approvals stay in, since tests read them, and `_closure_digest` gives them prose-insensitive hashes, so rewording a `why` or a `note` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
+    The review-facts pins are exempt because the suite does not read them and the review-facts step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger stays in, since tests read it, and `_closure_digest` gives it a prose-insensitive hash, so rewording a `why` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
     """
     try:
         result = subprocess.run(
@@ -950,7 +932,7 @@ def contracts_fingerprint(root: Path) -> str | None:
 
 
 def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
-    """Return the rebuild suite's input closure as the key and the per-label digest map the key is computed from. One pass over the files produces both, and because the map is the key's only source, every input that can change the key is a label the per-test selection can see change. The closure covers the repo files from `rebuild_gate_closure_files`, which has already dropped the exempt paths, so a contact-signature bless changes nothing here. It also covers the site fonts, hashed as one `fonts` label through `fingerprint.fonts_value` without their `head` and `name` tables. They are `make all` output that the shaping tests measure against, no rune edit changes them, every baseline header records the Senior font's sha, and `baseline_subset.check_font_provenance` checks the oracle's tables against it. Leaving out those two tables means the version a version bump's `make all` writes into them changes nothing here, while a glyph, anchor or layout change does; the bump re-runs the whole lane through pyproject.toml instead, which is hashed raw. The closure contains no build artifact, so a verdict-only or artifact-only cycle re-runs nothing here, and an M1 rebuild, which writes only under rebuild/out, cannot change the key during a pass. The harness list is included because collecting rebuild/ imports test/test_shaping.py in every process, and that imports the tools/ modules. The rune files, the divergence ledger and the standing approvals get prose-insensitive hashes, because the tests that load the live spec and ledgers read structure, not prose. The verdict store is not in the closure (the suite uses it only through fixtures), so a verdict-only cycle skips the suite. None when git is unavailable, in which case the caller must run the suite."""
+    """Return the rebuild suite's input closure as the key and the per-label digest map the key is computed from. One pass over the files produces both, and because the map is the key's only source, every input that can change the key is a label the per-test selection can see change. The closure covers the repo files from `rebuild_gate_closure_files`, which has already dropped the exempt paths, so a contact-signature bless changes nothing here. It also covers the site fonts, hashed as one `fonts` label through `fingerprint.fonts_value` without their `head` and `name` tables. They are `make all` output that the shaping tests measure against, no rune edit changes them, every baseline header records the Senior font's sha, and `baseline_subset.check_font_provenance` checks the oracle's tables against it. Leaving out those two tables means the version a version bump's `make all` writes into them changes nothing here, while a glyph, anchor or layout change does; the bump re-runs the whole lane through pyproject.toml instead, which is hashed raw. The closure contains no build artifact, so an artifact-only cycle re-runs nothing here, and an M1 rebuild, which writes only under rebuild/out, cannot change the key during a pass. The harness list is included because collecting rebuild/ imports test/test_shaping.py in every process, and that imports the tools/ modules. The rune files and the divergence ledger get prose-insensitive hashes, because the tests that load the live spec and ledgers read structure, not prose. The verdict store is not in the closure (the suite uses it only through fixtures), so a verdict leaves the suite's key as it was. None when git is unavailable, in which case the caller must run the suite."""
     from rebuild.pipeline import fingerprint
 
     files = rebuild_gate_closure_files(root)
@@ -1056,7 +1038,7 @@ def promotable_corpus(
 ) -> Path | None:
     """Return the corpus built beside the live one that a live pass can land instead of rebuilding, or None. Candidates are checked in order: `review.next` beside the live corpus (`next_corpus_dir`), which a pass stopped after its build leaves complete; the `plan.review_out` the last cycle summary recorded (a repo-relative string, resolved against `root`), which a staging pass (`--review-out`) wrote as a whole corpus (shards and sidecars) where the live pass never reads; then `var/staged-review` under `root`, the conventional staging directory. Every staging path derives from `root`, so a scratch repo never reads the live staged corpus. The caller asks only on a pass whose run_m1 skipped or reproduced its Stage A, because the check compares against the Stage A run_m1 recorded on disk, so a corpus built before a rune edit is never landed over it.
 
-    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (the land swaps the two trees, which cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font, the three stamped sidecars and the unit store), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and merge_verdicts refuses a store stamped newer than the corpus it merges onto. A backwards promotion would fail the verdict update. An unreadable manifest rules the candidate out, which costs only a rebuild.
+    A candidate is promotable when it is a directory other than the live one, on the live directory's filesystem (the land swaps the two trees, which cannot cross filesystems, and a plan must never print a move it cannot make), when `corpus_build_skippable` returns True for it (that function defines "reproduces these inputs byte for byte", including the after font, the three stamped sidecars and the unit store), and when its `generated_at` is not older than the live corpus's. The byte-identity check cannot supply the stamp condition: `generated_at` is the latest input mtime, not a build time (`_generated_at` in rebuild/review/build.py), so a staged corpus can have a stamp older than the corpus it would replace, and a backwards promotion would land a corpus older than the one the store was carried onto. An unreadable manifest rules the candidate out, which costs only a rebuild.
     """
     live_dir = live if live is not None else REVIEW_OUT
     summary = summary_path if summary_path is not None else root / "rebuild" / "out" / "cycle_summary.json"
@@ -1102,116 +1084,6 @@ def recover_superseded_corpus(live: Path | None = None, *, delete: bool = True) 
         return f"Deleted {superseded}, the corpus a land replaced."
     os.replace(superseded, live_dir)
     return f"Put {superseded} back as the live corpus; the land it stepped aside for did not finish."
-
-
-# The verdict update's code, listed by module instead of all of rebuild/tools/: the import closure of rebuild.tools.verdict_update, which runs every step. rebuild/test_verdict_update_closure.py checks the list against the walked import graph on every contracts run. This driver is not an entry point, because every argument it passes the verdict update names an input the key already hashes (the corpus, the master, the store), a path it writes (the carried and fill files), a flag that disables the skip, a width (`--standing-fill-jobs`) that cannot change the verdict update's output, or `--allow-orphans`, which decides only whether a carry that orphans many verdicts writes at all, and a refused carry leaves no green record; the verdict update parses its own flags in verdict_update. The walk stops at the modules in `fingerprint.pipeline_code_paths`, because the key includes the pipeline_code component whole through its manifest line. The rebuild/tools/ modules the pipeline imports (memory_budget, peak_rss, lock_digest, site_fonts and others) are outside this list, which keeps fan-out widths and peak-memory measurements out of the verdict key.
-VERDICT_UPDATE_ENTRY_POINTS = ("rebuild.tools.verdict_update",)
-VERDICT_UPDATE_TOOL_MODULES = (
-    "carry_verdicts",
-    "complaint_list",
-    "console",
-    "duplicate_verdicts",
-    "held_store",
-    "merge_verdicts",
-    "review_queue",
-    "review_server",
-    "standing_client",
-    "standing_verdicts",
-    "verdict_update",
-    "verdict_notes",
-)
-
-
-def verdict_update_code_paths(root: Path = ROOT) -> list[Path]:
-    return [Path(root) / "rebuild" / "tools" / f"{name}.py" for name in VERDICT_UPDATE_TOOL_MODULES]
-
-
-def verdicts_records_digest(path: Path, record: Path | None = None) -> str:
-    """Return the records digest of the verdicts file at `path` (`status.records_digest`, which says what it covers), or "absent" for a file that cannot be read, as `_sha256_path` reports it. With `record`, a store record (`status.store_record_path`), the file is first read and hashed whole through the handle the digest then reads, and a digest the record holds for those bytes is the answer; a digest computed here is recorded for them.
-
-    The store is read as `status.records_digest` reads it, a block of about 1 MiB and one record at a time, never parsed whole in this process. A file that read does not take is read whole and its records sorted (`status.sorted_records_digest`), which hashes the same value, so the digest is a function of the records alone; that read runs in a short child handed the open file (`_whole_records_digest`), so no parse of the store stays in this process, and a child that answers nothing raises `StoreReadFailed`. `verdict_update_skip_fingerprint` reads the store once per call, and the cycle calls it at plan time, before any gate or pool starts, and after the verdict update exits.
-    """
-    from rebuild.review import status
-
-    try:
-        handle = open(path, "rb")
-    except OSError:
-        return "absent"
-    with handle:
-        try:
-            key = None
-            if record is not None:
-                key = hashlib.file_digest(handle, "sha256").hexdigest()
-                held = status.recorded(record, key, "digest")
-                if isinstance(held, str):
-                    return held
-            streamed = status.records_digest(handle)
-        except OSError:
-            return "absent"
-        digest = streamed if streamed is not None else _whole_records_digest(handle)
-    if record is not None and key is not None and digest != "absent":
-        status.record_field(record, key, "digest", digest)
-    return digest
-
-
-def _whole_records_digest(handle: io.BufferedReader) -> str:
-    """Return `status.sorted_records_digest` of the open file `handle`, computed in a short child (`_store_read`) that inherits its descriptor, so it reads the file this process opened and the whole parse stays out of this process."""
-    descriptor = handle.fileno()
-    answer = _store_read({"read": "digest", "fd": descriptor}, pass_fds=(descriptor,))
-    assert isinstance(answer, str)
-    return answer
-
-
-def _master_key_line(root: Path, master: Path, autosave_digest: str) -> str:
-    """Return the verdict-update key's line for its master. A master that is the live store is named `autosave` and carries the store's records digest (`autosave_digest`), as the store's own line does, so the key does not depend on how the path was spelled or on a save that changed no record. Any other master is named by its path and hashed by its bytes."""
-    if Path(master).resolve() == (root / "verdicts-autosave.json").resolve():
-        return f"master\tautosave\t{autosave_digest}"
-    return f"master\t{master}\t{_sha256_path(Path(master))}"
-
-
-def verdict_update_skip_fingerprint(
-    root: Path = ROOT, corpus: Path | None = None, master: Path | None = None, store: Path | None = None
-) -> str | None:
-    """Return the content key over everything the verdict update reads: the corpus it resolves unit ids against, the verdicts master it carries forward, the live store it merges into, the checked-in standing approvals, and the verdict update's own code. The standing approvals are hashed by raw bytes, unlike the prose-insensitive hash the rebuild lane uses: `standing_verdicts` copies each rule's `note` into the verdict note of every fill it writes, so rewording a note changes the verdict update's output and must re-run it. Carry, merge, both fills with their merges, and the complaint list are pure functions of these inputs, and the verdict update is idempotent once it has run, so a key matching the record a complete verdict update left means re-running it would write nothing new. The master is in the key because the autosave's hash cannot see it: an export at the repo root can outrank the autosave in the auto-resolution and carry verdicts the store has never held. The live store is hashed by its records (`verdicts_records_digest`), read a record at a time and never parsed whole in this process, not by its bytes, because every write stamps the file with a new `exported_at`, and when the master resolved to the store, the master line names it `autosave` instead of by its path (`_master_key_line`). The code is in the key for the same reason every other key includes its stage's code: a fix to a fill's matcher or to the carry's join must run, not be skipped. It is the verdict update's import closure (`verdict_update_code_paths`, which a contracts test checks against the verdict update's import graph) plus the review/ modules the verdict update runs and the corpus build does not: serve.py and verdict_store.py, through which merge_verdicts reads the store, status.py and journal.py, which the merge and the readiness check run, store_lock.py, which the merge holds around its write, landing.py, which puts the store the verdict update prepared in place, accepted.py, through which every step reads the accepted list, and kern_routes.py, which serve.py imports when the server starts, with kern_writer.py, which it imports, so the import walk the key is checked against reaches them although no step runs them. The list itself, `rebuild/accepted-units.txt` beside the live store, is hashed by its bytes, since every step reads the units it names as accepted and a close-out rewrites it. review/'s build-side modules are covered by the manifest fingerprint's review_code. The manifest line leaves out `unit_index.ASSET_COMPONENTS`, because no step of the verdict update reads the copied app assets, and an assets refresh rewrites that field and must not re-run a verdict update whose real inputs are unchanged. `store` is the store whose records stand for the live store, the live store when None: after a pass the cycle keys the record on the store its land wrote or left in place (`landing.LANDED_NAME`), so the next plan, which reads the live store, finds the same key only when no save has changed the store since. Either store's digest goes through the store record of `root` (`status.store_record_path`), so the digest the cycle takes after the land is recorded for the bytes the land left, and the next plan, reading the same bytes as the live store, takes it from the record. None when the corpus has no fingerprinted manifest or no master was resolved, and `StoreReadFailed` when the child that reads a store the digest does not stream answers nothing."""
-    if master is None:
-        return None
-    corpus_dir = corpus if corpus is not None else REVIEW_OUT
-    try:
-        manifest = json.loads((corpus_dir / "manifest.json").read_text())
-    except OSError, ValueError:
-        return None
-    fp = manifest.get("inputs_fingerprint")
-    if not isinstance(fp, dict):
-        return None
-    from rebuild.pipeline import fingerprint
-    from rebuild.review import status
-
-    autosave_digest = verdicts_records_digest(
-        store if store is not None else root / "verdicts-autosave.json", status.store_record_path(root)
-    )
-    lines = [
-        "manifest\t"
-        + json.dumps(
-            {key: value for key, value in fp.items() if key not in unit_index.ASSET_COMPONENTS},
-            sort_keys=True,
-        ),
-        f"generated_at\t{manifest.get('generated_at')}",
-        _master_key_line(root, master, autosave_digest),
-        f"autosave\t{autosave_digest}",
-        f"standing\t{_sha256_path(root / 'rebuild' / 'standing-approvals.yaml')}",
-        f"tools_code\t{fingerprint.hash_paths(root, verdict_update_code_paths(root))}",
-        f"serve\t{_sha256_path(root / 'rebuild' / 'review' / 'serve.py')}",
-        f"verdict_store\t{_sha256_path(root / 'rebuild' / 'review' / 'verdict_store.py')}",
-        f"status\t{_sha256_path(root / 'rebuild' / 'review' / 'status.py')}",
-        f"journal\t{_sha256_path(root / 'rebuild' / 'review' / 'journal.py')}",
-        f"store_lock\t{_sha256_path(root / 'rebuild' / 'review' / 'store_lock.py')}",
-        f"landing\t{_sha256_path(root / 'rebuild' / 'review' / 'landing.py')}",
-        f"accepted\t{_sha256_path(root / 'rebuild' / 'review' / 'accepted.py')}",
-        f"kern_routes\t{_sha256_path(root / 'rebuild' / 'review' / 'kern_routes.py')}",
-        f"kern_writer\t{_sha256_path(root / 'rebuild' / 'review' / 'kern_writer.py')}",
-        f"accepted_units\t{_sha256_path(accepted.path_for(root / AUTOSAVE.name))}",
-    ]
-    return _digest_lines(lines)
 
 
 def _defect_gate_failure(pipeline: dict) -> str | None:
@@ -1323,14 +1195,11 @@ class Step:
 
 @dataclass
 class Plan:
-    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `legacy_server` says the listening server predates the land protocol, so it writes the store and the journal without the store's lock and retention leaves both alone while it listens. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped. `carry_out`, `verdicts`, `do_merge`, the `verdict_update_*` fields, `standing_fill_jobs` and its reason, `seed_kept` and `complaints_note` keep their defaults: only the step functions of the steps no plan holds read them (the corpus seed, the verdict update and the review facts, `_do_corpus_seed`, `_do_verdict_update`, `_do_review_facts`), which go with the verdict machinery and the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4)."""
+    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `legacy_server` says the listening server predates the land protocol, so it writes the store and the journal without the store's lock and retention leaves both alone while it listens. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped. `seed_kept` keeps its default: only the step function of the corpus seed, which no plan holds, reads it (`_do_corpus_seed`), and it goes with the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4)."""
 
     short_id: str
     first_run: bool
     skip_gates: bool
-    carry_out: Path | None = None
-    verdicts: Path | None = None
-    do_merge: bool = False
     skip_conform: bool = False
     skip_make_test: bool = False
     make_test_note: str = ""
@@ -1350,10 +1219,6 @@ class Plan:
     contracts_run: contracts.ContractsRun | None = None
     conform_note: str = ""
     conform_proven: bool = False
-    skip_verdict_update: bool = False
-    verdict_update_note: str = ""
-    verdict_update_direct_merge: bool = False
-    verdict_update_fuses_carry: bool = False
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
     corpus_jobs: int = 1
@@ -1364,8 +1229,6 @@ class Plan:
     contracts_after_units: bool = False
     signature_jobs: int = 1
     signature_reason: str = ""
-    standing_fill_jobs: int = 1
-    standing_fill_reason: str = ""
     sweep_jobs: int = 1
     sweep_reason: str = ""
     kernel_threads: int = 1
@@ -1388,7 +1251,6 @@ class Plan:
     land: bool = False
     broadcast: bool = True
     legacy_server: bool = False
-    complaints_note: str = ""
     retention: bool = False
     recipe_serves: bool = False
     stamp: str = ""
@@ -1475,7 +1337,7 @@ def _font_suite_worker_bytes() -> int:
 
 
 def make_test_pool_width(*, build_lane_runs: bool = True, ncores: int | None = None) -> int:
-    """Return the width of gate:make-test's pytest pool under a cycle. The cycle passes this number to the child and reserves memory for it, so both use one value. Without it the pool would be `-n auto`, which the root conftest.py resolves to every core, while the builds beside it are sized to leave room for it. On a pass whose build lane runs (run_m1 or the corpus build), the width is the gate lane's share of `memory_budget.usable_cores()`, the count the root hook uses, as `memory_budget.split_cores` divides it: the corpus build's cap is the build lane's share (`_corpus_fit_terms`), so the two lanes partition the cores. On a pass that runs neither, the pool takes every core, and the heavy gates run one at a time under either policy (`gates_queue`), so the rebuild suite and the conformance sweep start after it and subtract nothing for it. The standing fill's memory term, whose pool can run beside it, subtracts its bytes at that width. Those budgets take `build_lane_runs` for that reason. PYTEST_XDIST_AUTO_NUM_WORKERS overrides both, because the child inherits this environment and will run at that width. It is parsed as the root hook parses it, so an unparseable value raises here, while the plan resolves, instead of inside the gate after the rest of the cycle has run."""
+    """Return the width of gate:make-test's pytest pool under a cycle. The cycle passes this number to the child and reserves memory for it, so both use one value. Without it the pool would be `-n auto`, which the root conftest.py resolves to every core, while the builds beside it are sized to leave room for it. On a pass whose build lane runs (run_m1 or the corpus build), the width is the gate lane's share of `memory_budget.usable_cores()`, the count the root hook uses, as `memory_budget.split_cores` divides it: the corpus build's cap is the build lane's share (`_corpus_fit_terms`), so the two lanes partition the cores. On a pass that runs neither, the pool takes every core, and the heavy gates run one at a time under either policy (`gates_queue`), so the rebuild suite and the conformance sweep start after it and subtract nothing for it. PYTEST_XDIST_AUTO_NUM_WORKERS overrides both, because the child inherits this environment and will run at that width. It is parsed as the root hook parses it, so an unparseable value raises here, while the plan resolves, instead of inside the gate after the rest of the cycle has run."""
     from rebuild.tools import memory_budget
 
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
@@ -1698,7 +1560,7 @@ def corpus_gates_idle_job_budget(
 
     On a pass that runs neither gate:make-test nor gate:conform, gate:rebuild-contracts is the gate lane's only pool, and the driver holds it until the units pool finishes instead of starting it beside the build (`_gate_contracts_task`), so the pool takes this width on every such pass. Started beside the build, the suite took about as long as the load and plan phases on the 18-core machine and longer on the 12-core one, so the pool kept the build lane's share on most such passes, and the suite lengthened the load phase it overlapped; issue #306 has the timings.
 
-    The widths planned beside the build stay correct. gate:rebuild-contracts' width and gate:conform's core cap subtract the build's processes at the lane share (`contracts_pool_width`, `_conform_core_cap`), and gate:conform's memory term subtracts the build's bytes at that width (`_conform_build_lane`), but the pool widens only after both gates have finished or were skipped, or while the suite is held, which starts only once the pool has finished; under the queue policy no other gate starts once the gate lane is idle. The verdict update's refill pool runs after the build.
+    The widths planned beside the build stay correct. gate:rebuild-contracts' width and gate:conform's core cap subtract the build's processes at the lane share (`contracts_pool_width`, `_conform_core_cap`), and gate:conform's memory term subtracts the build's bytes at that width (`_conform_build_lane`), but the pool widens only after both gates have finished or were skipped, or while the suite is held, which starts only once the pool has finished; under the queue policy no other gate starts once the gate lane is idle.
 
     It is None under `--skip-gates`, where `corpus_job_budget` already gives every core less the main thread, and wherever the widened width is no wider than the lane's, as on a machine whose memory holds both to one thread.
     """
@@ -1787,13 +1649,13 @@ def contracts_pool_width(
 ) -> int:
     """Return the width of gate:rebuild-contracts' pytest pool under a cycle, which the cycle sets on that child as PYTEST_XDIST_AUTO_NUM_WORKERS. Memory does not limit it: no contracts worker holds a live artifact, so no constant measures one, and the width is a count of cores. The suite runs beside the corpus build, or, on a pass that holds it until the build's units pool finishes, beside the rest of the build lane, so the width is the usable cores, less the build's main thread and its `corpus_job_budget` threads, less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap, as they do under the overlap policy while the build lane runs (`_contracts_pool_terms`, `gates_queue`), floored at one. A pass whose corpus build does not run (skipped, promoted, or assets-refreshed) subtracts nothing for the build, so the suite gets every core unless gate:make-test's pool is subtracted.
 
-    Each subtraction leaves its cores to the pool that holds them, and the conformance sweep's cap (`_conform_core_cap`) makes the same two subtractions for the same reasons. The corpus build's processes are subtracted because the build lane, with the corpus build in it, ends a pass that runs the build and skips gate:make-test (`make cycle-timings ARGS='--critical-path'` shows it) and the `--fresh` passes behind the default, which run both (the module docstring), so the build keeps the build lane's share. Under the overlap policy, while the build lane runs, gate:make-test's pool is subtracted as well: the plan cannot tell whether that pool will still be running when the suite and the sweep start, and while it runs it holds the gate lane's share, so the subtraction keeps a core from being booked twice. Neither width subtracts the other pool, which is off the critical path on the `--fresh` passes behind the default (the module docstring), so under that policy the sweep and the suite share the cores the two subtractions leave while both run, an unbudgeted overlap that `doc/parallelism.md` lists. On those passes both finished before the build lane did, so neither the slowdown each took from the sharing nor the suite's single worker lengthened the pass. The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the suite runs one process more than its width. The pool's memory comes out of `memory_budget`'s reserve, not out of `corpus_job_budget`'s co-resident term, as `_standing_fill_terms` also assumes for this pool; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
+    Each subtraction leaves its cores to the pool that holds them, and the conformance sweep's cap (`_conform_core_cap`) makes the same two subtractions for the same reasons. The corpus build's processes are subtracted because the build lane, with the corpus build in it, ends a pass that runs the build and skips gate:make-test (`make cycle-timings ARGS='--critical-path'` shows it) and the `--fresh` passes behind the default, which run both (the module docstring), so the build keeps the build lane's share. Under the overlap policy, while the build lane runs, gate:make-test's pool is subtracted as well: the plan cannot tell whether that pool will still be running when the suite and the sweep start, and while it runs it holds the gate lane's share, so the subtraction keeps a core from being booked twice. Neither width subtracts the other pool, which is off the critical path on the `--fresh` passes behind the default (the module docstring), so under that policy the sweep and the suite share the cores the two subtractions leave while both run, an unbudgeted overlap that `doc/parallelism.md` lists. On those passes both finished before the build lane did, so neither the slowdown each took from the sharing nor the suite's single worker lengthened the pass. The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the suite runs one process more than its width. The pool's memory comes out of `memory_budget`'s reserve, not out of `corpus_job_budget`'s co-resident term; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
 
     Beside a corpus build at its cap, the build's processes hold the build lane's share of the cores (`memory_budget.split_cores`), so the arithmetic leaves the suite the gate lane's share. Under the queue policy, and on a pass that skips gate:make-test, that share is the suite's width. Under the overlap policy on a pass that runs gate:make-test, that gate's pool already holds the gate lane, so nothing is left and the floor gives the suite one worker on every machine, and the plan line says so. The suite usually is not on the pass's critical path: under a cycle it runs only the closure-selected tests. A pass that reruns the whole suite at one worker can outlast the rest of the pass. That cost is accepted until a one-worker `gate:rebuild-contracts` row in `rebuild/out/cycle-timings.ndjson` ends after both the build lane and every other gate of its pass (`make cycle-timings ARGS='--critical-path'` counts the passes each step ends, and the pass's run line records its `contracts_workers`), which is the signal to revisit the floor.
 
     A pass that runs gate:make-test and neither run_m1 nor the corpus build, such as a version bump's, queues the heavy gates under either policy (`gates_queue`, which is why this function takes `build_lane_runs`), so the suite starts once gate:make-test has finished and takes every core. Under the overlap policy the suite would start beside that gate's pool at t=0, and that pool holds every core there (`make_test_pool_width`), so the subtraction would floor the suite at one worker. A version bump edits pyproject.toml and uv.lock, which are global labels (`contracts_closure.GLOBAL_LABELS`), so it reruns the suite's whole lane, and it changes the site fonts that gate:make-test's `make all` rewrites while the suite reads them. On the 18-core machine a version-bump pass with the suite beside gate:make-test at one worker ran the suite well past that gate's end and failed it on the fonts rebuilt mid-run, and the same edit with the gates queued ran it green at every core once that gate had finished; `make cycle-timings` on that machine records both passes.
 
-    A pass that runs the corpus build and neither gate:make-test nor gate:conform holds the suite until the build's units pool has finished (`Plan.contracts_after_units`), because there the suite is the only pool in the gate lane: started beside the build, it ran about as long as the build's load and plan phases, so the units pool, which takes every core less the build's main thread only when the gate lane is idle as it starts (`corpus_gates_idle_job_budget`), kept the build lane's share on most such passes. Held, the suite keeps the same arithmetic, the gate lane's share. After its units phase the build holds its process and the write's few threads, and the verdict update and the land follow it in the same lane; on both fleet machines the timings journal puts that remainder well above the suite's time at that width, so the suite stays off the critical path without a wider pool. Beside the write it lengthens that phase a little more than it lengthened the load phase it overlapped when it started beside the build, so a pass on which the suite would have finished before the units pool started pays a few seconds for the hold, and every other such pass gains the difference between the units pool at the two widths. Issue #306 has the timings.
+    A pass that runs the corpus build and neither gate:make-test nor gate:conform holds the suite until the build's units pool has finished (`Plan.contracts_after_units`), because there the suite is the only pool in the gate lane: started beside the build, it ran about as long as the build's load and plan phases, so the units pool, which takes every core less the build's main thread only when the gate lane is idle as it starts (`corpus_gates_idle_job_budget`), kept the build lane's share on most such passes. Held, the suite keeps the same arithmetic, the gate lane's share. After its units phase the build holds its process and the write's few threads, and the land follows it in the same lane; on both fleet machines the timings journal puts that remainder well above the suite's time at that width, so the suite stays off the critical path without a wider pool. Beside the write it lengthens that phase a little more than it lengthened the load phase it overlapped when it started beside the build, so a pass on which the suite would have finished before the units pool started pays a few seconds for the hold, and every other such pass gains the difference between the units pool at the two widths. Issue #306 has the timings.
 
     The overlap policy has no higher floor. Where the floor binds, the conformance sweep, held at its own floor of one process per acceptance configuration (`_conform_core_cap`), is left no cores either, so the machine already runs more processes than it has cores while the gate pools overlap, and a higher floor would add more. The queue policy avoids that oversubscription by running the suite after gate:make-test and the sweep, at the gate lane's share. PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1878,12 +1740,11 @@ def _conform_build_lane(
     skip_gates: bool,
     skip_make_test: bool,
     skip_corpus: bool,
-    verdict_update_runs: bool,
     build_lane_runs: bool = True,
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
-    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The candidates are the corpus build (its process and launcher, CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES, plus `corpus_job_budget`'s threads at CORPUS_BUILD_RS_THREAD_BYTES), and the verdict-update step (the verdict update's process plus `standing_fill_jobs`' refill pool, and on a pass that runs the corpus build, that build's process and launcher too, since the build writes its unit store beside the verdict update's start once its units phase has ended, `_do_corpus_build`). The land that follows them is not a candidate: it holds less than either (LAND_BYTES), which a test checks, and the lane joins the corpus build before it. The one this pass runs that holds more is returned, the corpus build on a tie, and `("", 0)` when the pass runs neither. Each figure comes from its own budget, so the memory the conformance sweep sets aside for that step matches the step's width. The conformance sweep can run beside either step: its lane is submitted when run_m1's gate passes, so it starts beside the corpus build, and the verdict-update step follows the build in the same lane, so a conformance sweep still running then, or one queued behind make-test (`gates_queue`), runs beside the verdict-update step."""
+    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The one candidate is the corpus build (its process and launcher, CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES, plus `corpus_job_budget`'s threads at CORPUS_BUILD_RS_THREAD_BYTES), and `("", 0)` when the pass does not run it. The land that follows it is not a candidate: it holds less (LAND_BYTES), which a test checks, and the lane joins the corpus build before it. The figure comes from the build's own budget, so the memory the conformance sweep sets aside for it matches the build's width. The conformance sweep's lane is submitted when run_m1's gate passes, so it starts beside the corpus build."""
     corpus_process = CORPUS_BUILD_RS_PROCESS_BYTES + CORPUS_BUILD_RS_LAUNCHER_BYTES
     steps: list[tuple[str, int]] = []
     if not skip_corpus:
@@ -1891,21 +1752,6 @@ def _conform_build_lane(
             skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
         )
         steps.append(("corpus-build", corpus_process + CORPUS_BUILD_RS_THREAD_BYTES * corpus_jobs))
-    if verdict_update_runs:
-        fill_jobs = standing_fill_jobs(
-            skip_gates=skip_gates,
-            skip_make_test=skip_make_test,
-            build_lane_runs=build_lane_runs,
-            ncores=ncores,
-            total_bytes=total_bytes,
-        )
-        store_write = 0 if skip_corpus else corpus_process
-        steps.append(
-            (
-                "verdict-update",
-                STANDING_FILL_PARENT_BYTES + STANDING_FILL_WORKER_BYTES * fill_jobs + store_write,
-            )
-        )
     return max(steps, key=lambda step: step[1], default=("", 0))
 
 
@@ -1919,7 +1765,7 @@ def _conform_core_cap(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, str]:
-    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's threads (its main thread and `corpus_job_budget`'s threads) when the pass runs the build, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`_contracts_pool_terms`, `gates_queue`). These are the two subtractions the rebuild suite's width makes, and each leaves its cores to the pool that holds them: the corpus build keeps the build lane's share, and gate:make-test's pool, which may still hold the gate lane when the sweep starts, keeps its own width. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. The verdict-update step is not subtracted here; its memory is (`_conform_build_lane`). Its refill pool, capped at the cores, can overlap the sweep's tail on cores, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
+    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's threads (its main thread and `corpus_job_budget`'s threads) when the pass runs the build, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`_contracts_pool_terms`, `gates_queue`). These are the two subtractions the rebuild suite's width makes, and each leaves its cores to the pool that holds them: the corpus build keeps the build lane's share, and gate:make-test's pool, which may still hold the gate lane when the sweep starts, keeps its own width. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     cores, corpus, make_test = _contracts_pool_terms(
@@ -1955,7 +1801,6 @@ def _conform_fit_terms(
     skip_gates: bool,
     skip_make_test: bool,
     skip_corpus: bool,
-    verdict_update_runs: bool,
     pool_policy: str,
     build_lane_runs: bool = True,
     ncores: int | None,
@@ -1966,7 +1811,6 @@ def _conform_fit_terms(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
-        verdict_update_runs=verdict_update_runs,
         build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -1993,15 +1837,14 @@ def conform_job_budget(
     skip_gates: bool = False,
     skip_make_test: bool = False,
     skip_corpus: bool = False,
-    verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     build_lane_runs: bool = True,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the `--jobs` the cycle passes gate:conform: how many conformance-sweep units run at once, one spawn process each (`run_m1_gates.run_font_conformance`, `run_m1_gates.sweep_units`). It is memory, less the reserve, less what runs beside the conformance sweep, divided by CONFORM_SWEEP_UNIT_BYTES, capped at the cores less the corpus build's processes, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`gates_queue`), but never below the acceptance-configuration count (`_conform_core_cap`), and floored at one (`_conform_fit_terms`); memory can still narrow it below that count. `run_m1._spawn_pool` caps it at the unit count at run time. What runs beside it is whichever of the corpus build and the verdict-update step this pass runs that holds more (`_conform_build_lane`). The verdict-update step's own width leaves the conformance sweep out; this subtraction accounts for that step's memory but not its cores, so a refill pool that overlaps the sweep oversubscribes the cores (`doc/parallelism.md` lists the overlap). `verdict_update_runs` defaults to False because only the cycle's plan runs a verdict-update step. gate:make-test's pool is subtracted only on a pass that runs that gate while the heavy gates overlap, since queued gates make the conformance sweep wait for make-test (`gates_queue`). Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool while the heavy gates overlap and the suite runs, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
+    """Return the `--jobs` the cycle passes gate:conform: how many conformance-sweep units run at once, one spawn process each (`run_m1_gates.run_font_conformance`, `run_m1_gates.sweep_units`). It is memory, less the reserve, less what runs beside the conformance sweep, divided by CONFORM_SWEEP_UNIT_BYTES, capped at the cores less the corpus build's processes, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`gates_queue`), but never below the acceptance-configuration count (`_conform_core_cap`), and floored at one (`_conform_fit_terms`); memory can still narrow it below that count. `run_m1._spawn_pool` caps it at the unit count at run time. What runs beside it is the corpus build when this pass runs it (`_conform_build_lane`). gate:make-test's pool is subtracted only on a pass that runs that gate while the heavy gates overlap, since queued gates make the conformance sweep wait for make-test (`gates_queue`). Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool while the heavy gates overlap and the suite runs, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
 
-    CONFORM_SWEEP_UNIT_BYTES is measured at the per-edit maximum length (`conform.SWEEP_MAX_LENGTH`) only. A cycle run with a deeper `--conform-max-length` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_corpus=True`, no verdict-update step). A width of one runs the serial conformance sweep (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    CONFORM_SWEEP_UNIT_BYTES is measured at the per-edit maximum length (`conform.SWEEP_MAX_LENGTH`) only. A cycle run with a deeper `--conform-max-length` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_corpus=True`). A width of one runs the serial conformance sweep (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     from rebuild.tools import memory_budget
 
@@ -2009,7 +1852,6 @@ def conform_job_budget(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
-        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         build_lane_runs=build_lane_runs,
         ncores=ncores,
@@ -2023,7 +1865,6 @@ def conform_job_derivation(
     skip_gates: bool = False,
     skip_make_test: bool = False,
     skip_corpus: bool = False,
-    verdict_update_runs: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     build_lane_runs: bool = True,
     ncores: int | None = None,
@@ -2036,7 +1877,6 @@ def conform_job_derivation(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
-        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         build_lane_runs=build_lane_runs,
         ncores=ncores,
@@ -2053,55 +1893,6 @@ def conform_job_derivation(
     )
     fit = memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
     return f"{fit}; {bound}"
-
-
-def _standing_fill_terms(
-    *, skip_gates: bool, skip_make_test: bool, build_lane_runs: bool = True, ncores: int | None
-) -> tuple[int, int, int]:
-    """Return the standing fill pool's three terms for `standing_fill_jobs` and `standing_fill_derivation`: STANDING_FILL_WORKER_BYTES is the divisor, STANDING_FILL_PARENT_BYTES is subtracted first, and the cap is the cores, because no width is known past which this pool stops getting faster. Under a gated cycle gate:make-test's pool comes off memory, its bytes subtracted as they are for the corpus build at the width that pool runs at (`make_test_pool_width`, which is why this takes `build_lane_runs`), but not off the cap: the two pools share the cores while both run, which costs contention time, not swap. The verdict-update step also starts beside gate:rebuild-contracts, whose pool no constant measures (`calibrate_budgets.UNITS`), so that pool is left out, and a pass that drops the standing-fill memo overuses memory for the pool's few tens of seconds. gate:conform's sweep can also run beside this step. That overlap's memory is subtracted on the conformance sweep's side (`_conform_build_lane`), so this width leaves the conformance sweep out; neither side subtracts the other's cores, so the two pools briefly oversubscribe the cores when they overlap. On a pass that runs the corpus build, the build's process is still writing its unit store as this step starts (`_do_corpus_build`). This width leaves its bytes and its launcher's (CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES) out too, since the cap at the cores sets the width on every fleet machine with those bytes off as well, and leaves its core out, so a refill pool that starts during the write shares the cores with it; `doc/parallelism.md` lists both overlaps."""
-    from rebuild.tools import memory_budget
-
-    cores = ncores or memory_budget.usable_cores()
-    coresident = STANDING_FILL_PARENT_BYTES
-    if not (skip_gates or skip_make_test):
-        coresident += _font_suite_worker_bytes() * make_test_pool_width(
-            build_lane_runs=build_lane_runs, ncores=ncores
-        )
-    return STANDING_FILL_WORKER_BYTES, coresident, cores
-
-
-def standing_fill_jobs(
-    *,
-    skip_gates: bool,
-    skip_make_test: bool = False,
-    build_lane_runs: bool = True,
-    ncores: int | None = None,
-    total_bytes: int | None = None,
-) -> int:
-    """Return the `--standing-fill-jobs` the cycle passes the verdict update, which forwards it to the standing fill as `--jobs`: memory, less the reserve and the verdict update's process, divided by one refill worker, capped at the cores (`_standing_fill_terms`). The width is computed here and nowhere else for two reasons. The fill's code is part of its memo's stamp, so arithmetic inside it would drop the memo on every edit to that arithmetic. And only the cycle knows which gates run beside the verdict-update step. A served pass stays under the fill's pool threshold and starts no pool at any width, so this number costs it nothing."""
-    from rebuild.tools import memory_budget
-
-    per_unit, coresident, cap = _standing_fill_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, build_lane_runs=build_lane_runs, ncores=ncores
-    )
-    return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
-
-
-def standing_fill_derivation(
-    *,
-    skip_gates: bool,
-    skip_make_test: bool = False,
-    build_lane_runs: bool = True,
-    ncores: int | None = None,
-    total_bytes: int | None = None,
-) -> str:
-    """Return `standing_fill_jobs`' width as a clause for the plan: `memory_budget.describe_fit` over the same terms."""
-    from rebuild.tools import memory_budget
-
-    per_unit, coresident, cap = _standing_fill_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, build_lane_runs=build_lane_runs, ncores=ncores
-    )
-    return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
 
 
 def build_plan(
@@ -2140,7 +1931,6 @@ def build_plan(
     scratch_dir: Path | None = None,
 ) -> Plan:
     """Resolve the pass's plan: run_m1 as a skip, a full build, a gates-only rerun or a kern-only rebuild, the table-diff corpus build into `review.next` beside the served corpus (in place on a first run, into `review_out` on a staging pass), the land that swaps it in and carries the verdict store onto it by unit id, the four gates, the job-costs check and retention. The pool widths it computes for the build lane's crate steps size the gates' pools beside the build lane."""
-    verdict_update_runs = False
     no_make_test = skip_gates or skip_make_test
     build_lane_runs = not (skip_run_m1 and skip_corpus)
     make_test_workers = make_test_pool_width(build_lane_runs=build_lane_runs, ncores=ncores)
@@ -2212,7 +2002,6 @@ def build_plan(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
-        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         build_lane_runs=build_lane_runs,
         ncores=ncores,
@@ -2222,7 +2011,6 @@ def build_plan(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
-        verdict_update_runs=verdict_update_runs,
         build_lane_runs=build_lane_runs,
         ncores=ncores,
         total_bytes=total_bytes,
@@ -2245,7 +2033,6 @@ def build_plan(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
         skip_corpus=skip_corpus,
-        verdict_update_runs=verdict_update_runs,
         pool_policy=pool_policy,
         build_lane_runs=build_lane_runs,
         ncores=ncores,
@@ -2541,7 +2328,7 @@ _REFUSALS = {
 
 
 def _store_read(request: dict, pass_fds: tuple[int, ...] = ()) -> object:
-    """Run one read of the verdict store, or a catch-up of it with its journal under the lock this process holds (`_catch_up_in_child`), in a short spawned child, a fresh interpreter and never a fork of this process, and return its answer, which comes back on a pipe as a few bytes of JSON. The cycle's own process lives for the whole pass, and macOS's allocator keeps the large blocks a whole parse frees in its footprint, so a parse made here would stay beside every later pool. `request` names every path the read takes, or the descriptor `pass_fds` hands the child, and the manifest's stamp, so the child reads nothing from its own module globals. An `accepted.Refused` in the child is raised here as the same class with its reason and message (`_refusal`), and a child that dies or answers nothing raises `StoreReadFailed`, naming the last line it wrote to stderr."""
+    """Run a catch-up of the verdict store with its journal under the lock this process holds (`_catch_up_in_child`) in a short spawned child, a fresh interpreter and never a fork of this process, and return its answer, which comes back on a pipe as a few bytes of JSON. The cycle's own process lives for the whole pass, and macOS's allocator keeps the large blocks a whole parse frees in its footprint, so a parse made here would stay beside every later pool. `request` names every path the read takes, or the descriptor `pass_fds` hands the child, and the manifest's stamp, so the child reads nothing from its own module globals. An `accepted.Refused` in the child is raised here as the same class with its reason and message (`_refusal`), and a child that dies or answers nothing raises `StoreReadFailed`, naming the last line it wrote to stderr."""
     completed = subprocess.run(
         [
             sys.executable,
@@ -2589,34 +2376,12 @@ def _answer_store_read(request_text: str) -> None:
     """Answer one `_store_read` request in its child, as one line of JSON on stdout: `{"answer": ...}`, or `{"refused": {...}}` for an `accepted.Refused`, naming its class, message and, for `accepted.Malformed`, its path and line. Any other failure ends the child with a traceback and no answer."""
     request = json.loads(request_text)
     try:
-        if request["read"] == "carry":
-            from rebuild.review import status
-
-            resolved = status.resolve_carry_source(
-                Path(request["root"]), request["stamp"], Path(request["autosave"])
-            )
-            answer = None if resolved is None else {**resolved, "path": str(resolved["path"])}
-        elif request["read"] == "digest":
-            from rebuild.review import status
-
-            with open(request["fd"], "rb") as handle:
-                answer = status.sorted_records_digest(handle)
-        elif request["read"] == "catch-up":
-            caught = landing.catch_up(
-                Path(request["autosave"]),
-                Path(request["journal"]) if request["journal"] is not None else None,
-                Path(request["accepted"]) if request["accepted"] is not None else None,
-            )
-            answer = None if caught is None else asdict(caught)
-        else:
-            from rebuild.review.verdict_store import parse_autosave_payload
-
-            try:
-                payload = parse_autosave_payload(Path(request["master"]).read_bytes())
-            except OSError:
-                payload = None
-            answer = payload is not None and payload["manifest_generated_at"] == request["stamp"]
-        reply: dict = {"answer": answer}
+        caught = landing.catch_up(
+            Path(request["autosave"]),
+            Path(request["journal"]) if request["journal"] is not None else None,
+            Path(request["accepted"]) if request["accepted"] is not None else None,
+        )
+        reply: dict = {"answer": None if caught is None else asdict(caught)}
     except accepted.Refused as refused:
         held: dict = {"class": type(refused).__name__, "message": str(refused)}
         if isinstance(refused, accepted.Malformed):
@@ -2624,56 +2389,6 @@ def _answer_store_read(request_text: str) -> None:
         reply = {"refused": held}
     sys.stdout.write(json.dumps(reply) + "\n")
     sys.stdout.flush()
-
-
-def resolve_carry_source() -> dict | None:
-    """Return `status.resolve_carry_source`'s answer for this tree, `{path, stamp, count, aligned}` or None, computed in a short child (`_store_read`), since it parses whole the store and every verdicts-*.json at the root that the store record holds nothing for (`status.store_record_path`). This process reads `ROOT`, `REVIEW_OUT` and `AUTOSAVE` when it is called and hands the child the root, the store's path and the served manifest's `generated_at`, so the child answers for the paths this process holds. A store that does not pair with its accepted list, or a malformed list, raises `accepted.Refused` here as in the child, and a child that answers nothing raises `StoreReadFailed`."""
-    try:
-        stamp = json.loads((REVIEW_OUT / "manifest.json").read_text()).get("generated_at")
-    except OSError, ValueError:
-        stamp = None
-    resolved = _store_read({"read": "carry", "root": str(ROOT), "stamp": stamp, "autosave": str(AUTOSAVE)})
-    if resolved is None:
-        return None
-    assert isinstance(resolved, dict)
-    return {**resolved, "path": Path(resolved["path"])}
-
-
-def describe_carry_source(resolved: dict, root: Path, *, promoting: bool = False) -> str:
-    """Return the line that names the master the carry resolved to. A master stamped for an older corpus than the served one is named as older and carried anyway: a verdict names its unit by content id, so it reaches the unit with that id on the live corpus or none, never the wrong window. On a promoting pass the aligned master is stamped for the corpus the pass is about to replace, because the resolution reads the live manifest before the move, and the line says so."""
-    try:
-        shown = resolved["path"].relative_to(root)
-    except ValueError:
-        shown = resolved["path"]
-    if resolved["aligned"]:
-        stamped = (
-            "stamped for the corpus this pass replaces; its verdicts land by unit id"
-            if promoting
-            else "stamped for the served corpus"
-        )
-    else:
-        replaced = "the one this pass replaces" if promoting else "the served one"
-        stamped = (
-            f"stamped {resolved['stamp']}, an older corpus than {replaced}; its verdicts land by unit id"
-        )
-    return f"Auto-resolved carry source: {shown} ({resolved['count']} effective verdicts, {stamped}). Pass --verdicts to override."
-
-
-def master_stamped_for_corpus(master: Path, corpus: Path) -> bool:
-    """Return whether the verdicts master carries the corpus's own stamp, read as merge_verdicts reads both: the master parsed whole as an ams-review-verdicts/1 document, and the stamp from the manifest's `generated_at`. This is the direct merge's precondition, because the direct merge passes the master to the merge unchanged and the merge refuses any input stamped for another corpus. `main` calls it for a master named by --verdicts. For an auto-resolved master the resolution's `aligned` already holds the answer, computed by `status.resolve_carry_source` from the same parse and stamp, so that master is not parsed twice. If a pass stops after the corpus build writes a new corpus and before the verdict update carries the store onto it, the store stays stamped for the previous corpus and the next pass skips the build as unchanged. This returns False for that master, so the pass takes the full carry by unit id. An unreadable master also returns False, and the carry reports it. Whether a direct merge carries the store's snapshot first, the verdict update decides when it runs, from the snapshot it reads (`verdict_update.merge_sets_store_aside`). The master is parsed whole in a short child (`_store_read`), handed its path and the manifest's stamp, so no parse of it stays in this process, and a child that answers nothing raises `StoreReadFailed`."""
-    stamp = _manifest_stamp_at(corpus)
-    if stamp is None:
-        return False
-    return _store_read({"read": "master", "master": str(master), "stamp": stamp}) is True
-
-
-def stop_standing_daemon() -> str | None:
-    """Stop a standing daemon that answers at the default socket (`standing_client.SOCKET`, read when called), sending it the `stop` request and waiting a bounded time for its socket to go (`standing_client.stop`), and return the line the pass prints, or None when none answers. A pass but a dry run calls it once its preflight has settled the review server, before its first step: no width the pass computes leaves room for the corpus the daemon holds (decision 8 of #618), and no step asks it. A daemon serving a request answers once that request ends, so the pass waits for it."""
-    socket_path = standing_client.SOCKET
-    stopped = standing_client.stop(socket_path)
-    if stopped is None:
-        return None
-    return f"Stopped the standing daemon (pid {stopped.get('pid')}) at {socket_path} before the pass's first step; make standing-daemon starts it again."
 
 
 def resolve_short_id() -> str:
@@ -2955,7 +2670,7 @@ def render_plan(plan: Plan) -> list[str]:
 
 @dataclass
 class CycleReport:
-    """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`, `complaints_ok`), which are set when each outcome is decided. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red. `contracts_held` records that the driver held gate:rebuild-contracts until the corpus build's units pool finished (`Plan.contracts_after_units`).
+    """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`), which are set when each outcome is decided. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red. `contracts_held` records that the driver held gate:rebuild-contracts until the corpus build's units pool finished (`Plan.contracts_after_units`).
 
     `step_seconds` and `step_returncodes` fill the summary table's time and outcome columns, and `step_written` its written column: the write meter's figure over the step's window and whether another step's window overlapped it. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `written` is what the meter read over the whole pass (`cycle_timings.PassWrites`), set as the run line is written, for the summary's written line. `run_m1_failed` records the cycle's own evaluation of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
     """
@@ -2973,28 +2688,11 @@ class CycleReport:
     land_status: str = "not run"
     land: dict | None = None
     land_started: float | None = None
-    carry_out: Path | None = None
-    carry_lines: list[str] = field(default_factory=list)
-    carry_counts: dict[str, int] | None = None
-    store_carried: bool = False
-    merge_status: str = "not run"
-    merge_lines: list[str] = field(default_factory=list)
-    duplicate_fill_status: str = "not run"
-    duplicate_fill_lines: list[str] = field(default_factory=list)
-    duplicate_merge_status: str = "not run"
-    duplicate_merge_lines: list[str] = field(default_factory=list)
-    standing_fill_status: str = "not run"
-    standing_fill_lines: list[str] = field(default_factory=list)
-    standing_merge_status: str = "not run"
-    standing_merge_lines: list[str] = field(default_factory=list)
-    verdict_update_complete: bool = False
     facts_status: str = "not run"
     ledger_coverage: str = "not run"
     ledger_coverage_sets: dict | None = None
     job_costs_status: str = "not run"
     job_costs_ok: bool | None = None
-    complaints_status: str = "not run"
-    complaints_ok: bool | None = None
     gate_js: str = "not run"
     gate_js_green: bool | None = None
     gate_contracts: str = "not run"
@@ -3606,7 +3304,7 @@ def land_detail(data: dict) -> str:
     kept = data.get("store_kept") is True
     parts = [
         (
-            f"left the store's {records} verdicts in place on {data.get('new_stamp')}, since the verdict update changed nothing"
+            f"left the store's {records} verdicts in place on {data.get('new_stamp')}, since the prepared store changed nothing"
             if kept
             else f"landed {records} verdicts on {data.get('new_stamp')}"
         )
@@ -3691,7 +3389,7 @@ CORPUS_FACTS_LINE = f"{console.TIMING}review.build review-facts "
 
 
 class _HeldCorpusBuild:
-    """The corpus build's child, run on a thread of its own so that `_do_corpus_build` can return once the build has printed `CORPUS_FACTS_LINE` while the child goes on writing the unit store and the ink-signature store. Nothing the build lane runs before the land reads either store: the verdict update reads the manifest, the units index and the fonts, all written before that line, and the land, which moves the corpus into place, comes after the join. `_run_cycle` joins the child on every way out of the build lane: before the land, on a pass that does not land, after a failed verdict update, and in `stop_here`, which a failed store snapshot takes. A stopped pass needs nothing here: the child is in the registry, which `terminate_all` signals with every other child, and `_run_cycle`'s `finally` waits for the thread (`wait_for_thread`).
+    """The corpus build's child, run on a thread of its own so that `_do_corpus_build` can return once the build has printed `CORPUS_FACTS_LINE` while the child goes on writing the unit store and the ink-signature store. Nothing the build lane runs before the land reads either store, and the land, which moves the corpus into place, comes after the join. `_run_cycle` joins the child on every way out of the build lane: before the land, on a pass that does not land, and in `stop_here`, which a failed store snapshot takes. A stopped pass needs nothing here: the child is in the registry, which `terminate_all` signals with every other child, and `_run_cycle`'s `finally` waits for the thread (`wait_for_thread`).
 
     A holder that never started a child, as on a pass that skips the build or under a test's stand-in for `_do_corpus_build`, joins as a success, and so does one already joined, so each failure is reported once.
     """
@@ -3816,196 +3514,6 @@ def _do_corpus_build(
     return True
 
 
-_VERDICT_UPDATE_FAILURES = {
-    "carry": "carry_verdicts failed",
-    "merge": "verdict merge failed",
-    "duplicate-fill": "duplicate-fill failed",
-    "duplicate-merge": "duplicate-merge failed",
-    "standing-fill": "standing-fill failed",
-    "standing-merge": "standing-merge failed",
-}
-
-
-# The verdict update's completion line: its fixed schedule, and on a pass that hands it the snapshot whose file its prepared store was linked to, whether it left that store as the snapshot's bytes (`verdict_update.R_UNCHANGED`).
-VERDICT_UPDATE_COMPLETE = re.compile(
-    re.escape(console.COMPLETE_LINE + "duplicate, standing, duplicate") + r"(?: r_unchanged=(?:true|false))?"
-)
-
-
-def verdict_update_sections(text: str) -> dict[str, list[str]]:
-    """Split the verdict update's output into sections at the `[phase] <step>` line each step starts with, so the summary can report each of the verdict update's steps although one subprocess runs them all. Its `[verdict-update] complete:` and `[verdict-update] failed:` result lines close the open section without opening one, which keeps result lines out of the complaints section. The second duplicate pass (`duplicate-fill-2` and `duplicate-merge-2`) is merged into the first pass's sections."""
-    sections: dict[str, list[str]] = {}
-    current: str | None = None
-    for line in text.splitlines():
-        if line.startswith(console.COMPLETE_LINE) or line.startswith(console.FAILED_LINE):
-            current = None
-            continue
-        if line.startswith(console.PHASE):
-            current = re.sub(r"-\d+$", "", line[len(console.PHASE) :].strip())
-            sections.setdefault(current, [])
-            continue
-        if current is not None:
-            sections[current].append(line)
-    return sections
-
-
-def _scrape(lines: list[str], keep) -> list[str]:
-    return [line.strip() for line in lines if keep(line.strip())]
-
-
-def _standing_fill_news(line: str) -> bool:
-    """Return whether the summary keeps this line of the standing fill's output. It keeps the `wrote` line, the disputed-match warning (so an over-broad rule shows in cycle_summary.json), every per-rule line (so a newly added rule shows even at 0 filled), and the combined-match lines that filled or blocked something. Combined-match lines grow quadratically with the rule count, so the rest are left to `standing_probe --coverage`. The REACHED NOTHING lines are left out because `--require-reach` fails the step on such a rule, and the except_left vocabulary line is informational. The already-verdicted column is optional because the verdict update runs the fill with `--open-only`, which omits it, while a dry run over the whole domain prints it."""
-    if line.startswith("wrote ") and "standing-approval verdicts" in line:
-        return True
-    if line.startswith("WARNING:"):
-        return True
-    if not line.endswith("blocked by except_left, left for review"):
-        return False
-    head, _, tail = line.partition(": ")
-    if " + " not in head:
-        return True
-    match = re.match(r"(\d+) filled, (?:\d+ already verdicted, )?(\d+) blocked", tail)
-    return match is not None and (int(match.group(1)) > 0 or int(match.group(2)) > 0)
-
-
-_FILL_WROTE = re.compile(r"wrote .+: (\d+) (?:duplicate-fill|standing-approval) verdicts\b")
-
-
-def _merge_word(lines: list[str]) -> str:
-    """Return what a verdict-update merge did, from its scraped lines: `merged` when one of its rounds changed the store (a `merged` line), which the update writes once after its last merge on a pass that lands, else `unchanged`, since a merge that changes nothing prints `nothing changed`."""
-    return "merged" if any(line.startswith("merged ") for line in lines) else "unchanged"
-
-
-def _fill_word(lines: list[str]) -> str:
-    """Return what a verdict-update fill did, from its scraped lines: `filled` when one of its rounds' `wrote` lines counts a proposed verdict, else `filled nothing`."""
-    filled = any(int(match[1]) for line in lines if (match := _FILL_WROTE.match(line)))
-    return "filled" if filled else "filled nothing"
-
-
-def _step_round(phase: str) -> tuple[str, int]:
-    """Return a verdict-update phase name as its step and round: `duplicate-fill-2` is round 2 of `duplicate-fill`."""
-    if match := re.fullmatch(r"(.+)-(\d+)", phase):
-        return match.group(1), int(match.group(2))
-    return phase, 1
-
-
-def _unfinished_phase(text: str) -> str:
-    """Return the name on the verdict update's last `[phase]` line when no `[t]` line of that name follows it, else "". `verdict_update._run` prints a step's `[t]` line when its call returns or raises `SystemExit`, so a step without one died another way: an uncaught exception or a signal."""
-    opened = ""
-    for line in text.splitlines():
-        if line.startswith(console.PHASE):
-            opened = line[len(console.PHASE) :].strip()
-        elif opened and line.startswith(f"{console.TIMING}{opened} "):
-            opened = ""
-    return opened
-
-
-def _do_verdict_update(
-    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
-) -> list[str]:
-    """Run the verdict update as one child and fill the per-step report from its output. Return the failure messages for the cycle's failure list, one per failed step.
-
-    A step that ran says what it did, read from the lines it printed, both rounds' for the duplicate steps: a merge `merged` or `unchanged` (`_merge_word`), a fill `filled` or `filled nothing` (`_fill_word`). A step that started and never closed (`_unfinished_phase`) printed no failure line, and its status reads as a failed step's does, though the failure list names only the verdict update's exit. A failure in the second duplicate pass (`duplicate-fill-2` or `duplicate-merge-2`) comes after the first duplicate pass and the standing fill and merge have run. Those steps keep their words, and the failing step's status adds the round, as in `filled, round 2 FAILED (exit 1)`. Only a first-pass failure marks the steps after it as not run.
-
-    On macOS the verdict update runs with `kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT` overlaid on its environment (`_spawn_with_env`), since the allocator reads it as the process starts, and the standing fill's refill workers inherit it, so the large blocks each phase's parses and projections free go back to the system as they are freed instead of raising the floor of every phase after it. A hand `rebuild.tools.verdict_update` runs without it.
-    """
-    if sys.platform == "darwin":
-        from rebuild.pipeline import kernel_exec
-
-        spawn = _spawn_with_env(spawn, dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT))
-    result = spawn("verdict-update", plan.argv("verdict-update"), emit=emit, registry=registry, stream=False)
-    sections = verdict_update_sections(result.stdout)
-    report.store_carried = plan.verdict_update_direct_merge and "carry" in sections
-    report.carry_out = (
-        None if plan.verdict_update_direct_merge and "carry" not in sections else plan.carry_out
-    )
-    failed, failed_round = "", 1
-    for line in result.stdout.splitlines():
-        if line.startswith(console.FAILED_LINE):
-            failed, failed_round = _step_round(line[len(console.FAILED_LINE) :].split(" ", 1)[0])
-    later_round = failed_round > 1
-    stopped, stopped_round = (
-        (failed, failed_round) if failed else _step_round(_unfinished_phase(result.stdout))
-    )
-    report.verdict_update_complete = (
-        result.returncode == 0
-        and not failed
-        and any(VERDICT_UPDATE_COMPLETE.fullmatch(line) for line in result.stdout.splitlines())
-    )
-
-    report.carry_lines = _scrape(
-        sections.get("carry", []),
-        lambda line: any(word in line for word in ("carried", "kinds", "queue", "fallback", "carry counts")),
-    )
-    report.carry_counts = carry_counts(report.carry_lines)
-    for name in ("merge", "duplicate-merge", "standing-merge"):
-        setattr(
-            report,
-            name.replace("-", "_") + "_lines",
-            _scrape(
-                sections.get(name, []),
-                lambda line: line.startswith(("merged ", "nothing changed", "stashed ")),
-            ),
-        )
-    report.duplicate_fill_lines = _scrape(
-        sections.get("duplicate-fill", []),
-        lambda line: line.startswith("wrote ") and "duplicate-fill verdicts" in line,
-    )
-    report.standing_fill_lines = _scrape(sections.get("standing-fill", []), _standing_fill_news)
-
-    # After a first-round failure, the steps after the failed one never ran. Steps before it ran and report what they did.
-    done = (
-        ("merge", _merge_word(report.merge_lines)),
-        ("duplicate-fill", _fill_word(report.duplicate_fill_lines)),
-        ("duplicate-merge", _merge_word(report.duplicate_merge_lines)),
-        ("standing-fill", _fill_word(report.standing_fill_lines)),
-        ("standing-merge", _merge_word(report.standing_merge_lines)),
-    )
-    order = ["carry", *(name for name, _word in done)]
-    blocked = order.index(stopped) if stopped in order and stopped_round == 1 else len(order)
-    for name, word in done:
-        if order.index(name) > blocked:
-            status = f"not run ({stopped} failed)"
-        elif name == stopped and stopped_round == 1:
-            status = f"FAILED (exit {result.returncode})"
-        elif name in sections:
-            status = word
-        else:
-            status = "not run"
-        if name == stopped and stopped_round > 1:
-            status += f", round {stopped_round} FAILED (exit {result.returncode})"
-        setattr(report, name.replace("-", "_") + "_status", status)
-    failures: list[str] = []
-    if failed in _VERDICT_UPDATE_FAILURES and later_round:
-        failures.append(f"{failed} round {failed_round} failed")
-    elif failed in _VERDICT_UPDATE_FAILURES:
-        failures.append(_VERDICT_UPDATE_FAILURES[failed])
-    elif result.returncode != 0 and failed != "complaints":
-        failures.append(f"the verdict update failed (exit {result.returncode})")
-
-    if "complaints" in sections:
-        _read_complaints(report, sections["complaints"], result.returncode if failed == "complaints" else 0)
-    _close_step(emit, report, "verdict-update", result)
-    return failures
-
-
-def _read_complaints(report: CycleReport, lines: list[str], returncode: int) -> None:
-    if returncode != 0:
-        report.complaints_status = f"FAILED (exit {returncode}) — informational"
-        report.complaints_ok = False
-        return
-    report.complaints_ok = True
-    for line in lines:
-        stripped = line.strip()
-        if stripped == "no open complaints":
-            report.complaints_status = stripped
-            return
-        if stripped.startswith("wrote ") and ": " in stripped:
-            report.complaints_status = stripped.split(": ", 1)[1]
-            return
-    report.complaints_status = "done"
-
-
 def accepted_facts() -> dict | None:
     """Return the last accepted review facts: the git index copy of the pins, which the working tree's rewrite is compared with at commit time. Return None when the file is not in the index or git is unavailable."""
     try:
@@ -4113,17 +3621,6 @@ def _do_job_costs(
     report.job_costs_status = status
     report.job_costs_ok = False
     _close_step(emit, report, "job-costs", check, "ok")
-
-
-def _skip_verdict_update(report: CycleReport, plan: Plan, emit: console.CycleConsole) -> None:
-    """Report the verdict-update step as skipped, marking each of its steps skipped."""
-    emit.step_skipped("verdict-update", plan.verdict_update_note)
-    note = f"skipped ({plan.verdict_update_note})"
-    report.merge_status = note
-    report.duplicate_fill_status = note
-    report.duplicate_merge_status = note
-    report.standing_fill_status = note
-    report.standing_merge_status = note
 
 
 def _gate_js_task(
@@ -4394,11 +3891,6 @@ def _join_gates(
                 timings.record_check(gate)
 
 
-def _verdict_update_completed(report: CycleReport) -> bool:
-    """Return whether the verdict update successfully completed its fixed duplicate, standing, duplicate schedule. The parsed completion requires both the child's successful exit and its completion line, with no failed phase. Each duplicate pass fills disjoint scalar groups fully, and the second fills blank siblings the standing pass seeds. Completion allows merges to keep newer tombstones instead of accepting every proposed fill."""
-    return report.verdict_update_complete
-
-
 def _record_conform_green(
     report: CycleReport, plan: Plan, key: str | None, emit: console.CycleConsole
 ) -> None:
@@ -4665,55 +4157,6 @@ def _deep_replay_report(root: Path | None = None) -> tuple[str, str]:
 
 INFORMATIONAL_STEPS = ("review-facts", "job-costs")
 
-_CARRY_WROTE = re.compile(r"^(?:wrote \S+: (\d+) carried|carried (\d+)) onto manifest")
-_CARRY_QUEUE = re.compile(r"^human queue: (\d+) -> (\d+)")
-_CARRY_COUNTS = re.compile(
-    r"^carry counts: human=(\d+) matched=(\d+) unmatched=(\d+) orphaned=(\d+) accepted=(\d+)$"
-)
-_MERGE_HOLDS = re.compile(r"\bholds (?:all )?(\d+) verdicts\b")
-
-
-def carry_counts(lines: list[str]) -> dict[str, int] | None:
-    """Parse the carry's `carry counts:` line: the human units on the new corpus, how many a prior verdict matched, how many none matched, how many prior verdicts matched no unit, and how many human units the accepted list answers for. The counts are written to the cycle summary and to the run line in the timings journal. On a pass that carries the store's snapshot before a direct merge (`CycleReport.store_carried`), they count that carry alone, not any master the verdict update merges into its result afterward. Returns None when the carry printed no such line (a direct merge that carries no snapshot of the store, a verdict update that failed before the carry, or a carry that refused one of its verdicts files, which `carry_verdicts.resolve_prior` does before counting)."""
-    for line in lines:
-        match = _CARRY_COUNTS.match(line)
-        if match is not None:
-            return dict(
-                zip(("human", "matched", "unmatched", "orphaned", "accepted"), map(int, match.groups()))
-            )
-    return None
-
-
-def carry_detail(lines: list[str]) -> str:
-    """Summarize the carry from its two headline lines: how many verdicts it carried onto the new corpus, from its `wrote <file>: <N> carried onto manifest` line or, when the verdict update fused it into its first merge and wrote no file, its `carried <N> onto manifest` line, and the human queue before and after. The verdict update runs as one child with the carry as a step inside it, so these counts reach this process only as printed lines. On a pass that carries the store's snapshot before a direct merge (`CycleReport.store_carried`), they cover that carry alone, so the verdict-update row adds what the store holds after the merge (`step_detail`). Returns the empty string when the carry printed neither line (a direct merge that carries no snapshot of the store, a verdict update that failed before the carry, or a carry that refused its input, including one refused past the orphan limit, which prints its counts first)."""
-    carried = ""
-    queue = ""
-    for line in lines:
-        wrote = _CARRY_WROTE.match(line)
-        if wrote is not None:
-            carried = f"{console.fmt_count(int(wrote.group(1) or wrote.group(2)))} carried"
-        pending = _CARRY_QUEUE.match(line)
-        if pending is not None:
-            queue = (
-                f"queue {console.fmt_count(int(pending.group(1)))} -> "
-                f"{console.fmt_count(int(pending.group(2)))}"
-            )
-    return ", ".join(part for part in (carried, queue) if part)
-
-
-def _merge_holding(lines: list[str]) -> str:
-    """Return how many verdicts the store holds after the verdict update's first merge, from that merge's `merged` or `nothing changed` line, or the empty string when it printed neither."""
-    holding = ""
-    for line in lines:
-        held = _MERGE_HOLDS.search(line)
-        if held is not None:
-            count = int(held.group(1))
-            holding = (
-                f"store holds {console.fmt_count(count)} verdict{'' if count == 1 else 's'} after the merge"
-            )
-    return holding
-
-
 _GATE_STATUS_FIELDS = {
     "gate:js": "gate_js",
     "gate:rebuild-contracts": "gate_contracts",
@@ -4754,14 +4197,6 @@ def step_detail(report: CycleReport, name: str) -> str:
         return prose(report.snapshot_status)
     if name == "land":
         return prose(report.land_status)
-    if name == "verdict-update":
-        merged = prose(report.merge_status)
-        merge = f"merge {merged}" if merged else ""
-        head = carry_detail(report.carry_lines)
-        if head and report.store_carried:
-            head = "; ".join(part for part in (head, _merge_holding(report.merge_lines) or merge) if part)
-        head = head or merge
-        return f"{head}; {report.complaints_status}" if head else ""
     if name == "review-facts":
         return prose(report.facts_status)
     if name == "job-costs":
@@ -5011,7 +4446,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
         "assets_status": report.assets_status,
         "land_status": report.land_status,
         "land": report.land,
-        "carry": report.carry_counts,
         "job_costs_status": report.job_costs_status,
         "job_costs_ok": report.job_costs_ok,
         "log_dir": _as_str(plan.log_dir),
@@ -5025,7 +4459,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "corpus_jobs": None,
             "corpus_gates_idle_jobs": None,
             "signature_jobs": None,
-            "standing_fill_jobs": None,
             "make_test_workers": plan.make_test_workers if plan.runs("gate:make-test") else None,
             "contracts_workers": (
                 plan.contracts_workers
@@ -5188,7 +4621,7 @@ def prune_stashes(
     lock: contextlib.AbstractContextManager | None = None,
     scan: journal.JournalScan | None = None,
 ) -> list[Path] | None:
-    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the anchor references, and return them. The anchor is the last event that is a base or moves the stamp (its stamp differs from the event's before it), so it falls on the latest land that moved the stamp whether that land was journaled as a base or as sets and clears (`journal.base_due`), and the sweep keeps the stash that land named and those named since. Anchoring on bases alone would keep every stash named since the last base, about one per land between two bases. Returns None and deletes nothing when the journal has no anchor. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest stamp change created looks older than that change. `merge_verdicts --restore-as-of` can rebuild a deleted stash's state from the journal back to the journal's compaction floor.
+    """Delete the `verdicts-autosave-*` stashes that no journal event at or after the anchor references, and return them. The anchor is the last event that is a base or moves the stamp (its stamp differs from the event's before it), so it falls on the latest land that moved the stamp whether that land was journaled as a base or as sets and clears (`journal.base_due`), and the sweep keeps the stash that land named and those named since. Anchoring on bases alone would keep every stash named since the last base, about one per land between two bases. Returns None and deletes nothing when the journal has no anchor. The test uses journal references because mtime is wrong here: `os.replace` keeps the displaced store's mtime, so the stash the latest stamp change created looks older than that change. The journal replays a deleted stash's state back to its compaction floor.
 
     The journal is read in two phases (`journal.scan`): first without `lock`, the verdict store's lock (the caller's `scan`, or a scan of the whole file made here when the caller passes none), then under it only the tail appended since, together with the glob and the deletions. Every writer that stashes a store and journals it holds that lock, so no stash can appear between the check and the deletion without its event being in the tail.
     """
@@ -5406,7 +4839,7 @@ def _catch_up_in_child(
 
 
 def catch_up_store() -> str | None:
-    """Take the verdict store's lock once at a pass's start, before its plan first reads the store (the carry source's resolution and the verdict update's key, `verdicts_records_digest`), so the lock writes into the store the saves the review server journaled and has not written yet (`landing.catch_up_store`, `landing.catch_up`) and the plan, the verdict update's key among it, counts every save journaled so far. The catch-up runs in a short child under the lock this process holds (`_catch_up_in_child`), so nothing of the store stays in this process. Return the line to print (`landing.CatchUp.line`): that it applied the journal's events since the store's last write when they changed the store, or why it left the store as it stands, and None otherwise, as when the tail was empty or the store already held it. A child that answers nothing, as when the catch-up cannot write, raises `StoreReadFailed`, and a land's recovery that refuses `landing.LandUnrecoverable`. A dry run and a staging pass, which write no store, do not take it (`_run_pass`)."""
+    """Take the verdict store's lock once at a pass's start, before the pass reads the store, so the lock writes into the store the saves the review server journaled and has not written yet (`landing.catch_up_store`, `landing.catch_up`) and the store snapshot holds every save journaled so far. The catch-up runs in a short child under the lock this process holds (`_catch_up_in_child`), so nothing of the store stays in this process. Return the line to print (`landing.CatchUp.line`): that it applied the journal's events since the store's last write when they changed the store, or why it left the store as it stands, and None otherwise, as when the tail was empty or the store already held it. A child that answers nothing, as when the catch-up cannot write, raises `StoreReadFailed`, and a land's recovery that refuses `landing.LandUnrecoverable`. A dry run and a staging pass, which write no store, do not take it (`_run_pass`)."""
     caught = landing.catch_up_store(AUTOSAVE, quiet=True, catch_up_with=_catch_up_in_child)
     return caught.line() if caught is not None else None
 
@@ -5513,7 +4946,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). Then every pass but a dry run and a staging pass takes the verdict store's lock once (`catch_up_store`), which writes into the store the saves the review server journaled and has not written, so the land reads a store holding every save; a catch-up that cannot write stops the pass with exit 1 (`StoreReadFailed`). Once the plan is made, a pass that is not a dry run stops a standing daemon that answers at the default socket before its first step (`stop_standing_daemon`)."""
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a land a killed pass left (`recover_land`), which may still need its run directory and whose refusal stops the pass with exit 1, then a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). Then every pass but a dry run and a staging pass takes the verdict store's lock once (`catch_up_store`), which writes into the store the saves the review server journaled and has not written, so the land reads a store holding every save; a catch-up that cannot write stops the pass with exit 1 (`StoreReadFailed`)."""
     try:
         landed = recover_land(dry_run=args.dry_run) if recover else None
     except (landing.LandUnrecoverable, StoreReadFailed) as refused:
@@ -5695,10 +5128,6 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             probe=probe,
         ):
             return 2
-
-        stopped = stop_standing_daemon()
-        if stopped is not None:
-            print(stopped)
 
         if first_run:
             print(

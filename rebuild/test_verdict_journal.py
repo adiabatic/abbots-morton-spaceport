@@ -1,4 +1,4 @@
-"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, the cut back to the length a dead land recorded, made only while the journal is the same file, and the store's `accepted` field, which every event line carries and replay gives back. The tail, the events at or after a moment read back from the journal's end, stops at a torn line and raises `JournalGap` for a torn base in it, or gives the catch-up the events after that base, which it applies to the store file the base's writer wrote; the catch-up that applies it to a store file (`landing.catch_up`) writes nothing for a tail the store holds, starts the store over at a base, splits the lines by the accepted list into the override section, and reads a store out of unit order whole to the same result. The cases for a diff, a seed base, a stamp change's base and the flip to a base when a diff reaches the new store's record count are journaled both from two stores held in memory and through a hand merge's walk over the store it replaced, read back through its file, in step with the store it wrote, held as record lines (`held_store.Transition`), which appends the same lines."""
+"""Tests for the verdict journal (`rebuild/review/journal.py`): the sets, clears, and base events a transition writes, a stamp change the land writes as sets and clears against the store it replaced (an event line alone when the records are the same) unless a base is due (`base_due`, which a marker that the journal may lack a store write and a last base with no `cleared` list also make due), the diff would be no shorter than a base, or there is no previous store or journal, the seed event that opens a journal over an existing store, its tombstones included, the clear lines that record a change to the tombstones alone, replay with and without an as-of cutoff, compaction in two phases that keep an append made between them, the event scan resumed from where an earlier one ended, a journal cut shorter and regrown between the phases, which neither resumes over, tolerance of a trailing line torn by a crashed append, which the next append cuts off unless only its newline is missing, a base event torn short of its set lines, which opens a span replay refuses until the next complete base and which compaction never starts at, a compaction that floors at a base before stamp changes written as sets and clears, the cut back to the length a dead land recorded, made only while the journal is the same file, and the store's `accepted` field, which every event line carries and replay gives back. The tail, the events at or after a moment read back from the journal's end, stops at a torn line and raises `JournalGap` for a torn base in it, or gives the catch-up the events after that base, which it applies to the store file the base's writer wrote; the catch-up that applies it to a store file (`landing.catch_up`) writes nothing for a tail the store holds, starts the store over at a base, splits the lines by the accepted list into the override section, and reads a store out of unit order whole to the same result."""
 
 import json
 import os
@@ -6,7 +6,6 @@ import os
 import pytest
 
 from rebuild.review import accepted, journal
-from rebuild.tools import held_store
 
 
 def v(unit, verdict="approve", note="", at="2026-07-10T00:00:00Z"):
@@ -17,52 +16,16 @@ def read_lines(path):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-def transition(
-    path, walked, *, old_verdicts=(), new_verdicts=(), old_cleared=None, new_cleared=None, **options
-):
-    """Record a transition as `journal.record_transition` does from two stores held in memory, or, when `walked`, as a hand merge does (`held_store.Transition`): the old store read back through a descriptor held on its file and the new one held as record lines, checking that the walk appends the lines the stores held in memory append to a copy of the journal."""
-    if not walked:
-        return journal.record_transition(
-            path,
-            old_verdicts=old_verdicts,
-            new_verdicts=new_verdicts,
-            old_cleared=old_cleared,
-            new_cleared=new_cleared,
-            **options,
-        )
-    reference = path.with_name(path.name + ".reference")
-    if path.exists():
-        reference.write_bytes(path.read_bytes())
-    expected = journal.record_transition(
-        reference,
+def transition(path, *, old_verdicts=(), new_verdicts=(), old_cleared=None, new_cleared=None, **options):
+    """Record a transition as `journal.record_transition` does from two stores held in memory."""
+    return journal.record_transition(
+        path,
         old_verdicts=old_verdicts,
         new_verdicts=new_verdicts,
         old_cleared=old_cleared,
         new_cleared=new_cleared,
         **options,
     )
-    old_file = path.with_name(path.name + ".old.json")
-    old_file.write_text(
-        json.dumps(journal.payload_for("S", journal.latest_by_unit(old_verdicts), old_cleared))
-    )
-    records = journal.latest_by_unit(new_verdicts)
-    builder = held_store.Builder()
-    for unit in sorted(records):
-        builder.add(records[unit])
-    held = builder.held(
-        "S",
-        None,
-        {unit: at for unit, at in (new_cleared or {}).items() if unit not in records},
-        accepted.Overrides(),
-    )
-    with old_file.open("rb") as old:
-        walk = held_store.Transition(
-            held, lambda: held_store.own_records(old, "old"), old_cleared or {}, accepted.Overrides()
-        )
-        result = journal.record_transition(path, transition=walk, **options)
-    assert result == expected
-    assert path.read_bytes() == reference.read_bytes()
-    return result
 
 
 def test_first_write_over_empty_store_is_a_single_event(tmp_path):
@@ -85,12 +48,10 @@ def test_first_write_over_empty_store_is_a_single_event(tmp_path):
     assert set(records) == {"u-1", "u-2"}
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_same_stamp_transition_journals_sets_and_clears(tmp_path, walked):
+def test_same_stamp_transition_journals_sets_and_clears(tmp_path):
     path = tmp_path / "journal.ndjson"
     transition(
         path,
-        walked,
         source="autosave",
         stamp="S1",
         old_stamp=None,
@@ -100,7 +61,6 @@ def test_same_stamp_transition_journals_sets_and_clears(tmp_path, walked):
     )
     result = transition(
         path,
-        walked,
         source="autosave",
         stamp="S1",
         old_stamp="S1",
@@ -115,12 +75,10 @@ def test_same_stamp_transition_journals_sets_and_clears(tmp_path, walked):
     assert records["u-1"]["verdict"] == "reject"
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_stamp_change_journals_a_base_event(tmp_path, walked):
+def test_stamp_change_journals_a_base_event(tmp_path):
     path = tmp_path / "journal.ndjson"
     transition(
         path,
-        walked,
         source="autosave",
         stamp="S1",
         old_stamp=None,
@@ -130,7 +88,6 @@ def test_stamp_change_journals_a_base_event(tmp_path, walked):
     )
     result = transition(
         path,
-        walked,
         source="merge",
         stamp="S2",
         old_stamp="S1",
@@ -147,12 +104,10 @@ def test_stamp_change_journals_a_base_event(tmp_path, walked):
     assert events[-1]["stashed"] == "verdicts-autosave-S1.json"
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_seed_event_opens_a_journal_over_an_existing_store(tmp_path, walked):
+def test_seed_event_opens_a_journal_over_an_existing_store(tmp_path):
     path = tmp_path / "journal.ndjson"
     transition(
         path,
-        walked,
         source="autosave",
         stamp="S1",
         old_stamp="S1",
@@ -169,14 +124,12 @@ def test_seed_event_opens_a_journal_over_an_existing_store(tmp_path, walked):
     assert set(records) == {"u-1", "u-2", "u-3"}
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_a_seed_event_holds_the_tombstones_of_a_store_with_no_records(tmp_path, walked):
+def test_a_seed_event_holds_the_tombstones_of_a_store_with_no_records(tmp_path):
     """A journal opened over a store that holds tombstones and no records starts with a seed base event holding them, whether a whole-store transition or a server save's delta opens it, so replay gives them from the journal's first line."""
     cleared = {"u-2": "2026-07-10T00:30:00Z"}
     whole, delta = tmp_path / "transition.ndjson", tmp_path / "delta.ndjson"
     transition(
         whole,
-        walked,
         source="merge",
         stamp="S1",
         old_stamp="S1",
@@ -202,12 +155,10 @@ def test_a_seed_event_holds_the_tombstones_of_a_store_with_no_records(tmp_path, 
         assert journal.replay_store(path) == ("S1", {"u-1": v("u-1")}, cleared)
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_no_op_transition_appends_nothing(tmp_path, walked):
+def test_no_op_transition_appends_nothing(tmp_path):
     path = tmp_path / "journal.ndjson"
     transition(
         path,
-        walked,
         source="autosave",
         stamp="S1",
         old_stamp=None,
@@ -218,7 +169,6 @@ def test_no_op_transition_appends_nothing(tmp_path, walked):
     before = path.read_text()
     result = transition(
         path,
-        walked,
         source="autosave",
         stamp="S1",
         old_stamp="S1",
@@ -800,7 +750,7 @@ def test_a_resumed_scan_reads_only_what_was_appended_since(tmp_path):
 
 
 def test_a_journal_cut_shorter_and_regrown_between_the_phases_is_rescanned_and_never_compacted(tmp_path):
-    """A writer holding the store's lock can cut the journal shorter (`rekey_verdicts --undo`) and later appends can grow it past where the unlocked phase stopped, keeping the inode. The locked phase then sees different bytes before that offset, so the scan starts over and the compaction leaves the journal alone instead of resuming mid-line."""
+    """A writer holding the store's lock can cut the journal shorter (a land recovery's `truncate_to`) and later appends can grow it past where the unlocked phase stopped, keeping the inode. The locked phase then sees different bytes before that offset, so the scan starts over and the compaction leaves the journal alone instead of resuming mid-line."""
     path = tmp_path / "journal.ndjson"
     _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
     cut = path.stat().st_size
@@ -866,9 +816,9 @@ def test_a_scan_resumed_after_a_compaction_reads_as_a_full_scan_of_the_compacted
 
 
 @pytest.mark.parametrize("regrowth", ["other-lines", "same-lines"])
-@pytest.mark.parametrize("cut", ["rekey-undo", "land-recovery"])
+@pytest.mark.parametrize("cut", ["truncate", "land-recovery"])
 def test_a_journal_cut_shorter_between_passes_is_scanned_from_the_start(tmp_path, cut, regrowth):
-    """A saved scan state can outlive what it read. `rekey_verdicts --undo` cuts the journal back to the length it had before the re-key, and a land recovery's `truncate_to` to the length the land recorded; either can drop lines the state read, and the appends after it can grow the file past the state's end on the same inode. A re-key undone and run again appends the same set lines, so even the bytes just before that end come out the same, but its event line at the cut has a later `at`. Either way the resumed scan starts over and agrees with a full scan, and a compaction never starts at the base that was cut."""
+    """A saved scan state can outlive what it read. A writer that truncates the journal, or a land recovery's `truncate_to` to the length the land recorded, can drop lines the state read, and the appends after it can grow the file past the state's end on the same inode. A writer that appends the same set lines again makes even the bytes just before that end come out the same, but its event line at the cut has a later `at`. Either way the resumed scan starts over and agrees with a full scan, and a compaction never starts at the base that was cut."""
     path = tmp_path / "journal.ndjson"
     units = [f"u-{n:04d}" for n in range(1_000)]
     _append_base(path, "S1", None, [], ["u-1"], "2026-07-10T01:00:00Z")
@@ -879,7 +829,7 @@ def test_a_journal_cut_shorter_between_passes_is_scanned_from_the_start(tmp_path
     journal.save_scan_state(state_path, journal.scan(path).state)
     saved = journal.load_scan_state(state_path)
     assert saved is not None and saved == journal.scan(path).state
-    if cut == "rekey-undo":
+    if cut == "truncate":
         with path.open("r+b") as handle:
             handle.truncate(length)
     else:
@@ -1001,15 +951,13 @@ def test_truncate_to_cuts_only_the_file_whose_length_was_taken(tmp_path):
     assert not fresh.exists()
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_a_stamp_change_given_no_base_journals_sets_and_clears_against_the_previous_store(tmp_path, walked):
+def test_a_stamp_change_given_no_base_journals_sets_and_clears_against_the_previous_store(tmp_path):
     """The land passes `base=False` when the journal is not due a base. A unit's id is its content key, so the stamp change is written against the store it replaced: the units whose records changed or are new, and the units the new store lacks, under one event that names the new stamp and the stash. Replay reads the old store before it and the new store from it on."""
     path = tmp_path / "journal.ndjson"
     _append_base(path, "S1", None, [], ["u-1", "u-2", "u-3", "u-5"], "2026-07-10T01:00:00Z")
     reject = v("u-2", verdict="reject", at="2026-07-10T02:00:00Z")
     result = transition(
         path,
-        walked,
         source="land",
         stamp="S2",
         old_stamp="S1",
@@ -1045,8 +993,7 @@ def test_a_stamp_change_given_no_base_journals_sets_and_clears_against_the_previ
     )
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_path, walked):
+def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_path):
     """A clear line records each tombstone that appears, changes or goes on a unit the store holds no record for, as a same-stamp restore or merge changes them and as a land that moves the stamp drops one off the new corpus, and a set line removes its unit's tombstone, so replay gives the store's tombstones before and after each change."""
     path = tmp_path / "journal.ndjson"
     records = [v("u-1"), v("u-2"), v("u-3")]
@@ -1055,7 +1002,6 @@ def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_p
     third = {"u-5": "2026-07-10T01:30:00Z"}
     transition(
         path,
-        walked,
         source="merge",
         stamp="S1",
         old_stamp=None,
@@ -1066,7 +1012,6 @@ def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_p
     )
     restored = transition(
         path,
-        walked,
         source="restore",
         stamp="S1",
         old_stamp="S1",
@@ -1078,7 +1023,6 @@ def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_p
     )
     landed = transition(
         path,
-        walked,
         source="land",
         stamp="S2",
         old_stamp="S1",
@@ -1091,7 +1035,6 @@ def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_p
     )
     saved = transition(
         path,
-        walked,
         source="autosave",
         stamp="S2",
         old_stamp="S2",
@@ -1111,8 +1054,7 @@ def test_a_change_to_the_tombstones_alone_replays_to_the_stores_tombstones(tmp_p
     assert journal.replay_store(path) == ("S2", {**store, "u-5": v("u-5", at="2026-07-10T04:00:00Z")}, {})
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_a_stamp_change_whose_sets_and_clears_reach_the_new_stores_size_is_a_base(tmp_path, walked):
+def test_a_stamp_change_whose_sets_and_clears_reach_the_new_stores_size_is_a_base(tmp_path):
     """A diff whose sets and clears reach the new store's record count is no shorter than a base, so `base=False` writes the base instead, which also puts replay right after a store write the journal missed. A diff one line shorter is still written as the diff."""
     path = tmp_path / "journal.ndjson"
     _append_base(path, "S1", None, [], ["u-1", "u-2", "u-3"], "2026-07-10T01:00:00Z")
@@ -1123,7 +1065,6 @@ def test_a_stamp_change_whose_sets_and_clears_reach_the_new_stores_size_is_a_bas
     ):
         result = transition(
             path,
-            walked,
             source="land",
             stamp=stamp,
             old_stamp=f"S{int(stamp[1]) - 1}",
@@ -1142,8 +1083,7 @@ def test_a_stamp_change_whose_sets_and_clears_reach_the_new_stores_size_is_a_bas
     ]
 
 
-@pytest.mark.parametrize("walked", [False, True])
-def test_a_stamp_change_onto_the_same_records_journals_its_event_line_alone(tmp_path, walked):
+def test_a_stamp_change_onto_the_same_records_journals_its_event_line_alone(tmp_path):
     """Most lands that move the stamp land the same records as the store they replace. When no base is due, such a land skips the base it would have written: it journals only its event line, with or without a stash, and replay moves to the new stamp with the same records."""
     path = tmp_path / "journal.ndjson"
     _append_base(path, "S1", None, [], ["u-1", "u-2"], "2026-07-10T01:00:00Z")
@@ -1153,7 +1093,6 @@ def test_a_stamp_change_onto_the_same_records_journals_its_event_line_alone(tmp_
     ):
         result = transition(
             path,
-            walked,
             source="land",
             stamp=stamp,
             old_stamp=old_stamp,

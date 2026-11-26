@@ -78,7 +78,7 @@ class TestForbiddenPaths:
             "rebuild/review/jstests/state.test.js",
             "rebuild/review/build.py",
             "rebuild/m1-divergences.yaml",
-            "rebuild/standing-approvals.yaml",
+            "rebuild/review-snapshot.json",
             "glyph_data/quikscript.yaml",
             "glyph_data/runes/qsPea.yaml",
             "site/AbbotsMortonSpaceportSansSenior-Regular.otf",

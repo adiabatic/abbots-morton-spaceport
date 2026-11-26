@@ -84,17 +84,7 @@ def _store(path: Path, *, stamp: str, at: str, verdict: str = "approve") -> Path
     return path
 
 
-def _complaints(path: Path, *, stamp: str, at: str, note: str = "too close") -> Path:
-    group = {"id": "g-1", "rejects": {"new": [{"unit": "u-2", "note": note, "at": at}], "older": []}}
-    path.write_text(
-        json.dumps(
-            {"manifest_generated_at": stamp, "since": stamp, "totals": {"groups": 1}, "groups": [group]}
-        )
-    )
-    return path
-
-
-def test_the_corpus_store_and_complaint_digests_ignore_every_stamp_and_see_a_change(tmp_path):
+def test_the_corpus_and_store_digests_ignore_every_stamp_and_see_a_change(tmp_path):
     def font(_path: Path) -> str:
         return "content digest"
 
@@ -130,18 +120,6 @@ def test_the_corpus_store_and_complaint_digests_ignore_every_stamp_and_see_a_cha
             _store(tmp_path / "s3.json", stamp="t1", at="2026-10-28T01:00:00Z", verdict="neither")
         )
         != store
-    )
-
-    complaints = pf.complaints_digest(
-        _complaints(tmp_path / "k1.json", stamp="t1", at="2026-10-28T01:00:00Z")
-    )
-    assert (
-        pf.complaints_digest(_complaints(tmp_path / "k2.json", stamp="t2", at="2026-10-29T02:00:00Z"))
-        == complaints
-    )
-    assert (
-        pf.complaints_digest(_complaints(tmp_path / "k3.json", stamp="t1", at="t", note="touching"))
-        != complaints
     )
 
 

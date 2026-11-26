@@ -4,9 +4,9 @@
 
 Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. The ink-duplicate merge needs no sampling: the crate's ink signature is the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
 
-Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and its recipe must stay byte-identical because rebuild/standing-approvals.yaml records digests made with it.
+Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and the cluster id a Queue card groups by is made from its digests.
 
-And, on inputs this file builds itself, the two pixel-level readings the standing approvals' slide shape uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
+And, on inputs this file builds itself, two pixel-level readings the picture comparison uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
 
 Last, `junior_tracking`, the letter tracking the Junior-equivalence check removes from Junior's placement, pinned over the site fonts.
 """
@@ -371,7 +371,7 @@ def test_the_delta_sentinel_is_the_picture_reading_over_a_sample(mini_windows, c
 
 
 def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
-    """The shape a standing-approval rule matches on and check_unit validates: `d-` followed by twelve lowercase hex digits, for a real localized delta and for the identity sentinel alike."""
+    """The shape check_unit validates: `d-` followed by twelve lowercase hex digits, for a real localized delta and for the identity sentinel alike."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     for diff in (comparator.config_diff(pair, "default"), ((), (), 0), ((), (), -50)):
         digest = delta_digest(diff)
@@ -381,7 +381,7 @@ def test_delta_digest_is_a_d_prefixed_twelve_hex_token(comparator):
 
 
 def test_the_identity_diff_digests_to_a_pinned_constant():
-    """IDENTITY_DIFF is ((), (), 0), the sentinel the build does not record in `ink_deltas`. The test pins both the value and its digest, because changing the recipe would invalidate every digest in rebuild/standing-approvals.yaml. A nonzero shift is a different delta and gets a different digest even when both cell lists are empty."""
+    """IDENTITY_DIFF is ((), (), 0), the sentinel the build does not record in `ink_deltas`. The test pins both the value and its digest, because changing the recipe moves every cluster id. A nonzero shift is a different delta and gets a different digest even when both cell lists are empty."""
     assert IDENTITY_DIFF == ((), (), 0)
     assert delta_digest(((), (), 0)) == "d-f923c43ec75a"
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))

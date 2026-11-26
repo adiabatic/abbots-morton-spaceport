@@ -216,7 +216,7 @@ function wellFormed(entry) {
   return typeof note === 'object' && Object.keys(note).length === 0;
 }
 
-// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`, each an `ams-review-verdicts/1` document: per corpus the entries were made on, the records a strict Import refuses (`wellFormed`, the merge's rule too) go in a separate verdicts-unsaved-malformed-<stamp>.json, apart from the rest of their corpus's entries, so they cannot make an Import or merge_verdicts refuse the file holding the rest, and verdicts-unsaved-<stamp>.json holds the other records and the clears (as a `cleared` list of { unit, at }).
+// The files that hold outbox entries (`outbox.js`, each with its `unit`) a page could not send, as `{ name, payload }`, each an `ams-review-verdicts/1` document: per corpus the entries were made on, the records a strict Import refuses (`wellFormed`, the merge's rule too) go in a separate verdicts-unsaved-malformed-<stamp>.json, apart from the rest of their corpus's entries, so they cannot make an Import refuse the file holding the rest, and verdicts-unsaved-<stamp>.json holds the other records and the clears (as a `cleared` list of { unit, at }).
 export function unsavedFiles(entries, exportedAt = new Date().toISOString()) {
   const files = new Map();
   for (const entry of entries) {
