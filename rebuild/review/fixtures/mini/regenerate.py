@@ -1,18 +1,18 @@
 """Regenerate the mini-M1 bundle beside this file from the live build output in `rebuild/out/m1`.
 
-The bundle lets the contracts lane test the corpus cache without reading `rebuild/out/`. `rebuild/test_unit_cache.py` checks that a warm store supplies every unit, that an incremental rebuild holds a from-scratch build's fragments by id and materializes to its files byte for byte, and that a corrupt store falls back to a full build. Those are properties of the corpus build's cache and its threads, not of any glyph, so a frozen workload tests them as well as the live one and takes seconds instead of minutes. The review tests that read example windows (what the ink comparator reports for a placed run, whether an example text re-settles to the row it was drawn from) also read the frozen windows, because none of them is a claim about the current corpus.
+The bundle gives the contracts lane a frozen workload without reading `rebuild/out/`. The tests that read it (the ink comparator's readings of a placed run, the oracle's and the conformance sweep's comparisons, the subset tables' reader, the table diff's real tables) make claims about the code that reads a workload, not about the current build, so a frozen one tests them as well as the live one and takes seconds instead of minutes.
 
 The bundle holds:
 
-- `audit.tsv`, the live divergence audit's materialized form (`oracle.materialized_audit`) filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, a fixed set picked for the enrichment and drafting each shows. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
+- `audit.tsv`, the live divergence audit's materialized form (`oracle.materialized_audit`) filtered to the union of two sets: every window drawn from `LETTERS` and `BOUNDARIES`, and every window in `EXAMPLE_WINDOWS`, a fixed set the tests name by codepoint. Regeneration fails when a window in `EXAMPLE_WINDOWS` selects no row, so a lost example is found here and not in a test failure after a later rune edit.
 - `baseline-<config>.subset.tsv.gz` for each of `conform.ORACLE_CONFIGS` and no other configuration, sliced to the same windows. The live build directory can also hold subset tables for other configurations, which nothing reads.
 - `M1.otf`, a copy of the after font the slices were extracted against.
 - `settlement-default.tsv` and `joins-default.tsv`, which `rebuild/test_review_tablediff.py` reads as real tables.
 - `pin.json`, the tree and blob shas of `pin.PINNED_PATHS` at the commit this ran on.
 
-All of it must be regenerated together. A slice from one build beside a font from another, or a pin from a third, would make the enricher report glyph disagreements caused by the bundle and not by the code.
+All of it must be regenerated together. A slice from one build beside a font from another, or a pin from a third, would make a test report glyph disagreements caused by the bundle and not by the code.
 
-The pin replaces a checked-in copy of the spec. `build_m1` takes a `spec_root`, and the `mini_bundle` fixture in `rebuild/conftest.py` writes the pinned objects out of git, once a test run, into a temporary directory that every mini-bundle test passes as that root. So the enricher re-derives the settlement these rows were written under, a rune edit cannot make the frozen `new` cells stale, and there is no second copy of the runes in the tree to edit by mistake. Everything else in a mini build (the fingerprints, the git head, the manifest's relative paths, the corpus the pin drafts are validated against) comes from the repo root, because those describe the checkout and not the workload.
+The pin replaces a checked-in copy of the spec. The `mini_bundle` fixture in `rebuild/conftest.py` writes the pinned objects out of git, once a test run, into a temporary directory that a test passes as its spec root. So a test that re-derives settlement re-derives the settlement these rows were written under, a rune edit cannot make the frozen `new` cells stale, and there is no second copy of the runes in the tree to edit by mistake.
 
 Two checks make HEAD safe to pin. The pinned paths must be clean, so HEAD's bytes are the working tree's. The live build's recorded `data` fingerprint must equal the one the tree hashes to now, so the frozen rows settled under that spec. If either fails, the pin could name a spec no build ran, and a content-addressed pin cannot detect that later.
 

@@ -92,10 +92,10 @@ def _untouched(root: Path, before: bytes) -> None:
 
 
 def test_the_accept_refuses_a_corpus_that_is_not_a_table_diff_corpus(repo, built, capsys):
-    """Only a table-diff corpus shows changes against the accepted snapshot, so the accept refuses an m1-audit corpus, dry run, apply and retake alike, and a corpus with no manifest, and writes nothing."""
+    """Only a table-diff corpus shows changes against the accepted snapshot, so the accept refuses a corpus of another mode, dry run, apply and retake alike, and a corpus with no manifest, and writes nothing."""
     manifest_path = repo / "rebuild" / "out" / "review" / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    _write_json(manifest_path, {**manifest, "mode": "m1-audit"})
+    _write_json(manifest_path, {**manifest, "mode": "another-mode"})
     before = (repo / AUTOSAVE_NAME).read_bytes()
     for flags in ({}, {"apply": True}, {"apply": True, "retake": True}):
         assert _run(repo, built, **flags) == 1

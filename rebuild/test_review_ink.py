@@ -2,26 +2,24 @@
 
 `ink_identical` (the sorted placed pieces are equal) reproduces the worked readings: the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is off, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and two comparators give the same result. `config_diff` (the cells only one font paints over the whole window, with the shifted tail pulled back) ignores a tuck that leaves the union of painted cells unchanged. When one glyph stops painting a pixel that a neighbor still paints, the delta is the empty sentinel if nothing else changed. Beside a real change, the tuck leaves that change's digest as it is, so the window shares a key with its tuck-free siblings. The same change at a junction the neighbor no longer reaches stays in the delta as the hole it leaves.
 
-Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. The ink-duplicate merge needs no sampling: the crate's ink signature is the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas and equal ink flags. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
+Nothing here reads the live corpus. The windows come from the frozen mini bundle's audit and are shaped in that bundle's font, because every claim here is about the comparator. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
 
 Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and the cluster id a Queue card groups by is made from its digests.
 
 And, on inputs this file builds itself, two pixel-level readings the picture comparison uses: `rectilinear_cells`, which rasterizes one grid-rectilinear outline under nonzero winding (a hole stays empty, two overlapping same-direction contours fill their union, and a curve or an off-grid coordinate returns None), and `named_run`, the shaped run with its glyph names attached, which keeps the inkless markers its pieces drop and whose projection without names is `run_ink`.
-
-Last, `junior_tracking`, the letter tracking the Junior-equivalence check removes from Junior's placement, pinned over the site fonts.
 """
 
 from pathlib import Path
 
 import pytest
 
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, AUDIT_HEADER, parse_codepoints
+from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
+from rebuild.review.audit import parse_codepoints
 from rebuild.review.ink import (
     IDENTITY_DIFF,
     InkComparator,
     delta_digest,
     features_for,
-    junior_tracking,
     kern_neutral,
     rectilinear_cells,
 )
@@ -31,7 +29,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 MINI_FONT = MINI / "M1.otf"
 BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
-JUNIOR_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf"
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +40,7 @@ def comparator():
 def mini_windows() -> list[tuple[str, tuple[str, ...]]]:
     """Return the frozen bundle's audit windows in audit order, each as its text with the configurations its rows name, in rank order: every window over the `LETTERS` and `BOUNDARIES` of rebuild/review/fixtures/mini/regenerate.py, plus its `EXAMPLE_WINDOWS`."""
     lines = (MINI / "audit.tsv").read_text(encoding="utf-8").splitlines()
-    assert tuple(lines[0].split("\t")) == AUDIT_HEADER
+    assert tuple(lines[0].split("\t")[:2]) == ("config", "codepoints")
     configs: dict[str, set[str]] = {}
     for line in lines[1:]:
         config, window = line.split("\t")[:2]
@@ -198,7 +195,7 @@ def test_run_ink_is_the_nameless_projection_of_named_run(marker_comparator):
 
 
 def test_run_ink_is_blind_to_the_glyph_name(marker_comparator):
-    """The crate's ink signature is `run_ink` on both sides, and `run_ink` drops the glyph name, so two glyphs drawing the same outline at the same advance under different names put down the same run. The ink-duplicate merge depends on this, because the windows it merges differ only in glyph names."""
+    """`run_ink` drops the glyph name, so two glyphs drawing the same outline at the same advance under different names put down the same run, and `config_diff`, which aligns the two runs, finds no delta between them."""
     features = features_for("default")
     for side in ("before", "after"):
         assert marker_comparator.run_ink(side, chr(0xE001), features) == marker_comparator.run_ink(
@@ -294,7 +291,7 @@ def test_a_union_invisible_tuck_is_the_empty_sentinel_on_its_own(tuck_comparator
 
 
 def test_a_tuck_beside_a_real_change_keeps_the_real_changes_digest(tuck_comparator):
-    """·Fee shortens by a column, and the ·At·J'ai tuck is in the tail after it. The after tail is the before tail shifted one column left with no pixel different, so it is pulled back and removed, and what remains is the shortened ·Fee. That is the same delta and digest as the tuck-free window, so both windows share one duplicate-group key and one blessed digest fills both."""
+    """·Fee shortens by a column, and the ·At·J'ai tuck is in the tail after it. The after tail is the before tail shifted one column left with no pixel different, so it is pulled back and removed, and what remains is the shortened ·Fee. That is the same delta and digest as the tuck-free window, so both windows share one cluster."""
     tucked = tuck_comparator.config_diff(TUCKED_WINDOW, "default")
     plain = tuck_comparator.config_diff(PLAIN_WINDOW, "default")
     assert tucked == plain == FEE_SHORTENED
@@ -340,7 +337,7 @@ def test_verdicts_are_deterministic_across_two_comparators(mini_windows, compara
 
 
 def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
-    """In the may-closer-at-baseline-join class, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one duplicate-group key. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
+    """Between the mini bundle's font and the old Senior, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one cluster. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
     two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))
@@ -385,8 +382,3 @@ def test_the_identity_diff_digests_to_a_pinned_constant():
     assert IDENTITY_DIFF == ((), (), 0)
     assert delta_digest(((), (), 0)) == "d-f923c43ec75a"
     assert delta_digest(((), (), 1)) != delta_digest(((), (), 0))
-
-
-def test_junior_tracking_premise_holds():
-    """The Junior-equivalence check's premise: Junior carries the same isolated letterforms as Senior plus one pixel (50 units at 550 units per em) of extra advance on every Quikscript glyph, and no advance difference on any other glyph. `junior_tracking` checks the advances, and this test pins the tracking value."""
-    assert junior_tracking(JUNIOR_FONT, BEFORE_FONT) == 50

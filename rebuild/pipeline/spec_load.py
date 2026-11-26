@@ -1978,7 +1978,7 @@ def m1_runes() -> tuple[str, ...] | None:
 
 
 def alphabet_token() -> str | None:
-    """Return the alphabet token, the switch's rune names (`m1_runes`) joined by commas, or None when the switch is unset. While the switch is set, the token joins every stamp over an M1 build's enumeration or the artifacts beside it: the tables' stamp (`run_m1.tables_inputs`), the run_m1 skip key (`artifact_cycle.run_m1_skip_lines`), the Stage A record (`fingerprint.stage_a`), the settle memo's stamp (`oracle_cache.settle_memo_stamp`) and the review unit store's (`unit_cache.environment_stamp`), so an enumeration or record made over the whole alphabet never reads current to a process on a small one, nor the reverse. While it is unset, no stamp carries anything for it."""
+    """Return the alphabet token, the switch's rune names (`m1_runes`) joined by commas, or None when the switch is unset. While the switch is set, the token joins every stamp over an M1 build's enumeration or the artifacts beside it: the tables' stamp (`run_m1.tables_inputs`), the run_m1 skip key (`artifact_cycle.run_m1_skip_lines`), the Stage A record (`fingerprint.stage_a`) and the settle memo's stamp (`oracle_cache.settle_memo_stamp`), so an enumeration or record made over the whole alphabet never reads current to a process on a small one, nor the reverse. While it is unset, no stamp carries anything for it."""
     runes = m1_runes()
     return None if runes is None else ",".join(runes)
 

@@ -247,7 +247,7 @@ def test_conform_gate_fails_on_bare_false_pass():
 
 
 def test_classify_review_module_failures_are_hard():
-    """A failure in a review module is a hard failure like any other. The review-facts pins are the cycle's output, not an assertion the suite reads."""
+    """A failure in a review module is a hard failure like any other."""
     stdout = "\n".join(
         [
             "FAILED rebuild/test_review_build.py::test_totals",
@@ -311,14 +311,10 @@ def test_dry_run_plan_default():
         "python",
         "-m",
         "rebuild.review.build",
-        "--mode",
-        "table-diff",
         "--out",
         str(ac.next_corpus_dir()),
     ]
     assert [step.name for step in plan.steps][:3] == ["run_m1", "corpus-build", "land"]
-    for gone in ("corpus-seed", "review-facts"):
-        assert gone not in by_name
     contracts_record = ac.contracts_green()
     assert by_name["gate:rebuild-contracts"].argv == [
         "uv",
@@ -386,7 +382,7 @@ def test_the_table_diff_build_is_passed_no_width():
     """The table-diff build runs in one Python process, so its argv states no width, whatever the machine."""
     for ncores in (2, 18):
         argv = _argv({step.name: step for step in _plan(ncores=ncores).steps}["corpus-build"])
-        assert "--jobs" not in argv and "--signature-jobs" not in argv and "--gates-idle-jobs" not in argv
+        assert argv[5:] == ["--out", str(ac.next_corpus_dir())]
 
 
 def test_dry_run_plan_conform_max_length():
@@ -410,12 +406,10 @@ def test_dry_run_plan_skip_conform():
 
 
 def test_the_plan_lands_the_table_diff_corpus_right_after_its_build():
-    """The pass builds the table-diff corpus beside the served one and lands it: no corpus seed or review-facts step. The land reads the live store under the store's lock, so it is handed no store but the live one, and it is told which corpus to swap in and to leave the tree it swaps out to the pass, which deletes it once the tabs are told."""
+    """The pass builds the table-diff corpus beside the served one and lands it. The land reads the live store under the store's lock, so it is handed no store but the live one, and it is told which corpus to swap in and to leave the tree it swaps out to the pass, which deletes it once the tabs are told."""
     plan = _plan(short_id="abc1234")
     names = [step.name for step in plan.steps]
     assert names.index("land") == names.index("corpus-build") + 1
-    for gone in ("corpus-seed", "review-facts"):
-        assert gone not in names
     assert plan.scratch_dir is not None and plan.land
     argv = _argv({step.name: step for step in plan.steps}["land"])
     assert argv[:5] == ["uv", "run", "python", "-m", "rebuild.review.landing"]
@@ -578,9 +572,8 @@ def _built_corpus(tmp_path, **totals):
     return corpus
 
 
-def _do_corpus_build_with(corpus, spawn, held):
-    """Run `_do_corpus_build` over `corpus` with `spawn`, handing it a `_HeldCorpusBuild` when `held` is set, and return its result with the holder it used (None without one)."""
-    holder = ac._HeldCorpusBuild() if held else None
+def _do_corpus_build_with(corpus, spawn):
+    """Run `_do_corpus_build` over `corpus` with `spawn`, and return its result with the report it filled."""
     report = ac.CycleReport()
     ok = ac._do_corpus_build(
         report,
@@ -589,178 +582,33 @@ def _do_corpus_build_with(corpus, spawn, held):
         registry=ac._ChildRegistry(),
         review_out=corpus,
         argv=["uv", "run", "python", "-m", "rebuild.review.build"],
-        held=holder,
     )
-    return ok, report, holder
+    return ok, report
 
 
-@pytest.mark.parametrize("held", [False, True])
-def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path, held):
-    """A stand-in spawn prints no review-facts line, and the thread's `finally` releases the wait as it returns, so the step closes before `_do_corpus_build` returns, with or without a holder, and a holder has nothing left to join."""
-    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16, duplicate_groups=402)
-    ok, report, holder = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 0), held)
+def test_do_corpus_build_takes_its_totals_from_the_manifest_the_build_wrote(tmp_path):
+    corpus = _built_corpus(tmp_path, units=15897, rows=81867, batches=16)
+    ok, report = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 0))
     assert ok
-    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
-        15897,
-        81867,
-        16,
-        402,
-    )
-    assert holder is None or holder.join(ac._Emitter(), report)
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches) == (15897, 81867, 16)
 
 
-@pytest.mark.parametrize("held", [False, True])
-def test_do_corpus_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys, held):
+def test_do_corpus_build_fails_when_a_clean_build_left_no_manifest(tmp_path, capsys):
     corpus = tmp_path / "review"
     corpus.mkdir()
-    ok, report, holder = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 0), held)
+    ok, report = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 0))
     assert not ok
     assert "review.build exited 0 but left no readable manifest.json" in capsys.readouterr().out
     assert report.corpus_units is None
-    assert holder is None or holder.join(ac._Emitter(), report)
 
 
-@pytest.mark.parametrize("held", [False, True])
-def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys, held):
-    """After a nonzero exit before the review-facts line, the manifest in the corpus directory is the previous pass's, so the step fails before reading any totals from it, and a holder does not report the failure a second time."""
-    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, duplicate_groups=4)
-    ok, report, holder = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 3), held)
+def test_do_corpus_build_reads_no_totals_from_a_failed_build(tmp_path, capsys):
+    """After a nonzero exit, the manifest in the corpus directory is the previous pass's, so the step fails before reading any totals from it."""
+    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3)
+    ok, report = _do_corpus_build_with(corpus, lambda name, argv, **k: _step(name, 3))
     assert not ok
     assert "review.build exited 3" in capsys.readouterr().out
-    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
-        None,
-        None,
-        None,
-        None,
-    )
-    assert holder is None or holder.join(ac._Emitter(), report)
-    assert "review.build exited 3" not in capsys.readouterr().out
-
-
-# A corpus build that prints the line closing its review-facts phase, then writes its stores until the file named by its first argument appears, and exits with the status its second argument names.
-_FACTS_THEN_STORE = (
-    "import pathlib, sys, time\n"
-    "print('[t] review.build review-facts 1.9s rss_gb=1.00', file=sys.stderr, flush=True)\n"
-    "deadline = time.monotonic() + 30\n"
-    "while not pathlib.Path(sys.argv[1]).exists() and time.monotonic() < deadline:\n"
-    "    time.sleep(0.01)\n"
-    "sys.exit(int(sys.argv[2]))\n"
-)
-
-
-@pytest.mark.parametrize("store_rc", [0, 3])
-def test_a_held_corpus_build_returns_at_its_review_facts_line_and_is_joined_later(tmp_path, capsys, store_rc):
-    """With a holder, `_do_corpus_build` returns as the build prints `CORPUS_FACTS_LINE`, with the totals read from the manifest the build wrote before it, while the child still writes its stores. The step closes at the join, which reports a store write that exits nonzero as the build's failure, and only once."""
-    corpus = _built_corpus(tmp_path, units=7, rows=8, batches=1, duplicate_groups=0)
-    release = tmp_path / "release"
-    held = ac._HeldCorpusBuild()
-    report = ac.CycleReport()
-    try:
-        assert ac._do_corpus_build(
-            report,
-            spawn=ac._run_step,
-            emit=ac._Emitter(),
-            registry=ac._ChildRegistry(),
-            review_out=corpus,
-            argv=[sys.executable, "-c", _FACTS_THEN_STORE, str(release), str(store_rc)],
-            held=held,
-        )
-        assert report.corpus_units == 7
-        assert not held.exited()
-    finally:
-        release.touch()
-    assert held.join(ac._Emitter(), report) is (store_rc == 0)
-    assert ("review.build exited 3" in capsys.readouterr().out) is (store_rc == 3)
-    assert held.join(ac._Emitter(), report)
-    assert "review.build exited" not in capsys.readouterr().out
-
-
-def test_a_corpus_build_without_a_holder_waits_for_its_store_write(tmp_path):
-    """Without a holder, `_do_corpus_build` waits past the review-facts line for the whole child, as a caller with no later join needs."""
-    corpus = _built_corpus(tmp_path, units=7, rows=8, batches=1, duplicate_groups=0)
-    release = tmp_path / "release"
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        built = pool.submit(
-            ac._do_corpus_build,
-            ac.CycleReport(),
-            spawn=ac._run_step,
-            emit=ac._Emitter(),
-            registry=ac._ChildRegistry(),
-            review_out=corpus,
-            argv=[sys.executable, "-c", _FACTS_THEN_STORE, str(release), "0"],
-        )
-        with pytest.raises(TimeoutError):
-            built.result(timeout=0.5)
-        release.touch()
-        assert built.result(timeout=30)
-
-
-def _store_write_cycle(monkeypatch, *, store_rc, review_out=None):
-    """Run a pass whose corpus build, through the real `_do_corpus_build`, prints its review-facts line, as the review crate's build does, and then writes its stores and exits `store_rc`. Return the exit status, what the stages did in order, and the report."""
-    order: list[str] = []
-
-    def spawn(name, argv, *, emit, registry, stream, env=None, on_line=None, **_):
-        if name != "corpus-build":
-            return _step(name)
-        assert on_line is not None
-        order.append("review facts")
-        on_line(ac.CORPUS_FACTS_LINE + "1.9s rss_gb=1.00")
-        order.append("store written")
-        return _step(name, store_rc)
-
-    def land(report, *, spawn, emit, registry, plan):
-        order.append("land")
-        return _land_ok(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_do_land", land)
-    monkeypatch.setattr(ac, "_do_job_costs", _job_costs_clean)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", _make_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-    _patch_gate_fingerprints(monkeypatch)
-    plan = _plan() if review_out is None else _plan(review_out=review_out)
-    assert plan.update_corpus is not None
-    report = ac.CycleReport()
-    real_build = ac._do_corpus_build
-
-    def build(report, **kwargs):
-        plan.update_corpus.mkdir(parents=True, exist_ok=True)
-        (plan.update_corpus / "manifest.json").write_text(
-            json.dumps({"totals": {"units": 3, "rows": 4, "batches": 1, "duplicate_groups": 0}})
-        )
-        return real_build(report, **kwargs)
-
-    monkeypatch.setattr(ac, "_do_corpus_build", build)
-    rc = ac._run_cycle(plan, report, ac._Emitter(), ac._ChildRegistry(), spawn=spawn)
-    return rc, order, report
-
-
-@pytest.mark.parametrize("store_rc", [0, 1])
-def test_the_land_waits_for_the_corpus_builds_child(monkeypatch, capsys, store_rc):
-    """The land runs only once the corpus build's child has exited, whatever line it printed before, and a build that exits nonzero after its review-facts line fails the pass as a failed build does and stops it."""
-    rc, order, report = _store_write_cycle(monkeypatch, store_rc=store_rc)
-    assert order[:2] == ["review facts", "store written"]
-    assert report.step_returncodes["corpus-build"] == store_rc
-    out = capsys.readouterr().out
-    if store_rc == 0:
-        assert rc == 0
-        assert order[2:] == ["land"]
-        assert "corpus rebuild failed" not in out
-    else:
-        assert rc == 1
-        assert order[2:] == []
-        assert "review.build exited 1" in out
-        assert out.count("corpus rebuild failed") == 1
-
-
-def test_a_pass_that_does_not_land_still_waits_for_the_store_write(monkeypatch, tmp_path):
-    """A staging pass (`--review-out`) runs no land, and the join sits outside the land's branch, so it still waits for the corpus build's child before it finishes."""
-    rc, order, report = _store_write_cycle(monkeypatch, store_rc=0, review_out=tmp_path / "staged")
-    assert rc == 0
-    assert order == ["review facts", "store written"]
-    assert report.step_returncodes["corpus-build"] == 0
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches) == (None, None, None)
 
 
 def _argv(step: ac.Step) -> list[str]:
@@ -827,18 +675,6 @@ def _pass_run_m1(report, *, spawn, emit, registry, **_):
 def _corpus_ok(report, *, spawn, emit, registry, review_out, **_):
     report.corpus_units = 1
     return True
-
-
-def _review_facts_plan() -> ac.Plan:
-    """A plan holding the review-facts step, which no plan the cycle makes holds, for the tests of `_do_review_facts`, which stays in the cycle's module until the m1-audit corpus leaves the tree."""
-    plan = _plan()
-    plan.steps.append(
-        ac.Step(
-            "review-facts",
-            ["uv", "run", "python", "-m", "rebuild.review.facts", "--update", "--corpus", str(ac.REVIEW_OUT)],
-        )
-    )
-    return plan
 
 
 def _job_costs_clean(report, *, spawn, emit, registry, plan):
@@ -1226,7 +1062,6 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
         report.corpus_units = 15903
         report.corpus_rows = 81894
         report.corpus_batches = 16
-        report.duplicate_groups = 42
         report.step_seconds["corpus-build"] = 61.0
         return True
 
@@ -1269,7 +1104,6 @@ def test_summary_exact_under_out_of_order_completion(monkeypatch, capsys):
     assert report.corpus_units == 15903
     assert report.corpus_rows == 81894
     assert report.corpus_batches == 16
-    assert report.duplicate_groups == 42
     assert report.unmatched == 7777
     assert report.gate_js == "green"
     assert report.gate_make_test == "green"
@@ -1947,65 +1781,6 @@ def test_the_plan_prints_the_sweep_width_with_its_derivation():
     assert _argv(by_name["gate:conform"])[-2:] == ["--jobs", str(plan.conform_jobs)]
 
 
-class TestTheCorpusBuildWidth:
-    """Both bounds are checked, because which one limits the width matters: the cap holds the build to the cores its lane has on a machine with memory to spare, and the division protects a machine with none."""
-
-    def test_the_cores_bind_where_the_machine_has_room_to_spare(self):
-        """A machine with memory for dozens of threads gets its cap, which is a count of cores less the build's main thread: under a gated cycle the build lane's share (`memory_budget.split_cores`), whether or not gate:make-test runs, and by hand or under --skip-gates every usable core."""
-        roomy: dict[str, Any] = dict(ncores=12, total_bytes=1_000_000_000_000)
-        assert ac.corpus_job_budget(skip_gates=False, **roomy) == 5
-        assert ac.corpus_job_budget(skip_gates=False, skip_make_test=True, **roomy) == 5
-        assert ac.corpus_job_budget(skip_gates=True, **roomy) == 11
-
-    def test_a_small_machine_splits_its_cores_between_the_lanes(self):
-        """A five-core machine's build lane holds three cores, the odd one included, so a gated build runs two threads beside its main thread, and a hand build runs four, with memory to spare in both cases. On one core both caps floor at one thread."""
-        assert ac.corpus_job_budget(skip_gates=False, ncores=5, total_bytes=1_000_000_000_000) == 2
-        assert ac.corpus_job_budget(skip_gates=True, ncores=5, total_bytes=1_000_000_000_000) == 4
-        assert ac.corpus_job_budget(skip_gates=False, ncores=1, total_bytes=1_000_000_000_000) == 1
-        assert ac.corpus_job_budget(skip_gates=True, ncores=1, total_bytes=1_000_000_000_000) == 1
-
-    def test_both_fleet_machines_run_the_build_at_its_lane_share_under_a_gated_cycle(self):
-        """On the fleet machines (`doc/fleet.md`) the build runs its units phase at its lane share beside gate:make-test's pool: eight threads on the 18-core 48 GiB machine and five on the 12-core one. The lower bound is what a change to the corpus build's constants must not cross. `test_the_shipped_corpus_divisor_holds_the_fleet_at_its_lane_share_by_division` in rebuild/test_memory_budget.py checks their division apart from the cap. The derivation is checked too, because the plan line quotes it."""
-        for ncores, width in ((18, 8), (12, 5)):
-            assert ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB) == width
-            assert ac.corpus_job_derivation(
-                skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB
-            ).startswith(f"{width} at ")
-
-    def test_the_pytest_pool_comes_off_the_machine_before_the_division(self):
-        """A cycle runs this build beside gate:make-test's pool, so the pool's bytes at the gate lane's share are added to the co-resident term beside the build's process and its launcher, and the cap is the build lane's share less the build's main thread. On nine cores the build lane holds five and the gate lane four. The test checks the fit terms directly, because on the fleet machines the memory subtraction does not change the resulting width, and a machine size chosen to sit where it would is a number every change to the constants would have to retune."""
-        solo = ac._corpus_fit_terms(skip_gates=True, skip_make_test=False, ncores=9)
-        beside = ac._corpus_fit_terms(skip_gates=False, skip_make_test=False, ncores=9)
-        unpooled = ac._corpus_fit_terms(skip_gates=False, skip_make_test=True, ncores=9)
-        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
-        assert solo == (ac.CORPUS_BUILD_RS_THREAD_BYTES, process, 8)
-        assert beside == (ac.CORPUS_BUILD_RS_THREAD_BYTES, process + 4 * ac._font_suite_worker_bytes(), 4)
-        assert unpooled == (ac.CORPUS_BUILD_RS_THREAD_BYTES, process, 4)
-
-    def test_the_width_counts_threads_beside_the_process_and_its_launcher(self):
-        """The width is the thread count of the build's one process: CORPUS_BUILD_RS_THREAD_BYTES divides, and the process's CORPUS_BUILD_RS_PROCESS_BYTES and the Python process waiting on it, CORPUS_BUILD_RS_LAUNCHER_BYTES, come off the machine first, so a machine with room for three threads beside them runs three, and the derivation says so."""
-        from rebuild.tools import memory_budget
-
-        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
-        total = process + 3 * ac.CORPUS_BUILD_RS_THREAD_BYTES + memory_budget.RESERVE_FLOOR_BYTES
-        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=total) == 3
-        assert ac.corpus_job_derivation(skip_gates=True, ncores=12, total_bytes=total).startswith("3 at ")
-
-    def test_the_floor_answers_one_on_a_machine_that_cannot_hold_a_thread(self):
-        """A machine with no memory left after its reserve floors at one thread in both cases."""
-        assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=8_000_000_000) == 1
-        assert ac.corpus_job_budget(skip_gates=False, ncores=12, total_bytes=8_000_000_000) == 1
-
-    def test_the_printed_derivation_is_the_one_that_produced_the_width(self):
-        """The plan line and the `--jobs` help quote the derivation, and it and the width come from the same three terms, so the clause starts with the width it explains."""
-        for skip_gates in (False, True):
-            width = ac.corpus_job_budget(skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_48_GIB)
-            derivation = ac.corpus_job_derivation(
-                skip_gates=skip_gates, ncores=10, total_bytes=MACHINE_48_GIB
-            )
-            assert derivation.startswith(f"{width} at ")
-
-
 def _lane_conform_line(plan: ac.Plan) -> str:
     """Return the plan block's one Lane conform line."""
     (line,) = [line for line in _plan_text(plan).splitlines() if "Lane conform" in line]
@@ -2026,17 +1801,10 @@ def _plan_conform_derivation(plan: ac.Plan, *, ncores: int, total_bytes: int) ->
 
 
 class TestTheConformSweepWidth:
-    """The cycle sizes gate:conform's sweep: one spawn process per unit, each holding `CONFORM_SWEEP_UNIT_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build, which is subtracted from memory before the division when the pass runs it. Its cap is the cores less the corpus build's processes and gate:make-test's pool under the overlap policy, never below the acceptance-configuration count."""
+    """The cycle sizes gate:conform's sweep: one spawn process per unit, each holding `CONFORM_SWEEP_UNIT_BYTES`. The conformance sweep is submitted when run_m1's gate passes, so it runs beside the build lane's corpus build, whose one process (`CORPUS_BUILD_BYTES`) is subtracted from memory before the division when the pass runs it. Its cap is the cores less the corpus build's process and gate:make-test's pool under the overlap policy, never below the acceptance-configuration count."""
 
     def test_the_corpus_build_comes_off_the_machine_before_the_division(self):
-        """Checked at the fit terms, where no machine size enters, for the same reason as the memory set aside beside the corpus build: on no fleet machine does the subtraction change the conformance sweep's width. The corpus term is the build's process and its launcher plus the threads `corpus_job_budget` gives the same pass. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
-
-        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
-
-        def corpus(skip_make_test):
-            return process + ac.CORPUS_BUILD_RS_THREAD_BYTES * ac.corpus_job_budget(
-                skip_gates=False, skip_make_test=skip_make_test, ncores=16, total_bytes=MACHINE_48_GIB
-            )
+        """Checked at the fit terms, where no machine size enters. The corpus term is the build's one process, `CORPUS_BUILD_BYTES`. gate:make-test's pool is added under the overlap policy only, because the queue policy makes the conformance sweep wait for make-test. The cap is `_conform_core_cap`'s in every case."""
 
         def flags(skip_make_test, skip_corpus, pool_policy) -> dict[str, Any]:
             return dict(
@@ -2054,16 +1822,12 @@ class TestTheConformSweepWidth:
         def cap(*, skip_make_test=False, skip_corpus=False, pool_policy="queue"):
             return ac._conform_core_cap(**flags(skip_make_test, skip_corpus, pool_policy))[0]
 
-        per_unit = ac.CONFORM_SWEEP_UNIT_BYTES
-        assert terms() == (per_unit, corpus(False), cap())
+        per_unit, corpus = ac.CONFORM_SWEEP_UNIT_BYTES, ac.CORPUS_BUILD_BYTES
+        assert terms() == (per_unit, corpus, cap())
         assert terms(skip_corpus=True) == (per_unit, 0, cap(skip_corpus=True))
         make_test = ac._make_test_pool_bytes(skip_make_test=False, ncores=16)
         assert make_test > 0
-        assert terms(pool_policy="overlap") == (
-            per_unit,
-            corpus(False) + make_test,
-            cap(pool_policy="overlap"),
-        )
+        assert terms(pool_policy="overlap") == (per_unit, corpus + make_test, cap(pool_policy="overlap"))
         assert terms(pool_policy="overlap", skip_corpus=True) == (
             per_unit,
             make_test,
@@ -2071,32 +1835,31 @@ class TestTheConformSweepWidth:
         )
         assert terms(pool_policy="overlap", skip_make_test=True) == (
             per_unit,
-            corpus(True),
+            corpus,
             cap(pool_policy="overlap", skip_make_test=True),
         )
-        assert terms(skip_make_test=True) == (per_unit, corpus(True), cap(skip_make_test=True))
+        assert terms(skip_make_test=True) == (per_unit, corpus, cap(skip_make_test=True))
 
     def test_the_corpus_build_is_the_build_lane_step_that_comes_off(self):
-        """The conformance sweep starts beside the corpus build, so a pass that runs the build subtracts its process and launcher beside its threads, and a pass that skips it subtracts nothing."""
+        """The conformance sweep starts beside the corpus build, so a pass that runs the build subtracts its one process, and a pass that skips it subtracts nothing."""
         machine: dict[str, Any] = dict(
             skip_gates=False, skip_make_test=False, total_bytes=MACHINE_48_GIB, ncores=40
         )
-        process = ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
-        corpus = process + ac.CORPUS_BUILD_RS_THREAD_BYTES * ac.corpus_job_budget(**machine)
-        assert ac._conform_build_lane(**machine, skip_corpus=False) == ("corpus-build", corpus)
-        assert ac._conform_fit_terms(**machine, skip_corpus=False, pool_policy="queue")[1] == corpus
+        assert ac._conform_build_lane(**machine, skip_corpus=False) == ("corpus-build", ac.CORPUS_BUILD_BYTES)
+        assert (
+            ac._conform_fit_terms(**machine, skip_corpus=False, pool_policy="queue")[1]
+            == ac.CORPUS_BUILD_BYTES
+        )
         assert ac._conform_build_lane(**machine, skip_corpus=True) == ("", 0)
 
     def test_every_fleet_machine_runs_the_conform_sweep_as_wide_as_its_cores_allow(self):
-        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores, under either pool policy, the conformance sweep runs as many units as the machine has cores with the corpus build skipped, and beside a gated corpus build the cores less the build's main thread and threads, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
+        """On the fleet machines (`doc/fleet.md`), the 48 GiB machines at twelve and eighteen cores, under either pool policy, the conformance sweep runs as many units as the machine has cores with the corpus build skipped, and beside a corpus build the cores less the build's process, never fewer than the acceptance configurations; under the overlap policy both widths also lose gate:make-test's pool. The division never limits the width before the cap does. The capped budget cannot distinguish the cap from a division that equals it, so the uncapped division is also checked, and a change to the constant that narrows a fleet machine fails here. The suite does not catch a constant that is too low: only the conform-sweep row of `make job-costs` compares it with the units that ran."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
         from rebuild.tools import memory_budget
 
         configs = len(ACCEPTANCE_CONFIGS)
         for ncores, total_bytes in ((12, MACHINE_48_GIB), (18, MACHINE_48_GIB)):
-            corpus = 1 + ac.corpus_job_budget(
-                skip_gates=False, skip_make_test=False, ncores=ncores, total_bytes=total_bytes
-            )
+            corpus = 1
             for pool_policy, skip_corpus in itertools.product(ac.POOL_POLICIES, (False, True)):
                 make_test = ac.make_test_pool_width(ncores=ncores) if pool_policy == "overlap" else 0
                 gated: dict[str, Any] = dict(
@@ -2136,29 +1899,27 @@ class TestTheConformSweepWidth:
             )
 
     def test_beside_a_corpus_build_the_conform_sweep_takes_the_cores_the_build_leaves(self):
-        """Beside a corpus build the conformance sweep's cap is the cores less the build's processes, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. Under the overlap policy beside a gated build the two lanes already fill the cores, so the subtraction leaves none and the floor sets the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
+        """Beside a corpus build the conformance sweep's cap is the cores less the build's process, and under the overlap policy less gate:make-test's pool as well, the subtraction the rebuild suite's width makes (`contracts_pool_width` gives the reasons). The cap never falls below the acceptance configurations, the width one process per configuration gives, while memory can still narrow the width below it. The derivation says which of the two bounds set the cap. With the corpus build skipped the sweep takes the build lane's cores beside gate:make-test's gate-lane share, and on a pass that runs neither run_m1 nor the corpus build the heavy gates queue, so the sweep subtracts nothing for that pool and takes every core after it."""
         from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
         configs = len(ACCEPTANCE_CONFIGS)
         wide: dict[str, Any] = dict(skip_gates=False, skip_make_test=False, total_bytes=1_000_000_000_000)
-        corpus = ac.corpus_job_budget(**wide, ncores=40)
         make_test = ac.make_test_pool_width(ncores=40)
         beside: dict[str, Any] = dict(wide, skip_corpus=False, ncores=40)
-        assert ac.conform_job_budget(**beside, pool_policy="queue") == 40 - 1 - corpus
-        assert 40 - 1 - corpus - make_test == 0
-        assert ac.conform_job_budget(**beside, pool_policy="overlap") == configs
+        assert ac.conform_job_budget(**beside, pool_policy="queue") == 40 - 1
+        assert ac.conform_job_budget(**beside, pool_policy="overlap") == 40 - 1 - make_test
         assert ac.conform_job_derivation(**beside, pool_policy="queue").endswith(
-            f"; the cap is 40 cores less {ac._corpus_build_processes(corpus)}"
+            f"; the cap is 40 cores less {ac.CORPUS_BUILD_PROCESS}"
         )
         assert ac.conform_job_derivation(**beside, pool_policy="overlap").endswith(
-            f"less gate:make-test's {make_test} (overlap policy) leave none"
+            f"less {ac.CORPUS_BUILD_PROCESS}, less gate:make-test's {make_test} (overlap policy)"
         )
         unbuilt: dict[str, Any] = dict(wide, skip_corpus=True, ncores=40)
         assert ac.conform_job_budget(**unbuilt, pool_policy="overlap") == 40 - make_test
         assert ac.conform_job_budget(**unbuilt, pool_policy="overlap", build_lane_runs=False) == 40
 
-        narrow: dict[str, Any] = dict(wide, skip_corpus=False, ncores=10)
-        assert 10 - 1 - ac.corpus_job_budget(**wide, ncores=10) < configs
+        narrow: dict[str, Any] = dict(wide, skip_corpus=False, ncores=10, pool_policy="overlap")
+        assert 10 - 1 - ac.make_test_pool_width(ncores=10) < configs
         assert ac.conform_job_budget(**narrow) == configs
         assert f"the cap is the {configs} acceptance configurations, its floor, since 10 cores less" in (
             ac.conform_job_derivation(**narrow)
@@ -2196,7 +1957,7 @@ class TestTheConformSweepWidth:
             line = _lane_conform_line(plan)
             derivation = _plan_conform_derivation(plan, **machine)
             assert (
-                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {ac._corpus_build_processes(plan.corpus_jobs)}"
+                f"(--jobs {plan.conform_jobs}; CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {ac.CORPUS_BUILD_PROCESS}"
                 in line
             )
             assert line.endswith(f"; {derivation})")
@@ -2241,12 +2002,12 @@ class TestTheConformSweepWidth:
 
 
 def test_the_land_holds_less_than_the_build_lane_step_before_it():
-    """The land follows the corpus build in the build lane, and the lane's reservation (`_conform_build_lane`) covers the build, so it covers the land only while the land's constant stays below what the build holds at any width, its process and launcher together."""
-    assert ac.LAND_BYTES < ac.CORPUS_BUILD_RS_PROCESS_BYTES + ac.CORPUS_BUILD_RS_LAUNCHER_BYTES
+    """The land follows the corpus build in the build lane, and the lane's reservation (`_conform_build_lane`) covers the build, so it covers the land only while the land's constant stays below what the build's process holds."""
+    assert ac.LAND_BYTES < ac.CORPUS_BUILD_BYTES
 
 
 def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_count(monkeypatch):
-    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep, corpus and gate:make-test budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below `len(ACCEPTANCE_CONFIGS)`, so the oracle and the conformance sweep return the allowance, a hand corpus build returns the allowance less its main thread, and a gated cycle splits the allowance between the lanes (`memory_budget.split_cores`). Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
+    """A CPU quota is invisible to `os.cpu_count()`, so the oracle, conformance-sweep and gate:make-test budgets read their cores through `memory_budget.usable_cores`. The test runs the real probe over a fixture cgroup root that allows two cores, which is below `len(ACCEPTANCE_CONFIGS)`, so the oracle and the conformance sweep return the allowance, and a gated cycle gives gate:make-test the gate lane's share of it (`memory_budget.split_cores`). Each call passes a terabyte of memory so that only the core count limits the width. An explicit `ncores` still takes precedence over the probe."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
     from rebuild.tools import memory_budget
 
@@ -2255,15 +2016,12 @@ def test_the_job_budgets_answer_the_cgroup_allowance_rather_than_the_hosts_core_
     root = REPO_ROOT / "rebuild" / "fixtures" / "memory_budget" / "container-v2"
     allowed = probe(root)
     monkeypatch.setattr(memory_budget, "usable_cores", functools.partial(probe, root))
-    build_lane, gate_lane = memory_budget.split_cores(allowed)
+    _build_lane, gate_lane = memory_budget.split_cores(allowed)
     assert allowed == min(host, 2) < len(ACCEPTANCE_CONFIGS)
     assert ac.sweep_job_budget(total_bytes=1_000_000_000_000) == allowed
-    assert ac.corpus_job_budget(skip_gates=True, total_bytes=1_000_000_000_000) == max(1, allowed - 1)
-    assert ac.corpus_job_budget(skip_gates=False, total_bytes=1_000_000_000_000) == max(1, build_lane - 1)
     assert ac.make_test_pool_width() == gate_lane
     assert ac.conform_job_budget(skip_gates=True, skip_corpus=True, total_bytes=1_000_000_000_000) == allowed
     assert ac.sweep_job_budget(12, total_bytes=1_000_000_000_000) == 12
-    assert ac.corpus_job_budget(skip_gates=True, ncores=12, total_bytes=1_000_000_000_000) == 11
 
 
 def test_make_test_pool_width_is_the_gate_lanes_share_of_the_cores():
@@ -2310,13 +2068,6 @@ def test_the_plan_gives_make_test_every_core_only_when_neither_build_lane_step_r
         == "the table build's memory ceiling, the one width RAM binds, capped at the configuration count and the cores"
     )
     assert "gate:make-test" not in _plan(**machine).kernel_reason
-
-
-@pytest.mark.parametrize("ncores", [18, 12, 10])
-def test_the_lanes_partition_the_cores_under_a_gated_cycle(ncores):
-    """With memory to spare, a gated cycle's corpus build (its processes) and gate:make-test's pool together take exactly the machine's cores, so neither lane books a core the other holds."""
-    corpus = ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=1_000_000_000_000)
-    assert 1 + corpus + ac.make_test_pool_width(ncores=ncores) == ncores
 
 
 def test_a_stated_pool_width_is_the_width_the_cycle_reserves_by(monkeypatch):
@@ -2586,7 +2337,7 @@ def test_review_out_staging_plan(monkeypatch, tmp_path):
         review_out=staged_out,
     )
     by_name = {step.name: step for step in plan.steps}
-    assert _argv(by_name["corpus-build"])[5:9] == ["--mode", "table-diff", "--out", str(staged_out)]
+    assert _argv(by_name["corpus-build"])[5:] == ["--out", str(staged_out)]
     assert "land" not in by_name
     assert plan.corpus_dir == staged_out
     assert plan.review_out == staged_out
@@ -2721,7 +2472,7 @@ def test_contracts_summary_tracks_the_runtime_decision(planned_skip, runtime):
 
 
 def test_the_summary_leads_with_the_review_diff_line_when_it_has_one():
-    """The summary's lines start with the table-diff corpus's `review diff` line when the pass's readiness gives one (`readiness_block`), and name no carry or review facts, which no pass runs."""
+    """The summary's lines start with the table-diff corpus's `review diff` line when the pass's readiness gives one (`readiness_block`)."""
     lines = ac.summary_cycle_lines(
         _green_report(),
         _plan(),
@@ -2731,12 +2482,6 @@ def test_the_summary_leads_with_the_review_diff_line_when_it_has_one():
     assert lines[0] == "  review diff      : 15 unaccepted changes since 1c562ab7c594 (15 need a verdict)"
     bare = ac.summary_cycle_lines(_green_report(), _plan(), [])
     assert bare[0].startswith("  job costs ")
-    for line in lines:
-        for gone in ("carry output", "review facts", "ledger coverage"):
-            assert gone not in line
-    payload = ac.cycle_summary_payload(_green_report(), [], _plan(), "ok")
-    for gone in ("carry", "facts_status"):
-        assert gone not in payload
 
 
 def test_cycle_summary_payload_plan_block_and_argv():
@@ -2748,12 +2493,8 @@ def test_cycle_summary_payload_plan_block_and_argv():
         "scratch_beside_default": plan.scratch_beside_default,
         "replay_threads": plan.replay_threads,
         "sweep_jobs": plan.sweep_jobs,
-        "corpus_jobs": None,
-        "corpus_gates_idle_jobs": None,
-        "signature_jobs": None,
         "make_test_workers": plan.make_test_workers,
         "contracts_workers": plan.contracts_workers,
-        "contracts_after_units": False,
         "conform_jobs": plan.conform_jobs,
         "pool_policy": ac.REBUILD_POOL_POLICY_DEFAULT,
         "skip_gates": False,
@@ -2809,12 +2550,9 @@ def test_cycle_summary_payload_names_the_gates_only_rerun_and_passes_no_kernel_w
 
 
 def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_skips():
-    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1, and the table-diff corpus build, which takes none, never records one. The gates-only rerun still runs the oracle at the sweep width, so that width stays."""
+    """A width is recorded only for a step that spawns at it, so a run line never names a width nothing ran at, including gate:conform's when its green record skips it after run_m1. The gates-only rerun still runs the oracle at the sweep width, so that width stays."""
     widths = (
         "sweep_jobs",
-        "corpus_jobs",
-        "corpus_gates_idle_jobs",
-        "signature_jobs",
         "make_test_workers",
         "contracts_workers",
         "conform_jobs",
@@ -2842,7 +2580,6 @@ def test_cycle_summary_payload_records_null_for_the_width_of_each_step_the_pass_
         None,
         None,
     )
-    assert (gates_off["corpus_jobs"], gates_off["signature_jobs"]) == (None, None)
     proved = _green_report()
     proved.conform_proven = True
     assert ac.cycle_summary_payload(proved, [], _plan(), "ok")["plan"]["conform_jobs"] is None
@@ -3375,7 +3112,7 @@ def test_a_forced_pass_hands_the_make_test_wrapper_force(tmp_path, monkeypatch, 
 def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     tmp_path, monkeypatch, flags, recorded
 ):
-    """The plan sets the corpus build's widths before `make test` decides anything, so the memory set aside for `make test` is correct only if the plan and the wrapper make the same skip decision. Memory reserved for a gate that then skips on its own green record is lost to the build. On a pass whose run_m1 skips, so that the rebuilt Senior stays as it is, every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the build gets the pool's memory back. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the build's widths. The table build's width never subtracts it, since the gate starts once the run_m1 gate has passed."""
+    """The plan sets the gate widths before `make test` decides anything, so the memory and cores set aside for `make test` are correct only if the plan and the wrapper make the same skip decision. Memory reserved for a gate that then skips on its own green record is lost to the conformance sweep beside it. On a pass whose run_m1 skips, so that the rebuilt Senior stays as it is, every combination of forcing flag and green record ends one of two ways. Either the plan skips the gate, the wrapper would also skip over the same fingerprint and record, and the conformance sweep gets the pool's memory back. Or the plan runs the gate, the argv the live Makefile passes to the wrapper runs the suite, and its pool is subtracted from the conformance sweep's terms under the overlap policy. The table build's width never subtracts it, since the gate starts once the run_m1 gate has passed."""
     _settled_repo(tmp_path, monkeypatch)
     monkeypatch.setattr(ac, "make_test_closure_fingerprint", lambda root=None: "fp")
     if recorded is not None:
@@ -3391,48 +3128,24 @@ def test_the_plan_reserves_make_tests_pool_exactly_when_the_wrapper_runs_it(
     assert mtg.main(wrapper) == 0
     assert spawned == ([mtg.PYTEST_ARGV] if runs else [])
 
-    assert plan.corpus_jobs == ac.corpus_job_budget(skip_gates=False, skip_make_test=not runs)
-    assert plan.signature_jobs == ac.signature_job_budget()
+    assert plan.skip_make_test is not runs
+    assert plan.conform_jobs == ac.conform_job_budget(
+        skip_gates=False,
+        skip_make_test=not runs,
+        skip_corpus=plan.skip_corpus,
+        pool_policy=plan.pool_policy,
+        build_lane_runs=not (plan.skip_run_m1 and plan.skip_corpus),
+    )
     assert plan.kernel_threads == ac.kernel_threads_budget(skip_make_test=True)
-    assert ("holds the gate lane and its bytes come off the machine's memory" in plan.corpus_reason) is runs
-    assert ("gate:make-test skipped, so the other gates hold the gate lane" in plan.corpus_reason) is not runs
-
-
-def test_the_signature_pool_takes_the_cores_the_corpus_width_cannot():
-    """The ink-signature width is the one fan-out in the plan that memory does not derive: each of its threads holds one comparator, and no `*_BYTES` constant covers it. It is the whole machine whether gate:make-test runs, skips, or the gates are skipped, since that pool shares the cores while both run, so on a ten-core machine it is ten on every pass, above the corpus build's cap, which applies only to that build's units phase. On a machine with a quarter of the memory, the reserve and the build's co-resident memory exceed the total, so the corpus width floors at one while the signature width stays at ten. The table-diff build takes neither width, so its argv and the plan's rows state none."""
-    derivation = "10 of 10 cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
-    assert ac.signature_job_budget(ncores=10) == 10
-    assert ac.signature_job_derivation(ncores=10) == derivation
-
-    gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB)
-    assert gated.signature_jobs == 10 > gated.corpus_jobs == 4
-    narrow = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_32_GIB // 4)
-    assert narrow.signature_jobs == 10 > narrow.corpus_jobs == 1
-    assert "--signature-jobs" not in _argv({step.name: step for step in gated.steps}["corpus-build"])
-    assert "corpus-build --signature-jobs" not in _plan_text(gated)
-
-    solo = _plan(
-        skip_make_test=True, make_test_note="closure unchanged", ncores=10, total_bytes=MACHINE_32_GIB
-    )
-    assert solo.signature_jobs == 10 > solo.corpus_jobs
-
-    skipped = _plan(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
-    assert skipped.signature_jobs == 10
-
-    assert ac.signature_job_budget(ncores=1) == 1
-    assert ac.signature_job_derivation(ncores=1) == (
-        "1 of 1 cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
-    )
 
 
 def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
-    """The rebuild suite's width under a cycle is the second fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's processes at `corpus_job_budget`'s width. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core under the queue policy and every core less gate:make-test's pool under the overlap policy, and it never drops below one. Widths that depend on the corpus constants are computed from the budget functions, so re-measuring those constants does not require editing this test."""
-    corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
+    """The rebuild suite's width under a cycle is a fan-out that memory does not derive. It runs beside the corpus build, so it gets the cores less the build's one process. Under the overlap policy it also loses gate:make-test's pool. Under the queue policy the suite waits until that pool finishes, so nothing is subtracted for it. With no corpus build it gets every core under the queue policy and every core less gate:make-test's pool under the overlap policy, and it never drops below one."""
     queue = ac.contracts_pool_width(
         skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
     )
-    assert queue == 10 - 1 - corpus >= 1
-    assert f"{queue} of 10 cores, less {ac._corpus_build_processes(corpus)}" == (
+    assert queue == 9
+    assert f"9 of 10 cores, less {ac.CORPUS_BUILD_PROCESS}" == (
         ac.contracts_pool_derivation(
             skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB
         )
@@ -3452,9 +3165,7 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
     solo = ac.contracts_pool_width(
         skip_gates=False, skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB
     )
-    assert solo == 10 - 1 - ac.corpus_job_budget(
-        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=MACHINE_32_GIB
-    )
+    assert solo == 9
 
     assert (
         ac.contracts_pool_width(
@@ -3479,21 +3190,19 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
         f"less gate:make-test's {ac.make_test_pool_width(ncores=10)} (overlap policy)"
     )
 
-    assert ac.contracts_pool_width(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB) == 1
-    assert ac.contracts_pool_derivation(skip_gates=False, ncores=2, total_bytes=MACHINE_32_GIB).endswith(
+    assert ac.contracts_pool_width(skip_gates=False, ncores=1, total_bytes=MACHINE_32_GIB) == 1
+    assert ac.contracts_pool_derivation(skip_gates=False, ncores=1, total_bytes=MACHINE_32_GIB).endswith(
         "floored at one"
     )
 
 
-def test_the_plan_names_the_processes_of_the_corpus_build_that_will_run(monkeypatch):
-    """The plan's clauses name what they subtract for the corpus build, its process and its threads at `corpus_job_budget`'s width, so the clause and the width it explains count the same threads."""
+def test_the_plan_names_the_process_of_the_corpus_build_that_will_run(monkeypatch):
+    """The plan's clauses name what they subtract for the corpus build, its one process, so the clause and the width it explains count the same cores."""
     monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
     kw: dict[str, Any] = dict(skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
-    corpus = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_32_GIB)
-    processes = f"the corpus build's process and its {corpus} threads"
-    assert ac.contracts_pool_derivation(**kw).endswith(f"less {processes}")
+    assert ac.contracts_pool_derivation(**kw).endswith(f"less {ac.CORPUS_BUILD_PROCESS}")
     assert ac.conform_job_derivation(**kw, skip_corpus=False).endswith(
-        f"since 10 cores less {processes} leave {10 - 1 - corpus}"
+        f"since 10 cores less {ac.CORPUS_BUILD_PROCESS} leave 9"
     )
 
 
@@ -3510,7 +3219,7 @@ def test_a_stated_contracts_width_is_the_width_the_cycle_hands_the_child(monkeyp
 
 
 def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
-    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build and the land after it. Beside a corpus build at its lane share, the queue policy gives the suite the gate lane's share, five workers on a ten-core machine and six on a twelve-core one. Under the overlap policy gate:make-test's pool already holds that share, so the arithmetic leaves none, the floor gives the suite one worker, and the plan says so. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
+    """The lane line shows the suite's width and its derivation, and the build lane line shows the suite submitted before the corpus build and the land after it. Beside a corpus build, the queue policy gives the suite every core less the build's process, nine workers on a ten-core machine and eleven on a twelve-core one. Under the overlap policy gate:make-test's pool, the gate lane's share, comes off as well, leaving four and five. When the corpus build is skipped, the plan says the suite is submitted once the run_m1 gate passes, not that it runs beside a build the plan shows as SKIPPED."""
     gated = _plan(pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
     text = _plan_text(gated)
     assert (
@@ -3529,16 +3238,16 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     )
 
     overlap = _plan(pool_policy="overlap", ncores=10, total_bytes=MACHINE_32_GIB)
-    assert overlap.contracts_workers == 1 < gated.contracts_workers == 5
-    assert overlap.contracts_reason.endswith("floored at one")
+    assert overlap.contracts_workers == 4 < gated.contracts_workers == 9
+    assert overlap.contracts_reason.endswith("less gate:make-test's 5 (overlap policy)")
     assert f"-n {overlap.contracts_workers} (" in _plan_text(overlap)
     assert "CO-RESIDENT with gate:make-test's pool and gate:conform's sweep (overlap policy)" in _plan_text(
         overlap
     )
     roomy = _plan(pool_policy="queue", ncores=12, total_bytes=MACHINE_48_GIB)
     roomy_overlap = _plan(pool_policy="overlap", ncores=12, total_bytes=MACHINE_48_GIB)
-    assert roomy_overlap.contracts_workers == 1 < roomy.contracts_workers == 6
-    assert roomy_overlap.contracts_reason.endswith("floored at one")
+    assert roomy_overlap.contracts_workers == 5 < roomy.contracts_workers == 11
+    assert roomy_overlap.contracts_reason.endswith("less gate:make-test's 6 (overlap policy)")
     assert f"-n {roomy_overlap.contracts_workers} (" in _plan_text(roomy_overlap)
 
     solo = _plan(
@@ -3562,345 +3271,6 @@ def test_the_plan_states_the_contracts_pool_width_on_its_lane_line():
     assert "Lane rebuild-contracts" not in _plan_text(
         _plan(skip_gates=True, ncores=10, total_bytes=MACHINE_32_GIB)
     )
-
-
-def test_a_pass_with_no_other_gate_pool_holds_the_suite_until_the_units_pool_finishes():
-    """On a pass that runs the corpus build and neither gate:make-test nor gate:conform, the suite is the gate lane's only pool, so the plan holds it until the build's units pool finishes, or the build returns when it prints no units line, and says so on both lane lines and the step note, at the gate lane's share. Where run_m1 decides gate:conform, the plan holds it only if the sweep is re-skipped. A pass that runs gate:make-test, runs gate:conform for certain, or builds no corpus submits the suite where it always has."""
-    quiet = dict(
-        skip_make_test=True, make_test_note="closure unchanged", ncores=18, total_bytes=MACHINE_48_GIB
-    )
-    held = _plan(
-        skip_run_m1=True,
-        run_m1_note="unchanged",
-        skip_conform=True,
-        conform_note=ac.CONFORM_SKIP_NOTE,
-        **quiet,
-    )
-    assert held.contracts_after_units and not held.conform_undecided()
-    assert (held.corpus_jobs, held.corpus_gates_idle_jobs, held.contracts_workers) == (8, 17, 9)
-    text = _plan_text(held)
-    assert (
-        "Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes) -> corpus-build -> land"
-        in text
-    )
-    assert (
-        f"Lane rebuild-contracts           : held until the corpus build's units pool finishes, -n 9 (9 of 18 cores, the gate lane's share: less {ac._corpus_build_processes(8)} at the build lane's share, which the suite keeps after the build's units pool finishes);"
-        in text
-    )
-    assert {step.name: step for step in held.steps}["gate:rebuild-contracts"].note == (
-        "held until the corpus build's units pool finishes"
-    )
-
-    undecided = _plan(**quiet)
-    assert undecided.contracts_after_units and undecided.conform_undecided()
-    assert (
-        "run_m1 -> submit gate:rebuild-contracts (held until the corpus build's units pool finishes if gate:conform is re-skipped after run_m1) -> corpus-build"
-        in _plan_text(undecided)
-    )
-    assert {step.name: step for step in undecided.steps}["gate:rebuild-contracts"].note == (
-        "held until the corpus build's units pool finishes if gate:conform is re-skipped after run_m1, otherwise submitted beside the corpus build"
-    )
-
-    for beside in (
-        _plan(ncores=18, total_bytes=MACHINE_48_GIB),
-        _plan(skip_run_m1=True, run_m1_note="unchanged", **quiet),
-        _plan(skip_run_m1=True, skip_corpus=True, corpus_note="unchanged", skip_conform=True, **quiet),
-    ):
-        assert not beside.contracts_after_units
-        assert "held until the corpus build's units pool" not in _plan_text(beside)
-
-
-def test_skip_make_test_frees_the_corpus_build_budget():
-    """gate:make-test does not affect the oracle sweep width, and the corpus build gets the pytest pool's memory back when that pool is not running, but not its cores: the other gates hold the gate lane, so the build keeps the build lane's share. On the 48 GiB machine both cases reach that share less the build's main thread, so the widths are equal; `test_the_pytest_pool_comes_off_the_machine_before_the_division` checks that their terms differ. This test checks that the plan uses each case's own terms and that its reason says which: the gated derivation includes the pool's memory in its co-resident amount, and the skipped-gate reason says no pool's bytes come off. The widths size the gates beside the build lane; the table-diff build takes none. They are computed from the budget functions, so re-measuring either corpus constant does not require editing this test."""
-    plan = _plan(
-        skip_make_test=True,
-        make_test_note="closure unchanged since its last green run",
-        ncores=10,
-        total_bytes=MACHINE_48_GIB,
-    )
-    solo_width = ac.corpus_job_budget(
-        skip_gates=False, skip_make_test=True, ncores=10, total_bytes=MACHINE_48_GIB
-    )
-    assert plan.corpus_jobs == solo_width
-    assert plan.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB)
-    _per_unit, solo_coresident, _cap = ac._corpus_fit_terms(skip_gates=False, skip_make_test=True, ncores=10)
-    assert f"less {format_gb(solo_coresident)} GB co-resident" in plan.corpus_reason
-    assert (
-        "the build lane holds 5 of 10 cores (memory_budget.split_cores), so the corpus build is capped at 5 less its main thread; gate:make-test skipped, so the other gates hold the gate lane and no pytest pool's bytes come off the machine's memory"
-        in plan.corpus_reason
-    )
-
-    gated = _plan(skip_make_test=False, ncores=10, total_bytes=MACHINE_48_GIB)
-    gated_width = ac.corpus_job_budget(skip_gates=False, ncores=10, total_bytes=MACHINE_48_GIB)
-    assert gated.corpus_jobs == gated_width
-    assert gated.sweep_jobs == ac.sweep_job_budget(10, total_bytes=MACHINE_48_GIB)
-    gated_per_unit, gated_coresident, _cap = ac._corpus_fit_terms(
-        skip_gates=False, skip_make_test=False, ncores=10
-    )
-    assert gated.corpus_reason == (
-        "the build lane holds 5 of 10 cores (memory_budget.split_cores), so the corpus build is capped at 5 less its main thread; gate:make-test's pool, 5 workers, holds the gate lane and its bytes come off the machine's memory beside the build's own process; "
-        f"{gated_width} at {format_gb(gated_per_unit)} GB each out of 51.54 GB total, less a reserve of 8.00 GB, less {format_gb(gated_coresident)} GB co-resident, capped at 4"
-    )
-
-
-def test_a_gated_corpus_build_is_offered_every_core_less_its_main_thread_for_an_idle_gate_lane():
-    """A gated pass sizes two widths for the corpus build, the build lane's share less its main thread and a hand build's every core less its main thread, with the marker file that picks between them when a units pool starts. On the 18-core 48 GiB machine memory binds neither, so the two are the caps. `--skip-gates` already gives every core and is offered nothing wider, and neither is a machine whose memory holds both widths to one thread. The table-diff build takes neither, so its argv and the plan's rows state none."""
-    from rebuild.tools import memory_budget
-
-    plan = _plan(ncores=18, total_bytes=MACHINE_48_GIB)
-    lane = memory_budget.split_cores(18)[0] - 1
-    assert (
-        plan.corpus_jobs
-        == lane
-        == ac.corpus_job_budget(skip_gates=False, ncores=18, total_bytes=MACHINE_48_GIB)
-    )
-    assert (
-        plan.corpus_gates_idle_jobs
-        == 17
-        == ac.corpus_job_budget(skip_gates=True, ncores=18, total_bytes=MACHINE_48_GIB)
-    )
-    marker = ac.gates_idle_marker_path()
-    assert plan.gates_idle_marker == marker
-    assert "--gates-idle-jobs" not in _argv({step.name: step for step in plan.steps}["corpus-build"])
-    assert "corpus-build --gates-idle-jobs" not in _plan_text(plan)
-    assert plan.corpus_gates_idle_reason.startswith(
-        "taken in place of --jobs when, as the units pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished"
-    )
-
-    for unwidened in (
-        _plan(skip_gates=True, ncores=18, total_bytes=MACHINE_48_GIB),
-        _plan(ncores=10, total_bytes=MACHINE_32_GIB // 4),
-    ):
-        assert (unwidened.corpus_gates_idle_jobs, unwidened.gates_idle_marker) == (None, None)
-        assert "--gates-idle-jobs" not in _argv({step.name: step for step in unwidened.steps}["corpus-build"])
-        assert "--gates-idle-jobs" not in _plan_text(unwidened)
-
-
-def test_the_corpus_build_finds_the_gates_idle_marker_only_once_every_gate_pool_has_finished(monkeypatch):
-    """The driver writes the marker the corpus build reads when its units pool starts once gate:make-test, gate:conform and gate:rebuild-contracts have each finished or been skipped. A marker an earlier pass left is deleted before the build is spawned, so a build spawned while gate:make-test still runs does not find one; it appears when that gate finishes during the build, and the driver deletes it once the build exits. On a pass that skips all three gates the marker is there when the build starts."""
-    seen: list[tuple[bool, bool]] = []
-    release_make = threading.Event()
-
-    def fake_make(argv, spawn, emit, registry):
-        release_make.wait()
-        return _step("gate:make-test", 0)
-
-    def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
-        marker = ac.gates_idle_marker_path()
-        at_spawn = marker.exists()
-        release_make.set()
-        deadline = time.monotonic() + 30
-        while not marker.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        seen.append((at_spawn, marker.exists()))
-        return True
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_make_test_task", fake_make)
-    monkeypatch.setattr(ac, "_gate_conform_task", _conform_green)
-    monkeypatch.setattr(ac, "_gate_contracts_task", _contracts_green)
-    _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
-    _patch_gate_fingerprints(monkeypatch)
-    marker = ac.gates_idle_marker_path()
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.touch()
-
-    busy = _plan()
-    idle = _plan(
-        skip_make_test=True,
-        make_test_note="closure unchanged",
-        skip_conform=True,
-        skip_contracts=True,
-        contracts_note="inputs unchanged",
-    )
-    for plan in (busy, idle):
-        assert plan.gates_idle_marker == marker
-        ac._run_cycle(
-            plan, ac.CycleReport(), ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()
-        )
-        assert not marker.exists()
-    assert seen == [(False, True), (True, True)]
-
-
-def _held_plan():
-    return _plan(
-        skip_run_m1=True,
-        run_m1_note="unchanged",
-        skip_make_test=True,
-        make_test_note="closure unchanged",
-        skip_conform=True,
-        conform_note=ac.CONFORM_SKIP_NOTE,
-        ncores=18,
-        total_bytes=MACHINE_48_GIB,
-    )
-
-
-def test_a_held_suite_leaves_the_gate_lane_idle_for_the_units_pool(monkeypatch):
-    """On a pass that holds the suite, the driver arms the gate-lane watch without it, so the marker is there as the corpus build starts while the suite has not started, and the run line records the hold. Where run_m1 leaves gate:conform to run, nothing is held, and the sweep still keeps the marker back."""
-    seen: list[tuple[bool, bool]] = []
-    held_with: list[threading.Event | None] = []
-    started = threading.Event()
-    release_conform = threading.Event()
-
-    def waiting_contracts(
-        queue,
-        conform_fut,
-        make_fut,
-        spawn,
-        emit,
-        registry,
-        argv,
-        force=False,
-        _record=False,
-        units_done=None,
-    ):
-        held_with.append(units_done)
-        if units_done is not None:
-            units_done.wait()
-        started.set()
-        return _lane_result("rebuild-contracts")
-
-    def waiting_conform(queue, make_fut, spawn, emit, registry, argv):
-        release_conform.wait()
-        return _conform_result()
-
-    def fake_corpus(report, *, spawn, emit, registry, review_out, **_):
-        seen.append((ac.gates_idle_marker_path().exists(), started.is_set()))
-        release_conform.set()
-        return True
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_conform_task", waiting_conform)
-    monkeypatch.setattr(ac, "_gate_contracts_task", waiting_contracts)
-    _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_corpus_build", fake_corpus)
-    _patch_gate_fingerprints(monkeypatch)
-
-    held = _held_plan()
-    report = ac.CycleReport()
-    ac._run_cycle(held, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert seen == [(True, False)]
-    assert isinstance(held_with[0], threading.Event) and started.is_set()
-    assert ac.cycle_summary_payload(report, [], held, "ok")["plan"]["contracts_after_units"] is True
-
-    undecided = _plan(
-        skip_make_test=True, make_test_note="closure unchanged", ncores=18, total_bytes=MACHINE_48_GIB
-    )
-    assert undecided.contracts_after_units
-    release_conform.clear()
-    report = ac.CycleReport()
-    ac._run_cycle(undecided, report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step())
-    assert seen[1][0] is False
-    assert held_with[1] is None
-    assert ac.cycle_summary_payload(report, [], undecided, "ok")["plan"]["contracts_after_units"] is False
-
-
-def test_a_held_suite_starts_once_the_build_prints_its_units_line(monkeypatch, tmp_path):
-    """A held gate:rebuild-contracts reads its selection only after its event is set, and the corpus build sets that event when the build prints the line that closes its units phase, while the build still runs."""
-    prepared: list[bool] = []
-
-    def prepare_run(root, force=False):
-        prepared.append(force)
-        return SimpleNamespace(skippable=True)
-
-    monkeypatch.setattr(ac.contracts, "prepare_run", prepare_run)
-    units_done = threading.Event()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        suite = pool.submit(
-            ac._gate_contracts_task,
-            False,
-            None,
-            None,
-            lambda *a, **k: pytest.fail("a skippable suite spawns nothing"),
-            ac._Emitter(),
-            ac._ChildRegistry(),
-            ac.contracts_argv(),
-            False,
-            False,
-            units_done,
-        )
-        with pytest.raises(TimeoutError):
-            suite.result(timeout=0.2)
-        assert prepared == []
-        units_done.set()
-        assert suite.result(timeout=30).outcome == "skipped"
-    assert prepared == [False]
-
-    corpus = _built_corpus(tmp_path, units=1, rows=1, batches=1, duplicate_groups=0)
-    release = tmp_path / "release"
-    child = (
-        "import pathlib, sys, time\n"
-        "print('[t] review.build units 1.0s rss_gb=1.00\\tjobs=17 (gate lane idle)', file=sys.stderr, flush=True)\n"
-        "deadline = time.monotonic() + 30\n"
-        "while not pathlib.Path(sys.argv[1]).exists() and time.monotonic() < deadline:\n"
-        "    time.sleep(0.01)\n"
-    )
-    units_done = threading.Event()
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        built = pool.submit(
-            ac._do_corpus_build,
-            ac.CycleReport(),
-            spawn=ac._run_step,
-            emit=ac._Emitter(),
-            registry=ac._ChildRegistry(),
-            review_out=corpus,
-            argv=[sys.executable, "-c", child, str(release)],
-            units_done=units_done,
-        )
-        assert units_done.wait(timeout=30)
-        assert not built.done()
-        release.touch()
-        assert built.result(timeout=30)
-
-
-def test_a_held_suite_still_runs_when_the_build_fails_before_its_units_line(monkeypatch, capsys):
-    """The driver releases a held suite on every path that ends the build or the pass without the units line, so a failed corpus build ends the pass instead of waiting forever, and the suite still runs and is joined."""
-    ran: list[bool] = []
-
-    def waiting_contracts(
-        queue,
-        conform_fut,
-        make_fut,
-        spawn,
-        emit,
-        registry,
-        argv,
-        force=False,
-        _record=False,
-        units_done=None,
-    ):
-        assert units_done is not None
-        units_done.wait()
-        ran.append(True)
-        return _lane_result("rebuild-contracts")
-
-    monkeypatch.setattr(ac, "_do_run_m1", _pass_run_m1)
-    monkeypatch.setattr(ac, "_gate_js_task", _js_ok)
-    monkeypatch.setattr(ac, "_gate_contracts_task", waiting_contracts)
-    _patch_build_chain(monkeypatch)
-    monkeypatch.setattr(ac, "_do_corpus_build", lambda report, **_: False)
-    _patch_gate_fingerprints(monkeypatch)
-
-    report = ac.CycleReport()
-    finished: list[int] = []
-    cycle = threading.Thread(
-        target=lambda: finished.append(
-            ac._run_cycle(
-                _held_plan(), report, ac._Emitter(), ac._ChildRegistry(), spawn=lambda *a, **k: _step()
-            )
-        ),
-        daemon=True,
-    )
-    cycle.start()
-    cycle.join(timeout=60)
-    assert not cycle.is_alive()
-    assert finished == [1]
-    assert ran == [True]
-    assert report.gate_contracts == "green"
-    assert "corpus rebuild failed" in capsys.readouterr().out
 
 
 def test_summary_payload_carries_the_fingerprint_only_while_green(tmp_path):
@@ -4208,7 +3578,7 @@ def test_the_allow_list_line_ignores_prose(tmp_path):
 
 
 def test_the_divergence_ledger_line_ignores_prose(tmp_path):
-    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why`, `title` or `summary` must not, because no classifier reads them. The review build copies them into the manifest and the Stage B `explain_prose` component hashes them, so a reword costs a corpus rebuild that reuses every cached unit and no gates-only rerun."""
+    """Reclassifying a divergence class must change this key, because the oracle reads the ledger to classify rows. Rewording a class's `why`, `title` or `summary` must not, because no classifier reads them, so a reword costs no gates-only rerun."""
     from rebuild.pipeline import fingerprint
 
     root = _fake_run_m1_root(tmp_path)
@@ -4532,7 +3902,7 @@ def test_m1_artifacts_present(tmp_path):
 
 
 def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
-    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the JS-only jstests, the review-facts pins the cycle rewrites mid-pass, and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out."""
+    """The test checks both edges of the closure. The paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES` are files no test reads: the JS-only jstests and the contact allow-list, which only the defect gate reads, so adding a contact signature does not re-run the suite. The other edge is `REBUILD_GATE_HARNESS_PATHS`, the files the suite reads outside rebuild/ and glyph_data/. Only listed paths are included, so `tools/outside.py` stays out, and `doc/glyph-names.md` is included although other Markdown is filtered out. A tracked file deleted in the working tree has nothing to read, so it stays out too."""
     assert "rebuild/m1-contact-allow.yaml" in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild" / "review" / "jstests").mkdir(parents=True)
@@ -4566,6 +3936,9 @@ def test_rebuild_gate_closure_scope_and_exemptions(tmp_path):
     assert "doc/glyph-names.md" in files
     assert "tools/outside.py" not in files
     assert "rebuild/NOTES.md" not in files
+    subprocess.run(["git", "add", "rebuild/test_x.py"], cwd=tmp_path, check=True)
+    (tmp_path / "rebuild" / "test_x.py").unlink()
+    assert "rebuild/test_x.py" not in (ac.rebuild_gate_closure_files(tmp_path) or [])
 
 
 def test_rebuild_gate_closure_none_outside_git(tmp_path):
@@ -4595,7 +3968,7 @@ def test_contracts_fingerprint_ignores_prose_in_runes(tmp_path):
 
 
 def test_contracts_fingerprint_ignores_prose_in_the_ledgers(tmp_path):
-    """The closure includes the divergence ledger with a prose-insensitive hash like a rune's. Tests across the suite read the review facts and class ids from the divergence ledger, never a `why`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class still changes the key."""
+    """The closure includes the divergence ledger with a prose-insensitive hash like a rune's. Tests across the suite read class ids and fields from the divergence ledger, never a `why`, so re-running the suite after a reword would reproduce the same result. Reclassifying a class still changes the key."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     (tmp_path / "rebuild").mkdir()
     ledger = tmp_path / "rebuild" / "m1-divergences.yaml"
@@ -4642,9 +4015,8 @@ def test_contracts_fingerprint_is_none_outside_git(tmp_path):
 
 
 def test_corpus_build_skippable_matches_manifest(tmp_path):
-    """A skip means a table-diff build would reproduce this corpus byte for byte, so the test checks each thing that must match: the mode, the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, the per-unit index and both app sidecars, and the after font, which must be M1.otf byte for byte, since the corpus's kerning units show its `kern` lookup, so a kern-only rebuild that rewrote M1.otf makes it stale. The index and the sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. The index is current only with its head and with every part its head lists at the size it records (#618's change 32). An m1-audit corpus is never skippable, since the cycle builds the table-diff corpus."""
-    from rebuild.pipeline import row_delta
-    from rebuild.review import app_index, unit_index
+    """A skip means a table-diff build would reproduce this corpus byte for byte, so the test checks each thing that must match: the mode, the inputs fingerprint (and the `ignore` exemption), every shard the manifest names, both app sidecars, and the after font, which must be M1.otf byte for byte, since the corpus's kerning units show its `kern` lookup, so a kern-only rebuild that rewrote M1.otf makes it stale. The sidecars are written after the manifest and outside it, so each must be stamped for the current manifest, not merely present. A corpus of another mode is never skippable, since the cycle builds the table-diff corpus."""
+    from rebuild.review import app_index
 
     expected = _promotion_root(tmp_path)
     font = tmp_path / "rebuild" / "out" / "m1" / "M1.otf"
@@ -4671,7 +4043,7 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
 
     restamp()
     assert ac.corpus_build_skippable(tmp_path, corpus)
-    restamp(mode="m1-audit")
+    restamp(mode="another-mode")
     assert not ac.corpus_build_skippable(tmp_path, corpus)
 
     restamp()
@@ -4691,15 +4063,6 @@ def test_corpus_build_skippable_matches_manifest(tmp_path):
         assert not ac.corpus_build_skippable(tmp_path, corpus)
         kept.write_bytes(raw)
     assert ac.corpus_build_skippable(tmp_path, corpus)
-    index_head = row_delta.head_path(corpus, unit_index.INDEX_NAME)
-    raw = index_head.read_bytes()
-    index_head.unlink()
-    assert not ac.corpus_build_skippable(tmp_path, corpus)
-    index_head.write_bytes(raw)
-    assert ac.corpus_build_skippable(tmp_path, corpus)
-    base = corpus / row_delta.base_name(unit_index.INDEX_NAME, 0)
-    base.write_bytes(base.read_bytes() + b"\0")
-    assert not ac.corpus_build_skippable(tmp_path, corpus)
 
     # A manifest rewritten without its sidecars: every shard is present and the fingerprint matches, so only the stale stamps on the files beside it show the mismatch.
     restamp()
@@ -4722,8 +4085,8 @@ def _promotion_root(root):
 
 
 def _write_corpus(corpus, recorded, stamp, *, sidecars=True, mode="table-diff", fonts=True):
-    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest of `mode` with `recorded` as its inputs fingerprint, `stamp` as its generated_at and, with `fonts`, M1.otf's sha256 as its after font's, and, with `sidecars`, the per-unit index and the app sidecars stamped for that manifest. Without `sidecars`, those an earlier call wrote stay stamped for its manifest, as a build stopped before them leaves them."""
-    from rebuild.review import app_index, unit_index
+    """Write a synthetic corpus like the one in `test_corpus_build_skippable_matches_manifest`: one shard, a manifest of `mode` with `recorded` as its inputs fingerprint, `stamp` as its generated_at and, with `fonts`, M1.otf's sha256 as its after font's, and, with `sidecars`, the app sidecars stamped for that manifest. Without `sidecars`, those an earlier call wrote stay stamped for its manifest, as a build stopped before them leaves them."""
+    from rebuild.review import app_index
 
     corpus.mkdir(parents=True, exist_ok=True)
     (corpus / "units-000.json").write_text("[]")
@@ -4733,7 +4096,7 @@ def _write_corpus(corpus, recorded, stamp, *, sidecars=True, mode="table-diff", 
         "generated_at": stamp,
         "inputs_fingerprint": recorded,
         "classes": [{"id": "c", "shards": ["units-000.json"]}],
-        "totals": {"units": 1, "rows": 1, "batches": 1, "duplicate_groups": 0},
+        "totals": {"units": 1, "rows": 1, "batches": 1},
     }
     if fonts:
         manifest["fonts"] = {
@@ -4741,7 +4104,6 @@ def _write_corpus(corpus, recorded, stamp, *, sidecars=True, mode="table-diff", 
         }
     (corpus / "manifest.json").write_text(json.dumps(manifest))
     if sidecars:
-        unit_index.write_index(corpus, [])
         app_index.write_app_artifacts(corpus, {}, {})
 
 
@@ -4881,35 +4243,23 @@ def test_recover_superseded_corpus_settles_the_leftover_before_the_first_run_que
     assert (leftover / "manifest.json").exists()
 
 
-def test_a_landed_corpus_still_answers_for_itself(tmp_path, mini_corpus):
-    """Every stamp inside a corpus depends only on its manifest's content, so a real corpus the land swaps in from another path still passes the skip's checks (the per-unit index, both app sidecars and the unit store), and both stores load under the environment recorded in their headers. The outgoing tree ends at the staged path."""
-    from rebuild.review import app_index, unit_cache, unit_index
+def test_a_landed_corpus_still_answers_for_itself(tmp_path):
+    """Every stamp inside a corpus depends only on its manifest's content, so a corpus the land swaps in from another path still passes the skip's checks on both app sidecars. The outgoing tree ends at the staged path."""
+    from rebuild.review import app_index
 
     source = tmp_path / "staged"
-    shutil.copytree(mini_corpus, source)
+    _write_corpus(source, {}, "2026-01-01T00:00:00Z")
     live = tmp_path / "review"
     live.mkdir()
     (live / "stale.txt").write_text("outgoing")
-
-    def header_environment(path):
-        with gzip.open(path, "rt", encoding="utf-8") as stream:
-            return json.loads(next(stream))["environment"]
-
-    environment = (unit_cache.store_stamps(source) or {})["environment"]
-    signature_environment = header_environment(unit_cache.signature_store_path(source))
 
     landing.exchange_dirs(source, live)
 
     assert (source / "stale.txt").exists()
     assert not (live / "stale.txt").exists()
-    assert unit_index.index_is_current(live)
     for name, fmt in app_index.ARTIFACTS:
         assert app_index.artifact_is_current(live, name, fmt), name
-    assert unit_index.store_is_current(live)
-    store = unit_cache.load_store(live, environment)
-    assert store
-    signatures = unit_cache.load_signature_store(live, signature_environment)
-    assert signatures
+    assert ac.corpus_complete(live)
 
 
 REFUSE_RUNE = "rune: qsX\npolicy:\n  refuse:\n  - {exit: baseline, why: two verticals render thick}\n"
@@ -4956,31 +4306,6 @@ def test_a_refuse_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_pa
     assert _upstream_keys(root) == upstream
 
 
-def test_a_site_pin_edit_moves_the_m1_audit_corpus_draft_inputs_and_no_other_component(tmp_path):
-    """The approval drafter sets a pin draft's `attribute` and `duplicate_of` from the pins on the site corpus pages, so pinning a word there moves the `draft_inputs` component an m1-audit corpus records, and that one alone."""
-    from rebuild.pipeline import fingerprint
-    from rebuild.review import drafts
-
-    root = _fake_run_m1_root(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    (root / ".gitignore").write_text("rebuild/out/\n")
-    page = root / "site" / "index.html"
-    page.parent.mkdir()
-    word = "\ue652\ue653"
-    page.write_text(f"<table><tr><td>{word}</td></tr></table>\n")
-    before_font, junior_font = fingerprint.font_paths(root)
-
-    def components() -> dict:
-        return {**fingerprint.stage_a(root), **fingerprint.stage_b(root, before_font, junior_font)}
-
-    unpinned = drafts.corpus_index_from_pages(fingerprint.read_site_corpus(root))
-    before = components()
-    page.write_text(f'<table><tr><td data-expect="·Tea ~b~ ·Day">{word}</td></tr></table>\n')
-    assert drafts.corpus_index_from_pages(fingerprint.read_site_corpus(root)) != unpinned
-    after = components()
-    assert [name for name in before if before[name] != after[name]] == ["draft_inputs"]
-
-
 def test_a_ledger_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_path):
     """The table-diff corpus reads nothing of the divergence ledger, and the oracle reads none of a class's `why`, `title` and `summary`, so rewording them leaves the corpus skippable and the run_m1 key, the conform key, the tables' stamp, the Stage A record and the lane key unchanged. Reclassifying the class must change the run_m1 key, the Stage A record and the lane key."""
     from rebuild.pipeline import fingerprint
@@ -5009,19 +4334,6 @@ def test_a_ledger_why_edit_moves_neither_the_corpus_nor_anything_upstream(tmp_pa
     assert reclassified["contracts"] != upstream["contracts"]
 
 
-def test_the_review_facts_pins_are_outside_the_rebuild_closure(tmp_path):
-    """The review-facts step rewrites the pins during a pass, so hashing them would change the gate's key before its green record is written on every pass that refreshes them. No test reads them, so they are exempt and a refresh leaves the key unchanged."""
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    (tmp_path / "rebuild").mkdir()
-    (tmp_path / "rebuild" / "test_x.py").write_text("")
-    pins = tmp_path / "rebuild" / "review-facts-pins.json"
-    pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 1}}))
-    assert ac.rebuild_gate_closure_files(tmp_path) == ["rebuild/test_x.py"]
-    before = ac.contracts_fingerprint(tmp_path)
-    pins.write_text(json.dumps({"invariant": {"classes": 3}, "volatile": {"rows": 2}}))
-    assert ac.contracts_fingerprint(tmp_path) == before
-
-
 def test_dry_run_plan_skip_run_m1_and_corpus_lands_nothing():
     """A pass with nothing to rebuild skips run_m1 and the corpus build, lands nothing, and still runs the gates its records do not answer for."""
     plan = _plan(
@@ -5035,7 +4347,6 @@ def test_dry_run_plan_skip_run_m1_and_corpus_lands_nothing():
     assert "SKIPPED (build inputs unchanged" in by_name["run_m1"].note
     assert by_name["corpus-build"].argv is None
     assert "land" not in by_name and not plan.land
-    assert "review-facts" not in by_name
     assert by_name["gate:rebuild-contracts"].argv is not None
 
 
@@ -5396,7 +4707,7 @@ def test_a_kern_only_rebuild_builds_the_corpus_without_asking_whether_it_could_s
     assert ac.main(["--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "--kern-only" in _step_lines(out, "run_m1")
-    assert "rebuild.review.build --mode table-diff" in _step_lines(out, "corpus-build")
+    assert "rebuild.review.build --out" in _step_lines(out, "corpus-build")
 
     asked: list[bool] = []
     _comparison_side_drift(tmp_path / "gates-only", monkeypatch)
@@ -5986,9 +5297,7 @@ def test_run_cycle_stops_before_corpus_and_land_on_nonzero_m1_with_passing_summa
 def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
     corpus = tmp_path / "review"
     corpus.mkdir()
-    (corpus / "manifest.json").write_text(
-        json.dumps({"totals": {"units": 5, "rows": 9, "batches": 2, "duplicate_groups": 3}})
-    )
+    (corpus / "manifest.json").write_text(json.dumps({"totals": {"units": 5, "rows": 9, "batches": 2}}))
     monkeypatch.setattr(ac, "REVIEW_OUT", corpus)
 
     def no_spawn(*a, **k):
@@ -6005,12 +5314,7 @@ def test_do_corpus_build_skip_reads_manifest_totals(monkeypatch, tmp_path):
         skip_note="test",
     )
     assert ok
-    assert (report.corpus_units, report.corpus_rows, report.corpus_batches, report.duplicate_groups) == (
-        5,
-        9,
-        2,
-        3,
-    )
+    assert (report.corpus_units, report.corpus_rows, report.corpus_batches) == (5, 9, 2)
 
 
 def test_record_conform_green_records_refuses_and_clears(monkeypatch, tmp_path):
@@ -6081,175 +5385,6 @@ def test_classify_rebuild_recordable_whenever_it_is_green():
     assert not hard.recordable
 
 
-_ACCEPTED_PINS = {
-    "invariant": {
-        "classes": ["split-by-space-or-zwnj", "identical-variant-name"],
-        "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
-        "no_verdict_classes": ["split-by-space-or-zwnj"],
-        "unmatched_groups": ["new-join-at-baseline"],
-    },
-    "volatile": {"audit": {"row_count": 10, "units": 4}},
-}
-
-_LEDGER_YAML = """- id: split-by-space-or-zwnj
-  status: by-design
-  title: Split by a space or ZWNJ
-  summary: A space or ZWNJ ends the word.
-  no_verdict: true
-- id: identical-variant-name
-  status: by-design
-  title: "Looks identical: plain glyph renamed to a variant"
-  summary: Only glyph names differ.
-  ink_identical: true
-- id: vie-closer-at-baseline-join
-  status: approved
-  title: ·Vie a pixel closer at a baseline join
-  summary: ·Vie sits a pixel closer than in the old font.
-  no_verdict: true
-"""
-
-
-def _review_facts_fixture(monkeypatch, tmp_path, *, accepted, current):
-    """The review-facts step's inputs outside the real tree: the pins file standing in for what the refresh child just wrote, the index copy the step compares it with, and a three-entry ledger for the ledger-coverage line."""
-    pins = tmp_path / "review-facts-pins.json"
-    pins.write_text(json.dumps(current, indent=2) + "\n")
-    ledger = tmp_path / "m1-divergences.yaml"
-    ledger.write_text(_LEDGER_YAML)
-    monkeypatch.setattr(ac, "FACTS_PINS", pins)
-    monkeypatch.setattr(ac, "DIVERGENCE_LEDGER", ledger)
-    monkeypatch.setattr(ac, "accepted_facts", lambda: accepted)
-
-
-def _moved_invariant() -> dict:
-    return {
-        "invariant": {
-            "classes": ["split-by-space-or-zwnj", "identical-variant-name", "vie-closer-at-baseline-join"],
-            "machine_approved_classes": ["split-by-space-or-zwnj", "identical-variant-name"],
-            "no_verdict_classes": ["split-by-space-or-zwnj", "vie-closer-at-baseline-join"],
-            "unmatched_groups": ["new-join-at-baseline", "only-with-ss10"],
-        },
-        "volatile": {"audit": {"row_count": 12, "units": 5}},
-    }
-
-
-def test_the_corpus_build_runs_with_the_allocators_large_cache_off_on_macos_alone(monkeypatch, tmp_path):
-    """On macOS the cycle spawns the corpus build with `MallocLargeCache=0` overlaid on its environment through the step's `env`, since the allocator reads it as the process starts and the processes the build starts inherit it, and the line hook that releases a held gate:rebuild-contracts still sees the build's lines; elsewhere it passes no environment, which leaves the child the cycle's own."""
-    corpus = _built_corpus(tmp_path, units=1, rows=2, batches=3, duplicate_groups=4)
-    seen: list[tuple[str, dict[str, str] | None]] = []
-
-    def spawn(name, argv, *, emit, registry, stream, env=None, on_line=None):
-        seen.append((name, env))
-        assert on_line is not None
-        on_line(ac.CORPUS_UNITS_LINE + "1.0s")
-        return _step(name, 0)
-
-    for platform in ("darwin", "linux"):
-        monkeypatch.setattr(ac.sys, "platform", platform)
-        units_done = threading.Event()
-        assert ac._do_corpus_build(
-            ac.CycleReport(),
-            spawn=spawn,
-            emit=ac._Emitter(),
-            registry=ac._ChildRegistry(),
-            review_out=corpus,
-            argv=["uv", "run", "python", "-m", "rebuild.review.build"],
-            units_done=units_done,
-        )
-        assert units_done.is_set()
-    assert seen == [("corpus-build", {"MallocLargeCache": "0"}), ("corpus-build", None)]
-
-
-def test_the_invariant_diff_prints_under_the_review_facts_step_in_full(tmp_path, capsys, monkeypatch):
-    """When the invariant block moved, its diff is what a commit of the pins accepts, so it is printed in full: verbatim, with no step column in front so it can be copied, and without the volatile hunks. The diff is a substep of review-facts, so its lines go to that step's log and column, with no second banner and no log of its own."""
-    plan = _review_facts_plan()
-    log_dir = tmp_path / "logs"
-    registry = ac._ChildRegistry()
-    report = ac.CycleReport()
-    _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
-
-    def spawn(name, argv, *, emit, registry, stream, **passthrough):
-        return ac._run_step(name, [sys.executable, "-c", "pass"], emit=emit, registry=registry, stream=stream)
-
-    with console.CycleConsole(steps=[step.name for step in plan.steps], log_dir=log_dir) as cycle_console:
-        ac._do_review_facts(report, spawn=spawn, emit=cycle_console, registry=registry, plan=plan)
-        assert cycle_console._open == {}
-
-    out = capsys.readouterr().out
-    assert '+    "only-with-ss10"' in out.splitlines()
-    assert '+    "vie-closer-at-baseline-join"' in out.splitlines()
-    assert "row_count" not in out
-    assert out.count("---- step ") == 1
-    assert report.facts_status.startswith("invariant moved: ")
-    facts_log = (log_dir / "01-review-facts.log").read_text()
-    assert '+    "only-with-ss10"' in facts_log.splitlines()
-    assert not (log_dir / "00-invariant-diff.log").exists()
-
-
-def test_the_summary_table_carries_each_steps_detail_and_what_it_cost():
-    """The summary table shows, per step, the outcome, the step's detail, and the seconds it took. A step that did not run shows no detail; otherwise a run_m1 the plan skipped would report the last build's unmatched count as this pass's. A failed gate's detail keeps only what the outcome column does not say: `FAILED  3 unexplained`, not `FAILED  FAILED (3 unexplained)`. The retention row reads `skipped` when the plan ruled it out and `not run` when a failure or a stop signal ended the pass before `_finish` reached it."""
-    plan = _plan(skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
-    report = ac.CycleReport()
-    report.unmatched = 8423
-    report.pins_pass = True
-    report.corpus_units = 15903
-    report.corpus_rows = 81894
-    report.gate_conform = f"skipped ({ac.CONFORM_SKIP_NOTE})"
-    report.gate_contracts = "FAILED (3 unexplained)"
-    report.gate_contracts_green = False
-    report.retention_detail = "removed 0 build logs"
-    report.step_seconds = {"run_m1": 1988.0, "corpus-build": 61.0, "gate:rebuild-contracts": 92.0}
-    report.step_returncodes = {"run_m1": 0, "corpus-build": 0, "gate:rebuild-contracts": 1}
-    report.step_written = {"run_m1": (31_000_000_000, True)}
-
-    rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
-    assert rows["run_m1"].detail == "8,423 unmatched, pins pass"
-    assert rows["run_m1"].outcome == "ok"
-    assert rows["run_m1"].seconds == 1988.0
-    assert (rows["run_m1"].written, rows["run_m1"].overlapped) == (31_000_000_000, True)
-    assert (rows["corpus-build"].written, rows["corpus-build"].overlapped) == (None, False)
-    assert rows["corpus-build"].detail == "15,903 units, 81,894 rows"
-    assert rows["gate:conform"].outcome == "skipped"
-    assert rows["gate:conform"].detail == ""
-    assert rows["gate:rebuild-contracts"].outcome == "FAILED"
-    assert rows["gate:rebuild-contracts"].detail == "3 unexplained"
-    assert rows["gate:js"].outcome == "not run"
-    assert rows["retention"].outcome == "not run"
-    assert all(row.number is None for row in ac.summary_rows(report, plan, retention_ran=False))
-    swept = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=True)}
-    assert swept["retention"].outcome == "ok"
-    assert swept["retention"].detail == report.retention_detail
-
-    ruled_out = _plan(keep_history=True, skip_conform=True, conform_note=ac.CONFORM_SKIP_NOTE)
-    parked = {row.name: row for row in ac.summary_rows(report, ruled_out, retention_ran=False)}
-    assert parked["retention"].outcome == "skipped"
-
-    stale = _plan(
-        skip_run_m1=True,
-        run_m1_note="build inputs unchanged",
-        skip_conform=True,
-        conform_note=ac.CONFORM_SKIP_NOTE,
-    )
-    reused = {row.name: row for row in ac.summary_rows(report, stale, retention_ran=False)}
-    assert reused["run_m1"].outcome == "skipped"
-    assert reused["run_m1"].detail == ""
-
-    rerun = _plan(rerun_gates_only=True, run_m1_note="only comparison-side inputs moved")
-    rerun_report = ac.CycleReport()
-    ac._timed_spawn(
-        lambda name, argv, **kw: ac._StepResult(name, 0, "", "", 4.0, written_bytes=9_000), rerun_report
-    )(
-        ac.RUN_M1_GATES_ONLY_STEP,
-        ["uv", "run", "python", "-m", "rebuild.pipeline.run_m1", "--gates-only"],
-        emit=ac._Emitter(),
-        registry=ac._ChildRegistry(),
-        stream=False,
-    )
-    reran = {row.name: row for row in ac.summary_rows(rerun_report, rerun, retention_ran=False)}
-    assert reran["run_m1"].outcome == "ok"
-    assert reran["run_m1"].seconds == 4.0
-    assert (reran["run_m1"].written, reran["run_m1"].overlapped) == (9_000, False)
-
-
 def test_the_summary_says_what_the_pass_wrote_and_when_it_went_over_its_ceiling():
     """One line gives the pass's figure with its basis, the review server's share, the machine-wide device and swap counts, and the write class with its ceiling; a `rewritten whole: <output>` line follows for each output held as a base and segments that the pass rewrote whole outside a fold, the share rule or a letter batch, and a last line a pass over its ceiling. A pass that lost its first or last reading says it was not measured, and a pass without a meter gets no line."""
     own = {"basis": "own", "bytes": 46_300_000, "review_server_bytes": 1_200}
@@ -6267,9 +5402,9 @@ def test_the_summary_says_what_the_pass_wrote_and_when_it_went_over_its_ceiling(
         "  write ceiling    : OVER, 9.0 GB against the full-replay class's 5.0 GB (make cycle-timings ARGS='--writes')",
     ]
     rewritten = {**own, "outputs": {"files": 1, "bytes": 9, "changed_bytes": 9, "kept_bytes": 0}}
-    rewritten["outputs"]["rewritten"] = ["unit-cache.ndjson.gz"]
+    rewritten["outputs"]["rewritten"] = ["divergence-audit.tsv"]
     assert ac.written_lines(PassWrites(rewritten, "narrowed", None))[1:] == [
-        "  rewritten whole: unit-cache.ndjson.gz"
+        "  rewritten whole: divergence-audit.tsv"
     ]
     assert ac.written_lines(PassWrites(None, "nothing", None)) == [
         "  written          : not measured (the write meter's first or last reading failed; see the [warn] line)"
@@ -6287,28 +5422,26 @@ def test_the_review_server_is_named_only_when_one_process_listens_on_its_port(mo
 
 
 def test_a_step_that_came_back_nonzero_never_reads_as_an_ok_row():
-    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a corpus build whose child died. The two informational steps, review-facts and job-costs, are the exception: neither gates anything, and each reports its failure in its own detail."""
-    plan = _review_facts_plan()
+    """The outcome column comes from each step's result (its exit status, or for run_m1 its gate result), not from whether the step took any time. Filled from seconds, it would read `ok` for every step that ran, including a run_m1 whose Manual pins failed and a corpus build whose child died. The informational job-costs step is the exception: it gates nothing and reports its failure in its own detail."""
+    plan = _plan()
     report = ac.CycleReport()
     report.unmatched = 5
     report.pins_pass = False
     report.run_m1_failed = True
-    report.facts_status = "update FAILED (exit 2) — informational"
     report.job_costs_status = "OVERRUN (a measured peak outruns its checked-in constant)"
-    report.step_seconds = {"run_m1": 9.0, "corpus-build": 3.0, "review-facts": 1.0, "job-costs": 1.0}
-    report.step_returncodes = {"run_m1": 0, "corpus-build": 1, "review-facts": 2, "job-costs": 1}
+    report.step_seconds = {"run_m1": 9.0, "corpus-build": 3.0, "job-costs": 1.0}
+    report.step_returncodes = {"run_m1": 0, "corpus-build": 1, "job-costs": 1}
 
     rows = {row.name: row for row in ac.summary_rows(report, plan, retention_ran=False)}
     assert rows["run_m1"].outcome == "FAILED"
     assert rows["run_m1"].detail == "5 unmatched, PINS FAILED"
     assert rows["corpus-build"].outcome == "FAILED"
-    assert rows["review-facts"].outcome == "ok"
     assert rows["job-costs"].outcome == "ok"
 
 
 def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path):
     """Each spawned step's closing line carries the detail its summary row will show and its peak memory. No stage knows its detail when its child exits (run_m1 reads three summaries, the corpus build opens a manifest), so the closing line is written by the stage that reads them."""
-    corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16, duplicate_groups=402)
+    corpus = _built_corpus(tmp_path, units=15903, rows=81894, batches=16)
 
     def spawn(name, argv, *, emit, registry, stream, **passthrough):
         if name == "run_m1":
@@ -6325,113 +5458,6 @@ def test_every_spawned_step_closes_with_its_own_detail_and_peak(capsys, tmp_path
     closing = [line for line in capsys.readouterr().out.splitlines() if "  cycle " in line]
     assert any(line.endswith("ok  8,423 unmatched, pins pass  rss 19.6G") for line in closing), closing
     assert any("ok  15,903 units, 81,894 rows  rss 1.0G" in line for line in closing), closing
-
-
-def test_do_review_facts_names_the_invariant_movement_and_reports_ledger_coverage(monkeypatch, tmp_path):
-    """The review-facts status names the invariant movement: which classes appeared, and which no-verdict exemptions and change groups came with them. Beside it, the ledger-coverage line compares the ledger's declarations with the classes the corpus reached. Both are kept on the report."""
-    _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=_moved_invariant())
-    calls: list[str] = []
-
-    def spawn(name, argv, *, emit, registry, stream):
-        calls.append(name)
-        return _step(name, 0)
-
-    report = ac.CycleReport()
-    ac._do_review_facts(
-        report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_review_facts_plan()
-    )
-    assert calls == ["review-facts"]
-    assert report.facts_status == (
-        "invariant moved: classes +1 (vie-closer-at-baseline-join);"
-        " no-verdict +1 (vie-closer-at-baseline-join); change groups +1 (only-with-ss10)"
-        " — its diff is shown above; review it at commit time"
-    )
-    assert report.ledger_coverage == (
-        "machine-approved: 2 classes approve units, 1 undeclared; ink-identical: 1 declared, all approving;"
-        " no-verdict: 2 of 2 declared reached; ledger: 3 of 3 classes reached"
-    )
-    assert report.ledger_coverage_sets is not None
-    assert report.ledger_coverage_sets["machine_approved_undeclared"] == ["split-by-space-or-zwnj"]
-
-
-def test_do_review_facts_says_the_invariant_is_unchanged_when_only_the_volatile_block_moved(
-    monkeypatch, tmp_path
-):
-    """When only the volatile block moved, as it does on nearly every letter batch, the status says the invariant is unchanged and no diff is printed. The totals are recorded in cycle_summary.json."""
-    current = {**_ACCEPTED_PINS, "volatile": {"audit": {"row_count": 12, "units": 5}}}
-    _review_facts_fixture(monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=current)
-    printed: list[str] = []
-    emit = ac._Emitter()
-    monkeypatch.setattr(emit, "emit", printed.append)
-
-    report = ac.CycleReport()
-    ac._do_review_facts(
-        report,
-        spawn=lambda name, argv, **kw: _step(name, 0),
-        emit=emit,
-        registry=ac._ChildRegistry(),
-        plan=_review_facts_plan(),
-    )
-    assert report.facts_status == (
-        "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
-    )
-    assert not any(line.startswith(("---", "+++", "@@")) for line in printed)
-    assert report.ledger_coverage.startswith("machine-approved: ")
-    assert "unreached 1 (vie-closer-at-baseline-join)" in report.ledger_coverage
-
-
-def test_do_review_facts_says_so_when_the_refresh_moved_nothing(monkeypatch, tmp_path):
-    _review_facts_fixture(
-        monkeypatch, tmp_path, accepted=_ACCEPTED_PINS, current=json.loads(json.dumps(_ACCEPTED_PINS))
-    )
-
-    report = ac.CycleReport()
-    ac._do_review_facts(
-        report,
-        spawn=lambda name, argv, **kw: _step(name, 0),
-        emit=ac._Emitter(),
-        registry=ac._ChildRegistry(),
-        plan=_review_facts_plan(),
-    )
-    assert report.facts_status == "updated (matches the last accepted review facts)"
-
-
-def test_do_review_facts_says_when_there_are_no_accepted_facts_to_hold_the_pins_against(
-    monkeypatch, tmp_path
-):
-    """An untracked pins file, or no git, leaves the step nothing to compare with. The ledger-coverage line is still computed, since it needs only the ledger and the pins just written."""
-    _review_facts_fixture(monkeypatch, tmp_path, accepted=None, current=_moved_invariant())
-
-    report = ac.CycleReport()
-    ac._do_review_facts(
-        report,
-        spawn=lambda name, argv, **kw: _step(name, 0),
-        emit=ac._Emitter(),
-        registry=ac._ChildRegistry(),
-        plan=_review_facts_plan(),
-    )
-    assert (
-        report.facts_status
-        == "updated (no accepted review facts to compare against: the pins are not in the index)"
-    )
-    assert report.ledger_coverage.startswith("machine-approved: ")
-
-
-def test_do_review_facts_reports_a_failed_refresh_and_compares_nothing():
-    """A refresh can fail on a corpus built before the review-facts sidecar existed. The step is informational, so a failure compares and records nothing; the next pass that rebuilds the corpus writes the sidecar."""
-    calls: list[str] = []
-
-    def spawn(name, argv, *, emit, registry, stream):
-        calls.append(name)
-        return _step(name, 2, stderr="no review-facts.json beside the manifest")
-
-    report = ac.CycleReport()
-    ac._do_review_facts(
-        report, spawn=spawn, emit=ac._Emitter(), registry=ac._ChildRegistry(), plan=_review_facts_plan()
-    )
-    assert calls == ["review-facts"]
-    assert report.facts_status == "update FAILED (exit 2) — informational"
-    assert report.ledger_coverage == "not computed (the refresh failed)"
 
 
 def test_do_job_costs_reports_a_clean_check():
@@ -6549,7 +5575,7 @@ def test_a_tripped_job_costs_check_never_fails_the_cycle(monkeypatch):
 
 
 def test_the_job_costs_check_runs_in_a_staging_pass_too(monkeypatch, tmp_path):
-    """The job-costs check runs in a staging pass, unlike the review-facts step. The pins track the live corpus, which a staging pass never writes, but every pass appends to the timings journal, and a staging pass's pool measurements are as valid as any."""
+    """The job-costs check runs in a staging pass too: every pass appends to the timings journal, and a staging pass's pool measurements are as valid as any."""
     ran: list[str] = []
 
     def job_costs_ran(report, *, spawn, emit, registry, plan):
@@ -6600,7 +5626,7 @@ def test_the_plan_checks_job_costs_even_when_the_gates_are_skipped():
 
 
 def test_the_contracts_suite_is_submitted_before_the_corpus_build_starts(monkeypatch):
-    """The contracts suite is submitted after the run_m1 gate passes and before the corpus build starts, so it runs beside the build. The corpus fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the corpus, the carry, the merge and the review facts are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
+    """The contracts suite is submitted after the run_m1 gate passes and before the corpus build starts, so it runs beside the build. The corpus fake waits until the suite's task has been invoked, which a submission after the build could never satisfy. The suite waits for nothing else, because the corpus and the land are not inputs to it; `test_the_rebuild_suite_is_skipped_when_run_m1_fails` checks the other bound."""
     contracts_invoked = threading.Event()
     order: list[str] = []
 
@@ -6924,7 +5950,6 @@ def test_main_keeps_a_current_server_running_through_a_rebuild(tmp_path, monkeyp
     names = [step.name for step in plan.steps]
     assert names[: names.index("land") + 1] == ["run_m1", "corpus-build", "land"]
     build = plan.argv("corpus-build")
-    assert build[build.index("--mode") + 1] == "table-diff"
     assert build[build.index("--out") + 1] == str(ac.next_corpus_dir())
     land = plan.argv("land")
     assert "--prepared" not in land
@@ -7247,7 +6272,7 @@ def test_the_land_keeps_the_pass_lock_held_after_the_driver_lets_go(tmp_path):
         except ac.store_lock.LockBusy:
             return False
 
-    for name, uninterruptible, held_after in (("land", True, True), ("review-facts", False, False)):
+    for name, uninterruptible, held_after in (("land", True, True), ("corpus-build", False, False)):
         ready.unlink(missing_ok=True)
         with ac.pass_lock():
             child = threading.Thread(target=run, args=(name, 3.0, uninterruptible))
@@ -7463,7 +6488,7 @@ def _still_meter(device):
 
 
 def test_green_cycle_journals_steps_then_one_run_line(monkeypatch, tmp_path):
-    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. The stubbed review-facts stage spawns nothing and gets no line. With a write meter, each step line carries its window and the run line the pass's `written` block, and the report keeps both for the summary."""
+    """The journal gets one step line per spawned child, then one run line. job-costs spawns a child, so the timing wrapper records it, and a summary claiming the check ran can be matched against the journal. With a write meter, each step line carries its window and the run line the pass's `written` block, and the report keeps both for the summary."""
     _patch_timing_cycle(monkeypatch)
 
     journal_path = tmp_path / "timings.ndjson"

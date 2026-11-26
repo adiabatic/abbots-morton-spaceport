@@ -8,7 +8,6 @@ ignores:
   - "tmp/**"
   - "var/**"
   - "rebuild/kernel-rs/target/**"
-  - "rebuild/review-rs/target/**"
 
 config:
   line-length: false

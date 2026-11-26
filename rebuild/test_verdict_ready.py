@@ -9,8 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.pipeline import row_delta
-from rebuild.review import status, store_lock, unit_index
+from rebuild.review import app_index, status, store_lock
 from rebuild.review.status import compute_status, count_effective
 from rebuild.tools import verdict_ready
 
@@ -100,8 +99,7 @@ def write_corpus(
     inputs_fp: str | Mapping[str, str | None] = "fresh",
     after_font: str = "present",
 ) -> None:
-    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict, with its per-unit index and both app sidecars stamped for the manifest, as a finished build leaves them. `after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of other bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block."""
-    from rebuild.review import app_index
+    """A table-diff corpus of `units` units: `human` in `joins`, two more machine-approved there, and the rest in `kerning`, which takes no verdict, with both app sidecars stamped for the manifest, as a finished build leaves them. `after_font` sets how the manifest's after-font record relates to the `M1.otf` written beside it: "present" records that font's sha256, "moved" records the sha256 of other bytes (as after a `run_m1` that ran after the corpus build), and "omit" writes no `fonts` block."""
 
     review_dir = repo / "rebuild" / "out" / "review"
     none = units - len(human) - 2 if units else 0
@@ -157,7 +155,6 @@ def write_corpus(
     for meta in classes:
         (review_dir / meta["shards"][0]).parent.mkdir(parents=True, exist_ok=True)
         (review_dir / meta["shards"][0]).write_text("[]")
-    unit_index.write_index(review_dir, [])
     app_index.write_app_artifacts(review_dir, {}, {})
 
 
@@ -247,10 +244,12 @@ def test_a_missing_manifest_fails_the_corpus_row_and_never_raises(tmp_path):
 
 
 def test_a_corpus_that_is_not_a_table_diff_corpus_fails_and_gets_no_freshness_or_diff_row(tmp_path):
-    setup(tmp_path, mode="m1-audit")
+    setup(tmp_path, mode="another-mode")
     result = call(tmp_path)
     corpus = result["checks"]["corpus"]
-    assert corpus["level"] == "fail" and "'m1-audit' corpus, not the table-diff corpus" in corpus["detail"]
+    assert (
+        corpus["level"] == "fail" and "the mode 'another-mode', not the table-diff corpus" in corpus["detail"]
+    )
     assert corpus["remedy"] == "make artifact-cycle"
     assert "freshness" not in result["checks"] and "diff" not in result["checks"]
     assert result["ready"] is False
@@ -323,12 +322,12 @@ def test_freshness_fails_unless_the_after_font_is_the_m1_font_on_disk(tmp_path, 
 
 
 def test_freshness_fails_when_a_sidecar_is_missing(tmp_path):
-    """The per-unit index and both app sidecars are written after the manifest and are not part of it, so a build killed between them, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus; the check names the file, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
+    """Both app sidecars are written after the manifest and are not part of it, so a build killed between them, or a manifest rewritten without them, leaves a corpus whose fingerprint reads fresh while the app loads files that describe another corpus; the check names the file, as the cycle's `corpus_complete` does through the same `app_index.outputs_not_current`."""
     setup(tmp_path)
-    row_delta.head_path(tmp_path / "rebuild" / "out" / "review", unit_index.INDEX_NAME).unlink()
+    app_index.artifact_path(tmp_path / "rebuild" / "out" / "review", app_index.APP_INDEX_NAME).unlink()
     result = call(tmp_path)
     freshness = result["checks"]["freshness"]
-    assert freshness["level"] == "fail" and unit_index.INDEX_NAME in freshness["detail"]
+    assert freshness["level"] == "fail" and app_index.APP_INDEX_NAME in freshness["detail"]
     assert result["ready"] is False
 
 

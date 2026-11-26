@@ -1,14 +1,14 @@
 """The sidecar files the review app boots from: `app-units.ndjson.gz`, one row per human unit, and the locator pair, `app-locator.ndjson.gz`, a block table, over `app-locator-rows.ndjson.gz`, one address per machine-approved or no-verdict unit.
 
-The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, including `explain` and `drafts`, the two largest fields of a full fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the queue view, search, duplicate groups, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field, as `rebuild/test_unit_index.py` does for the units index.
+The app reads these instead of the class shards so that a tab's memory grows with the review queue, not with the corpus. Loading the shards would hold every record, `explain` among them, the largest field of a fragment, which only the explain panel reads. An app-index row carries only the fields that the row label, the queue view, search, filters and progress read. `rebuild/test_app_index.py` checks `app_row` against the shards field by field.
 
-In place of the dropped fields, each row carries the address of its own record in its class shard: the part index, byte offset and byte length on disk, captured as the shard writer wrote the shard. A card fetches its record with an HTTP Range request against the static file, with no server-side endpoint: the sample text, the pair band and the settled cells when the card is drawn, and the explain table when its panel opens. So the shard writer's framing must keep every fragment addressable by byte offset: a plain fragment's bytes are a standalone JSON element, and they are pure ASCII, so a character offset is a byte offset; a deflated fragment's (#618's change 35) are that element deflated alone as a raw deflate stream (`unit_index.inflate_fragment` reads one back), and its row ends with `"deflated": true` after `byte_length` (decision 77), so the app inflates it (`DecompressionStream('deflate-raw')`) before it parses it. A plain fragment's row carries no marker, so it is byte for byte the row a from-scratch build writes for the fragment at that address, and no format string names the marker.
+In place of the dropped fields, each row carries the address of its own record in its class shard: the part index, byte offset and byte length on disk, captured as the shard writer wrote the shard. A card fetches its record with an HTTP Range request against the static file, with no server-side endpoint: the sample text, the pair band and the settled cells when the card is drawn, and the explain table when its panel opens. So the shard writer's framing must keep every fragment addressable by byte offset: a fragment's bytes are a standalone JSON element, and they are pure ASCII, so a character offset is a byte offset.
 
-The locator holds the same address, without the other fields, for every unit the app index does not hold. The rows file is a sequence of gzip members, one per block of at most `LOCATOR_BLOCK_ROWS` rows. No block spans two classes. The blocks are in shard order: classes by `unit_index.class_shard_key`, and each class's rows in id order, which is the order the build writes a class's fragments in. The table file lists the blocks: each member's byte span inside the rows file, its class, and the first and last id it holds. A show-machine fold reads its class's rows one block at a time. A deep link to a machine unit binary-searches each class's blocks by id and Range-fetches the one member that can hold the id. Ids are content-derived strings, so the search compares strings. Each block decodes on its own, so neither path reads the whole file. Within a class the blocks are disjoint and ascending, but the id ranges of different classes overlap. One global id order would interleave the classes and make a fold read many blocks only to discard them, which is why the file is in shard order. A tab keeps the table, whose length is the number of machine units divided by the block size, and a few decoded blocks (`BLOCK_CACHE_CAP` in `static/slim.js`).
+The locator holds the same address, without the other fields, for every unit the app index does not hold. The rows file is a sequence of gzip members, one per block of at most `LOCATOR_BLOCK_ROWS` rows. No block spans two classes. The blocks are in shard order: classes by `shards.class_shard_key`, and each class's rows in id order, which is the order the build writes a class's fragments in. The table file lists the blocks: each member's byte span inside the rows file, its class, and the first and last id it holds. A show-machine fold reads its class's rows one block at a time. A deep link to a machine unit binary-searches each class's blocks by id and Range-fetches the one member that can hold the id. Ids are content-derived strings, so the search compares strings. Each block decodes on its own, so neither path reads the whole file. Within a class the blocks are disjoint and ascending, but the id ranges of different classes overlap. One global id order would interleave the classes and make a fold read many blocks only to discard them, which is why the file is in shard order. A tab keeps the table, whose length is the number of machine units divided by the block size, and a few decoded blocks.
 
 An app-index row carries two values the fragment does not: `order`, the unit's position in the manifest's triage index (`human_unit_ids`), and `batch`, the slice that position falls in. They describe the queue, not the unit, so no fragment carries them. The batch view shows the rows whose `batch` matches, in `order`.
 
-The app index and the locator table each start with a header carrying the manifest's sha256, as `unit_index` does, and the manifest's `generated_at`. A tab rejects a sidecar written for another build at boot instead of Range-fetching offsets into rewritten shards. The rows file has no header. The table's header records the byte length the rows file must have, and each block names the id its member starts with.
+The app index and the locator table each start with a header carrying the manifest's identity (`shards.manifest_sha256`) and its `generated_at`. A tab rejects a sidecar written for another build at boot instead of Range-fetching offsets into rewritten shards. The rows file has no header. The table's header records the byte length the rows file must have, and each block names the id its member starts with.
 """
 
 from __future__ import annotations
@@ -20,8 +20,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from rebuild.pipeline import row_delta
-from rebuild.review import unit_index
+from rebuild.review import shards
 from rebuild.review.audit import MACHINE_CHECKS
 
 APP_INDEX_NAME = "app-units.ndjson.gz"
@@ -32,11 +31,10 @@ LOCATOR_ROWS_NAME = "app-locator-rows.ndjson.gz"
 ARTIFACTS = ((APP_INDEX_NAME, APP_INDEX_FORMAT), (LOCATOR_NAME, LOCATOR_FORMAT))
 # Rows per gzip member of the locator's rows file. The app fetches one member with one Range request and decompresses it on its own, for a fold's next window or a deep link's candidate in one class. A row is about 120 bytes uncompressed, and a full member is about 18 KB gzipped (measured on the live corpus's locator). The table has one line per member.
 LOCATOR_BLOCK_ROWS = 1024
-# Level 6, where `unit_index` uses level 1: the app fetches these files on every page load (`Cache-Control: no-store`), while the units index is read from local disk.
+# The app fetches these files on every page load (`Cache-Control: no-store`), so they are compressed harder than a file read from local disk would be.
 COMPRESS_LEVEL = 6
 
 _SLIMMED_FLAGS = (*MACHINE_CHECKS, "no_verdict")
-_DEFLATED_MARK: dict[bool, dict[str, bool]] = {False: {}, True: {"deflated": True}}
 
 Span = tuple[int, int, int]
 
@@ -45,12 +43,10 @@ def artifact_path(corpus: Path, name: str) -> Path:
     return Path(corpus) / name
 
 
-def app_row(
-    fragment: dict, part: int, start: int, length: int, *, order: int, batch: int, deflated: bool = False
-) -> dict:
-    """Project one human unit's shard fragment onto the fields the app reads without fetching the record, plus the unit's place in the manifest's triage index and the fragment's address on disk. Every key of a plain fragment's row is always present, in a fixed order, so two builds of the same corpus write the same bytes and every row shares one hidden class in the browser; a deflated fragment's row carries the same keys and then `"deflated": true`, its last key (#618's decision 77), and no row carries the key false.
+def app_row(fragment: dict, part: int, start: int, length: int, *, order: int, batch: int) -> dict:
+    """Project one human unit's shard fragment onto the fields the app reads without fetching the record, plus the unit's place in the manifest's triage index and the fragment's address on disk. Every key is always present, in a fixed order, so two builds of the same corpus write the same bytes and every row shares one hidden class in the browser.
 
-    What a card draws from the record (`text_entities`, `highlight` and `after.cells`) is not here; the app Range-fetches the record for each card it renders. The three machine-check flags and `no_verdict` are asserted false and left out: `audit.assign_batches` gives no triage-index place to a unit with any of them, and `build.check_shards` checks that the manifest's index holds only human units. A reader finds the flags absent, which it treats like the shard's `false`.
+    What a card draws from the record (`text_entities`, `highlight` and `after.cells`) is not here; the app Range-fetches the record for each card it renders. The machine-check flags and `no_verdict` are asserted false and left out: the triage index holds no unit with any of them, which `build.check_shards` checks. A reader finds the flags absent, which it treats like the shard's `false`.
     """
     assert not any(fragment.get(flag) for flag in _SLIMMED_FLAGS), fragment.get("id")
     return {
@@ -58,9 +54,7 @@ def app_row(
         "order": order,
         "batch": batch,
         "class": fragment.get("class"),
-        "ledger_class": fragment.get("ledger_class"),
         "group": fragment.get("group"),
-        "duplicate_group": fragment.get("duplicate_group"),
         "cluster": fragment.get("cluster"),
         "notation": fragment.get("notation"),
         "notation_tokens": fragment.get("notation_tokens") or [],
@@ -68,32 +62,26 @@ def app_row(
         "pair": fragment.get("pair"),
         "pair_codepoints": fragment.get("pair_codepoints"),
         "boundary_marks": fragment.get("boundary_marks") or [],
-        "secondary_junctions": fragment.get("secondary_junctions"),
         "configs": fragment.get("configs") or [],
         "config_gate": fragment.get("config_gate"),
         "config_note": fragment.get("config_note"),
-        "config_classes": fragment.get("config_classes"),
-        "config_class_note": fragment.get("config_class_note"),
         "render_groups": fragment.get("render_groups"),
         "summary": fragment.get("summary"),
-        "exemplar": fragment.get("exemplar"),
         "kinds": fragment.get("kinds") or [],
         "shard_part": part,
         "byte_start": start,
         "byte_length": length,
-        **_DEFLATED_MARK[deflated],
     }
 
 
-def locator_row(fragment: dict, part: int, start: int, length: int, *, deflated: bool = False) -> dict:
-    """One machine-approved or no-verdict unit's id, class and shard address on disk, which is all a fold or a deep link needs to fetch the record, with a deflated fragment's trailing `"deflated": true` (#618's decision 77)."""
+def locator_row(fragment: dict, part: int, start: int, length: int) -> dict:
+    """One machine-approved or no-verdict unit's id, class and shard address on disk, which is all a fold or a deep link needs to fetch the record."""
     return {
         "id": fragment["id"],
         "class": fragment.get("class"),
         "shard_part": part,
         "byte_start": start,
         "byte_length": length,
-        **_DEFLATED_MARK[deflated],
     }
 
 
@@ -110,24 +98,22 @@ def locator_block(class_id: str | None, start: int, length: int, first: str, las
 
 
 def header(corpus: Path, fmt: str) -> dict:
-    """The header line of the app index or the locator table. `manifest_sha256` is the stamp `unit_index` writes, which ties the file to the manifest beside it. `generated_at` is copied from the manifest so a browser can check the pairing without hashing anything."""
+    """The header line of the app index or the locator table. `manifest_sha256` (`shards.manifest_sha256`) ties the file to the manifest beside it. `generated_at` is copied from the manifest so a browser can check the pairing without hashing anything."""
     corpus = Path(corpus)
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
     return {
         "format": fmt,
-        "manifest_sha256": unit_index.manifest_sha256(corpus),
+        "manifest_sha256": shards.manifest_sha256(corpus),
         "generated_at": manifest.get("generated_at"),
     }
 
 
-def app_line(
-    fragment: dict, part: int, start: int, length: int, *, order: int, batch: int, deflated: bool = False
-) -> bytes:
-    return _line(app_row(fragment, part, start, length, order=order, batch=batch, deflated=deflated))
+def app_line(fragment: dict, part: int, start: int, length: int, *, order: int, batch: int) -> bytes:
+    return _line(app_row(fragment, part, start, length, order=order, batch=batch))
 
 
-def locator_line(fragment: dict, part: int, start: int, length: int, *, deflated: bool = False) -> bytes:
-    return _line(locator_row(fragment, part, start, length, deflated=deflated))
+def locator_line(fragment: dict, part: int, start: int, length: int) -> bytes:
+    return _line(locator_row(fragment, part, start, length))
 
 
 def write_app_artifacts_lines(
@@ -140,7 +126,7 @@ def write_app_artifacts_lines(
 ) -> tuple[Path, Path]:
     """Write the three sidecars from the app index's already-projected lines, in the order they arrive, and the locator's blocks, already cut and compressed (`LocatorBlocks`), one run of them at a time. The headers carry the manifest's stamp, so this runs after the manifest is written. `human` and `machine` are the row counts the two headers carry. Each locator run is the bytes of its blocks' gzip members, which the rows file takes byte for byte, and their table entries, whose `byte_start` counts from the run's first member and is moved here to count from the start of the rows file. A block never spans two classes, so runs cut at class boundaries give the blocks one cutter over every line would. The table is written last, because its header states the rows file's total length. Gzip mtimes are pinned, so the same inputs write the same bytes.
 
-    Each file is written under a sibling `.partial` name and renamed only after all three have closed, as `build._write_shard` stages its parts. `app_row` asserts on a fragment with a machine flag, so the projection can fail partway through while the app is still serving the previous set. Written in place, that failure would leave a truncated sidecar whose header still matches the manifest, which `artifact_is_current` accepts. Staged, a failed write leaves the previous set in place and no `.partial` file. The three renames run back to back, since the check of a finished corpus (`outputs_not_current`, which the cycle's skip and `make verdict-ready` read) treats the three files, with the per-unit index and the unit store, being current as a statement about the whole corpus.
+    Each file is written under a sibling `.partial` name and renamed only after all three have closed, as `build._write_shard` stages its parts. `app_row` asserts on a fragment with a machine flag, so the projection can fail partway through while the app is still serving the previous set. Written in place, that failure would leave a truncated sidecar whose header still matches the manifest, which `artifact_is_current` accepts. Staged, a failed write leaves the previous set in place and no `.partial` file. The three renames run back to back, since the check of a finished corpus (`outputs_not_current`, which the cycle's skip and `make verdict-ready` read) treats the three files being current as a statement about the whole corpus.
     """
     corpus = Path(corpus)
     index_path = artifact_path(corpus, APP_INDEX_NAME)
@@ -230,25 +216,27 @@ class LocatorBlocks:
 
 def write_app_artifacts(
     corpus: Path,
-    shards: Mapping[str, list[dict]],
+    fragments_by_class: Mapping[str, list[dict]],
     spans: Mapping[str, Sequence[Span]],
 ) -> tuple[Path, Path]:
-    """Write the sidecars from fragments and spans the caller holds in memory. Classes go in `unit_index.class_shard_key` order, as in `unit_index.write_index`. A fragment goes to the app index if the manifest's triage index holds its unit, and to the locator otherwise, whose blocks are cut in one run over every machine unit. The build projects the same lines one fragment at a time, in the same order, and cuts the blocks one run of classes at a time, so both paths write the same bytes."""
-    ordered = sorted(shards.items(), key=lambda item: unit_index.class_shard_key(item[0]))
-    slot = unit_index.slot_reader(corpus)
+    """Write the sidecars from fragments and spans the caller holds in memory, after the manifest, whose triage index (`human_unit_ids`) and `batch_size` give each human unit its place. Classes go in `shards.class_shard_key` order. A fragment goes to the app index if the triage index holds its unit, and to the locator otherwise, whose blocks are cut in one run over every machine unit."""
+    ordered = sorted(fragments_by_class.items(), key=lambda item: shards.class_shard_key(item[0]))
+    manifest = json.loads((Path(corpus) / "manifest.json").read_text(encoding="utf-8"))
+    positions = {unit_id: position for position, unit_id in enumerate(manifest.get("human_unit_ids") or ())}
+    batch_size = manifest.get("batch_size")
+    batch_size = batch_size if isinstance(batch_size, int) and batch_size > 0 else 1
     human_rows: list[tuple[dict, Span, int, int]] = []
     rows = io.BytesIO()
     locator = LocatorBlocks(rows)
     machine = 0
     for class_id, fragments in ordered:
         for fragment, address in zip(fragments, spans.get(class_id) or (), strict=True):
-            place = slot(fragment)
-            order, batch = place["order"], place["batch"]
-            if order is None or batch is None:
+            order = positions.get(fragment["id"])
+            if order is None:
                 locator.add(locator_line(fragment, *address))
                 machine += 1
             else:
-                human_rows.append((fragment, address, order, batch))
+                human_rows.append((fragment, address, order, order // batch_size))
     blocks = locator.close()
     return write_app_artifacts_lines(
         corpus,
@@ -285,7 +273,7 @@ def artifact_is_current(corpus: Path, name: str, fmt: str) -> bool:
     if record is None or record.get("format") != fmt:
         return False
     try:
-        if record.get("manifest_sha256") != unit_index.manifest_sha256(corpus):
+        if record.get("manifest_sha256") != shards.manifest_sha256(corpus):
             return False
         if name == LOCATOR_NAME:
             return artifact_path(corpus, LOCATOR_ROWS_NAME).stat().st_size == record.get("rows_bytes")
@@ -295,22 +283,8 @@ def artifact_is_current(corpus: Path, name: str, fmt: str) -> bool:
 
 
 def outputs_not_current(corpus: Path) -> list[str]:
-    """Name each file a finished build leaves beside its manifest that is missing or does not describe it: the per-unit index, by its head's stamps and the parts it lists, or the inline header of the single file a corpus from before the segment format holds (`unit_index.index_is_current`, #618's change 32), both app sidecars (`artifact_is_current`, which no caller hands the index, whose header only `unit_index.index_header` reads) and, for an m1-audit corpus, the unit store, by its head (`unit_index.store_is_current`). The manifest does not name them and a build writes them after it, the store last, so a corpus is one a build finished only when this is empty. The store is among them because only a store written for the manifest can place a deflated fragment (#618's change 35); a table-diff corpus has none and holds no deflated fragment. This is the one check of a finished corpus: `artifact_cycle.corpus_complete`, which the cycle's skip and its keep of a `review.next` read, and `status`'s freshness check, which `make verdict-ready` and the app's banner read, both take it, so the two never disagree on a corpus."""
-    corpus = Path(corpus)
-    stale = [] if unit_index.index_is_current(corpus) else [unit_index.INDEX_NAME]
-    stale += [name for name, fmt in ARTIFACTS if not artifact_is_current(corpus, name, fmt)]
-    if not _table_diff(corpus) and not unit_index.store_is_current(corpus):
-        stale.append(row_delta.head_name(unit_index.STORE_NAME))
-    return stale
-
-
-def _table_diff(corpus: Path) -> bool:
-    """Whether the manifest beside these files is a table-diff corpus's, which the build writes in Python with every fragment plain and no unit store, so its fragments are read through the per-unit index and the store is not among the files that must describe it."""
-    try:
-        manifest = json.loads((Path(corpus) / "manifest.json").read_text(encoding="utf-8"))
-    except OSError, ValueError:
-        return False
-    return isinstance(manifest, dict) and manifest.get("mode") == "table-diff"
+    """Name each sidecar a finished build leaves beside its manifest that is missing or does not describe it (`artifact_is_current`). The manifest does not name them and the build writes them after it, last, so a corpus is one a build finished only when this is empty. This is the one check of a finished corpus: the cycle's corpus skip and its promotion of a staged corpus, `make verdict-ready`'s freshness row and the land's refusal of an unfinished corpus all read it."""
+    return [name for name, fmt in ARTIFACTS if not artifact_is_current(Path(corpus), name, fmt)]
 
 
 def load_rows(corpus: Path, name: str) -> list[dict[str, Any]] | None:

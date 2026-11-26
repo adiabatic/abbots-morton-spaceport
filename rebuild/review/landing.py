@@ -51,9 +51,8 @@ PROTOCOL_MODULES = (
 )
 FRESHNESS_MODULES = (
     "pipeline/fingerprint.py",
-    "pipeline/row_delta.py",
     "tools/site_fonts.py",
-    "review/unit_index.py",
+    "review/shards.py",
     "review/app_index.py",
 )
 # The modules the server answers its other routes from, under `review_dir`: the kerning view's routes and the block writer they write through. They take no part in the land, but a server running an older copy of one, or of a module one runs, would answer the app with it until the cycle restarted it, so the digest covers them and the trees they run (`served_paths`).
@@ -76,7 +75,7 @@ def served_paths(review_dir: Path) -> list[Path]:
 
 
 def code_digest(review_dir: Path) -> str:
-    """Return the digest of the modules whose behavior the land protocol depends on (`PROTOCOL_MODULES` under `review_dir`), of the ones the server answers its other routes from and the pipeline and validation trees those run (`served_paths`), and of the ones the server's /status judges the served corpus's freshness with (`FRESHNESS_MODULES`, under `review_dir`'s parent): the fingerprint components, the site font paths the `fonts` component hashes, and the stamps of the per-unit index and the app sidecars (`app_index.outputs_not_current`). The server takes it at boot from the files it loaded, and the cycle from the working tree, so a server whose code differs from the tree's is never trusted to run through a pass. A server started before a change to the freshness modules would go on judging the corpus by the components it loaded and could call a stale corpus ready, so the next pass that writes under it restarts it."""
+    """Return the digest of the modules whose behavior the land protocol depends on (`PROTOCOL_MODULES` under `review_dir`), of the ones the server answers its other routes from and the pipeline and validation trees those run (`served_paths`), and of the ones the server's /status judges the served corpus's freshness with (`FRESHNESS_MODULES`, under `review_dir`'s parent): the fingerprint components, the site font paths the `fonts` component hashes, and the stamps of the app sidecars (`app_index.outputs_not_current`). The server takes it at boot from the files it loaded, and the cycle from the working tree, so a server whose code differs from the tree's is never trusted to run through a pass. A server started before a change to the freshness modules would go on judging the corpus by the components it loaded and could call a stale corpus ready, so the next pass that writes under it restarts it."""
     review_dir = Path(review_dir)
     paths = [(name, review_dir / name) for name in PROTOCOL_MODULES]
     paths += [(path.relative_to(review_dir.parent).as_posix(), path) for path in served_paths(review_dir)]

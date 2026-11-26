@@ -1,0 +1,196 @@
+[
+ {
+  "id": "u-MZiMjJpq1Tt",
+  "content_key": "7af1b933d48cb4a73d4bfedceb88aac40320e0276dd484d030192d2b24584ae0",
+  "ink_identical": false,
+  "picture_identical": false,
+  "no_verdict": false,
+  "kerning": false,
+  "cluster": "c-7f3e9b40",
+  "class": "settlement",
+  "group": "qsExcite",
+  "row_key": "settlement qsExcite: qsExcite.ex-y5 -> qsExcite.ex-y0",
+  "codepoints": "00B7:E66B:E652",
+  "text_entities": "&#x00B7;&#xE66B;&#xE652;",
+  "notation": "\u00b7 \u00b7Excite\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7",
+   "\u00b7Excite",
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05",
+   "ss07",
+   "ss08"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05",
+     "ss07",
+     "ss08"
+    ]
+   }
+  ],
+  "kinds": [
+   "changed"
+  ],
+  "before": {
+   "glyphs": [
+    "periodcentered",
+    "qsExcite.ex-y5",
+    "qsTea.half.en-y5"
+   ],
+   "junctions": [
+    "break",
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "periodcentered",
+    "qsExcite.ex-y0",
+    "qsTea.half"
+   ],
+   "junctions": [
+    "break",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   2
+  ],
+  "pair": {
+   "left": 1,
+   "right": 2
+  },
+  "pair_codepoints": [
+   1,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 150,
+    "x_max": 850,
+    "advance_total": 850
+   },
+   "after": {
+    "x_min": 150,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [
+   {
+    "index": 0,
+    "kind": "namer-dot",
+    "x": 0
+   }
+  ],
+  "summary": "\u00b7Excite settles as qsExcite.ex-y0 where the accepted build settles it as qsExcite.ex-y5",
+  "explain": "settlement (changed): \u00b7Excite settles as qsExcite.ex-y0 where the accepted build settles it as qsExcite.ex-y5.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07, ss08\n  text: \u00b7 \u00b7Excite\u00b7Tea (the shortest certificate of its new rules)",
+  "provenance": [
+   "glyph_data/runes/qsExcite.yaml:policy.prefer[1]"
+  ]
+ },
+ {
+  "id": "u-i35WcnXw8nb",
+  "content_key": "f5565016e2bd2700602e244b75c974e84ab609c466af0b85b2a9295d4e7d4e87",
+  "ink_identical": true,
+  "picture_identical": false,
+  "no_verdict": false,
+  "kerning": false,
+  "cluster": null,
+  "class": "settlement",
+  "group": "qsPea:qsMay",
+  "row_key": "settlement qsMay: qsMay.en-y0 -> qsMay.half.en-y0",
+  "codepoints": "E650:E665",
+  "text_entities": "&#xE650;&#xE665;",
+  "notation": "\u00b7Pea\u00b7May",
+  "notation_tokens": [
+   "\u00b7Pea",
+   "\u00b7May"
+  ],
+  "configs": [
+   "default",
+   "ss04"
+  ],
+  "config_note": "only under: default, ss04",
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04"
+    ]
+   }
+  ],
+  "kinds": [
+   "changed"
+  ],
+  "before": {
+   "glyphs": [
+    "qsPea.ex-y0",
+    "qsMay.en-y0"
+   ],
+   "junctions": [
+    "y0"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsPea.ex-y0",
+    "qsMay.half.en-y0"
+   ],
+   "junctions": [
+    "y0"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   1
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 900,
+    "advance_total": 900
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 900,
+    "advance_total": 900
+   }
+  },
+  "boundary_marks": [],
+  "summary": "\u00b7May settles as qsMay.half.en-y0 where the accepted build settles it as qsMay.en-y0",
+  "explain": "settlement (changed): \u00b7May settles as qsMay.half.en-y0 where the accepted build settles it as qsMay.en-y0.\n  configurations: default, ss04\n  text: \u00b7Pea\u00b7May (a candidate text)",
+  "provenance": [
+   "glyph_data/runes/qsMay.yaml:stances.half"
+  ]
+ }
+]

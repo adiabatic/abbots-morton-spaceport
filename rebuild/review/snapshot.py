@@ -11,7 +11,7 @@ The digest is the sha256 of the format, the tables' stamp, the configurations an
 
 The tracked pointer, `rebuild/review-snapshot.json` (`POINTER_PATH`), names the accepted snapshot: `{format, snapshot_format, digest, taken_at}` (`pointer_record`). It records no commit. The accept (`rebuild/review/accept.py`) writes it before the author commits, and the pointer's change goes into the commit with the edit it accepts, so the commit a snapshot stands for is the last commit that changed the pointer (`pointer_commit`), and a build of that commit remakes the snapshot.
 
-`certificate_text` restates `witness._token_text`, because importing the witness stage would bring the conformance sweep into the corpus build's import closure (`unit_cache.PIPELINE_NON_CORPUS_MODULES`); `rebuild/test_review_snapshot.py` holds the two to the same text over every certificate of a built table. The reader accepts only `SNAPSHOT_FORMAT`.
+`certificate_text` restates `witness._token_text`, because importing the witness stage would bring the conformance sweep into the corpus build's import closure; `rebuild/test_review_snapshot.py` holds the two to the same text over every certificate of a built table. The reader accepts only `SNAPSHOT_FORMAT`.
 
 Usage:
     uv run python -m rebuild.review.snapshot take [--tables rebuild/out/m1] [--home var/keep/review-snapshot]
@@ -520,7 +520,7 @@ def pointer_commit(digest: str, repo_root: Path = REPO_ROOT) -> str | None:
 
 
 def tables_stamp(tables_dir: Path, configs: Sequence[str] = tablediff.SETTLED_CONFIGS) -> str | None:
-    """The tables' stamp of the run_m1 build in `tables_dir`: the `inputs` stamp every configuration's windows head records (`table.windows_head`, which reads the head and not the head file), or None when a head does not read or two disagree. The table-diff manifest copies it as its `tables` component, as the m1-audit manifest copies the Stage A record, and the accept compares it with the corpus's."""
+    """The tables' stamp of the run_m1 build in `tables_dir`: the `inputs` stamp every configuration's windows head records (`table.windows_head`, which reads the head and not the head file), or None when a head does not read or two disagree. The table-diff manifest copies it as its `tables` component, and the accept compares it with the corpus's."""
     stamps: set[object] = set()
     for config in configs:
         try:

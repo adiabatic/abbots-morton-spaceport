@@ -1,12 +1,13 @@
-"""Stamp the hand-written contract fixture beside this file after a unit is added or an edit moves a unit's `content_key`.
+"""Stamp the hand-written contract fixture beside this file after a unit is added or edited.
 
-A unit's id is `unit_cache.unit_id_for` of its `content_key`, and the key is `unit_cache.carry_content_hash` of every field outside `CARRY_PRESENTATION_KEYS`. So hand-editing a judged field, renaming a term the units carry, or changing the projection itself gives the unit a new id, and every place that names the old one goes stale. This recomputes every unit's key and id, keeps each shard sorted by id, rewrites the manifest's `human_unit_ids` in `audit.triage_key` order and each class's `batches` along it, and replaces each old id, as a whole token, in every other file git can see outside `mini/`: the README, the Python tests, and the node tests. A new unit's placeholder id is replaced the same way. Every id the stamp does not cover (`secondary_junctions`, `drafts`) is mapped too, so one pass settles the fixture. A run with nothing stale writes nothing.
+A unit's id is `unit_ids.unit_id_for` of its `content_key`, and a fixture unit's key is `fixture_identity`: the sha256 of what the unit shows, the fields `diff_units.unit_identity` reads for a built unit (its kinds, its row key, its configurations, its code points and both runs' glyph names). So editing one of those gives the unit a new id, and every place that names the old one goes stale. This recomputes every unit's key and id, keeps each shard sorted by id, rewrites every file outside the fixture that names an old id, and recomputes the manifest's triage index (`human_unit_ids`, in `audit.triage_key` order), each class's `batches`, unit and machine-approved counts, and the totals and the machine-approval record those counts give. Row counts are hand-set and left alone. A new unit can carry any id no other file contains, as a placeholder.
 
     uv run python rebuild/review/fixtures/restamp.py
 
 Then run the gates the README's "Growing it" section names.
 """
 
+import hashlib
 import json
 import re
 import subprocess
@@ -18,9 +19,16 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
-from rebuild.review.audit import family_ranks, parse_codepoints, triage_key  # noqa: E402
+from rebuild.review.audit import (  # noqa: E402
+    MACHINE_CHECKS,
+    family_ranks,
+    machine_approved,
+    needs_no_verdict,
+    parse_codepoints,
+    triage_key,
+)
 from rebuild.review.enrich import LETTERS  # noqa: E402
-from rebuild.review.unit_cache import carry_content_hash, is_content_id, unit_id_for  # noqa: E402
+from rebuild.review.unit_ids import is_content_id, unit_id_for  # noqa: E402
 
 MANIFEST = HERE / "manifest.json"
 UNITS = HERE / "units"
@@ -44,19 +52,31 @@ def _renamed(value: Any, renames: dict[str, str]) -> Any:
     return value
 
 
+def fixture_identity(unit: dict) -> str:
+    """Return a fixture unit's content key: the sha256 of its kinds, row key, configurations, code points and both runs' glyph names, the parts of `diff_units.unit_identity` a hand-written unit carries."""
+    record = {
+        "format": "table-diff/1",
+        "kinds": sorted(unit.get("kinds") or ()),
+        "row_key": unit.get("row_key"),
+        "configs": list(unit.get("configs") or ()),
+        "codepoints": unit.get("codepoints"),
+        "before": list((unit.get("before") or {}).get("glyphs") or ()),
+        "after": list((unit.get("after") or {}).get("cells") or ()),
+    }
+    return hashlib.sha256(json.dumps(record, sort_keys=True).encode()).hexdigest()
+
+
 def restamp() -> tuple[dict[str, str], list[str]]:
     """Re-stamp the fixture in place. Return each changed id mapped to its replacement, and the files outside the fixture that named an old id."""
     shards = {path: _read(path) for path in sorted(UNITS.glob("*.json"))}
     renames: dict[str, str] = {}
     for units in shards.values():
         for unit in units:
-            key = carry_content_hash({name: value for name, value in unit.items() if name != "content_key"})
-            if unit.get("content_key") != key:
-                unit["content_key"] = key
+            key = fixture_identity(unit)
+            unit["content_key"] = key
+            if unit["id"] != unit_id_for(key):
                 renames[unit["id"]] = unit_id_for(key)
-    if not renames:
-        return renames, []
-    elsewhere = _renamed_elsewhere(renames)
+    elsewhere = _renamed_elsewhere(renames) if renames else {}
     by_id: dict[str, dict] = {}
     for path, units in shards.items():
         units = sorted(_renamed(units, renames), key=lambda unit: unit["id"])
@@ -66,24 +86,47 @@ def restamp() -> tuple[dict[str, str], list[str]]:
     class_index = {meta["id"]: index for index, meta in enumerate(manifest["classes"])}
     rank = family_ranks(dict(LETTERS))
     human_unit_ids = sorted(
-        _renamed(manifest["human_unit_ids"], renames),
+        (unit_id for unit_id, unit in by_id.items() if not needs_no_verdict(unit)),
         key=lambda unit_id: triage_key(
             class_index[by_id[unit_id]["class"]],
             by_id[unit_id].get("group") or "",
-            parse_codepoints(by_id[unit_id]["codepoints"]),
+            parse_codepoints(by_id[unit_id]["codepoints"]) if by_id[unit_id]["codepoints"] else (),
             unit_id,
             rank,
         ),
     )
     manifest["human_unit_ids"] = human_unit_ids
+    batch_size = manifest["batch_size"]
+    by_class: dict[str, int] = {}
+    checks = {check_id: 0 for check_id in MACHINE_CHECKS}
     for meta in manifest["classes"]:
+        units = [unit for unit in by_id.values() if unit["class"] == meta["id"]]
+        meta["unit_count"] = len(units)
+        meta["machine_approved_count"] = sum(1 for unit in units if machine_approved(unit))
+        meta["machine_checks"] = {
+            check_id: sum(1 for unit in units if unit.get(check_id) is True) for check_id in MACHINE_CHECKS
+        }
         meta["batches"] = sorted(
             {
-                position // manifest["batch_size"]
+                position // batch_size
                 for position, unit_id in enumerate(human_unit_ids)
                 if by_id[unit_id]["class"] == meta["id"]
             }
         )
+        if meta["machine_approved_count"]:
+            by_class[meta["id"]] = meta["machine_approved_count"]
+        for check_id, count in meta["machine_checks"].items():
+            checks[check_id] += count
+    manifest["totals"]["units"] = len(by_id)
+    manifest["totals"]["rows"] = sum(meta["row_count"] for meta in manifest["classes"])
+    manifest["totals"]["batches"] = (len(human_unit_ids) + batch_size - 1) // batch_size
+    machine = manifest["machine_approved"]
+    machine["units"] = sum(by_class.values())
+    machine["rows"] = sum(meta["row_count"] for meta in manifest["classes"] if meta["id"] in by_class)
+    machine["by_class"] = by_class
+    for check_id, count in checks.items():
+        machine["checks"][check_id]["units"] = count
+        machine["checks"][check_id]["rows"] = count
     _write(MANIFEST, manifest)
     for path, text in elsewhere.items():
         path.write_text(text, encoding="utf-8")

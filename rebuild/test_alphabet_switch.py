@@ -21,7 +21,7 @@ from rebuild.pipeline import (
     run_m1_gates,
     spec_load,
 )
-from rebuild.review import build, landing, unit_cache
+from rebuild.review import build, landing
 from rebuild.tools import artifact_cycle, cycle_timings, fault_kit, scaling_series
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -117,31 +117,17 @@ def _stamps(root: Path, record_dir: str) -> dict:
         "stage_a": (records / fingerprint.STAGE_A_FILENAME).read_text(),
         "records": records,
         "settle": oracle_cache.settle_memo_stamp(inputs, spec, "ss03", ["ss03"]),
-        "unit": unit_cache.environment_stamp(
-            root,
-            spec,
-            root / "subsets",
-            root / "before.otf",
-            root / "junior.otf",
-            "H",
-            {"default": "X", "ss03": "X"},
-            identical_classes=["b", "a"],
-            draft_lines=["site_corpus\tP", "draft_harness\tQ"],
-            units_engine="U",
-        ),
     }
 
 
 def test_the_alphabet_token_joins_every_stamp_only_while_the_switch_is_set(monkeypatch, tmp_path):
-    """With the switch unset, the tables' stamp, the run_m1 skip key, the Stage A record, the settle memo's stamp and the unit store's stamp are byte for byte what the code before the switch computed over the same inputs, the values pinned here. With it set, each carries the alphabet token and nothing else changes, and a Stage A record from either side never reads current to a process on the other."""
+    """With the switch unset, the tables' stamp, the run_m1 skip key, the Stage A record and the settle memo's stamp are byte for byte what the code before the switch computed over the same inputs, the values pinned here. With it set, each carries the alphabet token and nothing else changes, and a Stage A record from either side never reads current to a process on the other."""
     monkeypatch.setattr(fingerprint, "tables_value", lambda root: "T")
     monkeypatch.setattr(fingerprint, "FORMAT", "stage-a-format")
     monkeypatch.setattr(kernel_exec, "enumeration_tokens", lambda: ["simulated-prospect"])
     monkeypatch.setattr(kernel_exec, "settlement_flags", lambda modes=None: ["--candidacy-prospect"])
     monkeypatch.setattr(spec_load, "spec_structure_digest", lambda spec: "S")
     monkeypatch.setattr(spec_load, "capability_features", lambda spec: ["ss03"])
-    monkeypatch.setattr(unit_cache, "STORE_FORMAT", "unit-format")
-    monkeypatch.setattr(unit_cache, "ACCEPTANCE_CONFIGS", ("default", "ss03"))
     monkeypatch.delenv(spec_load.M1_RUNES_ENV, raising=False)
     whole = _stamps(tmp_path, "whole")
     assert whole["tables"] == "T+simulated-prospect"
@@ -153,7 +139,6 @@ def test_the_alphabet_token_joins_every_stamp_only_while_the_switch_is_set(monke
         '  "pipeline_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"\n}\n'
     )
     assert whole["settle"].value == "d5d85b5add5cb3dc9e984cc472db4c1ade6481f1b9c5577a2729577322a1c91a"
-    assert whole["unit"].value == "b63dddc15aa3a8fe70085b8d4fd76071ead8f182e9f03e750e4bca8e1dff100d"
 
     monkeypatch.setenv(spec_load.M1_RUNES_ENV, SMALL)
     small = _stamps(tmp_path, "small")
@@ -162,7 +147,6 @@ def test_the_alphabet_token_joins_every_stamp_only_while_the_switch_is_set(monke
     assert small["skip"] == [*whole["skip"], line]
     assert json.loads(small["stage_a"]) == {**json.loads(whole["stage_a"]), "alphabet": SMALL_TOKEN}
     assert small["settle"].lines == (*whole["settle"].lines, line)
-    assert small["unit"].lines == (*whole["unit"].lines, line)
     assert fingerprint.read_stage_a(small["records"]) == fingerprint.stage_a(tmp_path)
     assert fingerprint.read_stage_a(whole["records"]) != fingerprint.stage_a(tmp_path)
 
@@ -214,7 +198,6 @@ def test_each_entry_point_that_writes_the_live_tree_refuses_the_switch(monkeypat
     monkeypatch.setattr(run_m1_gates, "_run_cli", _refuse_to_run)
     monkeypatch.setattr(gc, "freeze", _refuse_to_run)
     monkeypatch.setattr(gc, "disable", _refuse_to_run)
-    monkeypatch.setattr(build, "build_m1", _refuse_to_run)
     monkeypatch.setattr(build, "build_table_diff", _refuse_to_run)
     monkeypatch.setattr(landing, "land", _refuse_to_run)
     monkeypatch.setattr(baseline_subset, "check_font_provenance", _refuse_to_run)

@@ -1,4 +1,4 @@
-"""The review corpus's letter names and the spec it enriches against (rebuild/REVIEW-PLAN.md §2.2). The review crate enriches each unit: the old junctions from the §13.1 baseline subsets, the settle and explain results, the divergent positions computed against the alias map, and the highlight x-ranges in font units, from kern-neutral shaping of both fonts, matching the app's `font-kerning: none` rendering. This module gives the build and the corpus's readers what they share of that: each Quikscript code point's family (`LETTERS`), a window's letter-name notation (`notation`, `notation_tokens`), and the resolved spec (`load_spec`), which the build dumps for the crate."""
+"""The review corpus's letter names and the spec it loads (rebuild/REVIEW-PLAN.md §2.3): each Quikscript code point's family (`LETTERS`), a text's letter-name notation (`notation`, `notation_tokens`) and numeric character references (`text_entities`), and the resolved spec of a checkout (`load_spec`), which spells the new build's rule certificates out."""
 
 from __future__ import annotations
 
@@ -59,8 +59,6 @@ LETTERS: dict[int, str] = {
 SPACE = 0x0020
 NAMER_DOT = 0x00B7
 ZWNJ = 0x200C
-# The units the crate settles and explains together, which it reads through the units init's vocabulary (`units_exec.VOCABULARY`), and the most recomputed units the build hands a thread at a time (`build.PHASE1_HANDOUT_UNITS`).
-EXPLAIN_UNIT_BATCH_SIZE = 8192
 
 _SPECIAL_DISPLAY = {"qsIng": "·-ing", "qsJai": "·J’ai"}
 _BOUNDARY_NOTATION = {SPACE: "␣", NAMER_DOT: "·", ZWNJ: "◊ZWNJ"}

@@ -1,176 +1,178 @@
 {
  "format": "ams-review-manifest/2",
- "mode": "m1-audit",
- "generated_at": "2026-06-10T00:00:00Z",
+ "mode": "table-diff",
+ "generated_at": "2026-11-26T00:00:00Z",
  "repo_head": "fixture",
  "inputs_fingerprint": {
-  "data": "fixture-data",
-  "baselines": "fixture-baselines",
-  "pipeline_code": "fixture-pipeline-code",
+  "snapshot": "fixture-snapshot",
+  "tables": "fixture-tables",
+  "font_inputs": "fixture-font-inputs",
   "review_code": "fixture-review-code",
-  "static": "fixture-static",
-  "fonts": "fixture-fonts",
-  "explain_prose": "fixture-explain-prose",
-  "draft_inputs": "fixture-draft-inputs"
+  "static": "fixture-static"
  },
  "source": {
-  "audit": "rebuild/review/fixtures/fixture-audit.tsv",
-  "ledger": "rebuild/review/fixtures/fixture-ledger.yaml"
+  "snapshot": "var/keep/review-snapshot/fixture",
+  "new": "rebuild/out/m1"
+ },
+ "baseline": {
+  "commit": "fixture",
+  "taken_at": "2026-11-25T00:00:00Z",
+  "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "present": true
  },
  "fonts": {
   "before": {
    "file": "fonts/before.otf",
    "family": "AMS Review Before",
-   "source": "site/AbbotsMortonSpaceportSansSenior-Regular.otf",
-   "sha256": "3211a7a76be0e3c032c06eead1dace2d5cbf4f05c63a9a742c23c3117625cf35",
+   "source": "var/keep/review-snapshot/fixture/M1.otf",
+   "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
    "upem": 550
   },
   "after": {
    "file": "fonts/after.otf",
    "family": "AMS Review After",
    "source": "rebuild/out/m1/M1.otf",
-   "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+   "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
    "upem": 550
   }
  },
  "alphabet": {
-  "migrated": 16,
+  "migrated": 44,
   "total": 44
  },
  "configs": [
   "default",
-  "ss02",
   "ss03",
   "ss04",
   "ss05",
-  "ss02+ss03",
-  "ss02+ss03+ss05",
-  "ss10"
+  "ss03+ss05",
+  "ss07",
+  "ss08"
  ],
  "feature_descriptions": {
   "ss02": "allow \u00b7I\u00b7Tea to join at the Short height",
-  "ss03": "let x-height exiters join \u00b7Tea: full-size when a baseline-join follows, else the half \u00b7Tea",
-  "ss04": "allow \u00b7It to join at baseline after \u00b7Day and before \u00b7Low",
-  "ss05": "allow \u00b7Et\u00b7Tea\u00b7\u2026 double baseline joins again (older, manual-style behavior)",
+  "ss03": "let letters join to a full-size \u00b7Tea at the x-height",
+  "ss04": "allow \u00b7It to join at the baseline on both sides",
+  "ss05": "allow \u00b7Tea to join at the baseline on both sides",
   "ss06": "use gapped \u00b7Owe (doesn\u2019t connect at the top)",
   "ss07": "allow \u00b7Owe\u00b7Day to join at the x-height again",
+  "ss08": "write \u00b7Key\u00b7Utter\u00b7May as The Manual does: no join after \u00b7Key, then the alternate \u00b7Utter",
   "ss10": "suppress all joins for the wrapped letter(s)"
  },
  "batch_size": 5,
  "human_unit_ids": [
-  "u-HLeS39nnjSM",
-  "u-WT2Pjqw8CKB",
-  "u-LhDRYppbBuN",
-  "u-D6rjFJxbdV6",
-  "u-5NP1CPJxyNT",
-  "u-BLyK6Z13RtN",
-  "u-Nc3wVLJaPHB",
-  "u-6VFDHaMNgCP",
-  "u-SupLKT1ijWn",
-  "u-Xp5KzYAPYK7"
+  "u-AZd95bckcbg",
+  "u-MG7BYctpZgY",
+  "u-BzEBRDeYbuP",
+  "u-MZiMjJpq1Tt",
+  "u-51MZrbcA5zc",
+  "u-LtadFU2dmvz"
  ],
  "totals": {
-  "units": 11,
-  "rows": 53,
-  "batches": 2,
-  "duplicate_groups": 9
+  "units": 9,
+  "rows": 15,
+  "batches": 2
  },
  "machine_approved": {
   "units": 1,
-  "rows": 3,
-  "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared.",
+  "rows": 4,
+  "method": "Shaped with uharfbuzz in both fixture fonts, kern-neutral, under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, placed, sorted, and compared.",
   "by_class": {
-   "fixture-intended": 1
+   "settlement": 1
   },
   "checks": {
    "ink_identical": {
     "units": 1,
-    "rows": 3,
-    "method": "Shaped with uharfbuzz in both fixture fonts under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, translated by the cumulative x_advance plus each glyph's x_offset/y_offset, sorted, and compared."
+    "rows": 1,
+    "method": "Shaped with uharfbuzz in both fixture fonts, kern-neutral, under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, placed, sorted, and compared."
    },
    "picture_identical": {
     "units": 0,
     "rows": 0,
     "method": "Not ink-identical, but both fixture fonts fill exactly the same pixel-grid cells under every config in the unit's set; only which glyph owns each pixel differs."
-   },
-   "junior_equivalent": {
-    "units": 0,
-    "rows": 0,
-    "method": "Divergent only under ss10 and placed-ink-identical to the fixture Junior rendering with its letter tracking removed."
    }
+  }
+ },
+ "table_rows": {
+  "default": {
+   "settlement": {
+    "changed": 2
+   },
+   "joins": {
+    "added": 2,
+    "removed": 2
+   },
+   "letters": 3,
+   "texts": 120
+  }
+ },
+ "font_changes": {
+  "glyphs": {
+   "outline": 2
+  },
+  "kern": {
+   "changed": 1
   }
  },
  "classes": [
   {
-   "id": "join-dropped",
-   "title": "Join dropped",
-   "summary": "Letters the old font joined stand apart, for example `\u00b7At | \u00b7It` and `\u00b7It | \u00b7Et`, where the old font drew `\u00b7At ~x~ \u00b7It` and `\u00b7It ~x~ \u00b7Et`.",
-   "note": null,
+   "id": "joins",
+   "title": "Joins",
+   "summary": "Two settled cells meet differently: a pair the accepted build joins or breaks is gone, a new pair appears, or a pair's junction or extension moves.",
    "section": "open-questions",
-   "status": "per-unit",
-   "ink_identical": false,
    "no_verdict": false,
-   "why": "No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, no junction gains a join, and at least one junction the old font joined now breaks; the leftmost such break names the pair.\nOther joins in the word may move as well. A window that also gains a join is listed under the new join instead, because a new join usually causes the changes around it.",
+   "why": "A join row is the junction and extension the tables give two adjacent cells. Each unit is one changed row with a text that holds the pair side by side in the font of each side the row exists on.",
    "unit_count": 3,
-   "row_count": 18,
+   "row_count": 6,
    "machine_approved_count": 0,
    "machine_checks": {
     "ink_identical": 0,
-    "picture_identical": 0,
-    "junior_equivalent": 0
+    "picture_identical": 0
    },
    "shards": [
-    "units/join-dropped.json"
+    "units/joins.json"
    ],
    "batches": [
     0
    ]
   },
   {
-   "id": "same-joins-same-width",
-   "title": "Same joins and width, letter redrawn or shifted",
-   "summary": "Joins and width match the old font, but a letter is drawn or placed differently, for example \u00b7I's smaller loop or \u00b7Roe's full top arm after \u00b7Eight.",
-   "note": null,
+   "id": "settlement",
+   "title": "Settlement",
+   "summary": "A letter settles to a different cell than in the accepted build after the same neighbor, or its rules changed with nothing visible.",
    "section": "open-questions",
-   "status": "per-unit",
-   "ink_identical": false,
    "no_verdict": false,
-   "why": "No ruling covers these windows as a whole, so each takes its own verdict. The window differs from the old font without a stylistic set, every junction joins at the height the old font's did, and the word keeps the old font's width, yet a letter is drawn differently or sits elsewhere: a redrawn stroke, or a letter shifted while the word's width stays the same.\nA changed junction the review cannot read stops the build instead of landing here, so every window here keeps its joins and its width.",
-   "unit_count": 1,
-   "row_count": 7,
-   "machine_approved_count": 0,
-   "machine_checks": {
-    "ink_identical": 0,
-    "picture_identical": 0,
-    "junior_equivalent": 0
-   },
-   "shards": [
-    "units/same-joins-same-width.json"
-   ],
-   "batches": [
-    0
-   ]
-  },
-  {
-   "id": "fixture-intended",
-   "title": "Fixture class A, approved as a whole",
-   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches, such as `\u25caZWNJ | \u00b7Tea+Oy`.",
-   "note": null,
-   "section": "spot-check",
-   "status": "approved",
-   "ink_identical": false,
-   "no_verdict": false,
-   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.\nYou approved it as a whole, so its human units are spot-checks.",
-   "unit_count": 4,
-   "row_count": 20,
+   "why": "Each unit is one substitution, a letter after its left neighbor settling to another cell, found by shaping the certificates of the letter's rules and every text of at most three letters that holds it in both fonts. A letter whose rules changed and that no such text shows differently is a unit of its own, machine-approved when every candidate draws alike.",
+   "unit_count": 2,
+   "row_count": 4,
    "machine_approved_count": 1,
    "machine_checks": {
     "ink_identical": 1,
-    "picture_identical": 0,
-    "junior_equivalent": 0
+    "picture_identical": 0
    },
    "shards": [
-    "units/fixture-intended.json"
+    "units/settlement.json"
+   ],
+   "batches": [
+    0
+   ]
+  },
+  {
+   "id": "glyphs",
+   "title": "Glyphs",
+   "summary": "A glyph draws differently than in the accepted build: its outline, its advance and sidebearing, or its cursive anchors moved, with the tables unchanged.",
+   "section": "open-questions",
+   "no_verdict": false,
+   "why": "Each unit is one glyph both fonts have whose drawing differs, shown in the shortest certificate that settles to it, else its code point alone, else a kerning-inventory text that holds it. Glyphs outside Quikscript are listed under the group non-quikscript.",
+   "unit_count": 2,
+   "row_count": 2,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/glyphs.json"
    ],
    "batches": [
     0,
@@ -178,51 +180,44 @@
    ]
   },
   {
-   "id": "fixture-mismatch",
-   "title": "Fixture class B",
-   "summary": "Hand-written units for the namer-dot and pair-null branches and a config gate with an on and an off clause.",
-   "note": null,
-   "section": "spot-check",
-   "status": "by-design",
-   "ink_identical": false,
-   "no_verdict": false,
-   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches and a config gate with an on and an off clause.",
-   "unit_count": 3,
-   "row_count": 8,
+   "id": "kerning",
+   "title": "Kerning",
+   "summary": "A facing pair is kerned by another value than in the accepted build; judged in the kerning view.",
+   "section": "no-review-needed",
+   "no_verdict": true,
+   "why": "Each unit is one facing pair whose kern value moved, drawn with kerning on in its kerning-inventory text. Kern values are authored and judged in the kerning view (the header's Kerning button), so these take no verdict here.",
+   "unit_count": 1,
+   "row_count": 1,
    "machine_approved_count": 0,
    "machine_checks": {
     "ink_identical": 0,
-    "picture_identical": 0,
-    "junior_equivalent": 0
+    "picture_identical": 0
    },
    "shards": [
-    "units/fixture-mismatch.json"
+    "units/kerning.json"
    ],
-   "batches": [
-    1
-   ]
+   "batches": []
+  },
+  {
+   "id": "provenance-only",
+   "title": "Provenance only",
+   "summary": "A letter's rules credit other records and settle as before; nothing to judge.",
+   "section": "no-review-needed",
+   "no_verdict": true,
+   "why": "These letters' settlement rows keep their keys, outcomes and joint flags and differ only in the records they name, so no text renders differently.",
+   "unit_count": 1,
+   "row_count": 2,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/provenance-only.json"
+   ],
+   "batches": []
   }
  ],
- "ledger_classes": {
-  "fixture-intended": {
-   "title": "Fixture class A, approved as a whole",
-   "summary": "Hand-written units for the multi-config, ZWNJ, ligation and duplicate-pin branches, such as `\u25caZWNJ | \u00b7Tea+Oy`.",
-   "status": "approved",
-   "why": "Fixture class A: hand-written units exercising the multi-config, ZWNJ, ligation, and duplicate-pin branches of the shard contract.\nYou approved it as a whole, so its human units are spot-checks."
-  },
-  "fixture-mismatch": {
-   "title": "Fixture class B",
-   "summary": "Hand-written units for the namer-dot and pair-null branches and a config gate with an on and an off clause.",
-   "status": "by-design",
-   "why": "Fixture class B: hand-written units exercising the namer-dot and pair-null branches and a config gate with an on and an off clause."
-  },
-  "fixture-identical": {
-   "title": "Fixture class C: looks identical",
-   "summary": "A hand-written ink-identical class whose every unit changes its picture, so the build lists those units under a change group.",
-   "status": "by-design",
-   "why": "Fixture class C: the audit rows of the re-routed units match this class, which says their ink is unchanged.\nEach of those units changes its picture, so the build lists it under the change group it shows, and this class keeps no listed class of its own."
-  }
- },
  "build_command": "uv run python -m rebuild.review.build",
  "serve_command": "uv run python -m rebuild.review.serve"
 }

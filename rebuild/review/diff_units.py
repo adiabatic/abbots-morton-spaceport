@@ -15,7 +15,7 @@ A glyph unit's text (`glyph_units`) is the shortest certificate, of either table
 
 Folding (`UnitFinder.units`): a unit's configurations are those its one text shows its change under. Of the texts the unit's configurations found, the one that shows the change under the most of them is taken, the shortest first on a tie, and the configurations it leaves take another text the same way, so every unit's text shows its change under every configuration it lists. Then the units that show the same thing become one (`merge`): join, settlement and glyph units with the same text under the same configurations, which shape to the same runs in both fonts, as a removed join row, its added twin, the substitution at that junction and a glyph redrawn in it do, are one unit that carries all their kinds and rows and stands in the class of its first member by `KIND_PRECEDENCE`: `joins` when any of them is a join row, else `settlement` when any is a cell change, else `glyphs`. Kern units with the same text under the same configurations fold the same way among themselves and with no other kind, since they are drawn with kerning on. Units whose configurations differ stay apart.
 
-`fragment` writes a unit as the corpus's shard JSON (rebuild/REVIEW-PLAN.md §7.2): the before and after runs, the pair band and highlight from HarfBuzz's clusters, the machine checks (`ink.InkComparator`), the cluster, a digest of the ink deltas the unit's configurations show, so units that show the same pixels share a Queue card, and the id, `unit_cache.unit_id_for` of a digest of what the unit is (`unit_identity`). Shaping is kern-neutral (`ink.kern_neutral`), as everywhere in the corpus, but for a kern unit's, which shapes, compares and draws with kerning on in both fonts (`KernedInkComparator`).
+`fragment` writes a unit as the corpus's shard JSON (rebuild/REVIEW-PLAN.md §7.2): the before and after runs, the pair band and highlight from HarfBuzz's clusters, the machine checks (`ink.InkComparator`), the cluster, a digest of the ink deltas the unit's configurations show, so units that show the same pixels share a Queue card, and the id, `unit_ids.unit_id_for` of a digest of what the unit is (`unit_identity`). Shaping is kern-neutral (`ink.kern_neutral`), as everywhere in the corpus, but for a kern unit's, which shapes, compares and draws with kerning on in both fonts (`KernedInkComparator`).
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from fontTools.ttLib import TTFont
 from rebuild.pipeline import fingerprint
 from rebuild.pipeline.labels import spec_alphabet
 from rebuild.pipeline.model import ResolvedSpec
-from rebuild.review import tablediff, unit_cache
+from rebuild.review import tablediff, unit_ids
 from rebuild.review.enrich import LETTERS, letter_display, notation, notation_tokens, text_entities
 from rebuild.review.ink import (
     InkComparator,
@@ -1663,14 +1663,12 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
         cluster = structural_cluster(unit)
     content_key = unit_identity(unit, codepoints, before_names, after_names)
     return {
-        "id": unit_cache.unit_id_for(content_key),
+        "id": unit_ids.unit_id_for(content_key),
         "content_key": content_key,
         "ink_identical": ink_identical,
         "picture_identical": picture_identical,
-        "junior_equivalent": False,
         "no_verdict": no_verdict,
         "kerning": kerning,
-        "duplicate_group": None,
         "cluster": cluster,
         "class": CLASS_OF_KIND[unit.kind],
         "group": _group(unit),
@@ -1684,7 +1682,6 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
         "config_gate": gate,
         "render_groups": render_groups,
         "kinds": list(unit.kinds),
-        "exemplar": False,
         "before": before_record,
         "after": after_record,
         "diff_positions": diff_positions,
@@ -1695,7 +1692,6 @@ def fragment(unit: Unit, fonts: Fonts, universe: Sequence[str], badge) -> dict:
         "summary": _summary(unit),
         "explain": _explain(unit),
         "provenance": _provenance(unit),
-        "drafts": {"pin": None, "policy": None, "any_of": None},
     }
 
 

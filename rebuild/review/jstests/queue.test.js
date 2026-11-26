@@ -5,8 +5,6 @@ import {
   buildClusters,
   ruledClassIds,
   partitionClusters,
-  duplicateConflicts,
-  verdictsAgree,
   singletonChunks,
   queueResumeAction,
   queueEmptyNote,
@@ -27,7 +25,6 @@ const makeUnit = (id, over = {}) => ({
   id,
   order: Number.parseInt(id.slice(2), 10),
   batch: 0,
-  duplicate_group: `e-${id.slice(2)}`,
   cluster: 'c-aaaaaaaa',
   class: 'cls-a',
   configs: ['default'],
@@ -47,11 +44,11 @@ test('isBlank treats an absent record or a skip verdict as blank and every real 
   }
 });
 
-test('buildClusters groups blank human units by cluster across different duplicate groups, ordering members, representatives, and exemplar', () => {
+test('buildClusters groups blank human units by cluster, ordering members and exemplar', () => {
   const units = [
-    makeUnit('u-0002', { duplicate_group: 'e-0001' }),
-    makeUnit('u-0001', { duplicate_group: 'e-0001' }),
-    makeUnit('u-0003', { duplicate_group: 'e-0002' }),
+    makeUnit('u-0002'),
+    makeUnit('u-0001'),
+    makeUnit('u-0003'),
   ];
   const clusters = buildClusters(units, blank);
   assert.equal(clusters.length, 1);
@@ -61,11 +58,6 @@ test('buildClusters groups blank human units by cluster across different duplica
   assert.deepEqual(cluster.configs, ['default']);
   assert.notEqual(cluster.configs, units[0].configs);
   assert.equal(cluster.size, 3);
-  assert.deepEqual(cluster.duplicateGroups, [
-    { duplicateGroup: 'e-0001', unitIds: ['u-0001', 'u-0002'] },
-    { duplicateGroup: 'e-0002', unitIds: ['u-0003'] },
-  ]);
-  assert.deepEqual(cluster.representatives, ['u-0001', 'u-0003']);
   assert.equal(cluster.exemplar.id, 'u-0001');
   assert.deepEqual(cluster.memberIds, ['u-0001', 'u-0002', 'u-0003']);
   assert.deepEqual(cluster.evidence, { counts: [], judgedTotal: 0, samples: [] });
@@ -73,12 +65,12 @@ test('buildClusters groups blank human units by cluster across different duplica
 
 test('buildClusters excludes verdicted units from membership but folds them into evidence with the exemplar staying the lowest blank member', () => {
   const units = [
-    makeUnit('u-0001', { duplicate_group: 'e-0000' }),
-    makeUnit('u-0002', { duplicate_group: 'e-0001' }),
-    makeUnit('u-0003', { duplicate_group: 'e-0002' }),
-    makeUnit('u-0008', { duplicate_group: 'e-0003' }),
-    makeUnit('u-0009', { duplicate_group: 'e-0004' }),
-    makeUnit('u-0010', { duplicate_group: 'e-0005' }),
+    makeUnit('u-0001'),
+    makeUnit('u-0002'),
+    makeUnit('u-0003'),
+    makeUnit('u-0008'),
+    makeUnit('u-0009'),
+    makeUnit('u-0010'),
   ];
   const records = {
     'u-0001': { unit: 'u-0001', verdict: 'approve', note: 'first note', at: '2026-01-01' },
@@ -105,24 +97,23 @@ test('buildClusters excludes verdicted units from membership but folds them into
 
 test('buildClusters keeps skip-verdicted units as members, never as evidence', () => {
   const units = [
-    makeUnit('u-0001', { duplicate_group: 'e-0001' }),
-    makeUnit('u-0005', { duplicate_group: 'e-0002' }),
+    makeUnit('u-0001'),
+    makeUnit('u-0005'),
   ];
   const records = { 'u-0005': { unit: 'u-0005', verdict: 'skip', note: '', at: '2026-02-01' } };
   const [cluster] = buildClusters(units, (id) => records[id]);
   assert.equal(cluster.size, 2);
   assert.deepEqual(cluster.memberIds, ['u-0001', 'u-0005']);
-  assert.deepEqual(cluster.representatives, ['u-0001', 'u-0005']);
   assert.equal(cluster.evidence.judgedTotal, 0);
   assert.deepEqual(cluster.evidence.counts, []);
 });
 
 test('buildClusters ignores units with a null or undefined batch or a non-string cluster, and treats batch 0 as human', () => {
   const units = [
-    makeUnit('u-0001', { duplicate_group: 'e-0001', batch: 0 }),
-    makeUnit('u-0002', { duplicate_group: 'e-0002', batch: null }),
-    makeUnit('u-0003', { duplicate_group: 'e-0003', cluster: null }),
-    makeUnit('u-0004', { duplicate_group: 'e-0004', batch: undefined }),
+    makeUnit('u-0001', { batch: 0 }),
+    makeUnit('u-0002', { batch: null }),
+    makeUnit('u-0003', { cluster: null }),
+    makeUnit('u-0004', { batch: undefined }),
   ];
   const clusters = buildClusters(units, blank);
   assert.equal(clusters.length, 1);
@@ -130,27 +121,14 @@ test('buildClusters ignores units with a null or undefined batch or a non-string
   assert.deepEqual(clusters[0].memberIds, ['u-0001']);
 });
 
-test('buildClusters falls back to the unit id for a member with a null duplicate group, forming its own duplicate group', () => {
-  const units = [
-    makeUnit('u-0001', { duplicate_group: null, cluster: 'c-aaaaaaaa' }),
-    makeUnit('u-0002', { duplicate_group: 'e-0001' }),
-  ];
-  const [cluster] = buildClusters(units, blank);
-  assert.deepEqual(cluster.duplicateGroups, [
-    { duplicateGroup: 'e-0001', unitIds: ['u-0002'] },
-    { duplicateGroup: 'u-0001', unitIds: ['u-0001'] },
-  ]);
-  assert.deepEqual(cluster.representatives, ['u-0002', 'u-0001']);
-});
-
 test('buildClusters sorts clusters by descending size, then class, then id', () => {
   const units = [
-    makeUnit('u-0001', { cluster: 'c-aaaaaaaa', class: 'cls-b', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-bbbbbbbb', class: 'cls-a', duplicate_group: 'e-0002' }),
-    makeUnit('u-0003', { cluster: 'c-cccccccc', class: 'cls-a', duplicate_group: 'e-0003' }),
-    makeUnit('u-0004', { cluster: 'c-cccccccc', class: 'cls-a', duplicate_group: 'e-0004' }),
-    makeUnit('u-0005', { cluster: 'c-dddddddd', class: 'cls-a', duplicate_group: 'e-0005' }),
-    makeUnit('u-0006', { cluster: 'c-dddddddd', class: 'cls-a', duplicate_group: 'e-0006' }),
+    makeUnit('u-0001', { cluster: 'c-aaaaaaaa', class: 'cls-b' }),
+    makeUnit('u-0002', { cluster: 'c-bbbbbbbb', class: 'cls-a' }),
+    makeUnit('u-0003', { cluster: 'c-cccccccc', class: 'cls-a' }),
+    makeUnit('u-0004', { cluster: 'c-cccccccc', class: 'cls-a' }),
+    makeUnit('u-0005', { cluster: 'c-dddddddd', class: 'cls-a' }),
+    makeUnit('u-0006', { cluster: 'c-dddddddd', class: 'cls-a' }),
   ];
   const clusters = buildClusters(units, blank);
   assert.deepEqual(
@@ -161,10 +139,10 @@ test('buildClusters sorts clusters by descending size, then class, then id', () 
 
 test('buildClusters is order-independent and sorts members by their triage position so u-10000 follows u-9999', () => {
   const units = [
-    makeUnit('u-0001', { duplicate_group: 'e-0001' }),
-    makeUnit('u-9999', { duplicate_group: 'e-0001' }),
-    makeUnit('u-10000', { duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-bbbbbbbb', duplicate_group: 'e-0002' }),
+    makeUnit('u-0001'),
+    makeUnit('u-9999'),
+    makeUnit('u-10000'),
+    makeUnit('u-0002', { cluster: 'c-bbbbbbbb' }),
   ];
   const forward = buildClusters(units, blank);
   const reversed = buildClusters([...units].reverse(), blank);
@@ -172,49 +150,31 @@ test('buildClusters is order-independent and sorts members by their triage posit
   assert.deepEqual(reversed, forward);
   assert.deepEqual(shuffled, forward);
   assert.deepEqual(forward[0].memberIds, ['u-0001', 'u-9999', 'u-10000']);
-  assert.deepEqual(forward[0].representatives, ['u-0001']);
 });
 
-// Real ids carry no order. A string sort of these synthetic ids would put u-10 before u-9 and change the cluster's exemplar, representative, and evidence sample.
+// Real ids carry no order. A string sort of these synthetic ids would put u-10 before u-9 and change the cluster's exemplar and evidence sample.
 test('buildClusters orders members by triage position, not by id text', () => {
   const ids = ['u-9', 'u-10', 'u-100', 'u-2', 'u-1078641', 'u-21'];
-  const units = ids.map((id) => makeUnit(id, { duplicate_group: 'e-0001' }));
+  const units = ids.map((id) => makeUnit(id, {}));
   const [cluster] = buildClusters([...units].reverse(), blank);
   assert.deepEqual(cluster.memberIds, ['u-2', 'u-9', 'u-10', 'u-21', 'u-100', 'u-1078641']);
   assert.equal(cluster.exemplar.id, 'u-2');
-  assert.deepEqual(cluster.representatives, ['u-2']);
-});
-
-test('duplicateConflicts orders a group by triage position too', () => {
-  const ids = ['u-9', 'u-10', 'u-2'];
-  const members = ['u-10', 'u-2', 'u-9'];
-  const duplicateIndex = new Map([['e-0001', members]]);
-  const records = { 'u-2': { verdict: 'approve' }, 'u-9': { verdict: 'reject' } };
-  const unitsById = new Map(ids.map((id) => [id, { id, class: 'cls-a', order: Number.parseInt(id.slice(2), 10) }]));
-  const [conflict] = duplicateConflicts(duplicateIndex, unitsById, (id) => records[id]);
-  assert.deepEqual(conflict.unitIds, ['u-2', 'u-9', 'u-10']);
-  assert.deepEqual(members, ['u-10', 'u-2', 'u-9'], 'the duplicate index itself is never reordered under the app');
 });
 
 test('ruledClassIds leaves out every class outside Open questions, by the section the build gave it, and tolerates undefined input', () => {
   const ids = ruledClassIds([
-    { id: 'a', status: 'approved', section: 'spot-check' },
-    { id: 'b', status: 'by-design', section: 'no-review-needed' },
-    { id: 'c', status: 'per-unit', section: 'no-review-needed' },
-    { id: 'd', status: 'per-unit', section: 'open-questions' },
-    { id: 'e', status: null, section: 'open-questions' },
-    { id: 'f', status: 'approved', section: 'open-questions' },
+    { id: 'kerning', no_verdict: true, section: 'no-review-needed' },
+    { id: 'glyphs', no_verdict: false, section: 'no-review-needed' },
+    { id: 'joins', no_verdict: false, section: 'open-questions' },
   ]);
   assert.ok(ids instanceof Set);
-  assert.deepEqual([...ids].sort(), ['a', 'b', 'c']);
-  assert.equal(ids.has('d'), false);
-  assert.equal(ids.has('e'), false, 'a table-diff bucket, with no status, is an open question');
-  assert.equal(ids.has('f'), false, 'the section decides, never the status');
+  assert.deepEqual([...ids].sort(), ['glyphs', 'kerning']);
+  assert.equal(ids.has('joins'), false);
   assert.equal(ruledClassIds(undefined).size, 0);
   assert.equal(ruledClassIds().size, 0);
 });
 
-test('partitionClusters splits unruled multi clusters at the top-cluster count, lists singletons, and sums ruled blanks', () => {
+test('partitionClusters splits unruled multi clusters at the top-cluster count and lists singletons', () => {
   assert.equal(TOP_CLUSTER_COUNT, 25);
   const clusters = [];
   for (let i = 0; i < 27; i += 1) clusters.push({ id: `c-multi-${i}`, class: 'cls-a', size: 2 });
@@ -228,71 +188,9 @@ test('partitionClusters splits unruled multi clusters at the top-cluster count, 
   assert.equal(result.later.length, 2);
   assert.deepEqual(result.later.map((cluster) => cluster.id), ['c-multi-25', 'c-multi-26']);
   assert.equal(result.singletons.length, 2);
-  assert.equal(result.ruledBlankUnits, 8);
   for (const cluster of [...result.top, ...result.later, ...result.singletons]) {
     assert.notEqual(cluster.class, 'cls-ruled');
   }
-});
-
-test('verdictsAgree reads unanimity and the approve/identical mix as one voice, everything else as a split', () => {
-  assert.equal(verdictsAgree(new Set()), true);
-  assert.equal(verdictsAgree(new Set(['approve'])), true);
-  assert.equal(verdictsAgree(new Set(['approve', 'identical'])), true);
-  assert.equal(verdictsAgree(new Set(['identical', 'either'])), false);
-  assert.equal(verdictsAgree(new Set(['approve', 'reject'])), false);
-  assert.equal(verdictsAgree(new Set(['approve', 'identical', 'neither'])), false);
-});
-
-test('duplicateConflicts flags only duplicate groups whose judged verdicts disagree, sorted by duplicate-group id', () => {
-  const unitsById = new Map([
-    ['u-0001', { id: 'u-0001', class: 'cls-a' }],
-    ['u-0002', { id: 'u-0002', class: 'cls-a' }],
-    ['u-0003', { id: 'u-0003', class: 'cls-b' }],
-    ['u-0004', { id: 'u-0004', class: 'cls-b' }],
-    ['u-0009', { id: 'u-0009', class: 'cls-b' }],
-    ['u-0005', { id: 'u-0005', class: 'cls-c' }],
-    ['u-0006', { id: 'u-0006', class: 'cls-c' }],
-    ['u-0007', { id: 'u-0007', class: 'cls-d' }],
-    ['u-0008', { id: 'u-0008', class: 'cls-d' }],
-    ['u-0010', { id: 'u-0010', class: 'cls-e' }],
-    ['u-0011', { id: 'u-0011', class: 'cls-e' }],
-    ['u-0012', { id: 'u-0012', class: 'cls-f' }],
-    ['u-0013', { id: 'u-0013', class: 'cls-f' }],
-  ]);
-  const duplicateIndex = new Map([
-    ['e-0002', ['u-0004', 'u-0003', 'u-0009']],
-    ['e-0001', ['u-0001', 'u-0002']],
-    ['e-0003', ['u-0005', 'u-0006']],
-    ['e-0004', ['u-0007', 'u-0008']],
-    ['e-0005', ['u-0010', 'u-0011']],
-    ['e-0006', ['u-0012', 'u-0013']],
-  ]);
-  const records = {
-    'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
-    'u-0002': { unit: 'u-0002', verdict: 'approve', note: '', at: '2026-01-02' },
-    'u-0003': { unit: 'u-0003', verdict: 'approve', note: 'a', at: '2026-01-03' },
-    'u-0004': { unit: 'u-0004', verdict: 'reject', note: 'b', at: '2026-01-04' },
-    'u-0009': { unit: 'u-0009', verdict: 'skip', note: '', at: '2026-01-05' },
-    'u-0006': { unit: 'u-0006', verdict: 'approve', note: '', at: '2026-01-06' },
-    'u-0007': { unit: 'u-0007', verdict: 'either', note: 'e', at: '2026-01-07' },
-    'u-0008': { unit: 'u-0008', verdict: 'neither', note: 'n', at: '2026-01-08' },
-    'u-0010': { unit: 'u-0010', verdict: 'approve', note: '', at: '2026-01-09' },
-    'u-0011': { unit: 'u-0011', verdict: 'identical', note: '', at: '2026-01-10' },
-    'u-0012': { unit: 'u-0012', verdict: 'identical', note: '', at: '2026-01-11' },
-    'u-0013': { unit: 'u-0013', verdict: 'reject', note: 'r', at: '2026-01-12' },
-  };
-  const conflicts = duplicateConflicts(duplicateIndex, unitsById, (id) => records[id]);
-  assert.deepEqual(conflicts.map((conflict) => conflict.duplicateGroup), ['e-0002', 'e-0004', 'e-0006']);
-  const [split] = conflicts;
-  assert.equal(split.duplicateGroup, 'e-0002');
-  assert.equal(split.class, 'cls-b');
-  assert.deepEqual(split.unitIds, ['u-0003', 'u-0004', 'u-0009']);
-  assert.ok(split.records instanceof Map);
-  assert.deepEqual([...split.records.keys()], ['u-0003', 'u-0004']);
-  assert.equal(split.records.get('u-0003').verdict, 'approve');
-  assert.equal(split.records.has('u-0009'), false);
-  assert.equal(conflicts[1].class, 'cls-d');
-  assert.deepEqual(conflicts[1].unitIds, ['u-0007', 'u-0008']);
 });
 
 test('singletonChunks slices the exemplars into 40-plus-remainder chunks with 1-based bounds', () => {
@@ -313,15 +211,10 @@ test('singletonChunks slices the exemplars into 40-plus-remainder chunks with 1-
   assert.deepEqual(chunks[1].unitIds, ['u-0041']);
 });
 
-test('queueTotals sums blank units, duplicate groups, and the multi versus singleton cluster split', () => {
-  const totals = queueTotals([
-    { size: 3, duplicateGroups: [{}, {}] },
-    { size: 1, duplicateGroups: [{}] },
-    { size: 2, duplicateGroups: [{}, {}, {}] },
-  ]);
+test('queueTotals sums blank units and the multi versus singleton cluster split', () => {
+  const totals = queueTotals([{ size: 3 }, { size: 1 }, { size: 2 }]);
   assert.deepEqual(totals, {
     blankUnits: 6,
-    duplicateGroups: 6,
     clusters: 3,
     multiClusters: 2,
     singletonClusters: 1,
@@ -364,43 +257,44 @@ test('queueCounts ignores units with a null or undefined batch or a non-string c
   assert.deepEqual(queueCounts(units, blank), { blankUnits: 1, clusters: 1 });
 });
 
-test('nextQueueDecision offers the largest cluster first, one representative per fully-unrecorded duplicate group', () => {
+test('nextQueueDecision offers the largest cluster first, with every member that has no record', () => {
   const units = [
-    makeUnit('u-0001', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0003', { cluster: 'c-big', duplicate_group: 'e-0002' }),
-    makeUnit('u-0010', { cluster: 'c-small', duplicate_group: 'e-0010' }),
-    makeUnit('u-0011', { cluster: 'c-small', duplicate_group: 'e-0011' }),
+    makeUnit('u-0001', { cluster: 'c-big' }),
+    makeUnit('u-0002', { cluster: 'c-big' }),
+    makeUnit('u-0003', { cluster: 'c-big' }),
+    makeUnit('u-0010', { cluster: 'c-small' }),
+    makeUnit('u-0011', { cluster: 'c-small' }),
   ];
   const decision = nextQueueDecision(units, blank, new Set());
   assert.equal(decision.kind, 'cluster');
   assert.equal(decision.cluster.id, 'c-big');
-  assert.deepEqual(decision.unitIds, ['u-0001', 'u-0003']);
+  assert.deepEqual(decision.unitIds, ['u-0001', 'u-0002', 'u-0003']);
 });
 
-test('nextQueueDecision defers a duplicate group holding any recorded member, keeping the cluster for the sake of its still-open sibling group', () => {
+test('nextQueueDecision defers a skipped member, keeping the cluster for the sake of its still-open members', () => {
   const units = [
-    makeUnit('u-0001', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0003', { cluster: 'c-big', duplicate_group: 'e-0002' }),
-    makeUnit('u-0004', { cluster: 'c-big', duplicate_group: 'e-0002' }),
+    makeUnit('u-0001', { cluster: 'c-big' }),
+    makeUnit('u-0002', { cluster: 'c-big' }),
+    makeUnit('u-0003', { cluster: 'c-big' }),
+    makeUnit('u-0004', { cluster: 'c-big' }),
   ];
   const records = { 'u-0001': { unit: 'u-0001', verdict: 'skip', note: '', at: '2026-01-01' } };
   const decision = nextQueueDecision(units, (id) => records[id], new Set());
   assert.equal(decision.kind, 'cluster');
   assert.equal(decision.cluster.id, 'c-big');
-  assert.deepEqual(decision.unitIds, ['u-0003']);
+  assert.deepEqual(decision.unitIds, ['u-0002', 'u-0003', 'u-0004']);
 });
 
-test('nextQueueDecision passes over a wholly deferred cluster in favor of the next cluster with an open duplicate group', () => {
+test('nextQueueDecision passes over a wholly deferred cluster in favor of the next cluster with an open member', () => {
   const units = [
-    makeUnit('u-0001', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0003', { cluster: 'c-big', duplicate_group: 'e-0002' }),
-    makeUnit('u-0010', { cluster: 'c-small', duplicate_group: 'e-0010' }),
-    makeUnit('u-0011', { cluster: 'c-small', duplicate_group: 'e-0011' }),
+    makeUnit('u-0001', { cluster: 'c-big' }),
+    makeUnit('u-0002', { cluster: 'c-big' }),
+    makeUnit('u-0003', { cluster: 'c-big' }),
+    makeUnit('u-0010', { cluster: 'c-small' }),
+    makeUnit('u-0011', { cluster: 'c-small' }),
   ];
   const records = {
+    'u-0001': { unit: 'u-0001', verdict: 'skip', note: '', at: '2026-01-01' },
     'u-0002': { unit: 'u-0002', verdict: 'skip', note: '', at: '2026-01-01' },
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-02' },
   };
@@ -414,7 +308,7 @@ test('nextQueueDecision falls through to the first singleton chunk once every cl
   const units = [];
   for (let i = 1; i <= 42; i += 1) {
     const stamp = String(i).padStart(4, '0');
-    units.push(makeUnit(`u-${stamp}`, { cluster: `c-${stamp}`, duplicate_group: `e-${stamp}` }));
+    units.push(makeUnit(`u-${stamp}`, { cluster: `c-${stamp}` }));
   }
   const records = { 'u-0007': { unit: 'u-0007', verdict: 'skip', note: '', at: '2026-01-01' } };
   const decision = nextQueueDecision(units, (id) => records[id], new Set());
@@ -425,13 +319,14 @@ test('nextQueueDecision falls through to the first singleton chunk once every cl
   assert.equal(decision.unitIds.includes('u-0007'), false);
 });
 
-test('nextQueueDecision returns null when every blank unit sits in a deferred group', () => {
+test('nextQueueDecision returns null when every blank unit is deferred', () => {
   const units = [
-    makeUnit('u-0001', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-    makeUnit('u-0003', { cluster: 'c-single', duplicate_group: 'e-0003' }),
+    makeUnit('u-0001', { cluster: 'c-big' }),
+    makeUnit('u-0002', { cluster: 'c-big' }),
+    makeUnit('u-0003', { cluster: 'c-single' }),
   ];
   const records = {
+    'u-0001': { unit: 'u-0001', verdict: 'skip', note: '', at: '2026-01-01' },
     'u-0002': { unit: 'u-0002', verdict: 'skip', note: '', at: '2026-01-01' },
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-02' },
   };
@@ -439,13 +334,13 @@ test('nextQueueDecision returns null when every blank unit sits in a deferred gr
 });
 
 const threeClusters = () => [
-  makeUnit('u-0001', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-  makeUnit('u-0002', { cluster: 'c-big', duplicate_group: 'e-0001' }),
-  makeUnit('u-0003', { cluster: 'c-big', duplicate_group: 'e-0002' }),
-  makeUnit('u-0010', { cluster: 'c-mid', duplicate_group: 'e-0010' }),
-  makeUnit('u-0011', { cluster: 'c-mid', duplicate_group: 'e-0011' }),
-  makeUnit('u-0020', { cluster: 'c-small', duplicate_group: 'e-0020' }),
-  makeUnit('u-0021', { cluster: 'c-small', duplicate_group: 'e-0021' }),
+  makeUnit('u-0001', { cluster: 'c-big' }),
+  makeUnit('u-0002', { cluster: 'c-big' }),
+  makeUnit('u-0003', { cluster: 'c-big' }),
+  makeUnit('u-0010', { cluster: 'c-mid' }),
+  makeUnit('u-0011', { cluster: 'c-mid' }),
+  makeUnit('u-0020', { cluster: 'c-small' }),
+  makeUnit('u-0021', { cluster: 'c-small' }),
 ];
 
 test('nextQueueDecision steps past a cluster the session has already shown, however large, to one it never opened', () => {
@@ -471,8 +366,8 @@ test('nextQueueDecision comes back round to the decision shown longest ago once 
 test('nextQueueDecision reaches the singleton run as a fresh decision while every cluster is already shown', () => {
   const units = [
     ...threeClusters(),
-    makeUnit('u-0030', { cluster: 'c-one', duplicate_group: 'e-0030' }),
-    makeUnit('u-0031', { cluster: 'c-two', duplicate_group: 'e-0031' }),
+    makeUnit('u-0030', { cluster: 'c-one' }),
+    makeUnit('u-0031', { cluster: 'c-two' }),
   ];
   const shown = new Set(['c-big', 'c-mid', 'c-small']);
   const decision = nextQueueDecision(units, blank, new Set(), shown);
@@ -484,7 +379,7 @@ test('nextQueueDecision reaches the singleton run as a fresh decision while ever
 });
 
 test('the last open singleton, once shown, waits behind clusters postponed before it', () => {
-  const units = [...threeClusters(), makeUnit('u-0030', { cluster: 'c-one', duplicate_group: 'e-0030' })];
+  const units = [...threeClusters(), makeUnit('u-0030', { cluster: 'c-one' })];
   const shown = new Set(['c-big', 'c-mid', 'c-small']);
   const decision = nextQueueDecision(units, blank, new Set(), shown);
   assert.equal(decision.kind, 'singletons');
@@ -498,7 +393,7 @@ test('the last open singleton, once shown, waits behind clusters postponed befor
   assert.equal(next.revisit, true);
 });
 
-test('decisionKey names the cluster behind a representatives worklist and the singleton run behind anything else', () => {
+test('decisionKey names the cluster behind the worklist of a cluster and the singleton run behind anything else', () => {
   assert.equal(decisionKey([makeUnit('u-0001', { cluster: 'c-big' }), makeUnit('u-0003', { cluster: 'c-big' })]), 'c-big');
   assert.equal(decisionKey([makeUnit('u-0030', { cluster: 'c-one' }), makeUnit('u-0031', { cluster: 'c-two' })]), SINGLETON_DECISION);
   assert.equal(decisionKey([]), SINGLETON_DECISION);
@@ -515,12 +410,12 @@ test('readShownDecisions keeps the rotation across a rebuilt corpus, so a postpo
   const shown = readShownDecisions(stored);
   assert.deepEqual([...shown], ['c-bbe6acfa', 'c-cdde37a0']);
   const units = [
-    makeUnit('u-0001', { cluster: 'c-bbe6acfa', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-bbe6acfa', duplicate_group: 'e-0002' }),
-    makeUnit('u-0003', { cluster: 'c-cdde37a0', duplicate_group: 'e-0003' }),
-    makeUnit('u-0004', { cluster: 'c-cdde37a0', duplicate_group: 'e-0004' }),
-    makeUnit('u-0005', { cluster: 'c-fresh', duplicate_group: 'e-0005' }),
-    makeUnit('u-0006', { cluster: 'c-fresh', duplicate_group: 'e-0006' }),
+    makeUnit('u-0001', { cluster: 'c-bbe6acfa' }),
+    makeUnit('u-0002', { cluster: 'c-bbe6acfa' }),
+    makeUnit('u-0003', { cluster: 'c-cdde37a0' }),
+    makeUnit('u-0004', { cluster: 'c-cdde37a0' }),
+    makeUnit('u-0005', { cluster: 'c-fresh' }),
+    makeUnit('u-0006', { cluster: 'c-fresh' }),
   ];
   assert.equal(nextQueueDecision(units, blank, new Set(), shown).key, 'c-fresh');
 });
@@ -585,7 +480,7 @@ test('queueResumeAction advances a current-corpus worklist whose every listed un
   assert.equal(queueResumeAction({ stamp, manifestStamp: stamp, unitIds: [], recordOf, exists }).action, 'advance');
 });
 
-test('queueResumeAction renders a current-corpus worklist holding a blank or a skip — clicking a skipped-through cluster card must re-show the deferred representatives, never teleport', () => {
+test('queueResumeAction renders a current-corpus worklist holding a blank or a skip — clicking a skipped-through cluster card must re-show the deferred members, never teleport', () => {
   const records = {
     'u-0001': { unit: 'u-0001', verdict: 'approve', note: '', at: '2026-01-01' },
     'u-0003': { unit: 'u-0003', verdict: 'skip', note: '', at: '2026-01-01' },
@@ -599,11 +494,11 @@ test('queueResumeAction renders a current-corpus worklist holding a blank or a s
 
 test('nextQueueDecision never offers a ruled class, even the largest one', () => {
   const units = [
-    makeUnit('u-0001', { cluster: 'c-ruled', class: 'cls-ruled', duplicate_group: 'e-0001' }),
-    makeUnit('u-0002', { cluster: 'c-ruled', class: 'cls-ruled', duplicate_group: 'e-0002' }),
-    makeUnit('u-0003', { cluster: 'c-ruled', class: 'cls-ruled', duplicate_group: 'e-0003' }),
-    makeUnit('u-0010', { cluster: 'c-open', class: 'cls-a', duplicate_group: 'e-0010' }),
-    makeUnit('u-0011', { cluster: 'c-open', class: 'cls-a', duplicate_group: 'e-0011' }),
+    makeUnit('u-0001', { cluster: 'c-ruled', class: 'cls-ruled' }),
+    makeUnit('u-0002', { cluster: 'c-ruled', class: 'cls-ruled' }),
+    makeUnit('u-0003', { cluster: 'c-ruled', class: 'cls-ruled' }),
+    makeUnit('u-0010', { cluster: 'c-open', class: 'cls-a' }),
+    makeUnit('u-0011', { cluster: 'c-open', class: 'cls-a' }),
   ];
   const decision = nextQueueDecision(units, blank, new Set(['cls-ruled']));
   assert.equal(decision.kind, 'cluster');
@@ -611,11 +506,11 @@ test('nextQueueDecision never offers a ruled class, even the largest one', () =>
   assert.deepEqual(decision.unitIds, ['u-0010', 'u-0011']);
 });
 
-test('buildClusters groups table-diff rows, whose duplicate group is null, by cluster with each unit its own duplicate group', () => {
+test('buildClusters puts units that show the same pixels on one card, whatever their kinds and configurations', () => {
   const rows = [
-    makeUnit('u-1', { class: 'settlement', duplicate_group: null, cluster: 'c-11111111', configs: ['default', 'ss03'] }),
-    makeUnit('u-2', { class: 'joins', duplicate_group: null, cluster: 'c-11111111', configs: ['default'] }),
-    makeUnit('u-3', { class: 'joins', duplicate_group: null, cluster: 'c-22222222', configs: ['ss04'] }),
+    makeUnit('u-1', { class: 'settlement', cluster: 'c-11111111', configs: ['default', 'ss03'] }),
+    makeUnit('u-2', { class: 'joins', cluster: 'c-11111111', configs: ['default'] }),
+    makeUnit('u-3', { class: 'joins', cluster: 'c-22222222', configs: ['ss04'] }),
   ];
   const clusters = buildClusters(rows, () => undefined);
   assert.deepEqual(
@@ -626,15 +521,12 @@ test('buildClusters groups table-diff rows, whose duplicate group is null, by cl
     ],
     'a join unit and a settlement unit that show the same pixels share one card, whatever their configurations',
   );
-  assert.deepEqual(clusters[0].duplicateGroups.map((group) => group.unitIds), [['u-1'], ['u-2']]);
-  assert.deepEqual(clusters[0].representatives, ['u-1', 'u-2']);
   const decision = nextQueueDecision(rows, () => undefined, new Set());
   assert.equal(decision.key, 'c-11111111');
-  assert.deepEqual(decision.unitIds, ['u-1', 'u-2'], 'every unit of a table-diff card is stacked, since none shares a duplicate group');
+  assert.deepEqual(decision.unitIds, ['u-1', 'u-2'], 'every unit of a card is stacked');
 });
 
-test('queueEmptyNote says what an unclustered queue means for each kind of corpus', () => {
-  assert.match(queueEmptyNote({ mode: 'm1-audit', build_command: 'build it' }), /predates cluster signatures — rebuild it with build it/u);
+test('queueEmptyNote says what an unclustered queue means', () => {
   const commit = 'bb61f6e003b0a83211f09264519387a52344f18d';
   const tableDiff = { mode: 'table-diff', baseline: { present: true, commit, taken_at: '2026-11-26T09:08:33Z', digest: 'd0' }, totals: { units: 0 } };
   assert.equal(queueEmptyNote(tableDiff), 'No unaccepted changes since bb61f6e003b0.');

@@ -4,7 +4,7 @@
 
 The reverse also holds: every entry on the list must be a module the driver reaches, so the list names only modules the gates run. The list is also checked against `oracle_cache.ORACLE_ROW_CODE_PATHS`, because a comparison-side module named there would drop the oracle row cache on every classifier edit for no benefit.
 
-`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_review_code_closure.py does not follow them either, so a second check holds the corpus build's Python (`unit_cache.corpus_code_paths`) to importing no tools/ or test/ module by bare name, and the draft harness it drafts pins with (`fingerprint.draft_harness_paths`, the `data-expect` grammar) to importing no repository module at all. The roster check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash.
+`FONT_COMPILE_TOOL_MODULES` lists the tools/ modules the M1 font compile runs. `compile_font` passes the mini font to tools/build_font.py, so those modules can change M1.otf's bytes, and every stamp keyed on `pipeline_code_paths` must hash them. The list must equal the import closure inside tools/: a missing module is a font edit no key notices, and an extra one makes an edit to code the compile never runs trigger a rebuild. The walk follows tools' bare imports (they are siblings on `sys.path`, not a package) at any nesting. It starts from every tools/ module the pipeline's Python imports, not only tools/build_font.py, so a pipeline module that starts importing another tools/ module directly fails this test. rebuild/test_review_code_closure.py does not follow them either, so a second check holds the review corpus build's Python (`fingerprint.review_code_paths` and the modules the build reaches under rebuild/pipeline and rebuild/validation) to importing no tools/ or test/ module by bare name. The roster check does not cover the rebuild/tools modules the pipeline imports, which `pipeline_code_paths` does not hash.
 
 `TABLE_BUILD_CODE_MODULES` is the Python half of `run_m1.table_build_code_paths`, the code that the table build record's structure stamp (`run_m1.memo_structure_stamp`) and its `code` hash. The crate reads nothing but the spec dump and its command line, so the roster is the module-grain import closure of the crate driver and the dump's writer (`kernel_exec`, `kernel_io`), stopping at rebuild/test_review_code_closure.py's `WIDTH_AND_TELEMETRY_MODULES` as rebuild/test_oracle_code_closure.py does, with the same check that every module the walk stops at imports only other members. A module the walk reaches that the roster misses could change what the crate reads while the stamp and `code` hold, so two builds of different inputs would pair as the same; a roster entry the walk never reaches moves both on an edit the crate cannot see. A second check holds the paths to the whole crate plus the roster, every one on disk, because `fingerprint.hash_paths` skips a missing file.
 """
@@ -15,8 +15,8 @@ import ast
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint, oracle_cache, run_m1
-from rebuild.review import unit_cache
-from rebuild.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES
+from rebuild.test_review_code_closure import BUILD_ENTRY_MODULES as CORPUS_ENTRY_MODULES
+from rebuild.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES, reachable_modules
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE = REPO_ROOT / "rebuild" / "pipeline"
@@ -25,7 +25,6 @@ BUILD_ENTRY = "run"
 TOOLS = REPO_ROOT / "tools"
 FONT_COMPILE_ENTRY = TOOLS / "build_font.py"
 TEST_DIR = REPO_ROOT / "test"
-DRAFT_GRAMMAR = REPO_ROOT / "rebuild" / "validation" / "expect.py"
 TABLE_BUILD_ENTRY_MODULES = ("rebuild.pipeline.kernel_exec", "rebuild.pipeline.kernel_io")
 
 
@@ -158,19 +157,10 @@ def test_the_font_compile_roster_is_the_import_closure_of_what_the_pipeline_name
     ), f"FONT_COMPILE_TOOL_MODULES names files that are not under tools/: {', '.join(strays)}"
 
 
-def test_the_draft_harness_is_a_leaf_and_the_corpus_build_reaches_no_tools_or_test_module():
-    """The corpus build drafts and checks pins with the `data-expect` grammar (rebuild/validation/expect.py), whose `parse_expect` the contract check calls and whose character map the units init carries. `unit_cache.environment_stamp`'s draft-harness line hashes that file and the glyph-name map it reads (`fingerprint.draft_harness_paths`), so the grammar must import no repository module, and no Python module in `unit_cache.corpus_code_paths` may import a tools/ or test/ module by bare name, which rebuild/test_review_code_closure.py does not follow. Otherwise an edit to such a module could change a unit's products without dropping the store or restamping the corpus."""
-    assert DRAFT_GRAMMAR in set(fingerprint.draft_harness_paths(REPO_ROOT))
-    assert _imports(DRAFT_GRAMMAR) == set(), "the data-expect grammar imports a repository module"
-    assert (
-        _siblings(DRAFT_GRAMMAR, (TOOLS, TEST_DIR)) == set()
-    ), "the data-expect grammar imports a tools/ or test/ module"
-    corpus_code = [
-        path for path in unit_cache.corpus_code_paths(REPO_ROOT) if path.suffix == ".py" and path.is_file()
-    ]
-    assert (
-        corpus_code
-    ), "unit_cache.corpus_code_paths names no Python file; the walk has no corpus entry point"
+def test_the_corpus_build_reaches_no_tools_or_test_module():
+    """rebuild/test_review_code_closure.py's walk follows only package imports, so no Python module the review corpus build runs may import a tools/ or test/ module by bare name. Otherwise an edit to such a module could change a unit without restamping the corpus."""
+    corpus_code = [path for path in reachable_modules(CORPUS_ENTRY_MODULES).values() if path.suffix == ".py"]
+    assert corpus_code, "the walk from the corpus build found no Python file; the entry point moved"
     reached = sorted(
         f"{path.relative_to(REPO_ROOT).as_posix()} -> {sibling.relative_to(REPO_ROOT).as_posix()}"
         for path in corpus_code
@@ -178,7 +168,7 @@ def test_the_draft_harness_is_a_leaf_and_the_corpus_build_reaches_no_tools_or_te
     )
     assert reached == [], (
         f"the corpus build imports tools/ or test/ modules by bare name: {', '.join(reached)}. "
-        "An edit to one of them could change a unit's products without dropping the store or restamping the corpus."
+        "An edit to one of them could change a unit without restamping the corpus."
     )
 
 

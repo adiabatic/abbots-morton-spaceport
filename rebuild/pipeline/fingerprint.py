@@ -2,26 +2,22 @@
 
 Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds of the same inputs produce the same value. Most lines are `label\\tdigest` pairs over file contents. The baseline TSVs are the exception: they are large, and `rebuild/out/digests.tsv` already holds their content digests, so `baselines_value` hashes their sizes and that file. The corpus manifest's `generated_at` is mtime-based and identifies a corpus build, so that exported verdicts and sidecars can be matched to it. It cannot tell whether the corpus matches the sources on disk; these fingerprints can.
 
-run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`). The review build copies those recorded values into the manifest instead of recomputing them, so a corpus rebuilt over stale `rebuild/out/m1` artifacts carries the stale values, one rebuilt after a run that wrote there and then stopped or failed carries none, and the checker flags either. The review build computes the Stage B components (`review_code`, `static`, `fonts`, `explain_prose`, `draft_inputs`) itself. Those eight are the m1-audit corpus's fingerprint; a table-diff corpus carries `TABLE_DIFF_COMPONENTS` instead (`table_diff_values`), whose `tables` component the build copies from the windows heads of the build it compares, as it copies Stage A here.
-
-`draft_inputs` covers the approval drafter's site pages and harness: the `SITE_CORPUS_FILES` pages by raw bytes (their pins set a pin draft's `attribute` and `duplicate_of`), and the draft harness (`draft_harness_paths`) through `hash_paths`. `data`, `pipeline_code`, and `review_code` hold the drafter's other file and code inputs (the alias map, the rune schema, the validation code, and the review crate). The after font the drafter shapes and classifies with is in no component; `artifact_cycle.corpus_build_skippable` and `status._freshness_check` compare the manifest's after-font sha256 with rebuild/out/m1/M1.otf instead. The shaping packages `uv.lock` pins are in no corpus component. The component's value is the digest of `draft_input_lines`, the two lines the review unit store's stamp (`unit_cache.environment_stamp`) also carries. The review build reads the pages once, before the crate drafts anything, and takes the drafters' index of pinned cells (the units init's corpus index), the store's two lines, and the manifest's `draft_inputs` (through `stage_b`'s `draft_lines`) from that one read, so all three see the same page bytes. It hashes the harness at that point too, and the units init's glyph names come from the harness the build imports then (`drafts._import_test_shaping`). Every other caller streams the pages through `file_sha256`.
+run_m1 records the Stage A components (`data`, `baselines`, `pipeline_code`) in `rebuild/out/m1/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_m1_gates._settle_stage_a`), so a record matches the sources on disk only beside the artifacts of a passing run over them (`artifact_cycle.m1_stage_a_current`). The review corpus carries `TABLE_DIFF_COMPONENTS` (`table_diff_values`), whose `tables` component the build copies from the windows heads of the build it compares.
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `table_data_value`, leaves out `NON_TABLE_DATA_LABELS` (the alias map, the divergence ledger, and the kern sidecar), and hashes each rune file without its `kern` block (`rune_file_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. Those inputs are read or run only by the gates that check the tables and font a build has written and by the guards that run before them, so editing one re-runs them over the enumeration on disk instead of discarding it. rebuild/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
 The two human-reviewed ledgers have prose-insensitive digests, like the rune files below:
 
-- The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate without restamping the corpus or dropping the review unit cache. Each entry's `why` is left out of the digest.
-- The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's prose, the keys in `LEDGER_PROSE_KEYS`. `_projected_ledger` says which code reads each of the other fields. Changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. The review build copies each class's prose into the manifest, so the prose is hashed into the Stage B `explain_prose` component through `ledger_prose_lines`. Rewording a class costs a corpus rebuild that reuses every cached unit and nothing else. The change groups' prose, rebuild/review/change-groups.yaml, takes the same route through `group_prose_lines` and is in no other component.
+- The contact allow-list is in no component, not even `data`. Only the defect gate reads it, so its digest (`contact_allow_digest`, under `CONTACT_ALLOW_LABEL`) is only in the artifact cycle's run_m1 skip key. Changing a signature re-runs that gate and nothing else. Each entry's `why` is left out of the digest.
+- The divergence ledger is in `data` and left out of `tables_value`. `divergence_ledger_digest` hashes every field except each class's prose, the keys in `LEDGER_PROSE_KEYS`. `_projected_ledger` says which code reads each of the other fields. Changing one moves `data` and the run_m1 skip key, and the cycle re-runs the comparison over the tables and font on disk. Rewording a class's prose moves no key.
 
-`rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these (the refuse `why` has one reader, described next), so editing them should not make the corpus stale or re-run a cycle. It also drops the `kern` block whole. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
+`rune_file_digest` hashes a rune's parsed document instead of its bytes, with the prose removed: YAML comments and formatting, the ductus text, `notes`, and every `why`, refuse records' included. No build step reads any of these, so editing them should not make the corpus stale or re-run a cycle. It also drops the `kern` block whole. The digest keeps every geometric and policy field, the ductus keys (motion names, which the lints check), and the presence of every prose field, because the schema requires `why` on some records.
 
-The full font compile reads the non-Quikscript part of the font beside the runes (`font_data_paths`: the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, the Latin kern rules and the glyph-name map). No table, settlement, oracle row or review unit reads them, so they are in no Stage A component and not in the tables' stamp. They reach the run_m1 skip key alone, one line per file (`font_data_lines`, labeled `<label>#font`), and a moved font-data line, like a moved kern line, makes the cycle recompile the font over the tables on disk (`artifact_cycle.kern_only_rebuild`). glyph_data/punctuation.yaml is the exception: the namer dot's glyphs come from it, so it keeps its data line, and an edit to it, the angle parentheses and `space` among its records, rebuilds the tables. The review corpus and the oracle key on the after font's Quikscript glyphs and the helper glyphs a Quikscript run reaches (`after_font_glyph_digests`, `RUNE_HELPER_GLYPHS`), so a Latin glyph edit keeps their caches; the corpus's freshness check compares the fonts' tables (`kern_blind_font_digest`), so the corpus is rebuilt over that cache.
+The full font compile reads the non-Quikscript part of the font beside the runes (`font_data_paths`: the Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the metadata, the Latin kern rules and the glyph-name map). No table, settlement or oracle row reads them, so they are in no Stage A component and not in the tables' stamp. They reach the run_m1 skip key alone, one line per file (`font_data_lines`, labeled `<label>#font`), and a moved font-data line, like a moved kern line, makes the cycle recompile the font over the tables on disk (`artifact_cycle.kern_only_rebuild`). glyph_data/punctuation.yaml is the exception: the namer dot's glyphs come from it, so it keeps its data line, and an edit to it, the angle parentheses and `space` among its records, rebuilds the tables. The oracle keys on the after font's Quikscript glyphs and the helper glyphs a Quikscript run reaches (`after_font_glyph_digests`, `RUNE_HELPER_GLYPHS`), so a Latin glyph edit keeps its caches; the review corpus's `font_inputs` component holds the font-data lines, so the corpus is rebuilt.
 
-A rune's `kern` block reaches no table, no settlement and nothing the review corpus shows, so it is in no key built from `rune_file_digest`: not the `data` component, the tables' stamp, the oracle row cache's or settle memo's family keys (`rune_digests`), the string replay's and deep replay's narrowing, or the review unit cache's family keys (`rune_explain_digests`). It reaches the run_m1 skip key alone, through one line per rune (`kern_lines`, `rune_kern_digest`: the records less their `why`), so a kern edit rebuilds the font and nothing else (`artifact_cycle.kern_only_rebuild`). The rebuild suite's input closure hashes rune files whole, kern block included (`rune_document_digest`), because a test can read any part of a file. The after font's kern lookup is likewise outside every key that reads the font for the review corpus or the oracle (`after_font_glyph_digests`, `kern_blind_font_digest`).
+A rune's `kern` block reaches no table, no settlement and nothing the review corpus shows, so it is in no key built from `rune_file_digest`: not the `data` component, the tables' stamp, the oracle row cache's or settle memo's family keys (`rune_digests`), or the string replay's and deep replay's narrowing. It reaches the run_m1 skip key alone, through one line per rune (`kern_lines`, `rune_kern_digest`: the records less their `why`), so a kern edit rebuilds the font and nothing else (`artifact_cycle.kern_only_rebuild`). The rebuild suite's input closure hashes rune files whole, kern block included (`rune_document_digest`), because a test can read any part of a file. The after font's kern lookup is likewise outside every key that reads the font for the oracle (`after_font_glyph_digests`).
 
-The crate appends a refuse record's `why` to that refusal's elimination message when it builds a ranking. The table fixpoint never requests a ranking; only the review corpus's explain panel shows rankings. So the refuse `why` is hashed by `rune_explain_digest`, which the review unit cache's family keys are built from, and by the Stage B `explain_prose` component. Rewording one re-enriches the windows whose explain text quotes it and restamps the corpus. No key built from `rune_file_digest` or `rune_digests` sees it.
-
-The other data inputs have prose-insensitive digests too, chosen by `_data_digest`. A schema under rebuild/schema/ is hashed by `schema_file_digest`: its parsed JSON with key order kept and every `title` and `description` annotation removed from the positions where a schema sits. `spec_load._SchemaValidator._ANNOTATIONS` declares these as annotations, and its standard validator's `VALIDATORS` dispatch does not evaluate them. The loader and `rebuild/review/drafts.py` share that adapter. A property named `description` stays, because the projection removes keywords from schemas and never names from `properties`; rebuild/schema/script.schema.json declares one. The `$schema` and `$id` metadata stay too, because they identify the dialect and reference scope. rebuild/script.yaml, glyph_data/punctuation.yaml, the alias map, and the kern sidecar are hashed by `yaml_data_digest`, their parsed documents with key order kept, which drops comments and formatting and nothing else. Key order stays because no reader of these files has been shown not to depend on it, so a pure reorder still moves the digest. A file that fails to parse is hashed raw. `data_path_lines` hashes every data input this way wherever one reaches a key: the `data` component and the run_m1 skip key, `tables_value` and `run_m1.locality_lines`, the `data` line of the oracle row cache's and settle memo's stamps (`oracle_cache.stamped_data_paths`), and the `data` line of the review unit cache's stamp. Rewording a schema hover or a comment in one of these files therefore moves none of them. Outside the gate closures described below, the oracle's position stamp is the one key that still hashes a data input's bytes: `oracle_cache.position_keys` hashes the kern sidecar raw, so after a comment edit there, the next pass that runs the oracle re-shapes every position.
+The other data inputs have prose-insensitive digests too, chosen by `_data_digest`. A schema under rebuild/schema/ is hashed by `schema_file_digest`: its parsed JSON with key order kept and every `title` and `description` annotation removed from the positions where a schema sits. `spec_load._SchemaValidator._ANNOTATIONS` declares these as annotations, and its standard validator's `VALIDATORS` dispatch does not evaluate them. A property named `description` stays, because the projection removes keywords from schemas and never names from `properties`; rebuild/schema/script.schema.json declares one. The `$schema` and `$id` metadata stay too, because they identify the dialect and reference scope. rebuild/script.yaml, glyph_data/punctuation.yaml, the alias map, and the kern sidecar are hashed by `yaml_data_digest`, their parsed documents with key order kept, which drops comments and formatting and nothing else. Key order stays because no reader of these files has been shown not to depend on it, so a pure reorder still moves the digest. A file that fails to parse is hashed raw. `data_path_lines` hashes every data input this way wherever one reaches a key: the `data` component and the run_m1 skip key, `tables_value` and `run_m1.locality_lines`, and the `data` line of the oracle row cache's and settle memo's stamps (`oracle_cache.stamped_data_paths`). Rewording a schema hover or a comment in one of these files therefore moves none of them. Outside the gate closures described below, the oracle's position stamp is the one key that still hashes a data input's bytes: `oracle_cache.position_keys` hashes the kern sidecar raw, so after a comment edit there, the next pass that runs the oracle re-shapes every position.
 
 `code_file_digest` projects code files the same way. A `.py` file is hashed as its syntax tree with every docstring's text set to None, and a `.rs` file with its whole-line `//` comments removed, so rewording either moves no key built by `path_lines` or `hash_paths`. Everything the interpreter or compiler sees stays in: every identifier, every non-docstring string constant (matchers compare against error text), every annotation, default, and decorator, and every Rust code line including its trailing comment. The presence of each docstring stays too. A file that fails to parse or decode is hashed as raw bytes, as `_projected_digest` does, so the failure stays visible. Every other file type that reaches `path_lines`, such as the app's static files and the crate's manifest and lock, is hashed raw by `file_sha256`. `baseline_subset.stamp_key` also uses `code_file_digest`.
 
@@ -32,7 +28,7 @@ The site fonts and `uv.lock`, which a version bump rewrites, have version-blind 
 - `font_content_digest` hashes a font table by table from the bytes the `sfnt` reader returns: the sorted table tags, then each table's length and digest, leaving out `head` and `name` (`FONT_VERSION_TABLES`). `head` holds the revision, the checksum adjustment, and the modification time, and `name` holds the version strings. A shaper reads neither to position a glyph. `head` also holds `unitsPerEm`, but an edit to `units_per_em` in glyph_data/metadata.yaml still reaches the digest through `CFF `: tools/build_font.py passes `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the matrix as 1/unitsPerEm. rebuild/test_fingerprint.py checks that fontTools default. Only a hand edit to `head.unitsPerEm` alone would go unseen, and nothing in the tree makes one. Every table that can affect a shaped run stays (`CFF `, `hmtx`, `GPOS`, `GSUB`, `cmap`), and so does the list of tables. A file fontTools cannot open, or whose table it cannot read, is hashed as raw bytes.
 - `lock_digest` (in `rebuild.tools.lock_digest`, a separate module because the pyright gate also hashes the lock and must not import rebuild.pipeline) removes the project's own block from the lock and hashes the rest, so a changed dependency pin or an added or removed package still moves it.
 
-`fonts_value` is `hash_paths` with `font_content_digest` per font. It is the Stage B `fonts` component and the contracts lane's `fonts` label.
+`fonts_value` is `hash_paths` with `font_content_digest` per font. It is the contracts lane's `fonts` label.
 """
 
 from __future__ import annotations
@@ -55,8 +51,6 @@ from rebuild.tools.site_fonts import font_paths
 FORMAT = "ams-inputs-fingerprint/2"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "baselines", "pipeline_code")
-STAGE_B_COMPONENTS = ("review_code", "static", "fonts", "explain_prose", "draft_inputs")
-COMPONENTS = STAGE_A_COMPONENTS + STAGE_B_COMPONENTS
 # The inputs fingerprint of a table-diff corpus (`table_diff_values`), which compares a snapshot of the accepted build with a run_m1 build and reads neither the oracle's audit nor the site fonts.
 TABLE_DIFF_COMPONENTS = ("snapshot", "tables", "font_inputs", "review_code", "static")
 STAGE_A_FILENAME = "inputs_fingerprint.json"
@@ -150,51 +144,6 @@ def font_compile_tool_paths(repo_root: Path) -> list[Path]:
     return sorted(Path(repo_root) / "tools" / name for name in FONT_COMPILE_TOOL_MODULES)
 
 
-SITE_CORPUS_FILES = ("site/index.html", "site/the-manual.html", "site/extra-senior-words.html")
-
-
-def draft_harness_paths(repo_root: Path) -> list[Path]:
-    """Return the draft harness the approval drafter follows: the `data-expect` grammar (rebuild/validation/expect.py), whose `parse_expect` and `expand_maybe_ligatures` the crate's drafter ports to check every pin draft and whose character map the units init carries, and postscript_glyph_names.yaml, which the grammar reads that map from when it is imported. The grammar imports nothing else from the repository (rebuild/test_build_code_closure.py checks it)."""
-    root = Path(repo_root)
-    return [
-        root / "rebuild" / "validation" / "expect.py",
-        root / "postscript_glyph_names.yaml",
-    ]
-
-
-def read_site_corpus(repo_root: Path, files: Iterable[str] = SITE_CORPUS_FILES) -> dict[str, bytes | None]:
-    """Return each page's bytes by its repo-relative name, in `files` order, or None for a page that does not exist. A page is read whole because the drafter parses it, and the review build hashes those same bytes for its stamps (`draft_input_lines`); the pages are tens to hundreds of kilobytes."""
-    pages: dict[str, bytes | None] = {}
-    for name in files:
-        try:
-            pages[name] = (Path(repo_root) / name).read_bytes()
-        except FileNotFoundError:
-            pages[name] = None
-    return pages
-
-
-def _page_digest(root: Path, name: str, pages: Mapping[str, bytes | None] | None) -> str:
-    if pages is not None:
-        page = pages[name]
-        return "missing" if page is None else hashlib.sha256(page).hexdigest()
-    try:
-        return file_sha256(root / name)
-    except FileNotFoundError:
-        return "missing"
-
-
-def draft_input_lines(repo_root: Path, pages: Mapping[str, bytes | None] | None = None) -> list[str]:
-    """Return the `site_corpus` and `draft_harness` lines: the digest of each `SITE_CORPUS_FILES` page, or `missing`, and `hash_paths` over `draft_harness_paths`. `pages` is what `read_site_corpus` returned when the caller has already read the pages to parse them, and their digests are taken from those bytes; when it is None, each page is streamed through `file_sha256`."""
-    root = Path(repo_root)
-    site = " ".join(f"{name}={_page_digest(root, name, pages)}" for name in SITE_CORPUS_FILES)
-    return [f"site_corpus\t{site}", f"draft_harness\t{hash_paths(root, draft_harness_paths(root))}"]
-
-
-def draft_inputs_value(lines: Iterable[str]) -> str:
-    """Return the `draft_inputs` component from `draft_input_lines`, sorted so the value does not depend on their order."""
-    return digest_lines(sorted(lines))
-
-
 def pipeline_code_paths(repo_root: Path) -> list[Path]:
     """Return the code the `pipeline_code` component hashes: rebuild/pipeline, rebuild/validation, the kernel crate's manifest, lock, and sources, and the font compile's tools/ modules (`font_compile_tool_paths`). rebuild/validation holds the shaper, the row model, the junction classifier, and the `data-expect` grammar, collector and checker the pin gate runs, less `VALIDATION_UNBUILT_MODULES`. Whole trees are hashed instead of a list of imported modules, because such a list goes stale when an import or a Rust module is added, and over-invalidating is the safe error.
 
@@ -227,7 +176,6 @@ REVIEW_NON_BUILD_MODULES = frozenset(
         "status.py",
         "store_lock.py",
         "landing.py",
-        "export.py",
         "kern_routes.py",
         "kern_writer.py",
     }
@@ -235,7 +183,7 @@ REVIEW_NON_BUILD_MODULES = frozenset(
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports. Hashing one of those would force a full corpus rebuild and drop the per-unit store for an edit the build cannot execute. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus into place and carries the store onto it. export.py is a standalone CLI that turns exported verdicts into a triage YAML. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py and of the modules whose constants the review crate reads (`corpus_exec.VOCABULARY`, `units_exec.VOCABULARY`)."""
+    """Return rebuild/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports, so an edit the build cannot execute does not make the corpus stale. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus into place and carries the store onto it. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `rebuild/out/m1` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. rebuild/test_review_code_closure.py checks this set in both directions against the import graph of build.py."""
     return sorted(
         path
         for path in (Path(repo_root) / "rebuild" / "review").glob("*.py")
@@ -243,19 +191,8 @@ def review_code_paths(repo_root: Path) -> list[Path]:
     )
 
 
-def review_crate_paths(repo_root: Path) -> list[Path]:
-    """Return every file under the review crate, rebuild/review-rs/, outside its `target/`, sorted: the sources and tests, `build.rs` with the HarfBuzz pin it holds, the manifest and the lock. The m1-audit corpus build runs in the crate, so `stage_b`'s `review_code` hashes these beside `review_code_paths`, and their digest (`units_exec.crate_digest`) is the unit store stamp's `units_engine` line and the ink-signature store stamp's `crate_code` line."""
-    crate = Path(repo_root) / "rebuild" / "review-rs"
-    paths: list[Path] = []
-    for directory, subdirectories, files in os.walk(crate):
-        if Path(directory) == crate:
-            subdirectories[:] = [name for name in subdirectories if name != "target"]
-        paths.extend(Path(directory) / name for name in files)
-    return sorted(paths)
-
-
 def static_files(static_dir: Path) -> list[Path]:
-    """Return the review app's files under `static_dir`, sorted, leaving out any path with a dot-prefixed part below that directory: the `.uv-cache/` a `uv run` started there leaves behind, or a `.DS_Store`. No tracked app asset is a dotfile. `stage_b` and `rebuild.review.build.refresh_assets` hash this list, through `static_paths`, into the Stage B `static` component, and `rebuild.review.build.copy_static` copies the same list, so the recorded value and the copied files name one set. Path parts are judged relative to `static_dir`, so a checkout under a dot directory keeps its files."""
+    """Return the review app's files under `static_dir`, sorted, leaving out any path with a dot-prefixed part below that directory: the `.uv-cache/` a `uv run` started there leaves behind, or a `.DS_Store`. No tracked app asset is a dotfile. `table_diff_values` and `rebuild.review.build.refresh_assets` hash this list, through `static_paths`, into the manifest's `static` component, and `rebuild.review.build.copy_static` copies the same list, so the recorded value and the copied files name one set. Path parts are judged relative to `static_dir`, so a checkout under a dot directory keeps its files."""
     static_dir = Path(static_dir)
     return sorted(
         path
@@ -454,122 +391,8 @@ def gpos_kern_blind_wiring(table: Any) -> tuple:
     return features, [lookups[index].LookupType for index in kept]
 
 
-def _kern_blind_gpos_line(font: Any) -> str | None:
-    """The `GPOS` line of `kern_blind_font_digest`: a digest of everything in GPOS that a shaper with `kern` off applies, or None when GPOS holds a lookup outside the `kern` feature's reach that is neither a cursive attachment nor a mark attachment, which this projection does not describe (the caller then hashes the table's bytes). The projection is the kern-blind wiring (`gpos_kern_blind_wiring`), each remaining cursive lookup's flag and every cursive record by glyph with its anchors, each script and language system's remaining feature tags, and, when the font has any, each mark-attachment lookup's XML (`_lookup_xml`) with its place among the remaining lookups. The mark lookups are the full font's Latin `mark` feature, which no kern edit moves."""
-    table = font["GPOS"].table
-    dropped = kern_only_lookups(table)
-    lookups: list[Any] = list(table.LookupList.Lookup if table.LookupList else ())
-    cursive: list = []
-    marks: list = []
-    for index, lookup in enumerate(lookups):
-        if index in dropped:
-            continue
-        kinds = {
-            type(getattr(subtable, "ExtSubTable", subtable)).__name__ for subtable in lookup.SubTable or []
-        }
-        if kinds and kinds <= MARK_ATTACHMENT_SUBTABLES:
-            marks.append((len(cursive) + len(marks), _lookup_xml(lookup, font)))
-            continue
-        entries = []
-        for subtable in lookup.SubTable or []:
-            subtable = getattr(subtable, "ExtSubTable", subtable)
-            if type(subtable).__name__ != "CursivePos":
-                return None
-            for glyph, record in zip(subtable.Coverage.glyphs, subtable.EntryExitRecord or []):
-                entry, exit_anchor = record.EntryAnchor, record.ExitAnchor
-                entries.append(
-                    (
-                        glyph,
-                        None if entry is None else (entry.Format, entry.XCoordinate, entry.YCoordinate),
-                        (
-                            None
-                            if exit_anchor is None
-                            else (exit_anchor.Format, exit_anchor.XCoordinate, exit_anchor.YCoordinate)
-                        ),
-                    )
-                )
-        cursive.append((lookup.LookupFlag, entries))
-    tags = [record.FeatureTag for record in (table.FeatureList.FeatureRecord if table.FeatureList else ())]
-    scripts = []
-    for script in table.ScriptList.ScriptRecord if table.ScriptList else ():
-        systems = [(None, script.Script.DefaultLangSys)] + [
-            (record.LangSysTag, record.LangSys) for record in script.Script.LangSysRecord or []
-        ]
-        for language, system in systems:
-            if system is None:
-                continue
-            scripts.append(
-                (
-                    script.ScriptTag,
-                    language,
-                    sorted(tags[i] for i in system.FeatureIndex or [] if tags[i] != KERN_FEATURE_TAG),
-                )
-            )
-    projection: tuple = (gpos_kern_blind_wiring(table), cursive, scripts)
-    payload = repr((*projection, marks) if marks else projection)
-    return "GPOS-kern-blind\t" + hashlib.sha256(payload.encode()).hexdigest()
-
-
-# The GPOS subtables of the full font's `mark` feature, which `_kern_blind_gpos_line` describes by their XML (`_lookup_xml`) beside the cursive records.
-MARK_ATTACHMENT_SUBTABLES = frozenset({"MarkBasePos", "MarkLigPos", "MarkMarkPos"})
-
-
-def _lookup_xml(lookup: Any, font: Any) -> str:
-    """A lookup's fontTools XML dump, which names every glyph, anchor and class it holds and no lookup index, so it is the same wherever the lookup sits in the list."""
-    import io
-
-    from fontTools.misc.xmlWriter import XMLWriter
-
-    buffer = io.BytesIO()
-    writer = XMLWriter(buffer, newlinestr="\n")
-    lookup.toXML(writer, font)
-    return buffer.getvalue().decode()
-
-
-_KERN_BLIND_DIGESTS: dict[str, str] = {}
-
-
-def kern_blind_font_digest(path: Path) -> str:
-    """Return `font_content_digest` with the `GPOS` table's line replaced by its kern-blind projection (`_kern_blind_gpos_line`), so two builds whose fonts differ only in the `kern` feature's lookups share a digest. The review corpus shapes and renders with `kern` off and its app sets `font-kerning: none`, so such fonts give it the same units; `artifact_cycle.corpus_build_skippable` and `make verdict-ready` (`status._freshness_check`) compare the corpus's copied after font with rebuild/out/m1/M1.otf by this digest. A GPOS the projection does not describe is hashed by its bytes, and a file fontTools cannot read by `font_content_digest`. Memoized per process on the raw content digest."""
-    from fontTools.ttLib import TTFont, TTLibError
-
-    raw_digest = file_sha256(path)
-    digest = _KERN_BLIND_DIGESTS.get(raw_digest)
-    if digest is not None:
-        return digest
-    lines = _font_content_lines(path)
-    if lines is None:
-        digest = font_content_digest(path)
-    else:
-        try:
-            font = TTFont(str(path), lazy=True)
-            try:
-                gpos_line = _kern_blind_gpos_line(font) if "GPOS" in font else None
-            finally:
-                font.close()
-        except TTLibError, OSError, ValueError, AssertionError, struct.error:
-            gpos_line = None
-        if gpos_line is not None:
-            lines = [gpos_line if line.startswith("GPOS\t") else line for line in lines]
-        digest = digest_lines(lines)
-    _KERN_BLIND_DIGESTS[raw_digest] = digest
-    return digest
-
-
-def after_font_current(copy: Path, recorded_sha: str, m1_font: Path) -> bool:
-    """Return whether a review corpus's after font still stands for the M1 font on disk: M1.otf has the sha256 the corpus's manifest records, or the corpus's copy (`copy`) has it and equals M1.otf outside the `kern` feature's lookups (`kern_blind_font_digest`). A missing or unreadable file is not current. `artifact_cycle.corpus_build_skippable` and `make verdict-ready` (`status._freshness_check`) share this test."""
-    try:
-        if file_sha256(m1_font) == recorded_sha:
-            return True
-        if file_sha256(copy) != recorded_sha:
-            return False
-        return kern_blind_font_digest(copy) == kern_blind_font_digest(m1_font)
-    except OSError:
-        return False
-
-
 def fonts_value(repo_root: Path, paths: list[Path]) -> str:
-    """Return `hash_paths` over the given fonts with `font_content_digest` in place of the raw digest, so the `make all` of a version bump leaves the Stage B `fonts` component and the contracts lane's `fonts` label unchanged."""
+    """Return `hash_paths` over the given fonts with `font_content_digest` in place of the raw digest, so the `make all` of a version bump leaves the contracts lane's `fonts` label unchanged."""
     return digest_lines(
         sorted(f"{_label(repo_root, path)}\t{font_content_digest(path)}" for path in paths if path.is_file())
     )
@@ -587,7 +410,7 @@ def _labels_of(lines: Iterable[str]) -> dict[str, str]:
 class EnvironmentStamp:
     """A whole-store stamp kept as `label\\tdigest` lines, so a store that records them can name the input that changed on a miss. `value` is the digest of `lines` alone. `detail` maps a label to the lines behind that label's digest (for a code closure, its `path_lines`), so a miss can name the file inside the closure. `detail` is not part of `value` or `labels`, so adding it leaves both unchanged.
 
-    The class lives here because the review corpus's stores and the oracle row cache both import this module and neither may import the other. `rebuild/pipeline/oracle_cache.py` is outside `unit_cache.corpus_code_paths`, so importing it from the corpus build would run code the corpus's stamp does not hash (rebuild/test_review_code_closure.py checks that list), and the pipeline never imports `rebuild/review/`.
+    The oracle row cache (`rebuild/pipeline/oracle_cache.py`) keeps its stores' stamps in this form.
     """
 
     lines: tuple[str, ...]
@@ -677,9 +500,9 @@ def glyph_facts(font, names: Iterable[str] | None = None) -> dict[str, tuple]:
 
 
 def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
-    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its facts (`glyph_facts`): its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the helper glyphs a Quikscript run can reach outside the families (`RUNE_HELPER_GLYPHS`), the cmap entries of those glyphs and the family glyphs, and the GPOS feature-to-lookup wiring less the `kern` feature and the lookups only it reaches (`gpos_kern_blind_wiring`): every reader of this digest shapes with `kern` off, so whether the font has a kern lookup moves none of its keys. Every reader shapes Quikscript windows, which reach no Latin glyph, so an edit to a Latin glyph or its code point moves neither digest. The function lives here because `rebuild/review/` imports `rebuild/pipeline/` and never the reverse.
+    """Return a digest per qs family over the after font's glyphs whose name stem is that family, and one digest over the rest of the font that a shaped run can depend on, apart from GSUB. A glyph's digest covers its facts (`glyph_facts`): its decomposed outline (so a change inside a subroutine still shows), its advance and sidebearing, and its cursive anchors. The second digest covers the helper glyphs a Quikscript run can reach outside the families (`RUNE_HELPER_GLYPHS`), the cmap entries of those glyphs and the family glyphs, and the GPOS feature-to-lookup wiring less the `kern` feature and the lookups only it reaches (`gpos_kern_blind_wiring`): every reader of this digest shapes with `kern` off, so whether the font has a kern lookup moves none of its keys. Every reader shapes Quikscript windows, which reach no Latin glyph, so an edit to a Latin glyph or its code point moves neither digest.
 
-    The GSUB wiring is left out. A rune edit changes the GSUB lookup list on nearly every cycle, so including it would drop every cache keyed on this digest after each rune edit. A window's glyph selection is covered by two other things. The caches' keys include the settled cells the window resolves to (the audit row's `new` column for a unit, the per-family rune keys for an oracle row). And `gate:conform` shapes the compiled font through HarfBuzz every cycle and checks that its selection matches settlement. So while conform passes, the glyph the font selects for a window is a function of the window's settled cells, which cannot change without the key changing. Every glyph a window can reach, in every variant of every family, is in the per-family digests. GPOS stays in because it can move a run without changing a glyph name or a cell.
+    The GSUB wiring is left out. A rune edit changes the GSUB lookup list on nearly every cycle, so including it would drop every cache keyed on this digest after each rune edit. A window's glyph selection is covered by two other things. The cache's keys include the settled cells the window resolves to (the per-family rune keys for an oracle row). And `gate:conform` shapes the compiled font through HarfBuzz every cycle and checks that its selection matches settlement. So while conform passes, the glyph the font selects for a window is a function of the window's settled cells, which cannot change without the key changing. Every glyph a window can reach, in every variant of every family, is in the per-family digests. GPOS stays in because it can move a run without changing a glyph name or a cell.
     """
     from fontTools.ttLib import TTFont
 
@@ -722,9 +545,8 @@ def after_font_glyph_digests(after_font: Path) -> tuple[dict[str, str], str]:
 KERN_KEY = "kern"  # the rune file's kern block, which `rune_file_digest` leaves out and `rune_kern_digest` hashes alone
 KERN_LINE_SUFFIX = "#kern"  # the suffix of a rune's kern line in the run_m1 skip key (`kern_lines`)
 
-# Policy record kinds whose records carry an author `why`, and the kinds whose `why` something downstream reads. `rune_explain_digest` keeps the `why` of the second group and `rune_file_digest` drops it; that is the only difference between them.
+# Policy record kinds whose records carry an author `why`, which `rune_file_digest` drops.
 POLICY_PROSE_KINDS = ("prefer", "extend", "contract", "pad_left", "resolve", "refuse")
-QUOTED_POLICY_PROSE_KINDS = ("refuse",)
 
 
 def _without_prose(record: object, key: str) -> object:
@@ -749,8 +571,8 @@ def _projected_stance(stance: object) -> object:
     return {**stance, "surface": {**surface, "unlocks": [_without_why(unlock) for unlock in unlocks]}}
 
 
-def _projected_rune(document: object, *, quoted_prose: bool = False, kern: bool = False) -> object:
-    """Return the prose-insensitive view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. With `quoted_prose`, the `why` of refuse records is kept. The `kern` key is dropped whole unless `kern` is set, which keeps its records without their `why` (`rune_document_digest`)."""
+def _projected_rune(document: object, *, kern: bool = False) -> object:
+    """Return the prose-insensitive view of a parsed rune document (the module docstring says what it drops). A value shaped in a way the schema rejects, such as a non-string prose value or a non-dict ductus, passes through unchanged, so the digest still moves and the load failure stays visible. The `kern` key is dropped whole unless `kern` is set, which keeps its records without their `why` (`rune_document_digest`)."""
     if not isinstance(document, dict):
         return document
     projected = {key: value for key, value in document.items() if kern or key != KERN_KEY}
@@ -763,11 +585,10 @@ def _projected_rune(document: object, *, quoted_prose: bool = False, kern: bool 
         projected["notes"] = None
     policy = projected.get("policy")
     if isinstance(policy, dict):
-        kept = QUOTED_POLICY_PROSE_KINDS if quoted_prose else ()
         projected["policy"] = {
             kind: (
                 [_without_why(record) for record in records]
-                if kind in POLICY_PROSE_KINDS and kind not in kept and isinstance(records, list)
+                if kind in POLICY_PROSE_KINDS and isinstance(records, list)
                 else records
             )
             for kind, records in policy.items()
@@ -839,15 +660,6 @@ def kern_lines(repo_root: Path) -> list[str]:
     )
 
 
-def _projected_rune_keeping_quoted_prose(document: object) -> object:
-    return _projected_rune(document, quoted_prose=True)
-
-
-def rune_explain_digest(path: Path) -> str:
-    """Return `rune_file_digest`'s projection with `policy.refuse[].why` kept. The crate appends that text to a refusal's elimination message in a ranking, which the review corpus shows as explain text. No table or font build asks for a ranking, so only the review side uses this digest: rewording a refusal invalidates the windows that quote it and nothing keyed on `rune_file_digest`."""
-    return _projected_digest(path, _projected_rune_keeping_quoted_prose)
-
-
 CONTACT_ALLOW_LABEL = "rebuild/m1-contact-allow.yaml"
 
 
@@ -864,11 +676,8 @@ def contact_allow_digest(path: Path) -> str:
 
 
 DIVERGENCE_LEDGER_LABEL = "rebuild/m1-divergences.yaml"
-CHANGE_GROUPS_LABEL = "rebuild/review/change-groups.yaml"
-
-# The ledger keys only the review app's copy reads: the rationale, and the title, summary and caution note the sidebar and class header show.
+# The ledger's prose keys: the rationale, and the reviewer copy's title, summary and caution note, which no code reads.
 LEDGER_PROSE_KEYS = ("why", "title", "summary", "note")
-GROUP_PROSE_KEYS = ("title", "summary", "why")
 
 
 def _without_ledger_prose(entry: object) -> object:
@@ -878,14 +687,14 @@ def _without_ledger_prose(entry: object) -> object:
 
 
 def _projected_ledger(document: object) -> object:
-    """Return the parsed divergence ledger with each entry's `LEDGER_PROSE_KEYS` set to None; every other field stays. Each kept field has a reader except an exemplar's `baseline` and `new` strings, which no code reads: `oracle.compile_ledger` reads `id` and `match`, and the oracle reads `ink_identical` to choose the rows its position comparison checks; `audit.load_ledger` reads `status`, `no_verdict`, and each exemplar's `config` and `codepoints`, the keys that set the review units' `exemplar` flags; and the review facts (`facts.ledger_coverage`) read the loaded `id`, `no_verdict`, and `ink_identical`. A document `audit.load_ledger` would reject passes through unchanged, so its load failure stays visible in the digest."""
+    """Return the parsed divergence ledger with each entry's `LEDGER_PROSE_KEYS` set to None; every other field stays. `oracle.compile_ledger` reads `id` and `match`, and the oracle reads `ink_identical` to choose the rows its position comparison checks; no code reads `status`, `no_verdict` or the exemplars. A document that is not a list passes through unchanged, so its load failure stays visible in the digest."""
     if not isinstance(document, list):
         return document
     return [_without_ledger_prose(entry) for entry in document]
 
 
 def divergence_ledger_digest(path: Path) -> str:
-    """Return the divergence ledger's prose-insensitive digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why`, `title`, `summary` or `note` does not, because `ledger_prose_lines` hashes those into `explain_prose` instead."""
+    """Return the divergence ledger's prose-insensitive digest, which `data_lines` uses. Changing a class's fields moves it. Rewording a class's `why`, `title`, `summary` or `note` (`LEDGER_PROSE_KEYS`) does not."""
     return _projected_digest(path, _projected_ledger)
 
 
@@ -937,7 +746,7 @@ def _data_digest(root: Path, path: Path, runes: set[Path]) -> str:
 
 
 def data_path_lines(repo_root: Path, paths: Iterable[Path]) -> list[str]:
-    """Return the sorted `label\\tdigest` lines for `paths`, one per existing file, each hashed as `_data_digest` says. `data_lines` passes every data input; the oracle row cache's and the review unit cache's whole-store stamps pass the subsets they cover."""
+    """Return the sorted `label\\tdigest` lines for `paths`, one per existing file, each hashed as `_data_digest` says. `data_lines` passes every data input; the oracle row cache's whole-store stamps pass the subset they cover."""
     root = Path(repo_root)
     runes = set(rune_paths(root))
     return sorted(
@@ -979,75 +788,8 @@ def table_data_value(repo_root: Path) -> str:
 
 
 def rune_digests(repo_root: Path) -> dict[str, str]:
-    """Return every rune file's `rune_file_digest`, keyed by family name (the file stem, which spec_load checks against the `rune:` field). The oracle row cache invalidates per family on these (`oracle_cache.family_keys`). The review unit cache uses `rune_explain_digests` instead, because the explain text it caches quotes refuse `why`s."""
+    """Return every rune file's `rune_file_digest`, keyed by family name (the file stem, which spec_load checks against the `rune:` field). The oracle row cache invalidates per family on these (`oracle_cache.family_keys`)."""
     return {path.stem: rune_file_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
-
-
-def rune_explain_digests(repo_root: Path) -> dict[str, str]:
-    """Return every rune file's `rune_explain_digest`, keyed by family name. The review unit cache's family keys (`unit_cache.family_content_keys`) are built from these. A rune whose refusals have no `why` gets the same value as in `rune_digests`."""
-    return {path.stem: rune_explain_digest(path) for path in rune_paths(Path(repo_root)) if path.is_file()}
-
-
-def refuse_prose_lines(repo_root: Path) -> list[str]:
-    """Return a sorted `family\\tindex\\twhy` line for each refuse record with a `why`. This is all the rune prose anything downstream reads, and the first input to `explain_prose` (`ledger_prose_lines` and `group_prose_lines` are the others). A rune that fails to parse or decode contributes `family\\t-\\t<raw digest>`, so a broken file changes the value instead of reading as a rune with no refusals."""
-    lines: list[str] = []
-    for path in rune_paths(Path(repo_root)):
-        if not path.is_file():
-            continue
-        raw = path.read_bytes()
-        try:
-            document = yaml.load(raw.decode(), Loader=_SAFE_LOADER)
-        except yaml.YAMLError, UnicodeDecodeError, TypeError, ValueError:
-            lines.append(f"{path.stem}\t-\t{hashlib.sha256(raw).hexdigest()}")
-            continue
-        policy = document.get("policy") if isinstance(document, dict) else None
-        records = policy.get("refuse") if isinstance(policy, dict) else None
-        if not isinstance(records, list):
-            continue
-        for index, record in enumerate(records):
-            why = record.get("why") if isinstance(record, dict) else None
-            if isinstance(why, str):
-                lines.append(f"{path.stem}\t{index}\t{why}")
-    return sorted(lines)
-
-
-def _entry_prose_lines(path: Path, tag: str, keys: tuple[str, ...]) -> list[str]:
-    """Return a sorted `<tag>\\t<id>\\t<key>\\t<text>` line for each string-valued `keys` field of each entry in the YAML list at `path`, or no lines when the file is missing. An entry without a string id is named by its index. A file that fails to parse or decode, or is not a list, contributes `<tag>\\t-\\t<raw digest>`, so a broken file reads as changed instead of as a file with no prose."""
-    if not path.is_file():
-        return []
-    raw = path.read_bytes()
-    try:
-        document = yaml.load(raw.decode(), Loader=_SAFE_LOADER)
-    except yaml.YAMLError, UnicodeDecodeError:
-        document = None
-    if not isinstance(document, list):
-        return [f"{tag}\t-\t{hashlib.sha256(raw).hexdigest()}"]
-    lines: list[str] = []
-    for index, entry in enumerate(document):
-        if not isinstance(entry, dict):
-            continue
-        identifier = entry.get("id")
-        name = identifier if isinstance(identifier, str) else index
-        lines.extend(f"{tag}\t{name}\t{key}\t{entry[key]}" for key in keys if isinstance(entry.get(key), str))
-    return sorted(lines)
-
-
-def ledger_prose_lines(repo_root: Path) -> list[str]:
-    """Return a sorted `ledger\\t<id>\\t<key>\\t<text>` line for each `LEDGER_PROSE_KEYS` field of each divergence-ledger entry: the second input to `explain_prose`. That prose leaves the `data` digest and is hashed here so the corpus cannot serve a stale copy: the review build copies it into the manifest's classes and its `ledger_classes` lookup. No shard or sidecar carries it, so rewording a class restamps the corpus and re-enriches no unit. A ledger that fails to parse or decode, or is not the list `audit.load_ledger` expects, contributes `ledger\\t-\\t<raw digest>`."""
-    return _entry_prose_lines(Path(repo_root) / DIVERGENCE_LEDGER_LABEL, "ledger", LEDGER_PROSE_KEYS)
-
-
-def group_prose_lines(repo_root: Path) -> list[str]:
-    """Return a sorted `group\\t<id>\\t<key>\\t<text>` line for each `GROUP_PROSE_KEYS` field of each entry in rebuild/review/change-groups.yaml: the third input to `explain_prose`. Only the manifest reads that file (`change_groups.load_change_group_prose`), so it is in no other component, and rewording a group restamps the corpus and re-enriches no unit. A file that fails to parse or decode, or is not a list, contributes `group\\t-\\t<raw digest>`."""
-    return _entry_prose_lines(Path(repo_root) / CHANGE_GROUPS_LABEL, "group", GROUP_PROSE_KEYS)
-
-
-def explain_prose_value(repo_root: Path, spec_root: Path | None = None) -> str:
-    """Return the `explain_prose` component: the hash of `refuse_prose_lines`, `ledger_prose_lines` and `group_prose_lines` sorted together, so the manifest records whether the explain text and class copy it serves match the wording on disk. The rune and ledger prose come from `spec_root` when one is given, and the group prose always comes from `repo_root`, because the build reads the change groups' prose beside its own code and a bundled spec carries no rebuild/review/. The three kinds of line cannot collide, because a ledger line's first field is `ledger`, a group line's `group`, and a refuse line's a family name. It is a Stage B component because no stage of the M1 build reads this prose, so run_m1 has nothing to record, and a stale value means the corpus needs rebuilding, not the tables."""
-    root = Path(repo_root)
-    spec = Path(spec_root) if spec_root is not None else root
-    lines = sorted(refuse_prose_lines(spec) + ledger_prose_lines(spec) + group_prose_lines(root))
-    return hashlib.sha256("\n".join(lines).encode()).hexdigest()
 
 
 def table_code_paths(repo_root: Path) -> list[Path]:
@@ -1093,25 +835,6 @@ def stage_a(repo_root: Path) -> dict:
     return values
 
 
-def stage_b(
-    repo_root: Path,
-    before_font: Path,
-    junior_font: Path,
-    spec_root: Path | None = None,
-    *,
-    draft_lines: Iterable[str] | None = None,
-) -> dict:
-    """Return the review-side components. `explain_prose` takes its rune and ledger prose from `spec_root` when the build names one, because a workload bundled with its own frozen spec serves that spec's rationales, and from the checkout otherwise; the change groups' prose comes from the checkout either way, and so do `draft_inputs`' pages and harness, which the drafter reads beside the build's own code. `review_code` hashes the review modules the build runs (`review_code_paths`) and the review crate (`review_crate_paths`). `draft_lines` is `draft_input_lines` when the caller has already taken them, as the review build does; when it is None, they are taken here. `fonts` is `fonts_value` over the two site fonts, so the `make all` of a version bump leaves it unchanged."""
-    root = Path(repo_root)
-    return {
-        "review_code": hash_paths(root, review_code_paths(root) + review_crate_paths(root)),
-        "static": hash_paths(root, static_paths(root)),
-        "fonts": fonts_value(root, [Path(before_font), Path(junior_font)]),
-        "explain_prose": explain_prose_value(root, spec_root),
-        "draft_inputs": draft_inputs_value(draft_input_lines(root) if draft_lines is None else draft_lines),
-    }
-
-
 def font_inputs_value(repo_root: Path) -> str:
     """Return the digest of what reaches the Regular font without moving the tables' stamp: the non-Quikscript font data (`font_data_lines`) and the runes' `kern` blocks (`kern_lines`), the two kinds of line a kern-only rebuild answers for."""
     root = Path(repo_root)
@@ -1119,22 +842,16 @@ def font_inputs_value(repo_root: Path) -> str:
 
 
 def table_diff_values(repo_root: Path, snapshot_record: Path | None, tables: str | None) -> dict:
-    """Return the table-diff corpus's inputs fingerprint (`TABLE_DIFF_COMPONENTS`): `snapshot`, the sha256 of the record of the snapshot it compares against (`rebuild/review/snapshot.py`), None with no snapshot; `tables`, the tables' stamp, which the build copies from the windows heads of the build it compares and the readiness check recomputes from the sources (`run_m1.tables_inputs`); `font_inputs` (`font_inputs_value`); and `review_code` and `static`, as `stage_b` computes them."""
+    """Return the table-diff corpus's inputs fingerprint (`TABLE_DIFF_COMPONENTS`): `snapshot`, the sha256 of the record of the snapshot it compares against (`rebuild/review/snapshot.py`), None with no snapshot; `tables`, the tables' stamp, which the build copies from the windows heads of the build it compares and the readiness check recomputes from the sources (`run_m1.tables_inputs`); `font_inputs` (`font_inputs_value`); `review_code`, the review modules the build runs (`review_code_paths`); and `static`, the app's files (`static_paths`)."""
     root = Path(repo_root)
     record = Path(snapshot_record) if snapshot_record is not None else None
     return {
         "snapshot": file_sha256(record) if record is not None and record.is_file() else None,
         "tables": tables,
         "font_inputs": font_inputs_value(root),
-        "review_code": hash_paths(root, review_code_paths(root) + review_crate_paths(root)),
+        "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
     }
-
-
-def compute_all(repo_root: Path) -> dict:
-    root = Path(repo_root)
-    before_font, junior_font = font_paths(root)
-    return {**stage_a(root), **stage_b(root, before_font, junior_font)}
 
 
 def write_stage_a(out_dir: Path, values: Mapping[str, str]) -> dict:

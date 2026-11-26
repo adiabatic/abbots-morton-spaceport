@@ -1,4 +1,4 @@
-"""Tests for rebuild/pipeline/fingerprint.py: the streamed file digest and the sweep that checks no rebuild/ module hashes a file read whole, the path hashes (content sensitivity, order independence, missing files), the baselines component, the Stage A record, the prose-insensitive rune, ledger, code, lock, and font digests, and the explain-aware rune digest and `explain_prose` component, and the gate closures that hash code raw.
+"""Tests for rebuild/pipeline/fingerprint.py: the streamed file digest and the sweep that checks no rebuild/ module hashes a file read whole, the path hashes (content sensitivity, order independence, missing files), the baselines component, the Stage A record, the prose-insensitive rune, ledger, code, lock, and font digests, and the gate closures that hash code raw.
 
 `file_sha256` streams a file so that hashing it never holds the whole file in memory. That helps only if every hash in rebuild/ goes through it, so the read-whole sweep checks this in code; a list of callers in a docstring would go stale unnoticed. Modules that cannot import fingerprint copy the streamed read inline, and a test here checks that each copy returns the same value as `file_sha256`.
 """
@@ -57,6 +57,19 @@ def _fake_repo(tmp_path):
     (root / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf").write_bytes(b"senior-font")
     (root / "site" / "AbbotsMortonSpaceportSansJunior-Regular.otf").write_bytes(b"junior-font")
     return root
+
+
+# Every component a tree's sources give without a build or a snapshot: the Stage A record's, and the table-diff corpus's `review_code`, `static` and `font_inputs`.
+COMPONENTS = (*fingerprint.STAGE_A_COMPONENTS, "review_code", "static", "font_inputs")
+
+
+def _components(root: Path) -> dict:
+    return {
+        **fingerprint.stage_a(root),
+        "review_code": fingerprint.hash_paths(root, fingerprint.review_code_paths(root)),
+        "static": fingerprint.hash_paths(root, fingerprint.static_paths(root)),
+        "font_inputs": fingerprint.font_inputs_value(root),
+    }
 
 
 def test_file_sha256_matches_the_read_whole_digest(tmp_path):
@@ -204,28 +217,6 @@ def test_review_code_excludes_the_non_build_modules(tmp_path):
     assert fingerprint.hash_paths(root, fingerprint.review_code_paths(root)) == before
 
 
-def test_review_code_covers_the_review_crate_outside_its_target(tmp_path):
-    """The m1-audit corpus build runs in the review crate, so an edit to any file of rebuild/review-rs/ moves `review_code`, the sources and the manifest alike, while a file under its `target/`, the crate's build output, does not."""
-    root = _fake_repo(tmp_path)
-    fonts = (root / "site" / "before.otf", root / "site" / "junior.otf")
-    before = fingerprint.stage_b(root, *fonts)["review_code"]
-    crate = root / "rebuild" / "review-rs"
-    (crate / "src").mkdir(parents=True)
-    (crate / "src" / "lib.rs").write_text("pub const BUILD: u8 = 1;\n")
-    (crate / "Cargo.toml").write_text("[package]\nname = 'review'\n")
-    assert [path.relative_to(crate).as_posix() for path in fingerprint.review_crate_paths(root)] == [
-        "Cargo.toml",
-        "src/lib.rs",
-    ]
-    with_crate = fingerprint.stage_b(root, *fonts)["review_code"]
-    assert with_crate != before
-    (crate / "target" / "release").mkdir(parents=True)
-    (crate / "target" / "release" / "ams-review").write_bytes(b"binary")
-    assert fingerprint.stage_b(root, *fonts)["review_code"] == with_crate
-    (crate / "src" / "lib.rs").write_text("pub const BUILD: u8 = 2;\n")
-    assert fingerprint.stage_b(root, *fonts)["review_code"] != with_crate
-
-
 def test_stage_a_round_trip(tmp_path):
     root = _fake_repo(tmp_path)
     out_dir = root / "rebuild" / "out" / "m1"
@@ -246,14 +237,14 @@ def test_read_stage_a_tolerates_missing_and_malformed(tmp_path):
 
 def test_compute_all_covers_every_component_and_isolates_edits(tmp_path):
     root = _fake_repo(tmp_path)
-    before = fingerprint.compute_all(root)
-    assert set(before) == set(fingerprint.COMPONENTS)
+    before = _components(root)
+    assert set(before) == set(COMPONENTS)
     assert all(isinstance(value, str) for value in before.values())
     (root / "glyph_data" / "runes" / "qsBay.yaml").write_text("family: qsBay\nedited: true\n")
-    after = fingerprint.compute_all(root)
+    after = _components(root)
     assert after["data"] != before["data"]
-    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "data"} == {
-        key: before[key] for key in fingerprint.COMPONENTS if key != "data"
+    assert {key: after[key] for key in COMPONENTS if key != "data"} == {
+        key: before[key] for key in COMPONENTS if key != "data"
     }
 
 
@@ -314,7 +305,7 @@ def _allow_after(root, text):
 
 
 def test_blessing_a_contact_signature_moves_the_run_key_alone(tmp_path):
-    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without restamping the corpus or dropping the review unit cache or the oracle row cache, whose stamps (`unit_cache.environment_stamp`, `oracle_cache.stamped_data_paths`) are built from `data_paths`."""
+    """The contact allow-list is in no fingerprint component and only in the run_m1 skip key. The defect gate is its only reader, so a signature change must re-run that gate without dropping the oracle row cache, whose stamp (`oracle_cache.stamped_data_paths`) is built from `data_paths`."""
     root = _fake_repo(tmp_path)
     before = _allow_after(root, ALLOW_LIST)
     assert root / fingerprint.CONTACT_ALLOW_LABEL not in fingerprint.data_paths(root)
@@ -383,20 +374,6 @@ REWORDED_COPY = (
     ("summary", LEDGER.replace("so each piece draws", "so every piece draws")),
     ("note", LEDGER.replace("No unit reaches this class.", "This class reaches no unit.")),
 )
-GROUPS = textwrap.dedent("""\
-    # The reviewer copy for the change groups.
-    - id: join-lowered
-      title: "Join lowered"
-      summary: "Letters still join, but lower."
-      why: |
-        No ruling covers these windows as a whole.
-    - id: join-raised
-      title: "Join raised"
-      summary: "Letters still join, but higher."
-      why: |
-        No ruling covers these windows either.
-    """)
-REWORDED_GROUPS = GROUPS.replace("but higher", "but at a greater height")
 
 
 def _ledger_digest(path, text):
@@ -455,7 +432,7 @@ KERNED_RUNE = textwrap.dedent("""\
 
 
 def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_path):
-    """A rune's `kern:` block reaches no table, settlement, oracle row or review unit, so `rune_file_digest` and `rune_explain_digest` leave it out and every key built from them stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_m1 skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The rebuild suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
+    """A rune's `kern:` block reaches no table, settlement or oracle row, so `rune_file_digest` leaves it out and every key built from it stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_m1 skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The rebuild suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
     root = _fake_repo(tmp_path)
     rune = root / "glyph_data" / "runes" / "qsPea.yaml"
     rune.write_text(KERNED_RUNE)
@@ -465,7 +442,6 @@ def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_p
             fingerprint.tables_value(root),
             fingerprint.data_value(root),
             fingerprint.rune_file_digest(rune),
-            fingerprint.rune_explain_digest(rune),
             artifact_cycle.run_m1_skip_fingerprint(root),
             fingerprint.rune_kern_digest(rune),
             fingerprint.rune_document_digest(rune),
@@ -475,8 +451,8 @@ def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_p
     lines_before = artifact_cycle.run_m1_skip_files(root)
     rune.write_text(KERNED_RUNE.replace("by: -2", "by: -1, why: A rationale"))
     edited = keys()
-    assert edited[:4] == before[:4]
-    assert all(edited[index] != before[index] for index in (4, 5, 6))
+    assert edited[:3] == before[:3]
+    assert all(edited[index] != before[index] for index in (3, 4, 5))
     moved = artifact_cycle.moved_input_labels({"files": lines_before}, artifact_cycle.run_m1_skip_files(root))
     assert moved == ["glyph_data/runes/qsPea.yaml#kern"]
     assert (
@@ -542,51 +518,6 @@ def test_a_font_data_edit_moves_only_its_font_line(tmp_path):
     assert keys() == edited
 
 
-def test_the_kern_blind_digest_describes_the_mark_lookups(tmp_path):
-    """The full font's `mark` feature is GPOS outside the `kern` feature's reach, so `kern_blind_font_digest` describes its lookups (`_lookup_xml`) instead of falling back to the table's bytes: a font with marks keeps its kern-blind digest when only its kern lookups change, and a moved mark anchor moves it."""
-    from fontTools.feaLib.builder import addOpenTypeFeaturesFromString
-    from fontTools.fontBuilder import FontBuilder
-    from fontTools.pens.t2CharStringPen import T2CharStringPen
-
-    def font(path, kern_value, anchor_x):
-        builder = FontBuilder(550, isTTF=False)
-        order = [".notdef", "a", "b", "acutecomb"]
-        builder.setupGlyphOrder(order)
-        builder.setupCharacterMap({0x61: "a", 0x62: "b", 0x301: "acutecomb"})
-        builder.setupCFF(
-            "T-Regular", {}, {name: T2CharStringPen(100, None).getCharString() for name in order}, {}
-        )
-        builder.setupHorizontalMetrics({name: (100, 0) for name in order})
-        builder.setupHorizontalHeader(ascent=550, descent=-150)
-        builder.setupNameTable({"familyName": "T", "styleName": "Regular"})
-        builder.setupOS2()
-        builder.setupPost()
-        addOpenTypeFeaturesFromString(
-            builder.font,
-            f"""
-            markClass acutecomb <anchor 0 300> @top;
-            feature mark {{ lookup mark_top {{ pos base [a b] <anchor {anchor_x} 300> mark @top; }} mark_top; }} mark;
-            feature kern {{ lookup kern_ab {{ pos a b {kern_value}; }} kern_ab; }} kern;
-            """,
-        )
-        builder.save(str(path))
-        return path
-
-    plain = font(tmp_path / "plain.otf", -50, 50)
-    kerned = font(tmp_path / "kerned.otf", -100, 50)
-    moved = font(tmp_path / "moved.otf", -50, 60)
-    assert fingerprint._kern_blind_gpos_line(_open(plain)) is not None
-    assert fingerprint.kern_blind_font_digest(plain) == fingerprint.kern_blind_font_digest(kerned)
-    assert fingerprint.kern_blind_font_digest(plain) != fingerprint.kern_blind_font_digest(moved)
-    assert fingerprint.font_content_digest(plain) != fingerprint.font_content_digest(kerned)
-
-
-def _open(path):
-    from fontTools.ttLib import TTFont
-
-    return TTFont(str(path))
-
-
 def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path):
     """Editing oracle.py or oracle_positions.py moves `pipeline_code` and the run_m1 skip key but not `tables_value`, so `--gates-only` can re-run the comparison over the enumeration on disk while a full run still rebuilds everything. `pipeline_code_paths` globs rebuild/pipeline/ and rebuild/validation/ (less `VALIDATION_UNBUILT_MODULES`), and `COMPARISON_CODE_MODULES` is the only subtraction `table_code_paths` makes, so each file is checked by path. conform.py produces what the oracle classifies and stays in the tables' stamp, and rebuild/validation/shaping.py, the shaper the Manual-pin gate replays through, leaves it."""
     root = _fake_repo(tmp_path)
@@ -598,20 +529,20 @@ def test_an_oracle_code_edit_moves_the_run_key_but_not_the_tables_stamp(tmp_path
     assert root / "rebuild" / "validation" / "shaping.py" in fingerprint.pipeline_code_paths(root)
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.table_code_paths(root)
     before = (
-        fingerprint.compute_all(root)["pipeline_code"],
+        _components(root)["pipeline_code"],
         fingerprint.tables_value(root),
         artifact_cycle.run_m1_skip_fingerprint(root),
     )
     (root / "rebuild" / "pipeline" / "oracle.py").write_text("ORACLE = 2\n")
-    assert fingerprint.compute_all(root)["pipeline_code"] != before[0]
+    assert _components(root)["pipeline_code"] != before[0]
     assert fingerprint.tables_value(root) == before[1]
     assert artifact_cycle.run_m1_skip_fingerprint(root) != before[2]
     moved_classifier = (
-        fingerprint.compute_all(root)["pipeline_code"],
+        _components(root)["pipeline_code"],
         artifact_cycle.run_m1_skip_fingerprint(root),
     )
     (root / "rebuild" / "pipeline" / "oracle_positions.py").write_text("POSITIONS = 2\n")
-    assert fingerprint.compute_all(root)["pipeline_code"] != moved_classifier[0]
+    assert _components(root)["pipeline_code"] != moved_classifier[0]
     assert fingerprint.tables_value(root) == before[1]
     assert artifact_cycle.run_m1_skip_fingerprint(root) != moved_classifier[1]
     (root / "rebuild" / "pipeline" / "conform.py").write_text("CONFORM = 2\n")
@@ -646,36 +577,36 @@ def test_pipeline_code_covers_validation_and_the_kernel_and_isolates_edits(tmp_p
     assert root / "rebuild" / "kernel-rs" / "src" / "guard.rs" in fingerprint.pipeline_code_paths(root)
     assert root / "tools" / "build_font.py" in fingerprint.pipeline_code_paths(root)
     assert root / "tools" / "glyph_compiler.py" in fingerprint.pipeline_code_paths(root)
-    before = fingerprint.compute_all(root)
+    before = _components(root)
     (root / "rebuild" / "validation" / "shaping.py").write_text("SENIOR_FONT = 2\n")
-    after = fingerprint.compute_all(root)
+    after = _components(root)
     assert after["pipeline_code"] != before["pipeline_code"]
-    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
-        key: before[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
+    assert {key: after[key] for key in COMPONENTS if key != "pipeline_code"} == {
+        key: before[key] for key in COMPONENTS if key != "pipeline_code"
     }
     (root / "rebuild" / "kernel-rs" / "src" / "guard.rs").write_text("const GUARD: bool = false;\n")
-    after_kernel = fingerprint.compute_all(root)
+    after_kernel = _components(root)
     assert after_kernel["pipeline_code"] != after["pipeline_code"]
-    assert {key: after_kernel[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"} == {
-        key: after[key] for key in fingerprint.COMPONENTS if key != "pipeline_code"
+    assert {key: after_kernel[key] for key in COMPONENTS if key != "pipeline_code"} == {
+        key: after[key] for key in COMPONENTS if key != "pipeline_code"
     }
 
 
 def test_a_font_compile_tool_edit_moves_the_run_key_and_the_tables_stamp(tmp_path):
-    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record and the corpus's stamp), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check). The review unit cache's stamps use their own code lists (`unit_cache.corpus_code_paths`, `unit_cache.signature_code_paths`), which leave the font compile out because neither the corpus build nor the comparator runs it, and the draft-harness line, which the unit store's stamp and the manifest's `draft_inputs` component carry, hashes only the `data-expect` grammar and the glyph-name map, so neither moves either."""
+    """compile_font passes the mini font to tools/build_font.py, which runs the glyph compiler, the IR, and the FEA emitter, so an edit to that tools/ closure changes M1.otf. It must move `pipeline_code` (and with it the Stage A record), the run_m1 skip key, and `tables_value` (and with it the conform sweep's check and the review corpus's `tables` component)."""
     root = _fake_repo(tmp_path)
     for name in ("build_font.py", "glyph_compiler.py"):
         assert root / "tools" / name in fingerprint.pipeline_code_paths(root)
         assert root / "tools" / name in fingerprint.table_code_paths(root)
-    before = fingerprint.compute_all(root)
+    before = _components(root)
     before_tables = fingerprint.tables_value(root)
     before_run = artifact_cycle.run_m1_skip_fingerprint(root)
     (root / "tools" / "build_font.py").write_text("BUILD_FONT = 2\n")
-    after = fingerprint.compute_all(root)
+    after = _components(root)
     moved = ("pipeline_code",)
     assert all(after[key] != before[key] for key in moved)
-    assert {key: after[key] for key in fingerprint.COMPONENTS if key not in moved} == {
-        key: before[key] for key in fingerprint.COMPONENTS if key not in moved
+    assert {key: after[key] for key in COMPONENTS if key not in moved} == {
+        key: before[key] for key in COMPONENTS if key not in moved
     }
     assert fingerprint.tables_value(root) != before_tables
     assert artifact_cycle.run_m1_skip_fingerprint(root) != before_run
@@ -744,97 +675,9 @@ def test_data_value_ignores_every_why_but_not_why_presence(tmp_path):
     assert _data_after(root, PROSE_RUNE.replace(", why: two verticals render thick}", "}")) != before
 
 
-def _explain_after(root, text):
-    path = root / "glyph_data" / "runes" / "qsPea.yaml"
-    path.write_text(text)
-    return fingerprint.rune_explain_digest(path)
-
-
-def test_rune_explain_digest_moves_with_the_refuse_why_alone(tmp_path):
-    """`rune_explain_digest` moves when a refuse `why` is reworded and on no other prose, comment, or formatting edit. A rune whose refusals have no `why` gets the same value from `rune_explain_digests` as from `rune_digests`."""
-    root = _fake_repo(tmp_path)
-    before = _explain_after(root, PROSE_RUNE)
-    assert _explain_after(root, PROSE_RUNE.replace("render thick", "render thin")) != before
-    assert _explain_after(root, PROSE_RUNE.replace("nicer to write", "easier to write")) == before
-    assert _explain_after(root, PROSE_RUNE.replace("original unlock rationale", "reworded")) == before
-    assert _explain_after(root, PROSE_RUNE.replace("Cannot join", "Must not join")) == before
-    assert _explain_after(root, PROSE_RUNE.replace("drawn downward", "drawn upward")) == before
-    assert _explain_after(root, PROSE_RUNE.replace("ductus:", "ductus: # DRAFT")) == before
-    assert _explain_after(root, PROSE_RUNE.replace('bitmap: ["#", "#"]', 'bitmap: [ "#",   "#" ]')) == before
-    explain_digests = fingerprint.rune_explain_digests(root)
-    assert set(explain_digests) == set(fingerprint.rune_digests(root)) == {"qsPea", "qsBay"}
-    assert explain_digests["qsPea"] == before
-    assert explain_digests["qsBay"] == fingerprint.rune_digests(root)["qsBay"]
-
-
-def test_refuse_prose_lines_name_the_family_and_the_record(tmp_path):
-    """One line per refusal with a `why`, indexed so two refusals in one file stay distinct. A rune that fails to parse contributes a raw-digest line, so a broken file reads as changed instead of as a rune with no refusals."""
-    root = _fake_repo(tmp_path)
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
-    assert fingerprint.refuse_prose_lines(root) == ["qsPea\t0\ttwo verticals render thick"]
-    assert (
-        fingerprint.explain_prose_value(root)
-        == hashlib.sha256("\n".join(fingerprint.refuse_prose_lines(root)).encode()).hexdigest()
-    )
-    broken = "rune: qsPea\n\t: [broken"
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(broken)
-    assert fingerprint.refuse_prose_lines(root) == [
-        f"qsPea\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"
-    ]
-
-
-def test_explain_prose_is_the_one_component_a_refuse_why_moves(tmp_path):
-    """Rewording a refusal moves only `explain_prose`, so it restamps the corpus and leaves `data`, `baselines`, and `pipeline_code` unchanged, and with `data` the run_m1 skip key. Stage A never includes it, because run_m1 reads no refuse prose. A bitmap edit moves only `data`."""
-    root = _fake_repo(tmp_path)
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
-    before = fingerprint.compute_all(root)
-    assert "explain_prose" in fingerprint.STAGE_B_COMPONENTS
-    assert "explain_prose" not in fingerprint.stage_a(root)
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
-        PROSE_RUNE.replace("render thick", "render thin")
-    )
-    after = fingerprint.compute_all(root)
-    assert after["explain_prose"] != before["explain_prose"]
-    assert {key: after[key] for key in fingerprint.COMPONENTS if key != "explain_prose"} == {
-        key: before[key] for key in fingerprint.COMPONENTS if key != "explain_prose"
-    }
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
-        PROSE_RUNE.replace("render thick", "render thin").replace('bitmap: ["#", "#"]', 'bitmap: ["#", "##"]')
-    )
-    bitmap = fingerprint.compute_all(root)
-    assert bitmap["data"] != after["data"]
-    assert {key: bitmap[key] for key in fingerprint.COMPONENTS if key != "data"} == {
-        key: after[key] for key in fingerprint.COMPONENTS if key != "data"
-    }
-
-
-def test_explain_prose_follows_the_spec_root_a_build_names(tmp_path):
-    """A workload bundled with its own frozen spec serves that spec's rationales, so `explain_prose` takes its rune and ledger prose from the spec root when a build names one and from the checkout otherwise. The change groups' prose sits beside the review code, which a bundled spec does not carry, so it comes from the checkout either way, as do the other Stage B components."""
-    root = _fake_repo(tmp_path / "checkout")
-    spec_root = _fake_repo(tmp_path / "spec")
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
-    (spec_root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
-        PROSE_RUNE.replace("render thick", "render thin")
-    )
-    (root / fingerprint.CHANGE_GROUPS_LABEL).write_text(GROUPS)
-    fonts = (root / "site" / "before.otf", root / "site" / "junior.otf")
-    bundled = fingerprint.stage_b(root, *fonts, spec_root)
-    checkout = fingerprint.stage_b(root, *fonts)
-    assert bundled["explain_prose"] == fingerprint.explain_prose_value(root, spec_root)
-    assert checkout["explain_prose"] == fingerprint.explain_prose_value(root)
-    assert bundled["explain_prose"] != checkout["explain_prose"]
-    assert {key: value for key, value in bundled.items() if key != "explain_prose"} == {
-        key: value for key, value in checkout.items() if key != "explain_prose"
-    }
-    (spec_root / fingerprint.CHANGE_GROUPS_LABEL).write_text(REWORDED_GROUPS)
-    assert fingerprint.stage_b(root, *fonts, spec_root) == bundled
-    (root / fingerprint.CHANGE_GROUPS_LABEL).write_text(REWORDED_GROUPS)
-    assert fingerprint.stage_b(root, *fonts, spec_root)["explain_prose"] != bundled["explain_prose"]
-
-
 def _ledger_components(root, text):
     (root / fingerprint.DIVERGENCE_LEDGER_LABEL).write_text(text)
-    return fingerprint.compute_all(root)
+    return _components(root)
 
 
 def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_path):
@@ -847,96 +690,28 @@ def test_the_divergence_ledger_line_carries_the_prose_insensitive_digest(tmp_pat
     assert fingerprint.DIVERGENCE_LEDGER_LABEL in fingerprint.NON_TABLE_DATA_LABELS
 
 
-def test_wording_a_divergence_class_moves_the_explain_component_alone(tmp_path):
-    """The review build copies a class's `why`, `title`, `summary` and `note` into the manifest, so they are hashed into `explain_prose` alongside the refuse `why`s. Rewording any of them moves only that component: `data`, `tables_value`, and the run_m1 skip key, which is built from `data_lines`, stay. The corpus rebuild it causes reuses every cached unit, because no shard carries the text."""
+def test_wording_a_divergence_class_moves_no_component(tmp_path):
+    """Rewording a class's `why`, `title`, `summary` or `note` moves nothing: `divergence_ledger_digest` leaves the prose out of `data`, so `tables_value` and the run_m1 skip key, which is built from `data_lines`, stay too."""
     root = _fake_repo(tmp_path)
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(PROSE_RUNE)
     before = _ledger_components(root, LEDGER)
     before_tables = fingerprint.tables_value(root)
     before_run = artifact_cycle.run_m1_skip_fingerprint(root)
     for key, reworded in (("why", REWORDED_CLASS), *REWORDED_COPY):
-        moved = _ledger_components(root, reworded)
-        assert moved["explain_prose"] != before["explain_prose"], key
-        assert {name: moved[name] for name in fingerprint.COMPONENTS if name != "explain_prose"} == {
-            name: before[name] for name in fingerprint.COMPONENTS if name != "explain_prose"
-        }, key
+        assert _ledger_components(root, reworded) == before, key
         assert fingerprint.tables_value(root) == before_tables, key
         assert artifact_cycle.run_m1_skip_fingerprint(root) == before_run, key
-    after = _ledger_components(root, REWORDED_CLASS)
-    (root / "glyph_data" / "runes" / "qsPea.yaml").write_text(
-        PROSE_RUNE.replace("render thick", "render thin")
-    )
-    both = fingerprint.compute_all(root)
-    assert both["explain_prose"] not in (before["explain_prose"], after["explain_prose"])
 
 
 def test_retriaging_a_divergence_class_moves_the_data_component_and_not_the_tables_stamp(tmp_path):
-    """Flipping `no_verdict` changes which units the corpus asks for a verdict on and which rows the audit counts as adjudicated, so it moves `data` and the run_m1 skip key. The ledger is in `NON_TABLE_DATA_LABELS`, so `tables_value` and `explain_prose` stay, and the cycle re-runs the comparison over the tables and font on disk."""
+    """Flipping `no_verdict` changes which units the corpus asks for a verdict on and which rows the audit counts as adjudicated, so it moves `data` and the run_m1 skip key. The ledger is in `NON_TABLE_DATA_LABELS`, so `tables_value` stays, and the cycle re-runs the comparison over the tables and font on disk."""
     root = _fake_repo(tmp_path)
     before = _ledger_components(root, LEDGER)
     before_tables = fingerprint.tables_value(root)
     before_run = artifact_cycle.run_m1_skip_fingerprint(root)
     after = _ledger_components(root, LEDGER.replace("no_verdict: true", "no_verdict: false"))
     assert after["data"] != before["data"]
-    assert after["explain_prose"] == before["explain_prose"]
     assert fingerprint.tables_value(root) == before_tables
     assert artifact_cycle.run_m1_skip_fingerprint(root) != before_run
-
-
-def test_ledger_prose_lines_name_the_class_and_the_key(tmp_path):
-    """One line per prose field a class has, keyed by the class id the manifest uses and the field's name, with `ledger` as the first field so it cannot collide with a refuse line's family name. A class without a `note` contributes no note line. A ledger that fails to parse contributes a raw-digest line, so a broken file reads as changed instead of as a ledger with no prose."""
-    root = _fake_repo(tmp_path)
-    ledger = root / fingerprint.DIVERGENCE_LEDGER_LABEL
-    ledger.write_text(LEDGER)
-    assert fingerprint.ledger_prose_lines(root) == [
-        "ledger\tjoin-height-after-zwnj\tnote\tNo unit reaches this class.",
-        "ledger\tjoin-height-after-zwnj\tsummary\tAfter a ZWNJ, a letter joins the next one at the height it uses after a space.",
-        "ledger\tjoin-height-after-zwnj\ttitle\tJoin height after a ZWNJ",
-        "ledger\tjoin-height-after-zwnj\twhy\tThe old shadow stance joined at the x-height where word-initial settlement lands at the baseline.\n",
-        "ledger\tsplit-by-space-or-zwnj\tsummary\tA space or ZWNJ ends the word, so each piece draws as it does alone.",
-        "ledger\tsplit-by-space-or-zwnj\ttitle\tSplit by a space or ZWNJ",
-        "ledger\tsplit-by-space-or-zwnj\twhy\tA window holding a run-splitting boundary never needs its own verdict.\n",
-    ]
-    combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.ledger_prose_lines(root))
-    assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()
-    broken = "- id: split-by-space-or-zwnj\n  match: {predicate: unclosed\n"
-    ledger.write_text(broken)
-    assert fingerprint.ledger_prose_lines(root) == [
-        f"ledger\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"
-    ]
-
-
-def test_group_prose_lines_name_the_group_and_the_key_and_move_the_explain_component_alone(tmp_path):
-    """The build reads the change groups' title, summary and why from rebuild/review/change-groups.yaml into the manifest and nowhere else, so `group_prose_lines` hashes them into `explain_prose`, with `group` as the first field, and rewording one moves that component alone. `GROUP_PROSE_KEYS` names every field `change_groups.load_change_group_prose` reads. A missing file contributes nothing, and one that fails to parse contributes a raw-digest line."""
-    from rebuild.review import change_groups
-
-    assert fingerprint.GROUP_PROSE_KEYS == change_groups.ChangeGroupProse._fields
-    root = _fake_repo(tmp_path)
-    groups = root / fingerprint.CHANGE_GROUPS_LABEL
-    assert fingerprint.group_prose_lines(root) == []
-    before = fingerprint.compute_all(root)
-    groups.write_text(GROUPS)
-    assert fingerprint.group_prose_lines(root) == [
-        "group\tjoin-lowered\tsummary\tLetters still join, but lower.",
-        "group\tjoin-lowered\ttitle\tJoin lowered",
-        "group\tjoin-lowered\twhy\tNo ruling covers these windows as a whole.\n",
-        "group\tjoin-raised\tsummary\tLetters still join, but higher.",
-        "group\tjoin-raised\ttitle\tJoin raised",
-        "group\tjoin-raised\twhy\tNo ruling covers these windows either.\n",
-    ]
-    combined = sorted(fingerprint.refuse_prose_lines(root) + fingerprint.group_prose_lines(root))
-    assert fingerprint.explain_prose_value(root) == hashlib.sha256("\n".join(combined).encode()).hexdigest()
-    written = fingerprint.compute_all(root)
-    groups.write_text(REWORDED_GROUPS)
-    reworded = fingerprint.compute_all(root)
-    for after in (written, reworded):
-        assert {key: after[key] for key in fingerprint.COMPONENTS if key != "explain_prose"} == {
-            key: before[key] for key in fingerprint.COMPONENTS if key != "explain_prose"
-        }
-    assert len({before["explain_prose"], written["explain_prose"], reworded["explain_prose"]}) == 3
-    broken = "- id: join-lowered\n  title: [unclosed\n"
-    groups.write_text(broken)
-    assert fingerprint.group_prose_lines(root) == [f"group\t-\t{hashlib.sha256(broken.encode()).hexdigest()}"]
 
 
 def test_data_value_tracks_semantic_edits(tmp_path):
@@ -1303,7 +1078,7 @@ def test_an_environment_stamp_hashes_its_lines_and_carries_its_detail_outside_th
 
 def _code_keyed(root):
     return (
-        fingerprint.compute_all(root)["pipeline_code"],
+        _components(root)["pipeline_code"],
         fingerprint.tables_value(root),
         artifact_cycle.run_m1_skip_fingerprint(root),
     )
@@ -1343,10 +1118,10 @@ def test_the_gate_closures_stay_raw_through_a_docstring_edit(tmp_path):
     contracts = artifact_cycle.contracts_fingerprint(root)
     make_test = artifact_cycle.make_test_closure_fingerprint(root)
     assert contracts is not None and make_test is not None
-    components = fingerprint.compute_all(root)
+    components = _components(root)
     table.write_text('"""The table, reworded."""\n\nTABLE = 1\n')
     build_font.write_text('"""The compile, reworded."""\n\nBUILD_FONT = 1\n')
-    assert fingerprint.compute_all(root) == components
+    assert _components(root) == components
     assert artifact_cycle.contracts_fingerprint(root) != contracts
     assert artifact_cycle.make_test_closure_fingerprint(root) != make_test
 
@@ -1610,18 +1385,13 @@ def test_the_font_content_digest_is_memoized_on_the_bytes_and_recomputed_when_th
 
 
 def _version_bump_keys(root):
-    before, junior = fingerprint.font_paths(root)
     _key, labels = artifact_cycle.contracts_closure(root)
     assert labels is not None, "the lane closure needs git"
-    return (
-        fingerprint.stage_b(root, before, junior)["fonts"],
-        labels["fonts"],
-        artifact_cycle.run_m1_skip_files(root)["uv.lock"],
-    )
+    return (labels["fonts"], artifact_cycle.run_m1_skip_files(root)["uv.lock"])
 
 
 def test_a_version_bump_moves_no_key_while_a_glyph_an_anchor_and_a_pin_move_each(tmp_path):
-    """Checks three keys together: the Stage B `fonts` component, the contracts lane's `fonts` label, and the run_m1 skip key's `uv.lock` line. Rewriting only `head` and `name` in both site fonts and only the project version in the lock moves none of them. A glyph edit and a GPOS change each move both font keys, and a dependency-pin change moves the lock line. The fake repo is a git repo because the lane closure is listed with `git ls-files`."""
+    """Checks two keys together: the contracts lane's `fonts` label (`fonts_value` over the site fonts) and the run_m1 skip key's `uv.lock` line. Rewriting only `head` and `name` in both site fonts and only the project version in the lock moves neither. A glyph edit and a GPOS change each move the font label, and a dependency-pin change moves the lock line. The fake repo is a git repo because the lane closure is listed with `git ls-files`."""
     root = _fake_repo(tmp_path)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / "conftest.py").write_text("")
@@ -1642,13 +1412,13 @@ def test_a_version_bump_moves_no_key_while_a_glyph_an_anchor_and_a_pin_move_each
 
     _font(MINI_FONT, senior, _widen_a_glyph)
     glyph = _version_bump_keys(root)
-    assert glyph[0] != base[0] and glyph[1] != base[1] and glyph[2] == base[2]
+    assert glyph[0] != base[0] and glyph[1] == base[1]
     _font(MINI_FONT, senior, _move_an_anchor)
     anchor = _version_bump_keys(root)
-    assert anchor[0] != base[0] and anchor[1] != base[1] and anchor[2] == base[2]
-    assert anchor[:2] != glyph[:2]
+    assert anchor[0] != base[0] and anchor[1] == base[1]
+    assert anchor[0] != glyph[0]
 
     senior.write_bytes(MINI_FONT.read_bytes())
     lock.write_text(LOCK_PIN_MOVED)
     pin = _version_bump_keys(root)
-    assert pin[:2] == base[:2] and pin[2] != base[2]
+    assert pin[0] == base[0] and pin[1] != base[1]

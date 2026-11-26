@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from rebuild.review.enrich import LETTERS, letter_display, notation, notation_tokens, text_entities
-from rebuild.review.unit_cache import BASE58_ALPHABET, id_word, unit_id_for
+from rebuild.review.unit_ids import BASE58_ALPHABET, unit_id_for
 from rebuild.validation.rowmodel import iter_rows
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -41,14 +41,14 @@ def test_notation_tokens_align_one_to_one_with_codepoints():
 
 
 def test_a_unit_ids_string_order_is_the_integer_order_of_the_word_it_encodes():
-    """The build's primary-unit resolution breaks a tie between primary units on a unit's id word (`unit_cache.id_word`), so that integer order must match the order of the `unit_id` strings, or a tie could resolve to a different primary unit. `unit_cache.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a 64-bit word sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer, and its word is the integer it encodes."""
+    """`unit_ids.base58_64` writes a fixed `ID_SYMBOLS` symbols from an alphabet in ascending ASCII order, so the base58 form of a content key's first 64 bits sorts as the word does. With the constant `u-` prefix and that fixed width, the whole id string also sorts as its bytes read as a big-endian integer."""
     draws = random.Random(299)
     boundaries = {0, 1, 57, 58, 58**10 - 1, 58**10, 2**63, 2**64 - 1}
     words = sorted(boundaries | {draws.getrandbits(64) for _ in range(4096)})
     ids = [unit_id_for(f"{word:016x}" + "0" * 48) for word in words]
     assert list(BASE58_ALPHABET) == sorted(BASE58_ALPHABET)
     assert ids == sorted(ids)
-    assert [id_word(unit_id) for unit_id in ids] == words
+    assert len(set(ids)) == len(words)
     assert len(set(len(unit_id) for unit_id in ids)) == 1
     assert [int.from_bytes(unit_id.encode(), "big") for unit_id in ids] == sorted(
         int.from_bytes(unit_id.encode(), "big") for unit_id in ids

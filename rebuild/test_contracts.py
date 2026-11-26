@@ -62,7 +62,6 @@ class TestForbiddenPaths:
             "var/review-pre-abc1234/manifest.json",
             "var/build-logs/latest/plan.txt",
             "var/keep/notes.md",
-            "rebuild/review-facts-pins.json",
             "verdicts-autosave.json",
             "verdicts-export.json",
             "verdicts-carried-abc1234.json",
@@ -137,7 +136,10 @@ contracts.REBUILD_DIR = contracts.REPO_ROOT / "rebuild"
 from pathlib import Path
 
 def test_live_read_is_outside_the_rebuild_guard():
-    assert Path({str(REPO_ROOT / "rebuild" / "review-facts-pins.json")!r}).read_bytes()
+    try:
+        Path({str(REPO_ROOT / "rebuild" / "out" / "review" / "manifest.json")!r}).read_bytes()
+    except FileNotFoundError:
+        pass
 """,
         }
     )
@@ -203,6 +205,6 @@ class TestCollectionModes:
 
 
 def test_the_collection_walk_leaves_the_crate_and_the_build_output_alone():
-    """Collection under rebuild/ skips three subtrees: the kernel crate, named from `contracts_closure.KERNEL_PREFIX`, the review crate, and the build output. Together they hold nearly every entry a worker would otherwise visit. Every other subtree is still walked, so a test file in a new subtree is found."""
-    assert set(collect_ignore) == {Path(contracts_closure.KERNEL_PREFIX).name, "review-rs", "out"}
+    """Collection under rebuild/ skips two subtrees: the kernel crate, named from `contracts_closure.KERNEL_PREFIX`, and the build output. Together they hold nearly every entry a worker would otherwise visit. Every other subtree is still walked, so a test file in a new subtree is found."""
+    assert set(collect_ignore) == {Path(contracts_closure.KERNEL_PREFIX).name, "out"}
     assert all("/" not in name for name in collect_ignore)

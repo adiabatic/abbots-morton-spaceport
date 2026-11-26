@@ -974,14 +974,12 @@ class TestTheKernLookup:
         }
         assert "kern-side" in sweep(missing).divergences_by_kind
 
-    def test_the_kern_lookup_moves_no_kern_blind_key(self, kerned):
+    def test_the_kern_lookup_moves_the_font_but_no_glyph_digest(self, kerned):
         plain, kerned_font = kerned.fonts["plain"], kerned.fonts["kerned"]
         assert fingerprint.after_font_glyph_digests(plain) == fingerprint.after_font_glyph_digests(
             kerned_font
         )
-        assert fingerprint.kern_blind_font_digest(plain) == fingerprint.kern_blind_font_digest(kerned_font)
         assert fingerprint.font_content_digest(plain) != fingerprint.font_content_digest(kerned_font)
-        assert fingerprint.after_font_current(kerned_font, fingerprint.file_sha256(kerned_font), plain)
 
 
 @pytest.fixture(scope="module")

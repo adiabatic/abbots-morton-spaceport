@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { deflateRawSync } from 'node:zlib';
 import {
   APP_INDEX_FORMAT,
   LOCATOR_FORMAT,
@@ -18,7 +17,6 @@ import {
   finishLines,
   hasExplainSource,
   indexLocatorBlocks,
-  isSlimFragment,
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
@@ -36,7 +34,8 @@ const allUnits = [];
 for (const cls of manifest.classes) {
   for (const part of cls.shards) allUnits.push(...JSON.parse(await readFile(new URL(part, fixtureDir), 'utf8')));
 }
-const human = allUnits.find((unit) => !needsNoVerdict(unit));
+const human = allUnits.find((unit) => !needsNoVerdict(unit) && unit.text_entities !== null);
+const machineUnit = allUnits.find((unit) => needsNoVerdict(unit) && unit.text_entities !== null);
 
 const drain = (state, chunks) => {
   const lines = [];
@@ -112,7 +111,7 @@ test('checkIndexHeader refuses an index stamped for another build, whose ids nam
   const check = checkIndexHeader(header, manifest, APP_INDEX_FORMAT);
   assert.equal(check.ok, false);
   assert.match(check.reason, /2026-06-11T00:00:00Z/);
-  assert.match(check.reason, /2026-06-10T00:00:00Z/);
+  assert.match(check.reason, new RegExp(manifest.generated_at));
 });
 
 test('checkIndexHeader refuses an unreadable or stampless header rather than trusting it', () => {
@@ -122,43 +121,20 @@ test('checkIndexHeader refuses an unreadable or stampless header rather than tru
   assert.equal(checkIndexHeader({ generated_at: manifest.generated_at }, manifest, APP_INDEX_FORMAT).ok, false);
 });
 
-test('hasExplainSource separates a slim row from a whole shard record', () => {
+test('hasExplainSource separates an app-index row from a whole shard record', () => {
   assert.equal(hasExplainSource(human), true);
-  const slim = { ...human };
-  delete slim.explain;
-  delete slim.provenance;
-  delete slim.drafts;
-  assert.equal(hasExplainSource(slim), false);
+  const row = { ...human };
+  delete row.explain;
+  delete row.provenance;
+  assert.equal(hasExplainSource(row), false);
   assert.equal(hasExplainSource({ explain: null }), true, 'a record whose explain is empty is still a whole record');
-  assert.equal(hasExplainSource(machineFragment), true, 'a slim machine fragment fills its own panel');
+  assert.equal(hasExplainSource(machineUnit), true, 'a machine-approved record fills its own panel');
   assert.equal(hasExplainSource(null), false);
 });
 
-const machineFragment = allUnits.find((unit) => needsNoVerdict(unit));
-
-test('the fixture carries one machine fragment in the slim shape the build writes', () => {
-  assert.ok(machineFragment, 'the fixtures must carry a machine-approved or no-verdict unit');
-  for (const key of ['explain', 'drafts', 'highlight']) assert.equal(key in machineFragment, false, key);
-  assert.ok('provenance' in machineFragment && 'summary' in machineFragment && 'after' in machineFragment);
-});
-
-test('isSlimFragment reads the shape off a machine fragment and nothing else', () => {
-  assert.equal(isSlimFragment(machineFragment), true);
-  assert.equal(isSlimFragment(human), false, 'a whole human record');
-  const row = { ...human };
-  delete row.explain;
-  delete row.drafts;
-  delete row.highlight;
-  assert.equal(isSlimFragment(row), false, 'a slim app-index row still takes a verdict, so its explain lives in its shard');
-  assert.equal(isSlimFragment({ ...machineFragment, explain: 'sequence E650:E665   config ss02', drafts: null }), false, 'a machine record carrying the fields is whole, not slim');
-  assert.equal(isSlimFragment({ ...machineFragment, explain: null }), false, 'an emptied field is a blank on a whole record, never the slim shape');
-  assert.equal(isSlimFragment(null), false);
-  assert.equal(isSlimFragment(undefined), false);
-});
-
-test('carriesSamples tells a shard record, slim fragment included, from an app-index row', () => {
+test('carriesSamples tells a shard record, a machine-approved one included, from an app-index row', () => {
   assert.equal(carriesSamples(human), true);
-  assert.equal(carriesSamples(machineFragment), true, 'a slim fragment still carries its text and cells');
+  assert.equal(carriesSamples(machineUnit), true, 'a machine-approved record carries its text and cells');
   const row = { ...human };
   delete row.text_entities;
   delete row.highlight;
@@ -171,7 +147,7 @@ test('carriesSamples tells a shard record, slim fragment included, from an app-i
 test('drawnWithKerning is true only on a unit that says it shows a kern value', () => {
   assert.equal(drawnWithKerning({ ...human, kerning: true }), true);
   assert.equal(drawnWithKerning({ ...human, kerning: false }), false);
-  assert.equal(drawnWithKerning(human), false, 'an m1-audit fragment carries no kerning field');
+  assert.equal(drawnWithKerning({ ...human, kerning: undefined }), false, 'a record without the field is drawn with kerning off');
   assert.equal(drawnWithKerning(null), false);
 });
 
@@ -250,17 +226,13 @@ test('coalesceSpans joins two spans exactly a gap apart and keeps the class the 
   assert.equal(coalesceSpans(rows, 0).length, 2, 'a gap of zero shares nothing but abutting spans');
 });
 
-test('a run mixing plain and deflated rows slices each back out of its bytes and inflates the deflated ones', async () => {
+test('a run of rows slices each record back out of its bytes', async () => {
   const records = [{ id: 'a' }, { id: 'bb', text: 'x'.repeat(300) }, { id: 'ccc' }];
-  const stored = records.map((record, index) => {
-    const plain = Buffer.from(JSON.stringify(record), 'ascii');
-    return index === 1 ? deflateRawSync(plain, { level: 1 }) : plain;
-  });
+  const stored = records.map((record) => Buffer.from(JSON.stringify(record), 'ascii'));
   const rows = [];
   let start = 1000;
   for (const [index, bytes] of stored.entries()) {
-    const marker = index === 1 ? { deflated: true } : {};
-    rows.push({ id: records[index].id, shard_part: 0, byte_start: start, byte_length: bytes.length, ...marker });
+    rows.push({ id: records[index].id, shard_part: 0, byte_start: start, byte_length: bytes.length });
     start += bytes.length + 1;
   }
   const joined = stored.flatMap((bytes, index) => (index ? [Buffer.from(','), bytes] : [bytes]));
@@ -271,10 +243,6 @@ test('a run mixing plain and deflated rows slices each back out of its bytes and
   for (const [index, row] of rows.entries()) {
     assert.deepEqual(JSON.parse(await recordText(runBytes, run, row)), records[index]);
   }
-  const cut = { ...rows[1], byte_length: rows[1].byte_length - 1 };
-  await assert.rejects(recordText(runBytes, run, cut), 'a deflated row cut short does not inflate');
-  const runOn = { ...rows[1], byte_length: rows[1].byte_length + 1 };
-  await assert.rejects(recordText(runBytes, run, runOn), 'a deflated row that runs on past its stream does not inflate');
 });
 
 test('a fold window is a positive count', () => {
@@ -282,8 +250,8 @@ test('a fold window is a positive count', () => {
 });
 
 test('shardPartPath resolves a row to the part its bytes are in, for both spellings _write_shard produces', () => {
-  const bare = { class: 'join-dropped', shard_part: 0 };
-  assert.equal(shardPartPath(manifest, bare), 'units/join-dropped.json');
+  const bare = { class: 'joins', shard_part: 0 };
+  assert.equal(shardPartPath(manifest, bare), 'units/joins.json');
   const numbered = {
     classes: [{ id: 'wide', shards: ['units/wide.000.json', 'units/wide.001.json', 'units/wide.002.json'] }],
   };
@@ -292,7 +260,7 @@ test('shardPartPath resolves a row to the part its bytes are in, for both spelli
 
 test('shardPartPath yields nothing for an unknown class or a part the manifest does not list', () => {
   assert.equal(shardPartPath(manifest, { class: 'no-such-class', shard_part: 0 }), null);
-  assert.equal(shardPartPath(manifest, { class: 'join-dropped', shard_part: 7 }), null);
+  assert.equal(shardPartPath(manifest, { class: 'joins', shard_part: 7 }), null);
   assert.equal(shardPartPath(undefined, { class: 'x', shard_part: 0 }), null);
 });
 
@@ -353,7 +321,9 @@ test('looksGzipped reads the magic number off a body a server handed over undeco
 test('machineFoldPlan names one fold per class in the batch that holds units needing no verdict', () => {
   const plan = machineFoldPlan(manifest, viewState());
   assert.deepEqual(plan, [
-    { classId: 'fixture-intended', total: 1, check: 'ink_identical', provisional: false },
+    { classId: 'settlement', total: 1, check: 'ink_identical', provisional: false },
+    { classId: 'kerning', total: 1, check: 'no_verdict', provisional: false },
+    { classId: 'provenance-only', total: 1, check: 'no_verdict', provisional: false },
   ]);
 });
 
@@ -362,13 +332,13 @@ test('machineFoldPlan marks its totals provisional under a filter the manifest c
     const plan = machineFoldPlan(manifest, viewState(filter));
     assert.deepEqual(
       plan.map((fold) => fold.provisional),
-      [true],
+      [true, true, true],
       JSON.stringify(filter),
     );
   }
   // The plan applies the class filter itself, so the totals stay exact.
   assert.equal(
-    machineFoldPlan(manifest, viewState({ class: 'fixture-intended' }))[0].provisional,
+    machineFoldPlan(manifest, viewState({ class: 'settlement' }))[0].provisional,
     false,
   );
 });
@@ -380,25 +350,24 @@ test('machineFoldPlan plans nothing while the show-machine toggle is off, or ins
 
 test('machineFoldPlan honors the class filter and skips classes with nothing to fold', () => {
   assert.deepEqual(
-    machineFoldPlan(manifest, viewState({ class: 'fixture-intended' })).map((fold) => fold.classId),
-    ['fixture-intended'],
+    machineFoldPlan(manifest, viewState({ class: 'settlement' })).map((fold) => fold.classId),
+    ['settlement'],
   );
-  assert.deepEqual(machineFoldPlan(manifest, viewState({ class: 'join-dropped' })), []);
+  assert.deepEqual(machineFoldPlan(manifest, viewState({ class: 'joins' })), []);
 });
 
 test('machineFoldPlan drops a class out of the view when the batch moves past it', () => {
   assert.deepEqual(
-    machineFoldPlan(manifest, viewState({ batch: 1 })).map((fold) => fold.classId),
-    ['fixture-intended'],
-    'the Spot-check class runs on into batch 1 behind the Open questions class',
+    machineFoldPlan(manifest, viewState({ batch: 1 })),
+    [],
+    'batch 1 holds only glyphs units, and a batchless class folds into batch 0 alone',
   );
-  assert.deepEqual(machineFoldPlan(manifest, viewState({ batch: 2 })), []);
 });
 
 test('machineFoldPlan includes a batchless class with batch 0, the way unitsForView did', () => {
   const batchless = {
     classes: [
-      { id: 'all-machine', batches: [], unit_count: 9, machine_approved_count: 9, no_verdict: false, machine_checks: { ink_identical: 9, picture_identical: 0, junior_equivalent: 0 } },
+      { id: 'all-machine', batches: [], unit_count: 9, machine_approved_count: 9, no_verdict: false, machine_checks: { ink_identical: 9, picture_identical: 0 } },
     ],
   };
   assert.deepEqual(machineFoldPlan(batchless, viewState()), [

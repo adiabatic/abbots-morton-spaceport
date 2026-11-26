@@ -823,7 +823,7 @@ class TestThePacking:
         run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
         assert all(len(table_module.windows_head(tmp_path, config).segments) == 1 for config in CONFIGS)
-        assert row_delta.claim_fold("unit-cache.ndjson.gz")
+        assert row_delta.claim_fold("divergence-audit.tsv")
         before = _windows_bytes(tmp_path)
         if failure == "a reader fails":
             real = run_m1._stage_head_file
@@ -861,7 +861,7 @@ class TestThePacking:
         narrow = spec_load.narrowed(SPEC, ("qsTea", "qsMay", "qsIt"))
         run_m1.build_tables(narrow, tmp_path, inputs=STAMP)
         run_m1.build_tables(SPEC, tmp_path, inputs=STAMP)
-        assert row_delta.claim_fold("unit-cache.ndjson.gz")
+        assert row_delta.claim_fold("divergence-audit.tsv")
         if route == "base":
             base = tmp_path / table_module.windows_head(tmp_path, "default").base.name
             raw = bytearray(base.read_bytes())
@@ -1054,7 +1054,7 @@ class TestThePacking:
                     head.output, 0, head.content, head.stamps, head.base, tuple(segments), head.merge
                 ),
             )
-        assert row_delta.claim_fold("unit-cache.ndjson.gz")
+        assert row_delta.claim_fold("divergence-audit.tsv")
         soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
         try:
             resource.setrlimit(resource.RLIMIT_NOFILE, (256, hard))

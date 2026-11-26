@@ -143,12 +143,13 @@ def test_an_overrun_of_the_sweep_constant_trips_the_check(tmp_path, capsys):
     ("unit", "record"),
     [
         ("land", lambda peak: _step("land", peak)),
+        ("corpus-build", lambda peak: _step("corpus-build", peak)),
         ("replay-walk", lambda peak: _pool("replay-walk", [peak])),
         ("deep-replay-walk", lambda peak: _pool("deep-replay-walk", [peak])),
     ],
 )
-def test_check_trips_on_a_land_or_replay_peak_above_its_constant(tmp_path, capsys, unit, record):
-    """The land, the string replay and the deep replay each have a row, so a recorded peak above `LAND_BYTES`, `REPLAY_PEAK_BYTES` or `DEEP_REPLAY_PEAK_BYTES` fails `--check` and names the constant to re-measure, and a peak at the constant passes."""
+def test_check_trips_on_a_build_lane_or_replay_peak_above_its_constant(tmp_path, capsys, unit, record):
+    """The land, the corpus build, the string replay and the deep replay each have a row, so a recorded peak above `LAND_BYTES`, `CORPUS_BUILD_BYTES`, `REPLAY_PEAK_BYTES` or `DEEP_REPLAY_PEAK_BYTES` fails `--check` and names the constant to re-measure, and a peak at the constant passes."""
     row = _unit(unit)
     over = _journal(tmp_path, [record(CONSTANTS[unit] + 1)])
     code, out = _run(capsys, over, "--check")
@@ -540,9 +541,9 @@ def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
     assert "40.00 GB" in out
 
 
-@pytest.mark.parametrize("name", ["run-m1-parent", "replay-absorb", "subset-pack"])
+@pytest.mark.parametrize("name", ["run-m1-parent", "replay-absorb"])
 def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_path, capsys, name):
-    """run_m1's own process, the string replay's settle-memo absorbs and the subset pack's processes record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
+    """run_m1's own process and the string replay's settle-memo absorbs record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
     assert _unit(name).constant is None
     assert [unit.name for unit in cb.UNITS if name in unit.pool_units] == [name]
     path = _journal(tmp_path, [_pool(name, [40_000_000_000])])
@@ -551,18 +552,6 @@ def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_pa
     block = out.split(f"{name}  (no constant")[1].split("\n\n")[0]
     assert "max 40.00 GB" in block
     assert _unit(name).note in block
-
-
-def test_the_corpus_builds_records_go_to_their_own_row_and_are_never_checked(tmp_path, capsys):
-    """The corpus build records its one process under `corpus-build-rs`. Only that row reads it, and the row has no constant, since one reading at one width cannot separate the process figure from the per-thread one, so `--check` passes at any reading and the row reports the figure."""
-    assert _unit("corpus-build-rs").constant is None
-    assert [unit.name for unit in cb.UNITS if "corpus-build-rs" in unit.pool_units] == ["corpus-build-rs"]
-    path = _journal(tmp_path, [_pool("corpus-build-rs", [40_000_000_000], reading="footprint")])
-    code, out = _run(capsys, path, "--check")
-    assert code == 0
-    block = out.split("corpus-build-rs  (no constant")[1].split("\n\n")[0]
-    assert "max 40.00 GB" in block
-    assert _unit("corpus-build-rs").note in block
 
 
 def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
@@ -587,12 +576,11 @@ def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys
 
 
 def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
-    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. The conformance sweep's second width is beside the corpus build at its gated width, the build lane's six cores less its main thread, whose process and launcher come to 10 GB and whose threads 5 GB each, so on twelve cores it fits 5 threads beside 35 GB, and on six cores the gated build's process and 2 threads leave 3, so the conformance sweep's cap beside it is its floor, the tree's 4 acceptance configurations. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. The conformance sweep's second width is beside the corpus build's one process, 10 GB in the tree, which keeps its core, so on twelve cores the sweep is capped at 11 beside 10 GB, and on six cores at 5. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
     tree = tmp_path / "tree"
     (tree / "rebuild" / "tools").mkdir(parents=True)
     (tree / "rebuild" / "tools" / "artifact_cycle.py").write_text(
-        f"{cb.CORPUS_BUILD_RS_PROCESS_NAME} = 8_000_000_000\n{cb.CORPUS_BUILD_RS_LAUNCHER_NAME} = 2_000_000_000\n"
-        f"{cb.CORPUS_BUILD_RS_THREAD_NAME} = 5_000_000_000\n"
+        f"{cb.CORPUS_BUILD_NAME} = 10_000_000_000\n"
         f"{cb.ORACLE_SHARD_NAME} = {CONSTANTS['oracle-absorb']}\n{cb.ORACLE_ABSORB_NAME} = 3_000_000_000\n",
         encoding="utf-8",
     )
@@ -636,9 +624,8 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
     idle, beside = sweep_width.split(" with the build lane idle, and ")
     assert idle.endswith("capped at 12")
-    assert "less 35.00 GB co-resident, capped at 6" in beside
     assert (
-        "beside the corpus build, its process and launcher and 5 threads; on a pass that runs gate:make-test the corpus build can be narrower"
+        "less 10.00 GB co-resident, capped at 11 beside the corpus build's one process (CORPUS_BUILD_BYTES)"
         in beside
     )
     oracle_block = out.split("\noracle-shard  ")[1].split("\n\n")[0]
@@ -661,19 +648,12 @@ def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tm
     deep = memory_budget.describe_fit(CONSTANTS["deep-replay-walk"], cap=12, total_bytes=48_000_000_000)
     assert f"`make replay-deep` walks {deep}, one unit a crate process" in out
     land_block = out.split("\nland  ")[1].split("\n\n")[0]
-    assert (
-        "it is below CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES together (10.00 GB), what the build-lane step before it holds"
-        in land_block
-    )
+    assert "it is below CORPUS_BUILD_BYTES (10.00 GB), what the build-lane step before it holds" in land_block
     small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
     small_block = small.split("\nconform-sweep  ")[1].split("\n\n")[0]
     small_width = next(line for line in small_block.splitlines() if line.startswith("  width here: "))
     _idle, small_beside = small_width.split(" with the build lane idle, and ")
-    assert "capped at 4" in small_beside
-    assert (
-        "beside the corpus build, its process and launcher and 2 threads; on a pass that runs gate:make-test the corpus build can be narrower"
-        in small_beside
-    )
+    assert "capped at 5 beside the corpus build's one process" in small_beside
 
 
 def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):
@@ -743,6 +723,7 @@ def test_each_units_rule_is_the_one_its_constants_comment_states():
         "oracle-absorb": (1.25, 100_000_000),
         "conform-sweep": (1.25, 100_000_000),
         "land": (1.25, 100_000_000),
+        "corpus-build": (1.25, 100_000_000),
         "deep-replay-walk": (1.25, 100_000_000),
     }
 

@@ -1,6 +1,6 @@
 """Shared fixtures for the rebuild suite, and the guard that keeps every test in it off live build artifacts.
 
-Every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The builds check their own artifacts (the review crate's contract check for the corpus, `run_m1.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `rebuild/out/`. The root conftest resolves `-n auto` to every usable core and honors `PYTEST_XDIST_AUTO_NUM_WORKERS` for every collection mode.
+Every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The builds check their own artifacts (the §7 contract check for the review corpus, `run_m1.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `rebuild/out/`. The root conftest resolves `-n auto` to every usable core and honors `PYTEST_XDIST_AUTO_NUM_WORKERS` for every collection mode.
 
 A `sys.addaudithook` guard enforces that boundary. It is installed once per process and is active only during the setup, call, and teardown of an item this conftest governs. While it is active, any audited file operation on a path under the live trees (`rebuild/out/`, all of `tmp/` and `var/`, the gate's exempt prefixes that are not source, and the root `verdicts-*` stores) raises `ContractsLaneViolation`, naming the test and the path. A phase that catches that exception still fails through `pytest_runtest_makereport`. The guard does not see subprocess children or `Path.exists()` and `os.stat`; `_audit` describes both gaps.
 
@@ -44,10 +44,9 @@ GREEN_RECORDS = (
 )
 
 REBUILD_DIR = Path(__file__).resolve().parent
-MINI = REBUILD_DIR / "review" / "fixtures" / "mini"
-# Collection skips the two crates, whose target/ trees are nearly every entry the walk would otherwise visit, and the build output; `rebuild/test_contracts.py` pins the list. Every visited entry costs each xdist worker a `collect_ignore_glob` lookup that misses on each conftest, since none defines it, and on CPython 3.13+ a module attribute miss formats its error through getcwd() when sys.path[0] is empty, as it is in xdist's `python -c` workers, so without these entries the walk is most of a narrowed run's fixed startup cost.
-collect_ignore = ["kernel-rs", "review-rs", "out"]
-# The live trees: rebuild/out/, all of tmp/ and var/, the root verdicts-* stores, and the rebuild gate's exempt prefixes, minus `_EXEMPT_SOURCE`. The gate exempts the review-facts pins because they are regenerated state, but it exempts rebuild/review/jstests/ (the JS suite) and rebuild/m1-contact-allow.yaml (read only by the defect gate) only because it has no reason to hash them. Those two are checked-in source, which a contracts test may read. A test that needs a scratch directory takes `tmp_path`.
+# Collection skips the kernel crate, whose target/ tree is nearly every entry the walk would otherwise visit, and the build output; `rebuild/test_contracts.py` pins the list. Every visited entry costs each xdist worker a `collect_ignore_glob` lookup that misses on each conftest, since none defines it, and on CPython 3.13+ a module attribute miss formats its error through getcwd() when sys.path[0] is empty, as it is in xdist's `python -c` workers, so without these entries the walk is most of a narrowed run's fixed startup cost.
+collect_ignore = ["kernel-rs", "out"]
+# The live trees: rebuild/out/, all of tmp/ and var/, the root verdicts-* stores, and the rebuild gate's exempt prefixes, minus `_EXEMPT_SOURCE`. The gate exempts rebuild/review/jstests/ (the JS suite) and rebuild/m1-contact-allow.yaml (read only by the defect gate) only because it has no reason to hash them. Those two are checked-in source, which a contracts test may read. A test that needs a scratch directory takes `tmp_path`.
 _EXEMPT_SOURCE = ("rebuild/review/jstests/", "rebuild/m1-contact-allow.yaml")
 _FORBIDDEN = tuple(
     os.path.join(str(REPO_ROOT), rel)
@@ -458,11 +457,11 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in rebuild/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass. The cycle directory (`cycle_paths.CYCLE_VAR`) is redirected because `main` takes the pass lock there and creates a scratch directory under it, and a real pass holds that lock while the rebuild suite runs as its child, so a test driving `main` against the live one would wait on its own parent.
 
-    The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. A corpus build records its pool record there at any width, so a test that runs `build_m1` would record a mini bundle's peaks as measurements of the real build, which `make job-costs` reports beside the `*_BYTES` constants. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The suite's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
+    The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. run_m1 records its pool records there, so a test that runs one of its pools would record a fixture's peaks as measurements of the real build, which `make job-costs` reports beside the `*_BYTES` constants. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_m1's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The suite's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
 
     `cycle_timings.CYCLE_RUN_ENV` (AMS_CYCLE_RUN) is removed from the environment, because run_m1's CLI and the make-test gate wrapper skip recording their check line when it is set. It can come from outside, because the rebuild suite runs as a cycle child and inherits a real pass's run id, or from inside, because `artifact_cycle.main` sets it on this process and it would stay set for whatever test the xdist worker runs next. `setenv` comes before `delenv` so that `delenv` cannot raise on an absent variable and so that teardown restores the variable's original state, removing any value the test set. A test that wants to be a cycle's child sets the variable itself.
 
-    `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures that build the mini corpus among them. A rebuild suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
+    `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures among them. A rebuild suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
 
     Three steps delete stale artifacts before rebuilding them: the unlink of run_m1's three summaries and of gate:conform's summary, each just before its subprocess spawns, and the retention pass. Redirecting the constants covers the unlinks. Retention prunes the build logs under `cycle_paths.BUILD_LOGS_ROOT`, which the redirect covers, and it is switched off as well (`cycle_paths.RETENTION_ENABLED`), so `_finish` records a retention result with no lines and a test reaching a green finish with `record_greens` set prunes nothing. A test that wants the real retention calls `artifact_cycle.run_retention` with a plan whose `artifact_cycle.ROOT` points somewhere disposable, and a test asserting that `_finish` reaches retention sets the switch back on and patches `run_retention`. The readiness checklist is switched off the same way (`cycle_paths.READINESS_ENABLED`), because it reads the served corpus and the root autosave; a test asserting that `_finish` prints it sets the switch and patches `readiness_block`. The reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus is switched off too (`cycle_paths.REVIEW_RELOAD_ENABLED`), because it goes to the live port and would reload the reviewer's open tabs.
 
@@ -565,55 +564,17 @@ def build_once(tmp_path_factory, pytestconfig) -> Callable[[str, Callable[[Path]
 
 @dataclass(frozen=True)
 class MiniBundle:
-    """The spec root materialized from the frozen mini bundle's pin, that spec root's divergence ledger, and the bundle's subset tables packed under the temp root, where the enricher would otherwise write the pack beside the checked-in tables."""
+    """The spec root materialized from the frozen mini bundle's pin."""
 
     spec_root: Path
-    ledger: Path
-    subset_pack: Path
 
 
 @pytest.fixture(scope="session")
 def mini_bundle(build_once) -> MiniBundle:
-    """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`), and pack the bundle's subset tables beside it. The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records. Pass `spec_root` to `build_m1` or `load_spec`, `ledger` to `build_m1` or `load_ledger`, and `subset_pack` to `build_m1`, and the settlement the build's enricher re-derives is the one the frozen rows were written under, whatever the working tree's runes say.
+    """Materialize the spec the mini bundle's rows settled under, once a run (`build_once`). The spec comes out of git from the tree and blob shas `rebuild/review/fixtures/mini/pin.json` records, so a test reads the settlement the frozen rows were written under, whatever the working tree's runes say.
 
-    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs. The pack is written by `subset_pack.write_pack_in_memory`, which reads the tables in this process and writes the bytes `write_pack` writes, for the same reason: `write_pack` reads them in pack processes, which would leave every such test's inputs untraced.
+    The git subprocesses are `git cat-file` and `git archive` by sha, which `closure_record.hermetic_child` accepts: the bytes they read are content-addressed and the pin file that names them is read in this process, so every test built on this fixture keeps traced inputs.
     """
     pin = announced_import("rebuild.review.fixtures.mini.pin")
-    subset_pack = announced_import("rebuild.review.subset_pack")
-    audit = announced_import("rebuild.review.audit")
-
-    def build(spec_root: Path) -> None:
-        pin.materialize(spec_root)
-        subset_pack.write_pack_in_memory(
-            MINI,
-            audit.ACCEPTANCE_CONFIGS,
-            subset_pack.table_digests(MINI, audit.ACCEPTANCE_CONFIGS),
-            spec_root / subset_pack.PACK_NAME,
-        )
-
-    spec_root = build_once("mini-spec", build)
-    return MiniBundle(
-        spec_root=spec_root,
-        ledger=spec_root / "rebuild" / "m1-divergences.yaml",
-        subset_pack=spec_root / subset_pack.PACK_NAME,
-    )
-
-
-@pytest.fixture(scope="session")
-def mini_corpus(build_once, mini_bundle: MiniBundle) -> Path:
-    """Build the frozen mini bundle's corpus once a run (`build_once`), for every test that needs the bundle's unmodified corpus. `build_m1` over these inputs is byte-stable, so one build serves all of them. A test that changes a corpus copies this one first. The build runs at one thread, and its pool record goes to the journal `build_once` points beside it."""
-    build = announced_import("rebuild.review.build")
-
-    def build_corpus(directory: Path) -> None:
-        build.build_m1(
-            directory / "corpus",
-            audit_path=MINI / "audit.tsv",
-            ledger_path=mini_bundle.ledger,
-            subset_dir=MINI,
-            after_font=MINI / "M1.otf",
-            spec_root=mini_bundle.spec_root,
-            subset_pack=mini_bundle.subset_pack,
-            jobs=1,
-        )
-
-    return build_once("mini-corpus", build_corpus) / "corpus"
+    spec_root = build_once("mini-spec", pin.materialize)
+    return MiniBundle(spec_root=spec_root)

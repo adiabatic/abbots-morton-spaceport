@@ -1,16 +1,16 @@
-# Review corpus plan (design §11, first workload: the M1 migration baseline diff)
+# Review corpus plan (design §11: the accepted build against an edit)
 
 This is the design record for the table-diff review app: why the corpus has its shape, and the contracts it was built against. Its inputs are design §11, §8, §10.5 and §6.3. The app is built under `rebuild/out/review/` and served on port 7294.
 
-`rebuild/review/README.md` describes the app as a reviewer uses it: the commands, the keyboard map, the triage flow, and what each machine-approval and deduplication mechanism does for the reviewer, with pointers to the module docstrings that hold the detail. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here. The last accepted review facts are `rebuild/review-facts-pins.json`, which every artifact-cycle pass refreshes from the build's review-facts sidecar (`uv run python -m rebuild.review.facts --update` is the manual form, reading the corpus in `rebuild/out/review`). A build's totals (`totals`, `machine_approved`, and the `secondary_junctions` counts) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
+`rebuild/review/README.md` describes the app as a reviewer uses it: the commands, the keyboard map, the triage flow, and what each machine-approval mechanism does for the reviewer, with pointers to the module docstrings that hold the detail. The checkers in `rebuild/review/build.py` are the executable contract. Counts are not kept here: a build's totals (`totals`, `machine_approved`, `table_rows` and `font_changes`) are in `rebuild/out/review/manifest.json`, and `make verdict-ready` reports adjudication status. The `rebuild/review/*.py` module docstrings and the README cite this file's section numbers, so sections are never renumbered.
 
 ## 1. Architecture
 
 ### 1.1 Source layout (checked-in, under `rebuild/review/`)
 
-`rebuild/review/` is a Python package, and each module's docstring says what it does. `static/` holds the app's ES modules, CSS, and HTML shell, and `jstests/` holds the modules' `node --test` tests (§5.2). Two front ends write the same shard and sidecar formats. In M1 mode the review crate, `rebuild/review-rs/`, which `corpus_exec.py` launches (`doc/rebuild-design.md` §14.2), loads `rebuild/out/m1/divergence-audit.tsv` and `rebuild/m1-divergences.yaml`, dedupes the rows to units, orders them, enriches them and drafts their verdicts. In table-diff mode (§2.3) `tablediff.py` diffs the rows of a snapshot of the accepted build (`snapshot.py`) against a run_m1 build's, and `diff_units.py` turns the changed rows into the visible changes the corpus shows, in Python. The ink comparison, the shard and sidecar writers, the contract checker and the app are shared; a table-diff unit carries no drafts.
+`rebuild/review/` is a Python package, and each module's docstring says what it does. `static/` holds the app's ES modules, CSS, and HTML shell, and `jstests/` holds the modules' `node --test` tests (§5.2). `tablediff.py` diffs the rows of a snapshot of the accepted build (`snapshot.py`) against a run_m1 build's, `diff_units.py` turns the changed rows into the visible changes the corpus shows (§2.3), and `build.py` writes them as shards beside the manifest and checks the result. `ink.py` compares the two fonts' ink, `shards.py` holds the shard layout, and `app_index.py` writes the app's sidecars (§7.4).
 
-The server, `serve.py`, runs the same livereload server and no-store static handler as `tools/serve.py`, over `rebuild/out/review/`, and adds the `/autosave`, `/status` and `/capabilities` endpoints and the kerning view's routes (`kern_routes.py`, which writes the rune files' `kern:` blocks through `kern_writer.py`, rebuild/KERN-PLAN.md §6); `/capabilities` names the land protocol (`landing.py`) the cycle relies on to keep the server running through a pass. Unlike `tools/serve.py`, it reloads no tab on a file change: the cycle sends an `ams:` path to livereload's `/forcereload` when what the server serves changes, and the app decides when to reload (`static/reload.js`). `rebuild/review/fixtures/` holds a hand-written miniature corpus (a `manifest.json`, its unit shards, and the audit rows and ledger they derive from) that satisfies the §7 contract, so the contract checker and the frontend's node tests run against it without a build. Python tests are `rebuild/test_review_*.py` and their neighbors (§5.1).
+The server, `serve.py`, runs the same livereload server and no-store static handler as `tools/serve.py`, over `rebuild/out/review/`, and adds the `/autosave`, `/status` and `/capabilities` endpoints and the kerning view's routes (`kern_routes.py`, which writes the rune files' `kern:` blocks through `kern_writer.py`, rebuild/KERN-PLAN.md §6); `/capabilities` names the land protocol (`landing.py`) the cycle relies on to keep the server running through a pass. Unlike `tools/serve.py`, it reloads no tab on a file change: the cycle sends an `ams:` path to livereload's `/forcereload` when what the server serves changes, and the app decides when to reload (`static/reload.js`). `rebuild/review/fixtures/` holds a hand-written miniature corpus (a `manifest.json` and its unit shards) that satisfies the §7 contract, so the contract checker and the frontend's node tests run against it without a build. Python tests are `rebuild/test_review_*.py` and their neighbors (§5.1).
 
 The data-expect parser is the grammar module `rebuild/validation/expect.py`, which imports nothing else from the repository.
 
@@ -21,28 +21,27 @@ rebuild/out/review/
   index.html            copied from static/
   app.css  app.js  …    the rest of static/, copied verbatim
   manifest.json         generation metadata, class index, font records
-  units/<class-id>.json one shard per nonzero class, split into .000.json, .001.json, … parts when large,
-                        with .x000.json, .x001.json, … overflow parts after them once a build appends
-  fonts/before.otf      copy of site/AbbotsMortonSpaceportSansSenior-Regular.otf (table-diff: the snapshot's M1.otf)
+  units/<class-id>.json one shard per nonzero class, split into .000.json, .001.json, … parts when large
+  fonts/before.otf      copy of the snapshot's M1.otf (the after font when no snapshot is present)
   fonts/after.otf       copy of rebuild/out/m1/M1.otf
 ```
 
-The build also writes other files beside the manifest, among them the app sidecars (§7.4), the unit index (`units-index.ndjson.gz`, held as `units-index.ndjson.gz.head` over a base and segments in the segment format of `rebuild/pipeline/row_delta.py`, its places read from the manifest), the incremental build's two stores (the unit store, held as `unit-cache.ndjson.gz.head` over a base and segments in the same format, and `ink-signatures.tsv.gz`), and `review-facts.json`.
+The build also writes the app sidecars (§7.4) beside the manifest.
 
-A shard part is capped at `build.SHARD_PART_BYTES` on disk. The app decodes each plain fragment it fetches as one JavaScript string, and a string longer than V8's `String::kMaxLength` (2**29 − 24 bytes under pointer compression) cannot be built. A class written whole, as a from-scratch build, a fold or the share rule writes it, takes base parts in id order: the bare name when it fits in one part, and otherwise contiguous three-digit parts numbered from `000`. A cached build keeps every fragment that comes out as it was at its address and appends each changed one to its class's overflow parts, numbered from `x000` and listed in the manifest's `shards` after the base parts, leaving its old slot dead; a class folds back into base parts once its dead bytes reach its live bytes (`ShardWriter` in `rebuild/review-rs/src/corpus/shards.rs`). A fragment is plain, ASCII JSON, or deflated alone as a raw deflate stream (#618's change 35): a first base, a from-scratch build's or a class new to the corpus, is written plain, and every fragment a build appends, folds or writes directly by the share rule into a class it already has parts for is written deflated, a fragment it held deflated copied as it was, within the same `[`, commas and closing bytes. A part can therefore hold fragments no unit owns, and plain and deflated fragments side by side, so every reader of fragments goes through the live-fragment iterator (`unit_index.LiveCorpus`), which reads by the unit store and inflates a deflated fragment, and the app reads each fragment by the address its sidecar row records, inflating it when the row ends with `"deflated": true`.
+A shard part is capped at `shards.SHARD_PART_BYTES` on disk. The app decodes each fragment it fetches as one JavaScript string, and a string longer than V8's `String::kMaxLength` (2**29 − 24 bytes under pointer compression) cannot be built. A class's fragments go into its parts in id order (`shards.PartLayout`): the bare name when they fit in one part, and otherwise contiguous three-digit parts numbered from `000`. Each fragment is plain, ASCII JSON, a standalone element between its part's `[`, commas and closing bytes, so the app reads each one by the address its sidecar row records.
 
-`manifest.json` records each font copy's source path and sha256. The site OTF is byte-identical to the one the oracle records as `font_sha256`, so “before” is the font the baseline was extracted from. The directory is self-contained, and deleting and rebuilding it is always safe. It never needs clearing by hand either: after writing the manifest, the build deletes every shard the manifest no longer references (`build._prune_orphan_shards`).
+`manifest.json` records each font copy's source path and sha256. The directory is self-contained, and deleting and rebuilding it is always safe. It never needs clearing by hand either: after writing the manifest, the build deletes every shard the manifest no longer references (`build._prune_orphan_shards`).
 
 ### 1.3 CLI surface (documented on the generated page itself, check.html-style)
 
-The everyday commands (`make review-build`, `make review-serve`, and the export CLI) are in the README's Commands block. These commands serve table-diff mode:
+The everyday commands (`make review-build` and `make review-serve`) are in the README's Commands block. These commands serve the table diff:
 
-| Task                         | Command                                                                                                         |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Build in table-diff mode     | `uv run python -m rebuild.review.build --mode table-diff [--snapshot <dir>] [--new rebuild/out/m1] --out <dir>` |
-| Snapshot the accepted build  | `uv run python -m rebuild.review.snapshot take [--tables rebuild/out/m1] [--home var/keep/review-snapshot]`     |
-| Accept the corpus's changes  | `make review-accept` (a dry run; `ARGS=--apply` writes, `ARGS='--apply --retake'` over the refusals)            |
-| Remake the accepted snapshot | `make review-snapshot-remake` (`uv run python -m rebuild.review.accept remake [--rev <rev>] [--home <dir>]`)    |
+| Task                         | Command                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Build the corpus             | `uv run python -m rebuild.review.build [--snapshot <dir>] [--new rebuild/out/m1] --out <dir>`                |
+| Snapshot the accepted build  | `uv run python -m rebuild.review.snapshot take [--tables rebuild/out/m1] [--home var/keep/review-snapshot]`  |
+| Accept the corpus's changes  | `make review-accept` (a dry run; `ARGS=--apply` writes, `ARGS='--apply --retake'` over the refusals)         |
+| Remake the accepted snapshot | `make review-snapshot-remake` (`uv run python -m rebuild.review.accept remake [--rev <rev>] [--home <dir>]`) |
 
 `rebuild.review.build snapshot` takes the same arguments as `snapshot take`, and `snapshot show` describes the current snapshot.
 
@@ -52,45 +51,37 @@ Build and serve are separate commands because the server is long-running. `serve
 
 At cutover the app moves out of `rebuild/out/`, and the serve script is likely to merge into `tools/serve.py`'s livereload. The `review-build` and `review-serve` Makefile targets stay as they are, and the move needs no `site/` changes and touches no existing pipeline files. One leftover waits for the move without blocking anything: the build copies a `{"type":"module"}` `package.json` from `static/` into the output verbatim, which is harmless.
 
-The namer dot's stand-in goes at cutover, or earlier once the old font no longer needs reviewing. It is a workaround for Chromium, which ends a shaping run at U+00B7 and so draws the old font after a namer dot as at the start of a text. Remove `namer_dot_stand_in_font`, `BrowserFontHandler` and their constants from `rebuild/review/serve.py`, and `namerDotStandIn`, `namerDotStandInEntities` and their callers from `static/render.js` and `static/app.js`. Point the `@font-face` rules in `static/app.css` back at `fonts/before.otf` and `fonts/after.otf`, and remove the tests of the stand-in in `rebuild/test_review_autosave.py` and `rebuild/review/jstests/render.test.js`. `test_the_namer_dot_stand_in_goes_at_cutover` fails once `glyph_data/quikscript.yaml` is gone or `glyph_data/script.yaml` exists.
+The namer dot's stand-in stays through cutover. Chromium ends a shaping run at U+00B7, so the dot is shaped without the letter after it, and the rebuild lowers the dot before a Short letter by a rule that reads that letter (`emit_gsub.namer_dot_lookup`); without the stand-in the app would draw every such dot unlowered. The server maps U+F8FF to the dot's glyph in the fonts the app loads (`namer_dot_stand_in_font`, served by `BrowserFontHandler` in `rebuild/review/serve.py`), and the app writes U+F8FF in the dot's place (`namerDotStandIn` and `namerDotStandInEntities` in `static/render.js`). `test_the_namer_dots_stand_in_keeps_the_dot_lowering_that_reads_the_next_letter` in `rebuild/test_review_autosave.py` fails once the dot's form no longer depends on the letter after it; then the stand-in, its tests in that file and `rebuild/review/jstests/render.test.js`, and the `/fonts/browser/` `@font-face` sources in `static/app.css` can go.
 
 ## 2. Data model
 
-### 2.1 Units, dedupe, ordering
+### 2.1 Units, ids, ordering
 
-A unit is one (`codepoints`, `baseline`, `new`) triple and covers every audit row that shares it. The ledger class can differ by config: a unit carries the per-config map in `config_classes`, and its own class is the single matched class, or UNMATCHED when any config leaves it unmatched. The build lists an UNMATCHED unit under a change group, and does the same for a human unit of an `ink_identical` ledger class without `no_verdict`, since its changed picture contradicts the class's claim; that unit keeps the ledger id as `ledger_class` (`assign_change_group` and `reroutes` in `rebuild/review-rs/src/change_groups.rs`). Because the triple compares glyph names, a config that only renames a glyph can split one visual question into two units; the build merges such siblings back together when their ink is identical under every config (`merge_members` in `rebuild/review-rs/src/corpus/table.rs`).
+A unit is one visible change between the accepted build and the new one, shown in its shortest text under every configuration that text shows it under; §2.3 says how the build finds them.
 
-Each unit carries its config list, a `config_gate`, and its prose form `config_note`. Both are null when the set covers every non-ss10 acceptance config, which is the common case. Otherwise the gate is the minimal conjunction of feature on/off constraints that selects exactly that set, on-constraints first, one clause per constraint, each clause carrying the text the badge prints. `build.config_badge` is the authority, including the literal “only under: …” fallback for a set no short conjunction selects. A unit's set is resolved against the configurations its window can hold (`Roster::window` in `rebuild/review-rs/src/scaffold.rs`): ss07 changes only windows that hold ·Owe and the oracle compares it nowhere else, so a badge never names it on any other window. `render_groups` partitions the configs by rendered outcome. Under the M1 dedupe key it is always a single group; extra groups would render stacked. A verdict applies to every (config, codepoints) audit row of the unit.
+Each unit carries its config list, a `config_gate`, and its prose form `config_note`. Both are null when the set covers every configuration of the roster (`tablediff.SETTLED_CONFIGS`), which is the common case. Otherwise the gate is the minimal conjunction of feature on/off constraints that selects exactly that set, on-constraints first, one clause per constraint, each clause carrying the text the badge prints. `build.config_badge` is the authority, including the literal “only under: …” fallback for a set no short conjunction selects, which a glyph only the ss10 overlay reaches takes. `render_groups` partitions the configs by rendered outcome; an extra group renders stacked. A verdict applies to the whole unit.
 
-Units are ordered for triage by class in manifest order, then by group (the lead family pair, in code-point order), then by window length and codepoints, then by id (`audit.triage_key`). Manifest order is the sidebar's: by section (`audit.class_section`), then the ledger's file order, then the change groups' `change_groups.CHANGE_GROUP_ORDER` (§7.1).
+Units are ordered for triage by class in manifest order, then by group (the family pair that meets at the change, in code-point order), then by text length and codepoints, then by id (`audit.triage_key`). Manifest order is the sidebar's: by section (`audit.class_section`), then `diff_units.CLASS_IDS` order (§7.1).
 
-**Kern-neutrality rule (binding for every review-corpus comparison but a table-diff kern unit's)**: the corpus compares settlement and joins, and kerning stays out of it: the rebuild's `kern` lookup has its own plan (rebuild/KERN-PLAN.md), and the old font's `kern` feature is noise in any before/after comparison. Everywhere the review build shapes text (the ink comparison, highlight x-ranges, boundary-mark positions, pin-semantics validation) it passes `kern: False` to HarfBuzz for both fonts through `ink.kern_neutral`, which adds kern-off to the config's stylistic-set features. The frontend renders both sample columns with `font-kerning: none`, alongside each row's inline `font-feature-settings`. The before-font highlight pens come from a live kern-neutral shaping, because the §13.1 subset rows' positions were extracted with kerning on; the glyph identities are still checked against the subset row. With `kern` off the after font's kern lookup reaches no unit, so a kern edit leaves the corpus as it is (rebuild/KERN-PLAN.md §4). Other rebuild consumers (oracle conformance, pin replay) keep their own shaping; the rule applies only in `rebuild/review/`. The one exception is a table-diff corpus's kern unit (§2.3), which shows a moved kern value, so it is shaped, compared and drawn with kerning on in both fonts, and that corpus's freshness compares its after font byte for byte.
+**Kern-neutrality rule (binding for every review-corpus comparison but a kern unit's)**: the corpus compares settlement, joins and drawings, and kerning stays out of it: the rebuild's `kern` lookup has its own plan (rebuild/KERN-PLAN.md). Everywhere the review build shapes text (the ink comparison, highlight x-ranges, boundary-mark positions) it passes `kern: False` to HarfBuzz for both fonts through `ink.kern_neutral`, which adds kern-off to the config's stylistic-set features. The frontend renders both sample columns with `font-kerning: none`, alongside each row's inline `font-feature-settings`. Other rebuild consumers (oracle conformance, pin replay) keep their own shaping; the rule applies only in `rebuild/review/`. The one exception is a kern unit (§2.3), which shows a moved kern value, so it is shaped, compared and drawn with kerning on in both fonts, and the corpus's freshness compares its after font byte for byte.
 
-**Ink-identical machine approval (`ink.py`)**: at build time every unit is shaped in both fonts under every config in its set, with uharfbuzz through `rebuild.validation.shaping.Shaper` and kern-neutral. A config whose features cannot fire on the unit's text, in a unit that also holds `default`, takes `default`'s shapes, since both fonts shape the text under it as under `default`; `rebuild/review/feature_reach.py` derives from both fonts' layout tables which letters each config's features need, and a config that fails its checks is shaped in every window. Each glyph's outline is recorded with fontTools' `DecomposingRecordingPen` and placed at the cumulative `x_advance` plus the glyph's `x_offset`/`y_offset`. A unit whose sorted placed pieces (`ink_pieces`) compare equal under every config is `ink_identical: true`. Both fonts then render it identically and only glyph names differ, so the build approves it without a human. The picture check below it reads `config_diff`'s identity sentinel, the same pixel-level delta the duplicate-group key and `ink_deltas` digest. `rebuild/test_review_ink.py` checks, over a stride of the frozen mini-bundle windows, that the sentinel equals the whole-run cell comparison and follows from piece identity. The manifest's `machine_approved` record holds the machine-approved unit and row totals, per class and per machine check. In table-diff mode the same comparison runs over each unit's text under each of its configurations (§2.3). A unit with no text has nothing to shape, so it stays `ink_identical: false` and goes to a human.
+**Ink-identical machine approval (`ink.py`)**: at build time every unit's text is shaped in both fonts under every config in its set, with uharfbuzz through `rebuild.validation.shaping.Shaper` and kern-neutral. Each glyph's outline is recorded with fontTools' `DecomposingRecordingPen` and placed at the cumulative `x_advance` plus the glyph's `x_offset`/`y_offset`. A unit whose sorted placed pieces (`ink_pieces`) compare equal under every config is `ink_identical: true`. Both fonts then render it identically and only glyph names differ, so the build approves it without a human. The picture check below it reads `config_diff`'s identity sentinel, the same pixel-level delta a unit's `cluster` digests. `rebuild/test_review_ink.py` checks, over a stride of the frozen mini-bundle windows, that the sentinel equals the whole-run cell comparison and follows from piece identity. The manifest's `machine_approved` record holds the machine-approved unit and row totals, per class and per machine check. A unit with no text has nothing to shape, so it stays `ink_identical: false` and goes to a human.
 
-**A unit's id is its content**: `unit_cache.unit_id_for` of the carry content key. The content key is the sha256 of the unit's carry projection (its non-presentation fields, `unit_cache.carry_projection`). The id is the key's first 64 bits written as eleven base58 symbols, zero-padded, behind the `u-` prefix: `u-3mJ7kPq2Xw9`. The base58 alphabet is Bitcoin's (`123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`: the digits and both cases minus 0, O, I and l), and case matters. The id says nothing about the unit's place in the queue. So the same window content has the same id on every corpus it appears on, a fragment's bytes depend only on its own content and the ledger, and a verdict follows its unit across rebuilds by id (`landing.carry_snapshot`). The carry projection leaves out `secondary_junctions`, because its `primary_unit` field holds another unit's id, which is a relation between units and not a fact about this one. It also leaves out the fields that say which class lists the unit and how the app describes it (`class`, `summary`, and the config badge), so renaming or regrouping a class re-keys no unit (the comment on `unit_cache.CARRY_PRESENTATION_KEYS` lists every field the projection leaves out and why). A build-code change that re-keys units without changing any input bumps `build.UNIT_ASSEMBLY_EPOCH`, for the reason the docstring of `build._generated_at` gives. Duplicate groups get their ids the same way from their own key (`duplicate_group_id` in `rebuild/review-rs/src/corpus/passes.rs`), and cluster ids are hashes of their inputs. Within a class shard, fragments are in id order, which is the order the app's locator binary-searches.
+**A unit's id is its content**: `unit_ids.unit_id_for` of its content key, the identity digest `diff_units.unit_identity` gives it (§2.3). The id is the key's first 64 bits written as eleven base58 symbols, zero-padded, behind the `u-` prefix: `u-3mJ7kPq2Xw9`. The base58 alphabet is Bitcoin's (`123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`: the digits and both cases minus 0, O, I and l), and case matters. The id says nothing about the unit's place in the queue. So the same change has the same id on every corpus it appears on, a fragment's bytes depend only on its own content, and a verdict follows its unit across rebuilds by id (`verdict_store.carry`). A build-code change that re-keys units without changing any input bumps `build.UNIT_ASSEMBLY_EPOCH`, for the reason the docstring of `build._generated_at` gives. Cluster ids are hashes of their inputs (§2.3). Within a class shard, fragments are in id order, which is the order the app's locator binary-searches.
 
-**Batches cover the human units only**: the manifest's `human_unit_ids` is the triage index. It lists, in triage order, every unit that no machine check approves and no ledger class exempts. A batch is a fixed slice of 300 of it, and `batch_of` in `rebuild/review-rs/src/corpus/passes.rs` is the one rule that turns a position into a batch number. No fragment carries its position or its batch. The app-index rows (§7.4) carry each human unit's `order` and `batch`. Machine-approved and no-verdict units are outside the index and are never paged to a human. The manifest's `machine_approved` record (units, rows, the verification method, per-class counts) and each class's `machine_approved_count` let sidebar counts, batch labels, and progress denominators count only the human units, while the machine-approved total is shown in the header strip's corpus-totals popover.
+**Batches cover the human units only**: the manifest's `human_unit_ids` is the triage index. It lists, in triage order, every unit that no machine check approves and whose class takes a verdict. A batch is a fixed slice of `batch_size` (`audit.BATCH_SIZE`) of it, a unit's batch its position divided by that size. No fragment carries its position or its batch. The app-index rows (§7.4) carry each human unit's `order` and `batch`. Machine-approved and no-verdict units are outside the index and are never paged to a human. The manifest's `machine_approved` record (units, rows, the verification method, per-class counts) and each class's `machine_approved_count` let sidebar counts, batch labels, and progress denominators count only the human units, while the machine-approved total is shown in the header strip's corpus-totals popover.
 
 ### 2.2 Encoding: sharded JSON, everything precomputed
 
-Decision: **one `manifest.json` plus one JSON shard per class (a ledger class or a change group), with everything computed at build time.** A unit with its explain text and drafts runs to several kilobytes, so a single JSON file for the whole corpus would be too large to load at once. Each of the build's units threads batches its settle and explain work through the kernel's engine, in process, before it enriches the units. Provenance, junctions, highlight offsets, and all three verdict drafts are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
+Decision: **one `manifest.json` plus one JSON shard per class, with everything computed at build time.** Provenance, junctions, highlight offsets and the explain text are computed at build time. The browser does not compute any of them; it renders and collects verdicts. There is no server-side logic and no explain endpoint.
 
-The app boots from a slim index of the human units (§7.4). The index leaves out everything a card draws from the unit's own record: `explain`, `provenance`, and `drafts`, and also the sample text, the pair band, and the settled cells. When a card renders, and when its explain panel opens, the app reads the record with an HTTP Range request against the shard the build wrote, using the byte span in the index row. The directory stays static, and the tab holds the queue, not the corpus.
+The app boots from a slim index of the human units (§7.4). The index leaves out everything a card draws from the unit's own record: `explain` and `provenance`, and also the sample text, the pair band, and the settled cells. When a card renders, and when its explain panel opens, the app reads the record with an HTTP Range request against the shard the build wrote, using the byte span in the index row. The directory stays static, and the tab holds the queue, not the corpus.
 
-Per-unit precomputed fields (full contract in §7): notation, before/after facts (glyphs or cells, junctions, extensions), divergent positions and the primary pair, highlight x-ranges in font units for both fonts, the explain text for divergent positions, the deduped provenance pointers, exemplar status, and the three drafts. The x-ranges come from `hmtx` advances, so the frontend draws the pair highlight with `px = units × font-size / upem` and never measures text.
+Per-unit precomputed fields (full contract in §7): notation, before/after facts (glyphs or cells, junctions, extensions), the changed positions and the pair, highlight x-ranges in font units for both fonts, the explain text, and the provenance pointers. The x-ranges come from `hmtx` advances, so the frontend draws the pair highlight with `px = units × font-size / upem` and never measures text.
 
-**Secondary junctions and primary-unit resolution**: a longer unit can contain divergent adjacencies besides its primary pair: the other divergent gaps, plus a neighbor junction for each divergent position no gap covers (the same fallback the primary pair uses). The build emits each as a `secondary_junctions` entry with per-side x-range rects computed like the primary highlight, plus the junction's **primary unit**. The primary unit is the shortest unit that:
+### 2.3 The table diff: the accepted build against an edit
 
-- has a codepoint string that is a substring of this unit's and contains the junction,
-- has the same before and after outcomes at the corresponding positions (glyph identities, covering spans after offset adjustment, and junction tokens), and
-- has that junction as its own primary pair, so the same behavior is its primary judgment.
-
-Ties break to the lowest unit id. When the primary unit is ink- or picture-identical, the marker is suppressed: the divergence is an invisible name-grain rename, and the page promises that unmarked regions have nothing visible to judge. When no primary unit exists, the marker is still emitted with `primary_unit: null`, so it is never silently unmarked. The manifest's `secondary_junctions` record counts units with visible markers, junctions with a primary unit, junctions without one, and suppressed junctions. The contract checker validates the field shape and that every named primary unit is a unit in the output. The frontend draws each visible junction as a dimmer dashed band in both columns with a chip that links to the primary unit, or reads “only here” for `primary_unit: null`, and never on machine-approved renderings. A junction with no primary unit is judged in this unit, so the frontend also underlines its tokens on the notation and codepoints lines with a `.junction-mark` span in the band's dashed amber.
-
-### 2.3 Table-diff mode: the accepted build against an edit
-
-Table-diff mode (`build.build_table_diff`) builds a corpus of what an edit changes against a snapshot of the accepted build, design §8's diff behind the same app:
+The build (`build.build_table_diff`) builds a corpus of what an edit changes against a snapshot of the accepted build, design §8's diff behind the review app:
 
 - **The snapshot** (`rebuild/review/snapshot.py`, format `ams-review-snapshot/3`) holds one run_m1 build: each settled configuration's settlement and join tables, gzipped, and its rule certificates as texts (`certificates-<config>.ndjson.gz`, one line per rule in rule order), the Regular font and the kern table, with a `snapshot.json` that records when it was taken, the tables' stamp and each file's sha256. Its digest, which leaves out when and where it was taken, names its directory under `var/keep/review-snapshot/`, and the `current` file beside the directories names the one a build compares against by default; taking one keeps it and the one it replaces. The module docstring gives the layout and the digest.
 - **The pointer** (`rebuild/review-snapshot.json`, tracked) names the accepted snapshot: `{format, snapshot_format, digest, taken_at}`. It records no commit. The accept writes it before the author commits, its change goes into the commit with the edit it accepts, and so the commit a snapshot stands for is the last commit that changed the pointer (`snapshot.pointer_commit`), which the manifest's `baseline.commit` and the readiness rows name. `rebuild/test_review_snapshot.py` holds its `snapshot_format` to the reader's, so a format bump takes the snapshot again in the same commit.
@@ -100,21 +91,19 @@ Table-diff mode (`build.build_table_diff`) builds a corpus of what an edit chang
 - **Glyphs.** A bitmap, anchor or advance edit leaves the tables as they were, so the build also compares the snapshot's font with the new one glyph by glyph (`diff_units.glyph_changes`): each glyph both fonts have whose decomposed outline, advance and sidebearing, or cursive anchors (read without the lookup each sits in) differ is a unit of the `glyphs` class. Its text is the shortest certificate of either table whose rule settles to the glyph, else a code point a font maps to it alone, else the shortest kerning-inventory text that holds it, else its letters under ss10, each taken once a run of it holds the glyph; the unit lists every configuration under which a run of its text does. A glyph outside Quikscript is in the group `non-quikscript`, over its code point alone, and clusters by its ink delta like any other unit, so a Latin edit and the composites built from the edited glyph share a card. A glyph no text draws (a letter's bare glyph, which settlement always replaces) is a unit with no text, whose cluster is its group's, so one letter's such glyphs share a card. Glyph units merge with join and settlement units over the same text and configurations, after both in `diff_units.KIND_PRECEDENCE`. A glyph only one font has is the row diff's business.
 - **Kerning.** The build diffs the snapshot's `kern.tsv` with the new one by (leading side, following side): each pair whose value moved, a pair one table lacks counting as kerned by 0, is a unit of the no-verdict `kerning` class over the kerning inventory's witness of the pair (its `pairs` are in `kern.tsv` order), or the two letters alone for a pair the new table lacks. Its fragment's `kerning` is true, and the build shapes and compares it, and the app draws it (`kerned` samples), with kerning on. The kerning view (`#view=kern`) is where kern values are authored and judged, so these units take no verdict, and the Queue and the sidebar still count them.
 - **Classes** (`diff_units.CLASSES`, in sidebar order within each section): `joins`, `settlement`, `glyphs`, and the no-verdict `kerning` and `provenance-only`. A unit's `kinds` names the row buckets it stands for (`added`, `removed`, `changed`, `regrouped`, `provenance-only`, or `context` for a substitution whose letter's own rows did not change), and for a glyph what changed in it (`outline`, `metrics`, `anchors`).
-- **Queue fields.** A human unit's `cluster` is `c-` and the first eight hex digits of the sha1 of the sorted distinct ink-delta digests (`ink.delta_digest` of `InkComparator.config_diff`) of its configurations, which leaves the configurations and the kind out, so units that show the same pixels share one Queue card; a unit with no text takes a key of its kind and its old and new values. `duplicate_group` is null. `group` is the family pair that meets at the change (`qsOwe:qsDay`), or the letter alone after a boundary, so the app's family filter and group folds read real families. `pair`, `pair_codepoints`, `highlight`, `notation_tokens` and `boundary_marks` come from HarfBuzz's clusters, so the pair band lies on the changed junction or glyph.
-- **Ids.** A unit's id is `unit_cache.unit_id_for` of `diff_units.unit_identity`, the sha256 of `table-diff/1`, the set of its changes' kinds, what each change is with its old and new values, its configurations, its code points, and the glyph names of its text's runs in each font, which `content_key` holds. The ink and the left glyphs a cell change was seen after are left out, so an edit that only redraws a glyph, or adds a left neighbor to a cell change, changes no unit's id.
+- **Queue fields.** A human unit's `cluster` is `c-` and the first eight hex digits of the sha1 of the sorted distinct ink-delta digests (`ink.delta_digest` of `InkComparator.config_diff`) of its configurations, which leaves the configurations and the kind out, so units that show the same pixels share one Queue card; a unit with no text takes a key of its kind and its old and new values. `group` is the family pair that meets at the change (`qsOwe:qsDay`), or the letter alone after a boundary, so the app's family filter and group folds read real families. `pair`, `pair_codepoints`, `highlight`, `notation_tokens` and `boundary_marks` come from HarfBuzz's clusters, so the pair band lies on the changed junction or glyph.
+- **Ids.** A unit's id is `unit_ids.unit_id_for` of `diff_units.unit_identity`, the sha256 of `table-diff/1`, the set of its changes' kinds, what each change is with its old and new values, its configurations, its code points, and the glyph names of its text's runs in each font, which `content_key` holds. The ink and the left glyphs a cell change was seen after are left out, so an edit that only redraws a glyph, or adds a left neighbor to a cell change, changes no unit's id.
 - **Empty corpora.** An empty diff builds a corpus with no units and no classes, and so does a machine with no snapshot, whose manifest's `baseline` says no snapshot is present and whose before font is the after font, so the app shell and the kerning view boot; the Queue then says there are no unaccepted changes since the snapshot's commit, or that there is no snapshot.
-- **Freshness and readiness.** The manifest's `inputs_fingerprint` is `fingerprint.TABLE_DIFF_COMPONENTS`: `snapshot` (the snapshot record's sha256), `tables` (the tables' stamp, copied from the new build's windows heads as the m1-audit corpus copies Stage A, and recomputed by `run_m1.tables_inputs`), `font_inputs` (the font data and kern lines a kern-only rebuild answers for), `review_code` and `static`. `status.compute_status` fails a corpus that is not a table-diff corpus; on a table-diff corpus the freshness check compares these and the after font byte for byte, a `snapshot` check fails when no snapshot is current or the current one is not the one the pointer names (remedy `make review-snapshot-remake`), and a `diff` check never fails and counts the unaccepted changes by what they need (`status._diff_check`); `make verdict-ready` prints the rows in `verdict_ready.CHECK_ORDER`, and `verdict_ready.diff_summary_line` is the cycle's summary line.
+- **Freshness and readiness.** The manifest's `inputs_fingerprint` is `fingerprint.TABLE_DIFF_COMPONENTS`: `snapshot` (the snapshot record's sha256), `tables` (the tables' stamp, copied from the new build's windows heads and recomputed by `run_m1.tables_inputs`), `font_inputs` (the font data and kern lines a kern-only rebuild answers for), `review_code` and `static`. `status.compute_status` fails a corpus that is not a table-diff corpus; on a table-diff corpus the freshness check compares these and the after font byte for byte, a `snapshot` check fails when no snapshot is current or the current one is not the one the pointer names (remedy `make review-snapshot-remake`), and a `diff` check never fails and counts the unaccepted changes by what they need (`status._diff_check`); `make verdict-ready` prints the rows in `verdict_ready.CHECK_ORDER`, and `verdict_ready.diff_summary_line` is the cycle's summary line.
 - **The accept** (`rebuild/review/accept.py`, `make review-accept`) makes the build the corpus shows the accepted one: it takes the snapshot of `rebuild/out/m1`, writes the pointer, empties the verdict store beside a listening review server and tells the open tabs to reload onto it. It refuses on a corpus that is not a table-diff corpus, while readiness fails or the corpus does not show `rebuild/out/m1`, while a pass may write the store, and while a human unit is blank, skipped, rejected or neither; `--retake` takes the snapshot over those refusals for a format bump or an unremakeable snapshot. **The remake** (`make review-snapshot-remake`) installs the pointer's snapshot on a machine without it, from that commit's own build in a tree `git archive` exports. The module docstring gives both.
-
-The frontend reads the mode only from the manifest's `mode` field and the class metadata. A table-diff corpus has no unit store, so its fragments are all plain and are read through the per-unit index, and `app_index.outputs_not_current` does not ask for a store.
 
 ## 3. Page UX
 
-The app is a tool for one person triaging the whole divergence corpus over several hours. Its chrome follows the `site/` style (`light-dark()`, system fonts, Menlo for code), and the samples use the fonts under test. A reviewer should be able to clear a batch from the keyboard alone. The README's “Quick start for triage” describes the page as the reviewer uses it (the keyboard map, the explain panel, the triage flow, and the exports), and the modules under `static/` are the authority on how it does so. This section keeps the design decisions that neither states.
+The app is a tool for one person triaging an edit's changes over several hours. Its chrome follows the `site/` style (`light-dark()`, system fonts, Menlo for code), and the samples use the fonts under test. A reviewer should be able to clear a batch from the keyboard alone. The README's “Quick start for triage” describes the page as the reviewer uses it (the keyboard map, the explain panel, the triage flow, and the exports), and the modules under `static/` are the authority on how it does so. This section keeps the design decisions that neither states.
 
 ### 3.1 Rendering (§11 requirements, with the proven mechanics)
 
-- **The pair highlight is drawn outside the text**: wrapping part of a run in a span breaks shaping, so the highlight is an absolutely positioned band under the divergent pair in each sample, placed from the precomputed font-unit x-ranges (§2.2). Its accent color meets the 3:1 non-text contrast rule in both color schemes.
+- **The pair highlight is drawn outside the text**: wrapping part of a run in a span breaks shaping, so the highlight is an absolutely positioned band under the changed pair in each sample, placed from the precomputed font-unit x-ranges (§2.2). Its accent color meets the 3:1 non-text contrast rule in both color schemes.
 - **ZWNJ**: emitted as a literal `&#x200C;` inside the run, so the real `uni200C` rules fire; browsers render it invisibly.
 - **Checkered background**: `--font-size: 88px` gives 8 px per font pixel (50 units at upem 550), so check.html's 16 px checker with `background-position: 0 5.6px, 8px 13.6px` applies unchanged. If the size changes, recompute the offsets.
 
@@ -122,18 +111,15 @@ The app is a tool for one person triaging the whole divergence corpus over sever
 
 - **Keyboard access**: the verdict keys trigger real `<button>` elements, which have visible focus indicators and are keyboard-accessible per WCAG, and one delegated `keydown` handler on the document runs the same code as a click. Auto-advance scrolls with `behavior: smooth`, or `auto` under `prefers-reduced-motion`.
 - **A testable key model**: `actionForKey` in `keyboard.js` is pure, and an open follow-up menu reaches it as a context flag (`rejectMenuOpen`), so the key model, menus included, stays unit-testable.
-- **Whole-unit verdicts**: there is no per-config verdict, because every config of a unit renders identically by construction (§2.1), and a control that changes nothing visible would mislead.
+- **Whole-unit verdicts**: there is no per-config verdict, because every config of a unit shows the same change in its one text (§2.3), and a control that changes nothing visible would mislead.
 
 ### 3.3 URL state (and what stays out of it)
 
 View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` in `state.js`), so every view can be bookmarked and a reload mid-batch returns to the same cursor. **Verdicts are not in the URL, and localStorage holds only the outbox of changes the server has not yet acknowledged** (`outbox.js`). The page holds them in memory keyed by unit id, the server's `/autosave` endpoint keeps them across reloads, writing the store before it answers each save (the README's triage flow and the docstring of `verdict_store.py` describe both), and a downloaded export in the §4.1 format is the durable copy of the verdicts recorded since the last accept (§4.1).
 
-## 4. Verdict exports — turning approvals into pins
+## 4. Verdicts
 
-`drafts.py` computes all three drafts per unit at build time and they ship in the shard JSON; the browser only selects among them. The export has two stages:
-
-1. **The page** exports `verdicts.json` (download or copy), the re-importable record of the reviewer's work since the last accept.
-2. **The CLI** (`uv run python -m rebuild.review.export verdicts.json --out tmp/review-triage.yaml`) joins the file's latest verdict for each unit to the units, re-parses the expect strings of the selected pin and any-of drafts, and writes **one triage YAML with five sections** for a human to place. Nothing is applied to the corpus or the rune files automatically.
+The page exports `verdicts.json` (download or copy), the re-importable record of the reviewer's work since the last accept. Nothing is applied to the corpus or the rune files automatically: the just-verdicted-now-what skill reads a review's rejects from the store and the corpus and turns them into rune edits.
 
 ### 4.1 `verdicts.json`
 
@@ -153,86 +139,11 @@ View state lives in `location.hash` (`parseHash`, `writeHash`, and `STATE_KEYS` 
 
 The store, `verdicts-autosave.json`, is a document of the same format with one more top-level field, which a reader of `verdicts` alone passes over: `cleared`, its tombstones. It holds the verdicts made since the last accept, which empties it (`doc/review-cycle.md` § The verdict store). An Export carries no `cleared` field.
 
-### 4.2 The triage YAML (five sections)
-
-`export.build_triage` is the authority on the file's shape. The example below is abridged: the file also carries a `machine_approved` section (counts, per-class counts, the verification method, and unit ids), and `review` carries more fields.
-
-```yaml
-review:
-  mode: m1-audit
-  source: rebuild/out/m1/divergence-audit.tsv
-  exported_at: 2026-06-10T18:45:00Z
-  counts: {approve: …, reject: …, either: …, identical: …, neither: …, skip: …, units_total: …, rows_covered: …}
-
-pins:                       # one per approved unit: a whole-word data-expect pin
-  - unit: u-3mJ7kPq2Xw9
-    codepoints: "200C:E652:E679"
-    text_entities: "&#x200C;&#xE652;&#xE679;"
-    expect: "◊ZWNJ ·Tea+Oy"
-    attribute: data-expect-noncanonically   # data-expect when the corpus already pins this text with data-expect
-    stylistic_set: "03"                     # null for default; "02 05"-style for multi-set
-    validated: {syntax: pass, semantics_after_font: pass}
-    suggested_home: site/the-manual.html    # suggestion only; a human places the pin
-    duplicate_of: null                      # set when the corpus already pins this text under this feature context; such a pin is flagged, not emitted as new
-    note: ""
-
-policy_edits:               # one per rejected unit: the one-line refuse/contract/prefer edit; a reject with no mechanical draft still appears, with keypath/suggested_record null and a no_mechanical_draft note
-  - unit: u-Nc3wVLJaPHB
-    codepoints: "E650:E665"
-    file: glyph_data/runes/qsMay.yaml
-    keypath: policy.refuse[+]               # [+] = append to the list
-    suggested_record: "{left: {rune: qsPea, ex: x-height}, why: 'TODO'}"
-    names_provenance:                       # the records explain attributed the new outcome to (§6.3)
-      - glyph_data/runes/qsMay.yaml:policy.extend[1]
-    decided_stage: prefer
-    why_stub: "Reviewer rejected the M1 outcome for E650:E665 (·Pea·May): junction looks reached-for"
-    schema_valid: true
-
-any_of:                     # one per fine-either-way unit: both behaviors as full expect strings
-  - unit: u-BLyK6Z13RtN
-    text: "qsPea qsOwe qsMay"               # _qs_text-ready family tokens
-    features: {}
-    candidates:
-      - "·Pea ~x~ ·Owe ~x~ ·May"            # the rebuild behavior, first
-      - "·Pea | ·Owe ~x~ ·May"              # the baseline behavior, also acceptable
-    realized_as: _assert_expect_any         # the executable form until the corpus any-of connective (§10.5) exists
-    note: ""
-
-neither:                    # one per neither-verdicted unit: both behaviors look wrong; nothing is drafted
-  - unit: u-5NP1CPJxyNT
-    codepoints: "E652:200C:E652:E679"
-    notation: "·Tea ◊ZWNJ ·Tea·Oy"
-    note: "both joins look wrong; needs a fresh stance"
-    names_provenance:                       # the records explain attributed the outcome to, where follow-up authoring starts
-      - glyph_data/runes/qsTea.yaml:policy.extend[0]
-
-identical:                  # one per identical-verdicted unit: the reviewer cannot see the flagged difference; nothing is drafted
-  - unit: u-DBug8cSj15L
-    codepoints: "E665:E679"
-    notation: "·May·Oy"
-    note: "the highlighted joins look the same to me"
-```
-
-### 4.3 Drafter rules
-
-- **Pin drafter (approve)**: a whole-word pin with bare letter tokens and no variant assertions (design §10.5: “whole-word assertions remain the preferred cheap lock”). Tokens come from the notation map (`·Tea`, `◊space`, `◊ZWNJ`, and the namer dot per `doc/data-expect.md`). Connections come from the **after** settled junctions: `y5` → `~x~`, `y0` → `~b~`, `y8` → `~t~`, `y6` → `~6~`, break → `|`, formed ligature → `+`. The attribute is `data-expect` when the corpus (`fingerprint.SITE_CORPUS_FILES`) already pins the same text under the unit's first config with `data-expect`, and `data-expect-noncanonically` otherwise. Stylistic-set scope goes in the `stylistic_set` value; in-string set scoping is §10.5 future work and is never drafted. Syntax is checked with `expect.parse_expect`. Semantics are checked against the after font with the rebuild-side harness that `rebuild/test_validation_suite.py`'s corpus replay uses (`rebuild/validation/pins.py` and `rebuild/validation/shaping.Shaper`), never by monkeypatching the test module's `site/` font constants. A pin is expected to fail against the old font. A pin that fails `parse_expect` or the after font raises `DraftError` where it is drafted, so `pass` is the only value either field is ever written with. The drafter looks up the corpus for an existing `data-expect` on the same text under the same feature context and sets `duplicate_of` instead of emitting a second pin.
-- **Policy drafter (reject)**: works from the precomputed explain trace. The target file is the rune file of the unit's first divergent position that is not a boundary token. The draft names every provenance record that decided the new outcome, plus `decided_stage`. The suggested record is the smallest one-line record that reverses the change (the reversing edit), chosen in this order:
-  1. When a gap next to the divergent cell is joined in the new behavior but was a break in the baseline, and provenance is nonempty: a `refuse` of the anchor that reaches across that gap, scoped to the neighbor. An outcome a positive record produced gets a refuse, because only a refuse restores the break; a contract would shorten the extension but keep the join.
-  2. When the divergent cell gained an extension on a join both fonts share and a `policy.extend` decided it: a `contract` by the same amount on that side.
-  3. When the divergence is name-grain (both behaviors group the codepoints the same way and agree on every junction, so a refuse would break a join both fonts share) and provenance is nonempty: a `prefer` with `mode: absolute` that pins the baseline cell's entry and exit (read from the alias map) over the new cell's, or its stance when only the stance differs. A name-grain difference with no such record (post-ZWNJ locked copies, bind pullbacks, suppressed extensions) gets **no policy draft**; the export lists the reject with `keypath: null` and the unit's provenance for hand editing.
-  4. Otherwise, with nonempty provenance: a `refuse` of the cell's exit (or stance) in the window.
-  5. With empty provenance (the final tiebreak decided): a `prefer` of the baseline exit.
-
-  A record that fails the rune schema under `rebuild/schema/` raises `DraftError`, so `schema_valid` is always true on a shipped draft. The `why:` stub names the unit's codepoints and notation and adds the reviewer's note. The draft is for a human to judge and is never applied.
-- **Any-of drafter (either)**: both behaviors as full expect strings built by the engine, so the reviewer never writes syntax. The after behavior comes first and the baseline behavior second, and each must pass `parse_expect`. A unit whose two behaviors write the same string gets a single candidate. `features` comes from the config token. The export names `_assert_expect_any` (`test/quikscript_shaping_helpers.py`) in `realized_as` as the executable form until the corpus-level any-of connective exists.
-- **Neither (no drafter)**: neither the old nor the new behavior is right, so nothing is drafted: no pin, no policy edit, no any-of. The export carries the unit's id, codepoints, and notation, the reviewer's note, and `names_provenance`, so follow-up authoring starts from the records that decided the outcome.
-- **Identical (no drafter)**: the reviewer cannot see the flagged difference. Nothing is drafted; the export carries the unit's id, codepoints, and notation, and the reviewer's note. These entries report a divergence that is invisible to a human, which is feedback for the ink comparator and the highlight tooling, not a judgment on either font.
-
 ## 5. Testing strategy
 
 ### 5.1 Python (`rebuild/test_review_*.py` and their neighbors, in the contracts lane of `make test-rebuild`)
 
-No review test reads the live corpus. Every example window comes from the frozen mini bundle under `rebuild/review/fixtures/mini/` (the `mini_bundle` and `example_units` fixtures in `rebuild/conftest.py`). What the build can check per unit, it checks during the build (`check_unit` and the cross-unit checks in `build.py`, the drafter's and enricher's own errors, and the verification sample, which recomputes a sample of cached units and compares them with what the cache supplied), so no test re-checks shipped shards. Each test module's docstring says what it covers and which build-time check covers the rest. The tests derive their expectations from the checked-in sources, except for a few values hardcoded where they are used: the drafts example window, the enrich `diff_positions` exemplar, the one stub unit per change group in `rebuild/test_review_change_groups.py`, and the unlock lists in `rebuild/test_surface.py`.
+No review test reads the live corpus. Every example window comes from the frozen mini bundle under `rebuild/review/fixtures/mini/` (the `mini_bundle` fixture in `rebuild/conftest.py`), and the table diffs the tests build are over the pipeline's mini fixture spec (`rebuild/test_review_diff_units.py`). What the build can check per unit, it checks during the build (`check_unit` and the cross-unit checks in `build.py`), so no test re-checks shipped shards. Each test module's docstring says what it covers and which build-time check covers the rest.
 
 ### 5.2 JavaScript
 
@@ -242,15 +153,15 @@ Every ES module in `static/` except the two that build the DOM is a pure module 
 
 A review-app change passes the gates the artifact cycle runs, and `doc/testing.md` maps each gate to the change it answers for. The app's own checks run inside them: `gate:js` runs the §5.2 suite, and `make test-rebuild` runs `node --check` over every shipped script and the HTML sanity check on `index.html` (both in `rebuild/test_review_build.py`) and checks the `Cache-Control: no-store` header the review server sends on every file (`rebuild/test_review_autosave.py`). One gate is this design's own:
 
-- **Determinism**: two consecutive builds of the same inputs produce a byte-identical manifest and shards, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`). `test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` in `rebuild/test_unit_cache.py` checks it, and the tests beside it check that incremental builds and builds at any width write the same bytes.
+- **Determinism**: two consecutive builds of the same inputs produce a byte-identical manifest, shards and sidecars, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`). `test_two_builds_of_the_same_inputs_write_the_same_bytes` in `rebuild/test_review_diff_units.py` checks it.
 
 ## 7. The engine↔frontend contract
 
 The executable authority is `check_manifest`, `check_unit`, `check_shards`, and `check_output_dir` in `rebuild/review/build.py`; a change must satisfy them, not this section. Where this section and the checkers disagree, the checkers are right.
 
-The m1 build checks every unit it computes, with the review crate's port of these checkers (`src/check.rs` and `src/corpus/corpus_check.rs` under `rebuild/review-rs/`), which runs `check_unit`'s predicates in two subsets: those over the fields settled when the fragment is drafted on the units thread that drafts it (`ContractCheck::check_drafted`), and those over the fields the whole-corpus passes patch (`duplicate_group`, `cluster`, and the secondary junctions) on the write thread that writes it (`PatchedCheck`). A unit the unit cache supplied skips the per-unit check: the build reuses a fragment only when its stamp equals the unit's `content_key`, and the build that drafted the fragment checked it. The fields a later build re-patches onto a cached fragment are not re-checked per unit (`CorpusCheck::unit`). The cross-unit predicates run over every unit (`CorpusCheck`, and `_CorpusCheck` in `build.py`). `check_output_dir`, which re-reads a finished corpus, and the table-diff build, which runs `check_shards` over the dicts it serialized, run all of `check_unit`. `check_manifest` and the checks on files beside the manifest run through `check_output_dir`. The contracts lane requires an empty error list from it over a real mini-bundle m1 build (`rebuild/test_app_index.py`) and real table-diff builds of the pipeline's mini fixture spec (`rebuild/test_review_diff_units.py`), and `rebuild/test_corpus_checks.py` runs each predicate over the checked-in fixture corpus and over that corpus with one field broken at a time.
+The build runs all of `check_unit` and the cross-unit predicates (`_CorpusCheck` in `build.py`) over the dicts it serialized, and `check_output_dir`, which re-reads a finished corpus, runs them with `check_manifest` and the checks on the files beside the manifest. The contracts lane requires an empty error list from it over real table-diff builds of the pipeline's mini fixture spec (`rebuild/test_review_diff_units.py`), and `rebuild/test_corpus_checks.py` runs each predicate over the checked-in fixture corpus and over that corpus with one field broken at a time.
 
-What follows describes the shape of the JSON and the design decisions in its fields; it does not list every field. The JSON is the only interface between the build (`rebuild/review/*.py` and the review crate, `rebuild/review-rs/`) and the frontend (`static/` and `jstests/`), and `rebuild/review/fixtures/` lets the frontend be built and tested against the contract without running a build.
+What follows describes the shape of the JSON and the design decisions in its fields; it does not list every field. The JSON is the only interface between the build (`rebuild/review/*.py`) and the frontend (`static/` and `jstests/`), and `rebuild/review/fixtures/` lets the frontend be built and tested against the contract without running a build.
 
 ### 7.1 `manifest.json`
 
@@ -259,48 +170,44 @@ The example is abridged; `check_manifest` checks every required key.
 ```json
 {
   "format": "ams-review-manifest/2",
-  "mode": "m1-audit",
-  "generated_at": "2026-06-10T17:02:11Z",
+  "mode": "table-diff",
+  "generated_at": "2026-11-26T09:08:33Z",
   "repo_head": "7fd5966",
-  "source": {
-    "audit": "rebuild/out/m1/divergence-audit.tsv",
-    "ledger": "rebuild/m1-divergences.yaml"
-  },
+  "source": {"snapshot": "var/keep/review-snapshot/<digest>", "new": "rebuild/out/m1"},
+  "baseline": {"commit": "bb61f6e003b0…", "taken_at": "2026-11-25T18:02:11Z", "digest": "…", "present": true},
   "fonts": {
-    "before": {"file": "fonts/before.otf", "family": "AMS Review Before", "source": "site/AbbotsMortonSpaceportSansSenior-Regular.otf", "sha256": "3211a7a7…", "upem": 550},
+    "before": {"file": "fonts/before.otf", "family": "AMS Review Before", "source": "var/keep/review-snapshot/<digest>/M1.otf", "sha256": "…", "upem": 550},
     "after": {"file": "fonts/after.otf", "family": "AMS Review After", "source": "rebuild/out/m1/M1.otf", "sha256": "…", "upem": 550}
   },
-  "configs": ["default", … the rest of `conform.ORACLE_CONFIGS`, the membership authority …],
+  "configs": ["default", … the rest of `tablediff.SETTLED_CONFIGS` …],
   "batch_size": 300,
+  "human_unit_ids": ["u-AZd95bckcbg", …],
   "totals": {"units": …, "rows": …, "batches": …},
   "machine_approved": {
     "units": …,
     "rows": …,
-    "method": "Shaped with uharfbuzz in both shipped fonts (kerning disabled — …) under every config in the unit's set; …",
-    "by_class": {"<class-id>": …}
+    "method": "Shaped with uharfbuzz in both fonts, kern-neutral, under every config in the unit's set; …",
+    "by_class": {"<class-id>": …},
+    "checks": {"ink_identical": {"units": …, "rows": …, "method": "…"}, "picture_identical": {…}}
   },
+  "table_rows": {"default": {"settlement": {"changed": …}, "joins": {"added": …, "removed": …}, "letters": …, "texts": …}},
+  "font_changes": {"glyphs": {"outline": …}, "kern": {"changed": …}},
   "classes": [
     {
-      "id": "may-closer-at-baseline-join",
-      "title": "·May a pixel closer at a baseline join",
-      "summary": "·May's baseline entry isn't extended, so ·May sits a pixel closer after ·Pea, ·Tea, ·He, ·Ye or ·It than in the old font.",
-      "note": "…the ledger's caution line, or null…",
-      "section": "spot-check",
-      "status": "approved",
-      "ink_identical": false,
+      "id": "joins",
+      "title": "Joins",
+      "summary": "Two settled cells meet differently: …",
+      "section": "open-questions",
       "no_verdict": false,
-      "why": "…the ledger's reviewed rationale, verbatim…",
+      "why": "…what a unit of the class is…",
       "unit_count": …,
       "row_count": …,
       "machine_approved_count": …,
-      "machine_checks": {"ink_identical": …, "picture_identical": …, "junior_equivalent": …},
-      "shards": ["units/may-closer-at-baseline-join.json"],
+      "machine_checks": {"ink_identical": …, "picture_identical": …},
+      "shards": ["units/joins.json"],
       "batches": […]
     }
   ],
-  "ledger_classes": {
-    "may-closer-at-baseline-join": {"title": "…", "summary": "…", "status": "approved", "why": "…"}
-  },
   "build_command": "uv run python -m rebuild.review.build",
   "serve_command": "uv run python -m rebuild.review.serve"
 }
@@ -312,84 +219,80 @@ Types:
 - All counts are integers.
 - `batches` lists the zero-based global batch indices the class's human units occupy, and `totals.batches` counts human batches.
 - `machine_approved.by_class` lists only classes with a nonzero count, while every class carries `machine_approved_count` (possibly 0).
-- `classes` is in triage order: by `section` (Open questions, Spot-check, No review needed; `audit.SECTIONS`), then ledger file order, then `change_groups.CHANGE_GROUP_ORDER`. `audit.class_section` decides each class's `section` once per corpus from its `status`, `no_verdict` and human unit count, and every reader takes it from here instead of re-deriving it. `status` is one of `audit.LEDGER_STATUSES`, and every change group's is `per-unit`. `title` and `summary` are the reviewer copy from the ledger or `rebuild/review/change-groups.yaml`, and `note` is the ledger's optional caution line. In table-diff mode `classes` holds the classes of `diff_units.CLASSES` that have units, in that order within each section, with `status: null` and the copy `diff_units` gives them.
-- A table-diff manifest also carries `baseline`, `{commit, taken_at, digest, present}` of the snapshot it was built against (`present: false`, and the other three null, with no snapshot; `commit` null too while the accept that took it is not committed), `table_rows`, each diffed configuration's changed rows by table and bucket with the letters whose rows changed and the texts shaped, and `font_changes`, the redrawn glyphs by what changed and the moved kern pairs by bucket; its `inputs_fingerprint` maps `fingerprint.TABLE_DIFF_COMPONENTS`, and its `configs` is every settled configuration, the universe each unit's config badge is resolved against.
-- `ledger_classes` maps every ledger id, including the entries that reach no unit, to its title, summary, status and why, so a unit's config badge and explain panel can name any class its `config_classes` or `ledger_class` names. It is empty in table-diff mode.
-- The class-level `ink_identical` flag is the ledger's reviewed classification. It is separate from the per-unit `ink_identical` boolean, which the build computes from the fonts.
+- `classes` is in triage order: by `section` (Open questions, then No review needed; `audit.SECTIONS`), then `diff_units.CLASS_IDS` order, and holds only the classes that have units. `audit.class_section` decides each class's `section` from its `no_verdict` and human unit count, and every reader takes it from here instead of re-deriving it. `title`, `summary` and `why` are the copy `diff_units.CLASSES` gives the class.
+- `baseline` is `{commit, taken_at, digest, present}` of the snapshot the corpus was built against (`present: false`, and the other three null, with no snapshot; `commit` null too while the accept that took it is not committed). `table_rows` holds each diffed configuration's changed rows by table and bucket with the letters whose rows changed and the texts shaped, and `font_changes` the redrawn glyphs by what changed and the moved kern pairs by bucket. `inputs_fingerprint` maps `fingerprint.TABLE_DIFF_COMPONENTS`, and `configs` is every settled configuration, the universe each unit's config badge is resolved against.
 
-### 7.2 Unit shard (the parts the class’s `shards` list names) — an array of units, the parts concatenating in triage order
+### 7.2 Unit shard (the parts the class’s `shards` list names) — an array of units, the parts concatenating in id order
 
-Within a class, the parts hold the fragments in id order (§2.1). The example is abridged; `check_unit` checks every required key.
+Within a class, the parts hold the fragments in id order (§2.1); the manifest's `human_unit_ids` gives the triage order. The example is the fixture's `u-MG7BYctpZgY` with its `content_key` cut short; `check_unit` checks every required key.
 
 ```json
 {
-  "id": "u-3mJ7kPq2Xw9",
+  "id": "u-MG7BYctpZgY",
+  "content_key": "79211e21…",
   "ink_identical": false,
-  "class": "ss03-tea-oy-ligature-kept",
+  "picture_identical": false,
+  "no_verdict": false,
+  "kerning": false,
+  "cluster": "c-5e0d1a22",
+  "class": "joins",
   "group": "qsTea:qsOy",
+  "row_key": "join qsTea.half.ex-y5 + qsOy.en-y5: none -> x-height+0",
   "codepoints": "200C:E652:E679",
   "text_entities": "&#x200C;&#xE652;&#xE679;",
   "notation": "◊ZWNJ ·Tea·Oy",
-  "configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"],
-  "config_note": "only when ss03 is on",
-  "config_gate": [{"feature": "ss03", "state": "on", "text": "only when ss03 is on"}],
-  "render_groups": [{"configs": ["ss03", "ss02+ss03", "ss02+ss03+ss05"]}],
-  "kinds": ["ligation"],
-  "exemplar": true,
-  "before": {"glyphs": ["space", "qsTea_qsOy"], "junctions": ["break", "lig"]},
-  "after": {"cells": ["uni200C", "qsTea_qsOy/sole/None/None/+locked"], "junctions": ["break", "lig"], "extensions": [0, 0]},
-  "diff_positions": [0],
-  "pair": {"left": 0, "right": 1},
+  "notation_tokens": ["◊ZWNJ", "·Tea", "·Oy"],
+  "configs": ["ss03"],
+  "config_note": "only when ss03 is on and ss05 is off",
+  "config_gate": [{"feature": "ss03", "state": "on", "text": "only when ss03 is on"}, {"feature": "ss05", "state": "off", "text": "and ss05 is off"}],
+  "render_groups": [{"configs": ["ss03"]}],
+  "kinds": ["added"],
+  "before": {"glyphs": ["uni200C", "qsTea.half", "qsOy"], "junctions": ["break", "break"]},
+  "after": {"cells": ["uni200C", "qsTea.half.ex-y5", "qsOy.en-y5"], "junctions": ["break", "y5"], "extensions": [0, 0]},
+  "diff_positions": [2],
+  "pair": {"left": 1, "right": 2},
+  "pair_codepoints": [1, 2],
   "highlight": {
-    "before": {"x_min": 0, "x_max": 1100, "advance_total": 1650},
-    "after": {"x_min": 0, "x_max": 1100, "advance_total": 1650}
+    "before": {"x_min": 0, "x_max": 550, "advance_total": 550},
+    "after": {"x_min": 0, "x_max": 550, "advance_total": 550}
   },
   "boundary_marks": [{"index": 0, "kind": "zwnj", "x": 0}],
-  "summary": "New: ·Tea+Oy now forms as one ligature (the old pipeline rendered the letters separately) — decided by the only surviving candidate (no policy record involved).",
-  "explain": "…ExplainReport.render() text for the divergent positions…",
-  "provenance": ["glyph_data/runes/qsTea.yaml:policy.extend[0]"],
-  "drafts": {
-    "pin": {"expect": "◊ZWNJ ·Tea+Oy", "attribute": "data-expect-noncanonically", "stylistic_set": "03", "syntax": "pass", "semantics_after_font": "pass", "duplicate_of": null, "suggested_home": "site/the-manual.html"},
-    "policy": {"file": "glyph_data/runes/qsTea.yaml", "keypath": "policy.refuse[+]", "suggested_record": "{…one-line flow mapping…}", "names_provenance": ["glyph_data/runes/qsTea.yaml:policy.extend[0]"], "decided_stage": "prefer", "schema_valid": true},
-    "any_of": {"text": "ZWNJ qsTea qsOy", "features": {"ss03": true}, "candidates": ["◊ZWNJ ·Tea+Oy", "◊ZWNJ ·Tea ~b~ ·Oy"]}
-  }
+  "summary": "·Tea meets ·Oy (qsTea.half.ex-y5 + qsOy.en-y5) in a join at the x-height, where the accepted build has no such pair",
+  "explain": "joins (added): ·Tea meets ·Oy in a join at the x-height, where the accepted build has no such pair.\n  configurations: ss03\n  text: ◊ZWNJ ·Tea·Oy (a candidate text)",
+  "provenance": ["glyph_data/runes/qsTea.yaml:policy.extend[0]"]
 }
 ```
 
 Field semantics:
 
-- `secondary_junctions` is optional: `null` or absent when the unit has no visible secondary junction, and never present on machine-approved units. Otherwise it is a list of `{pair: {left, right}, before: rect, after: rect, primary_unit: <unit id> | null}` entries resolved by the §2.2 rules, with rects in the same font-unit form as `highlight`.
-- `ink_identical` is required on every unit in both modes. A unit that any machine check approves is outside the manifest's `human_unit_ids`, and the frontend shows it only behind the “Show units that need no review” toggle, with verdict controls disabled.
-- A machine-approved unit, or a unit of a no-verdict class (`audit.slim_fragment`), has a slim fragment: `explain`, `drafts`, and `highlight` (`audit.SLIM_OMITTED_KEYS`) are absent, not null, so the app can tell a slim fragment from a whole record with a blank field. `check_unit` enforces this in both directions: a human unit always has its explain material, and a slim unit never has any of it.
-- `ledger_class` is null except on a unit the build moved out of an `ink_identical` ledger class into a change group, where it names that class.
+- `ink_identical`, `picture_identical`, `no_verdict` and `kerning` are required booleans on every unit. A unit that a machine check approves, or whose class takes no verdict, is outside the manifest's `human_unit_ids` and carries `cluster: null`, and the frontend shows it only behind the “Show units that need no review” toggle, with verdict controls disabled.
 - `text_entities` is the rendered run as numeric character references, never raw PUA. The frontend injects it with `innerHTML` into the sample cells only.
 - `junctions` arrays have one entry per inter-glyph gap (`break`, `lig`, or `yN`).
-- `diff_positions` are the glyph indices whose cell or trailing junction diverges.
-- `pair` is the primary divergent adjacency to highlight, or `null` for a single-position divergence with no junction change.
-- `pair_codepoints` is the primary pair's covered codepoint positions as an inclusive `[start, end]`, `null` when `pair` is null. It is computed at build time because ligatures make cell indices differ from codepoint positions.
+- `diff_positions` are the glyph indices whose cell or trailing junction changed.
+- `pair` is the changed adjacency to highlight, or `null` for a change at one position with no junction change, or a unit with no text.
+- `pair_codepoints` is the pair's covered codepoint positions as an inclusive `[start, end]`, `null` when `pair` is null. It is computed at build time because ligatures make cell indices differ from codepoint positions.
 - `notation_tokens` is the display-token list aligned one-to-one with codepoint positions: letter names like `·May` and the boundary tokens `◊ZWNJ`, `␣`, and `·`. Joining them with the notation spacing rule (letters concatenate, boundary tokens take a space on each side) reproduces `notation`. The frontend uses `pair_codepoints` and `notation_tokens` together to underline the pair on the notation and codepoints lines.
 - `highlight` x-values and `boundary_marks[].x` are in font units; the frontend converts with `font-size / upem`.
-- `config_gate` is null when the set covers every non-ss10 config, and when no short conjunction selects the set. Otherwise it is the §2.1 clause list, each clause `{feature, state, text}` with `state` either `on` or `off`. `config_note` is the clause `text`s joined by spaces (the contract checker enforces this), or the literal “only under: …” fallback when the gate is null. The frontend draws one chip per clause and renders each `text` as given, falling back to a single chip with `config_note`.
-- `render_groups` partitions `configs` by rendered outcome. There is one group under the M1 dedupe key; an extra group would render as a stacked before/after pair with its own feature settings.
+- `config_gate` is null when the set covers every configuration of the roster, and when no short conjunction selects the set. Otherwise it is the §2.1 clause list, each clause `{feature, state, text}` with `state` either `on` or `off`. `config_note` is the clause `text`s joined by spaces (the contract checker enforces this), or the literal “only under: …” fallback when the gate is null. The frontend draws one chip per clause and renders each `text` as given, falling back to a single chip with `config_note`.
+- `render_groups` partitions `configs` by rendered outcome; an extra group would render as a stacked before/after pair with its own feature settings.
 - `summary` is the always-visible one-line summary in rune-name notation. `explain` is preformatted display text.
-- `stylistic_set` is `null` or the space-separated, zero-padded form (`"02 05"`).
-- `content_key` (required) is, in m1-audit mode, the sha256 of the unit's carry projection (`unit_cache.carry_content_hash`), which the unit cache compares with the stamp in its store before it reuses a fragment, and in table-diff mode the unit's identity digest (`diff_units.unit_identity`, §2.3). The unit's id is derived from it (§2.1).
-- `row_key` (table-diff mode, required) names what the unit shows in the tables' own names: a cell change's letter and cells, a join row's cells and values, a redrawn glyph's name and what changed in it, or a kern pair's sides and values, each change of a merged unit in turn, separated by semicolons. `check_unit` holds a unit that names a join row to the `joins` class and one that names none out of it, and a `glyphs` or `kerning` unit to naming only glyphs or only kern pairs (§2.3).
-- `kerning` (table-diff mode, required) is true exactly on a unit of the `kerning` class, which the build shapes and the app draws with kerning on.
-- All strings are NFC, and all field names are snake_case. `ink_deltas` and `config_classes` are keyed by configuration name (`ss03+ss05`).
+- `content_key` (required) is the unit's identity digest (`diff_units.unit_identity`, §2.3), and the unit's id is derived from it (§2.1).
+- `row_key` (required) names what the unit shows in the tables' own names: a cell change's letter and cells, a join row's cells and values, a redrawn glyph's name and what changed in it, or a kern pair's sides and values, each change of a merged unit in turn, separated by semicolons. `check_unit` holds a unit that names a join row to the `joins` class and one that names none out of it, and a `glyphs` or `kerning` unit to naming only glyphs or only kern pairs (§2.3).
+- `kerning` is true exactly on a unit of the `kerning` class, which the build shapes and the app draws with kerning on.
+- All strings are NFC, and all field names are snake_case.
 
 The shards under `rebuild/review/fixtures/` hold a handful of hand-written units that cover the contract's branches; `test_fixture_units_exercise_the_contract_branches` in `rebuild/test_review_build.py` lists the branches. The same checker validates the fixtures and real output. The app's node tests (§5.2) read the same units; the fixture's README says what each reader needs from it.
 
 ### 7.3 `verdicts.json`
 
-As in §4.1. `verdicts.js` writes it and `export.py` reads it; the export round-trip test in `rebuild/test_review_build.py` covers the two together.
+As in §4.1. `verdicts.js` writes it, and the store's reader (`rebuild/review/verdict_store.py`) and the strict Import hold it to the record rule (`rebuild/review/fixtures/verdict-record-samples.json`).
 
 ### 7.4 The app sidecars — `app-units.ndjson.gz` and the locator pair
 
 These three files are projections of the shard fragments §7.2 defines, not a second copy of them. `rebuild/review/app_index.py` writes them after the manifest so they can carry its stamp, gzipped with fixed mtimes so two builds of the same inputs are byte-identical. The index and the locator table are NDJSON whose first line is a header `{format, manifest_sha256, generated_at, units}`, with formats `ams-review-app-index/1` and `ams-review-app-locator/2`; the table's header also carries `blocks`, `block_rows`, and `rows_bytes`. The app rejects a file whose header names a different `generated_at` instead of reading its byte spans, because one build's byte spans point at different bytes in the next.
 
-`app-units.ndjson.gz` has one row per human unit, which is `manifest.human_unit_ids`, in shard order. Each row holds only the fields the app reads across the whole queue; `app_index.app_row` is the authority on the key list. Everything a card draws from its own record is left out: `explain`, `provenance`, and `drafts` (§2.2), and also `text_entities`, `highlight`, and `after`, which the card fetches from its record when it renders. The three machine-check flags and `no_verdict` are asserted false and dropped, since `build.check_unit` ensures no human unit has any of them.
+`app-units.ndjson.gz` has one row per human unit, which is `manifest.human_unit_ids`, in shard order. Each row holds only the fields the app reads across the whole queue; `app_index.app_row` is the authority on the key list. Everything a card draws from its own record is left out: `explain` and `provenance` (§2.2), and also `text_entities`, `highlight`, and `after`, which the card fetches from its record when it renders. The machine-check flags and `no_verdict` are asserted false and dropped, since `build.check_unit` ensures no human unit has any of them.
 
-In place of the dropped fields, every row of the index and of the locator ends with an address: `shard_part`, `byte_start`, and `byte_length`, which index `manifest.classes[…].shards` and the bytes of that part on disk. So `build._write_shard`'s framing is a byte-addressing contract as well as a serialization format. A plain fragment's bytes are a standalone JSON element with no enclosing punctuation mixed in, and `ensure_ascii=True` under a utf-8 handle makes a character offset equal to a byte offset, so `bytes[byte_start:byte_start + byte_length]` parses on its own. A deflated fragment's bytes (#618's change 35) are that element deflated alone, a raw deflate stream, and its row ends with `"deflated": true` after `byte_length`, a key no plain fragment's row carries (decision 77), so the app reads each span's bytes, inflates a marked one with `DecompressionStream('deflate-raw')` and decodes a plain one as text before it parses it. `rebuild/test_app_index.py` slices every fragment of a built corpus back out through its span, inflating a marked one, which catches a change to the dump's `indent`, `ensure_ascii`, or `separators` that would break the addressing.
+In place of the dropped fields, every row of the index and of the locator ends with an address: `shard_part`, `byte_start`, and `byte_length`, which index `manifest.classes[…].shards` and the bytes of that part on disk. So `build._write_shard`'s framing is a byte-addressing contract as well as a serialization format. A fragment's bytes are a standalone JSON element with no enclosing punctuation mixed in, and `ensure_ascii=True` under a utf-8 handle makes a character offset equal to a byte offset, so `bytes[byte_start:byte_start + byte_length]` parses on its own. `rebuild/test_app_index.py` slices every fragment of a built corpus back out through its span, which catches a change to the dump's `indent`, `ensure_ascii`, or `separators` that would break the addressing.
 
-`app-locator-rows.ndjson.gz` holds `{id, class, shard_part, byte_start, byte_length}`, with a deflated fragment's trailing `"deflated": true`, for every unit the index omits (machine-approved and no-verdict), in shard order. It is written as a sequence of gzip members of at most `app_index.LOCATOR_BLOCK_ROWS` rows each, and a member never spans two classes, so each member decodes on its own from its byte span. `app-locator.ndjson.gz` is the table of those members, one line per block: `{class, byte_start, byte_length, first, last, units}`, giving the span inside the rows file and the ids of the block's first and last rows. Within a class the blocks are disjoint and ascend by id, because the build writes a class's fragments in id order. Across classes the id ranges overlap, so the file is in shard order with a table rather than in one global id order: a fold reads its class's blocks in sequence, and a deep link binary-searches each class's blocks for the one member per class that could hold its id. The rows file has no header and is stamped through the table, whose `rows_bytes` is the length it must have. `rebuild/test_app_index.py` decodes every block from its span and compares it with the table, and `app_index.artifact_is_current` rejects a table whose rows file has any other length. A tab keeps the table in memory and fetches the rows one block at a time, never the whole file.
+`app-locator-rows.ndjson.gz` holds `{id, class, shard_part, byte_start, byte_length}` for every unit the index omits (machine-approved and no-verdict), in shard order. It is written as a sequence of gzip members of at most `app_index.LOCATOR_BLOCK_ROWS` rows each, and a member never spans two classes, so each member decodes on its own from its byte span. `app-locator.ndjson.gz` is the table of those members, one line per block: `{class, byte_start, byte_length, first, last, units}`, giving the span inside the rows file and the ids of the block's first and last rows. Within a class the blocks are disjoint and ascend by id, because the build writes a class's fragments in id order. Across classes the id ranges overlap, so the file is in shard order with a table rather than in one global id order: a fold reads its class's blocks in sequence, and a deep link binary-searches each class's blocks for the one member per class that could hold its id. The rows file has no header and is stamped through the table, whose `rows_bytes` is the length it must have. `rebuild/test_app_index.py` decodes every block from its span and compares it with the table, and `app_index.artifact_is_current` rejects a table whose rows file has any other length. A tab keeps the table in memory and fetches the rows one block at a time, never the whole file.

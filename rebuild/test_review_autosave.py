@@ -6,7 +6,7 @@ The POST path takes the verdict store's lock without waiting, and answers a retr
 
 The headers every static file is served with. `static_headers_for` is a pure function so it can be tested without a server.
 
-The namer dot's stand-in in the fonts the app loads (`namer_dot_stand_in_font`), and the test that fails once cutover makes it due for removal.
+The namer dot's stand-in in the fonts the app loads (`namer_dot_stand_in_font`), and the dot lowering that a browser's run split at the dot would defeat without it.
 
 The reloads: the server's one livereload watch never fires, and `force_reload` sends an `ams:` path to /forcereload on the port it is given and returns False for anything but a server that took it.
 """
@@ -39,6 +39,7 @@ from rebuild.review.serve import (
     register_dormant_watch,
     static_headers_for,
 )
+from rebuild.pipeline.emit_gsub import namer_dot_lookup
 from rebuild.tools.review_server import force_reload
 from rebuild.validation.shaping import Shaper
 from rebuild.review.store_lock import store_lock
@@ -220,12 +221,15 @@ def test_everything_else_is_served_uncompressed_and_uncached():
         assert static_headers_for(path) == {"Cache-Control": "no-store"}
 
 
-def _dot_font(path: Path, cmap: dict[int, str]) -> Path:
-    """Build a small CFF font, as the corpus fonts are, with a namer dot, a letter, and a `calt` rule that swaps the letter for its alternate before the dot, so a test can see the dot's context reach the letter."""
+DOT_CONTEXT_CALT = "feature calt { sub qsPea' periodcentered by qsPea.alt; } calt;"
+
+
+def _dot_font(path: Path, cmap: dict[int, str], features: str = DOT_CONTEXT_CALT) -> Path:
+    """Build a small CFF font, as the corpus fonts are, with a namer dot, its lowered form, a ZWNJ, a letter and its alternate, and the `features` given: by default a `calt` rule that swaps the letter for its alternate before the dot, so a test can see the dot's context reach the letter."""
     from fontTools.fontBuilder import FontBuilder
     from fontTools.pens.t2CharStringPen import T2CharStringPen
 
-    order = [".notdef", "periodcentered", "qsPea", "qsPea.alt"]
+    order = [".notdef", "periodcentered", "periodcentered.lowered", "uni200C", "qsPea", "qsPea.alt"]
     charstrings = {}
     for name in order:
         pen = T2CharStringPen(500, None)
@@ -244,7 +248,7 @@ def _dot_font(path: Path, cmap: dict[int, str]) -> Path:
     builder.setupNameTable({"familyName": "DotTest", "styleName": "Regular"})
     builder.setupOS2()
     builder.setupPost()
-    builder.addOpenTypeFeatures("feature calt { sub qsPea' periodcentered by qsPea.alt; } calt;")
+    builder.addOpenTypeFeatures(features)
     builder.save(str(path))
     return path
 
@@ -281,13 +285,22 @@ def test_the_namer_dots_stand_in_refuses_a_font_it_cannot_patch(tmp_path):
         namer_dot_stand_in_font(dotless)
 
 
-def test_the_namer_dot_stand_in_goes_at_cutover():
-    """The namer dot's stand-in (`namer_dot_stand_in_font` and the app's `namerDotStandIn`) works around Chromium's shaping of the old font after a namer dot, so it goes once the old font stops being reviewed, at cutover at the latest. Cutover archives the old pipeline with `glyph_data/quikscript.yaml` and moves the registry to `glyph_data/script.yaml` (doc/rebuild-design.md §13.6, rebuild/M1-PLAN.md), and either one fails this test. rebuild/REVIEW-PLAN.md § At cutover lists what to remove, this test among it."""
-    glyph_data = Path(__file__).resolve().parent.parent / "glyph_data"
-    assert (glyph_data / "quikscript.yaml").is_file() and not (glyph_data / "script.yaml").exists(), (
-        "cutover has begun, so the old font is no longer reviewed: remove the namer dot's stand-in from the review app "
-        "as rebuild/REVIEW-PLAN.md § At cutover lists"
+def test_the_namer_dots_stand_in_keeps_the_dot_lowering_that_reads_the_next_letter(tmp_path):
+    """The rebuild lowers the namer dot before a Short letter by a rule that reads the letter after the dot (`emit_gsub.namer_dot_lookup`). Chromium ends a shaping run at U+00B7, so in the app the dot alone would be shaped and drawn unlowered; the stand-in keeps the sample in one run, so the rule sees the follower. This fails once the dot's form no longer depends on the letter after it, when the run split changes nothing and the stand-in has nothing left to keep."""
+    lookup = namer_dot_lookup("periodcentered", "periodcentered.lowered", ["qsPea"])
+    feature = "\n".join(lookup.lines) + f"\nfeature calt {{ lookup {lookup.name}; }} calt;"
+    source = _dot_font(
+        tmp_path / "dot.otf", {0x00B7: "periodcentered", 0x200C: "uni200C", 0xE650: "qsPea"}, feature
     )
+    derived = tmp_path / "derived.otf"
+    derived.write_bytes(namer_dot_stand_in_font(source))
+    dot_alone = Shaper(source).shape("\u00b7").names
+    together = Shaper(source).shape("\u00b7\ue650").names
+    assert dot_alone[0] != together[0], (
+        "the namer dot's form no longer depends on the letter after it, so Chromium's run split at U+00B7 draws it the same: "
+        "the stand-in (`namer_dot_stand_in_font` and the app's `namerDotStandIn`) can go"
+    )
+    assert Shaper(derived).shape("\uf8ff\ue650").names == together == ("periodcentered.lowered", "qsPea")
 
 
 def test_the_servers_watch_never_reloads_a_tab_when_the_corpus_changes(tmp_path):

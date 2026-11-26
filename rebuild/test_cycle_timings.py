@@ -116,25 +116,23 @@ def test_parse_inner_timings_reads_a_trailing_rss_token():
     assert ct.parse_inner_timings("[t] conform[default] 5.5s shaping_runs=123 rss_gb=0.80") == [
         {"label": "conform[default]", "elapsed_s": 5.5, "rss_gb": 0.8}
     ]
-    assert ct.parse_inner_timings("[t] review.build plan 9.9s rss_gb=5.28 rss_now_gb=4.02") == [
-        {"label": "review.build plan", "elapsed_s": 9.9, "rss_gb": 5.28, "rss_now_gb": 4.02}
+    assert ct.parse_inner_timings("[t] conform default 9.9s rss_gb=5.28 rss_now_gb=4.02") == [
+        {"label": "conform default", "elapsed_s": 9.9, "rss_gb": 5.28, "rss_now_gb": 4.02}
     ]
-    assert ct.parse_inner_timings("[t] review.build plan 9.9s rss_now_gb=4.02") == [
-        {"label": "review.build plan", "elapsed_s": 9.9, "rss_now_gb": 4.02}
+    assert ct.parse_inner_timings("[t] conform default 9.9s rss_now_gb=4.02") == [
+        {"label": "conform default", "elapsed_s": 9.9, "rss_now_gb": 4.02}
     ]
 
 
-def test_parse_inner_timings_reads_the_corpus_builds_phase_lines():
-    """The corpus build's phase lines carry the peak token, then the current-RSS token when the platform reports one, then a tab-separated note, which on the units line opens with the width the units pool ran at. `--inner` reads each phase's peak and current RSS from this form, and the units pool's width; a token no reader names, such as the load note's `build=rust`, is left out."""
+def test_parse_inner_timings_reads_the_peak_and_current_rss_tokens():
+    """A phase line carries the peak token, then the current-RSS token when the platform reports one, then a tab-separated note. `--inner` reads each phase's peak and current RSS from this form; a token no reader names, such as a note's `build=rust`, is left out."""
     text = (
-        "[t] review.build load 12.3s rss_gb=1.23 rss_now_gb=1.20\tbuild=rust (signatures: 40 cached, 2 shaped on 8 threads)\n"
-        "[t] review.build units 900.0s rss_gb=15.40 rss_now_gb=9.75\tjobs=17 (gate lane idle; recomputed=1,000,000, verified=0 cached)\n"
-        "[t] review.build manifest+check 300.5s rss_gb=17.10\n"
+        "[t] conform default 12.3s rss_gb=1.23 rss_now_gb=1.20\tbuild=rust (units: 40 cached)\n"
+        "[t] conform ss03 300.5s rss_gb=17.10\n"
     )
     assert ct.parse_inner_timings(text) == [
-        {"label": "review.build load", "elapsed_s": 12.3, "rss_gb": 1.23, "rss_now_gb": 1.2},
-        {"label": "review.build units", "elapsed_s": 900.0, "rss_gb": 15.4, "rss_now_gb": 9.75, "jobs": 17},
-        {"label": "review.build manifest+check", "elapsed_s": 300.5, "rss_gb": 17.1},
+        {"label": "conform default", "elapsed_s": 12.3, "rss_gb": 1.23, "rss_now_gb": 1.2},
+        {"label": "conform ss03", "elapsed_s": 300.5, "rss_gb": 17.1},
     ]
 
 
@@ -375,19 +373,19 @@ def test_wrap_spawn_records_each_steps_written_window_and_the_steps_that_overlap
     timings = ct.CycleTimings(path, meter=meter)
 
     def spawn(name, argv, **kwargs):
-        meter.own += {"corpus-build": 1_000, "gate:js": 30, "review-facts": 5}[name]
+        meter.own += {"corpus-build": 1_000, "gate:js": 30, "land": 5}[name]
         if name == "corpus-build":
             timed("gate:js", [], emit=None, registry=None, stream=False)
         return _result(name=name)
 
     timed = timings.wrap_spawn(spawn)
     corpus = timed("corpus-build", [], emit=None, registry=None, stream=False)
-    timed("review-facts", [], emit=None, registry=None, stream=False)
+    timed("land", [], emit=None, registry=None, stream=False)
     windows = {entry["name"]: (entry["written_bytes"], entry["written_overlap"]) for entry in _lines(path)}
     assert windows == {
         "gate:js": (30, ["corpus-build"]),
         "corpus-build": (1_030, ["gate:js"]),
-        "review-facts": (5, []),
+        "land": (5, []),
     }
     assert (corpus.written_bytes, corpus.written_overlap) == (1_030, ("gate:js",))
 
@@ -981,7 +979,7 @@ def test_load_journal_reads_a_plumbing_step_as_the_verdict_update(tmp_path):
 
 
 def test_load_journal_reads_a_census_step_as_the_review_facts(tmp_path):
-    """Older lines name the review-facts step `census`; `--by-step` counts them with the `review-facts` lines as one step."""
+    """Older lines name the review-facts step `census`; `--by-step` counts them with the older `review-facts` lines as one step."""
     path = tmp_path / "j.ndjson"
     path.write_text(
         "\n".join(
@@ -1607,7 +1605,7 @@ def test_critical_path_names_the_step_that_ended_each_pass_and_groups_passes_by_
 
 
 def test_critical_path_ranks_overlapping_build_lane_steps_by_their_ends(tmp_path):
-    """The corpus build's child writes its unit store beside the verdict update (`artifact_cycle._HeldCorpusBuild`), so two build-lane steps overlap and the build step can end after the step that started after it. Each lane is ranked by its steps' ends: on a pass that does not land, the corpus build ends the build lane, and on one that lands, the land does, whatever order the steps started in."""
+    """Two build-lane steps can overlap in a journal, so the build step can end after the step that started after it. Each lane is ranked by its steps' ends: on a pass that does not land, the corpus build ends the build lane, and on one that lands, the land does, whatever order the steps started in."""
 
     def stamp(seconds):
         return (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=seconds)).strftime(

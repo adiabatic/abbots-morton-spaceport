@@ -1,0 +1,110 @@
+[
+ {
+  "id": "u-Qn291AdDMtp",
+  "content_key": "8e260b94928b284d0f43f9fa508210ba2e80822ec963b764fd8734cfaadc5cc0",
+  "ink_identical": false,
+  "picture_identical": false,
+  "no_verdict": true,
+  "kerning": true,
+  "cluster": null,
+  "class": "kerning",
+  "group": "qsNo:qsTea",
+  "row_key": "kern qsNo[flipped] + qsTea[half]: 0 -> -1",
+  "codepoints": "E666:200C:E652",
+  "text_entities": "&#xE666;&#x200C;&#xE652;",
+  "notation": "\u00b7No \u25caZWNJ \u00b7Tea",
+  "notation_tokens": [
+   "\u00b7No",
+   "\u25caZWNJ",
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05",
+   "ss07",
+   "ss08"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05",
+     "ss07",
+     "ss08"
+    ]
+   }
+  ],
+  "kinds": [
+   "changed"
+  ],
+  "before": {
+   "glyphs": [
+    "qsNo.flipped",
+    "uni200C",
+    "qsTea.half"
+   ],
+   "junctions": [
+    "break",
+    "break"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsNo.flipped",
+    "uni200C",
+    "qsTea.half"
+   ],
+   "junctions": [
+    "break",
+    "break"
+   ],
+   "extensions": [
+    0,
+    0
+   ]
+  },
+  "diff_positions": [
+   2
+  ],
+  "pair": {
+   "left": 0,
+   "right": 2
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 1000,
+    "advance_total": 1000
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 950,
+    "advance_total": 950
+   }
+  },
+  "boundary_marks": [
+   {
+    "index": 1,
+    "kind": "zwnj",
+    "x": 450
+   }
+  ],
+  "summary": "\u00b7No before \u00b7Tea is kerned by -1 where the accepted build kerns it by 0",
+  "explain": "kerning (changed): \u00b7No before \u00b7Tea is kerned by -1 where the accepted build kerns it by 0.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07, ss08\n  text: \u00b7No \u25caZWNJ \u00b7Tea (the kerning inventory's witness of the pair)",
+  "provenance": [
+   "glyph_data/runes/qsNo.yaml:kern[0]"
+  ]
+ }
+]

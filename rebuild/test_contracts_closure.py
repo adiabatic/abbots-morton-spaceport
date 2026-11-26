@@ -895,7 +895,7 @@ def test_multiprocessing_child():
 def test_dynamic_import():
     import importlib
 
-    assert importlib.import_module("rebuild.tools.unicode_tables")
+    assert importlib.import_module("rebuild.tools.green_record")
 '''
 
 
@@ -932,7 +932,7 @@ class TestTheRecorderEndToEnd:
         assert not tests["test_child.py::test_kernel_child"]["untraced_inputs"]
         assert tests["test_child.py::test_ordinary_child"]["untraced_inputs"]
         assert tests["test_child.py::test_multiprocessing_child"]["untraced_inputs"]
-        assert "rebuild/tools/unicode_tables.py" in tests["test_child.py::test_dynamic_import"]["reads"]
+        assert "rebuild/tools/green_record.py" in tests["test_child.py::test_dynamic_import"]["reads"]
 
     def test_a_selection_file_keeps_its_tests_off_and_they_stay_collected(
         self, pytester, monkeypatch, tmp_path

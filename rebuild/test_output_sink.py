@@ -154,13 +154,13 @@ def test_the_counts_reach_the_file_only_while_the_cycle_names_one(tmp_path, monk
         "changed_bytes": 9,
         "kept_bytes": 3,
     }
-    output_sink.note_rewritten("unit-cache.ndjson.gz")
-    output_sink.note_rewritten("unit-cache.ndjson.gz")
-    assert counts.read_text().splitlines()[-1] == "rewritten\tunit-cache.ndjson.gz"
+    output_sink.note_rewritten("divergence-audit.tsv")
+    output_sink.note_rewritten("divergence-audit.tsv")
+    assert counts.read_text().splitlines()[-1] == "rewritten\tdivergence-audit.tsv"
     assert cycle_timings.sum_output_counts(counts) == {
         "files": 2,
         "bytes": 14,
         "changed_bytes": 9,
         "kept_bytes": 3,
-        "rewritten": ["unit-cache.ndjson.gz"],
+        "rewritten": ["divergence-audit.tsv"],
     }

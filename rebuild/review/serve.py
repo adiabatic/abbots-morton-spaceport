@@ -67,11 +67,11 @@ STORE_LOCKED = {
 def namer_dot_stand_in_font(source: Path) -> bytes:
     """Return the bytes of the font at `source` with `NAMER_DOT_STAND_IN` mapped, in every Unicode cmap subtable, to the glyph the namer dot (U+00B7) maps to.
 
-    Chromium ends a shaping run at U+00B7, because its Script_Extensions (Latn, Grek, Geor, Hani) leave out the Unknown script of the Quikscript letters, so the letters after the dot are shaped as a run of their own that does not see the dot. The old font then draws them as at the start of a text: it joins ·Excite to its follower after the namer dot, where HarfBuzz and CoreText shape the same font to a break. The app writes the stand-in where a sample has the dot (`namerDotStandIn` in static/render.js), and the stand-in, a private-use code point like the letters, keeps the sample in one run. GSUB and GPOS act on glyphs, so the stand-in shapes as the dot does.
+    Chromium ends a shaping run at U+00B7, because its Script_Extensions (Latn, Grek, Geor, Hani) leave out the Unknown script of the Quikscript letters, so the dot is shaped in a run of its own that does not see the letter after it. The rebuild lowers the dot before a Short letter by a rule that reads that letter (`emit_gsub.namer_dot_lookup`), so a split run draws the dot unlowered where HarfBuzz and CoreText lower it. The app writes the stand-in where a sample has the dot (`namerDotStandIn` in static/render.js), and the stand-in, a private-use code point like the letters, keeps the sample in one run. GSUB and GPOS act on glyphs, so the stand-in shapes as the dot does.
 
     The font is read with a glyph order of placeholder names, one per glyph id, so the cmap compiles back to the same glyph ids without the `CFF ` table being read, and every table but `cmap` and `head`, which holds the checksum adjustment, is written back as the bytes it was read from. Raises ValueError when the font maps no glyph to the namer dot, or already maps the stand-in to another glyph.
 
-    This exists only while the old font is reviewed in a browser. rebuild/REVIEW-PLAN.md § At cutover lists what to remove, and `test_the_namer_dot_stand_in_goes_at_cutover` in rebuild/test_review_autosave.py fails once cutover archives the old font's source.
+    `test_the_namer_dots_stand_in_keeps_the_dot_lowering_that_reads_the_next_letter` in rebuild/test_review_autosave.py fails once the dot's form no longer depends on the letter after it, when the stand-in has nothing left to keep.
     """
     from fontTools.ttLib import TTFont
 

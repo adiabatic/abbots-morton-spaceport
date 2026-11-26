@@ -11,9 +11,10 @@ from pathlib import Path
 import pytest
 
 from rebuild.pipeline import compile_font, emit_gpos, emit_gsub, fixtures, run_m1
-from rebuild.review import app_index, build, diff_units, snapshot, tablediff, unit_cache
+from rebuild.review import app_index, build, diff_units, snapshot, tablediff, unit_ids
 from rebuild.review.enrich import LETTERS
 from rebuild.review.ink import IDENTITY_DIFF
+from rebuild.test_app_index import check_a_builds_sidecars
 from rebuild.validation.shaping import ShapeResult, Shaper
 
 CHANGED = ("default", "ss04", "ss05", "ss07", "ss08")
@@ -167,7 +168,7 @@ def test_ids_are_their_identity_digests_and_move_with_what_a_unit_shows(corpus):
     ids = [unit["id"] for unit in _units(shards)]
     assert len(ids) == len(set(ids))
     for unit in _units(shards):
-        assert unit["id"] == unit_cache.unit_id_for(unit["content_key"])
+        assert unit["id"] == unit_ids.unit_id_for(unit["content_key"])
     cell = diff_units.CellChange("qsTea", "qsTea.x", "qsTea.y")
     unit = diff_units.Unit(
         diff_units.SETTLEMENT, cell, ("default",), "\ue652", ("changed",), "a test", lefts=(("a", "a"),)
@@ -318,6 +319,24 @@ def test_no_snapshot_builds_a_corpus_with_no_units_over_the_after_font_alone(bui
     assert build.check_output_dir(out) == []
 
 
+def test_two_builds_of_the_same_inputs_write_the_same_bytes(corpus, builds, tmp_path):
+    """REVIEW-PLAN §6's determinism gate: a second build of the same snapshot and tables writes a byte-identical manifest, shards and sidecars, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`)."""
+    out, _manifest, _shards = corpus
+    _accepted, edited, taken = builds
+    again = tmp_path / "again"
+    build.build_table_diff(again, taken.directory, edited, spec=_without_tea_extension(fixtures.mini_spec()))
+    first = {path.relative_to(out): path.read_bytes() for path in out.rglob("*") if path.is_file()}
+    second = {path.relative_to(again): path.read_bytes() for path in again.rglob("*") if path.is_file()}
+    assert sorted(first) == sorted(second)
+    assert [name for name in first if first[name] != second[name]] == []
+
+
+def test_the_build_writes_a_corpus_the_app_and_the_contract_read(corpus):
+    """`check_a_builds_sidecars` over the build: the whole corpus contract, the sidecars addressing the build's own shards, and the classes' machine-check counts."""
+    out, _manifest, _shards = corpus
+    check_a_builds_sidecars(out)
+
+
 def test_the_manifest_predicates_hold_the_baseline_the_universe_and_the_classes(corpus):
     _out, manifest, _shards = corpus
     assert build.check_manifest(manifest) == []
@@ -334,17 +353,16 @@ def test_the_manifest_predicates_hold_the_baseline_the_universe_and_the_classes(
 def test_the_unit_predicates_hold_the_table_diff_shape(corpus):
     _out, _manifest, shards = corpus
     unit = shards["joins"][0]
-    assert build.check_unit(unit, "table-diff") == []
+    assert build.check_unit(unit) == []
     for broken, phrase in (
         ({"cluster": None}, "human units must carry a cluster"),
-        ({"duplicate_group": "e-11111111111"}, "duplicate_group null"),
         ({"kinds": ["moved"]}, "kinds must name"),
         ({"class": "changed"}, "table-diff class"),
         ({"class": "settlement"}, "a unit that shows a join row is in joins"),
         ({"highlight": None}, "carries its pair_codepoints and highlight"),
         ({"codepoints": None, "notation_tokens": None}, "a unit with no text carries no"),
     ):
-        assert any(phrase in error for error in build.check_unit({**unit, **broken}, "table-diff")), phrase
+        assert any(phrase in error for error in build.check_unit({**unit, **broken})), phrase
 
 
 def _run(names, clusters, advances=None):
@@ -588,10 +606,7 @@ def test_a_moved_kern_value_is_a_unit_drawn_with_kerning_on_that_takes_no_verdic
     assert unit["cluster"] is None and manifest["human_unit_ids"] == []
     assert unit["provenance"] == ["glyph_data/runes/qsTea.yaml:kern[0]"]
     assert "the kerning inventory's witness of the pair" in unit["explain"]
-    assert any(
-        "kerning must be true" in error
-        for error in build.check_unit({**unit, "kerning": False}, "table-diff")
-    )
+    assert any("kerning must be true" in error for error in build.check_unit({**unit, "kerning": False}))
 
 
 def test_the_kerned_comparator_shapes_with_kerning_on_where_the_other_turns_it_off(builds):

@@ -1,12 +1,10 @@
 """Run the commit-time artifact cycle in one command.
 
-The cycle recompiles M1.otf and checks it, builds the table-diff review corpus beside the served one (`rebuild.review.build --mode table-diff`: the accepted snapshot of the build, which the tracked rebuild/review-snapshot.json names and var/keep/review-snapshot/ holds, against rebuild/out/m1), and lands it, carrying the verdict store onto it by unit id (`rebuild.review.landing`). It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure, and a green pass that is not a staging pass ends with the readiness checklist, above which a `review diff` line counts the corpus's unaccepted changes since the snapshot (`readiness_block`, `verdict_ready.diff_summary_line`). The diff is a row and a line, never a red gate: a pass whose corpus holds unaccepted changes ends green and READY, and `make review-accept ARGS=--apply` accepts them.
+The cycle recompiles M1.otf and checks it, builds the table-diff review corpus beside the served one (`rebuild.review.build`: the accepted snapshot of the build, which the tracked rebuild/review-snapshot.json names and var/keep/review-snapshot/ holds, against rebuild/out/m1), and lands it, carrying the verdict store onto it by unit id (`rebuild.review.landing`). It then runs the gates. Once they have joined and their pytest controllers have written this pass's per-worker peaks to the timings journal, it compares the checked-in per-unit peaks with what this machine measured (`rebuild.tools.calibrate_budgets --check`). It always ends with a summary table, even on failure, and a green pass that is not a staging pass ends with the readiness checklist, above which a `review diff` line counts the corpus's unaccepted changes since the snapshot (`readiness_block`, `verdict_ready.diff_summary_line`). The diff is a row and a line, never a red gate: a pass whose corpus holds unaccepted changes ends green and READY, and `make review-accept ARGS=--apply` accepts them.
 
 The terminal shows one banner per step with that step's description, the phases and counters its child prints, every warning, and a closing line. All child output is written under var/build-logs/<stamp>-<short sha>/: one log per step with stdout and stderr merged in arrival order, plan.txt, and a copy of the terminal output. var/build-logs/latest points at the newest run, and a failed step's log is replayed under its banner. rebuild.tools.console defines the line protocol children print and the renderer that reads it.
 
 The job-costs step never fails the pass: a stale constant makes a pool the wrong width, which costs time but makes no artifact wrong. It is reported, and committing the re-measured constant accepts it. When the check reports an overrun, the OVERRUN status quotes each tripped row's proposal (the value its constant's rule sets from the peak and the width that value gives here, or for the kernel-build row which constants to re-measure), and the driver asks `calibrate_budgets --moved` which checked constants differ from their values at `HEAD`, so a constant already re-measured shows up by name.
-
-The corpus seed and the review facts are in no plan. Their step functions (`_do_corpus_seed`, `_do_review_facts`), and the `Plan` and `CycleReport` fields only they read, stay in this module until the m1-audit corpus leaves the tree (rebuild/CUTOVER-PLAN.md stage 4).
 
 A pass refuses before it parses its command line while the alphabet switch (`spec_load.M1_RUNES_ENV`) is set outside the fault kit (`spec_load.small_alphabet_refusal`), so a shell that leaks it cannot build a small alphabet into the live tree.
 
@@ -16,11 +14,11 @@ The pass reads the write meter (`rebuild.tools.write_meter`) as it starts, once 
 
 This process, not its children, records each check's result in the timings journal. Every evaluated check (run_m1, conform, rebuild-contracts, make-test, js) appends one kind:"check" line tagged with this run, carrying the evaluator's outcome, not the process's exit code; `make cycle-timings ARGS='--by-outcome'` reads them. run_m1's CLI and make_test_gate record their own line when run by hand, so this driver sets its run id in the environment as AMS_CYCLE_RUN (cycle_timings.CYCLE_RUN_ENV), and those children record nothing when they inherit it. run_m1's CLI prints the result on a `[check]` line instead (`console.CHECK`), which this driver files when the summaries a run_m1 or gate:conform child left do not say why it stopped (`_reported_red`). Each check invocation gets one line.
 
-gate:js depends on no build artifact, so it starts at t=0 in a small thread pool while the build steps run in sequence in the main thread. The corpus build runs on a thread of its own (`_HeldCorpusBuild`), which the driver joins before the land. gate:make-test checks the `data-expect` pins against the rebuilt Senior its session copies from the build run_m1 leaves (rebuild/tools/build_fonts.py), so it is submitted to that pool once the run_m1 gate passes, and not run when the gate fails. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes too, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the build's processes at `corpus_job_budget`'s width, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build, except on a pass that runs the corpus build and neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), where it waits until the build prints the line that closes its units phase (`CORPUS_UNITS_LINE`), or until the build returns when it prints none, as the table-diff build does, and then runs beside the rest of the build lane. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, so it waits for no build output. A suite that is neither held nor queued starts at t=0 on a pass where every upstream stage skips; the held suite waits for the units pool only so that the pool finds the gate lane idle, and starts as that pool finishes even when run_m1 skips.
+gate:js depends on no build artifact, so it starts at t=0 in a small thread pool while the build steps run in sequence in the main thread. gate:make-test checks the `data-expect` pins against the rebuilt Senior its session copies from the build run_m1 leaves (rebuild/tools/build_fonts.py), so it is submitted to that pool once the run_m1 gate passes, and not run when the gate fails. gate:conform (the exhaustive font-versus-settlement sweep at the per-edit maximum length, `run_m1 --conform-only`) starts after the run_m1 gate passes too, beside make-test under the default overlap policy, and behind it under the queue policy and on a pass with no build lane (`gates_queue`). Its deeper form, `make conform-deep`, never runs in the cycle; the summary has one line saying whether the emitted lookup has a shape the last deep run did not shape. gate:rebuild-contracts runs every test under rebuild/, and none of them reads a live build artifact (rebuild/conftest.py's audit hook enforces this). A hand run uses every core. Under a cycle the suite is submitted with the conform lane, right after the run_m1 gate passes, and runs at `contracts_pool_width`, set on that one child as PYTEST_XDIST_AUTO_NUM_WORKERS: the cores less the corpus build's one process, and, under the overlap policy on a pass that runs gate:make-test beside the build lane, less that gate's pool. It starts beside the corpus build. The conformance sweep's core cap (`_conform_core_cap`) makes the same subtraction, floored at the acceptance-configuration count, and neither width subtracts the other, so under the overlap policy the sweep and the suite share the cores those processes leave while both run. The suite reads nothing the build lane writes, so it waits for no build output. A suite that is not queued starts at t=0 on a pass where every upstream stage skips.
 
-While a gated pass's build lane runs (run_m1, then the corpus build, then the land), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core): the corpus build's cap is the build lane's share less its main thread, and gate:make-test's pool is the gate lane's share (`make_test_pool_width`), so the two lanes' longest-running pools never book the same core. When the gate lane has nothing left to run as the corpus build's units pool starts (gate:make-test, gate:conform and gate:rebuild-contracts each skipped or finished, or the suite held until that pool finishes), the pool takes every core less the build's main thread instead (`corpus_gates_idle_job_budget`): the driver writes var/cycle/gates-idle at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases. On a pass that holds the suite and runs no other gate pool, the driver writes it as it spawns the build, so the pool takes that width on every such pass. A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pools, run_m1's oracle and the corpus build's ink-signature shaping, are capped at every core on every pass rather than at a lane's share. The ink-signature shaping shares the cores with gate:make-test's pool while both run, which costs contention time rather than memory; the oracle runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it. The table-diff build takes no width and runs in one Python process, so the widths that book the corpus build book the review crate's build (`CORPUS_BUILD_RS_PROCESS_BYTES` and its threads), which holds more, until the crate leaves the tree with the m1-audit corpus.
+While a gated pass's build lane runs (run_m1, then the corpus build, then the land), the cycle splits the usable cores between that lane and the gate lane (`memory_budget.split_cores`, which gives the build lane the odd core), and gate:make-test's pool takes the gate lane's share (`make_test_pool_width`). gate:make-test starts once the run_m1 gate has passed, so the build lane beside it holds the corpus build, one Python process (CORPUS_BUILD_BYTES), and then the land, and gate:conform's sweep and gate:rebuild-contracts' pool take the cores that process and gate:make-test's pool leave (`_contracts_pool_terms`). A pass that runs neither run_m1 nor the corpus build gives gate:make-test's pool every core, and when it runs that gate it runs the heavy gates one at a time under either policy (`gates_queue`). The burst pool, run_m1's oracle, is capped at every core on every pass rather than at a lane's share; it runs inside run_m1, before gate:make-test starts, and its pool leaves those bytes to the reserve (`sweep_job_budget`). Nothing inside run_m1 subtracts that pool, the table build and the string replay included. Memory is not split: each pool's width subtracts the memory of the pools the plan runs beside it.
 
-`--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. A pass that runs gate:make-test and neither run_m1 nor the corpus build queues them so under either policy (`gates_queue`). Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets, less what the settle-memo absorbs hold beyond it (ORACLE_ABSORB_BYTES); the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build (`corpus_job_budget`) gets the build lane's share less its main thread, with gate:make-test's memory off the machine when that gate runs, and every core less its main thread for its units pool when the gate lane is idle as that pool starts. Under the overlap policy, on a pass that runs gate:make-test beside the build lane, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool, which already holds the gate lane, so beside a corpus build at its lane share the suite falls to its floor of one worker and the sweep to its floor of one process per acceptance configuration on every machine. When the gates queue, neither subtracts gate:make-test's pool, which has finished by the time they start. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
+`--rebuild-pool` sets how the heavy gate pools share the machine. Under the default overlap policy, gate:conform and gate:rebuild-contracts start as soon as the run_m1 gate passes and run beside gate:make-test's pool, each other, and the build lane. Under the queue policy the gates run make-test, then conform, then rebuild-contracts, so only one heavy gate pool runs at a time, and the build steps run beside whichever one it is. A pass that runs gate:make-test and neither run_m1 nor the corpus build queues them so under either policy (`gates_queue`). Each pool's width comes from its budget function: the oracle (`sweep_job_budget`) splits its tables into row ranges and uses the cores within the memory limit ORACLE_SHARD_BYTES sets, less what the settle-memo absorbs hold beyond it (ORACLE_ABSORB_BYTES); the conformance sweep (`conform_job_budget`) runs its units (each settlement configuration once per final symbol, and the ss10 overlay whole) one process each, as many at once as CONFORM_SWEEP_UNIT_BYTES fits beside the build lane, capped at the cores the corpus build leaves and never below the acceptance-configuration count; and the corpus build is one Python process, which the sweep's memory budget books at CORPUS_BUILD_BYTES and the sweep's and the suite's core counts at one core. Under the overlap policy, on a pass that runs gate:make-test beside the build lane, the conformance sweep's memory budget and core cap and the rebuild suite's width also subtract that gate's pool, which holds the gate lane, so the suite and the sweep share the build lane's share less the corpus build's process, the sweep floored at one process per acceptance configuration. When the gates queue, neither subtracts gate:make-test's pool, which has finished by the time they start. Neither of those two widths subtracts the other's pool. `--dry-run` prints every width with its derivation.
 
 The overlap policy is the default because of whole-pass timings of `--fresh` passes under both policies on the 18-core 48 GiB machine (`doc/fleet.md`), which bare `make cycle-timings` on that machine lists step by step. Those passes ran gate:make-test from t=0, beside run_m1, and it finished before run_m1 did, so under either policy the conformance sweep and the rebuild suite started beside the corpus build and finished before the build lane, and the build lane ended the pass. gate:make-test starts after the run_m1 gate, beside the corpus build and the other two heavy gates, so those timings predate the schedule they argue for, and the comparison is due again. The overlap policy's pass is no slower than the queue policy's, so the timings give no reason to switch. Timed by hand there with no corpus build or gate:make-test running, a narrowed conformance sweep and the full-width rebuild suite also finished sooner side by side than one after the other (issue #468 records the runs). Under the overlap policy the sweep and the suite subtract gate:make-test's pool even so, because the plan cannot tell whether it will be running when they start, which leaves the suite one worker; that time is off the critical path on those passes. The signal to time both policies again is an overlap-policy pass with gate:make-test's pool at the gate lane's share (its run line's `plan.make_test_workers`) that a `gate:` step ends. `make cycle-timings ARGS='--critical-path'` counts the passes each step ends, but its row for a pass shape also counts passes run at other gate:make-test widths, so such a pass shows there as growth in a `gate:` step's count.
 
@@ -51,7 +49,7 @@ The review server keeps running through every pass. Two things a cycle writes be
 
 The cycle keeps a listening server only when its /capabilities says it serves this checkout with the working tree's land-protocol and freshness code (`probe_server`, `landing.code_digest`); a server from this checkout running other code is restarted first (`restart_review_server`), and one serving another checkout is left alone and sent no reload. A server from before the land protocol answers no /capabilities, and it takes the old rule: a pass that writes neither the corpus nor the store keeps it running (`server_can_keep_running`), and any other pass stops it once with --stop-server (which `make review-cycle` passes), runs beside it with --yes, or refuses.
 
-An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars, the unit-cache store and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
+An edit confined to rebuild/review/static/ also has its own mode. The copied app assets are the one corpus input no unit depends on, so the pass copies them over the served copy and restamps that one fingerprint component (`assets-refresh`), each file renamed into place. Every shard, both sidecars and `generated_at` stay as they were, so nothing the tab is keyed on changes. Once the files are in place the pass sends `ams:assets/<static hash>`, and the open tab reloads onto the new assets when the reader is not typing. The server itself reloads no tab on a file change (`rebuild.review.serve.register_dormant_watch`).
 
 A corpus promotion is the opposite case under the same skip: the land swaps the staged corpus in, the stamp changes with it, and the land carries the store onto it by unit id.
 
@@ -91,8 +89,7 @@ from typing import TYPE_CHECKING
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from rebuild.review import app_index, facts, landing, store_lock, unit_index  # noqa: E402
-from rebuild.review.audit import load_ledger  # noqa: E402
+from rebuild.review import app_index, landing, shards, store_lock  # noqa: E402
 from rebuild.tools import console, cycle_paths  # noqa: E402
 from rebuild.tools import contracts_closure as contracts  # noqa: E402
 from rebuild.tools.green_record import (  # noqa: E402
@@ -124,8 +121,6 @@ if TYPE_CHECKING:
     from rebuild.tools.cycle_timings import CycleTimings, PassWrites
 REVIEW_OUT = ROOT / "rebuild" / "out" / "review"
 AUTOSAVE = ROOT / "verdicts-autosave.json"
-FACTS_PINS = ROOT / "rebuild" / "review-facts-pins.json"
-DIVERGENCE_LEDGER = ROOT / "rebuild" / "m1-divergences.yaml"
 CYCLE_TIMINGS = ROOT / "rebuild" / "out" / "cycle-timings.ndjson"
 BEHAVIOR_CLASSES = cycle_paths.M1_OUT / "behavior_classes.json"
 JSTEST_DIR = ROOT / "rebuild" / "review" / "jstests"
@@ -140,7 +135,7 @@ UNDECIDED_UNTIL_RUN_M1 = {
     "gate:make-test": MAKE_TEST_MAYBE_NOTE,
 }
 ASSETS_REFRESH_NOTE = "only the review UI assets moved since the corpus was stamped; they are copied over the served copy and the manifest's static component restamped in place — no shard, sidecar or generated_at moves; --fresh overrides"
-CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte, unit store and signature store beside it; the land swaps that directory in instead of a rebuild; --fresh overrides"
+CORPUS_PROMOTE_NOTE = "a staging pass already built the corpus these inputs produce, byte for byte; the land swaps that directory in instead of a rebuild; --fresh overrides"
 SERVER_KEEPS_RUNNING_NOTE = (
     "rewrites no unit shard, moves no manifest stamp, and leaves the verdict store alone"
 )
@@ -149,14 +144,13 @@ SERVER_STOP_TIMEOUT = 15.0
 SERVER_START_TIMEOUT = 30.0
 CAPABILITIES_ATTEMPTS = 3
 CAPABILITIES_RETRY_S = 1.0
-# The gate thread pool's worker count, sized to the tasks the chain submits, not to the cores. When the heavy gates queue (`gates_queue`: under the queue policy, and on a pass that runs gate:make-test with no build lane) a waiting task holds its worker for the whole wait (conform waits on make-test, and contracts on both), as a gate:rebuild-contracts held until the corpus build's units pool finishes does under either policy, so every gate task needs a worker at the same time, with spare workers on top. With fewer workers a waiting task could sit behind an unrelated task's completion, and a width taken from the cores would cause that on a small machine. `test_the_gate_pool_runs_every_gate_task_at_once` in rebuild/test_artifact_cycle.py checks that this equals the gate task count plus two.
+# The gate thread pool's worker count, sized to the tasks the chain submits, not to the cores. When the heavy gates queue (`gates_queue`: under the queue policy, and on a pass that runs gate:make-test with no build lane) a waiting task holds its worker for the whole wait (conform waits on make-test, and contracts on both), so every gate task needs a worker at the same time, with spare workers on top. With fewer workers a waiting task could sit behind an unrelated task's completion, and a width taken from the cores would cause that on a small machine. `test_the_gate_pool_runs_every_gate_task_at_once` in rebuild/test_artifact_cycle.py checks that this equals the gate task count plus two.
 _GATE_POOL_WORKERS = 6
-# The memory of the corpus build (`corpus_exec.run_build`), one `ams-review build` process that runs the whole data path, its units phase on its threads in process, while the Python process that started it waits, so `corpus_job_budget` fits that process's threads: CORPUS_BUILD_RS_PROCESS_BYTES is what the process holds at any width, CORPUS_BUILD_RS_LAUNCHER_BYTES is the Python process waiting on it, and both come off the machine before the division, while CORPUS_BUILD_RS_THREAD_BYTES is what each thread adds and is the divisor. The process holds the corpus as columns (the unit table, the unit store, the window index and the pre-merge snapshot), so it grows with the corpus; it holds neither the recomputed units' fragments nor the sidecar lines, which go to spill files on disk. A thread holds one engine per configuration, its HarfBuzz buffer and shape memo, and one handout's units and projections with their deflated fragments; it drops its engines and its shapes at each settlement batch's end (`settle::Settler::release` in rebuild/review-rs/), so what it holds does not grow with the handouts it draws.
-# All three are set by peak footprint (`ffi::peak_footprint` in rebuild/review-rs/, the `done` result's reading, and `peak_rss.peak_footprint_self_bytes` for the launcher, both from the `corpus-build-rs` pool records) of the build run alone with no prior corpus, once at each of 1, 4 and 11 threads, over the live inputs at 55 runes on the 12-core M4 Pro Mac mini (`doc/fleet.md`), with the allocator's large cache off, as the cycle's corpus-build step runs it, recomputing all 3,550,073 units: the process read 2.25, 2.18 and 2.15 GB at those widths, which the least-squares fit puts at 2.24 GB a process and -0.009 GB a thread, and the launcher read at most 0.107 GB. The peak does not rise with the width, so it falls outside the units phase, where each thread adds its engines, and the fit gives no positive per-thread figure. The divisor is the units phase's own thread figure instead: the same thread code run alone at 53 runes over 237,568 units in 29 handouts of 8,192, at 1, 4 and 11 threads, read 0.13, 0.28 and 0.62 GB, which the least-squares fit puts at 0.082 GB a process and 0.049 GB a thread, and the thread figure plus a quarter, rounded up to the hundredth of a gigabyte, is 0.07 GB. The process and launcher constants are their figures plus a quarter, rounded up to the hundredth of a gigabyte, for the reason `corpus_job_budget` gives for erring high: 2.81 GB and 0.14 GB, which with the threads book 3.02, 3.23 and 3.72 GB at those widths. The resident peaks of the same builds climb with the width, 2.52, 3.47 and 4.18 GB, because a resident set counts the clean mapped pages, the subset pack's among them, that a footprint leaves out. At these figures the cap, not memory, sets the width on both fleet machines under a gated cycle and by hand (`rebuild/test_memory_budget.py` checks the gated one). The corpus-build-rs row of `make job-costs` reports the build's readings and checks none of the three.
-CORPUS_BUILD_RS_PROCESS_BYTES = 2_810_000_000
-CORPUS_BUILD_RS_THREAD_BYTES = 70_000_000
-CORPUS_BUILD_RS_LAUNCHER_BYTES = 140_000_000
-# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the corpus build that moves the corpus and the store into place. It holds the store whole, which lasts from one accept to the next and holds the verdicts made since, a few hundred records at most, and the new corpus's human unit ids, so its peak is its interpreter's. The constant comes from the land step of cycle pass 65de92ca6254 at 55 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), taken on 2026-11-22, when the land streamed stores of up to 332,250 records beside a journal: 0.218 GB peak resident, plus a quarter, rounded up to the next tenth of a gigabyte, 0.3. It is below the corpus build's process and launcher together (CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES), which `test_the_land_holds_less_than_the_build_lane_step_before_it` checks, and the land runs after the corpus build in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the build, covers it too, and no width depends on it. The land row of `make job-costs` checks it against the land step's peak.
+# The peak memory of the corpus build (`rebuild.review.build`), one Python process that diffs the accepted snapshot's tables with rebuild/out/m1's, shapes each change's candidate texts in both fonts, and holds the corpus's fragments until it writes them, so its peak grows with the units an edit makes. It runs in the build lane beside gate:conform's sweep, whose memory budget books it (`_conform_build_lane`). The constant comes from the timings journal's corpus-build steps on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`) at 56 runes: 0.106 GB peak resident on an empty diff, and 0.413 GB on cycle pass e2ee368a3483, taken on 2026-11-26, whose corpus held the 15 units of a one-letter extend, plus a quarter, rounded up to the next tenth of a gigabyte, 0.6. A diff with more units holds more; the corpus-build row of `make job-costs` checks the constant against every pass's step peak.
+CORPUS_BUILD_BYTES = 600_000_000
+# How the plan lines name the corpus build where a width subtracts its one core.
+CORPUS_BUILD_PROCESS = "the corpus build's process"
+# The peak memory of the land (`rebuild.review.landing`), the build-lane step after the corpus build that moves the corpus and the store into place. It holds the store whole, which lasts from one accept to the next and holds the verdicts made since, a few hundred records at most, and the new corpus's human unit ids, so its peak is its interpreter's. The constant comes from the land step of cycle pass 65de92ca6254 at 55 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), taken on 2026-11-22, when the land streamed stores of up to 332,250 records beside a journal: 0.218 GB peak resident, plus a quarter, rounded up to the next tenth of a gigabyte, 0.3. It is below the corpus build's CORPUS_BUILD_BYTES, which `test_the_land_holds_less_than_the_build_lane_step_before_it` checks, and the land runs after the corpus build in the same lane, so the build lane's reservation (`_conform_build_lane`), which covers the build, covers it too, and no width depends on it. The land row of `make job-costs` checks it against the land step's peak.
 LAND_BYTES = 300_000_000
 # The peak memory of one oracle row-range worker, the divisor of the oracle's width (`sweep_job_budget`). A worker is a spawn process. It holds its interpreter, a HarfBuzz shaper over M1.otf, and the crate's guard verdict map. It holds the records of its own row range of its configuration's row store: one buffer of the range's record bytes with three packed arrays beside it (an offset and two ages a record), loaded from the store's base, its segments' upserts in the range merged by ordinal as they stream, and the range's slice of the ages column (`oracle_cache.load_store`), without scanning the whole member where its base has one that spans the range, so it holds its range's rows and not the configuration's. On a pass whose row stamp moved it holds only each record's position part, the row check digest, the settled digest, the position verdict and both ages, with the row verdict cut away as the records load (`oracle_cache._position_part`), about 44 bytes of a record's 160 at 45 runes: that pass walks every row, as a pass with the row cache dropped does, and serves each stored position whose settled digest still matches (`oracle_cache.RowStore.position_servable`), so it holds the position parts and the dropped pass's walk at once. A pass whose row stamp moved where no position can be served, because the position stamp moved too or there is no font, loads no records (`oracle_cache.load_store`) and holds the dropped pass's walk alone. It maps its configuration's settle memo read-only on the first wave that reaches the crate, which every pass does: a writing pass re-derives one row in `oracle_cache.MAX_RECORD_AGE` on schedule, and a pass that serves rows walks its verification samples. `conform._MemoStore` maps the base and every segment its head lists, at most `row_delta.SEGMENT_CAP` plus `row_delta.FOLD_OVERRUN`, 21, and reads each part's own layout: the six id columns, the value column and the 2^k >= 2N-slot probe index are views over its mapping, 69.8 MB for a live memo of 2.6M windows (the `[t] settle_memo` lines count them), and each segment's Bloom filter, 10 bits a row of the segment, about 0.5 MB a segment at 45 runes, is a view too, whose pages a probe touches one block a segment on each base hit. Those pages belong to the page cache, resident once per machine however many workers map the file, and count in a worker's resident set as its probes touch them: a writing pass's walk with the row cache filled probes the one row in twenty the cache does not serve, a `--gates-only` pass's walk only the rows the cache refuses and its verification samples, and a walk with the row cache dropped probes nearly every row. On a pass after a family changed, the retirement fold reads the six id columns whole once (36.2 MB of the mapping, `conform._MemoStore.load` over `mask.moved`); the measurement set's readings are taken with no family changed, every `[t] settle_memo` line at stale=0, so that fold is outside the measurement set and inside the headroom. The worker's own heap holds the parts' interned label and outcome tables, a dead byte and a reached byte a row over the segments' rows beside the base's, 0.005 GB at the load with a base alone, the segments adding their own share. Last, it holds the walk's state over the range: the chunk of rows in flight (`oracle.ORACLE_ROW_CHUNK`), the waves of windows the crate settles for it, and `windows`, the dict of the windows the walk settles fresh and of the store hits a later row can read again. A hit whose window spells out its whole row's text, which that row alone reads, stays in the mapped store (`conform._SettledWindowWalk`'s `promote_pinned`). That saves the window's key tuple, 96 bytes, and halves the dict's table where the count `windows` holds stays under a power of two it would otherwise pass: in the measurement set below `default 2/4` keeps 511,019 of the 1,235,286 hits it reaches out of `windows` and reads 0.047 GB less peak footprint than a walk that copies every hit, 92 bytes a kept window, while `default 1/3` keeps 637,851 of 1,642,266, its table falls from 2^22 slots to 2^21, and it reads 0.138 GB less, 217 bytes a kept window. On a pass that serves from its store it also holds each chunk's offers to the two verification samples (`oracle_cache.VerificationSample.offer_many`), and while a range on one segment of a joined store loads, that segment's compressed bytes beside its inflated records (`oracle_cache._indexed_records`), or, with the row stamp moved, beside the position parts it cuts from each piece it inflates (`oracle_cache._inflated_position_parts`). The cyclic collector is held off for the range (`oracle._collector_held`), so the few reference cycles a range builds stay until it ends. It also holds what it sends home until it has copied it into shared memory (`oracle.ship`): its range's audit lines, compressed a block at a time with at most `oracle.ORACLE_AUDIT_BLOCK` bytes uncompressed (`oracle.AuditBlocks`), on a pass that writes a store, a cut configuration's range's store segment, one gzip member built in memory (`oracle_cache.RowWriter` with no path), and the settle memo windows it settled fresh, compressed a block at a time (`conform.FreshMemo`), a few megabytes on a range that settles every window fresh and far less on a rune edit's. While it copies, the shared memory's pages count in its footprint beside the pieces not yet dropped, and they leave it when it closes its mapping. These grow with the range's share of the audit and of the stores. The range probe that takes the measurement set below ships nothing, so its readings leave them to the headroom: at 45 runes the whole audit compresses to about 0.15 GB and a writing pass's segments come to 0.379 GB, about 0.03 GB a range over the width-twelve plan's seventeen ranges; those figures are derived from the outputs' sizes, not measured.
 # No range writes the memo. Every range, whether or not its configuration is split, returns the windows it settled fresh in a shared memory segment (`run_m1_gates.run_oracle`), and each configuration's absorb, a task of its own on this same pool, runs in a fresh process in the slot a range frees once all of the configuration's ranges have landed and the witness stage has returned (`run_oracle`'s `memo_ready`). Its reading is recorded in the pool record beside the ranges' as `<config> absorb`, and ORACLE_ABSORB_BYTES prices it; the absorbs are outside this constant's measurement set.
@@ -429,7 +423,7 @@ REBUILD_GATE_HARNESS_PATHS = (
 
 
 def _closure_digest(root: Path, rel: str) -> str:
-    """Return one file's digest for the rebuild lane's closure. Rune YAMLs and the divergence ledger get prose-insensitive hashes (`fingerprint.rune_document_digest`, which keeps the `kern` block's records, and `divergence_ledger_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a changed pin re-runs the lane and the lock's copy of the project version does not; no test reads the project's own block, and the pinned packages decide the environment the lane runs in. A version bump still re-runs the whole lane, because it rewrites pyproject.toml, a global label (`contracts_closure.GLOBAL_LABELS`) hashed raw. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, statuses, `no_verdict`, `match` and the exemplar keys, never the text of a `why`, `title` or `summary`; `audit.load_ledger` checks only that a title and summary are present and nonempty, and the digest keeps which prose keys each entry has. The only live readers of that text are the corpus's sidebar, class header and explain panel, and they are keyed elsewhere: the ledger's prose is in the Stage B `explain_prose` component."""
+    """Return one file's digest for the rebuild lane's closure. Rune YAMLs and the divergence ledger get prose-insensitive hashes (`fingerprint.rune_document_digest`, which keeps the `kern` block's records, and `divergence_ledger_digest`), so a documentation edit does not re-run the gate. uv.lock is hashed by its dependency pins (`fingerprint.lock_digest`), so a changed pin re-runs the lane and the lock's copy of the project version does not; no test reads the project's own block, and the pinned packages decide the environment the lane runs in. A version bump still re-runs the whole lane, because it rewrites pyproject.toml, a global label (`contracts_closure.GLOBAL_LABELS`) hashed raw. Leaving the prose out is safe because of what the tests read from those files. The contracts tests that load the live runes check structure, settlement outcomes and round-trip identity, and those that load the live ledgers read ids, statuses, `no_verdict`, `match` and the exemplar keys, never the text of a `why`, `title` or `summary`, and the digest keeps which prose keys each entry has."""
     from rebuild.pipeline import fingerprint
 
     prose_insensitive = {
@@ -881,11 +875,11 @@ def deep_sweep_status(root: Path = ROOT, max_length: int = DEEP_SWEEP_MAX_LENGTH
 
 
 def rebuild_gate_closure_files(root: Path) -> list[str] | None:
-    """Return every tracked or untracked-unignored repo file the rebuild pytest suite can read, the base of the suite's input closure. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the JS-only jstests, the review-facts pins, and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
+    """Return every tracked or untracked-unignored repo file on disk that the rebuild pytest suite can read, the base of the suite's input closure; a tracked file deleted in the working tree has nothing to read, so it is left out. That is rebuild/ and glyph_data/ (without Markdown and the paths in `cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES`: the JS-only jstests and the contact allow-list), the root conftest.py, pyproject.toml and uv.lock, and the harness list REBUILD_GATE_HARNESS_PATHS. The harness list is what the suite reads outside those trees, and it is why the Markdown filter has an exception: the filter drops prose no test opens, but rebuild/test_review_enrich.py checks the corpus's letter table against doc/glyph-names.md.
 
-    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py and the checker's tests collect pins from the three site corpora through rebuild/validation/corpus.py, and the grammar (rebuild/validation/expect.py) reads postscript_glyph_names.yaml at the repo root when it is imported. rebuild/review/drafts.build_corpus_index reads the same three corpora. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ only through the font compile, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list. The Mono builds in rebuild/test_build_family.py and rebuild/test_family_against_old_build.py read reference/DepartureMono-Regular.otf, whose glyphs and layout tables tools/build_font.py copies into Mono. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
+    The harness list comes from an audit of every file the suite opens over a green run, not from the tree, and every entry has a named reader. rebuild/validation/pins.py and the checker's tests collect pins from the three site corpora through rebuild/validation/corpus.py, and the grammar (rebuild/validation/expect.py) reads postscript_glyph_names.yaml at the repo root when it is imported. The list's tools/ entries are the font compile's modules (`fingerprint.FONT_COMPILE_TOOL_MODULES`), the only tools/ files the suite opens: it reaches tools/ only through the font compile, whose import closure inside tools/ rebuild/test_build_code_closure.py holds within that list. The Mono builds in rebuild/test_build_family.py and rebuild/test_family_against_old_build.py read reference/DepartureMono-Regular.otf, whose glyphs and layout tables tools/build_font.py copies into Mono. rebuild/test_review_build.py checks the review corpus's feature descriptions against README.md's stylistic-set list.
 
-    The review-facts pins are exempt because the suite does not read them and the review-facts step rewrites them during the pass; including them would change the key of every pass that refreshes them. The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger stays in, since tests read it, and `_closure_digest` gives it a prose-insensitive hash, so rewording a `why` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
+    The allow-list is exempt because no test reads the live file (only a fake repo writes one), so a bless would re-run the whole suite for nothing. The divergence ledger stays in, since tests read it, and `_closure_digest` gives it a prose-insensitive hash, so rewording a `why` does not change the key while a structural edit does. None when git is unavailable, in which case the caller must run the gate.
     """
     try:
         result = subprocess.run(
@@ -918,6 +912,7 @@ def rebuild_gate_closure_files(root: Path) -> list[str] | None:
         for path in paths
         if (path in harness or not path.endswith(".md"))
         and not any(path.startswith(prefix) for prefix in cycle_paths.REBUILD_GATE_EXEMPT_PREFIXES)
+        and (Path(root) / path).exists()
     )
 
 
@@ -941,9 +936,9 @@ def contracts_closure(root: Path) -> tuple[str | None, dict[str, str] | None]:
 def corpus_build_skippable(
     root: Path = ROOT, review_out: Path | None = None, ignore: tuple[str, ...] = ()
 ) -> bool:
-    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`rebuild.review.build --mode table-diff`), so True only for a corpus of that mode whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of rebuild/out/m1, which a build copies, `snapshot.tables_stamp`), every shard the manifest names present, rebuild/out/m1/M1.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`). An m1-audit corpus never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
+    """Return whether rebuilding the review corpus would reproduce its content byte for byte, so the build can be skipped and the verdict store keeps its stamp. The cycle builds the table-diff corpus (`rebuild.review.build`), so True only for a corpus of that mode whose manifest's recorded inputs fingerprint equals the one a build would stamp now (`status.table_diff_inputs` over the current snapshot under `root` and the tables' stamp of rebuild/out/m1, which a build copies, `snapshot.tables_stamp`), every shard the manifest names present, rebuild/out/m1/M1.otf byte for byte the after font the manifest records, as the readiness check's freshness row compares it, and the corpus complete (`corpus_complete`). A corpus of another mode never is, so the first pass of a tree that serves one builds the table-diff corpus. `generated_at` is derived from the inputs' mtimes, so a rebuild after mtime-only changes (git checkout, touch) could restamp it with identical content; skipping keeps the stamp, and with it the store's alignment with the corpus.
 
-    The after font is compared whole and not by `fingerprint.kern_blind_font_digest`, because the corpus's kerning units show its `kern` lookup and its kern bucket reads rebuild/out/m1/kern.tsv, which a kern edit rewrites with the font; the `font_inputs` component hashes the runes' kern blocks too. So a kern-only rebuild rebuilds the corpus.
+    The after font is compared whole, `kern` lookup included, because the corpus's kerning units show that lookup and its kern bucket reads rebuild/out/m1/kern.tsv, which a kern edit rewrites with the font; the `font_inputs` component hashes the runes' kern blocks too. So a kern-only rebuild rebuilds the corpus.
 
     `ignore` names fingerprint components left out of the comparison, for a caller asking a narrower question than byte identity, with the same hard/warn split the readiness check's freshness row uses. The cycle asks three questions in turn. The strict one comes first, since a corpus that reproduces byte for byte needs nothing done. When only an ASSET_COMPONENTS member differs, the cycle copies those assets over the served corpus and restamps that one component (`assets-refresh`) instead of rebuilding units that cannot have changed. When the live corpus fails both, `promotable_corpus` asks the strict question of a corpus built beside it, and the pass's land swaps that directory in when it matches. A component missing from either side still fails the comparison: only a component present in both the recorded and the expected set can be ignored.
     """
@@ -968,10 +963,10 @@ def corpus_build_skippable(
     }:
         return False
     try:
-        shards = [part for meta in manifest["classes"] for part in unit_index.class_shards(meta)]
+        parts = [part for meta in manifest["classes"] for part in shards.class_shards(meta)]
     except KeyError, TypeError, AttributeError:
         return False
-    if not all((corpus / shard).exists() for shard in shards):
+    if not all((corpus / part).exists() for part in parts):
         return False
     try:
         after_sha = manifest["fonts"]["after"]["sha256"]
@@ -1002,7 +997,7 @@ def next_corpus_dir(live: Path | None = None) -> Path:
 
 
 def corpus_complete(corpus: Path) -> bool:
-    """Return whether the corpus at `corpus` is one a build finished: its manifest parses, and the files a build writes after it, its per-unit index, both app sidecars and, for an m1-audit corpus, last, its unit store, are stamped for that manifest (`app_index.outputs_not_current`, the one check of a finished corpus, which `status`'s freshness check takes too; with the comparison with today's inputs, these are the checks `corpus_build_skippable` makes)."""
+    """Return whether the corpus at `corpus` is one a build finished: its manifest parses, and the files a build writes after it, both app sidecars, are stamped for that manifest (`app_index.outputs_not_current`, the one check of a finished corpus, which `status`'s freshness check takes too; with the comparison with today's inputs, these are the checks `corpus_build_skippable` makes)."""
     try:
         manifest = json.loads((corpus / "manifest.json").read_text())
     except OSError, ValueError:
@@ -1013,7 +1008,7 @@ def corpus_complete(corpus: Path) -> bool:
 
 
 def recover_next_corpus(live: Path | None = None, *, delete: bool = True) -> str | None:
-    """Keep a `review.next` an earlier pass left only when it is complete (`corpus_complete`), and delete anything else there: a build that died leaves a partial tree, which must not seed or be promoted. A complete one stays, to be promoted when it reproduces this pass's inputs (`promotable_corpus`); otherwise the pass's corpus build deletes it before it builds there (`_run_cycle`), since the table-diff build starts from an empty directory. The `.discard` trees a land's delete did not finish (`landing.discard_paths`) are deleted too. `delete=False` is the dry run's form, which deletes nothing. Returns the line to print, or None when there is no `review.next`."""
+    """Keep a `review.next` an earlier pass left only when it is complete (`corpus_complete`), and delete anything else there: a build that died leaves a partial tree, which must not be promoted. A complete one stays, to be promoted when it reproduces this pass's inputs (`promotable_corpus`); otherwise the pass's corpus build deletes it before it builds there (`_run_cycle`), since the table-diff build starts from an empty directory. The `.discard` trees a land's delete did not finish (`landing.discard_paths`) are deleted too. `delete=False` is the dry run's form, which deletes nothing. Returns the line to print, or None when there is no `review.next`."""
     if delete:
         for discard in landing.discard_paths(live if live is not None else REVIEW_OUT):
             shutil.rmtree(discard, ignore_errors=True)
@@ -1169,14 +1164,14 @@ def step_description(name: str) -> str:
     return STEP_DESCRIPTIONS.get(name, "")
 
 
-SUBSTEP_PARENTS = {"invariant-diff": "review-facts", "job-costs-diff": "job-costs"}
+SUBSTEP_PARENTS = {"job-costs-diff": "job-costs"}
 
 
 @dataclass
 class Step:
     """One row of the plan. `skipped` is set explicitly instead of derived from `argv`, because `argv is None` also describes the retention step, which do real work in this process, and the `gates` placeholder, which stands for four steps. The run/skip column and the counts line use `skipped`, so a step that runs without spawning anything still shows as running.
 
-    The review-facts step's invariant diff, which the driver prints itself, and the job-costs diff it spawns are children of steps, not rows of the plan, and SUBSTEP_PARENTS names them. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
+    The job-costs diff the job-costs step spawns is a child of a step, not a row of the plan, and SUBSTEP_PARENTS names it. Registering one with the console writes its output to the parent's log, shows its lines under the parent's column, and keeps `_run_step` from opening a second banner for a step that is already open.
     """
 
     name: str
@@ -1189,7 +1184,7 @@ class Step:
 
 @dataclass
 class Plan:
-    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout. `contracts_after_units` says the pass holds gate:rebuild-contracts until the corpus build's units pool finishes (`_gate_contracts_task`): the pass runs the suite and the corpus build, offers the units pool a gates-idle width, and runs neither gate:make-test nor gate:conform, except that where run_m1 decides gate:conform (`conform_undecided`) the driver holds the suite only if the sweep is re-skipped. `seed_kept` keeps its default: only the step function of the corpus seed, which no plan holds, reads it (`_do_corpus_seed`), and it goes with the m1-audit corpus (rebuild/CUTOVER-PLAN.md stage 4)."""
+    """The resolved pass. `corpus_dir` is the corpus the pass serves when it ends (the staging directory on a staging pass), `update_corpus` the one the corpus build writes, and `next_corpus` the tree the land swaps in for the served one (`review.next` on a building pass, the staged directory on a promotion, None when the corpus does not move). `land` says whether the pass lands a corpus, carrying the verdict store onto it (`rebuild.review.landing`), with its scratch files under `scratch_dir`, and `broadcast` whether it tells the listening review server's tabs what moved, which it does not for a server serving another checkout."""
 
     short_id: str
     first_run: bool
@@ -1215,14 +1210,6 @@ class Plan:
     conform_proven: bool = False
     record_greens: bool = False
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT
-    corpus_jobs: int = 1
-    corpus_reason: str = ""
-    corpus_gates_idle_jobs: int | None = None
-    corpus_gates_idle_reason: str = ""
-    gates_idle_marker: Path | None = None
-    contracts_after_units: bool = False
-    signature_jobs: int = 1
-    signature_reason: str = ""
     sweep_jobs: int = 1
     sweep_reason: str = ""
     kernel_threads: int = 1
@@ -1241,7 +1228,6 @@ class Plan:
     corpus_dir: Path = REVIEW_OUT
     update_corpus: Path = REVIEW_OUT
     next_corpus: Path | None = None
-    seed_kept: bool = False
     land: bool = False
     broadcast: bool = True
     retention: bool = False
@@ -1330,7 +1316,7 @@ def _font_suite_worker_bytes() -> int:
 
 
 def make_test_pool_width(*, build_lane_runs: bool = True, ncores: int | None = None) -> int:
-    """Return the width of gate:make-test's pytest pool under a cycle. The cycle passes this number to the child and reserves memory for it, so both use one value. Without it the pool would be `-n auto`, which the root conftest.py resolves to every core, while the builds beside it are sized to leave room for it. On a pass whose build lane runs (run_m1 or the corpus build), the width is the gate lane's share of `memory_budget.usable_cores()`, the count the root hook uses, as `memory_budget.split_cores` divides it: the corpus build's cap is the build lane's share (`_corpus_fit_terms`), so the two lanes partition the cores. On a pass that runs neither, the pool takes every core, and the heavy gates run one at a time under either policy (`gates_queue`), so the rebuild suite and the conformance sweep start after it and subtract nothing for it. PYTEST_XDIST_AUTO_NUM_WORKERS overrides both, because the child inherits this environment and will run at that width. It is parsed as the root hook parses it, so an unparseable value raises here, while the plan resolves, instead of inside the gate after the rest of the cycle has run."""
+    """Return the width of gate:make-test's pytest pool under a cycle. The cycle passes this number to the child and reserves memory for it, so both use one value. Without it the pool would be `-n auto`, which the root conftest.py resolves to every core, while the builds beside it are sized to leave room for it. On a pass whose build lane runs (run_m1 or the corpus build), the width is the gate lane's share of `memory_budget.usable_cores()`, the count the root hook uses, as `memory_budget.split_cores` divides it, and the build lane's share is left to the corpus build's one process and, beside it, to gate:conform's sweep and gate:rebuild-contracts' pool (`_contracts_pool_terms`). On a pass that runs neither, the pool takes every core, and the heavy gates run one at a time under either policy (`gates_queue`), so the rebuild suite and the conformance sweep start after it and subtract nothing for it. PYTEST_XDIST_AUTO_NUM_WORKERS overrides both, because the child inherits this environment and will run at that width. It is parsed as the root hook parses it, so an unparseable value raises here, while the plan resolves, instead of inside the gate after the rest of the cycle has run."""
     from rebuild.tools import memory_budget
 
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
@@ -1477,129 +1463,6 @@ def sweep_job_derivation(ncores: int | None = None, total_bytes: int | None = No
     )
 
 
-def _corpus_fit_terms(
-    *,
-    skip_gates: bool,
-    skip_make_test: bool,
-    ncores: int | None,
-) -> tuple[int, int, int]:
-    """Return the three arguments of the corpus build's width: the per-thread divisor, the co-resident bytes subtracted before the division, and the non-memory cap. `corpus_job_budget` passes them to `how_many_fit` and `corpus_job_derivation` to `describe_fit`, so the width and its explanation come from one derivation. The width counts the threads of the one build process (`corpus_exec.run_build`), whose units phase runs on them in process: the divisor is CORPUS_BUILD_RS_THREAD_BYTES, and the co-resident bytes are the process's CORPUS_BUILD_RS_PROCESS_BYTES and the Python process waiting on it, CORPUS_BUILD_RS_LAUNCHER_BYTES, plus gate:make-test's pool when that gate runs. The cap is the cores the build's lane holds, less one for the build's main thread, which hands out the units and takes their answers: every usable core under `skip_gates` (a hand build or `--skip-gates`), and the build lane's share (`memory_budget.split_cores`) on any gated pass, whether or not gate:make-test runs, because gate:rebuild-contracts, and gate:conform when it runs, take the gate lane beside the build. A gated build's units pool takes the `skip_gates` terms instead when the gate lane is idle as the pool starts (`corpus_gates_idle_job_budget`)."""
-    from rebuild.tools import memory_budget
-
-    cores = ncores or memory_budget.usable_cores()
-    lane = cores if skip_gates else memory_budget.split_cores(cores)[0]
-    gates = 0
-    if not (skip_gates or skip_make_test):
-        gates = _font_suite_worker_bytes() * make_test_pool_width(ncores=ncores)
-    return (
-        CORPUS_BUILD_RS_THREAD_BYTES,
-        gates + CORPUS_BUILD_RS_PROCESS_BYTES + CORPUS_BUILD_RS_LAUNCHER_BYTES,
-        max(1, lane - 1),
-    )
-
-
-def corpus_job_budget(
-    *,
-    skip_gates: bool,
-    skip_make_test: bool = False,
-    ncores: int | None = None,
-    total_bytes: int | None = None,
-) -> int:
-    """Return the review-corpus build's `--jobs` width, the thread count of its one process: memory, less the reserve, less what the process and its launcher hold, divided by one thread's peak, capped at the cores the build's lane holds less the build's main thread (`_corpus_fit_terms`), and floored at one. CORPUS_BUILD_RS_PROCESS_BYTES is the process, which holds the corpus as columns at any width, and CORPUS_BUILD_RS_LAUNCHER_BYTES is the Python process waiting on it, so both are subtracted before the division, as gate:make-test's pool is. CORPUS_BUILD_RS_THREAD_BYTES is the divisor. A thread's peak does not grow with the width, because the main thread hands out one handout at a time. The constants' comment has the measurements. The ink-signature shaping that runs before the units phase, on `signature_job_budget`'s threads, is not counted: each of its threads holds one shaper over the two fonts.
-
-    Err high on the divisor. One that is too low pushes the build into the reserve; one that is too high only gives a large machine fewer threads than it has room for. What the process holds grows per unit, so shrinking CORPUS_BUILD_RS_PROCESS_BYTES widens the build on every machine.
-
-    The cap comes from the cores. A hand build and --skip-gates take every core less the main thread. A gated pass splits the cores between the build lane and the gate lane (`memory_budget.split_cores`) and takes the build lane's share less the main thread, so the build's threads and gate:make-test's pool, which holds the gate lane's share (`make_test_pool_width`), together fill the machine without overlapping; on a pass that skips gate:make-test the gate lane holds gate:rebuild-contracts and gate:conform instead. Once all three gates have skipped or finished, the gate lane is idle, and a units pool that starts then takes the hand build's width (`corpus_gates_idle_job_budget`); a pass that runs neither gate:make-test nor gate:conform holds gate:rebuild-contracts until the units pool finishes, so its pool always does. gate:make-test's pool is also subtracted from memory when that gate runs: FONT_SUITE_WORKER_BYTES for each of its workers, as in `kernel_threads_budget`. gate:js also runs from t=0, but it is one node process. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine. The cores come from `memory_budget.usable_cores()`, so an affinity mask or a cgroup quota narrows this width as it narrows the others.
-    """
-    from rebuild.tools import memory_budget
-
-    per_unit, coresident, cap = _corpus_fit_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
-    )
-    return memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
-
-
-def corpus_job_derivation(
-    *,
-    skip_gates: bool,
-    skip_make_test: bool = False,
-    ncores: int | None = None,
-    total_bytes: int | None = None,
-) -> str:
-    """Return `corpus_job_budget`'s width as a clause for the plan line and the corpus build's `--jobs` help: `memory_budget.describe_fit` over the same terms, so a reader can check where the width came from."""
-    from rebuild.tools import memory_budget
-
-    per_unit, coresident, cap = _corpus_fit_terms(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores
-    )
-    return memory_budget.describe_fit(per_unit, coresident_bytes=coresident, cap=cap, total_bytes=total_bytes)
-
-
-def gates_idle_marker_path() -> Path:
-    """Return the file the driver writes once the gate lane has nothing left to run beside the units pool, which a gated pass's corpus build reads when its units pool starts (`corpus_gates_idle_job_budget`). The pass lock serializes passes, so one path serves every pass, and the driver deletes the file before it spawns the build and after the build exits."""
-    return cycle_paths.CYCLE_VAR / "gates-idle"
-
-
-def corpus_gates_idle_job_budget(
-    *,
-    skip_gates: bool,
-    skip_make_test: bool = False,
-    ncores: int | None = None,
-    total_bytes: int | None = None,
-) -> int | None:
-    """Return the width a gated pass's corpus build gives its units pool in place of `corpus_job_budget`'s when, as the pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, or the suite is held until the pool finishes (`Plan.contracts_after_units`), or None when the plan has no wider width to offer. The driver writes `gates_idle_marker_path()` at that moment (`_GateLaneWatch`), and the build reads it after its load and plan phases, just before it starts the pool (`--gates-idle-jobs`, `--gates-idle-marker`). The width is a hand build's: every usable core less the build's main thread, with only the build's process and launcher off the machine's memory, because gate:make-test's pool has exited (`corpus_job_budget` with `skip_gates=True`). gate:js can still be running, as one node process.
-
-    The build lane ends the passes that run the corpus build (`make cycle-timings ARGS='--critical-path'`), and the units phase grows with the corpus, so the gate lane's half of the cores held idle beside it lengthens those passes. The decision is made when the pool starts rather than when the driver spawns the step, because a gate that started beside the build can finish during its load and plan phases. A pass whose gate:conform or gate:make-test is still running then keeps the build lane's share. Issue #499 has the measurements: the timings journal's passes, and a pair of hand builds on the 18-core 48 GiB machine (`doc/fleet.md`) whose units phase ran faster at every core but one than at the lane share.
-
-    On a pass that runs neither gate:make-test nor gate:conform, gate:rebuild-contracts is the gate lane's only pool, and the driver holds it until the units pool finishes instead of starting it beside the build (`_gate_contracts_task`), so the pool takes this width on every such pass. Started beside the build, the suite took about as long as the load and plan phases on the 18-core machine and longer on the 12-core one, so the pool kept the build lane's share on most such passes, and the suite lengthened the load phase it overlapped; issue #306 has the timings.
-
-    The widths planned beside the build stay correct. gate:rebuild-contracts' width and gate:conform's core cap subtract the build's processes at the lane share (`contracts_pool_width`, `_conform_core_cap`), and gate:conform's memory term subtracts the build's bytes at that width (`_conform_build_lane`), but the pool widens only after both gates have finished or were skipped, or while the suite is held, which starts only once the pool has finished; under the queue policy no other gate starts once the gate lane is idle.
-
-    It is None under `--skip-gates`, where `corpus_job_budget` already gives every core less the main thread, and wherever the widened width is no wider than the lane's, as on a machine whose memory holds both to one thread.
-    """
-    if skip_gates:
-        return None
-    lane = corpus_job_budget(
-        skip_gates=False, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
-    )
-    wide = corpus_job_budget(skip_gates=True, ncores=ncores, total_bytes=total_bytes)
-    return wide if wide > lane else None
-
-
-def corpus_gates_idle_derivation(*, ncores: int | None = None, total_bytes: int | None = None) -> str:
-    """Return `corpus_gates_idle_job_budget`'s width as a clause for the plan line: the condition that selects it, then `corpus_job_derivation` at a hand build's terms."""
-    condition = f"taken in place of --jobs when, as the units pool starts, gate:make-test, gate:conform and gate:rebuild-contracts have each skipped or finished, or the suite is held until the pool finishes, which the driver signals by writing {gates_idle_marker_path()}"
-    return f"{condition}; every usable core less its main thread; " + corpus_job_derivation(
-        skip_gates=True, ncores=ncores, total_bytes=total_bytes
-    )
-
-
-def signature_job_budget(*, ncores: int | None = None) -> int:
-    """Return the `--signature-jobs` width the cycle passes the corpus build, for the shaping of the ink-signature store's misses, and the default a hand build takes. Memory does not limit it. It is the count of the build process's threads that shape the misses, each holding one shaper over the two fonts, at any count of misses, and no record measures them. The width is `memory_budget.usable_cores()`, the whole machine, under a gated cycle and in a hand run alike. gate:make-test's pool is not subtracted, although a pass that skips run_m1 starts this phase at t=0 beside that pool: the two share the cores while both run, which costs contention time rather than memory. The corpus build's cap (`_corpus_fit_terms`) does not apply, so a machine where memory holds the corpus build to one thread, or a gated pass that gives it the build lane's share, still shapes its signatures on every core. The build never shapes on more threads than it has misses, so a pass with the signature store filled shapes on none."""
-    from rebuild.tools import memory_budget
-
-    return max(1, ncores or memory_budget.usable_cores())
-
-
-def signature_job_derivation(*, ncores: int | None = None) -> str:
-    """Return `signature_job_budget`'s width as a clause for the plan line and the `--signature-jobs` help. It does not use `memory_budget.describe_fit`, whose clause would call the worker unmeasured: the width is a count of cores, and the clause says whose cores they are."""
-    from rebuild.tools import memory_budget
-
-    cores = ncores or memory_budget.usable_cores()
-    width = signature_job_budget(ncores=cores)
-    return f"{width} of {cores} cores, the whole machine, shared with gate:make-test's pool on a cycle pass that runs that gate"
-
-
-def _corpus_build_lead() -> str:
-    """Name the corpus build's process that holds the corpus, for a plan clause."""
-    return "the corpus build's process"
-
-
-def _corpus_build_processes(jobs: int) -> str:
-    """Name the corpus build's process and its threads at `jobs`, for a plan clause (`_corpus_build_lead`)."""
-    return f"{_corpus_build_lead()} and its {jobs} thread" + ("" if jobs == 1 else "s")
-
-
 def _contracts_pool_terms(
     *,
     skip_gates: bool,
@@ -1610,18 +1473,11 @@ def _contracts_pool_terms(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, int, int]:
-    """Return the three terms `contracts_pool_width` and `contracts_pool_derivation` share, which `_conform_core_cap` also subtracts: the usable cores; the corpus build's thread count (its main thread plus `corpus_job_budget`'s threads, or zero when the build does not run); and gate:make-test's pool width on a pass that runs that gate when the heavy gates overlap, which they do under the overlap policy on a pass whose build lane runs. When they queue (`gates_queue`), the suite and the conformance sweep wait for gate:make-test to finish, so nothing is subtracted for that pool."""
+    """Return the three terms `contracts_pool_width` and `contracts_pool_derivation` share, which `_conform_core_cap` also subtracts: the usable cores; the corpus build's process count (one, the build's one Python process, or zero when the build does not run); and gate:make-test's pool width on a pass that runs that gate when the heavy gates overlap, which they do under the overlap policy on a pass whose build lane runs. When they queue (`gates_queue`), the suite and the conformance sweep wait for gate:make-test to finish, so nothing is subtracted for that pool."""
     from rebuild.tools import memory_budget
 
     cores = ncores or memory_budget.usable_cores()
-    corpus = (
-        0
-        if skip_corpus
-        else 1
-        + corpus_job_budget(
-            skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
-        )
-    )
+    corpus = 0 if skip_corpus else 1
     make_test = (
         0
         if skip_gates or skip_make_test or gates_queue(pool_policy, build_lane_runs=build_lane_runs)
@@ -1640,17 +1496,15 @@ def contracts_pool_width(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the width of gate:rebuild-contracts' pytest pool under a cycle, which the cycle sets on that child as PYTEST_XDIST_AUTO_NUM_WORKERS. Memory does not limit it: no contracts worker holds a live artifact, so no constant measures one, and the width is a count of cores. The suite runs beside the corpus build, or, on a pass that holds it until the build's units pool finishes, beside the rest of the build lane, so the width is the usable cores, less the build's main thread and its `corpus_job_budget` threads, less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap, as they do under the overlap policy while the build lane runs (`_contracts_pool_terms`, `gates_queue`), floored at one. A pass whose corpus build does not run (skipped, promoted, or assets-refreshed) subtracts nothing for the build, so the suite gets every core unless gate:make-test's pool is subtracted.
+    """Return the width of gate:rebuild-contracts' pytest pool under a cycle, which the cycle sets on that child as PYTEST_XDIST_AUTO_NUM_WORKERS. Memory does not limit it: no contracts worker holds a live artifact, so no constant measures one, and the width is a count of cores. The suite runs beside the corpus build, so the width is the usable cores, less the build's one process, less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap, as they do under the overlap policy while the build lane runs (`_contracts_pool_terms`, `gates_queue`), floored at one. A pass whose corpus build does not run (skipped, promoted, or assets-refreshed) subtracts nothing for the build, so the suite gets every core unless gate:make-test's pool is subtracted.
 
-    Each subtraction leaves its cores to the pool that holds them, and the conformance sweep's cap (`_conform_core_cap`) makes the same two subtractions for the same reasons. The corpus build's processes are subtracted because the build lane, with the corpus build in it, ends a pass that runs the build and skips gate:make-test (`make cycle-timings ARGS='--critical-path'` shows it) and the `--fresh` passes behind the default, which run both (the module docstring), so the build keeps the build lane's share. Under the overlap policy, while the build lane runs, gate:make-test's pool is subtracted as well: the plan cannot tell whether that pool will still be running when the suite and the sweep start, and while it runs it holds the gate lane's share, so the subtraction keeps a core from being booked twice. Neither width subtracts the other pool, which is off the critical path on the `--fresh` passes behind the default (the module docstring), so under that policy the sweep and the suite share the cores the two subtractions leave while both run, an unbudgeted overlap that `doc/parallelism.md` lists. On those passes both finished before the build lane did, so neither the slowdown each took from the sharing nor the suite's single worker lengthened the pass. The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the suite runs one process more than its width. The pool's memory comes out of `memory_budget`'s reserve, not out of `corpus_job_budget`'s co-resident term; subtracting it there would narrow the build on every pass for a worker no constant measures (`calibrate_budgets.UNITS`).
+    Each subtraction leaves its cores to the pool that holds them, and the conformance sweep's cap (`_conform_core_cap`) makes the same two subtractions for the same reasons. Under the overlap policy, while the build lane runs, gate:make-test's pool is subtracted: the plan cannot tell whether that pool will still be running when the suite and the sweep start, and while it runs it holds the gate lane's share (`memory_budget.split_cores`), so the subtraction keeps a core from being booked twice. Neither width subtracts the other pool, so under that policy the sweep and the suite share the cores the two subtractions leave while both run, an unbudgeted overlap that `doc/parallelism.md` lists. The suite's controller is not subtracted: it idles while its workers run, and subtracting it would cost the suite a worker on every pass, so the suite runs one process more than its width. The pool's memory comes out of `memory_budget`'s reserve, since no constant measures a worker (`calibrate_budgets.UNITS`).
 
-    Beside a corpus build at its cap, the build's processes hold the build lane's share of the cores (`memory_budget.split_cores`), so the arithmetic leaves the suite the gate lane's share. Under the queue policy, and on a pass that skips gate:make-test, that share is the suite's width. Under the overlap policy on a pass that runs gate:make-test, that gate's pool already holds the gate lane, so nothing is left and the floor gives the suite one worker on every machine, and the plan line says so. The suite usually is not on the pass's critical path: under a cycle it runs only the closure-selected tests. A pass that reruns the whole suite at one worker can outlast the rest of the pass. That cost is accepted until a one-worker `gate:rebuild-contracts` row in `rebuild/out/cycle-timings.ndjson` ends after both the build lane and every other gate of its pass (`make cycle-timings ARGS='--critical-path'` counts the passes each step ends, and the pass's run line records its `contracts_workers`), which is the signal to revisit the floor.
+    Beside the corpus build under the overlap policy, on a pass that runs gate:make-test, the arithmetic leaves the suite the build lane's share less the build's process. Under the queue policy, and on a pass that skips gate:make-test, the suite takes every core less the build's process.
 
     A pass that runs gate:make-test and neither run_m1 nor the corpus build, such as a version bump's, queues the heavy gates under either policy (`gates_queue`, which is why this function takes `build_lane_runs`), so the suite starts once gate:make-test has finished and takes every core. Under the overlap policy the suite would start beside that gate's pool at t=0, and that pool holds every core there (`make_test_pool_width`), so the subtraction would floor the suite at one worker. A version bump edits pyproject.toml and uv.lock, which are global labels (`contracts_closure.GLOBAL_LABELS`), so it reruns the suite's whole lane, and it changes the site fonts that gate:make-test's `make all` rewrites while the suite reads them. On the 18-core machine a version-bump pass with the suite beside gate:make-test at one worker ran the suite well past that gate's end and failed it on the fonts rebuilt mid-run, and the same edit with the gates queued ran it green at every core once that gate had finished; `make cycle-timings` on that machine records both passes.
 
-    A pass that runs the corpus build and neither gate:make-test nor gate:conform holds the suite until the build's units pool has finished (`Plan.contracts_after_units`), because there the suite is the only pool in the gate lane: started beside the build, it ran about as long as the build's load and plan phases, so the units pool, which takes every core less the build's main thread only when the gate lane is idle as it starts (`corpus_gates_idle_job_budget`), kept the build lane's share on most such passes. Held, the suite keeps the same arithmetic, the gate lane's share. After its units phase the build holds its process and the write's few threads, and the land follows it in the same lane; on both fleet machines the timings journal puts that remainder well above the suite's time at that width, so the suite stays off the critical path without a wider pool. Beside the write it lengthens that phase a little more than it lengthened the load phase it overlapped when it started beside the build, so a pass on which the suite would have finished before the units pool started pays a few seconds for the hold, and every other such pass gains the difference between the units pool at the two widths. Issue #306 has the timings.
-
-    The overlap policy has no higher floor. Where the floor binds, the conformance sweep, held at its own floor of one process per acceptance configuration (`_conform_core_cap`), is left no cores either, so the machine already runs more processes than it has cores while the gate pools overlap, and a higher floor would add more. The queue policy avoids that oversubscription by running the suite after gate:make-test and the sweep, at the gate lane's share. PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
+    PYTEST_XDIST_AUTO_NUM_WORKERS overrides all of this, because the child inherits this environment and will run at that width, as in `make_test_pool_width`. `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if stated:
@@ -1674,11 +1528,10 @@ def contracts_pool_derivation(
     skip_corpus: bool = False,
     pool_policy: str = REBUILD_POOL_POLICY_DEFAULT,
     build_lane_runs: bool = True,
-    after_units: bool = False,
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> str:
-    """Return `contracts_pool_width`'s width as a clause for the plan's lane line. Like `signature_job_derivation`, it does not use `memory_budget.describe_fit`: the width is a count of cores, and the clause says which cores are left out. On a pass that holds the suite until the corpus build's units pool finishes (`after_units`, `Plan.contracts_after_units`), the clause says that the arithmetic is the gate lane's share, which the suite keeps after that pool, so it does not read as the cores the units pool leaves. A width set through PYTEST_XDIST_AUTO_NUM_WORKERS is reported as set."""
+    """Return `contracts_pool_width`'s width as a clause for the plan's lane line. It does not use `memory_budget.describe_fit`: the width is a count of cores, and the clause says which cores are left out. A width set through PYTEST_XDIST_AUTO_NUM_WORKERS is reported as set."""
     stated = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if stated:
         return f"PYTEST_XDIST_AUTO_NUM_WORKERS states {stated.strip()}"
@@ -1704,28 +1557,17 @@ def contracts_pool_derivation(
         machine = "the machine" if make_test else "the whole machine"
         clause = f"{width} of {cores} cores, {machine} (no corpus build to share it with)"
     else:
-        processes = _corpus_build_processes(corpus - 1)
-        clause = (
-            f"{width} of {cores} cores, the gate lane's share: less {processes} at the build lane's share, which the suite keeps after the build's units pool finishes"
-            if after_units
-            else f"{width} of {cores} cores, less {processes}"
-        )
+        clause = f"{width} of {cores} cores, less {CORPUS_BUILD_PROCESS}"
     if make_test:
         clause += f", less gate:make-test's {make_test} (overlap policy)"
     return clause if cores - corpus - make_test >= 1 else clause + ", floored at one"
 
 
-def contracts_submission_note(
-    *, skip_corpus: bool, after_units: bool = False, conform_undecided: bool = False
-) -> str:
-    """Return where in the build lane the rebuild suite is submitted, for the plan's step note and lane line: beside the corpus build when one runs, and otherwise at the same point, once the run_m1 gate has passed. The second wording keeps a pass whose corpus-build row reads SKIPPED from claiming the suite runs beside it. On a pass that holds the suite until the build's units pool finishes (`after_units`, `Plan.contracts_after_units`) it says so, and where gate:conform is decided only after run_m1 (`conform_undecided`) it says that the suite is held only if the sweep is re-skipped."""
+def contracts_submission_note(*, skip_corpus: bool) -> str:
+    """Return where in the build lane the rebuild suite is submitted, for the plan's step note and lane line: beside the corpus build when one runs, and otherwise at the same point, once the run_m1 gate has passed. The second wording keeps a pass whose corpus-build row reads SKIPPED from claiming the suite runs beside it."""
     if skip_corpus:
         return "submitted once the run_m1 gate passes (no corpus build this pass)"
-    if not after_units:
-        return "submitted beside the corpus build"
-    if conform_undecided:
-        return "held until the corpus build's units pool finishes if gate:conform is re-skipped after run_m1, otherwise submitted beside the corpus build"
-    return "held until the corpus build's units pool finishes"
+    return "submitted beside the corpus build"
 
 
 def _conform_build_lane(
@@ -1737,15 +1579,8 @@ def _conform_build_lane(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[str, int]:
-    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The one candidate is the corpus build (its process and launcher, CORPUS_BUILD_RS_PROCESS_BYTES and CORPUS_BUILD_RS_LAUNCHER_BYTES, plus `corpus_job_budget`'s threads at CORPUS_BUILD_RS_THREAD_BYTES), and `("", 0)` when the pass does not run it. The land that follows it is not a candidate: it holds less (LAND_BYTES), which a test checks, and the lane joins the corpus build before it. The figure comes from the build's own budget, so the memory the conformance sweep sets aside for it matches the build's width. The conformance sweep's lane is submitted when run_m1's gate passes, so it starts beside the corpus build."""
-    corpus_process = CORPUS_BUILD_RS_PROCESS_BYTES + CORPUS_BUILD_RS_LAUNCHER_BYTES
-    steps: list[tuple[str, int]] = []
-    if not skip_corpus:
-        corpus_jobs = corpus_job_budget(
-            skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
-        )
-        steps.append(("corpus-build", corpus_process + CORPUS_BUILD_RS_THREAD_BYTES * corpus_jobs))
-    return max(steps, key=lambda step: step[1], default=("", 0))
+    """Return the build-lane step the conformance sweep runs beside, by plan step name, and the memory that step holds. The one candidate is the corpus build, one Python process at CORPUS_BUILD_BYTES, and `("", 0)` when the pass does not run it. The land that follows it is not a candidate: it holds less (LAND_BYTES), which a test checks, and the lane runs it after the corpus build has exited. The conformance sweep's lane is submitted when run_m1's gate passes, so it starts beside the corpus build."""
+    return ("", 0) if skip_corpus else ("corpus-build", CORPUS_BUILD_BYTES)
 
 
 def _conform_core_cap(
@@ -1758,7 +1593,7 @@ def _conform_core_cap(
     ncores: int | None,
     total_bytes: int | None,
 ) -> tuple[int, str]:
-    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's threads (its main thread and `corpus_job_budget`'s threads) when the pass runs the build, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`_contracts_pool_terms`, `gates_queue`). These are the two subtractions the rebuild suite's width makes, and each leaves its cores to the pool that holds them: the corpus build keeps the build lane's share, and gate:make-test's pool, which may still hold the gate lane when the sweep starts, keeps its own width. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside the corpus build, the sweep and the build oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
+    """Return the conformance sweep's cap on its width and a clause saying which bound set it. The cap is the usable cores less the corpus build's one process when the pass runs the build, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`_contracts_pool_terms`, `gates_queue`). These are the two subtractions the rebuild suite's width makes, and each leaves its cores to the pool that holds them: the corpus build keeps its core, and gate:make-test's pool, which may still hold the gate lane when the sweep starts, keeps its own width. The rebuild suite's pool is not subtracted, and the suite's width does not subtract the sweep, because each is off the critical path on the `--fresh` passes behind the default (the module docstring); under that policy the two share the cores left while both run, an unbudgeted overlap that `doc/parallelism.md` lists. `contracts_pool_width` gives these reasons in full for both widths. The cap is floored at the acceptance-configuration count, or at the cores where there are fewer, which is the width one process per configuration gives, so a cycle never runs the sweep narrower than that; where the floor binds beside gate:make-test's pool, the sweep and that pool oversubscribe the cores while they overlap, an unbudgeted overlap that `doc/parallelism.md` lists. A hand run (`skip_gates=True, skip_corpus=True`) subtracts nothing and gets every core."""
     from rebuild.pipeline.conform import ACCEPTANCE_CONFIGS
 
     cores, corpus, make_test = _contracts_pool_terms(
@@ -1775,7 +1610,7 @@ def _conform_core_cap(
     left = cores - corpus - make_test
     parts = []
     if corpus:
-        parts.append(f"less {_corpus_build_processes(corpus - 1)}")
+        parts.append(f"less {CORPUS_BUILD_PROCESS}")
     if make_test:
         parts.append(f"less gate:make-test's {make_test} (overlap policy)")
     lane = f"{cores} cores " + ", ".join(parts)
@@ -1835,7 +1670,7 @@ def conform_job_budget(
     ncores: int | None = None,
     total_bytes: int | None = None,
 ) -> int:
-    """Return the `--jobs` the cycle passes gate:conform: how many conformance-sweep units run at once, one spawn process each (`run_m1_gates.run_font_conformance`, `run_m1_gates.sweep_units`). It is memory, less the reserve, less what runs beside the conformance sweep, divided by CONFORM_SWEEP_UNIT_BYTES, capped at the cores less the corpus build's processes, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`gates_queue`), but never below the acceptance-configuration count (`_conform_core_cap`), and floored at one (`_conform_fit_terms`); memory can still narrow it below that count. `run_m1._spawn_pool` caps it at the unit count at run time. What runs beside it is the corpus build when this pass runs it (`_conform_build_lane`). gate:make-test's pool is subtracted only on a pass that runs that gate while the heavy gates overlap, since queued gates make the conformance sweep wait for make-test (`gates_queue`). Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool while the heavy gates overlap and the suite runs, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
+    """Return the `--jobs` the cycle passes gate:conform: how many conformance-sweep units run at once, one spawn process each (`run_m1_gates.run_font_conformance`, `run_m1_gates.sweep_units`). It is memory, less the reserve, less what runs beside the conformance sweep, divided by CONFORM_SWEEP_UNIT_BYTES, capped at the cores less the corpus build's process, and less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap (`gates_queue`), but never below the acceptance-configuration count (`_conform_core_cap`), and floored at one (`_conform_fit_terms`); memory can still narrow it below that count. `run_m1._spawn_pool` caps it at the unit count at run time. What runs beside it is the corpus build when this pass runs it (`_conform_build_lane`). gate:make-test's pool is subtracted only on a pass that runs that gate while the heavy gates overlap, since queued gates make the conformance sweep wait for make-test (`gates_queue`). Two things share the machine with no memory estimate, and their bytes come out of the reserve: gate:rebuild-contracts' pool while the heavy gates overlap and the suite runs, which is limited by cores and measured by no constant (`calibrate_budgets.UNITS`), and the build lane's other steps.
 
     CONFORM_SWEEP_UNIT_BYTES is measured at the per-edit maximum length (`conform.SWEEP_MAX_LENGTH`) only. A cycle run with a deeper `--conform-max-length` holds its windows in process and shares no memo, so the constant is not a measurement for it; deeper sweeps belong to `make conform-deep`. A hand `run_m1 --conform-only` uses the idle case (`skip_gates=True, skip_corpus=True`). A width of one runs the serial conformance sweep (`conform.run_conformance`). `ncores` and `total_bytes` are keywords so a test can compute the width for an invented machine.
     """
@@ -1923,53 +1758,11 @@ def build_plan(
     recipe_serves: bool = False,
     scratch_dir: Path | None = None,
 ) -> Plan:
-    """Resolve the pass's plan: run_m1 as a skip, a full build, a gates-only rerun or a kern-only rebuild, the table-diff corpus build into `review.next` beside the served corpus (in place on a first run, into `review_out` on a staging pass), the land that swaps it in and carries the verdict store onto it by unit id, the four gates, the job-costs check and retention. The pool widths it computes for the build lane's crate steps size the gates' pools beside the build lane."""
+    """Resolve the pass's plan: run_m1 as a skip, a full build, a gates-only rerun or a kern-only rebuild, the table-diff corpus build into `review.next` beside the served corpus (in place on a first run, into `review_out` on a staging pass), the land that swaps it in and carries the verdict store onto it by unit id, the four gates, the job-costs check and retention."""
     no_make_test = skip_gates or skip_make_test
     build_lane_runs = not (skip_run_m1 and skip_corpus)
     make_test_workers = make_test_pool_width(build_lane_runs=build_lane_runs, ncores=ncores)
     make_test_reason = make_test_pool_derivation(build_lane_runs=build_lane_runs, ncores=ncores)
-    corpus_jobs = corpus_job_budget(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
-    )
-    if skip_gates:
-        corpus_head = "--skip-gates, so the corpus build is capped at every core less its main thread"
-    else:
-        from rebuild.tools import memory_budget
-
-        cores = ncores or memory_budget.usable_cores()
-        build_lane, _gate_lane = memory_budget.split_cores(cores)
-        lane_head = f"the build lane holds {build_lane} of {cores} cores (memory_budget.split_cores), so the corpus build is capped at {build_lane} less its main thread"
-        if skip_make_test:
-            corpus_head = f"{lane_head}; gate:make-test skipped, so the other gates hold the gate lane and no pytest pool's bytes come off the machine's memory"
-        else:
-            beside = make_test_pool_width(ncores=ncores)
-            beside_workers = f"{beside} worker" + ("" if beside == 1 else "s")
-            corpus_head = f"{lane_head}; gate:make-test's pool, {beside_workers}, holds the gate lane and its bytes come off the machine's memory beside the build's own process"
-    corpus_reason = f"{corpus_head}; " + corpus_job_derivation(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
-    )
-    corpus_gates_idle_jobs = corpus_gates_idle_job_budget(
-        skip_gates=skip_gates, skip_make_test=skip_make_test, ncores=ncores, total_bytes=total_bytes
-    )
-    corpus_gates_idle_reason = (
-        corpus_gates_idle_derivation(ncores=ncores, total_bytes=total_bytes)
-        if corpus_gates_idle_jobs is not None
-        else ""
-    )
-    gates_idle_marker = gates_idle_marker_path() if corpus_gates_idle_jobs is not None else None
-    contracts_after_units = (
-        not skip_gates
-        and not skip_contracts
-        and not skip_corpus
-        and skip_make_test
-        and corpus_gates_idle_jobs is not None
-        and (skip_conform or not (skip_run_m1 or fresh))
-    )
-    signature_jobs = signature_job_budget(ncores=ncores)
-    signature_reason = (
-        "the ink-signature phase's shaping, cores-bound since each of its threads holds one comparator and no memory constant sizes it; "
-        + signature_job_derivation(ncores=ncores)
-    )
     contracts_workers = contracts_pool_width(
         skip_gates=skip_gates,
         skip_make_test=skip_make_test,
@@ -1985,7 +1778,6 @@ def build_plan(
         skip_corpus=skip_corpus,
         pool_policy=pool_policy,
         build_lane_runs=build_lane_runs,
-        after_units=contracts_after_units,
         ncores=ncores,
         total_bytes=total_bytes,
     )
@@ -2010,7 +1802,7 @@ def build_plan(
     )
     make_test_beside_conform = not (no_make_test or gates_queue(pool_policy, build_lane_runs=build_lane_runs))
     if conform_beside == "corpus-build":
-        conform_head = f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {_corpus_build_processes(corpus_jobs)}"
+        conform_head = f"CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, beside {CORPUS_BUILD_PROCESS}"
     else:
         conform_head = (
             "CONFORM_SWEEP_UNIT_BYTES a conformance-sweep unit, the corpus build not running this pass, so "
@@ -2081,14 +1873,6 @@ def build_plan(
         retention=do_retention,
         recipe_serves=recipe_serves,
         pool_policy=pool_policy,
-        corpus_jobs=corpus_jobs,
-        corpus_reason=corpus_reason,
-        corpus_gates_idle_jobs=corpus_gates_idle_jobs,
-        corpus_gates_idle_reason=corpus_gates_idle_reason,
-        gates_idle_marker=gates_idle_marker,
-        contracts_after_units=contracts_after_units,
-        signature_jobs=signature_jobs,
-        signature_reason=signature_reason,
         sweep_jobs=sweep_jobs,
         sweep_reason=sweep_reason,
         kernel_threads=kernel_threads,
@@ -2174,7 +1958,7 @@ def build_plan(
                 )
             )
     else:
-        corpus_argv = ["uv", "run", "python", "-m", "rebuild.review.build", "--mode", "table-diff"]
+        corpus_argv = ["uv", "run", "python", "-m", "rebuild.review.build"]
         if not first_run or review_out is not None:
             corpus_argv += ["--out", str(update_corpus)]
         corpus_note_text = f"the accepted snapshot against rebuild/out/m1, into {update_corpus}" + (
@@ -2234,11 +2018,7 @@ def build_plan(
                 Step(
                     "gate:rebuild-contracts",
                     contracts_argv(),
-                    contracts_submission_note(
-                        skip_corpus=skip_corpus,
-                        after_units=contracts_after_units,
-                        conform_undecided=plan.conform_undecided(),
-                    )
+                    contracts_submission_note(skip_corpus=skip_corpus)
                     + (f"; {contracts_note}" if contracts_note else ""),
                     lane="contracts",
                 )
@@ -2440,16 +2220,11 @@ def _render_concurrency(plan: Plan) -> list[str]:
         if plan.skip_make_test
         else f"starts when run_m1's three JSONs pass, since its session checks the pins against the rebuilt Senior run_m1 leaves; -n {plan.make_test_workers} ({plan.make_test_reason})"
     )
-    submit = "submit gate:rebuild-contracts"
-    if plan.contracts_after_units:
-        submit += " (held until the corpus build's units pool finishes" + (
-            " if gate:conform is re-skipped after run_m1)" if plan.conform_undecided() else ")"
-        )
     lines = [
         "",
         f"  Concurrency (pool policy: {plan.pool_policy}):",
         "    Lane t0   [from t=0, background]  : gate:js",
-        f"    Lane build[main thread]          : run_m1 -> {submit} -> corpus-build -> land",
+        "    Lane build[main thread]          : run_m1 -> submit gate:rebuild-contracts -> corpus-build -> land",
         f"    Lane make-test                   : {make_test_lane}",
     ]
     if plan.skip_conform:
@@ -2484,7 +2259,7 @@ def _render_concurrency(plan: Plan) -> list[str]:
         )
     else:
         lines.append(
-            f"    Lane rebuild-contracts           : {contracts_submission_note(skip_corpus=plan.skip_corpus, after_units=plan.contracts_after_units, conform_undecided=plan.conform_undecided())}, -n {plan.contracts_workers} ({plan.contracts_reason});"
+            f"    Lane rebuild-contracts           : {contracts_submission_note(skip_corpus=plan.skip_corpus)}, -n {plan.contracts_workers} ({plan.contracts_reason});"
         )
         if not plan.gates_queue:
             beside = _overlap_note(
@@ -2577,7 +2352,7 @@ def render_plan(plan: Plan) -> list[str]:
 
 @dataclass
 class CycleReport:
-    """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`), which are set when each outcome is decided. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red. `contracts_held` records that the driver held gate:rebuild-contracts until the corpus build's units pool finished (`Plan.contracts_after_units`).
+    """The pass's running record. The `*_status` strings are prose for the summary. The gate strings (`gate_js` and the others) are prose too, but `_step_outcome` reads their leading words (`not run`, `skipped`, `self-skipped`, `green`) to fill the table's outcome column. Decisions read the booleans (`gate_*_green`), which are set when each outcome is decided. A gate that was never joined, because it was skipped or never submitted, leaves its boolean None, which is neither green nor red.
 
     `step_seconds` and `step_returncodes` fill the summary table's time and outcome columns, and `step_written` its written column: the write meter's figure over the step's window and whether another step's window overlapped it. They come from the same `_StepResult` the timings journal records, so the table and the journal agree, and they are keyed through STEP_ALIASES, so the gates-only child fills the run_m1 row. `written` is what the meter read over the whole pass (`cycle_timings.PassWrites`), set as the run line is written, for the summary's written line. `run_m1_failed` records the cycle's own evaluation of the run_m1 gate from the three summary JSONs, which `_step_outcome` reads before the return code. `retention_outcome` is how `_finish`'s retention attempt ended (`ok` or `FAILED`, empty until the attempt ends), so the table reports it even when a stop signal lands after retention.
     """
@@ -2588,15 +2363,10 @@ class CycleReport:
     corpus_units: int | None = None
     corpus_rows: int | None = None
     corpus_batches: int | None = None
-    duplicate_groups: int | None = None
     assets_status: str = "not run"
-    seed_status: str = "not run"
     land_status: str = "not run"
     land: dict | None = None
     land_started: float | None = None
-    facts_status: str = "not run"
-    ledger_coverage: str = "not run"
-    ledger_coverage_sets: dict | None = None
     job_costs_status: str = "not run"
     job_costs_ok: bool | None = None
     gate_js: str = "not run"
@@ -2608,7 +2378,6 @@ class CycleReport:
     gate_make_test: str = "not run"
     gate_make_test_green: bool | None = None
     contracts_proven: bool = False
-    contracts_held: bool = False
     conform_proven: bool = False
     interrupted: bool = False
     run_m1_failed: bool = False
@@ -2757,9 +2526,8 @@ def _run_step(
     stream: bool,
     env: dict[str, str] | None = None,
     uninterruptible: bool = False,
-    on_line: Callable[[str], None] | None = None,
 ) -> _StepResult:
-    """Run one child to completion, passing every line of both pipes to the console, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's detail from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only. `on_line`, when given, is called with each line of either pipe as it arrives, before the console sees it, which is how `_do_corpus_build` learns that the build's units pool has finished and that its review-facts phase has closed.
+    """Run one child to completion, passing every line of both pipes to the console, which logs each line and shows the ones that matter. This opens the step's banner but does not close it: the caller closes it with `_close_step` once it has read the step's detail from the files the child wrote. `env`, when given, is overlaid on this process's environment for this child only.
 
     `stream` also sends the child's unparsed lines to the terminal. Only the job-costs diff uses it, because it is the one child output a person must read to act on. Other child output reaches the terminal only as console events, and every line reaches the log, so a failed step's full output is replayed under its banner.
 
@@ -2794,8 +2562,6 @@ def _run_step(
         for line in pipe:
             line = line.rstrip("\r\n")
             buf.append(line)
-            if on_line is not None:
-                on_line(line)
             event = emit.child_line(name, which, line)
             if event is None and stream and substep_of is not None:
                 emit.emit(line)
@@ -3091,7 +2857,6 @@ def _read_corpus_totals(report: CycleReport, corpus_dir: Path) -> bool:
     report.corpus_units = totals.get("units")
     report.corpus_rows = totals.get("rows")
     report.corpus_batches = totals.get("batches")
-    report.duplicate_groups = totals.get("duplicate_groups")
     return True
 
 
@@ -3160,24 +2925,6 @@ def _in_process_step(
     report.step_seconds[name] = time.perf_counter() - started
     emit.step_end(name, None, "ok", detail)
     return detail
-
-
-def _do_corpus_seed(report: CycleReport, *, emit: console.CycleConsole, plan: Plan) -> bool:
-    """Give the corpus build its seed at `review.next`: the complete tree an earlier pass left there when the plan kept it, and otherwise a copy-on-write clone of the served corpus (`landing.clone_tree`). The build then reads its prior shards, unit store and signature store from the seed and writes only the clone's blocks, so nothing the open tab reads changes until the land."""
-    assert plan.next_corpus is not None
-
-    def seed() -> str:
-        target = plan.next_corpus
-        assert target is not None
-        if plan.seed_kept and corpus_complete(target):
-            return f"kept {target}, the corpus an earlier pass built, as the seed"
-        shutil.rmtree(target, ignore_errors=True)
-        how = landing.clone_tree(REVIEW_OUT, target)
-        return f"{'cloned' if how == 'clone' else 'copied'} rebuild/out/review to {target}"
-
-    detail = _in_process_step(report, emit, plan, "corpus-seed", seed)
-    report.seed_status = detail if detail is not None else "FAILED"
-    return detail is not None
 
 
 def _land_report(plan: Plan) -> dict | None:
@@ -3251,71 +2998,6 @@ def _settle_interrupted_land(
     _delete_discard(report.land)
 
 
-# The `[t]` line the corpus build prints as its units phase ends (`corpus::UNITS_LABEL` in rebuild/review-rs/), the moment a held gate:rebuild-contracts may start.
-CORPUS_UNITS_LINE = f"{console.TIMING}review.build units "
-
-# The `[t]` line the corpus build prints as its review-facts phase ends, after its manifest, its sidecars and its review facts are written: from there it writes only its unit store and joins its ink-signature store's write (its cache phase, `corpus::CACHE_LABEL` in rebuild/review-rs/), so the build lane goes on beside it (`_do_corpus_build`).
-CORPUS_FACTS_LINE = f"{console.TIMING}review.build review-facts "
-
-
-class _HeldCorpusBuild:
-    """The corpus build's child, run on a thread of its own so that `_do_corpus_build` can return once the build has printed `CORPUS_FACTS_LINE` while the child goes on writing the unit store and the ink-signature store. Nothing the build lane runs before the land reads either store, and the land, which moves the corpus into place, comes after the join. `_run_cycle` joins the child on every way out of the build lane: before the land, and on a pass that does not land. A stopped pass needs nothing here: the child is in the registry, which `terminate_all` signals with every other child, and `_run_cycle`'s `finally` waits for the thread (`wait_for_thread`).
-
-    A holder that never started a child, as on a pass that skips the build or under a test's stand-in for `_do_corpus_build`, joins as a success, and so does one already joined, so each failure is reported once.
-    """
-
-    def __init__(self) -> None:
-        self._thread: threading.Thread | None = None
-        self._result: _StepResult | None = None
-        self._error: BaseException | None = None
-        self._closed = False
-
-    def start(self, run: Callable[[], _StepResult], reached: threading.Event) -> None:
-        """Run `run` on the holder's thread, setting `reached` as it returns or raises, in a `finally`, so a child that dies before the line, or a stand-in spawn that prints none, cannot leave the driver waiting."""
-
-        def body() -> None:
-            try:
-                self._result = run()
-            except BaseException as error:
-                self._error = error
-            finally:
-                reached.set()
-
-        self._thread = threading.Thread(target=body, name="corpus-build")
-        self._thread.start()
-
-    def exited(self) -> bool:
-        """Return whether the spawn has returned or raised, which it does once the child has exited."""
-        return self._result is not None or self._error is not None
-
-    def wait_for_thread(self) -> None:
-        """Wait for the thread without closing the step or raising, for `_run_cycle`'s `finally`."""
-        if self._thread is not None:
-            self._thread.join()
-
-    def take(self) -> _StepResult | None:
-        """Wait for the child and mark it joined. Return its result, None for a holder that started none or was joined already, and raise what the spawn raised, as an unthreaded spawn would."""
-        self.wait_for_thread()
-        if self._closed or self._thread is None:
-            return None
-        self._closed = True
-        if self._error is not None:
-            raise self._error
-        return self._result
-
-    def join(self, emit: console.CycleConsole, report: CycleReport) -> bool:
-        """Wait for the child, close its step, and return False when it exited nonzero, noting the exit as the step's failure. A holder with nothing left to join returns True."""
-        result = self.take()
-        if result is None:
-            return True
-        if result.returncode != 0:
-            emit.note("corpus-build", f"ERROR: review.build exited {result.returncode}.")
-            _close_step(emit, report, "corpus-build", result)
-            return False
-        _close_step(emit, report, "corpus-build", result)
-        return True
-
-
 def _do_corpus_build(
     report: CycleReport,
     *,
@@ -3326,27 +3008,9 @@ def _do_corpus_build(
     argv: list[str] | None = None,
     skip: bool = False,
     skip_note: str = "",
-    units_done: threading.Event | None = None,
-    held: _HeldCorpusBuild | None = None,
 ) -> bool:
-    """Rebuild the review corpus, or reuse it when `skip` is set. Both paths read the four totals from the corpus's manifest.json, whose unit and row totals the build checks against the shards it wrote, so the summary reports what the corpus on disk contains.
-
-    The build runs on `held`'s thread (`_HeldCorpusBuild`). With `held`, this returns as the build prints the line that closes its review-facts phase (`CORPUS_FACTS_LINE`), once it has read the totals from the manifest the build wrote before that line, and leaves the child writing its unit store for the caller to join; a child that exits nonzero after that line has still written that manifest. Without `held`, it waits for the whole child. Either way a child that exited before the line, or before this read its exit, is closed here: a nonzero exit reads no totals, since the manifest beside it is the previous pass's. One line hook watches for both lines (`_spawn_with_line_hook`): `units_done`, when given, is set as the build prints the line that closes its units phase (`CORPUS_UNITS_LINE`), which releases a gate:rebuild-contracts held until then (`_gate_contracts_task`); `_run_cycle` sets it too once this returns, however the build ended. On macOS the build runs with `kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT` overlaid on its environment (`_spawn_with_env`), since the allocator reads it as the process starts, and every process the build starts inherits it from the build (the pack's processes and the build's process), so the large blocks the process holding the corpus frees go back to the system as they are freed.
-    """
+    """Rebuild the review corpus, or reuse it when `skip` is set. Both paths read the totals from the corpus's manifest.json, whose unit and row totals the build checks against the shards it wrote, so the summary reports what the corpus on disk contains. A nonzero exit reads no totals, since the manifest beside it is the previous pass's."""
     corpus_dir = review_out if review_out is not None else REVIEW_OUT
-    if sys.platform == "darwin":
-        from rebuild.pipeline import kernel_exec
-
-        spawn = _spawn_with_env(spawn, dict(kernel_exec.KERNEL_ALLOCATOR_ENVIRONMENT))
-    facts_done = threading.Event()
-
-    def watch(line: str) -> None:
-        if units_done is not None and line.startswith(CORPUS_UNITS_LINE):
-            units_done.set()
-        elif line.startswith(CORPUS_FACTS_LINE):
-            facts_done.set()
-
-    spawn = _spawn_with_line_hook(spawn, watch)
     if skip:
         if not _read_corpus_totals(report, corpus_dir):
             emit.note(
@@ -3356,94 +3020,17 @@ def _do_corpus_build(
             return False
         emit.step_skipped("corpus-build", skip_note)
         return True
-    child = held if held is not None else _HeldCorpusBuild()
-    child.start(lambda: spawn("corpus-build", argv, emit=emit, registry=registry, stream=False), facts_done)
-    facts_done.wait()
-    if child.exited() or held is None:
-        result = child.take()
-        assert result is not None
-        if result.returncode != 0:
-            emit.note("corpus-build", f"ERROR: review.build exited {result.returncode}.")
-            _close_step(emit, report, "corpus-build", result)
-            return False
-        if not _read_corpus_totals(report, corpus_dir):
-            emit.note("corpus-build", "ERROR: review.build exited 0 but left no readable manifest.json.")
-            _close_step(emit, report, "corpus-build", result, "FAILED (no manifest)")
-            return False
+    result = spawn("corpus-build", argv, emit=emit, registry=registry, stream=False)
+    if result.returncode != 0:
+        emit.note("corpus-build", f"ERROR: review.build exited {result.returncode}.")
         _close_step(emit, report, "corpus-build", result)
-        return True
+        return False
     if not _read_corpus_totals(report, corpus_dir):
-        emit.note(
-            "corpus-build",
-            "ERROR: review.build closed its review-facts phase but left no readable manifest.json.",
-        )
-        result = child.take()
-        assert result is not None
+        emit.note("corpus-build", "ERROR: review.build exited 0 but left no readable manifest.json.")
         _close_step(emit, report, "corpus-build", result, "FAILED (no manifest)")
         return False
+    _close_step(emit, report, "corpus-build", result)
     return True
-
-
-def accepted_facts() -> dict | None:
-    """Return the last accepted review facts: the git index copy of the pins, which the working tree's rewrite is compared with at commit time. Return None when the file is not in the index or git is unavailable."""
-    try:
-        shown = subprocess.run(
-            ["git", "show", f":{FACTS_PINS.relative_to(ROOT).as_posix()}"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return None
-    if shown.returncode != 0 or not shown.stdout.strip():
-        return None
-    return json.loads(shown.stdout)
-
-
-def _do_review_facts(
-    report: CycleReport, *, spawn, emit: console.CycleConsole, registry: _ChildRegistry, plan: Plan
-) -> None:
-    """Regenerate the review-facts pins from the corpus's review-facts.json sidecar, writing the file only when its bytes change, and report what changed against the last accepted review facts (`accepted_facts`). When only the volatile block changed, the status says the invariant is unchanged. When the invariant block changed, the status lists the changes (`facts.invariant_delta`) and the invariant block's diff is printed under the banner without the volatile hunks. The volatile block changes with nearly every letter, so a full diff on every pass would teach a reader to ignore it.
-
-    The step also reports ledger coverage: the ledger's `ink_identical` and `no_verdict` declarations compared with the classes the corpus reached and machine-approved. Neither the ledger nor the pins shows on its own that a declared class went unreached or that an undeclared class started approving units.
-
-    The step records no green and never fails the cycle. A failed refresh (for example over a corpus built before the sidecar existed) is reported and left for the next pass that rebuilds the corpus.
-    """
-    refresh = spawn("review-facts", plan.argv("review-facts"), emit=emit, registry=registry, stream=False)
-    if refresh.returncode != 0:
-        report.facts_status = f"update FAILED (exit {refresh.returncode}) — informational"
-        report.ledger_coverage = "not computed (the refresh failed)"
-        _close_step(emit, report, "review-facts", refresh, "ok")
-        return
-    current = json.loads(FACTS_PINS.read_text(encoding="utf-8"))
-    coverage = facts.ledger_coverage(load_ledger(DIVERGENCE_LEDGER), current["invariant"])
-    report.ledger_coverage = coverage.describe()
-    report.ledger_coverage_sets = coverage.as_json()
-    accepted = accepted_facts()
-    if accepted is None:
-        report.facts_status = (
-            "updated (no accepted review facts to compare against: the pins are not in the index)"
-        )
-        _close_step(emit, report, "review-facts", refresh, "ok")
-        return
-    findings = facts.invariant_delta(accepted.get("invariant", {}), current["invariant"])
-    if findings:
-        emit.substep(SUBSTEP_PARENTS["invariant-diff"], "invariant-diff")
-        for line in facts.invariant_diff(accepted.get("invariant", {}), current["invariant"]):
-            emit.child_line("invariant-diff", console.STDOUT, line)
-            emit.emit(line)
-        emit.substep_end("invariant-diff")
-        report.facts_status = (
-            f"invariant moved: {'; '.join(findings)} — its diff is shown above; review it at commit time"
-        )
-    elif accepted.get("volatile") != current.get("volatile"):
-        report.facts_status = (
-            "invariant unchanged (only the volatile totals moved; cycle_summary.json carries the corpus's)"
-        )
-    else:
-        report.facts_status = "updated (matches the last accepted review facts)"
-    _close_step(emit, report, "review-facts", refresh, "ok")
 
 
 _MOVED_CONSTANT = re.compile(r"^([A-Z][A-Z0-9_]*): ")
@@ -3455,7 +3042,7 @@ def _do_job_costs(
 ) -> None:
     """Compare the checked-in per-unit memory peaks with what this machine has measured (`calibrate_budgets --check`). Several pool widths are the machine's memory divided by one of these constants, so a stale constant makes a pool the wrong width. The step runs after the gates join because it reads the timings journal, which this pass's pools have just appended to.
 
-    It never fails the pass: a wrong width costs wall-clock time or swap but cannot make an artifact wrong. The summary line and `job_costs_ok` report an overrun, and committing the re-measured constant accepts it, as committing the review-facts pins accepts the review facts. A check that cannot run is reported as informational too.
+    It never fails the pass: a wrong width costs wall-clock time or swap but cannot make an artifact wrong. The summary line and `job_costs_ok` report an overrun, and committing the re-measured constant accepts it, A check that cannot run is reported as informational too.
 
     On an overrun the status quotes each tripped row's proposal line from the check's report: the value the constant's own rule sets from the peak, and the width that value gives here, or for the kernel-build row which constants to re-measure instead. A row that has only used its headroom also prints a proposal, which the status leaves out, because that row did not trip the check. The step then runs `calibrate_budgets --moved`, which prints each checked constant whose working-tree value differs from its value at `HEAD`, and the status names those constants as already moved. The comparison is of values, not of the files' text, so an uncommitted edit elsewhere in a constant's file moves nothing. It runs only on an overrun because only then does the reader need to know whether the acceptance is already drafted.
     """
@@ -3530,15 +3117,6 @@ def _spawn_with_env(spawn, env: dict[str, str]):
     return spawn_with_env
 
 
-def _spawn_with_line_hook(spawn, on_line: Callable[[str], None]):
-    """Return a spawn callable that hands one child's output lines to `on_line` as they arrive (`_run_step`), changing neither its argv nor its environment, as `_spawn_with_env` does for the environment. A child takes one hook: the callable this returns passes `on_line` and accepts none, so wrapping it again raises, and a caller that watches for several lines folds them into one hook (`_do_corpus_build`)."""
-
-    def spawn_with_line_hook(name, argv, *, emit, registry, stream):
-        return spawn(name, argv, emit=emit, registry=registry, stream=stream, on_line=on_line)
-
-    return spawn_with_line_hook
-
-
 def _gate_conform_task(
     queue: bool,
     make_fut: Future | None,
@@ -3584,36 +3162,6 @@ def _await_gate_futures(*futures: Future | None) -> None:
                 pass
 
 
-class _GateLaneWatch:
-    """Write `marker` once every gate pool the pass submitted (gate:make-test, gate:conform and gate:rebuild-contracts; None for a gate that was skipped) has finished, however it finished, so the corpus build can read the gate lane's state when its units pool starts (`corpus_gates_idle_job_budget`). It is armed just before the build is spawned, after every gate the pass runs has been submitted, so a gate still queued behind another under the queue policy holds the marker back too. A gate:rebuild-contracts held until the units pool finishes (`Plan.contracts_after_units`) cannot run beside that pool, so the driver arms the watch without it, and on a pass that runs no other gate pool the marker is written at once. The marker is deleted first, so one an earlier pass left cannot widen this build, and `close`, which the driver calls once `_do_corpus_build` has returned, long after the build has read the marker, deletes it again and disarms the watch, so a gate that finishes after that writes nothing."""
-
-    def __init__(self, marker: Path, futures: Iterable[Future | None]) -> None:
-        self._marker = marker
-        self._lock = threading.Lock()
-        self._armed = True
-        self._pending = [fut for fut in futures if fut is not None]
-        marker.unlink(missing_ok=True)
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        if not self._pending:
-            self._write()
-        for fut in self._pending:
-            fut.add_done_callback(self._finished)
-
-    def _finished(self, _fut: Future) -> None:
-        if all(fut.done() for fut in self._pending):
-            self._write()
-
-    def _write(self) -> None:
-        with self._lock:
-            if self._armed:
-                self._marker.touch()
-
-    def close(self) -> None:
-        with self._lock:
-            self._armed = False
-            self._marker.unlink(missing_ok=True)
-
-
 def _gate_contracts_task(
     queue: bool,
     conform_fut: Future | None,
@@ -3624,14 +3172,8 @@ def _gate_contracts_task(
     argv: list[str],
     force: bool = False,
     record: bool = False,
-    units_done: threading.Event | None = None,
 ) -> CheckResult:
-    """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its result. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and, unless it is held as the next paragraph describes, runs beside the corpus build at the width `contracts_pool_width` sets on its environment: the cores the build's processes leave free, less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap. Under the overlap policy it shares those cores with gate:conform's sweep. When the heavy gates queue (`queue`: the queue policy, or a pass that runs gate:make-test with no build lane, `gates_queue`), it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time.
-
-    On a pass that runs neither gate:make-test nor gate:conform (`Plan.contracts_after_units`), the driver passes `units_done`, and the suite waits for it before preparing its run, so it starts once the corpus build's units pool has finished (`_do_corpus_build`) and that pool takes every core less the build's main thread (`corpus_gates_idle_job_budget`). The driver sets the event on every path that ends the build or the pass, so the wait always ends. As after a queue wait, the preparation reads the selection after the wait.
-    """
-    if units_done is not None:
-        units_done.wait()
+    """Run gate:rebuild-contracts, the rebuild suite (every test under rebuild/, none of which reads a live build artifact), and return its result. Because it reads no build output, it is submitted right after gate:conform, once the run_m1 gate has passed, and runs beside the corpus build at the width `contracts_pool_width` sets on its environment: the cores the build's process leaves free, less gate:make-test's pool on a pass that runs that gate while the heavy gates overlap. Under the overlap policy it shares those cores with gate:conform's sweep. When the heavy gates queue (`queue`: the queue policy, or a pass that runs gate:make-test with no build lane, `gates_queue`), it also waits for gate:make-test and gate:conform, so only one heavy gate pool runs at a time."""
     if queue:
         _await_gate_futures(conform_fut, make_fut)
     run = contracts.prepare_run(ROOT, force)
@@ -3810,8 +3352,6 @@ def _run_cycle(
     pool = ThreadPoolExecutor(max_workers=_GATE_POOL_WORKERS)
     failures: list[str] = []
     served_before: str | None = None
-    units_done: threading.Event | None = None
-    corpus_child = _HeldCorpusBuild()
     try:
         js_fut = (
             None
@@ -3897,9 +3437,6 @@ def _run_cycle(
                 )
 
         if not plan.skip_gates and (not plan.skip_contracts or plan.contracts_run is not None):
-            if plan.contracts_after_units and conform_fut is None:
-                units_done = threading.Event()
-                report.contracts_held = True
             contracts_fut = pool.submit(
                 _gate_contracts_task,
                 plan.gates_queue,
@@ -3917,15 +3454,10 @@ def _run_cycle(
                 contracts_argv() if plan.skip_contracts else plan.argv("gate:rebuild-contracts"),
                 plan.fresh,
                 plan.record_greens,
-                units_done,
             )
 
         def stop_here(failure: str) -> int:
             failures.append(failure)
-            if not corpus_child.join(emit, report):
-                failures.append("corpus rebuild failed")
-            if units_done is not None:
-                units_done.set()
             _join_gates(report, failures, js_fut, contracts_fut, conform_fut, make_fut, emit, timings)
             _record_conform_green(report, plan, conform_key, emit)
             return _finish(report, failures, plan, timings, emit)
@@ -3940,38 +3472,18 @@ def _run_cycle(
         ):
             return stop_here("assets refresh failed")
 
-        gate_lane_watch = (
-            _GateLaneWatch(
-                plan.gates_idle_marker,
-                (make_fut, conform_fut, None if units_done is not None else contracts_fut),
-            )
-            if plan.gates_idle_marker is not None and not plan.skip_corpus
-            else None
-        )
-        try:
-            built = _do_corpus_build(
-                report,
-                spawn=spawn,
-                emit=emit,
-                registry=registry,
-                review_out=plan.update_corpus,
-                argv=None if plan.skip_corpus else plan.argv("corpus-build"),
-                skip=plan.skip_corpus,
-                skip_note=plan.corpus_note,
-                units_done=units_done,
-                held=corpus_child,
-            )
-        finally:
-            if gate_lane_watch is not None:
-                gate_lane_watch.close()
-            if units_done is not None:
-                units_done.set()
-        if not built:
+        if not _do_corpus_build(
+            report,
+            spawn=spawn,
+            emit=emit,
+            registry=registry,
+            review_out=plan.update_corpus,
+            argv=None if plan.skip_corpus else plan.argv("corpus-build"),
+            skip=plan.skip_corpus,
+            skip_note=plan.corpus_note,
+        ):
             return stop_here("corpus rebuild failed")
 
-        # The corpus build's child is joined here, on a pass that does not land too, so a build that failed after the line `_do_corpus_build` returns at stops the pass before the land.
-        if not corpus_child.join(emit, report):
-            return stop_here("corpus rebuild failed")
         landed: dict | None = None
         if plan.runs("land"):
             landed = _do_land(report, spawn=spawn, emit=emit, registry=registry, plan=plan)
@@ -4001,9 +3513,6 @@ def _run_cycle(
             report, failures, registry.killed_count, plan, timings, emit, signum=signum
         )
     finally:
-        if units_done is not None:
-            units_done.set()
-        corpus_child.wait_for_thread()
         pool.shutdown(wait=True)
 
 
@@ -4023,7 +3532,7 @@ def _deep_replay_report(root: Path | None = None) -> tuple[str, str]:
         return "unknown", f"could not be read ({exc!r})"
 
 
-INFORMATIONAL_STEPS = ("review-facts", "job-costs")
+INFORMATIONAL_STEPS = ("job-costs",)
 
 _GATE_STATUS_FIELDS = {
     "gate:js": "gate_js",
@@ -4059,12 +3568,8 @@ def step_detail(report: CycleReport, name: str) -> str:
         return ", ".join(parts)
     if name == "assets-refresh":
         return prose(report.assets_status)
-    if name == "corpus-seed":
-        return prose(report.seed_status)
     if name == "land":
         return prose(report.land_status)
-    if name == "review-facts":
-        return prose(report.facts_status)
     if name == "job-costs":
         return prose(report.job_costs_status)
     if name == "retention":
@@ -4093,7 +3598,7 @@ def _close_step(
     result: _StepResult | None,
     outcome: str | None = None,
 ) -> None:
-    """Print a spawned step's closing line with its detail. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and review-facts and job-costs always pass `ok` because they gate nothing)."""
+    """Print a spawned step's closing line with its detail. `outcome` defaults to one derived from the child's exit status; callers that decide it otherwise pass their own (run_m1 decides from its summaries, and job-costs always passes `ok` because it gates nothing)."""
     if outcome is None:
         outcome = "ok" if result is None or result.returncode == 0 else f"FAILED (exit {result.returncode})"
     detail = step_detail(report, STEP_ALIASES.get(name, name))
@@ -4116,7 +3621,7 @@ def _close_gate(
 def _step_outcome(report: CycleReport, plan: Plan, step: Step, *, retention_ran: bool) -> str:
     """Return the table's outcome for one step: `ok`, `FAILED`, `skipped`, or `not run`. The detail column carries anything more, and the plan block says why a step did not run.
 
-    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from review-facts or job-costs (`INFORMATIONAL_STEPS`) is not a failure, because they gate nothing and their details report the problem.
+    A gate's outcome comes from its status string. Any other step that ran takes its outcome from run_m1's failure flag or the child's exit code, since having a recorded time only shows that it ran. A nonzero exit from job-costs (`INFORMATIONAL_STEPS`) is not a failure, because it gates nothing and its detail reports the problem.
 
     Retention runs inside `_finish`, so it reads `not run` when an upstream failure ended the pass before retention, or a stop signal ended it before retention finished. It reads `FAILED` when retention raised, which `_finish` records in `retention_outcome`; the pass verdict stays green. A stop signal that lands after retention finished leaves the row reading as retention ended (`ok` or `FAILED`), because `_finish_interrupted` reads the same field. It reads `skipped` only when the plan ruled it out (`--keep-history`, a first run, or a staging pass).
     """
@@ -4322,9 +3827,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
             "scratch_beside_default": None if _no_fanout(plan) else plan.scratch_beside_default,
             "replay_threads": None if _no_fanout(plan) else plan.replay_threads,
             "sweep_jobs": plan.sweep_jobs if plan.runs("run_m1") else None,
-            "corpus_jobs": None,
-            "corpus_gates_idle_jobs": None,
-            "signature_jobs": None,
             "make_test_workers": plan.make_test_workers if plan.runs("gate:make-test") else None,
             "contracts_workers": (
                 plan.contracts_workers
@@ -4332,7 +3834,6 @@ def cycle_summary_payload(report: CycleReport, failures: list[str], plan: Plan, 
                 or (plan.runs("gate:rebuild-contracts") and not report.contracts_proven)
                 else None
             ),
-            "contracts_after_units": report.contracts_held,
             "conform_jobs": (
                 plan.conform_jobs if plan.runs("gate:conform") and not report.conform_proven else None
             ),
@@ -4726,7 +4227,7 @@ def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
             if corpus_build_skippable(ROOT):
                 skip_corpus = True
                 corpus_note = "the corpus already reflects these inputs byte for byte, stamp included; --fresh overrides"
-            elif corpus_build_skippable(ROOT, ignore=unit_index.ASSET_COMPONENTS):
+            elif corpus_build_skippable(ROOT, ignore=shards.ASSET_COMPONENTS):
                 skip_corpus = True
                 refresh_assets = True
                 corpus_note = ASSETS_REFRESH_NOTE

@@ -1,25 +1,19 @@
-"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, the verdict store after the pass, the two corpus stores apart, and the review-facts pins the pass rewrote.
+"""The output fingerprint #618's acceptance bar compares on the live tree, read before a change's first build and again after its landing pass: every configuration's table digest, the compiled and site fonts, the review corpus without its stamps, and the verdict store after the pass.
 
 Run it with the tree under test's own interpreter and code, never the harness's:
 
   uv run --directory <tree> python -P <main>/rebuild/tools/perf_fingerprint.py --root <tree> --out <file>
 
-`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, for a corpus read in its materialized form `rebuild.review.build`, and, for an audit or stores under `rebuild/out/m1`, `rebuild.pipeline.oracle` and `rebuild.pipeline.oracle_cache` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
+`-P` keeps this script's directory off `sys.path`, and the script puts `--root` first on it before importing, so `rebuild.pipeline.table`, `rebuild.pipeline.fingerprint`, and, for an audit or stores under `rebuild/out/m1`, `rebuild.pipeline.oracle` and `rebuild.pipeline.oracle_cache` come from the tree under test and a change to an intermediate encoding is read by its own reader. Its only other imports are from the standard library; it never imports a harness module.
 
-The output is one `ams-perf-fingerprint/1` document:
+The output is one `ams-perf-fingerprint/2` document:
 
 - `tables`: for each configuration with a windows head under `rebuild/out/m1` (`windows-<config>.tsv.gz.head`), and for a tree from before the segment format each `windows-<config>.tsv.gz` present, `table.table_digest` over its decision table and `joins-<config>.tsv`, read one configuration at a time through the tree's own readers, so a missing configuration shows up as a difference. A configuration with a head is read in its materialized form (`table.materialized_table_digest`): its head file checked against its head, every part's size and sha256 checked against it too, and the base and segments merged into the whole payload, each row line hashed as it streams, so no configuration's rows are held; a tree whose `table` has no such reader builds the rows one configuration at a time (`table.read_materialized_windows`). The digest recomputed from those rows must equal the crate's own, which the head records (`table.TABLE_DIGEST_STAMP`), and the script exits nonzero naming the configuration when it does not, so a fault in the merge cannot hide behind a digest the crate reported of itself.
 - `fonts`: `fingerprint.font_content_digest` of `rebuild/out/m1/M1.otf`, the corpus's `fonts/{before,after}.otf` and the six site fonts, null for a font that is missing.
-- `corpus`: one digest per file under `rebuild/out/review/` but the two stores, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` and `review-facts.json` are digested as canonical JSON without the keys `MANIFEST_STAMPS` names (for the facts file, inside its `corpus` block), and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
-- `stores`: the same header projection applied to the stores `STORES` names. A difference there is an intermediate format differing, which a report names apart.
+- `corpus`: one digest per file under `rebuild/out/review/`, and a digest over the sorted `path<TAB>digest` lines. `manifest.json` is digested as canonical JSON without the keys `MANIFEST_STAMPS` names and without each manifest font's raw `sha256`; a gzip sidecar as its decompressed stream, with a JSON header line re-serialized without the keys `SIDECAR_STAMPS` names; a corpus font by its content digest; every other file raw.
 - `verdicts`: the store after the pass, projected to its `format`, the sorted `(unit, verdict, note)` of its records and the sorted unit ids it cleared, without the keys `STORE_STAMPS` names and without any record's `at`, which records when a verdict was made (`store_digest`).
-- `review_facts_pins`: the raw digest of `rebuild/review-facts-pins.json` as the pass rewrote it.
 - `audit`: the digest of the divergence audit's materialized form (`oracle.materialized_audit` from the tree, its head's parts inflated and merged into the whole file over the live rows), null for a tree with neither a head nor the single file. A pass that changes no audit row leaves it where it was.
 - `oracle_stores`: for each configuration the oracle stores' set head lists, or each `oracle-rows-<config>.tsv.gz` a tree from before the segment format holds, two digests of its materialized store (`oracle_cache.materialized_store` from the tree): `materialized`, the bytes, and `records`, the records' inflated lines each cut before its two trailing ages, the header line left out and the trailer kept. Every pass that writes the stores moves its pass ordinal, which the header carries and the ages are counted from, and moves the ages of the rows it re-derives on schedule, so `materialized` differs across any two passes that wrote the stores; `records` differs only where a record's verdicts or settled digest moved, or where a record was added or removed.
-
-The corpus's units index, held as a head, a base and segments (`units-index.ndjson.gz.head`, #618's change 32), is read in its materialized form whatever the store holds (decision 48): through the tree's own reader (`unit_index.materialized_index`, or `build.MaterializedCorpus.index_lines` where the corpus is read in its materialized form), its base and segments merged by key with each record's place put back from the manifest, every part checked against its head's size and sha256, and digested under the key `units-index.ndjson.gz` as the single file a build before the segment format wrote, its header line its head's stamps without the keys `SIDECAR_STAMPS` names. Its head, base and segment files are left out of the `corpus` block, so a corpus whose index is a head, base and segments fingerprints as the single file with the same content.
-
-A corpus whose unit store has a head (`unit-cache.ndjson.gz.head`, #618's change 28) is read in its materialized form (decision 48, the tree's `build.MaterializedCorpus`): each class's live fragments laid into the parts a from-scratch build writes, every fragment plain, a deflated one (change 35) inflated and laid out at its inflated length, the manifest's `shards` lists, the app sidecars' rows and their locator blocks in that layout, without a deflated fragment's `"deflated": true`, and the unit store's head, base and segments merged into the single file a whole write gives, every address three elements, under the key `unit-cache.ndjson.gz`, every store part checked against its head's size and sha256. The store's head, base and segment files are left out of the `corpus` block. So a build that appends a changed fragment, deflated, and a later fold, which deflates, move no digest.
 
 Two readings of the same outputs fingerprint identically, so a difference across a pass that changed no output names a missed stamp, and a tree whose windows rows are held as a base and segments fingerprints as its folded form and as the single file a build before the segment format wrote.
 """
@@ -37,27 +31,11 @@ import zlib
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from types import ModuleType
-from typing import Any
 
-FORMAT = "ams-perf-fingerprint/1"
+FORMAT = "ams-perf-fingerprint/2"
 MANIFEST_STAMPS = ("generated_at", "repo_head", "inputs_fingerprint")
-# The ink-signature store's header also carries the audit's identity and the family keys' digest (`unit_cache.AUDIT_IDENTITY_KEY`, `unit_cache.FAMILY_KEYS_KEY`), which say which audit and family keys it was written over, so a pass that rewrites the store with only those moved shows no `stores` difference. The script imports nothing of the tree under test before `--root` is on its path, so the two names are restated.
-SIDECAR_STAMPS = (
-    "manifest_sha256",
-    "generated_at",
-    "environment",
-    "environment_lines",
-    "environment_detail",
-    "audit_identity",
-    "family_keys_digest",
-)
+SIDECAR_STAMPS = ("manifest_sha256", "generated_at")
 STORE_STAMPS = ("manifest_generated_at", "exported_at")
-STORES = ("unit-cache.ndjson.gz", "ink-signatures.tsv.gz")
-STORE = STORES[0]
-HEAD = f"{STORE}.head"
-INDEX = "units-index.ndjson.gz"
-INDEX_HEAD = f"{INDEX}.head"
-INDEX_FILES = re.compile(rf"{re.escape(INDEX)}(?:\.head|\.\d+\.base|\.\d+\.\d+\.delta)?")
 SITE_FONTS = tuple(
     f"site/AbbotsMortonSpaceport{family}-{weight}.otf"
     for family in ("Mono", "SansJunior", "SansSenior")
@@ -72,7 +50,6 @@ FONTS = (
 M1 = Path("rebuild/out/m1")
 REVIEW = Path("rebuild/out/review")
 AUTOSAVE = Path("verdicts-autosave.json")
-FACTS_PINS = Path("rebuild/review-facts-pins.json")
 # The audit's single file and its head, and the oracle stores' set head, single files and trailer line (`oracle.AUDIT_NAME`, `oracle_cache.SET_HEAD_NAME`, `oracle_cache.store_path`, `oracle_cache.ROW_COUNT_TRAILER`), restated because the script imports nothing of the tree under test before `--root` is on its path, and nothing of the oracle unless a tree holds one.
 AUDIT = "divergence-audit.tsv"
 AUDIT_HEAD = f"{AUDIT}.head"
@@ -112,15 +89,6 @@ def manifest_document_digest(document: dict) -> str:
     return sha256_bytes(canonical(document))
 
 
-def facts_digest(path: Path) -> str:
-    document = json.loads(path.read_bytes())
-    corpus = document.get("corpus")
-    if isinstance(corpus, dict):
-        for key in MANIFEST_STAMPS:
-            corpus.pop(key, None)
-    return sha256_bytes(canonical(document))
-
-
 def gz_digest(path: Path) -> str:
     """Digest a gzip file's decompressed stream, re-serializing a JSON header line that carries `format` without the keys `SIDECAR_STAMPS` names, so the gzip member's own header and the stamps never count."""
     with gzip.open(path, "rb") as handle:
@@ -146,16 +114,10 @@ def stream_digest(first: bytes, rest: Iterable[bytes]) -> str:
     return digest.hexdigest()
 
 
-def _header_line(header: dict) -> bytes:
-    return (json.dumps(header) + "\n").encode()
-
-
 def corpus_file_digest(corpus: Path, path: Path, font_digest: Callable[[Path], str]) -> str:
     rel = path.relative_to(corpus).as_posix()
     if rel == "manifest.json":
         return manifest_digest(path)
-    if rel == "review-facts.json":
-        return facts_digest(path)
     if rel.startswith("fonts/") and path.suffix == ".otf":
         return font_digest(path)
     if path.suffix == ".gz":
@@ -163,76 +125,14 @@ def corpus_file_digest(corpus: Path, path: Path, font_digest: Callable[[Path], s
     return file_sha256(path)
 
 
-def corpus_digests(
-    corpus: Path, font_digest: Callable[[Path], str], materialize: Callable[[Path], Any] | None = None
-) -> tuple[dict, dict[str, str | None]]:
-    """Return the corpus block and the stores block for the review corpus at `corpus`, read in its materialized form through `materialize` (the tree's `build.MaterializedCorpus`) when its unit store has a head, and otherwise file by file, with a units index held as a head, a base and segments read in its materialized form through the tree's reader (`tree_index`)."""
+def corpus_digests(corpus: Path, font_digest: Callable[[Path], str]) -> dict:
+    """Return the corpus block for the review corpus at `corpus`, file by file (`corpus_file_digest`)."""
     files: dict[str, str] = {}
-    stores: dict[str, str | None] = {name: None for name in STORES}
-    if materialize is not None and (corpus / HEAD).is_file():
-        _materialized_digests(corpus, font_digest, materialize, files, stores)
-    elif corpus.is_dir():
-        held = (corpus / INDEX_HEAD).is_file()
+    if corpus.is_dir():
         for path in sorted(p for p in corpus.rglob("*") if p.is_file()):
-            rel = path.relative_to(corpus).as_posix()
-            if rel in STORES:
-                stores[rel] = gz_digest(path)
-            elif not (held and INDEX_FILES.fullmatch(rel)):
-                files[rel] = corpus_file_digest(corpus, path, font_digest)
-        if held:
-            header, lines = tree_index(corpus)
-            files[INDEX] = stream_digest(_header_line(header), lines)
+            files[path.relative_to(corpus).as_posix()] = corpus_file_digest(corpus, path, font_digest)
     lines = "\n".join(f"{rel}\t{digest}" for rel, digest in sorted(files.items()))
-    return {"digest": sha256_bytes(lines.encode()), "files": files}, stores
-
-
-def _materialized_digests(
-    corpus: Path,
-    font_digest: Callable[[Path], str],
-    materialize: Callable[[Path], Any],
-    files: dict[str, str],
-    stores: dict[str, str | None],
-) -> None:
-    """Fill the corpus and stores blocks from the corpus's materialized form (the module docstring). A corpus that already is its materialized form keeps its own files' digests, read as the plain form reads them, but for the units index, which is read in its materialized form either way."""
-    with materialize(corpus) as form:
-        index, app, locator, rows_name = form.SIDECARS
-        indexed = False
-        for path in sorted(p for p in corpus.rglob("*") if p.is_file()):
-            rel = path.relative_to(corpus).as_posix()
-            if rel in STORES:
-                stores[rel] = gz_digest(path)
-            elif INDEX_FILES.fullmatch(rel):
-                indexed = True
-            elif not form.is_layout_file(rel) or (
-                form.identical and rel != STORE and not rel.startswith(STORE)
-            ):
-                files[rel] = corpus_file_digest(corpus, path, font_digest)
-        if indexed:
-            files[index] = stream_digest(_header_line(form.sidecar_header(index)), form.index_lines())
-        if not form.identical:
-            for name, chunks in form.part_files():
-                digest = hashlib.sha256()
-                for chunk in chunks:
-                    digest.update(chunk)
-                files[name] = digest.hexdigest()
-            files["manifest.json"] = manifest_document_digest(form.manifest)
-            files[app] = stream_digest(_header_line(form.sidecar_header(app)), form.app_lines())
-            rows, blocks, machine = form.locator()
-            files[rows_name] = sha256_bytes(gzip.decompress(rows))
-            table = {
-                **form.sidecar_header(locator),
-                "units": machine,
-                "blocks": len(blocks),
-                "rows_bytes": len(rows),
-            }
-            files[locator] = stream_digest(
-                _header_line(table),
-                ((json.dumps(block, ensure_ascii=False) + "\n").encode() for block in blocks),
-            )
-        store = form.store()
-        if store is not None:
-            header, lines = store
-            stores[STORE] = stream_digest(_header_line(header), lines)
+    return {"digest": sha256_bytes(lines.encode()), "files": files}
 
 
 def _without_at(value: object) -> object:
@@ -365,25 +265,15 @@ def store_digests(
     return {config: store_record_digests(module.materialized_store(m1, config)) for config in configs}
 
 
-def fingerprint_tree(
-    root: Path,
-    *,
-    table: ModuleType,
-    font_digest: Callable[[Path], str],
-    materialize: Callable[[Path], Any] | None = None,
-) -> dict:
-    corpus, stores = corpus_digests(root / REVIEW, font_digest, materialize)
-    pins = root / FACTS_PINS
+def fingerprint_tree(root: Path, *, table: ModuleType, font_digest: Callable[[Path], str]) -> dict:
     return {
         "format": FORMAT,
         "tables": table_digests(root / M1, table),
         "audit": audit_digest(root / M1),
         "oracle_stores": store_digests(root / M1),
         "fonts": {rel: font_digest(root / rel) if (root / rel).is_file() else None for rel in FONTS},
-        "corpus": corpus,
+        "corpus": corpus_digests(root / REVIEW, font_digest),
         "verdicts": store_digest(root / AUTOSAVE),
-        "stores": stores,
-        "review_facts_pins": file_sha256(pins) if pins.is_file() else None,
     }
 
 
@@ -396,28 +286,13 @@ def tree_modules(root: Path) -> tuple[ModuleType, ModuleType]:
 
 
 def tree_oracle() -> ModuleType:
-    """Return the tree's `rebuild.pipeline.oracle`, imported as `tree_materialize` imports the build, from the tree first on `sys.path` only when an audit needs it."""
+    """Return the tree's `rebuild.pipeline.oracle`, imported from the tree first on `sys.path` only when an audit needs it."""
     return importlib.import_module("rebuild.pipeline.oracle")
 
 
 def tree_oracle_cache() -> ModuleType:
     """Return the tree's `rebuild.pipeline.oracle_cache`, imported from the tree first on `sys.path` only when the stores need it."""
     return importlib.import_module("rebuild.pipeline.oracle_cache")
-
-
-def tree_index(corpus: Path) -> tuple[dict, Iterator[bytes]]:
-    """Return the materialized form of the units index of `corpus`, held as a head, a base and segments, as its header and its record lines, through the tree's `rebuild.review.unit_index.materialized_index`, imported as `tree_materialize` imports the build, from the tree first on `sys.path` only when a corpus needs it, every part checked against its head's size and sha256."""
-    materialized = importlib.import_module("rebuild.review.unit_index").materialized_index(
-        corpus, sha256=True
-    )
-    if materialized is None:
-        raise FileNotFoundError(corpus / INDEX_HEAD)
-    return materialized
-
-
-def tree_materialize(corpus: Path) -> Any:
-    """Return the tree's `build.MaterializedCorpus` over `corpus`, importing `rebuild.review.build` from the tree first on `sys.path` only when a corpus needs it."""
-    return importlib.import_module("rebuild.review.build").MaterializedCorpus(corpus)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -432,9 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     root = args.root.resolve()
     table, fingerprint = tree_modules(root)
     try:
-        document = fingerprint_tree(
-            root, table=table, font_digest=fingerprint.font_content_digest, materialize=tree_materialize
-        )
+        document = fingerprint_tree(root, table=table, font_digest=fingerprint.font_content_digest)
     except DigestMismatch as error:
         print(f"perf_fingerprint: {error}", file=sys.stderr)
         return 1

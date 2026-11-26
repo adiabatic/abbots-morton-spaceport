@@ -1,19 +1,15 @@
-"""Compare the ink the two fonts put down for a review unit.
+"""Compare the ink the two fonts put down for a review unit's text.
 
 A unit is `ink_identical` when both fonts put the same ink in the same places under every config in its set, so only glyph names (and inkless marker glyphs) differ and no human judgment is needed. Each unit's text is shaped with uharfbuzz through `rebuild.validation.shaping.Shaper`, each glyph's outline is recorded with fontTools' `DecomposingRecordingPen`, and the outline is placed at the cumulative x_advance plus the glyph's x_offset and y_offset.
 
-Placed outlines are compared without being built. `OutlineIntern` interns each outline once as a shape key and an own-frame origin, and a placed piece is the triple (shape key, absolute x, absolute y). Two triples are equal exactly when the translated geometry would be, including two glyphs that draw identical strokes from different origins. Translated point tuples are built only for the pieces that end up in a returned delta, which for most windows is none.
+Placed outlines are compared without being built. `OutlineIntern` interns each outline once as a shape key and an own-frame origin, and a placed piece is the triple (shape key, absolute x, absolute y). Two triples are equal exactly when the translated geometry would be, including two glyphs that draw identical strokes from different origins. Translated point tuples are built only for the pieces that end up in a returned delta, which for most texts is none.
 
-There are two readings:
+There are two readings, which the table-diff build (`build.build_table_diff`, through `diff_units.fragment`) takes for each unit:
 
-- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config. The review crate flags each m1-audit unit with the same reading, and the table-diff build (`build.build_table_diff`) flags each entry with this one.
-- `config_diff` returns the pixel-level delta that every deduplication check keys on: the cells only one font paints, read over each font's whole rasterized window and not piece by piece. A change that paints no different pixel (an overlap removed at a junction, a stroke passed to a neighbor) does not appear in it, so a window containing such a change has the same digest as its siblings without it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build checks for every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. `rebuild/test_review_ink.py` checks over the frozen windows that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
+- `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config.
+- `config_diff` returns the pixel-level delta: the cells only one font paints, read over each font's whole rasterized text and not piece by piece. A change that paints no different pixel (an overlap removed at a junction, a stroke passed to a neighbor) does not appear in it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build tries on every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. A unit's Queue `cluster` is made from the delta digests (`delta_digest`) of its configurations. `rebuild/test_review_ink.py` checks that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
-The crate's ink signature, which the ink-duplicate merge groups windows by, is the same two `run_ink` lists that `config_diff` and `ink_pieces` read, so equal signatures give equal deltas, equal ink flags, and equal delta digests without any sampling. The crate reads each glyph's shape key and cells from the font facts (`units_exec.write_font_facts`), which `OutlineCache` and `OutlineIntern` give here, so its pieces are these pieces.
-
-The third machine check, Junior equivalence, approves a unit divergent only under ss10 when the rebuild's ss10 rendering places the same ink the old Junior font places for the same string, once Junior's letter tracking is removed (`junior_tracking`). Junior has Senior's isolated letterforms plus one pixel of extra advance on every Quikscript glyph. A pass means the rebuild draws every letter fully isolated, which is the ratified meaning of ss10 (see the ss10 ledger entries in rebuild/m1-divergences.yaml), so approval does not depend on what the old font did. The crate runs the check.
-
-All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), so both fonts shape with `kern` off: a kern edit changes no m1-audit unit, and neither font's kerning enters a before-and-after comparison. A table-diff corpus's kern unit, which shows a moved kern value, is the one reading taken with kerning on, through `rebuild.review.diff_units.KernedInkComparator`.
+All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement, joins and drawings, and the `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), so both fonts shape with `kern` off and neither font's kerning enters a before-and-after comparison. A kern unit, which shows a moved kern value, is the one reading taken with kerning on, through `rebuild.review.diff_units.KernedInkComparator`.
 """
 
 from __future__ import annotations
@@ -50,24 +46,16 @@ PICTURE_VERIFICATION_METHOD = (
     "off-grid placement."
 )
 
-JUNIOR_VERIFICATION_METHOD = (
-    "Divergent only under ss10 (suppress all joins), where the ratified spec is fully isolated letters; "
-    "shaped with uharfbuzz in the rebuild under ss10 and in the old Junior font (the canonical "
-    "isolated rendering) with no features, kern-neutral on both sides; outlines decomposed, placed, and "
-    "compared after removing Junior's uniform one-pixel-per-letter tracking (verified against the old "
-    "Senior font at construction) — the rebuild draws every letter exactly as Junior draws it in isolation."
-)
-
 
 def features_for(config: str | None) -> dict[str, bool]:
-    """Return the HarfBuzz feature dict for a config token: empty for `default`, otherwise one True entry per `+`-joined tag. This matches `rebuild.validation.rowmodel.CONFIGS` for every acceptance config and also covers table-diff configs."""
+    """Return the HarfBuzz feature dict for a config token: empty for `default`, otherwise one True entry per `+`-joined tag."""
     if not config or config == "default":
         return {}
     return {tag: True for tag in config.split("+")}
 
 
 def kern_neutral(features: dict[str, bool] | None) -> dict[str, bool]:
-    """Return the config's features plus `kern: False`, used for both fonts: the corpus compares settlement and joins, and the rebuild's `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4), as does the old font's kerning."""
+    """Return the config's features plus `kern: False`, used for both fonts: the corpus compares settlement, joins and drawings, and the `kern` lookup stays out of it (rebuild/KERN-PLAN.md §4)."""
     return {**(features or {}), "kern": False}
 
 
@@ -75,7 +63,7 @@ IDENTITY_DIFF = ((), (), 0)
 
 
 def delta_digest(diff: tuple) -> str:
-    """Return the stored id of one `config_diff` result: `d-` plus the first twelve hex digits of the sha1 of the tuple's repr. The corpus stores one digest per config whose delta is not `IDENTITY_DIFF` (the unit JSON's `ink_deltas`), so a localized ink change is one key in every window, in any batch, where exactly those pixels appear and disappear. The cluster id depends on this recipe and the delta's shape, so changing either moves every cluster id."""
+    """Return the digest of one `config_diff` result: `d-` plus the first twelve hex digits of the sha1 of the tuple's repr, so a localized ink change has one digest in every text where exactly those pixels appear and disappear. A unit's cluster id is made from these digests (`diff_units.fragment`), so changing this recipe or the delta's shape moves every cluster id."""
     return "d-" + hashlib.sha1(repr(diff).encode()).hexdigest()[:12]
 
 
@@ -124,7 +112,7 @@ EMPTY_OUTLINE_KEY = b""
 
 
 def outline_shape_key(value: tuple) -> tuple[bytes, int, int]:
-    """Split one decomposed outline into a shape key and an origin: the sha1 of the marshal version 2 bytes of the outline translated so its minimum x and minimum y are 0, plus that minimum x and y. Two glyphs drawn identically but placed differently in their own frames (`qsSee.ex-y0.ex-ext-2` and `qsSee.straighter.ex-y0.ex-ext-2`, 50 units apart) share a shape key, and their placements differ by the origins, so a placed piece written as (shape key, absolute x, absolute y) is equal exactly when the placed geometry is. The key is derived from content, not assigned in sequence, so the same outline gets the same key in every process: ink-signature digests are grouped across the parent's spawn pool, and a per-process counter would give two workers different digests for the same picture. Marshal version 2 has no back references by object identity, so equal nested tuples key equally even when one shares an object the other rebuilds."""
+    """Split one decomposed outline into a shape key and an origin: the sha1 of the marshal version 2 bytes of the outline translated so its minimum x and minimum y are 0, plus that minimum x and y. Two glyphs drawn identically but placed differently in their own frames (`qsSee.ex-y0.ex-ext-2` and `qsSee.straighter.ex-y0.ex-ext-2`, 50 units apart) share a shape key, and their placements differ by the origins, so a placed piece written as (shape key, absolute x, absolute y) is equal exactly when the placed geometry is. The key is derived from content, not assigned in sequence, so the same outline gets the same key in every process and on every build, which a per-process counter would not give. Marshal version 2 has no back references by object identity, so equal nested tuples key equally even when one shares an object the other rebuilds."""
     points = [point for _operator, points in value for point in points if point is not None]
     if not points:
         return (hashlib.sha1(marshal.dumps(value, 2)).digest(), 0, 0)
@@ -213,7 +201,7 @@ class InkComparator:
         return self.ink_pieces("before", text, features) == self.ink_pieces("after", text, features)
 
     def ink_identical(self, text: str, configs: tuple[str, ...]) -> bool:
-        """Return whether `pieces_identical` holds under every config in the set. `ink_pieces` is a projection of the two run-order lists that make up the crate's ink signature, so two windows with equal signatures always get the same answer here, and no sample is needed to check that the merge and this flag agree."""
+        """Return whether `pieces_identical` holds under every config in the set."""
         return all(self.pieces_identical(text, config) for config in configs)
 
     def named_run(self, side: str, text: str, features: dict[str, bool]) -> tuple[tuple[str, ...], list]:
@@ -278,9 +266,9 @@ class InkComparator:
 
         Each run is rasterized onto the PIXEL_SIZE grid and unioned per font over the whole window. A pixel one glyph gives up but a neighbor still paints is no change. For example, ·J'ai drops its x-height entry pixel under an ·At that paints that pixel anyway, and the change adds nothing to any window's delta. The same change at a junction the neighbor no longer reaches leaves a real hole and stays in the delta, because the comparison is over the rendered union of this window and not over a list of allowed names.
 
-        Followers that only slid are read at the pixel level too. The longest tail of glyphs whose after picture is the before picture displaced by a whole number of columns is moved back by that displacement before the subtraction, and the displacement is the shift. A tail that includes a pixel given up to a neighbor therefore still counts as slid, which keeps ·Fee·Tea·At·J'ai under ss03 in the same group as every other window that shortens ·Fee the same way. The remaining cells are translated together so the delta's leftmost column is 0.
+        Followers that only slid are read at the pixel level too. The longest tail of glyphs whose after picture is the before picture displaced by a whole number of columns is moved back by that displacement before the subtraction, and the displacement is the shift. A tail that includes a pixel given up to a neighbor therefore still counts as slid, which keeps ·Fee·Tea·At·J'ai under ss03 on the same Queue card as every other text that shortens ·Fee the same way. The remaining cells are translated together so the delta's leftmost column is 0.
 
-        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus's per-unit flag, and the empty-delta digest read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the outline level (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose judged pair, class, config set, and per-config deltas all agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change; that is the duplicate-group key.
+        IDENTITY_DIFF (nothing lost, nothing gained, no shift) is the sentinel that `picture_identical`, the corpus's per-unit flag, and the empty-delta digest read. A window whose pieces are already equal returns it without rasterizing. A window with no picture (a curved or off-grid outline, or an off-grid placement) falls back to the outline level (`_piece_diff`), which never returns the sentinel for pieces that differ. Two units whose per-config deltas agree show the same pixels appearing and disappearing, whatever unchanged letters surround the change, which is why a unit's cluster is made from them.
         """
         features = features_for(config)
         before = self.run_ink("before", text, features)
@@ -359,20 +347,3 @@ def _picture_diff(before: list[frozenset[tuple[int, int]]], after: list[frozense
         tuple(sorted((column - x0, row) for column, row in gained)),
         shift,
     )
-
-
-def junior_tracking(junior_font: Path | str, before_font: Path | str) -> int:
-    """Return the letter tracking the Junior font adds, which the crate removes from Junior's placement for the Junior-equivalence check (the module docstring describes it): the one advance delta every Quikscript glyph shares between Junior and the old Senior font. Every other shared glyph must keep its advance. A font pair that breaks that premise raises ValueError, so the check never runs over a tracking it did not derive."""
-    junior_metrics = TTFont(str(junior_font))["hmtx"].metrics
-    before_metrics = TTFont(str(before_font))["hmtx"].metrics
-    shared = set(junior_metrics) & set(before_metrics)
-    deltas = {name: junior_metrics[name][0] - before_metrics[name][0] for name in shared}
-    letter_deltas = {delta for name, delta in deltas.items() if name.startswith("qs")}
-    other_deltas = {delta for name, delta in deltas.items() if not name.startswith("qs")}
-    if len(letter_deltas) != 1 or other_deltas - {0}:
-        raise ValueError(
-            "the Junior tracking premise does not hold: Quikscript advance deltas "
-            f"{sorted(letter_deltas)} (expected exactly one value), non-Quikscript deltas "
-            f"{sorted(other_deltas - {0})} (expected none)"
-        )
-    return next(iter(letter_deltas))

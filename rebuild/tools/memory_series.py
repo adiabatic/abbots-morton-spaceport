@@ -30,7 +30,7 @@ A replay line holds, beside `step` (`replay`), the cut (`runes`, `letters`, `lig
 
 After a replay run's last line the record and stdout get the fit against runes of the windows, the walk, absorb, pair and combined peaks, the walks' CPU time, the row store and the largest unit's walk memo (`replay_report`).
 
-The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo, its head and every part the head lists, or the single file a tree from before the segment format holds, into `<tree>/absorbs/live/` with `clonefile(2)` (`clone_memo`, through `build._clone`, which writes no data) and maps the clone, and it builds its inputs from the live rows across the parts in part order (`_CountRows`). Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing memo is the clone, and each other count's is one single file written once a run from the live rows, a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a file holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it, the clone and every line's clone as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, which the carry-and-append absorb reuses; `duplicate`, the standing file and the restated windows, each restating a standing window with its outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which names rows in the segment's dead bitmaps; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through the oracle's absorb; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
+The absorbs step measures one settle-memo absorb (`conform.absorb_settle_memo`) a line, over inputs made from the live `default` settle memo at a row count, and beside it the carry-and-append absorb its bytes are proven against over the same inputs (`memory_series_child.carry_and_append_absorb`). The run clones the live memo, its head and every part the head lists, or the single file a tree from before the segment format holds, into `<tree>/absorbs/live/` with `clonefile(2)` (`clone_memo`, through `_clone`, which writes no data) and maps the clone, and it builds its inputs from the live rows across the parts in part order (`_CountRows`). Positional arguments name the row counts, `live` for the live memo's own rows (3,649,648 at 45 runes); the default is `ABSORB_COUNTS`, and a count named twice is measured twice. For each distinct count the run makes the inputs once (`absorb_count`): the `live` count's standing memo is the clone, and each other count's is one single file written once a run from the live rows, a prefix of them below the live count and, above it, the live rows followed by the live rows restated under labels of their own, `.r<copy>` after every label, so each restated window is one no other row holds and names the same family (`_CountRows`). Such a file holds 14 bytes a row of columns and 4 bytes a slot of index at 2 to 4 slots a row, about 0.02 GB at a million rows, 0.26 GB at nine million and 0.30 GB at twelve million, about 0.6 GB a run at the default counts, and the run removes it, the clone and every line's clone as it ends, however it ends. Beside it the run holds each count's fresh windows compressed in memory, as a walk hands them (`conform.FreshMemo`): the standing rows' last `ABSORB_TAIL` rows restating their own windows, the last rows again under labels the file lacks, as many as the file's index has room for beside its own rows (all `ABSORB_TAIL` at the live count, 48,576 at a million rows), each in `ABSORB_RANGES` row ranges, and every row in the `default` sweep's unit count of parts. `--paths` names the paths a count's lines read (`absorb_job`), every one of `ABSORB_PATHS` by default: `fast`, the standing file and the new windows, as many as its index has room for, which the carry-and-append absorb reuses; `duplicate`, the standing file and the restated windows, each restating a standing window with its outcome; `stale`, the same with `ABSORB_STALE_FAMILY`'s key moved, which names rows in the segment's dead bitmaps; `prune`, the standing file's last `ABSORB_PRUNED` rows unreached and no fresh row, through the sweep's absorb; `fresh`, no standing file and every row fresh in the units' parts, through the oracle's absorb; and `fresh-sweep`, the same through the sweep's. The units' parts split the rows disjointly, so no fresh line merges a row, and none reads the merge state an all-fresh pass's repeated windows bring (`conform.absorb_settle_memo`). A count's standing file, and its tail and new windows, are made only when `--paths` names a path that reads them, so a path that needs no standing file writes none. Each line ships its parts' blocks into POSIX shared memory segments as the pools do, naming each in `ABSORB_SEGMENTS` under the run's directory before making it (`_AbsorbSegments`), and unlinks every one once its two absorbs have run, or however the line ends; a run killed with SIGKILL leaves that record, and the next run's `empty_tree` unlinks the segments it names.
 
 Each line runs two children of `rebuild/tools/memory_series_child.py`'s `absorb` entry, one after the other, each a fresh process sampled as a table step's crate is (`run_absorb_child`): the absorb, then the carry-and-append absorb. Each child gets its own copy of the line's fresh windows in POSIX shared memory segments the harness makes, one a part, and its job (the memo, the spec, the segments' names and the parts' counts, and the sweep's prune) pickled on its stdin, as the oracle's and the sweep's pools hand an absorb worker its arguments; it maps each segment and unlinks its name at once, runs its absorb, and prints what it did. On a path that reads a standing memo the absorb runs over the line's own clone of it under `<tree>/absorbs/line/` (`clone_memo`), plans its route there as the pools' absorbs do, and writes its part, a segment or on a fold a base, and the head there, which the run removes once the line ends; once the meter's last reading is taken the harness hashes that clone's materialized form (`conform.materialize_settle_memo`), the file the line compares. On a fresh path, which takes the `first` route, the absorb hashes its base in order instead of writing it. The carry-and-append absorb reads the count's own standing memo and hashes its file. A line writes nothing but its record and the absorb's part, `standing_bytes` beside it giving the standing memo's bytes on disk. An absorbs line holds, beside `step` (`absorbs`), the count (`count`, `rows`, `standing_rows`, `fresh_rows`, `standing_bytes`) and the path (`path`):
 
@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import functools
 import itertools
 import json
@@ -1198,14 +1199,37 @@ def _memo_bytes(path: Path) -> int:
     return row_delta.head_path(path.parent, path.name).stat().st_size + sum(part.size for part in head.parts)
 
 
-def clone_memo(memo: conform.SettleMemoFile, directory: Path) -> conform.SettleMemoFile:
-    """Clone every file of `memo`'s output, its head and every part, or its single file, into `directory` under its own name (`build._clone`, `clonefile(2)`, which writes no data), and return the memo there. A clone the volume refuses stops the run, since a copy would write the memo's bytes."""
-    from rebuild.review import build
+@functools.lru_cache(maxsize=1)
+def _clonefile():
+    """Return libc's `clonefile(2)`, or None on a platform without it."""
+    if sys.platform != "darwin":
+        return None
+    call = getattr(ctypes.CDLL(None, use_errno=True), "clonefile", None)
+    if call is not None:
+        call.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32]
+        call.restype = ctypes.c_int
+    return call
 
+
+def _clone(source: Path, target: Path) -> bool:
+    """Make `target`, which must not exist, a copy-on-write clone of `source` (`clonefile(2)`) and return True, or return False, having written nothing, where the platform or the volume cannot clone. A clone writes no data: on APFS the two files share every block until one of them is written."""
+    call = _clonefile()
+    if call is None:
+        return False
+    if call(os.fsencode(source), os.fsencode(target), 0) == 0:
+        return True
+    code = ctypes.get_errno()
+    if code in (errno.ENOTSUP, errno.EXDEV):
+        return False
+    raise OSError(code, os.strerror(code), str(source), None, str(target))
+
+
+def clone_memo(memo: conform.SettleMemoFile, directory: Path) -> conform.SettleMemoFile:
+    """Clone every file of `memo`'s output, its head and every part, or its single file, into `directory` under its own name (`_clone`, `clonefile(2)`, which writes no data), and return the memo there. A clone the volume refuses stops the run, since a copy would write the memo's bytes."""
     directory.mkdir(parents=True, exist_ok=True)
     for source in sorted(memo.path.parent.glob(f"{memo.path.name}*")):
         if source.is_file() and not source.name.endswith(output_sink.STAGING_SUFFIX):
-            if not build._clone(source, directory / source.name):
+            if not _clone(source, directory / source.name):
                 raise SystemExit(
                     f"{source} could not be cloned without writing it; the absorbs holder writes no copy"
                 )

@@ -1,4 +1,4 @@
-// The in-app review queue as pure functions over the in-memory store. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, which is the duplicate-group key without the judged pair, so every duplicate group falls inside one cluster. Evidence comes from judged units with the same signature.
+// The in-app review queue as pure functions over the in-memory store. A blank unit is unverdicted or skipped. Clusters group blank human units by the build's `cluster` signature, a digest of the pixels each unit's change paints, so units that show the same pixels share one card whatever their configurations and kinds. Evidence comes from judged units with the same signature.
 
 export const TOP_CLUSTER_COUNT = 25;
 export const SINGLETON_CHUNK = 40;
@@ -20,7 +20,7 @@ function byTriageOrder(a, b) {
 }
 
 export function buildClusters(units, recordOf) {
-  // Sort in triage order, so each exemplar, representative and evidence sample is the first unit in the order the app pages in.
+  // Sort in triage order, so each exemplar and evidence sample is the first unit in the order the app pages in.
   const human = [];
   for (const unit of units) {
     if (unit.batch !== null && unit.batch !== undefined && typeof unit.cluster === 'string') human.push(unit);
@@ -42,15 +42,6 @@ export function buildClusters(units, recordOf) {
 
   const clusters = [];
   for (const [id, members] of membersByCluster) {
-    const groups = new Map();
-    for (const unit of members) {
-      const duplicateGroup = unit.duplicate_group || unit.id;
-      if (!groups.has(duplicateGroup)) groups.set(duplicateGroup, []);
-      groups.get(duplicateGroup).push(unit);
-    }
-    const duplicateGroups = [...groups.entries()]
-      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
-      .map(([duplicateGroup, group]) => ({ duplicateGroup, unitIds: group.map((unit) => unit.id) }));
     const judged = judgedByCluster.get(id) ?? [];
     const tallies = new Map();
     for (const { record } of judged) tallies.set(record.verdict, (tallies.get(record.verdict) ?? 0) + 1);
@@ -62,8 +53,6 @@ export function buildClusters(units, recordOf) {
       class: members[0].class,
       configs: [...members[0].configs],
       size: members.length,
-      duplicateGroups,
-      representatives: duplicateGroups.map((group) => group.unitIds[0]),
       exemplar: members[0],
       memberIds: members.map((unit) => unit.id),
       evidence: {
@@ -96,44 +85,11 @@ export function ruledClassIds(manifestClasses) {
 export function partitionClusters(clusters, ruledIds) {
   const unruled = clusters.filter((cluster) => !ruledIds.has(cluster.class));
   const multi = unruled.filter((cluster) => cluster.size > 1);
-  let ruledBlankUnits = 0;
-  for (const cluster of clusters) if (ruledIds.has(cluster.class)) ruledBlankUnits += cluster.size;
   return {
     top: multi.slice(0, TOP_CLUSTER_COUNT),
     later: multi.slice(TOP_CLUSTER_COUNT),
     singletons: unruled.filter((cluster) => cluster.size === 1),
-    ruledBlankUnits,
   };
-}
-
-const ACCEPTING_MIX = ['approve', 'identical'];
-
-// Whether the recorded verdicts on one duplicate group agree: they are all the same, or they mix only approve and identical, which both accept the new rendering.
-export function verdictsAgree(verdicts) {
-  if (verdicts.size <= 1) return true;
-  return verdicts.size === ACCEPTING_MIX.length && ACCEPTING_MIX.every((verdict) => verdicts.has(verdict));
-}
-
-export function duplicateConflicts(duplicateIndex, unitsById, recordOf) {
-  const conflicts = [];
-  for (const duplicateGroup of [...duplicateIndex.keys()].sort()) {
-    const unitIds = duplicateIndex
-      .get(duplicateGroup)
-      .map((id) => ({ id, order: triageOrder(unitsById.get(id)) }))
-      .sort(byTriageOrder)
-      .map((entry) => entry.id);
-    const records = new Map();
-    for (const id of unitIds) {
-      const record = recordOf(id);
-      if (record && record.verdict !== 'skip') records.set(id, record);
-    }
-    const verdicts = new Set();
-    for (const record of records.values()) verdicts.add(record.verdict);
-    if (!verdictsAgree(verdicts)) {
-      conflicts.push({ duplicateGroup, class: unitsById.get(unitIds[0])?.class ?? '', unitIds, records });
-    }
-  }
-  return conflicts;
 }
 
 export function singletonChunks(singletons) {
@@ -196,18 +152,14 @@ export function decisionKey(units, stacked = null) {
   return signatures.size === 1 ? [...signatures][0] : SINGLETON_DECISION;
 }
 
-// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with one representative per duplicate group that has no record, then the singletons. A record on a blank member can only be a skip, so any recorded member defers its whole duplicate group. `shown` holds the decision keys stacked in this browser, least recently stacked first (the app keeps it in localStorage, `readShownDecisions`). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is in a deferred group.
+// The next decision to show the reviewer. Open decisions are in queue order: the largest cluster first, with its members that have no record, then the singletons. A record on a blank member can only be a skip, which defers that member. `shown` holds the decision keys stacked in this browser, least recently stacked first (the app keeps it in localStorage, `readShownDecisions`). The first open decision not in `shown` is returned, so leaving a cluster postpones it. When every open decision has been shown, the one shown longest ago is returned with `revisit` set. The returned decision carries its `key`, which the worklist stacked from it records in `shown`. Returns null when every blank unit is deferred.
 export function nextQueueDecision(units, recordOf, ruledIds, shown = new Set()) {
   const clusters = buildClusters(units, recordOf);
   const { top, later, singletons } = partitionClusters(clusters, ruledIds);
   const open = [];
   for (const cluster of [...top, ...later]) {
-    const representatives = [];
-    for (const group of cluster.duplicateGroups) {
-      if (group.unitIds.some((id) => recordOf(id))) continue;
-      representatives.push(group.unitIds[0]);
-    }
-    if (representatives.length > 0) open.push({ key: cluster.id, decision: { kind: 'cluster', cluster, unitIds: representatives } });
+    const unitIds = cluster.memberIds.filter((id) => !recordOf(id));
+    if (unitIds.length > 0) open.push({ key: cluster.id, decision: { kind: 'cluster', cluster, unitIds } });
   }
   const openSingles = singletons.filter((cluster) => !recordOf(cluster.exemplar.id));
   if (openSingles.length > 0) {
@@ -228,7 +180,7 @@ export function nextQueueDecision(units, recordOf, ruledIds, shown = new Set()) 
   return { ...oldest.decision, key: oldest.key, revisit: true };
 }
 
-// What to do with a review queue worklist from the URL hash, as `{ action, unitIds }`. A worklist names units by id, and a unit's id is its content key, so on a corpus other than the one the worklist was stacked for (or with no stamp) the ids that `exists` still finds name the same units: `unitIds` keeps those, in order, and the action is 'restamp', which rewrites the worklist onto them and the current stamp. When none survive, the action is 'restack', which stacks the next decision from the live queue. A worklist whose kept units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred representatives again, so a current worklist with any skip or blank renders (null).
+// What to do with a review queue worklist from the URL hash, as `{ action, unitIds }`. A worklist names units by id, and a unit's id is its content key, so on a corpus other than the one the worklist was stacked for (or with no stamp) the ids that `exists` still finds name the same units: `unitIds` keeps those, in order, and the action is 'restamp', which rewrites the worklist onto them and the current stamp. When none survive, the action is 'restack', which stacks the next decision from the live queue. A worklist whose kept units all have a verdict other than skip was finished, so it gets 'advance', as finishing it live would. A skip is a record but not a verdict, and clicking a skipped-through cluster's card should show its deferred members again, so a current worklist with any skip or blank renders (null).
 export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf, exists }) {
   const current = stamp === manifestStamp;
   const kept = current ? unitIds : unitIds.filter((id) => exists(id));
@@ -241,17 +193,14 @@ export function queueResumeAction({ stamp, manifestStamp, unitIds, recordOf, exi
   return { action: current ? null : 'restamp', unitIds: kept };
 }
 
-// The note the Queue shows when no human unit carries a cluster signature. Every human unit of a table-diff corpus carries one, so there that means no change since the accepted build needs a verdict: there is none, the machine approved every one or none takes a verdict, or the machine has no snapshot to compare with (the manifest's `baseline`). An m1-audit corpus without signatures predates them.
+// The note the Queue shows when no human unit carries a cluster signature. Every human unit carries one, so that means no change since the accepted build needs a verdict: there is none, the machine approved every one or none takes a verdict, or the machine has no snapshot to compare with (the manifest's `baseline`).
 export function queueEmptyNote(manifest) {
-  if (manifest?.mode !== 'table-diff') {
-    return `This corpus predates cluster signatures — rebuild it with ${manifest?.build_command ?? 'uv run python -m rebuild.review.build'} to use the review queue.`;
-  }
-  const baseline = manifest.baseline ?? {};
+  const baseline = manifest?.baseline ?? {};
   if (!baseline.present) {
     return 'No snapshot of an accepted build is on this machine, so there is nothing to compare with — make review-snapshot-remake builds the one rebuild/review-snapshot.json names.';
   }
   const since = typeof baseline.commit === 'string' && baseline.commit ? baseline.commit.slice(0, 12) : 'the accepted build';
-  const units = manifest.totals?.units ?? 0;
+  const units = manifest?.totals?.units ?? 0;
   if (units === 0) return `No unaccepted changes since ${since}.`;
   const count = units.toLocaleString('en-US');
   return `No unaccepted change since ${since} needs a verdict: the ${units === 1 ? 'one change is' : `${count} changes are`} machine-approved or take no verdict.`;
@@ -259,16 +208,13 @@ export function queueEmptyNote(manifest) {
 
 export function queueTotals(clusters) {
   let blankUnits = 0;
-  let duplicateGroups = 0;
   let multiClusters = 0;
   for (const cluster of clusters) {
     blankUnits += cluster.size;
-    duplicateGroups += cluster.duplicateGroups.length;
     if (cluster.size > 1) multiClusters += 1;
   }
   return {
     blankUnits,
-    duplicateGroups,
     clusters: clusters.length,
     multiClusters,
     singletonClusters: clusters.length - multiClusters,

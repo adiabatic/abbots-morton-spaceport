@@ -253,12 +253,12 @@ def test_one_output_folds_a_pass_and_one_at_its_overrun_folds_anyway(monkeypatch
     monkeypatch.setattr(cycle_paths, "CYCLE_VAR", tmp_path / "cycle")
     monkeypatch.setenv(row_delta.CYCLE_RUN_ENV, "run-1")
     assert row_delta.claim_fold("windows-ss03.tsv.gz")
-    assert not row_delta.claim_fold("unit-cache.ndjson.gz")
+    assert not row_delta.claim_fold("divergence-audit.tsv")
     assert row_delta.claim_fold("windows-ss03.tsv.gz")
     claim = tmp_path / "cycle" / cycle_paths.FOLD_CLAIM_NAME
     assert json.loads(claim.read_text()) == {"run": "run-1", "output": "windows-ss03.tsv.gz"}
     monkeypatch.setenv(row_delta.CYCLE_RUN_ENV, "run-2")
-    assert row_delta.claim_fold("unit-cache.ndjson.gz")
+    assert row_delta.claim_fold("divergence-audit.tsv")
     assert not row_delta.claim_fold("windows-ss03.tsv.gz")
     base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 10, 1000)
     segment = row_delta.Part(row_delta.segment_name(OUTPUT, 0, 1), 1, "", 1, 10)

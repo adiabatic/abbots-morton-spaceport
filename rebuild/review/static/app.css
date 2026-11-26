@@ -131,7 +131,7 @@ summary:focus-visible {
     color: light-dark(#444, #ccc);
 
     > span + span:not([hidden])::before {
-      content: '·';
+      content: "·";
       margin-inline: 2ch;
     }
 
@@ -146,7 +146,7 @@ summary:focus-visible {
       cursor: pointer;
 
       &::after {
-        content: ' ▾';
+        content: " ▾";
         opacity: 0.65;
       }
 
@@ -377,12 +377,6 @@ summary:focus-visible {
         .search-where {
           color: inherit;
         }
-
-        .class-status {
-          color: inherit;
-          background: none;
-          border-color: currentColor;
-        }
       }
 
       .search-id {
@@ -411,10 +405,6 @@ summary:focus-visible {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
-        }
-
-        .class-status {
-          flex: none;
         }
       }
 
@@ -464,7 +454,7 @@ summary:focus-visible {
     color: var(--muted);
 
     &::after {
-      content: '▾';
+      content: "▾";
       opacity: 0.65;
     }
 
@@ -582,8 +572,13 @@ summary:focus-visible {
       white-space: pre;
       overflow-x: auto;
       --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
-      background-image:
-        linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
+      background-image: linear-gradient(
+          45deg,
+          var(--grid-color) 25%,
+          transparent 25%,
+          transparent 75%,
+          var(--grid-color) 75%
+        ),
         linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
       background-size: 16px 16px;
       background-position:
@@ -628,37 +623,6 @@ summary:focus-visible {
   border-radius: 6px;
 }
 
-/* Who decides a class, keyed on data-status alone so that every element naming a class status can use it: the sidebar pills, the class chips, the search results, the class header, the explain panel and the legend. */
-[data-status="per-unit"] {
-  --pill-color: var(--hot);
-}
-
-[data-status="approved"] {
-  --pill-color: var(--approve);
-}
-
-[data-status="by-design"] {
-  --pill-color: var(--muted);
-}
-
-[data-status="machine-approved"] {
-  --pill-color: var(--skip);
-}
-
-/* A pill's text leans a little toward the body text so the lighter status tokens keep small-text contrast; a table-diff bucket's pill has no status color. */
-.class-status {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-  white-space: nowrap;
-  padding: 0 0.45em;
-  color: color-mix(in srgb, var(--pill-color, var(--muted)) 85%, currentColor);
-  background: color-mix(in srgb, var(--pill-color, transparent) 10%, transparent);
-  border: 1px solid var(--pill-color, var(--hairline));
-  border-radius: 8px;
-}
-
 .class-chip {
   display: inline-flex;
   align-items: baseline;
@@ -666,13 +630,9 @@ summary:focus-visible {
   font-size: 0.8rem;
   padding: 0.05em 0.5em;
   background: light-dark(#f0f0f0, #333);
-  border: 1px solid color-mix(in srgb, var(--pill-color, var(--hairline)) 55%, var(--hairline));
+  border: 1px solid var(--hairline);
   border-radius: 8px;
   cursor: default;
-
-  .class-status {
-    font-size: 0.85em;
-  }
 }
 
 .class-rationale {
@@ -763,17 +723,6 @@ summary:focus-visible {
     }
   }
 
-  .class-subhead {
-    margin: 0.9rem 0 0.4rem;
-    padding-top: 0.5rem;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-    border-top: 1px solid var(--hairline);
-  }
-
   ul {
     list-style: none;
     margin: 0;
@@ -854,11 +803,6 @@ summary:focus-visible {
       .class-summary {
         opacity: 0.6;
       }
-
-      .class-status {
-        --pill-color: var(--muted);
-        opacity: 0.75;
-      }
     }
   }
 
@@ -920,19 +864,12 @@ summary:focus-visible {
     font-size: 15px;
   }
 
-  .class-header-note {
-    padding-left: 0.6rem;
-    color: var(--neither);
-    border-left: 3px solid var(--neither);
-  }
-
   .class-header-counts {
     color: var(--muted);
     font-variant-numeric: tabular-nums;
   }
 
-  .class-header-section,
-  .class-header-identical {
+  .class-header-section {
     color: light-dark(#444, #ccc);
   }
 
@@ -1130,8 +1067,7 @@ details.group {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    background:
-      linear-gradient(
+    background: linear-gradient(
         to top right,
         transparent calc(50% - 1.5px),
         var(--reject) calc(50% - 1.5px) calc(50% + 1.5px),
@@ -1172,16 +1108,6 @@ details.group {
       text-underline-offset: 0.18em;
     }
 
-    /* Underlines a secondary junction with no primary unit, which is judged in this unit. It uses the dashed amber of .secondary-band and sits lower than the pair-mark underline so the two stay apart where they overlap. */
-    .junction-mark {
-      text-decoration-line: underline;
-      text-decoration-style: dashed;
-      text-decoration-color: light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
-      text-decoration-thickness: 2px;
-      text-decoration-skip-ink: none;
-      text-underline-offset: 0.5em;
-    }
-
     .codepoints {
       display: flex;
       align-items: center;
@@ -1210,35 +1136,6 @@ details.group {
       gap: 0.35rem;
       font-size: 11px;
       color: var(--muted);
-
-      .exemplar,
-      .config-class-note,
-      .duplicate-chip {
-        border: 1px solid var(--hairline);
-        border-radius: 8px;
-        padding: 0 0.45em;
-      }
-
-      .exemplar {
-        color: var(--hot);
-        border-color: var(--hot);
-      }
-
-      .duplicate-chip {
-        color: var(--muted);
-        text-decoration: none;
-
-        &:hover {
-          border-color: var(--hot);
-          color: var(--hot);
-        }
-      }
-
-      .config-class-note {
-        cursor: default;
-        color: var(--either);
-        border-color: var(--either);
-      }
 
       .class-chip {
         font-size: inherit;
@@ -1583,18 +1480,8 @@ details.group {
       code {
         overflow-wrap: anywhere;
       }
-
-      .pin-scope {
-        color: var(--muted);
-        cursor: default;
-
-        code {
-          color: light-dark(#222, #e0e0e0);
-        }
-      }
     }
   }
-
 }
 
 /* The color for each stylistic set, keyed on data-ss alone so that every element naming a set can use it: the config-gate chips below, the .explain-ss mentions in the explain panel, and the type preview's sets popover and toggle. */
@@ -1734,8 +1621,13 @@ details.group {
   font-size: var(--font-size);
   position: relative;
   --grid-color: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
-  background-image:
-    linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%),
+  background-image: linear-gradient(
+      45deg,
+      var(--grid-color) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--grid-color) 75%
+    ),
     linear-gradient(45deg, var(--grid-color) 25%, transparent 25%, transparent 75%, var(--grid-color) 75%);
   background-size: 16px 16px;
   background-position:
@@ -1749,39 +1641,6 @@ details.group {
     background: var(--hot-fill);
     border-bottom: 5px solid var(--hot);
     pointer-events: none;
-  }
-
-  /* A secondary divergent junction, drawn weaker than the pair band: a fainter fill and a dashed top edge in place of the solid bottom edge. Only its primary-unit chip takes clicks. */
-  .secondary-band {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    background: light-dark(rgba(217, 119, 6, 0.06), rgba(255, 184, 107, 0.05));
-    border-top: 3px dashed light-dark(rgba(179, 89, 0, 0.55), rgba(255, 184, 107, 0.5));
-    pointer-events: none;
-
-    .junction-chip {
-      position: absolute;
-      top: 0.35rem;
-      left: 50%;
-      translate: -50% 0;
-      pointer-events: auto;
-      font-family: var(--code-font);
-      font-size: 10px;
-      line-height: 1.5;
-      padding: 0 0.5em;
-      border: 1px solid var(--hairline);
-      border-radius: 8px;
-      background: var(--card);
-      color: var(--muted);
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    a.junction-chip:hover {
-      border-color: var(--hot);
-      color: var(--hot);
-    }
   }
 
   .boundary-mark {
@@ -1856,26 +1715,6 @@ dialog {
       dd {
         margin: 0.1rem 0 0 1rem;
         color: var(--muted);
-      }
-    }
-
-    .legend-pills {
-      margin: 0.75rem 0;
-
-      caption {
-        padding-bottom: 0.3rem;
-        text-align: left;
-        font-size: 13px;
-        font-weight: 600;
-      }
-
-      td {
-        font-size: 13px;
-        color: var(--muted);
-      }
-
-      td:first-child {
-        white-space: nowrap;
       }
     }
   }
@@ -2768,21 +2607,6 @@ body.queue-view main {
 
     a {
       margin-right: 0.6em;
-    }
-  }
-
-  table.conflict {
-    border-collapse: collapse;
-    font-size: 0.85rem;
-
-    td {
-      padding: 0.15rem 0.8rem 0.15rem 0;
-      vertical-align: baseline;
-    }
-
-    .note {
-      color: var(--muted);
-      font-style: italic;
     }
   }
 

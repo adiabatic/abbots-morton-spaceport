@@ -1,4 +1,4 @@
-"""Compute the review corpus's readiness: whether the served corpus is the table-diff corpus (rebuild/REVIEW-PLAN.md §2.3), whether it matches the runes and code on disk (`fingerprint.TABLE_DIFF_COMPONENTS`, its after font is rebuild/out/m1/M1.otf byte for byte, and its per-unit index and both app sidecars are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, whether the snapshot it compares with is the one the tracked pointer names (`_snapshot_check`), whether the verdict store is stamped for it, how many of its human units read blank, and how many unaccepted changes it shows (`_diff_check`, which never fails). The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs."""
+"""Compute the review corpus's readiness: whether the served corpus is the table-diff corpus (rebuild/REVIEW-PLAN.md §2.3), whether it matches the runes and code on disk (`fingerprint.TABLE_DIFF_COMPONENTS`, its after font is rebuild/out/m1/M1.otf byte for byte, and both app sidecars are stamped for its manifest, the check of a finished corpus the cycle shares, `app_index.outputs_not_current`), whether a green artifact cycle produced it, whether the snapshot it compares with is the one the tracked pointer names (`_snapshot_check`), whether the verdict store is stamped for it, how many of its human units read blank, and how many unaccepted changes it shows (`_diff_check`, which never fails). The serve.py /status handler and the verdict_ready CLI both render the dict `compute_status` returns, so a change to its shape changes theirs."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from rebuild.pipeline import fingerprint
-from rebuild.review import app_index, store_lock, unit_index
+from rebuild.review import app_index, shards, store_lock
 from rebuild.review.verdict_store import (
     MalformedStore,
     latest_by_unit,
@@ -39,7 +39,7 @@ def _corpus_check(manifest) -> dict:
     if manifest.get("mode") != TABLE_DIFF_MODE:
         return {
             "level": "fail",
-            "detail": f"The review corpus is an {manifest.get('mode', 'm1-audit')!r} corpus, not the table-diff corpus the cycle builds.",
+            "detail": f"The review corpus's manifest names the mode {manifest.get('mode')!r}, not the table-diff corpus the cycle builds.",
             "remedy": CORPUS_REMEDY,
         }
     return {"level": "ok", "detail": "The review corpus manifest is present and readable.", "remedy": None}
@@ -122,7 +122,7 @@ def _freshness_check(
             components[name] = "unknown"
         else:
             components[name] = "stale"
-    hard = [name for name in names if name not in unit_index.ASSET_COMPONENTS and components[name] != "fresh"]
+    hard = [name for name in names if name not in shards.ASSET_COMPONENTS and components[name] != "fresh"]
     if hard:
         stale = [name for name in hard if components[name] == "stale"]
         detail = (
@@ -153,7 +153,7 @@ def _freshness_check(
             "remedy": artifact_cycle_remedy,
             "components": components,
         }
-    if any(components[name] != "fresh" for name in unit_index.ASSET_COMPONENTS if name in components):
+    if any(components[name] != "fresh" for name in shards.ASSET_COMPONENTS if name in components):
         return {
             "level": "warn",
             "detail": "Only the review UI assets changed since the corpus was generated; the units are unchanged, and the cycle refreshes the served copy in place.",

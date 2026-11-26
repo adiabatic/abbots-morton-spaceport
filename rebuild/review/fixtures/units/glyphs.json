@@ -1,0 +1,118 @@
+[
+ {
+  "id": "u-51MZrbcA5zc",
+  "content_key": "17f37401afbd9bb5b1c9dfa2e75416b704c8d359b39cf36bf7cdf9e1b9996a54",
+  "ink_identical": false,
+  "picture_identical": false,
+  "no_verdict": false,
+  "kerning": false,
+  "cluster": "c-e44f0b17",
+  "class": "glyphs",
+  "group": "qsTea",
+  "row_key": "glyph qsTea: outline",
+  "codepoints": null,
+  "text_entities": null,
+  "notation": "glyph qsTea: outline",
+  "notation_tokens": null,
+  "configs": [
+   "default",
+   "ss03",
+   "ss04",
+   "ss05",
+   "ss03+ss05",
+   "ss07",
+   "ss08"
+  ],
+  "config_note": null,
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03",
+     "ss04",
+     "ss05",
+     "ss03+ss05",
+     "ss07",
+     "ss08"
+    ]
+   }
+  ],
+  "kinds": [
+   "outline"
+  ],
+  "before": {
+   "glyphs": [],
+   "junctions": []
+  },
+  "after": {
+   "cells": [],
+   "junctions": [],
+   "extensions": []
+  },
+  "diff_positions": [],
+  "pair": null,
+  "pair_codepoints": null,
+  "highlight": null,
+  "boundary_marks": [],
+  "summary": "qsTea, a glyph no text draws, has a different outline than in the accepted build",
+  "explain": "glyphs (outline): qsTea draws a different outline than in the accepted build.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07, ss08\n  text: none; settlement always replaces this glyph",
+  "provenance": []
+ },
+ {
+  "id": "u-LtadFU2dmvz",
+  "content_key": "76e90f5a51931d7bc8831b2152c593a06c5177e4947453826b5abb2cc493d793",
+  "ink_identical": false,
+  "picture_identical": false,
+  "no_verdict": false,
+  "kerning": false,
+  "cluster": "c-31c6a8d2",
+  "class": "glyphs",
+  "group": "qsI",
+  "row_key": "glyph qsI.loop: outline",
+  "codepoints": "E675",
+  "text_entities": "&#xE675;",
+  "notation": "\u00b7I",
+  "notation_tokens": [
+   "\u00b7I"
+  ],
+  "configs": [
+   "default",
+   "ss03+ss05"
+  ],
+  "config_note": "only under: default, ss03+ss05",
+  "config_gate": null,
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "outline"
+  ],
+  "before": {
+   "glyphs": [
+    "qsI.loop"
+   ],
+   "junctions": []
+  },
+  "after": {
+   "cells": [
+    "qsI.loop"
+   ],
+   "junctions": [],
+   "extensions": []
+  },
+  "diff_positions": [],
+  "pair": null,
+  "pair_codepoints": null,
+  "highlight": null,
+  "boundary_marks": [],
+  "summary": "qsI.loop draws a different outline than in the accepted build",
+  "explain": "glyphs (outline): qsI.loop draws a different outline than in the accepted build.\n  configurations: default, ss03+ss05\n  text: \u00b7I (its code point alone)",
+  "provenance": []
+ }
+]

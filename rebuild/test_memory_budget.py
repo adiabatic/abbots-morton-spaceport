@@ -177,22 +177,6 @@ class TestTheWidthsAlreadyOnRecord:
         assert 0 < PARKED_FOLD_BYTES < SCRATCH_PEAK_BYTES
         assert 0 < FOLD_PREPARATION_BYTES <= DELTA_SLOT_BYTES
 
-    @pytest.mark.parametrize("ncores", (18, 12))
-    def test_the_shipped_corpus_divisor_holds_the_fleet_at_its_lane_share_by_division(self, ncores: int):
-        """On both fleet machines (`doc/fleet.md`), 48 GiB at eighteen and at twelve cores, the corpus build's width under a gated cycle is its cap, the build lane's share of the cores less the build's main thread (`memory_budget.split_cores`), because that many threads fit the memory budget beside the build's process, its launcher and gate:make-test's pool, which is the claim the `CORPUS_BUILD_RS_THREAD_BYTES` comment makes for the fleet. The division alone is checked too, since a capped width cannot tell the cap from a division that equals it. This is an upper bound on `CORPUS_BUILD_RS_THREAD_BYTES`, `CORPUS_BUILD_RS_PROCESS_BYTES` and `CORPUS_BUILD_RS_LAUNCHER_BYTES`: a change that makes the lane share's threads exceed either machine's budget narrows the width below the cap and fails here. A width test cannot give a lower bound without an invented machine tuned to divide exactly, which every change to the constants would have to re-tune. The corpus-build-rs row of `make job-costs` reports the build's own readings against them, from the pool records `corpus_exec.run_build` writes."""
-        import rebuild.tools.artifact_cycle as ac
-
-        lane_share = memory_budget.split_cores(ncores)[0] - 1
-        per_unit, coresident, cap = ac._corpus_fit_terms(
-            skip_gates=False, skip_make_test=False, ncores=ncores
-        )
-        assert cap == lane_share
-        assert (
-            memory_budget.how_many_fit(per_unit, coresident_bytes=coresident, total_bytes=MACHINE_48_GIB)
-            >= lane_share
-        )
-        assert ac.corpus_job_budget(skip_gates=False, ncores=ncores, total_bytes=MACHINE_48_GIB) == lane_share
-
 
 class TestWhatDashNAutoResolvesTo:
     """The root hook resolves every repository collection to the usable cores unless the environment names a width. Memory never narrows this pool, so the tests vary `AMS_TOTAL_MEMORY_BYTES` while pinning the same core count."""
@@ -263,32 +247,6 @@ class TestTheHandRunDefaults:
         run_m1_gates.main(["--gates-only"])
         run_m1_gates.main(["--gates-only", "--conform-only"])
         assert handed == [sweep, sweep]
-
-    def test_the_corpus_build_takes_its_own_budget_with_no_memory_set_aside_for_gates(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
-        """A hand run has no co-resident `make test` pool to leave cores or memory to, so the default is `corpus_job_budget` with `skip_gates=True`. Where memory holds the derived width below the cap, a checked-in width equal to it would pass the first equality. So the test moves the machine to 1 TB, where memory cannot bind, and checks that the width becomes the solo cap, every usable core less the build's main thread. On the fleet machines the width is already at that cap, so there the move changes nothing."""
-        import rebuild.tools.artifact_cycle as ac
-        from rebuild.review import build
-
-        assert _parser_built_by(build.main).parse_args([]).jobs == ac.corpus_job_budget(skip_gates=True)
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_1_TB))
-        widened = _parser_built_by(build.main).parse_args([]).jobs
-        assert widened == ac.corpus_job_budget(skip_gates=True)
-        assert widened == max(1, memory_budget.usable_cores() - 1)
-
-    def test_the_signature_width_is_the_hand_runs_whole_machine(self, monkeypatch: pytest.MonkeyPatch):
-        """The signature width does not depend on memory: each shaper is one comparator, so the hand run's default is the cores, the width a cycle passes too. Shrinking the machine until `--jobs` falls to one leaves the signature width unchanged, which a memory-derived width would not."""
-        import rebuild.tools.artifact_cycle as ac
-        from rebuild.review import build
-
-        cores = memory_budget.usable_cores()
-        args = _parser_built_by(build.main).parse_args([])
-        assert args.signature_jobs == ac.signature_job_budget() == cores
-        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "8000000000")
-        narrowed = _parser_built_by(build.main).parse_args([])
-        assert narrowed.jobs == 1
-        assert narrowed.signature_jobs == cores
 
 
 class TestTheFloorAtOne:

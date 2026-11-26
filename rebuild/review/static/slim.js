@@ -1,6 +1,6 @@
 // Pure helpers for loading units without holding the corpus: the incremental NDJSON line split, the sidecar header check, the byte-span addressing that fetches a unit's record from its shard, the coalescing of spans into Range requests, the locator's block table and the binary search a deep link runs over it, the bounded record cache, and the plan for the show-machine folds. The app boots from the app index (one row per unit awaiting a verdict) instead of the class shards, so the tab's memory grows with the queue, not with the corpus; rebuild/review/app_index.py describes the files. These functions live here because app.js awaits its manifest fetch at top level, so node --test cannot import it.
 
-import { machineFoldCheck, machineFoldTotal, needsNoVerdict } from './render.js';
+import { machineFoldCheck, machineFoldTotal } from './render.js';
 
 export const APP_INDEX_NAME = 'app-units.ndjson.gz';
 export const APP_INDEX_FORMAT = 'ams-review-app-index/1';
@@ -50,17 +50,12 @@ export function checkIndexHeader(header, manifest, format) {
   return { ok: true, reason: null };
 }
 
-// A slim fragment is the shard record of a unit that takes no verdict, written without `explain`, `drafts` and `highlight` (`SLIM_OMITTED_KEYS` in rebuild/review/audit.py lists them, and `check_unit` in rebuild/review/build.py checks the shape). The keys are absent, not null, which distinguishes a slim fragment from a full record with a blank field. An app-index row is not a slim fragment: it takes a verdict, and its explain material is fetched from its shard when the panel opens.
-export function isSlimFragment(unit) {
-  return Boolean(unit) && needsNoVerdict(unit) && !('explain' in unit) && !('drafts' in unit);
-}
-
-// Whether the explain panel can be filled from this object. An app-index row has none of `explain`, `provenance` and `drafts`, so its panel is filled from the shard record when opened. A shard record has what the build wrote, and for a slim fragment the panel says what was left out.
+// Whether the explain panel can be filled from this object. An app-index row has neither `explain` nor `provenance`, so its panel is filled from the shard record when opened.
 export function hasExplainSource(unit) {
-  return Boolean(unit) && (isSlimFragment(unit) || 'explain' in unit || 'provenance' in unit || 'drafts' in unit);
+  return Boolean(unit) && ('explain' in unit || 'provenance' in unit);
 }
 
-// Whether a unit has what its sample cells draw. An app-index row does not: the card fetches `text_entities`, `highlight` and `after.cells` from the shard record. A shard record always does, including a slim fragment, which of these omits only `highlight`.
+// Whether a unit has what its sample cells draw. An app-index row does not: the card fetches `text_entities`, `highlight` and `after.cells` from the shard record, which carries them.
 export function carriesSamples(unit) {
   return Boolean(unit) && typeof unit.text_entities === 'string';
 }
@@ -70,7 +65,7 @@ export function drawnWithKerning(unit) {
   return unit?.kerning === true;
 }
 
-// A unit id is `u-` followed by eleven base58 symbols (the alphabet without 0, O, I and l), made from the unit's content key by `unit_cache.unit_id_for`. Ids sort by string order, which is the order the build writes a class's fragments and locator rows in.
+// A unit id is `u-` followed by eleven base58 symbols (the alphabet without 0, O, I and l), made from the unit's content key by `unit_ids.unit_id_for`. Ids sort by string order, which is the order the build writes a class's fragments and locator rows in.
 const UNIT_ID = /^u-[1-9A-HJ-NP-Za-km-z]{11}$/;
 export function isUnitId(unitId) {
   return typeof unitId === 'string' && UNIT_ID.test(unitId);
@@ -134,16 +129,9 @@ export function sliceRecordBytes(runBytes, run, row) {
 
 const asciiDecoder = new TextDecoder();
 
-// A deflated fragment's bytes inflated, as `unit_index.deflate_fragment` deflates them: one raw deflate stream with no dictionary. A stream that is cut short or runs on past its end rejects.
-export async function inflateRaw(bytes) {
-  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Response(stream).text();
-}
-
-// One row's fragment as JSON text, from the bytes its run returned: a row marked `deflated` (#618's change 35) is inflated, and a plain one is ASCII, so it decodes byte for byte.
+// One row's fragment as JSON text, from the bytes its run returned. A fragment is ASCII, so it decodes byte for byte.
 export async function recordText(runBytes, run, row) {
-  const bytes = sliceRecordBytes(runBytes, run, row);
-  return row.deflated ? inflateRaw(bytes) : asciiDecoder.decode(bytes);
+  return asciiDecoder.decode(sliceRecordBytes(runBytes, run, row));
 }
 
 export function shardPartPath(manifest, row) {

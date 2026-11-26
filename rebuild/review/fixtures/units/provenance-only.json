@@ -1,0 +1,66 @@
+[
+ {
+  "id": "u-RbQ5ouLr5qu",
+  "content_key": "9308482141d7727c2c428545c753681e932c70315058bbc86f72063d1100c31e",
+  "ink_identical": false,
+  "picture_identical": false,
+  "no_verdict": true,
+  "kerning": false,
+  "cluster": null,
+  "class": "provenance-only",
+  "group": "qsTea",
+  "row_key": "provenance qsTea",
+  "codepoints": "E652",
+  "text_entities": "&#xE652;",
+  "notation": "\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "ss03",
+   "ss03+ss05"
+  ],
+  "config_note": "only when ss03 is on",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "on",
+    "text": "only when ss03 is on"
+   }
+  ],
+  "render_groups": [
+   {
+    "configs": [
+     "ss03",
+     "ss03+ss05"
+    ]
+   }
+  ],
+  "kinds": [
+   "provenance-only"
+  ],
+  "before": {
+   "glyphs": [
+    "qsTea.full"
+   ],
+   "junctions": []
+  },
+  "after": {
+   "cells": [
+    "qsTea.full"
+   ],
+   "junctions": [],
+   "extensions": []
+  },
+  "diff_positions": [],
+  "pair": null,
+  "pair_codepoints": null,
+  "highlight": null,
+  "boundary_marks": [],
+  "summary": "\u00b7Tea's rules credit other records and settle as before",
+  "explain": "provenance-only (provenance-only): \u00b7Tea's rules credit other records and settle as before.\n  configurations: ss03, ss03+ss05\n  text: \u00b7Tea (the shortest certificate of its new rules)",
+  "provenance": [
+   "glyph_data/runes/qsTea.yaml:policy.extend[2]"
+  ]
+ }
+]

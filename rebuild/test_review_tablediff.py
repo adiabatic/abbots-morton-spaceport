@@ -1,4 +1,4 @@
-"""Tests for the row diff the table-diff mode reads its evidence from (`rebuild/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the table widths and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `rebuild/test_review_diff_units.py` covers the units the corpus makes of the rows, and `rebuild/test_review_snapshot.py` the snapshot. The classification and self-diff tests use the synthetic pair or the frozen mini-M1 bundle's tables."""
+"""Tests for the row diff the table-diff corpus reads its evidence from (`rebuild/review/tablediff.py`): added, removed, and changed classification on synthetic table pairs, pairing of removals and additions into regrouped rows, provenance-only demotion, the table widths and gzipped tables the loaders read, the byte comparison that passes over an unchanged table, and the settled configurations the diff reads. `rebuild/test_review_diff_units.py` covers the units the corpus makes of the rows, and `rebuild/test_review_snapshot.py` the snapshot. The classification and self-diff tests use the synthetic pair or the frozen mini-M1 bundle's tables."""
 
 import gzip
 import shutil
@@ -204,20 +204,6 @@ def test_a_gzipped_table_reads_as_the_plain_one_and_compares_by_its_rows(tmp_pat
 def test_the_settled_configurations_match_the_builds():
     """The review package cannot import `conform`, so `tablediff.SETTLED_CONFIGS` restates the build's settled configurations; this ties the two lists together."""
     assert tablediff.SETTLED_CONFIGS == conform.SETTLEMENT_CONFIGS
-
-
-def test_the_review_rosters_match_the_oracles():
-    """The review package restates the oracle's configurations, the M1-only ones and the window-scoped ones as `audit.ACCEPTANCE_CONFIGS`, `audit.M1_ONLY_CONFIGS` and `audit.WINDOW_SCOPED_CONFIGS`. The review corpus lists only what the oracle compares, so an M1-only configuration that leaked into the review roster would badge every unit and look for a baseline table that does not exist."""
-    from rebuild.review import audit
-
-    assert audit.ACCEPTANCE_CONFIGS == conform.ORACLE_CONFIGS
-    assert audit.M1_ONLY_CONFIGS == conform.M1_ONLY_CONFIGS
-    from rebuild.pipeline import baseline_subset
-
-    assert {
-        config: frozenset(int(letter, 16) for letter in letters)
-        for config, letters in audit.WINDOW_SCOPED_CONFIGS
-    } == {config: letters for config, (_reference, letters) in baseline_subset.WINDOW_SCOPED_CONFIGS.items()}
 
 
 def test_a_diff_ignores_tables_of_a_configuration_outside_the_settled_set(table_dirs):

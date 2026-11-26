@@ -85,13 +85,13 @@ def test_parse_line_reads_back_every_writer():
     console.phase("enrich", file=sink)
     console.progress(3, 6, "configurations", file=sink)
     console.progress(8192, None, "units", file=sink)
-    console.warn("2 duplicate groups hold disagreeing verdicts", file=sink)
+    console.warn("2 verdicts were kept aside as conflicts", file=sink)
     console.timing("enrich", 12.5, "(4 shards)", file=sink)
     assert [console.parse_line(line) for line in sink.getvalue().splitlines()] == [
         console.Phase("enrich"),
         console.Progress(done=3, total=6, unit="configurations"),
         console.Progress(done=8192, total=None, unit="units"),
-        console.Warn("2 duplicate groups hold disagreeing verdicts"),
+        console.Warn("2 verdicts were kept aside as conflicts"),
         console.Timing("enrich", 12.5, "(4 shards)"),
     ]
 
@@ -534,52 +534,52 @@ def test_skipped_and_not_run_steps_announce_with_their_note_verbatim(capsys):
 
 def test_a_substep_logs_and_surfaces_under_its_parent(capsys, tmp_path):
     cycle_console = _cycle_console(log_dir=tmp_path / "run")
-    cycle_console.step_start("review-facts", ["true"], "", verbatim=True)
-    cycle_console.substep("review-facts", "git-diff")
-    cycle_console.child_line("git-diff", console.STDOUT, '+  "volatile": {')
-    cycle_console.child_line("git-diff", console.STDOUT, "")
-    cycle_console.child_line("git-diff", console.STDERR, "[warn] the pins moved")
+    cycle_console.step_start("job-costs", ["true"], "", verbatim=True)
+    cycle_console.substep("job-costs", "job-costs-diff")
+    cycle_console.child_line("job-costs-diff", console.STDOUT, "-ORACLE_SHARD_BYTES = 1")
+    cycle_console.child_line("job-costs-diff", console.STDOUT, "")
+    cycle_console.child_line("job-costs-diff", console.STDERR, "[warn] a constant moved")
     out = capsys.readouterr().out
-    assert out.splitlines()[-3:-1] == ['+  "volatile": {', ""]
-    assert _bodies(out, "review-facts") == ["warn the pins moved"]
-    log = (tmp_path / "run" / "01-review-facts.log").read_text().splitlines()
-    assert log == ['+  "volatile": {', "", "stderr| [warn] the pins moved"]
+    assert out.splitlines()[-3:-1] == ["-ORACLE_SHARD_BYTES = 1", ""]
+    assert _bodies(out, "job-costs") == ["warn a constant moved"]
+    log = (tmp_path / "run" / "01-job-costs.log").read_text().splitlines()
+    assert log == ["-ORACLE_SHARD_BYTES = 1", "", "stderr| [warn] a constant moved"]
 
 
 def test_a_substep_that_spawns_after_its_parent_closed_leaves_nothing_open(capsys, tmp_path):
-    """The review-facts step prints its diff after its step has closed, so the sub-step's lines open a transient state that `substep_end` must close. Otherwise its log handle would stay open until `stop()` and the heartbeat would report the finished step every minute for the rest of the pass. The surfaced line keeps the review-facts step's clock, so it reads as late output."""
+    """A sub-step can print after its step has closed, so its lines open a transient state that `substep_end` must close. Otherwise its log handle would stay open until `stop()` and the heartbeat would report the finished step every minute for the rest of the pass. The surfaced line keeps the closed step's clock, so it reads as late output."""
     clock = _Clock()
     cycle_console = _cycle_console(clock, log_dir=tmp_path / "run", heartbeat_seconds=60)
-    cycle_console.step_start("review-facts", ["true"], "", verbatim=True)
+    cycle_console.step_start("job-costs", ["true"], "", verbatim=True)
     clock.advance(30)
-    cycle_console.step_end("review-facts", _Result(elapsed=30.0), "ok")
+    cycle_console.step_end("job-costs", _Result(elapsed=30.0), "ok")
     capsys.readouterr()
 
-    cycle_console.substep("review-facts", "git-diff")
-    cycle_console.child_line("git-diff", console.STDOUT, "[warn] the pins moved")
-    cycle_console.substep_end("git-diff")
+    cycle_console.substep("job-costs", "job-costs-diff")
+    cycle_console.child_line("job-costs-diff", console.STDOUT, "[warn] a constant moved")
+    cycle_console.substep_end("job-costs-diff")
 
     out = capsys.readouterr().out
-    assert _bodies(out, "review-facts") == ["warn the pins moved"]
+    assert _bodies(out, "job-costs") == ["warn a constant moved"]
     assert "step   30.0s" in out
     assert cycle_console._open == {}
     clock.advance(61)
     cycle_console._heartbeat_tick()
     assert capsys.readouterr().out == ""
-    assert not (tmp_path / "run" / "00-git-diff.log").exists()
+    assert not (tmp_path / "run" / "00-job-costs-diff.log").exists()
 
 
 def test_a_substep_close_leaves_a_parent_that_is_still_running_alone(capsys, tmp_path):
     """When the sub-step runs while its parent is open, `substep_end` leaves the parent open so the parent's own `step_end` prints its closing line."""
     cycle_console = _cycle_console(log_dir=tmp_path / "run")
-    cycle_console.step_start("review-facts", ["true"], "")
-    cycle_console.substep("review-facts", "git-diff")
-    cycle_console.child_line("git-diff", console.STDOUT, "[warn] the pins moved")
-    cycle_console.substep_end("git-diff")
-    assert set(cycle_console._open) == {"review-facts"}
-    cycle_console.step_end("review-facts", None, "ok", "updated")
+    cycle_console.step_start("job-costs", ["true"], "")
+    cycle_console.substep("job-costs", "job-costs-diff")
+    cycle_console.child_line("job-costs-diff", console.STDOUT, "[warn] a constant moved")
+    cycle_console.substep_end("job-costs-diff")
+    assert set(cycle_console._open) == {"job-costs"}
+    cycle_console.step_end("job-costs", None, "ok", "updated")
     assert cycle_console._open == {}
-    assert _bodies(capsys.readouterr().out, "review-facts") == ["warn the pins moved", "ok  updated"]
+    assert _bodies(capsys.readouterr().out, "job-costs") == ["warn a constant moved", "ok  updated"]
 
 
 def test_a_plain_line_reaches_the_terminal_only_for_a_verbatim_step(capsys):
@@ -612,7 +612,7 @@ def test_the_summary_prints_the_table_the_cycle_lines_and_the_verdict(capsys):
         console.SummaryRow(3, "corpus-build", "skipped", "", None),
     ]
     cycle_console.summary(
-        rows, ["review facts : unchanged", "READY - adjudicate at the review queue"], console.VERDICT_OK
+        rows, ["job costs : checked", "READY - adjudicate at the review queue"], console.VERDICT_OK
     )
     out = capsys.readouterr().out
     assert console.SUMMARY_BANNER in out

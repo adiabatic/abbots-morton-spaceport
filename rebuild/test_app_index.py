@@ -1,8 +1,8 @@
 """Tests for the sidecars the review app boots from, and the byte spans that address the shards they were projected from.
 
-The tests check four properties. `app_row` matches the shard fragment field for field, as `rebuild/test_unit_index.py` does for the verdict update's index, because a field that drops out shows no error: a card just stops drawing something. Every span slices its fragment back out of the bytes `_write_shard` wrote, including across a forced part split and around a fragment too large to share a part, which catches a change to the dump's framing that leaves the offsets wrong, and out of a build's parts that hold fragments deflated (#618's change 35), whose rows, and only theirs, end with `"deflated": true`, through the codec (`unit_index.inflate_fragment`). The two files partition the corpus: the app index holds the manifest's `human_unit_ids` in shard order and the locator holds the rest, so every id the app can link to resolves. Every block the locator table names slices out of the rows file as a gzip member that decodes alone to the rows the table says, within one class, so the app's fold and deep-link binary search read what they expect.
+The tests check four properties. `app_row` matches the shard fragment field for field, because a field that drops out shows no error: a card just stops drawing something. Every span slices its fragment back out of the bytes `_write_shard` wrote, including across a forced part split and around a fragment too large to share a part, which catches a change to the dump's framing that leaves the offsets wrong. The two files partition the corpus: the app index holds the manifest's `human_unit_ids` in shard order and the locator holds the rest, so every id the app can link to resolves. Every block the locator table names slices out of the rows file as a gzip member that decodes alone to the rows the table says, within one class, so the app's fold and deep-link binary search read what they expect.
 
-Nothing here reads the live corpus. The fixture units are rewritten through the real writer in a temp directory, and the end-to-end tests use a mini build over the frozen bundle.
+Nothing here reads the live corpus. The fixture units are rewritten through the real writer in a temp directory. `check_a_builds_sidecars` is the end-to-end check, which rebuild/test_review_diff_units.py runs over a real table-diff build.
 """
 
 from __future__ import annotations
@@ -13,23 +13,20 @@ from pathlib import Path
 
 import pytest
 
-from rebuild.review import app_index, unit_index
-from rebuild.test_unit_cache import deflated_corpus_of
+from rebuild.review import app_index, shards
 from rebuild.review.audit import MACHINE_CHECKS
 from rebuild.review.build import _check_output_files, _write_shard, check_output_dir
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "rebuild" / "review" / "fixtures"
 
-# Listed rather than derived, as in `rebuild/test_unit_index.py`: adding a field the app carries shows up as a diff here, and dropping one the app draws fails here instead of leaving a blank line on a card.
+# Listed rather than derived: adding a field the app carries shows up as a diff here, and dropping one the app draws fails here instead of leaving a blank line on a card.
 APP_ROW_KEYS = {
     "id",
     "order",
     "batch",
     "class",
-    "ledger_class",
     "group",
-    "duplicate_group",
     "cluster",
     "notation",
     "notation_tokens",
@@ -37,15 +34,11 @@ APP_ROW_KEYS = {
     "pair",
     "pair_codepoints",
     "boundary_marks",
-    "secondary_junctions",
     "configs",
     "config_gate",
     "config_note",
-    "config_classes",
-    "config_class_note",
     "render_groups",
     "summary",
-    "exemplar",
     "kinds",
     "shard_part",
     "byte_start",
@@ -63,21 +56,13 @@ _SIDECAR_NAMES = (app_index.APP_INDEX_NAME, app_index.LOCATOR_NAME, app_index.LO
 
 
 def _class_fragments(root: Path, meta: dict) -> list[dict]:
-    return [
-        unit
-        for part in unit_index.class_shards(meta)
-        for unit in json.loads((root / part).read_text(encoding="utf-8"))
-    ]
+    return list(shards.iter_class_fragments(root, meta))
 
 
 def _corpus_shards(corpus: Path) -> tuple[dict, dict[str, list[dict]]]:
-    """Return a corpus's manifest and each class's live fragments in shard order, through the live-fragment iterator, which inflates a deflated one."""
+    """Return a corpus's manifest and each class's fragments in shard order."""
     manifest = json.loads((corpus / "manifest.json").read_text(encoding="utf-8"))
-    shards: dict[str, list[dict]] = {meta["id"]: [] for meta in manifest["classes"]}
-    with unit_index.LiveCorpus(corpus) as live:
-        for meta, _slot, fragment in live.fragments(unit_index.MANIFEST_ORDER):
-            shards[meta["id"]].append(fragment)
-    return manifest, shards
+    return manifest, {meta["id"]: _class_fragments(corpus, meta) for meta in manifest["classes"]}
 
 
 def _rewrite_fixture_corpus(tmp_path: Path) -> Path:
@@ -85,14 +70,14 @@ def _rewrite_fixture_corpus(tmp_path: Path) -> Path:
     corpus = tmp_path / "corpus"
     corpus.mkdir(parents=True, exist_ok=True)
     manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
-    shards: dict[str, list[dict]] = {}
+    by_class: dict[str, list[dict]] = {}
     spans: dict[str, list[tuple[int, int, int]]] = {}
     for meta in manifest["classes"]:
         fragments = _class_fragments(FIXTURES, meta)
         meta["shards"], spans[meta["id"]] = _write_shard(corpus, meta["id"], fragments)
-        shards[meta["id"]] = fragments
+        by_class[meta["id"]] = fragments
     (corpus / "manifest.json").write_text(json.dumps(manifest, indent=1) + "\n", encoding="utf-8")
-    app_index.write_app_artifacts(corpus, shards, spans)
+    app_index.write_app_artifacts(corpus, by_class, spans)
     return corpus
 
 
@@ -117,11 +102,11 @@ def fixture_corpus(tmp_path) -> Path:
 
 
 def _addressed(corpus: Path, manifest: dict, row: dict) -> dict:
-    """Return the fragment a row's span points at, read the way the browser's Range request reads it: that slice of the named part's bytes, inflated alone when the row marks it deflated, as the app's `DecompressionStream('deflate-raw')` inflates it, without a length, and parsed alone."""
+    """Return the fragment a row's span points at, read the way the browser's Range request reads it: that slice of the named part's bytes, parsed alone."""
     meta = next(entry for entry in manifest["classes"] if entry["id"] == row["class"])
-    part = unit_index.class_shards(meta)[row["shard_part"]]
+    part = shards.class_shards(meta)[row["shard_part"]]
     raw = (corpus / part).read_bytes()[row["byte_start"] : row["byte_start"] + row["byte_length"]]
-    return json.loads(unit_index.inflate_fragment(raw) if row.get("deflated") else raw)
+    return json.loads(raw)
 
 
 # --- the spans -----------------------------------------------------------------------------------
@@ -171,10 +156,9 @@ def test_an_empty_class_addresses_nothing(tmp_path):
 
 
 def _assert_row_projects(row: dict, fragment: dict) -> None:
-    assert set(row) - {"deflated"} == APP_ROW_KEYS, row["id"]
-    assert "deflated" not in row or (row["deflated"] is True and list(row)[-1] == "deflated"), row["id"]
+    assert set(row) == APP_ROW_KEYS, row["id"]
     for field, value in row.items():
-        if field in ADDRESS_KEYS or field in INDEX_KEYS or field == "deflated":
+        if field in ADDRESS_KEYS or field in INDEX_KEYS:
             continue
         if field in LIST_DEFAULTED:
             assert value == (fragment.get(field) or []), f"{row['id']}.{field}"
@@ -183,8 +167,8 @@ def _assert_row_projects(row: dict, fragment: dict) -> None:
 
 
 def test_the_app_index_is_the_shards_field_for_field(fixture_corpus):
-    _manifest, shards = _corpus_shards(fixture_corpus)
-    by_id = {fragment["id"]: fragment for shard in shards.values() for fragment in shard}
+    _manifest, by_class = _corpus_shards(fixture_corpus)
+    by_id = {fragment["id"]: fragment for shard in by_class.values() for fragment in shard}
     rows = app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME)
     assert rows
     for row in rows:
@@ -203,7 +187,7 @@ def test_every_row_addresses_the_fragment_it_was_projected_from(fixture_corpus):
 
 
 def test_the_slimmed_flags_are_absent_and_every_row_carries_an_integer_batch(fixture_corpus):
-    """A row in this file is a human unit: the corpus check (`_CorpusCheck.finish`, which the m1 build and `check_shards` both run) fails a build whose `human_unit_ids` differs from the shards' human units, which excludes machine-approved and no-verdict units. So the four flags are dropped instead of carried as four falses per unit, and a reader finds them undefined, which is falsy."""
+    """A row in this file is a human unit: `check_shards` fails a build whose `human_unit_ids` differs from the shards' human units, which excludes machine-approved and no-verdict units. So the three flags are dropped instead of carried as three falses per unit, and a reader finds them undefined, which is falsy."""
     rows = app_index.load_rows(fixture_corpus, app_index.APP_INDEX_NAME)
     assert rows
     for row in rows:
@@ -219,24 +203,14 @@ def test_a_row_whose_flags_are_not_false_refuses_to_be_written():
         app_index.app_row(fragment, 0, 0, 10, order=3, batch=0)
 
 
-def test_only_a_deflated_fragments_rows_carry_the_marker():
-    """A deflated fragment's app-index and locator rows end with `"deflated": true` after `byte_length`, and only theirs (#618's decision 77): a plain fragment's rows carry no `deflated` key, not even false, so each is byte for byte the row a from-scratch build writes for the fragment at that address, under the same format strings. Each row reads back with or without the marker."""
+def test_a_rows_bytes_are_its_fields_in_a_fixed_order():
+    """Every key is present in a fixed order, so two builds of the same corpus write the same bytes, and the address closes the row."""
     fragment = {"id": "u-0000", "class": "c"}
     plain = app_index.locator_line(fragment, 0, 1, 2)
-    marked = app_index.locator_line(fragment, 0, 1, 2, deflated=True)
     assert plain == b'{"id": "u-0000", "class": "c", "shard_part": 0, "byte_start": 1, "byte_length": 2}\n'
-    assert marked == plain[:-2] + b', "deflated": true}\n'
     assert json.loads(plain) == app_index.locator_row(fragment, 0, 1, 2)
-    assert json.loads(marked) == {**json.loads(plain), "deflated": True}
     row = app_index.app_line(fragment, 0, 1, 2, order=3, batch=0)
-    assert row.endswith(b', "shard_part": 0, "byte_start": 1, "byte_length": 2}\n') and b"deflated" not in row
-    assert app_index.app_line(fragment, 0, 1, 2, order=3, batch=0, deflated=True) == (
-        row[:-2] + b', "deflated": true}\n'
-    )
-    assert (
-        list(json.loads(app_index.app_line(fragment, 0, 1, 2, order=3, batch=0, deflated=True)))[-1]
-        == "deflated"
-    )
+    assert row.endswith(b', "shard_part": 0, "byte_start": 1, "byte_length": 2}\n')
     assert (app_index.APP_INDEX_FORMAT, app_index.LOCATOR_FORMAT) == (
         "ams-review-app-index/1",
         "ams-review-app-locator/2",
@@ -244,18 +218,16 @@ def test_only_a_deflated_fragments_rows_carry_the_marker():
 
 
 def test_what_a_card_draws_from_its_record_is_not_in_the_row():
-    """The sample cells and the junction underlines draw from `text_entities`, `highlight`, and `after.cells`, which the card Range-fetches from its record, so the resident row carries none of the three even when the fragment has them."""
+    """The sample cells and the pair band draw from `text_entities`, `highlight`, and `after.cells`, which the card Range-fetches from its record, so the resident row carries none of the three even when the fragment has them."""
     fragment = {
         "id": "u-0000",
         "text_entities": "&#xe652;&#xe679;",
         "highlight": {"before": {"x_min": 0, "x_max": 1}, "after": {"x_min": 0, "x_max": 1}},
-        "secondary_junctions": [{"pair": {"left": 0, "right": 1}, "primary_unit": None}],
         "after": {"cells": ["a", "b", "c"], "junctions": [], "extensions": []},
     }
     row = app_index.app_row(fragment, 0, 0, 10, order=0, batch=0)
     for key in CARD_RECORD_KEYS:
         assert key not in row
-    assert row["secondary_junctions"] == fragment["secondary_junctions"]
 
 
 def test_the_locator_carries_an_address_and_nothing_else(fixture_corpus):
@@ -390,28 +362,28 @@ def _ids(corpus: Path, name: str) -> list[str]:
     return [row["id"] for row in rows]
 
 
-def _shard_order_ids(manifest: dict, shards: dict[str, list[dict]], *, human: bool) -> list[str]:
+def _shard_order_ids(manifest: dict, by_class: dict[str, list[dict]], *, human: bool) -> list[str]:
     """Return the ids in shard order, the order every sidecar is written in: classes by `class_shard_key`, and each class's fragments as the shard lists them. This differs from `human_unit_ids`, which is in triage order."""
     return [
         fragment["id"]
-        for meta in sorted(manifest["classes"], key=lambda entry: unit_index.class_shard_key(entry["id"]))
-        for fragment in shards[meta["id"]]
+        for meta in sorted(manifest["classes"], key=lambda entry: shards.class_shard_key(entry["id"]))
+        for fragment in by_class[meta["id"]]
         if (fragment["id"] in manifest["human_unit_ids"]) is human
     ]
 
 
 def test_the_two_files_partition_the_corpus_on_the_manifests_own_split(fixture_corpus):
     """The app index holds the manifest's human units and the locator holds the rest, both in shard order, so every id the app can be deep-linked to resolves in exactly one file."""
-    manifest, shards = _corpus_shards(fixture_corpus)
+    manifest, by_class = _corpus_shards(fixture_corpus)
     human = _ids(fixture_corpus, app_index.APP_INDEX_NAME)
     machine = _ids(fixture_corpus, app_index.LOCATOR_NAME)
     assert set(human) == set(manifest["human_unit_ids"])
-    assert human == _shard_order_ids(manifest, shards, human=True)
-    assert machine == _shard_order_ids(manifest, shards, human=False)
+    assert human == _shard_order_ids(manifest, by_class, human=True)
+    assert machine == _shard_order_ids(manifest, by_class, human=False)
 
 
 def test_the_headers_stamp_the_manifest_beside_them(fixture_corpus):
-    digest = unit_index.manifest_sha256(fixture_corpus)
+    digest = shards.manifest_sha256(fixture_corpus)
     generated_at = json.loads((fixture_corpus / "manifest.json").read_text(encoding="utf-8"))["generated_at"]
     counts = {
         app_index.APP_INDEX_NAME: len(_ids(fixture_corpus, app_index.APP_INDEX_NAME)),
@@ -435,7 +407,7 @@ def test_the_headers_stamp_the_manifest_beside_them(fixture_corpus):
 
 
 def test_a_refreshed_assets_component_leaves_both_sidecars_current(fixture_corpus):
-    """The stamp is the manifest's identity (`unit_index.manifest_sha256`), which leaves out `inputs_fingerprint.static`, so an assets refresh, which rewrites only that field, leaves every sidecar current. Otherwise a CSS edit would make the files the app boots from stale and send every reader back to the shards."""
+    """The stamp is the manifest's identity (`shards.manifest_sha256`), which leaves out `inputs_fingerprint.static`, so an assets refresh, which rewrites only that field, leaves every sidecar current. Otherwise a CSS edit would make the files the app boots from stale and send every reader back to the shards."""
     manifest_path = fixture_corpus / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["inputs_fingerprint"] = {**manifest["inputs_fingerprint"], "static": "refreshed"}
@@ -467,22 +439,22 @@ def test_a_truncated_or_foreign_sidecar_is_refused(fixture_corpus):
 def test_a_failed_projection_leaves_the_previous_set_intact(fixture_corpus, monkeypatch):
     """`app_row` asserts, so the projection can raise partway through rewriting a corpus the app is serving. The sidecars are staged and renamed, so each keeps the bytes of the last good write and no `.partial` file is left behind."""
     intact = {name: app_index.artifact_path(fixture_corpus, name).read_bytes() for name in _SIDECAR_NAMES}
-    _manifest, shards = _corpus_shards(fixture_corpus)
-    spans = {class_id: [(0, 0, 1)] * len(fragments) for class_id, fragments in shards.items()}
+    _manifest, by_class = _corpus_shards(fixture_corpus)
+    spans = {class_id: [(0, 0, 1)] * len(fragments) for class_id, fragments in by_class.items()}
 
     def boom(*_args, **_kwargs):
         raise AssertionError("u-9999")
 
     monkeypatch.setattr(app_index, "app_row", boom)
     with pytest.raises(AssertionError):
-        app_index.write_app_artifacts(fixture_corpus, shards, spans)
+        app_index.write_app_artifacts(fixture_corpus, by_class, spans)
     for name in _SIDECAR_NAMES:
         assert app_index.artifact_path(fixture_corpus, name).read_bytes() == intact[name]
     assert not list(fixture_corpus.glob("*.partial"))
 
 
 def test_writing_the_sidecars_twice_writes_the_same_bytes(tmp_path):
-    """The gzip mtime is pinned, so a rebuild of unchanged inputs leaves the output tree byte-identical, which the byte-identity tests in `rebuild/test_unit_cache.py` compare."""
+    """The gzip mtime is pinned, so a rebuild of unchanged inputs leaves the sidecars byte-identical."""
     first = _rewrite_fixture_corpus(tmp_path / "a")
     second = _rewrite_fixture_corpus(tmp_path / "b")
     for name in _SIDECAR_NAMES:
@@ -499,7 +471,6 @@ def test_the_contract_check_requires_every_sidecar(tmp_path):
     """The rows file is checked through the locator's stamp, so a missing rows file is reported as a stale locator."""
     corpus = _rewrite_fixture_corpus(tmp_path)
     (corpus / "index.html").write_text("<html></html>", encoding="utf-8")
-    unit_index.write_index(corpus, [])
     manifest = {"classes": [], "fonts": {}}
     assert _check_output_files(corpus, manifest) == []
     for name, _fmt in app_index.ARTIFACTS:
@@ -513,7 +484,6 @@ def test_the_contract_check_requires_every_sidecar(tmp_path):
 def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_path):
     corpus = _rewrite_fixture_corpus(tmp_path)
     (corpus / "index.html").write_text("<html></html>", encoding="utf-8")
-    unit_index.write_index(corpus, [])
     (corpus / "manifest.json").write_text("{}\n", encoding="utf-8")
     errors = _check_output_files(corpus, {"classes": [], "fonts": {}})
     for name, _fmt in app_index.ARTIFACTS:
@@ -523,23 +493,14 @@ def test_the_contract_check_refuses_a_sidecar_stamped_for_another_manifest(tmp_p
 # --- what a real build writes ------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module")
-def deflated_corpus(build_once, mini_corpus, mini_bundle) -> tuple[Path, Path, Path]:
-    return deflated_corpus_of(build_once, mini_corpus, mini_bundle)
-
-
-@pytest.mark.parametrize("held", ["plain", "deflated"])
-def test_a_build_writes_every_sidecar_over_its_own_shards(mini_corpus, deflated_corpus, held):
-    """End to end: every row of a real build's sidecars projects its fragment from that build's shards, every span slices the fragment back out, and the partition matches the manifest. Over a build that holds folded classes and an append deflated (#618's change 35), a deflated fragment's slice inflates through the codec to its fragment, and exactly the rows of the fragments the unit store holds deflated carry the marker, human rows and locator rows alike. The rows a build copies forward keep the marker: `rebuild/test_unit_cache.py::test_no_change_rebuild_reuses_every_unit_and_is_byte_stable` copies every row of this corpus forward and finds its sidecars byte for byte the same."""
-    corpus = mini_corpus if held == "plain" else deflated_corpus[0]
-    manifest, shards = _corpus_shards(corpus)
-    with unit_index.LiveCorpus(corpus) as live:
-        deflated = {slot.unit_id for meta in live.ordered() for slot in live.slots(meta) if slot.inflated}
-    assert bool(deflated) is (held == "deflated")
-    by_id = {fragment["id"]: fragment for shard in shards.values() for fragment in shard}
+def check_a_builds_sidecars(corpus: Path) -> None:
+    """End to end over a corpus a build wrote: the whole corpus contract holds (`check_output_dir`, the only place the manifest-shape and file predicates run over a real build), every row of the sidecars projects its fragment from the build's shards and its span slices the fragment back out, the app index holds the manifest's human units and the locator the rest, both in shard order, every locator block addresses its rows, and each class's machine-check counts, which the app renders a fold's count and badge from before it has any of the fold's units, agree with the shards."""
+    assert check_output_dir(corpus, REPO_ROOT) == []
+    manifest, by_class = _corpus_shards(corpus)
+    by_id = {fragment["id"]: fragment for shard in by_class.values() for fragment in shard}
     rows = app_index.load_rows(corpus, app_index.APP_INDEX_NAME)
-    assert rows
-    assert [row["id"] for row in rows] == _shard_order_ids(manifest, shards, human=True)
+    assert rows is not None
+    assert [row["id"] for row in rows] == _shard_order_ids(manifest, by_class, human=True)
     assert set(row["id"] for row in rows) == set(manifest["human_unit_ids"])
     for row in rows:
         fragment = by_id[row["id"]]
@@ -547,28 +508,14 @@ def test_a_build_writes_every_sidecar_over_its_own_shards(mini_corpus, deflated_
         assert _addressed(corpus, manifest, row) == fragment
     locator = app_index.load_locator_rows(corpus)
     assert locator is not None
-    assert [row["id"] for row in locator] == _shard_order_ids(manifest, shards, human=False)
+    assert [row["id"] for row in locator] == _shard_order_ids(manifest, by_class, human=False)
     assert set(row["id"] for row in locator) == set(by_id) - set(manifest["human_unit_ids"])
     for row in locator:
         assert _addressed(corpus, manifest, row) == by_id[row["id"]]
-    marked = {row["id"] for row in rows + locator if row.get("deflated")}
-    assert marked == deflated
-    if held == "deflated":
-        assert marked & {row["id"] for row in rows} and marked & {row["id"] for row in locator}
     _blocks_address_their_rows(corpus)
-
-
-def test_a_build_satisfies_the_whole_corpus_contract(mini_corpus):
-    """The only place the manifest-shape predicates and the file predicates beside the manifest run over a real m1-audit build. The build's own check runs only the shard predicates, because it wrote everything the other two read from its own inputs."""
-    assert check_output_dir(mini_corpus, REPO_ROOT) == []
-
-
-def test_a_builds_class_records_count_the_machine_checks_it_shipped(mini_corpus):
-    """The app renders a machine fold's count and badge before it has any of the fold's units, so the split must be in the manifest and agree with the shards. The shard predicates check this on every build (the review crate's check in the m1-audit build, `check_shards` in the table-diff build), over every unit written, cached ones included."""
-    manifest, shards = _corpus_shards(mini_corpus)
     for meta in manifest["classes"]:
         observed = {
-            check_id: sum(1 for unit in shards[meta["id"]] if unit.get(check_id) is True)
+            check_id: sum(1 for unit in by_class[meta["id"]] if unit.get(check_id) is True)
             for check_id in MACHINE_CHECKS
         }
         assert meta["machine_checks"] == observed

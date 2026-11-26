@@ -6,7 +6,6 @@ import { createKernView } from './kern-view.js';
 import {
   createStore,
   recordVerdict,
-  recordVerdictWithDuplicates,
   updateNote,
   groupApprove,
   undo,
@@ -47,20 +46,13 @@ import {
   featureSettingsValue,
   configGateChips,
   configFilterOptions,
-  pinStylisticSetScope,
   explainRuns,
   renderGroupsOf,
-  highlightRect,
   pairBand,
   markOffset,
   namerDotStandIn,
   namerDotStandInEntities,
-  secondaryJunctionsOf,
-  junctionChip,
-  onlyHereJunctionSpans,
   tokenMarkRuns,
-  duplicateChip,
-  duplicateFillTargets,
   needsNoVerdict,
   familiesOfGroup,
   unitMatchesFilters,
@@ -82,8 +74,6 @@ import {
   classVerdictTallies,
   classIsDone,
   classInfo,
-  pillStatus,
-  pillText,
   classTitle,
   classChip,
   plainText,
@@ -93,11 +83,8 @@ import {
   sectionTotalsLine,
   classSectionSentence,
   classProgressLine,
-  configClassBadge,
   manifestRefusal,
-  LOOKS_IDENTICAL_SENTENCE,
   SECTION_LABELS,
-  STATUS_LABELS,
   nextUnverdictedIndex,
   stepIndex,
   availableBatches,
@@ -105,7 +92,6 @@ import {
   copyPreamble,
   tokenSeparators,
   searchUnits,
-  duplicateGroupOfQuery,
 } from './render.js';
 import {
   APP_INDEX_FORMAT,
@@ -125,7 +111,6 @@ import {
   finishLines,
   hasExplainSource,
   indexLocatorBlocks,
-  isSlimFragment,
   looksGzipped,
   machineFoldPlan,
   rangeHeader,
@@ -139,7 +124,6 @@ import {
   SINGLETON_DECISION,
   buildClusters,
   decisionKey,
-  duplicateConflicts,
   nextQueueDecision,
   partitionClusters,
   pruneShownDecisions,
@@ -200,7 +184,6 @@ const store = createStore();
 const humanRows = new Map();
 const humanList = [];
 const rowsByClass = new Map();
-const duplicateIndex = new Map();
 const fullRecords = createRecordCache();
 const foldRecords = new Map();
 const locatorBlocks = createRecordCache(BLOCK_CACHE_CAP);
@@ -236,18 +219,12 @@ const MACHINE_TITLE =
 const PICTURE_BADGE = 'picture-identical — machine approved';
 const PICTURE_TITLE =
   "Both fonts fill exactly the same cells of the pixel grid under every config in this unit's set — only which glyph owns which pixel differs — so no human input is meaningful.";
-const JUNIOR_BADGE = 'junior-equivalent — machine approved';
-const JUNIOR_TITLE =
-  "Divergent only under ss10, whose ratified meaning is fully isolated letters, and the rebuild's ss10 rendering is pixel-identical to the Junior font's isolated rendering of the same string (minus Junior's one-pixel letter tracking) — so the new behavior is the spec by construction.";
 const NO_VERDICT_TITLE =
-  "A ruling covers this unit's whole class (select its class to read the ruling); no unit in it ever needs an individual verdict.";
-const SLIM_FRAGMENT_NOTE =
-  'Machine-approved or covered by a ruling: the build wrote no candidate table, no drafts and no pair band for this unit, since nothing here is for a reviewer to act on — the settled cells and junctions above are the whole of what it carries.';
+  "This unit's class takes no verdict (select its class to read why); no unit in it ever needs an individual verdict.";
 
 function machineCheckOf(unit) {
   if (unit.ink_identical) return { badge: MACHINE_BADGE, title: MACHINE_TITLE };
   if (unit.picture_identical) return { badge: PICTURE_BADGE, title: PICTURE_TITLE };
-  if (unit.junior_equivalent) return { badge: JUNIOR_BADGE, title: JUNIOR_TITLE };
   return null;
 }
 
@@ -277,7 +254,6 @@ const machineFoldBuilders = new Map();
 const MACHINE_CHECK_BADGES = {
   ink_identical: MACHINE_BADGE,
   picture_identical: PICTURE_BADGE,
-  junior_equivalent: JUNIOR_BADGE,
   no_verdict: NO_VERDICT_BADGE,
 };
 
@@ -355,7 +331,7 @@ function parseHeaderLine(line) {
   }
 }
 
-// Loads the app index in one streaming pass, parsing a line at a time so the tab never holds the source text and the rows at once. The queue view, search, worklists, progress, filters and duplicate chips read only these rows.
+// Loads the app index in one streaming pass, parsing a line at a time so the tab never holds the source text and the rows at once. The queue view, search, worklists, progress and filters read only these rows.
 async function loadHumanIndex() {
   const families = new Set();
   try {
@@ -372,10 +348,6 @@ async function loadHumanIndex() {
       humanList.push(row);
       if (!rowsByClass.has(row.class)) rowsByClass.set(row.class, []);
       rowsByClass.get(row.class).push(row);
-      if (row.duplicate_group) {
-        if (!duplicateIndex.has(row.duplicate_group)) duplicateIndex.set(row.duplicate_group, []);
-        duplicateIndex.get(row.duplicate_group).push(row.id);
-      }
       for (const family of familiesOfGroup(row.group)) families.add(family);
     }
     // A truncated index has no lines, so the header check never runs. Failing here keeps an interrupted build from loading as an empty, fully verdicted queue.
@@ -622,22 +594,11 @@ function el(tag, className, text) {
   return node;
 }
 
-function pillEl(status) {
-  const pill = el('span', 'class-status', pillText(status));
-  pill.dataset.status = status;
-  pill.title = STATUS_LABELS[status]?.legend ?? '';
-  return pill;
-}
-
 function classChipEl(classId) {
   const chip = classChip(classId, classInfoById);
   const node = el('span', 'class-chip');
   node.title = chip.title;
   node.append(el('span', 'class-chip-title', chip.text));
-  if (chip.status) {
-    node.dataset.status = chip.status;
-    node.append(pillEl(chip.status));
-  }
   return node;
 }
 
@@ -682,23 +643,6 @@ function buildSample(unit, side, featureSettings) {
     band.style.width = `${rect.width}px`;
     cell.append(band);
   }
-  for (const junction of secondaryJunctionsOf(unit)) {
-    if (!junction[side]) continue;
-    const rect = highlightRect(junction[side], FONT_SIZE, upem);
-    const band = el('span', 'secondary-band');
-    band.style.left = `${rect.left}px`;
-    band.style.width = `${rect.width}px`;
-    const chip = junctionChip(junction);
-    const node = el(chip.primaryUnit ? 'a' : 'span', 'junction-chip', chip.label);
-    if (chip.primaryUnit) {
-      node.href = `#unit=${chip.primaryUnit}`;
-      node.dataset.primaryUnit = chip.primaryUnit;
-    }
-    node.title = chip.title;
-    node.tabIndex = -1;
-    band.append(node);
-    cell.append(band);
-  }
   for (const mark of unit.boundary_marks ?? []) {
     const tick = el('span', 'boundary-mark');
     tick.style.left = `${markOffset(mark.x, FONT_SIZE, upem)}px`;
@@ -708,27 +652,9 @@ function buildSample(unit, side, featureSettings) {
   return sample;
 }
 
-const JUNCTION_MARK_TITLE =
-  'This dashed underline is the secondary divergent junction judged only in this unit — the text-line twin of the sample band’s “only here” chip.';
-
 function appendMarkedTokens(node, tokens, separators, unit) {
-  for (const run of tokenMarkRuns(tokens, separators, unit.pair_codepoints, onlyHereJunctionSpans(unit))) {
-    if (!run.pair && !run.junction) {
-      node.append(document.createTextNode(run.text));
-      continue;
-    }
-    let mark = null;
-    if (run.junction) {
-      mark = el('span', 'junction-mark', run.text);
-      mark.title = JUNCTION_MARK_TITLE;
-    }
-    if (run.pair) {
-      const pair = el('span', 'pair-mark');
-      if (mark) pair.append(mark);
-      else pair.textContent = run.text;
-      mark = pair;
-    }
-    node.append(mark);
+  for (const run of tokenMarkRuns(tokens, separators, unit.pair_codepoints)) {
+    node.append(run.pair ? el('span', 'pair-mark', run.text) : document.createTextNode(run.text));
   }
 }
 
@@ -755,7 +681,7 @@ function buildCodepointsCode(unit) {
   return code;
 }
 
-// A card built from an app-index row draws its label at once and its samples when the record arrives, from one Range request against the class shard (the same one the explain panel uses). The marked runs on the text lines are rebuilt from the record, because the junction underline reads the settled cells.
+// A card built from an app-index row draws its label at once and its samples when the record arrives, from one Range request against the class shard (the same one the explain panel uses). The marked runs on the text lines are rebuilt from the record.
 async function hydrateSamples(container, unit) {
   const record = await fetchFullRecord(unit);
   if (!record || !container.isConnected) return;
@@ -791,7 +717,6 @@ function buildRow(unit) {
   const meta = el('div', 'meta-chips');
   meta.append(el('span', 'unit-id', unit.id));
   if (!state.class || state.units) meta.append(classChipEl(unit.class));
-  if (unit.exemplar) meta.append(el('span', 'exemplar', 'exemplar'));
   if (check) {
     const badge = el('span', 'machine-badge', check.badge);
     badge.title = check.title;
@@ -802,20 +727,6 @@ function buildRow(unit) {
     meta.append(badge);
   }
   appendConfigGate(meta, unit);
-  const classBadge = configClassBadge(unit, classInfoById);
-  if (classBadge) {
-    const badge = el('span', 'config-class-note', classBadge);
-    if (unit.config_class_note) badge.title = unit.config_class_note;
-    meta.append(badge);
-  }
-  const duplicate = duplicateChip(unit, duplicateIndex.get(unit.duplicate_group) ?? [], titleOf(unit.class));
-  if (duplicate) {
-    const chip = el('a', 'duplicate-chip', duplicate.label);
-    chip.href = duplicate.href;
-    chip.title = duplicate.title;
-    chip.dataset.duplicateGroup = unit.duplicate_group;
-    meta.append(chip);
-  }
   label.append(meta);
 
   const buttons = el('div', 'verdict-buttons');
@@ -900,30 +811,15 @@ function buildKindOfChange(unit) {
   const cls = classInfoById.get(unit.class);
   const line = el('p');
   line.append(document.createTextNode('Kind of change: '), classLinkEl(unit.class));
-  const status = pillStatus(cls);
-  if (status) line.append(document.createTextNode(' '), pillEl(status));
   if (cls?.summary) {
     line.append(document.createTextNode(' — '));
     appendCodeRuns(line, cls.summary, document);
   }
   block.append(line);
-  if (unit.ledger_class) {
-    const ledger = classInfoById.get(unit.ledger_class);
-    const rerouted = el('p');
-    rerouted.append(document.createTextNode('By glyph names this would be '));
-    rerouted.append(ledger?.listed ? classLinkEl(unit.ledger_class) : el('span', 'class-name', `“${titleOf(unit.ledger_class)}”`));
-    rerouted.append(document.createTextNode(`, but the picture changes, so it is listed under “${titleOf(unit.class)}”.`));
-    block.append(rerouted);
-    if (!ledger?.listed) block.append(rationaleEl(ledger?.why ?? ''));
-  }
   return block;
 }
 
 const EXPLAIN_INTRO =
-  'This panel shows the full candidate table the settlement function considered at each divergent position, ' +
-  'with each elimination attributed to the YAML record that caused it. "->" marks the winning candidate; ' +
-  '"decided by" names the stage that separated it from the runner-up.';
-const TABLE_DIFF_EXPLAIN_INTRO =
   'This panel names the change this unit shows, the configurations it holds under and how its text was found, ' +
   'and lists the rows of the accepted and the new tables it stands for, by configuration.';
 
@@ -931,7 +827,7 @@ function buildExplainPanel(unit) {
   const panel = el('div', 'explain-panel');
   panel.hidden = true;
   panel.append(buildKindOfChange(unit));
-  panel.append(el('p', 'explain-intro', manifest.mode === 'table-diff' ? TABLE_DIFF_EXPLAIN_INTRO : EXPLAIN_INTRO));
+  panel.append(el('p', 'explain-intro', EXPLAIN_INTRO));
   if (hasExplainSource(unit)) fillExplainPanel(panel, unit);
   return panel;
 }
@@ -940,7 +836,6 @@ function fillExplainPanel(panel, unit) {
   panel.dataset.filled = '1';
   for (const pending of panel.querySelectorAll('.explain-pending')) pending.remove();
   panel.querySelector(':scope > .explain-kind')?.replaceWith(buildKindOfChange(unit));
-  if (isSlimFragment(unit)) panel.append(el('p', 'explain-intro', SLIM_FRAGMENT_NOTE));
   if (unit.explain) {
     panel.append(el('h4', null, 'Explain'));
     const dump = el('pre');
@@ -967,42 +862,6 @@ function fillExplainPanel(panel, unit) {
     }
     panel.append(list);
   }
-  if (unit.drafts && (unit.drafts.pin || unit.drafts.policy || unit.drafts.any_of)) {
-    panel.append(el('h4', null, 'Drafts'));
-    const list = el('ul');
-    if (unit.drafts.pin) {
-      const item = el('li', null, 'pin: ');
-      item.append(el('code', null, unit.drafts.pin.expect));
-      const scope = pinStylisticSetScope(unit.drafts.pin.stylistic_set, manifest.feature_descriptions);
-      if (scope) {
-        const marker = el('span', 'pin-scope', ` scoped to ${scope.label}, as `);
-        marker.append(el('code', null, scope.attribute));
-        marker.title = scope.title;
-        item.append(marker);
-      }
-      const status = unit.drafts.pin.duplicate_of
-        ? ` (duplicate of ${unit.drafts.pin.duplicate_of})`
-        : ` (${unit.drafts.pin.attribute}, syntax ${unit.drafts.pin.syntax}, semantics ${unit.drafts.pin.semantics_after_font})`;
-      item.append(document.createTextNode(status));
-      list.append(item);
-    }
-    if (unit.drafts.policy) {
-      const item = el('li', null, `policy: ${unit.drafts.policy.file} ${unit.drafts.policy.keypath} `);
-      item.append(el('code', null, unit.drafts.policy.suggested_record));
-      list.append(item);
-    }
-    if (unit.drafts.any_of) {
-      const item = el('li', null, 'any-of: ');
-      let first = true;
-      for (const candidate of unit.drafts.any_of.candidates) {
-        if (!first) item.append(document.createTextNode(' / '));
-        item.append(el('code', null, candidate));
-        first = false;
-      }
-      list.append(item);
-    }
-    panel.append(list);
-  }
 }
 
 function buildQueueContext(units) {
@@ -1020,7 +879,7 @@ function buildQueueContext(units) {
       line.append(el('strong', null, 'Queue decision'));
       line.append(
         document.createTextNode(
-          ` — one verdict per duplicate group covers all ${formatCount(cluster.size)} lookalike units of `,
+          ` — ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'} that show the same pixels, of `,
         ),
       );
       line.append(classChipEl(cluster.class));
@@ -1126,9 +985,7 @@ function renderMachineSection(container, machine, plan) {
       ? MACHINE_BADGE
       : classUnits.every((unit) => unit.ink_identical || unit.picture_identical)
         ? PICTURE_BADGE
-        : classUnits.every((unit) => unit.ink_identical || unit.picture_identical || unit.junior_equivalent)
-          ? JUNIOR_BADGE
-          : NO_VERDICT_BADGE;
+        : NO_VERDICT_BADGE;
     container.append(buildMachineFold(classId, classUnits.length, badge, classUnits, [], foldFilters));
   }
 }
@@ -1444,7 +1301,6 @@ function updateTitle() {
 }
 
 const SECTION_STORAGE_KEY = 'ams-review-sections';
-const SUBHEAD_TEXT = 'Everything else, sorted by what changed';
 
 function loadSectionOpen() {
   try {
@@ -1473,8 +1329,6 @@ function classEntryEl(cls) {
   button.setAttribute('aria-pressed', String(state.class === cls.id));
   const head = el('span', 'class-head');
   head.append(el('span', 'class-title', classTitle(cls)));
-  // Every entry in Open questions would read "you decide", so the section heading says it once instead.
-  if (cls.section !== 'open-questions') head.append(pillEl(pillStatus(cls)));
   button.append(head);
   if (cls.summary) button.append(codeRunsEl('span', 'class-summary', cls.summary));
   button.append(el('span', 'class-counts'));
@@ -1492,7 +1346,7 @@ function renderSidebar() {
   const saved = loadSectionOpen();
   const sections = [];
   for (const section of sidebarModel) {
-    if (section.entries.length + section.changeGroups.length === 0) continue;
+    if (section.entries.length === 0) continue;
     const details = el('details', 'class-section');
     details.dataset.section = section.id;
     details.open = saved[section.id] ?? section.open;
@@ -1501,8 +1355,7 @@ function renderSidebar() {
     const summary = el('summary');
     summary.append(heading);
     details.append(summary);
-    if (section.entries.length > 0) details.append(classListEl(section.entries));
-    if (section.changeGroups.length > 0) details.append(el('h4', 'class-subhead', SUBHEAD_TEXT), classListEl(section.changeGroups));
+    details.append(classListEl(section.entries));
     sections.push(details);
   }
   document.getElementById('class-list').replaceChildren(...sections);
@@ -1519,7 +1372,7 @@ function updateClassCounts(tallies = verdictTallies()) {
   }
   for (const section of sidebarModel) {
     const totals = document.querySelector(`#class-list > details[data-section="${section.id}"] .section-totals`);
-    if (totals) setText(totals, ` · ${sectionTotalsLine(section.id, [...section.entries, ...section.changeGroups], tallies)}`);
+    if (totals) setText(totals, ` · ${sectionTotalsLine(section.id, section.entries, tallies)}`);
   }
   const counts = document.querySelector('#class-header .class-header-counts');
   const cls = classById.get(document.getElementById('class-header').dataset.class);
@@ -1536,10 +1389,9 @@ function renderClassHeader() {
   if (header.dataset.class !== cls.id) {
     header.dataset.class = cls.id;
     const title = el('h2');
-    title.append(el('span', 'class-header-title', classTitle(cls)), pillEl(pillStatus(cls)), el('code', 'class-header-id', cls.id));
+    title.append(el('span', 'class-header-title', classTitle(cls)), el('code', 'class-header-id', cls.id));
     const parts = [title];
     if (cls.summary) parts.push(codeRunsEl('p', 'class-header-summary', cls.summary));
-    if (cls.note) parts.push(codeRunsEl('p', 'class-header-note', cls.note));
     parts.push(el('p', 'class-header-counts'));
     const sentence = el('p', 'class-header-section', classSectionSentence(cls));
     if (cls.section === 'no-review-needed') {
@@ -1548,7 +1400,6 @@ function renderClassHeader() {
       sentence.append(document.createTextNode(' '), reveal);
     }
     parts.push(sentence);
-    if (cls.ink_identical) parts.push(el('p', 'class-header-identical', LOOKS_IDENTICAL_SENTENCE));
     parts.push(rationaleEl(cls.why ?? '', cls.row_count ?? null));
     header.replaceChildren(...parts);
     updateClassCounts();
@@ -1681,7 +1532,6 @@ function buildClusterCard(cluster, position) {
   card.dataset.cluster = cluster.id;
   const header = el('header');
   header.append(el('span', 'size', `${position}. ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`));
-  header.append(el('span', null, `in ${formatCount(cluster.duplicateGroups.length)} duplicate group${cluster.duplicateGroups.length === 1 ? '' : 's'}`));
   header.append(classChipEl(cluster.class));
   appendConfigGate(header, cluster.exemplar, { detail: false });
   header.append(el('span', 'configs', cluster.id));
@@ -1695,14 +1545,12 @@ function buildClusterCard(cluster, position) {
     card.append(pair);
   }
   if (!carriesSamples(cluster.exemplar)) hydrateSamples(card, cluster.exemplar);
-  const representatives = el('p', 'representatives');
-  representatives.append(
-    appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${formatCount(cluster.representatives.length)} representative${cluster.representatives.length === 1 ? '' : 's'}`),
+  const judge = el('p', 'representatives');
+  judge.append(
+    appButton(queueWorklistHref(cluster.memberIds, cluster.id), `Judge ${formatCount(cluster.size)} unit${cluster.size === 1 ? '' : 's'}`),
   );
-  representatives.append(
-    el('span', 'note', ` — one per duplicate group; each verdict duplicate-fills its group, covering all ${formatCount(cluster.size)} units.`),
-  );
-  card.append(representatives);
+  judge.append(el('span', 'note', ' — every one shows the same pixels.'));
+  card.append(judge);
   card.append(buildEvidenceLine(cluster.evidence));
   const members = el('details');
   members.append(el('summary', null, `All ${formatCount(cluster.size)} members`));
@@ -1736,7 +1584,7 @@ function buildLaterSection(later) {
     row.append(classCell);
     row.append(el('td', null, cluster.exemplar.notation));
     const judge = el('td');
-    judge.append(appButton(queueWorklistHref(cluster.representatives, cluster.id), `Judge ${formatCount(cluster.representatives.length)}`));
+    judge.append(appButton(queueWorklistHref(cluster.memberIds, cluster.id), `Judge ${formatCount(cluster.size)}`));
     row.append(judge);
     body.append(row);
   }
@@ -1776,44 +1624,6 @@ function buildSingletonSection(singletons) {
   return section;
 }
 
-function buildConflictSection(conflicts) {
-  const section = el('section', 'queue-conflicts');
-  section.append(el('h2', null, `Duplicate groups with disagreeing verdicts (${formatCount(conflicts.length)})`));
-  section.append(
-    el('p', 'queue-note', 'The same visual change judged differently across contexts — worth a re-check when convenient.'),
-  );
-  for (const conflict of conflicts) {
-    const card = el('article', 'conflict');
-    const header = el('header');
-    header.append(el('span', 'chip', conflict.duplicateGroup));
-    header.append(classChipEl(conflict.class));
-    header.append(appButton(worklistHref(conflict.unitIds), 'View stacked'));
-    card.append(header);
-    const table = el('table', 'conflict');
-    const body = el('tbody');
-    for (const id of conflict.unitIds) {
-      const row = el('tr');
-      const link = el('td');
-      link.append(unitLinkEl(id));
-      row.append(link);
-      row.append(el('td', null, humanRows.get(id)?.notation ?? ''));
-      const verdictCell = el('td');
-      const record = conflict.records.get(id);
-      if (record) verdictCell.append(verdictChipEl(record.verdict));
-      else verdictCell.append(el('span', 'note', '(needs a verdict)'));
-      row.append(verdictCell);
-      const noteCell = el('td');
-      if (record && record.note) noteCell.append(el('span', 'note', record.note.slice(0, 90)));
-      row.append(noteCell);
-      body.append(row);
-    }
-    table.append(body);
-    card.append(table);
-    section.append(card);
-  }
-  return section;
-}
-
 function renderQueue({ anchor = null } = {}) {
   const container = document.getElementById('queue');
   const scrollY = window.scrollY;
@@ -1831,9 +1641,7 @@ function renderQueue({ anchor = null } = {}) {
   }
   const recordOf = (id) => store.records.get(id);
   const clusters = buildClusters(humanList, recordOf);
-  const { top, later, singletons, ruledBlankUnits } = partitionClusters(clusters, queueLeftOut);
-  const conflicts = duplicateConflicts(duplicateIndex, humanRows, recordOf);
-  // The headline counts cover Open questions only; the note below reports the blank units left in Spot-check.
+  const { top, later, singletons } = partitionClusters(clusters, queueLeftOut);
   const totals = queueTotals(clusters.filter((cluster) => !queueLeftOut.has(cluster.class)));
 
   const header = el('header', 'queue-header');
@@ -1842,7 +1650,7 @@ function renderQueue({ anchor = null } = {}) {
     el(
       'p',
       'queue-provenance',
-      `${formatCount(totals.blankUnits)} units still need a verdict, in ${formatCount(totals.duplicateGroups)} duplicate groups → ` +
+      `${formatCount(totals.blankUnits)} units still need a verdict → ` +
         `${formatCount(totals.clusters)} clusters (${formatCount(totals.multiClusters)} multi-unit, ` +
         `${formatCount(totals.singletonClusters)} singleton), live against the current verdicts.`,
     ),
@@ -1851,7 +1659,7 @@ function renderQueue({ anchor = null } = {}) {
     el(
       'p',
       'queue-note',
-      'Every button stacks a decision as a worklist — judge there with the keyboard flow; duplicate-fill multiplies each verdict, and this queue recomputes as verdicts land.',
+      'Every button stacks a decision as a worklist — judge there with the keyboard flow, and this queue recomputes as verdicts land.',
     ),
   );
   container.append(header);
@@ -1871,19 +1679,6 @@ function renderQueue({ anchor = null } = {}) {
   }
   if (later.length > 0) container.append(buildLaterSection(later));
   if (singletons.length > 0) container.append(buildSingletonSection(singletons));
-  if (conflicts.length > 0) container.append(buildConflictSection(conflicts));
-  if (ruledBlankUnits > 0) {
-    const footer = el('footer', 'queue-footer');
-    footer.append(
-      el(
-        'p',
-        'queue-note',
-        `${formatCount(ruledBlankUnits)} more ${ruledBlankUnits === 1 ? 'unit in Spot-check classes still needs confirming and is' : 'units in Spot-check classes still need confirming and are'} left out here; ` +
-          'select one in the sidebar to work through them.',
-      ),
-    );
-    container.append(footer);
-  }
 
   document.getElementById('batch-progress').textContent =
     `Review queue: ${formatCount(totals.blankUnits)} ${totals.blankUnits === 1 ? 'unit still needs' : 'units still need'} a verdict, in ${formatCount(totals.clusters)} clusters`;
@@ -2086,17 +1881,7 @@ function applyVerdict(unitId, verdict, { toggle = true, note = null } = {}) {
   if (toggle && existing && existing.verdict === verdict) {
     recordVerdict(store, unitId, null);
   } else {
-    // A verdict also goes to the unverdicted members of the unit's duplicate group, which show the same change on the same judged pair. Skip is a per-unit deferral and is never copied, and members that already have a record, a skip included, are not overwritten.
-    const unit = unitFor(unitId);
-    const duplicates =
-      verdict === 'skip' || !unit
-        ? []
-        : duplicateFillTargets(unit, duplicateIndex.get(unit.duplicate_group) ?? [], (id) => store.records.has(id));
-    const applied = recordVerdictWithDuplicates(store, unitId, verdict, duplicates, { note: noteValue });
-    for (const id of applied) syncRowVerdict(id);
-    if (applied.length > 1) {
-      toast(`Copied to ${formatCount(applied.length - 1)} duplicate window${applied.length === 2 ? '' : 's'} (u to undo all)`);
-    }
+    recordVerdict(store, unitId, verdict, { note: noteValue });
     lastVerdictedUnitId = unitId;
   }
   syncRowVerdict(unitId);
@@ -2154,7 +1939,7 @@ async function advanceQueue({ stale = false } = {}) {
     toast(
       queue.blankUnits === 0
         ? `${stale ? `${lead}, and the` : 'The'} review queue is clear`
-        : `${lead} — only skipped units and their duplicates are left (${remaining})`,
+        : `${lead} — only skipped units are left (${remaining})`,
     );
     setState({ units: null, order: null, queue: null, decision: null, stamp: null, unit: null, view: 'queue' });
     return;
@@ -2425,10 +2210,6 @@ function shiftClass(delta) {
   const current = ids.indexOf(state.class);
   const next = current === -1 ? (delta > 0 ? 0 : ids.length - 1) : (current + delta + ids.length) % ids.length;
   const classId = ids[next];
-  const target = classById.get(classId);
-  if (target.section === 'spot-check' && classById.get(state.class)?.section !== 'spot-check') {
-    toast(`${SECTION_LABELS['spot-check'].title}: “${classTitle(target)}”`);
-  }
   selectClass(classId);
 }
 
@@ -2444,20 +2225,12 @@ function approveGroupOf(unitId) {
   for (const candidate of visibleUnits) {
     if (candidate.group === unit.group && !store.records.has(candidate.id)) ids.push(candidate.id);
   }
-  // Each approval is also copied to the rest of its duplicate group, including members in other batches. groupApprove skips units that already have a record, so duplicate ids in the list are harmless.
-  const expanded = [...ids];
-  for (const id of ids) {
-    const member = humanRows.get(id);
-    if (member?.duplicate_group) expanded.push(...(duplicateIndex.get(member.duplicate_group) ?? []));
-  }
-  const applied = groupApprove(store, expanded);
+  const applied = groupApprove(store, ids);
   for (const id of applied) syncRowVerdict(id);
   if (applied.length > 0) lastVerdictedUnitId = applied[0];
   updateProgress();
   scheduleAutosave();
-  const inGroup = applied.filter((id) => ids.includes(id)).length;
-  const copied = applied.length - inGroup;
-  toast(`Approved ${formatCount(inGroup)} remaining in ${unit.group}${copied > 0 ? ` + ${formatCount(copied)} duplicates elsewhere` : ''}`);
+  toast(`Approved ${formatCount(applied.length)} remaining in ${unit.group}`);
   advanceFrom(unitId);
 }
 
@@ -2781,7 +2554,7 @@ async function flushAutosave() {
       const seq = outboxMirror.get(id)?.seq;
       if (seq !== undefined) sentSeqs.set(id, seq);
     }
-    // A normal flush is one decision and the duplicate-group members `g` or a verdict fills beside it, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
+    // A normal flush is one decision or the units `g` approves, but an Import can dirty every record in a file, so the ids go out in chunks of AUTOSAVE_CHUNK and no body reaches the server's request-size limit.
     for (let start = 0; start < ids.length; start += AUTOSAVE_CHUNK) {
       const chunk = ids.slice(start, start + AUTOSAVE_CHUNK);
       const payload = assembleDelta(store, manifest.generated_at, chunk);
@@ -3315,13 +3088,6 @@ function activeSearchRow() {
 
 function selectSearchRow(row) {
   if (!row) return;
-  if (row.dataset.units) {
-    closeSearch();
-    document.getElementById('unit-search').blur();
-    // The hash lists the duplicate group's unit ids as a worklist, the same form as the duplicate chip, so the group renders stacked.
-    location.hash = `units=${row.dataset.units}`;
-    return;
-  }
   selectSearchResult(row.dataset.unit);
 }
 
@@ -3349,20 +3115,7 @@ function renderSearchResults(query) {
   input.setAttribute('aria-expanded', 'true');
   input.removeAttribute('aria-activedescendant');
   searchActive = -1;
-  const group = duplicateGroupOfQuery(query, duplicateIndex);
-  if (group) {
-    const { id: groupId, members } = group;
-    const row = el('button', 'search-result search-group');
-    row.type = 'button';
-    row.id = `search-opt-${groupId}`;
-    row.dataset.units = members.join(',');
-    row.setAttribute('role', 'option');
-    row.setAttribute('aria-selected', 'false');
-    row.append(el('span', 'search-id', groupId));
-    row.append(el('span', 'search-notation', `duplicate group — stack all ${formatCount(members.length)} members as a worklist`));
-    results.append(row);
-  }
-  if (matches.length === 0 && !results.querySelector('.search-result')) {
+  if (matches.length === 0) {
     results.append(presentational(el('p', 'search-empty', 'No units match.')));
     return;
   }
@@ -3379,7 +3132,6 @@ function renderSearchResults(query) {
     const classCell = el('span', 'search-class');
     classCell.title = chip.title;
     classCell.append(el('span', 'search-class-title', chip.text));
-    if (chip.status) classCell.append(pillEl(chip.status));
     row.append(classCell);
     const where = machineCheckOf(unit)
       ? 'machine'
@@ -3638,24 +3390,10 @@ function wireEvents() {
   );
 
   document.getElementById('batch').addEventListener('click', (event) => {
-    const chip = event.target.closest('.junction-chip');
-    if (chip) {
-      event.preventDefault();
-      // The hash names only the primary unit, the same form as a pasted deep link, so applyHashState finds it in any batch or class and shows it even when it takes no verdict.
-      if (chip.dataset.primaryUnit) location.hash = `unit=${chip.dataset.primaryUnit}`;
-      return;
-    }
     const classLink = event.target.closest('.class-link');
     if (classLink) {
       event.preventDefault();
       selectClass(classLink.dataset.class);
-      return;
-    }
-    const duplicateLink = event.target.closest('.duplicate-chip');
-    if (duplicateLink) {
-      event.preventDefault();
-      // The hash lists the group's unit ids as a worklist, which renders those units stacked and grouped.
-      location.hash = duplicateLink.getAttribute('href').replace(/^#/, '');
       return;
     }
     const row = event.target.closest('.row');
@@ -3906,7 +3644,7 @@ function renderChrome() {
     `Mode ${manifest.mode}, generated ${manifest.generated_at} at ${manifest.repo_head}; ` +
     `${formatCount(manifest.totals.units)} units on the corpus — ` +
     `${formatCount(machine?.units ?? 0)} machine-approved` +
-    `${exempt ? `, ${formatCount(exempt)} covered by a ruling` : ''}, and ` +
+    `${exempt ? `, ${formatCount(exempt)} needing no verdict` : ''}, and ` +
     `${formatCount(humanTotal(manifest))} human units in ${manifest.totals.batches} batches — ` +
     `covering ${formatCount(manifest.totals.rows)} rows.`;
   const stamp = document.getElementById('corpus-stamp');
@@ -3948,17 +3686,6 @@ function renderLegend() {
     sections.push(el('dt', null, SECTION_LABELS[id].title), el('dd', null, SECTION_LABELS[id].legend));
   }
   document.getElementById('legend-sections').replaceChildren(...sections);
-  const diff = manifest.classes.some((cls) => cls.status === null);
-  const rows = [];
-  for (const [status, label] of Object.entries(STATUS_LABELS)) {
-    if (status === 'diff' && !diff) continue;
-    const row = el('tr');
-    const pill = el('td');
-    pill.append(pillEl(status));
-    row.append(pill, el('td', null, label.legend));
-    rows.push(row);
-  }
-  document.getElementById('legend-pills').replaceChildren(...rows);
 }
 
 // A manifest written before sections existed would put every class outside Open questions and leave the Queue empty, so the app shows why instead of booting on it, and still moves onto the next corpus the cycle serves.

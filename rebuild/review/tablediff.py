@@ -8,9 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Literal, Self
 
-from rebuild.review.audit import ACCEPTANCE_CONFIGS, M1_ONLY_CONFIGS
-
-SETTLED_CONFIGS = tuple(config for config in ACCEPTANCE_CONFIGS if config != "ss10") + M1_ONLY_CONFIGS
+# Restates `conform.SETTLEMENT_CONFIGS`, the configurations the build settles and writes tables for, because importing conform would pull the conformance sweep into the corpus build's import closure; `rebuild/test_review_tablediff.py` ties the two.
+SETTLED_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07", "ss08")
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 
