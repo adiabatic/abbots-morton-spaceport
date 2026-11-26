@@ -36,6 +36,10 @@ uv run python rebuild/review/fixtures/mini/regenerate.py
 
 Editing an existing unit's kinds, row key, configurations, code points or either run's glyphs changes its `content_key` and so its id. Run steps 4 and 5 after any such edit.
 
+## `ink/before.otf` — the ink comparator's other font
+
+The font `rebuild/test_review_ink.py` compares the mini bundle's font with: the Senior that `make all` built at commit `d23c0a87`, subset to the code points those tests shape (·Pea, ·Tea, ·Day, ·Roe, ·May, ·Oy, ·Low, ·Fee, ·Eight, the space, ZWNJ and the middle dot) with every layout feature kept. Over those code points it shapes every text of one to four characters as the whole font does, in every acceptance configuration (`conform.ACCEPTANCE_CONFIGS`), kerned and not. The tests' docstrings name the differences between it and the mini bundle's font that their readings rest on, so it is never rebuilt, and a regenerated mini bundle can need those readings restated.
+
 ## `verdict-record-samples.json` — the verdict record rule
 
 A third fixture, unrelated to the corpus: verdict records, each with the answer `rebuild.review.verdict_store.well_formed` gives it. `rebuild/test_review_autosave.py` checks each answer against that function, and `rebuild/review/jstests/verdicts.test.js` against the review app's strict Import (`importVerdicts` with `strict`), which mirrors the rule in JavaScript, so none of them can drift apart. A change to the rule adds the samples that show it.

@@ -15,23 +15,16 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent
 
-# Put `tools/` and `test/` on the path for the xdist controller as well as the workers. The controller imports this file but no test module, yet it must import `quikscript_join_analysis` to deserialize a `NonJoiningNeighborSelectionWarning` sent from a worker, and the old engine's tools/ modules that the tests under test/ import reach the helpers under test/ (tools/build_check_html.py imports test/quikscript_shaping_helpers.py). Without these paths, such an import raises ModuleNotFoundError and aborts the session.
+# Put `tools/` and `test/` on the path for the xdist controller as well as the workers, so a test imports a tools/ module by its bare name (`build_font`, `reflow_yaml`) and the controller can deserialize a warning class a tools/ module defines, such as `quikscript_join_analysis.NonJoiningNeighborSelectionWarning`, when a worker sends one. Without these paths, such an import raises ModuleNotFoundError and aborts the session.
 for _p in (str(ROOT / "tools"), str(ROOT / "test")):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 # The pages whose `data-expect` pins the session collects as items (`corpus.PIN_PAGES` names them with their directory).
 PIN_PAGE_NAMES = ("index.html", "the-manual.html", "extra-senior-words.html")
-# The files whose tests check the rebuilt fonts: the pin pages and the any-of regression checks. A session that collects one builds those fonts first (`_checks_rebuilt_fonts`).
-REBUILT_FONT_CHECKS = (
-    *(Path("site") / page for page in PIN_PAGE_NAMES),
-    Path("test") / "test_calt_expectations.py",
-)
 
-# The old build's state: `_built` once `make all` has run in this process or, on a worker, in the controller.
-_shaping_cache: dict[str, Any] = {}
-# The rebuilt fonts the pin items check against: `_built` once the session has built them (`_build_rebuilt_fonts`), then the fonts by run font (`_pin_fonts`).
-_pin_cache: dict[str, Any] = {}
+# The fonts the session checks: `_published` once the session has published the six fonts into site/ (`_publish_fonts`), in this process or, on a worker, in the controller, then the pin fonts by run font (`_pin_fonts`).
+_font_cache: dict[str, Any] = {}
 
 # The pyright check that pytest_configure starts on a rebuild-only run, for pytest_sessionfinish to join. It is popped, not read, so nothing is waited on twice.
 _deferred_pyright: list["Check"] = []
@@ -48,7 +41,7 @@ def _join_deferred_pyright(interrupted: bool) -> int:
 
 
 def _make_env() -> dict[str, str]:
-    # `make test-and-review` runs with `-j2` and exports a jobserver pipe through MAKEFLAGS. subprocess.run closes inherited fds by default, so an inner `make all` would get the jobserver auth string without its fds and print "jobserver unavailable: using -j1". Dropping MAKEFLAGS and MFLAGS makes it run standalone.
+    # The children this file starts, pyright and the publish, run without the MAKEFLAGS and MFLAGS a parent make exports to its recipe. subprocess.run closes inherited fds by default, so a make one of them started would get the jobserver auth string without its fds and print "jobserver unavailable: using -j1".
     env = os.environ.copy()
     env.pop("MAKEFLAGS", None)
     env.pop("MFLAGS", None)
@@ -62,36 +55,10 @@ def _is_rebuild_only(config: pytest.Config) -> bool:
     return bool(targets) and all(target == rebuild or rebuild in target.parents for target in targets)
 
 
-def _rebuild_suite_fonts_present() -> bool:
-    from rebuild.tools.site_fonts import font_paths
-
-    return all(path.is_file() for path in font_paths(ROOT))
-
-
-def _checks_rebuilt_fonts(config: pytest.Config) -> bool:
-    """Whether the session collects a file whose tests check the rebuilt fonts (`REBUILT_FONT_CHECKS`): no paths on the command line (the `testpaths` hold both), or a path that is one of those files or a directory above one."""
-    invocation_dir = Path(config.invocation_params.dir)
-    targets = [(invocation_dir / arg.split("::", 1)[0]).resolve() for arg in config.args]
-    if not targets:
-        return True
-    checks = [(ROOT / relative).resolve() for relative in REBUILT_FONT_CHECKS]
-    return any(target == check or target in check.parents for target in targets for check in checks)
-
-
-def _build_rebuilt_fonts() -> None:
-    """Build the fonts the pin items check against, Senior and Junior, into rebuild/out/fonts/ (`rebuild.tools.suite_fonts`), through rebuild/tools/build_fonts.py's command in a child, which writes nothing when the fonts on disk already hold the bytes. It is a child because that module reaches rebuild.pipeline, which no import of this file may (`TestTheConftestsStayLeaves` in rebuild/test_contracts_closure.py). When the rebuild's Senior is stale the command refuses, naming the build command, and the session fails with its message."""
-    from rebuild.tools import suite_fonts
-
+def _publish_fonts() -> None:
+    """Publish the six fonts the font suite checks into site/ through rebuild/tools/build_fonts.py's command in a child, which writes nothing when the fonts on disk already hold the bytes. It is a child because that module reaches rebuild.pipeline, which no import of this file may (`TestTheConftestsStayLeaves` in rebuild/test_contracts_closure.py). A session never starts a table build, so the command runs without `--build`: when the rebuild's Senior is stale it refuses, naming the build command, and the session fails with its message."""
     result = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "rebuild.tools.build_fonts",
-            "--out",
-            str(suite_fonts.fonts_dir(ROOT)),
-            "--fonts",
-            *suite_fonts.BUILT_FONTS,
-        ],
+        [sys.executable, "-m", "rebuild.tools.build_fonts"],
         cwd=ROOT,
         check=False,
         env=_make_env(),
@@ -100,41 +67,36 @@ def _build_rebuilt_fonts() -> None:
     )
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "").strip()
-        raise pytest.UsageError(
-            f"the rebuilt fonts the data-expect pins are checked against did not build: {message}"
-        )
-    _pin_cache["_built"] = True
+        raise pytest.UsageError(f"the fonts the suite checks did not publish into site/: {message}")
+    _font_cache["_published"] = True
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # Under xdist the controller runs no tests, so it never triggers the lazy builds in _ensure_fonts_built and _pin_fonts. Build once here, before the workers spawn, and mark both built so each worker skips the builds it would otherwise run before its first test that needs them.
+    # Under xdist the controller runs no tests, so it never triggers the lazy publish in _pin_fonts. Publish once here, before the workers spawn, and mark the fonts published so each worker skips the publish it would otherwise run before its first pin.
     if hasattr(config, "workerinput"):
-        _shaping_cache["_built"] = True
-        _pin_cache["_built"] = True
+        _font_cache["_published"] = True
         return
     if config.getoption("dist", "no") == "no":
         return
-    # A rebuild-only run skips `make all` while the site fonts are present: that suite shapes against the fonts its closure fingerprint already hashed, and rebuilding them would test bytes nobody fingerprinted. With no font build to overlap, the pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it. A session that collects the pin pages or the any-of regression checks also builds the rebuilt fonts they are checked against.
+    # A rebuild-only run reads no site font, so it publishes nothing, and its pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it. Any other run publishes the fonts with the check running beside the publish.
     from rebuild.tools import pyright_gate
 
     pyright = pyright_gate.begin(os.environ, ROOT, env=_make_env())
-    if not _is_rebuild_only(config) or not _rebuild_suite_fonts_present():
-        subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
-        _shaping_cache["_built"] = True
-        if not _is_rebuild_only(config) and _checks_rebuilt_fonts(config):
-            try:
-                _build_rebuilt_fonts()
-            except pytest.UsageError:
-                if pyright is not None:
-                    pyright.abandon()
-                raise
-        if pyright is not None and pyright.wait() != 0:
-            raise pytest.UsageError("pyright type check failed (see output above)")
-    elif pyright is not None:
-        _deferred_pyright.append(pyright)
+    if _is_rebuild_only(config):
+        if pyright is not None:
+            _deferred_pyright.append(pyright)
+        return
+    try:
+        _publish_fonts()
+    except pytest.UsageError:
+        if pyright is not None:
+            pyright.abandon()
+        raise
+    if pyright is not None and pyright.wait() != 0:
+        raise pytest.UsageError("pyright type check failed (see output above)")
 
 
-# What one font-suite worker holds at its peak. Nothing here divides by it, because the cores limit this pool before memory does (see the hook below). The artifact cycle reads it to estimate `make test`'s pool as a co-resident term when another step shares the machine. Its measurement set is the peak-RSS summary line below, which measured these workers at 0.11–0.33 GB each across runs, the highest in a session whose pin items hold the rebuilt Senior beside the old build's fonts; the constant is the highest reading rounded up to the tenth of a gigabyte, for the reason kernel_exec.DELTA_SLOT_BYTES errs high: a per-unit cost that errs low can put the machine into swap, while one that errs high only narrows a pool.
+# What one font-suite worker holds at its peak. Nothing here divides by it, because the cores limit this pool before memory does (see the hook below). The artifact cycle reads it to estimate `make test`'s pool as a co-resident term when another step shares the machine. Its measurement set is the peak-RSS summary line below, which measured these workers at 0.11–0.33 GB each across runs; the constant is the highest reading rounded up to the tenth of a gigabyte, for the reason kernel_exec.DELTA_SLOT_BYTES errs high: a per-unit cost that errs low can put the machine into swap, while one that errs high only narrows a pool.
 FONT_SUITE_WORKER_BYTES = 400_000_000
 
 
@@ -207,35 +169,23 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config)
         )
 
 
-def _ensure_fonts_built() -> None:
-    if "_built" not in _shaping_cache:
-        subprocess.run(["make", "all"], cwd=ROOT, check=True, env=_make_env())
-        _shaping_cache["_built"] = True
-
-
-# For a test that reads a file the build writes to site/ without shaping with the fonts. A run without xdist skips the up-front build in pytest_configure, so this runs `make all` once per session unless something already has. It loads no fonts. test/conftest.py's `shaping_env` stands on it.
-@pytest.fixture(scope="session")
-def built_fonts() -> None:
-    _ensure_fonts_built()
-
-
 def _pin_fonts() -> dict[str, "CheckFont"]:
-    """Return the rebuilt Senior and Junior the pin items check against, building them first when this process has not (a run without xdist), and loading each once."""
-    if "fonts" not in _pin_cache:
-        if "_built" not in _pin_cache:
-            _build_rebuilt_fonts()
+    """Return the Senior and Junior the pin items check against, publishing the fonts first when this process has not (a run without xdist), and loading each once. The Senior's glyph-facts sidecar is read beside the build it was copied from (`suite_fonts.glyph_facts_path`)."""
+    if "fonts" not in _font_cache:
+        if "_published" not in _font_cache:
+            _publish_fonts()
         from rebuild.tools import suite_fonts
         from rebuild.validation.check import CheckFont
 
         paths = suite_fonts.font_paths(ROOT)
-        _pin_cache["fonts"] = {
+        _font_cache["fonts"] = {
             "senior": CheckFont(paths["senior"], glyph_facts=suite_fonts.glyph_facts_path(ROOT)),
             "junior": CheckFont(paths["junior"], cursive=False),
         }
-    return _pin_cache["fonts"]
+    return _font_cache["fonts"]
 
 
-# The rebuilt Senior and Junior, for the any-of regression checks in test/test_calt_expectations.py.
+# The Senior and Junior under site/, for the any-of regression checks in test/test_calt_expectations.py.
 @pytest.fixture(scope="session")
 def pin_fonts() -> dict[str, "CheckFont"]:
     return _pin_fonts()
@@ -269,7 +219,7 @@ class ShapingFile(pytest.File):
 
 
 class ShapingItem(pytest.Item):
-    """One pin, checked against the rebuilt fonts by the checker the build's pin gate runs (`rebuild/validation/check.py`, `check_pin`). A pending pin (`corpus.PENDING_ATTRIBUTE`) is an expected failure, and fails once it passes, so its mark cannot outlive the disagreement it records."""
+    """One pin, checked against the fonts under site/ by the checker the build's pin gate runs (`rebuild/validation/check.py`, `check_pin`). A pending pin (`corpus.PENDING_ATTRIBUTE`) is an expected failure, and fails once it passes, so its mark cannot outlive the disagreement it records."""
 
     def __init__(self, name: str, parent: pytest.Item, pin: "Pin") -> None:
         super().__init__(name, parent)
@@ -290,7 +240,7 @@ class ShapingItem(pytest.Item):
             pytest.xfail(f"pending ({self.pin.pending}): {outcome.message()}")
         if status == "pending-passes":
             raise AssertionError(
-                f"{self.pin.source}: {self.pin.expect!r} passes on the rebuilt fonts but carries {PENDING_ATTRIBUTE}={self.pin.pending!r}; remove the attribute, and the pin from WHATNEXT.md's pending list"
+                f"{self.pin.source}: {self.pin.expect!r} passes on the fonts but carries {PENDING_ATTRIBUTE}={self.pin.pending!r}; remove the attribute, and the pin from WHATNEXT.md's pending list"
             )
         raise AssertionError(outcome.message())
 

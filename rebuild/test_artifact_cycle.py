@@ -2613,6 +2613,7 @@ def test_make_test_exempt_classification():
         "site/quikscript-title.svg",
         "site/gear-menu.js",
         "site/shared.css",
+        "site/print.typ",
         ".gitignore",
         ".markdownlint-cli2.yaml",
         ".pre-commit-config.yaml",
@@ -2625,11 +2626,10 @@ def test_make_test_exempt_classification():
         "glyph_data/quikscript.yaml",
         "glyph_data/punctuation.yaml",
         "tools/build_font.py",
-        "test/test_calt_regressions.py",
+        "test/test_outlines.py",
         "test/test_shared.py",
         "site/the-manual.html",
         "site/shared.js",
-        "site/print.typ",
         "conftest.py",
         "pyproject.toml",
         "postscript_glyph_names.yaml",
@@ -2656,8 +2656,8 @@ def test_make_tests_rebuild_files_are_the_pin_checker_the_root_conftest_imports(
     assert ac.make_test_exempt("rebuild/pipeline/settle.py")
 
 
-def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(tmp_path, monkeypatch):
-    """`make_test_font_lines` keys the rebuilt fonts the session builds: the Senior under rebuild/out/m1 by content, its glyph-facts sidecar, whether it is current, and the import closure under rebuild/ of what builds the Junior with the spec's data. An edit to a module outside that closure moves no line, and one inside it moves a Junior line."""
+def test_make_tests_font_lines_key_the_senior_and_what_mono_and_junior_are_built_from(tmp_path, monkeypatch):
+    """`make_test_font_lines` keys the fonts the session publishes: the Senior's two styles under rebuild/out/m1 by content, its glyph-facts sidecar, whether it is current, and the import closure under rebuild/ of what builds Mono and Junior with the spec's data. An edit to a module outside that closure moves no line, and one inside it moves a family line."""
     from rebuild.pipeline import glyph_facts
     from rebuild.tools import build_fonts
 
@@ -2670,6 +2670,7 @@ def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(
         "rebuild/script.yaml": "heights: {baseline: 0}\n",
         "glyph_data/runes/qsMay.yaml": "rune: qsMay\n",
         "rebuild/out/m1/M1.otf": "not a font\n",
+        "rebuild/out/m1/M1-Bold.otf": "not a bold font\n",
         f"rebuild/out/m1/{glyph_facts.FILE_NAME}": "{}\n",
     }
     for rel, text in files.items():
@@ -2683,21 +2684,24 @@ def test_make_tests_font_lines_key_the_senior_and_what_the_junior_is_built_from(
 
     base = lines()
     assert base["senior_current"] == "current"
-    assert {key for key in base if key.startswith("junior_code ")} == {
-        "junior_code rebuild/pipeline/build_family.py",
-        "junior_code rebuild/pipeline/surface.py",
-        "junior_code rebuild/tools/build_fonts.py",
+    assert {key for key in base if key.startswith("family_code ")} == {
+        "family_code rebuild/pipeline/build_family.py",
+        "family_code rebuild/pipeline/surface.py",
+        "family_code rebuild/tools/build_fonts.py",
     }
-    assert "junior_data glyph_data/runes/qsMay.yaml" in base
+    assert "family_data glyph_data/runes/qsMay.yaml" in base
     (root / "rebuild/pipeline/settle.py").write_text("SETTLE = 2\n")
     assert lines() == base
     (root / "rebuild/pipeline/surface.py").write_text("SURFACE = 2\n")
     moved = lines()
-    assert {key for key in base if moved[key] != base[key]} == {"junior_code rebuild/pipeline/surface.py"}
+    assert {key for key in base if moved[key] != base[key]} == {"family_code rebuild/pipeline/surface.py"}
     (root / "rebuild/out/m1/M1.otf").write_text("another font\n")
     staleness[0] = "its inputs moved"
     again = lines()
-    assert {key for key in moved if again[key] != moved[key]} == {"senior", "senior_current"}
+    assert {key for key in moved if again[key] != moved[key]} == {"senior Regular", "senior_current"}
+    (root / "rebuild/out/m1/M1-Bold.otf").write_text("another bold font\n")
+    bold = lines()
+    assert {key for key in again if bold[key] != again[key]} == {"senior Bold"}
 
 
 FAKE_MAKEFILE = """.PHONY: all test kernel-check
@@ -2749,14 +2753,14 @@ def test_closure_files_apply_the_exemptions(tmp_path):
 
 
 def test_closure_files_leave_the_makefile_to_the_recipe_probe(tmp_path):
-    """The Makefile is not hashed as a file. It enters the fingerprint as one `make -n` probe line per rule the suite runs (`all` and `test`), so a comment or an unrelated target does not make the gate due."""
+    """The Makefile is not hashed as a file. It enters the fingerprint as one `make -n` probe line per rule the suite runs (`test`), so a comment or an unrelated target does not make the gate due."""
     root = _git_repo(tmp_path)
     files = ac.make_test_closure_files(root)
     assert files is not None
     assert "Makefile" not in files
     lines = ac.make_test_recipe_lines(root)
     assert lines is not None
-    assert [line.split("\t")[0] for line in lines] == ["make -n all", "make -n test"]
+    assert [line.split("\t")[0] for line in lines] == ["make -n test"]
 
 
 def test_closure_files_none_outside_a_git_repo(tmp_path):
@@ -2783,28 +2787,23 @@ def test_closure_fingerprint_moves_only_with_closure_content(tmp_path):
 
 
 def test_closure_fingerprint_moves_with_an_executed_recipe(tmp_path):
-    """Editing either rule the suite runs, `all` or `test`, changes the key."""
+    """Editing the rule the suite runs, `test`, changes the key."""
     root = _git_repo(tmp_path)
     first = ac.make_test_closure_fingerprint(root)
-    (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo build", "\techo build --twice"))
-    second = ac.make_test_closure_fingerprint(root)
-    assert second not in (None, first)
-    (root / "Makefile").write_text(
-        FAKE_MAKEFILE.replace("\techo build", "\techo build --twice").replace(
-            "\techo test ", "\techo test --verbose "
-        )
-    )
-    assert ac.make_test_closure_fingerprint(root) not in (None, first, second)
+    (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo test ", "\techo test --verbose "))
+    assert ac.make_test_closure_fingerprint(root) not in (None, first)
 
 
 def test_closure_fingerprint_ignores_makefile_edits_the_suite_never_executes(tmp_path):
-    """A comment, a target that `make test` does not run, and a new rule all leave the key unchanged, so edits to the cycle and kernel targets do not re-run the font suite."""
+    """A comment, a target that `make test` does not run, `all` among them, and a new rule all leave the key unchanged, so edits to the build, cycle and kernel targets do not re-run the font suite."""
     root = _git_repo(tmp_path)
     first = ac.make_test_closure_fingerprint(root)
     assert first is not None
     (root / "Makefile").write_text(FAKE_MAKEFILE.replace("# comment", "# a different comment"))
     assert ac.make_test_closure_fingerprint(root) == first
     (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo kernel", "\techo kernel --check"))
+    assert ac.make_test_closure_fingerprint(root) == first
+    (root / "Makefile").write_text(FAKE_MAKEFILE.replace("\techo build", "\techo build --twice"))
     assert ac.make_test_closure_fingerprint(root) == first
     (root / "Makefile").write_text(FAKE_MAKEFILE + "\nconform-deep:\n\techo deep\n")
     assert ac.make_test_closure_fingerprint(root) == first
@@ -2834,7 +2833,7 @@ def test_recipe_probe_is_blind_to_the_callers_overrides(tmp_path, monkeypatch):
 
 
 def test_recipe_pins_cover_the_repos_own_executed_rules(monkeypatch):
-    """`MAKE_TEST_RECIPE_PINS` must pin every variable the repository's real `all` and `test` rules read, not only the one the fake Makefile uses. The test runs the probe on the live Makefile with FORCE=1 in the environment and expects the same two probe lines as without it."""
+    """`MAKE_TEST_RECIPE_PINS` must pin every variable the repository's real `test` rule reads, not only the one the fake Makefile uses. The test runs the probe on the live Makefile with FORCE=1 in the environment and expects the same probe line as without it."""
     monkeypatch.delenv("FORCE", raising=False)
     plain = ac.make_test_recipe_lines(ac.ROOT)
     assert plain is not None

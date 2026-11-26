@@ -1,28 +1,10 @@
-.PHONY: all rebuild-fonts test test-rebuild test-rebuild-slow test-slowly test-leaks leak-snapshot typecheck print-job serve explainer check-html-before check-html-after build-kerning-context-pairs review test-and-review review-build review-serve review-cycle artifact-cycle verdict-ready review-accept review-snapshot-remake cycle-timings job-costs kernel-build kernel-check kernel-gate kernel-proofs conform-deep replay-deep fault-kit memory-series prettier woff2 clean
+.PHONY: all test test-rebuild test-rebuild-slow test-slowly typecheck print-job serve explainer review-build review-serve review-cycle artifact-cycle verdict-ready review-accept review-snapshot-remake cycle-timings job-costs kernel-build kernel-check kernel-gate kernel-proofs conform-deep replay-deep fault-kit memory-series prettier woff2 clean
 
+# Publishes the six shipped fonts into site/ under their shipped file names (rebuild/tools/build_fonts.py, whose module docstring says what each font reads), then copies Departure Mono beside them and typesets site/print.pdf. Mono and Junior, Regular and Bold, build from the rune files and the glyph files in a few seconds, and Senior is the copy of the rebuild's own build under rebuild/out/m1/, so with that build current the target takes a few seconds. When the build does not cover the inputs on disk, `--build` runs it first (`uv run python -m rebuild.pipeline.run_m1`) and publishes only once it is green. On the M5 Pro MacBook Pro (doc/fleet.md) that build takes about 2 minutes when its table-reuse record lets it reuse the tables on disk, as after an edit to a Latin glyph, about 5 minutes when it reuses them but a pipeline code edit makes its string replay walk every text, and about 4 to 6 minutes when it builds the tables, as after a rune edit; `make cycle-timings ARGS='--by-step'` reports what run_m1 costs on each machine.
 all:
-	uv run python tools/build_font.py glyph_data/ site/
+	uv run python -m rebuild.tools.build_fonts --build
 	cmp -s reference/DepartureMono-Regular.otf site/DepartureMono-Regular.otf || cp reference/DepartureMono-Regular.otf site/
 	cd site && typst compile --font-path . print.typ
-
-# Builds the six shipped fonts from the runes, under their shipped file names, into rebuild/out/fonts/ or the directory OUT names: Mono and Junior, Regular and Bold, from the rune files and the glyph files, and Senior as the copy of the rebuild's build under rebuild/out/m1/, which it refuses while run_m1's last green build does not cover the inputs on disk. FONTS='mono junior' leaves Senior out and needs no M1 build. rebuild/tools/build_fonts.py's module docstring says what each font reads. It writes nothing under site/, which `all` still builds with the old engine.
-rebuild-fonts:
-	uv run python -m rebuild.tools.build_fonts $(if $(OUT),--out $(OUT)) $(if $(FONTS),--fonts $(FONTS))
-
-check-html-after: all
-	uv run python tools/build_check_html.py
-
-build-kerning-context-pairs: all
-	uv run python tools/build_kerning_context_pairs.py
-
-check-html-before: all
-	mkdir -p site/before
-	cp site/AbbotsMortonSpaceportMono-Regular.otf site/before/
-	cp site/AbbotsMortonSpaceportMono-Bold.otf site/before/
-	cp site/AbbotsMortonSpaceportSansJunior-Regular.otf site/before/
-	cp site/AbbotsMortonSpaceportSansJunior-Bold.otf site/before/
-	cp site/AbbotsMortonSpaceportSansSenior-Regular.otf site/before/
-	cp site/AbbotsMortonSpaceportSansSenior-Bold.otf site/before/
 
 typecheck:
 	uv run pyright
@@ -30,7 +12,7 @@ typecheck:
 prettier:
 	uv run black -q .
 
-# Runs the font suite through rebuild/tools/make_test_gate.py, and pyright with it; each skips when nothing it reads has changed since its last green run (the wrapper's module docstring, rebuild/tools/pyright_gate.py). FORCE=1 runs both regardless, and the `typecheck` target runs pyright alone. The suite's old-engine tests read the fonts `all` builds under site/; its data-expect pins and any-of regression checks read the rebuilt Senior and Junior, which its session builds into rebuild/out/fonts/ through rebuild-fonts' command first, and it fails, naming the build command, while the rebuild's Senior is stale.
+# Runs the font suite through rebuild/tools/make_test_gate.py, and pyright with it; each skips when nothing it reads has changed since its last green run (the wrapper's module docstring, rebuild/tools/pyright_gate.py). FORCE=1 runs both regardless, and the `typecheck` target runs pyright alone. The suite's session first publishes the six fonts into site/ through the command `all` runs, without `--build`, and checks them there: the data-expect pins, the any-of regression checks and the engine-neutral tests. It never starts the Senior's build, so it fails, naming the build command, while the rebuild's Senior is stale.
 test:
 	AMS_RUN_PYRIGHT=$(if $(FORCE),force,1) uv run python -m rebuild.tools.make_test_gate $(if $(FORCE),--force)
 
@@ -46,21 +28,6 @@ test-rebuild-slow:
 test-slowly:
 	AMS_RUN_PYRIGHT=1 taskpolicy -b uv run pytest test/ site/ -n $$(l=$$(( $$(sysctl -n hw.nperflevels) - 1 )); c=$$(sysctl -n hw.perflevel$$l.logicalcpu); k=$$(sysctl -n hw.perflevel$$l.cpusperl2); echo $$(( c / ((c + k - 1) / k) ))) --dist worksteal
 
-# Deep (≈1 min) isolation-leak gate: no new bad leak at depth 4 outside site/bad-leak-backlog.txt, plus the benign list (site/benign-leak-list.txt).
-test-leaks: all
-	uv run pytest test/test_isolation_leaks.py -m slow
-
-# Re-bless the bad-leak backlog and benign list after an intended change (then review the diff).
-leak-snapshot: all
-	uv run python tools/leak_snapshot.py
-
-review:
-	uv run python tools/review_scoped_anchor_selectors.py --output site/scoped-anchor-review/index.html
-
-# Runs both targets in parallel. `-j2` is the number of targets on the line, so it does not depend on the machine. Each target sizes its own pool to the whole machine: `make test` through the root conftest's `-n auto` hook, and the review tool at the usable cores capped at its count of families with suggestions. While both run, their pools oversubscribe the cores, and no memory budget covers that overlap.
-test-and-review:
-	@$(MAKE) -j2 test review
-
 print-job: all
 	lp site/print.pdf
 
@@ -70,7 +37,7 @@ explainer:
 serve:
 	uv run python tools/serve.py
 
-# Regenerate the table-diff review corpus under rebuild/out/review/, the accepted snapshot against rebuild/out/m1 (`review` is taken by the scoped-anchor-selector review above). It refuses while the review server listens, because it writes the served corpus in place; `make artifact-cycle` builds beside the served corpus and lands it while the server keeps running.
+# Regenerate the table-diff review corpus under rebuild/out/review/, the accepted snapshot against rebuild/out/m1. It refuses while the review server listens, because it writes the served corpus in place; `make artifact-cycle` builds beside the served corpus and lands it while the server keeps running.
 review-build:
 	uv run python -m rebuild.review.build
 
@@ -177,5 +144,4 @@ clean:
 	find . -type d -name __pycache__ -not -path './.uv-cache/*' -not -path './.venv/*' -exec rm -rf {} +
 	find . -type f \( -name '*.pyc' -o -name '*.pyo' \) -not -path './.uv-cache/*' -not -path './.venv/*' -delete
 	rm -rf .pytest_cache .ruff_cache .mypy_cache build dist wheels *.egg-info
-	rm -rf site/before site/scoped-anchor-review
-	rm -f site/AbbotsMortonSpaceport*.otf site/AbbotsMortonSpaceport*.fea site/DepartureMono-Regular.otf site/*.woff2 site/print.pdf site/check.html
+	rm -f site/AbbotsMortonSpaceport*.otf site/AbbotsMortonSpaceport*.fea site/DepartureMono-Regular.otf site/*.woff2 site/print.pdf

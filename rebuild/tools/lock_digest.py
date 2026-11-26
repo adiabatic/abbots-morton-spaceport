@@ -2,7 +2,7 @@
 
 A version bump rewrites only the project's block (its `name`, `version`, `dependencies`, `[package.dev-dependencies]` and `[package.metadata]`, everything from its `[[package]]` line to the next), and no stage or gate reads that block. Every dependency has its own `[[package]]` block, and those stay whole, so upgrading fontTools or uharfbuzz, adding or removing a package, or changing any pin changes the digest. The project block is the one with the `source = { virtual = "." }` line uv writes for the root project. A lock that does not decode, or has no such block, is hashed as raw bytes, so two different fake locks never get the same digest and a broken lock still changes the key. The rebuild suite's fake repos write `lock-1`.
 
-The module imports only the standard library, like `site_fonts`: the pyright gate hashes the lock too, and the root conftest imports that gate, so this function cannot live in `rebuild.pipeline.fingerprint` without adding the pipeline to every rebuild test's closure (`rebuild.tools.cycle_paths` explains why that matters). `fingerprint.lock_digest` is this function. It reads the lock whole, which is tens of kilobytes; rebuild/test_fingerprint.py's read-whole sweep exempts it on that bound.
+The module imports only the standard library, like `suite_fonts`: the pyright gate hashes the lock too, and the root conftest imports that gate, so this function cannot live in `rebuild.pipeline.fingerprint` without adding the pipeline to every rebuild test's closure (`rebuild.tools.cycle_paths` explains why that matters). `fingerprint.lock_digest` is this function. It reads the lock whole, which is tens of kilobytes; rebuild/test_fingerprint.py's read-whole sweep exempts it on that bound.
 """
 
 from __future__ import annotations

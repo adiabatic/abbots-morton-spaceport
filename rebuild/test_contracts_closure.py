@@ -166,7 +166,6 @@ BASE_FILES = {
     "rebuild/conftest.py": "c",
     "pyproject.toml": "p",
     "uv.lock": "u",
-    "fonts": "f",
     "rebuild/test_t.py": "t",
     "rebuild/test_u.py": "t",
     "a.yaml": "1",
@@ -802,7 +801,7 @@ def test_the_lane_key_is_the_digest_of_its_labels(tmp_path):
     assert key is not None and labels is not None
     assert key == ac.contracts_fingerprint(tmp_path)
     assert key == ac._digest_lines([f"{label}\t{digest}" for label, digest in labels.items()])
-    assert {"rebuild/test_x.py", "glyph_data/runes/qsX.yaml", "fonts"} <= labels.keys()
+    assert {"rebuild/test_x.py", "glyph_data/runes/qsX.yaml"} <= labels.keys()
 
 
 def test_the_cycle_plan_names_the_narrowing(tmp_path, monkeypatch):
@@ -1006,7 +1005,6 @@ CONFTEST_EDGES = {
         "rebuild/tools/memory_budget.py",
         "rebuild/tools/peak_rss.py",
         "rebuild/tools/pyright_gate.py",
-        "rebuild/tools/site_fonts.py",
         "rebuild/tools/suite_fonts.py",
         "rebuild/validation/__init__.py",
         "rebuild/validation/check.py",
@@ -1048,12 +1046,12 @@ from rebuild import conftest as lane
 
 @pytest.fixture(scope="session")
 def announced():
-    return lane.announced_import("rebuild.tools.site_fonts")
+    return lane.announced_import("rebuild.tools.suite_fonts")
 
 
 @pytest.fixture(scope="session")
 def silent():
-    return importlib.import_module("rebuild.tools.site_fonts")
+    return importlib.import_module("rebuild.tools.suite_fonts")
 """
 
 ANNOUNCE_TESTS = """
@@ -1066,11 +1064,11 @@ def test_uses_silent(silent):
 """
 
 IMPORTER_TESTS = """
-import rebuild.tools.site_fonts
+import rebuild.tools.suite_fonts
 
 
 def test_imports_it_at_collection():
-    assert rebuild.tools.site_fonts.font_paths
+    assert rebuild.tools.suite_fonts.font_paths
 """
 
 
@@ -1104,10 +1102,10 @@ class TestTheAnnouncedImport:
         payload = cc.read_sidecar(sidecar)
         assert payload is not None
         tests = payload["tests"]
-        assert "rebuild/tools/site_fonts.py" in tests["test_announced.py::test_uses_announced"]["modules"]
+        assert "rebuild/tools/suite_fonts.py" in tests["test_announced.py::test_uses_announced"]["modules"]
         silent = tests["test_announced.py::test_uses_silent"]
-        assert "rebuild/tools/site_fonts.py" not in silent["modules"]
-        assert "rebuild/tools/site_fonts.py" not in silent["reads"]
+        assert "rebuild/tools/suite_fonts.py" not in silent["modules"]
+        assert "rebuild/tools/suite_fonts.py" not in silent["reads"]
 
 
 SHARED_BUILD_CONFTEST = """

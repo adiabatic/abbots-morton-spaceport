@@ -1097,7 +1097,7 @@ def _add_a_table(font):
 
 
 def test_font_content_digest_is_blind_to_head_and_name_and_to_nothing_else(tmp_path):
-    """Rewriting `head.fontRevision` and every `name` record of the checked-in mini font, as `make all` does to both site fonts on a version bump (the save also updates `head.modified` and the checksum adjustment), leaves the digest unchanged. Changing a glyph's advance or a cursive anchor's coordinate, dropping a table, or adding one each moves it. Every case goes through a fontTools save, so the test uses fonts a shaper would read, not patched bytes."""
+    """Rewriting `head.fontRevision` and every `name` record of the checked-in mini font, as a build does to every font on a version bump (the save also updates `head.modified` and the checksum adjustment), leaves the digest unchanged. Changing a glyph's advance or a cursive anchor's coordinate, dropping a table, or adding one each moves it. Every case goes through a fontTools save, so the test uses fonts a shaper would read, not patched bytes."""
     base = fingerprint.font_content_digest(MINI_FONT)
     bumped = _font(MINI_FONT, tmp_path / "bumped.otf", _bump_version)
     assert fingerprint.file_sha256(bumped) != fingerprint.file_sha256(MINI_FONT)
@@ -1203,41 +1203,34 @@ def test_the_font_content_digest_is_memoized_on_the_bytes_and_recomputed_when_th
     assert len(digested) == 2
 
 
-def _version_bump_keys(root):
-    _key, labels = artifact_cycle.contracts_closure(root)
-    assert labels is not None, "the lane closure needs git"
-    return (labels["fonts"], artifact_cycle.run_m1_skip_files(root)["uv.lock"])
+def _version_bump_keys(root, font):
+    return (fingerprint.font_content_digest(font), artifact_cycle.run_m1_skip_files(root)["uv.lock"])
 
 
 def test_a_version_bump_moves_no_key_while_a_glyph_an_anchor_and_a_pin_move_each(tmp_path):
-    """Checks two keys together: the contracts lane's `fonts` label (`fonts_value` over the site fonts) and the run_m1 skip key's `uv.lock` line. Rewriting only `head` and `name` in both site fonts and only the project version in the lock moves neither. A glyph edit and a GPOS change each move the font label, and a dependency-pin change moves the lock line. The fake repo is a git repo because the lane closure is listed with `git ls-files`."""
+    """Checks two keys together: a font's content digest (`font_content_digest`, which gate:make-test's key takes of the Senior) and the run_m1 skip key's `uv.lock` line. Rewriting only `head` and `name` in the font and only the project version in the lock moves neither. A glyph edit and a GPOS change each move the font's digest, and a dependency-pin change moves the lock line."""
     root = _fake_repo(tmp_path)
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
-    (root / "conftest.py").write_text("")
-    (root / "pyproject.toml").write_text("[project]\nname = 'fake'\n")
     lock = root / "uv.lock"
     lock.write_text(LOCK)
-    senior, junior = fingerprint.font_paths(root)
+    senior = root / "rebuild" / "out" / "m1" / "M1.otf"
+    senior.parent.mkdir(parents=True)
     senior.write_bytes(MINI_FONT.read_bytes())
-    junior.write_bytes(MINI_FONT.read_bytes())
-    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
-    base = _version_bump_keys(root)
+    base = _version_bump_keys(root, senior)
     assert all(value is not None for value in base)
 
     _font(MINI_FONT, senior, _bump_version)
-    _font(MINI_FONT, junior, _bump_version)
     lock.write_text(LOCK_BUMPED)
-    assert _version_bump_keys(root) == base
+    assert _version_bump_keys(root, senior) == base
 
     _font(MINI_FONT, senior, _widen_a_glyph)
-    glyph = _version_bump_keys(root)
+    glyph = _version_bump_keys(root, senior)
     assert glyph[0] != base[0] and glyph[1] == base[1]
     _font(MINI_FONT, senior, _move_an_anchor)
-    anchor = _version_bump_keys(root)
+    anchor = _version_bump_keys(root, senior)
     assert anchor[0] != base[0] and anchor[1] == base[1]
     assert anchor[0] != glyph[0]
 
     senior.write_bytes(MINI_FONT.read_bytes())
     lock.write_text(LOCK_PIN_MOVED)
-    pin = _version_bump_keys(root)
+    pin = _version_bump_keys(root, senior)
     assert pin[0] == base[0] and pin[1] != base[1]

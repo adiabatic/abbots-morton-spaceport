@@ -182,11 +182,6 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Version bumps: the bump-major and bump-minor skills edit both version files, refresh the lockfile, and open the `FONTLOG.md` heading.
 - Review sessions: `just-verdicted-now-what` turns a finished review's rejects into rune changes.
 
-## Visual before/after diffs
-
-- `site/check.html` is the side-by-side harness for eyeballing glyph changes: `make check-html-before` on the baseline captures the OTFs into `site/before/` (gitignored); `make check-html-after` after the change rebuilds the page.
-- `tools/build_check_html.py` generates the whole page, so never hand-edit it; `doc/isolation-leaks.md` documents its auto-generated sections.
-
 ## Markdown-document style
 
 - Sentence case for titles.

@@ -241,15 +241,14 @@ def _drive_sessionfinish(
 
 
 class TestWhenTheCheckIsJoined:
-    """Drive the root conftest's `pytest_configure` and `pytest_sessionfinish` on the plugin object pytest loaded (`_loaded_conftest` in rebuild/test_memory_budget.py says why it is not imported). `pyright_gate.begin` is stubbed to return a fake check, and the conftest's `subprocess` is stubbed to record any `make all`, and the rebuilt fonts' build, instead of running it. `_deferred_pyright`, `_shaping_cache` and `_pin_cache` are replaced with fresh containers so the test cannot change the state of the session running it."""
+    """Drive the root conftest's `pytest_configure` and `pytest_sessionfinish` on the plugin object pytest loaded (`_loaded_conftest` in rebuild/test_memory_budget.py says why it is not imported). `pyright_gate.begin` is stubbed to return a fake check, and the conftest's `subprocess` is stubbed to record the font publish instead of running it. `_deferred_pyright` and `_font_cache` are replaced with fresh containers so the test cannot change the state of the session running it."""
 
     @pytest.fixture
     def root(self, pytestconfig: pytest.Config, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
         plugin = pytestconfig.pluginmanager.get_plugin(str(ROOT / "conftest.py"))
         assert isinstance(plugin, ModuleType), "pytest has not loaded the root conftest as a plugin"
         monkeypatch.setattr(plugin, "_deferred_pyright", [])
-        monkeypatch.setattr(plugin, "_shaping_cache", {})
-        monkeypatch.setattr(plugin, "_pin_cache", {})
+        monkeypatch.setattr(plugin, "_font_cache", {})
         return plugin
 
     @pytest.fixture
@@ -266,13 +265,12 @@ class TestWhenTheCheckIsJoined:
     def _begin(self, monkeypatch: pytest.MonkeyPatch, check: _FakeCheck | None) -> None:
         monkeypatch.setattr(pg, "begin", lambda environ, root, env=None: check)
 
-    def test_a_rebuild_only_run_with_its_fonts_present_parks_the_check_and_waits_on_nothing(
+    def test_a_rebuild_only_run_parks_the_check_and_waits_on_nothing(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """In the pytest run that `make test-rebuild` spawns, no fonts are built, nothing waits on the check before the workers start, and the check is waited on once at session end."""
+        """In the pytest run that `make test-rebuild` spawns, no fonts are published, nothing waits on the check before the workers start, and the check is waited on once at session end."""
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         assert builds == []
         assert check.waits == 0
@@ -285,7 +283,6 @@ class TestWhenTheCheckIsJoined:
     ):
         """A red deferred check exits the session nonzero with no FAILED or ERROR line, which the gate wrappers treat as a hard failure."""
         self._begin(monkeypatch, _FakeCheck(1))
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         with pytest.raises(pytest.exit.Exception) as raised:
             _drive_sessionfinish(root, _RootStubConfig("rebuild/"))
@@ -296,7 +293,6 @@ class TestWhenTheCheckIsJoined:
     ):
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         _drive_sessionfinish(root, _RootStubConfig("rebuild/"))
         assert root._deferred_pyright == []
@@ -307,41 +303,28 @@ class TestWhenTheCheckIsJoined:
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
         self._begin(monkeypatch, None)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         assert root._deferred_pyright == []
         assert _drive_sessionfinish(root, _RootStubConfig("rebuild/")) is None
 
-    @pytest.mark.parametrize(
-        ("args", "fonts_present"),
-        [(("test/", "site/"), True), (("rebuild/",), False)],
-        ids=["font-suite", "rebuild-only-after-make-clean"],
-    )
-    def test_a_run_that_builds_the_fonts_still_fast_fails_before_the_workers_spawn(
-        self,
-        root: ModuleType,
-        builds: list[list[str]],
-        monkeypatch: pytest.MonkeyPatch,
-        args: tuple[str, ...],
-        fonts_present: bool,
+    def test_a_run_that_publishes_the_fonts_still_fast_fails_before_the_workers_spawn(
+        self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
     ):
-        """When the run builds the fonts (`make test FORCE=1`, or a rebuild-only run whose site fonts are absent), the check runs alongside the build and a red check raises before any worker starts. Nothing is deferred to session end. The font suite's run also builds the rebuilt fonts its pins are checked against, and a rebuild-only run does not."""
+        """When the run publishes the fonts (`make test FORCE=1`), the check runs alongside the publish and a red check raises before any worker starts. Nothing is deferred to session end. The publish is the one child the run spawns, and it never asks for the Senior's build."""
         check = _FakeCheck(1)
         self._begin(monkeypatch, check)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: fonts_present)
         with pytest.raises(pytest.UsageError):
-            root.pytest_configure(_RootStubConfig(*args))
-        assert builds[0] == ["make", "all"]
-        rebuilt = [argv for argv in builds[1:] if "rebuild.tools.build_fonts" in argv]
-        assert len(rebuilt) == (1 if "site/" in args else 0)
+            root.pytest_configure(_RootStubConfig("test/", "site/"))
+        assert len(builds) == 1 and "rebuild.tools.build_fonts" in builds[0]
+        assert "--build" not in builds[0]
         assert check.waits == 1
         assert root._deferred_pyright == []
-        assert root._shaping_cache == {"_built": True}
+        assert root._font_cache == {"_published": True}
 
     def test_a_stale_senior_fails_the_font_suite_with_the_build_commands_message_and_abandons_the_check(
         self, root: ModuleType, monkeypatch: pytest.MonkeyPatch
     ):
-        """The font suite's session builds the rebuilt fonts its pins are checked against through `rebuild.tools.build_fonts`, which refuses a stale Senior and names the build command. The session then fails with that message before any worker starts, and abandons the check rather than waiting on it."""
+        """The font suite's session publishes the fonts it checks through `rebuild.tools.build_fonts`, which refuses a stale Senior and names the build command. The session then fails with that message before any worker starts, and abandons the check rather than waiting on it."""
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
         refusal = "build_fonts: the rebuild's Senior is not current: run_m1 has no green build on record. Build it with `uv run python -m rebuild.pipeline.run_m1`"
@@ -355,7 +338,7 @@ class TestWhenTheCheckIsJoined:
         with pytest.raises(pytest.UsageError, match="uv run python -m rebuild.pipeline.run_m1"):
             root.pytest_configure(_RootStubConfig("test/", "site/"))
         assert (check.waits, check.abandons) == (0, 1)
-        assert root._pin_cache == {}
+        assert root._font_cache == {}
 
     def test_a_worker_begins_no_check_and_still_reports_its_peak(
         self, root: ModuleType, builds: list[list[str]], monkeypatch: pytest.MonkeyPatch
@@ -366,7 +349,7 @@ class TestWhenTheCheckIsJoined:
         root.pytest_configure(config)
         assert builds == []
         assert root._deferred_pyright == []
-        assert root._shaping_cache == {"_built": True}
+        assert root._font_cache == {"_published": True}
         session = SimpleNamespace(config=config, exitstatus=pytest.ExitCode.OK)
         gen = root.pytest_sessionfinish(session=session, exitstatus=pytest.ExitCode.OK)
         next(gen)
@@ -380,7 +363,6 @@ class TestWhenTheCheckIsJoined:
         """On Ctrl-C, pytest's `wrap_session` catches the KeyboardInterrupt and calls the hook with exitstatus INTERRUPTED. The deferred check is abandoned and its exit code ignored, because the same SIGINT killed pyright, and treating that exit as a failure would clear a valid green record. The wrapper raises nothing, so the session keeps its INTERRUPTED status."""
         check = _FakeCheck(130)
         self._begin(monkeypatch, check)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         result = _drive_sessionfinish(
             root, _RootStubConfig("rebuild/"), exitstatus=pytest.ExitCode.INTERRUPTED
@@ -395,7 +377,6 @@ class TestWhenTheCheckIsJoined:
         """When an inner sessionfinish hook raises, the wrapper still abandons the deferred check so no pyright process is left running, and the exception propagates."""
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         with pytest.raises(KeyboardInterrupt):
             _drive_sessionfinish(root, _RootStubConfig("rebuild/"), inner=KeyboardInterrupt())
@@ -408,7 +389,6 @@ class TestWhenTheCheckIsJoined:
         """Only INTERRUPTED abandons the check. A session that finished with test failures still waits on the check and fails on a red one."""
         check = _FakeCheck(1)
         self._begin(monkeypatch, check)
-        monkeypatch.setattr(root, "_rebuild_suite_fonts_present", lambda: True)
         root.pytest_configure(_RootStubConfig("rebuild/"))
         with pytest.raises(pytest.exit.Exception):
             _drive_sessionfinish(root, _RootStubConfig("rebuild/"), exitstatus=pytest.ExitCode.TESTS_FAILED)

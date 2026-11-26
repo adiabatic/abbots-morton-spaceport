@@ -1,6 +1,6 @@
 """The `data-expect` grammar (`doc/data-expect.md`): `parse_expect` turns an expect string into tokens and the connections between them, `expand_maybe_ligatures` gives each reading of its maybe-ligatures, and `token_char_spans` maps each token onto the characters of the text it describes.
 
-This module is the grammar's authority. The checker (`rebuild/validation/check.py`), the corpus collector (`rebuild/validation/corpus.py`) and the old engine's harness (`test/test_shaping.py`) import it. It is a leaf: it imports nothing from `rebuild/pipeline/`, `rebuild/review/`, `tools/` or `test/`.
+This module is the grammar's authority. The checker (`rebuild/validation/check.py`) and the corpus collector (`rebuild/validation/corpus.py`) import it. It is a leaf: it imports nothing from `rebuild/pipeline/`, `rebuild/review/`, `tools/` or `test/`.
 
 The character map (`CHAR_TO_GLYPH`) is read from postscript_glyph_names.yaml when the module is imported. An escaped character (`\\X`) names the glyph that map gives it, or `uniXXXX` when the map has none.
 """

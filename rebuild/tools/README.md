@@ -13,11 +13,11 @@ Start here:
 - `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
 - `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer maximum length on demand
 - `memory_series.py` (`make memory-series`): measures what the table build or the review corpus build holds and writes at each of several alphabet cuts, one build at a time, into `rebuild/memory-series.txt`
-- `build_fonts.py` (`make rebuild-fonts`): writes the six fonts from the runes into `rebuild/out/fonts/`, with the glyph-facts sidecar beside the Senior; the font suite's session runs it for Senior and Junior before it checks the `data-expect` pins against them
+- `build_fonts.py` (`make all`): publishes the six fonts into `site/`, Mono and Junior built from the runes and Senior copied from the build under `rebuild/out/m1/`, which `--build` runs first when it is stale; the font suite's session runs it without `--build` before it checks the fonts
 - `fault_kit.py`: re-injects the fault kit's rows (`rebuild/perf/faults.yaml`) into its own tree, `var/perf/kit/`, each on its own small alphabet, and checks that their gates still catch them (`doc/perf-check.md`)
 
 `console.py` is a library, not a script. It defines the line protocol every in-house child of the cycle prints (the `[t]`, `[phase]`, `[progress]`, and `[warn]` prefixes) and `CycleConsole`, the terminal renderer the artifact cycle shows that output with: the plan block, the per-step banners, the per-step logs under `var/build-logs/`, and the closing table. Read it before adding output to anything the cycle spawns.
 
-`suite_fonts.py` is a library too, one the root conftest can import: it names the rebuilt fonts and the glyph-facts sidecar the font suite checks the `data-expect` pins against, as `build_fonts.py` writes them.
+`suite_fonts.py` is a library too, one the root conftest can import: it names the fonts the font suite checks the `data-expect` pins against, as `build_fonts.py` publishes them, and the glyph-facts sidecar beside the build.
 
 `store_guards.py` is a library as well: the pass lock, the review-server check and the refusals the table-diff accept (`rebuild/review/accept.py`), a hand-run writer of the verdict store, takes.

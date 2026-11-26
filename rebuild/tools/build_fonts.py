@@ -1,6 +1,6 @@
-"""Build the six shipped fonts, Mono, Junior and Senior in Regular and Bold, into one directory under their shipped file names (`uv run python -m rebuild.tools.build_fonts`, `make rebuild-fonts`). It writes nothing under site/.
+"""Publish the six shipped fonts, Mono, Junior and Senior in Regular and Bold, into site/ under their shipped file names (`uv run python -m rebuild.tools.build_fonts`, which `make all` runs with `--build`). The font suite's session publishes through the same function before it collects, without `--build`.
 
-Mono and Junior come from the rune files and the non-Quikscript glyph files (`build_family.build_mono_and_junior`), which need no settlement table, so they build while the tables are stale or absent. Senior is the rebuild's own build: the command copies rebuild/out/m1/M1.otf and M1-Bold.otf, with the glyph-facts sidecar the build writes beside them (`glyph_facts.FILE_NAME`) under the name the `data-expect` checker looks for beside the Regular (`check.glyph_facts_path`), and before it writes anything it refuses with `StaleSeniorError`, naming the build command, when either is missing or no longer the build of its inputs (`senior_staleness`). That decision reads run_m1's own records:
+Mono and Junior come from the rune files and the non-Quikscript glyph files (`build_family.build_mono_and_junior`), which need no settlement table, so they build while the tables are stale or absent. Senior is the rebuild's own build: the command copies rebuild/out/m1/M1.otf and M1-Bold.otf, and before it writes anything it refuses with `StaleSeniorError`, naming the build command, when either is missing or no longer the build of its inputs (`senior_staleness`). `--build` runs that build first (`RUN_M1_COMMAND`) when the Senior is not current, and refuses only when the build fails. The glyph-facts sidecar the `data-expect` checker reads stays beside the build under rebuild/out/m1 (`glyph_facts.FILE_NAME`), so site/, which the deploy uploads whole, holds only what the site serves. The staleness decision reads run_m1's own records:
 
 - the run_m1 green record (`cycle_paths.RUN_M1_GREEN`) must hold every line of the run_m1 skip key (`artifact_cycle.run_m1_skip_lines`) as it reads on disk, a comparison-side line aside (`artifact_cycle.comparison_side_label`), since no font reads one;
 - the Stage A record must be present (`fingerprint.read_stage_a`), since a build deletes it before its first write under rebuild/out/m1 and writes it back only once its gates pass, so its absence means a build that wrote there stopped or failed since the green one.
@@ -11,6 +11,7 @@ The module lives under rebuild/tools/ because the check imports `artifact_cycle`
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,15 +19,15 @@ from typing import Sequence
 
 from rebuild.pipeline import build_family, fingerprint, glyph_facts, spec_load
 from rebuild.pipeline.compile_font import FontSourceError
-from rebuild.validation import check
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_OUT_DIR = REPO_ROOT / "rebuild" / "out" / "fonts"
+SITE_DIR = REPO_ROOT / "site"
 FONTS = ("mono", "junior", "senior")
 # The rebuild's Senior by style, as run_m1 writes it (`run_m1.OUT_DIR`, `run_m1.BOLD_FONT`).
 M1_OUT = Path("rebuild") / "out" / "m1"
 SENIOR_SOURCES = {"Regular": "M1.otf", "Bold": "M1-Bold.otf"}
-RUN_M1_COMMAND = "uv run python -m rebuild.pipeline.run_m1"
+RUN_M1_MODULE = "rebuild.pipeline.run_m1"
+RUN_M1_COMMAND = f"uv run python -m {RUN_M1_MODULE}"
 
 
 class StaleSeniorError(Exception):
@@ -70,8 +71,23 @@ def require_current_senior(root: Path = REPO_ROOT) -> None:
     reason = senior_staleness(root)
     if reason is not None:
         raise StaleSeniorError(
-            f"the rebuild's Senior is not current: {reason}. Build it with `{RUN_M1_COMMAND}` (a `make artifact-cycle` pass runs it too)"
+            f"the rebuild's Senior is not current: {reason}. Build it with `{RUN_M1_COMMAND}`, or with `make all`, which runs it and publishes the fonts (a `make artifact-cycle` pass runs it too)"
         )
+
+
+def build_stale_senior(root: Path = REPO_ROOT) -> None:
+    """Run the Senior's build (`RUN_M1_COMMAND`, in a child with the terminal as its output) when `senior_staleness` gives a reason, and raise `StaleSeniorError` when the build fails or leaves the Senior stale."""
+    reason = senior_staleness(root)
+    if reason is None:
+        return
+    print(f"build_fonts: the rebuild's Senior is not current ({reason}); building it with `{RUN_M1_COMMAND}`")
+    sys.stdout.flush()
+    returncode = subprocess.run([sys.executable, "-m", RUN_M1_MODULE], cwd=root, check=False).returncode
+    if returncode != 0:
+        raise StaleSeniorError(
+            f"`{RUN_M1_COMMAND}` failed (exit {returncode}), so the Senior is not published"
+        )
+    require_current_senior(root)
 
 
 def _copy_if_changed(source: Path, path: Path) -> None:
@@ -81,15 +97,13 @@ def _copy_if_changed(source: Path, path: Path) -> None:
 
 
 def _copy_senior(out_dir: Path, root: Path) -> list[Path]:
-    """Copy the rebuild's Senior, Regular and Bold, into `out_dir` under the shipped file names, and its glyph-facts sidecar beside them, leaving a file that already holds the same bytes alone, as the Mono and Junior builds do, and return the fonts' paths."""
+    """Copy the rebuild's Senior, Regular and Bold, into `out_dir` under the shipped file names, leaving a file that already holds the same bytes alone, as the Mono and Junior builds do, so a server's watch on the fonts sees only a real change, and return their paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for style, source in SENIOR_SOURCES.items():
         path = out_dir / build_family.font_file_name("senior", style)
         _copy_if_changed(root / M1_OUT / source, path)
         written.append(path)
-    regular = out_dir / build_family.font_file_name("senior", "Regular")
-    _copy_if_changed(root / M1_OUT / glyph_facts.FILE_NAME, check.glyph_facts_path(regular))
     return written
 
 
@@ -107,30 +121,24 @@ def build(out_dir: Path, fonts: Sequence[str] = FONTS, root: Path = REPO_ROOT) -
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m rebuild.tools.build_fonts",
-        description="Build the shipped fonts: Mono and Junior from the rune files and the glyph files, and Senior from the rebuild's build under rebuild/out/m1.",
+        description="Publish the shipped fonts into site/: Mono and Junior from the rune files and the glyph files, and Senior from the rebuild's build under rebuild/out/m1.",
     )
     parser.add_argument(
-        "--out",
-        type=Path,
-        default=DEFAULT_OUT_DIR,
-        help=f"the directory the fonts go to (default {DEFAULT_OUT_DIR.relative_to(REPO_ROOT)})",
-    )
-    parser.add_argument(
-        "--fonts",
-        nargs="+",
-        choices=FONTS,
-        default=list(FONTS),
-        help="the fonts to build, each in Regular and Bold (default all three)",
+        "--build",
+        action="store_true",
+        help=f"run the Senior's build (`{RUN_M1_COMMAND}`) first when it is not current, instead of refusing",
     )
     args = parser.parse_args(argv)
     started = time.monotonic()
     try:
-        written = build(args.out, tuple(dict.fromkeys(args.fonts)))
+        if args.build:
+            build_stale_senior()
+        written = build(SITE_DIR)
     except (StaleSeniorError, build_family.FamilyBuildError, spec_load.SpecError, FontSourceError) as error:
         print(f"build_fonts: {error}", file=sys.stderr)
         return 1
     for path in written:
-        print(f"wrote {path}")
+        print(f"wrote {path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path}")
     print(f"{len(written)} fonts in {time.monotonic() - started:.1f}s")
     return 0
 

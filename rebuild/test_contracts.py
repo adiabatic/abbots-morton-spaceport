@@ -42,7 +42,7 @@ class TestGovernedScope:
         assert governs(REPO_ROOT / "rebuild" / "test_surface.py")
 
     def test_the_repos_other_suites_are_left_alone(self):
-        assert not governs(REPO_ROOT / "test" / "test_shaping.py")
+        assert not governs(REPO_ROOT / "test" / "test_outlines.py")
         assert not governs(REPO_ROOT / "site" / "index.html")
 
     def test_a_collection_outside_the_repo_is_governed(self, tmp_path: Path):
@@ -62,6 +62,8 @@ class TestForbiddenPaths:
             "var/review-pre-abc1234/manifest.json",
             "var/build-logs/latest/plan.txt",
             "var/keep/notes.md",
+            "site/AbbotsMortonSpaceportSansSenior-Regular.otf",
+            "site/AbbotsMortonSpaceportMono-Bold.otf",
             "verdicts-autosave.json",
             "verdicts-export.json",
             "verdicts-carried-abc1234.json",
@@ -80,7 +82,7 @@ class TestForbiddenPaths:
             "rebuild/review-snapshot.json",
             "glyph_data/quikscript.yaml",
             "glyph_data/runes/qsPea.yaml",
-            "site/AbbotsMortonSpaceportSansSenior-Regular.otf",
+            "site/index.html",
         ],
     )
     def test_checked_in_inputs_are_allowed(self, relative: str):

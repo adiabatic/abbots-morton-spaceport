@@ -2,7 +2,7 @@
 
 `ink_identical` (the sorted placed pieces are equal) reproduces the worked readings: the ◊ZWNJ ·May·Oy·Pea window is ink-identical only because kerning is off, ␣·Pea·Pea is ink-identical outright, a real one-pixel change is not picture-identical, and two comparators give the same result. `config_diff` (the cells only one font paints over the whole window, with the shifted tail pulled back) ignores a tuck that leaves the union of painted cells unchanged. When one glyph stops painting a pixel that a neighbor still paints, the delta is the empty sentinel if nothing else changed. Beside a real change, the tuck leaves that change's digest as it is, so the window shares a key with its tuck-free siblings. The same change at a junction the neighbor no longer reaches stays in the delta as the hole it leaves.
 
-Nothing here reads the live corpus. The windows are every window of two to four slots over four letters and the three boundaries (`mini_windows`), shaped in the frozen mini bundle's font, because every claim here is about the comparator. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
+Nothing here reads the live corpus. The windows are every window of two to four slots over four letters and the three boundaries (`mini_windows`), shaped in the frozen mini bundle's font against the frozen `before` font beside the fixtures (`rebuild/review/fixtures/README.md`), because every claim here is about the comparator. That `run_ink` ignores glyph names is checked on the marker font, which gives two names one outline. A stride of the frozen windows checks that the sentinel matches the reference picture reading, so the build's picture flag, read from the same diffs it digests, always agrees with `picture_equal`.
 
 Also here: `delta_digest`, the stored identity of one config's localized delta. `check_unit` checks its shape, and the cluster id a Queue card groups by is made from its digests.
 
@@ -28,7 +28,7 @@ from rebuild.validation.shaping import Shaper
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI = REPO_ROOT / "rebuild" / "review" / "fixtures" / "mini"
 MINI_FONT = MINI / "M1.otf"
-BEFORE_FONT = REPO_ROOT / "site" / "AbbotsMortonSpaceportSansSenior-Regular.otf"
+BEFORE_FONT = REPO_ROOT / "rebuild" / "review" / "fixtures" / "ink" / "before.otf"
 
 
 @pytest.fixture(scope="module")
@@ -315,7 +315,7 @@ def test_a_renaming_the_neighbor_no_longer_covers_stays_in_the_delta(tmp_path):
 
 
 def test_u_0126_is_ink_identical_only_because_kerning_is_neutralized(comparator):
-    """◊ZWNJ ·May·Oy·Pea renders the same ink in both fonts once `kern` is off, and the old font does kern it: positions change when the feature is toggled."""
+    """◊ZWNJ ·May·Oy·Pea renders the same ink in both fonts once `kern` is off, and the `before` font does kern it: positions change when the feature is toggled."""
     text = "".join(chr(value) for value in (0x200C, 0xE665, 0xE679, 0xE650))
     assert comparator.ink_identical(text, ("default",)) is True
     before = Shaper(BEFORE_FONT)
@@ -341,7 +341,7 @@ def test_verdicts_are_deterministic_across_two_comparators(mini_windows, compara
 
 
 def test_config_diff_localizes_the_delta_to_the_changed_region(comparator):
-    """Between the mini bundle's font and the old Senior, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one cluster. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
+    """Between the mini bundle's font and the `before` font, ·Pea·May drops ·May's one-pixel baseline entry extension. Followers after the judged pair add no cell to the delta: ·Low and ·Low·Fee paint the same picture shifted left by the dropped column, so the localized delta is the same across the follower contexts and they share one cluster. Only the recorded shift distinguishes a window with followers from the bare pair, whose shift is 0."""
     pair = "".join(chr(value) for value in (0xE650, 0xE665))
     one_follower = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667))
     two_followers = "".join(chr(value) for value in (0xE650, 0xE665, 0xE667, 0xE658))

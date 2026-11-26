@@ -1,13 +1,13 @@
-"""When the namer dot (·) starts a word whose first letter is Short, it drops one pixel so it is centered on that letter. The substitution is in `calt` and exists only in the proportional fonts (Senior and Junior). Mono keeps Departure Mono's single dot. `emit_namer_dot_calt` in tools/quikscript_fea.py emits the lookup."""
+"""When the namer dot (·) starts a word whose first letter is Short, it drops one pixel so it is centered on that letter. The substitution is in `calt` and exists only in the proportional fonts (Senior and Junior). Mono keeps Departure Mono's single dot. `emit_gsub.namer_dot_lookup` in rebuild/pipeline/emit_gsub.py writes the lookup, and `build_family` writes Junior's copy of it."""
 
 from functools import cache
+from pathlib import Path
 
 import pytest
 import uharfbuzz as hb
 from fontTools.ttLib import TTFont
 
-from quikscript_shaping_helpers import ROOT
-
+ROOT = Path(__file__).resolve().parent.parent
 DOT = "·"  # · periodcentered, the namer dot
 NO = ""  # ·No (Short)
 IT = ""  # ·It (Short)
@@ -78,7 +78,7 @@ def test_namer_dot_lowers_at_word_start(variant: str, text: str) -> None:
 def test_consecutive_names(variant: str) -> None:
     # In ·Bay·No the first dot precedes a Deep letter and stays plain, and the second precedes a Short letter and lowers. A Quikscript letter before a namer dot does not block the substitution.
     names = _shape(variant, DOT + BAY + DOT + NO)
-    # The letters are compared by their base, the name up to its first dot, so the check holds for the old build's bare names and the rebuild's cell labels alike.
+    # The letters are compared by their base, the name up to its first dot, since a letter's glyph name also names its stance and joins.
     bases = [name if name in (PLAIN, LOWERED) else name.split(".", 1)[0] for name in names]
     assert bases == [PLAIN, "qsBay", LOWERED, "qsNo"]
 

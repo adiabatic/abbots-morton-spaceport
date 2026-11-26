@@ -1,6 +1,6 @@
-"""The any-of `data-expect` regression checks: each test gives a text and the expect strings any one of which its shaping must match, checked against the rebuilt Senior under rebuild/out/fonts/ by the checker the pin items use (`rebuild/validation/check.py`, `assert_expect_any`).
+"""The any-of `data-expect` regression checks: each test gives a text and the expect strings any one of which its shaping must match, checked against the Senior under site/ by the checker the pin items use (`rebuild/validation/check.py`, `assert_expect_any`).
 
-A check the rebuilt Senior fails is a strict expected failure whose reason names what the rebuild shapes instead, pending the author's ruling (`WHATNEXT.md`), so it fails once the rebuild shapes it as the check expects. The root conftest builds the rebuilt fonts at the start of a session that collects this file (`pin_fonts`).
+A check the rebuilt Senior fails is a strict expected failure whose reason names what the rebuild shapes instead, pending the author's ruling (`WHATNEXT.md`), so it fails once the rebuild shapes it as the check expects. The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`).
 """
 
 from collections.abc import Sequence

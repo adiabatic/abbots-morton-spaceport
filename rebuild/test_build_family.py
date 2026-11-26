@@ -1,4 +1,4 @@
-"""Tests for `rebuild/pipeline/build_family.py`: Mono's and Junior's Quikscript glyphs, variation sequences and features over the checked-in spec, the checks `family_glyphs` makes, and that the build reads nothing of glyph_data/quikscript.yaml. rebuild/test_family_against_old_build.py compares the built fonts with the old build's."""
+"""Tests for `rebuild/pipeline/build_family.py`: Mono's and Junior's Quikscript glyphs, variation sequences and features over the checked-in spec, the checks `family_glyphs` makes, and that the build reads nothing of glyph_data/quikscript.yaml."""
 
 from __future__ import annotations
 

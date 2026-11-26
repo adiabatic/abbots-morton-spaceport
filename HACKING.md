@@ -6,15 +6,25 @@
 make all
 ```
 
-Dependencies are managed with `uv` and defined in `pyproject.toml`.
+`make all` publishes the six fonts into `site/` (`rebuild/tools/build_fonts.py`): Mono and Junior built from the rune files and the other glyph files, and Senior copied from the rebuild's own build under `rebuild/out/m1/`, which it runs first when that build is stale. Dependencies are managed with `uv` and defined in `pyproject.toml`. The Senior's table build runs in the Rust crate under `rebuild/kernel-rs/`, so the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`: without it you cannot build Senior, settle a window, or run the rebuild test suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it.
 
-The M1 rebuild’s table build runs in the Rust crate under `rebuild/kernel-rs/`, so that side of the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`. Without `cargo` you cannot build the M1 artifacts, settle a window, or run the rebuild test suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it. The font build does not need `cargo`.
+`make serve` serves `site/` on `http://localhost:7293/` and reloads the open pages when a font changes.
+
+## Where the letters live
+
+- Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `rebuild/schema/rune.schema.json`: its ductus, its stances with their bitmaps and join surfaces, its policy records and its kerning. `doc/rebuild-design.md` explains the model.
+- The Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the font metadata and the Latin kerning rules are the other `glyph_data/*.yaml` files, and `postscript_glyph_names.yaml` maps glyph names to code points.
+- The variation sequences and the stylistic sets are in the registry, `rebuild/script.yaml`.
 
 ## Testing
 
-Open `site/index.html` in a browser to test the font interactively.
+`doc/testing.md` maps each kind of change to the gate that checks it. In short: `make test` checks the published fonts, the `data-expect` pins on the site pages among them (`doc/data-expect.md`); `make test-rebuild` checks the pipeline under `rebuild/`; and `uv run python -m rebuild.pipeline.run_m1` rebuilds Senior's tables and font after a rune or pipeline edit.
 
-For the repeatable workflow for finding Quikscript words in `site/the-manual.html` that are missing `data-expect` coverage elsewhere in the file, see [doc/checking-data-expect-coverage.md](doc/checking-data-expect-coverage.md).
+Open `site/index.html` (through `make serve`) to test the fonts interactively. For the repeatable workflow for finding Quikscript words in `site/the-manual.html` that are missing `data-expect` coverage elsewhere in the file, see [doc/checking-data-expect-coverage.md](doc/checking-data-expect-coverage.md).
+
+## Reviewing an edit
+
+`make review-cycle` rebuilds what an edit touches, runs the gates, and serves the review app on `http://localhost:7294/`, whose Queue shows what the edit changed against the accepted build; `make review-accept ARGS=--apply` accepts the changes once each has a verdict. `doc/review-cycle.md` is the runbook, and `make artifact-cycle` is the same verification without the server, for commit time.
 
 ## WIP word highlighting
 
@@ -32,69 +42,6 @@ Each array item is a whitespace-separated sequence of Quikscript letter names us
 The matcher scans `[data-expect]`, `.pairings td`, `.pairings dd`, `.word-list td`, and `.word-list dd`. A sequence marks an element as WIP if either its `data-expect` contains the requested tokens in order or its text content contains the raw PUA substring built from the base letter names.
 
 With no active WIP list, `site/wip.json` stays checked in as `[]`, so adding an entry is a one-line edit.
-
-## Quikscript data
-
-Quikscript uses a family-based source schema in `glyph_data/quikscript.yaml`. Each family can define `mono`, `prop`, shared `shapes`, and additional `stances`; stances declare explicit `traits` / `modifiers`, can reuse scaffolding with `inherits`, and `select` / `derive` rules use structured family selectors plus top-level `context_sets` instead of compiled glyph-name strings. `tools/build_font.py` compiles that into the flat glyph map used by feature generation and tests. In VS Code, `.vscode/quikscript.schema.json` is associated with that file for hover docs and structural validation when the Red Hat YAML extension is installed.
-
-The join compiler is split across `tools/quikscript_ir.py` and `tools/quikscript_fea.py`. `tools/build_font.py` owns generic font loading/building; Quikscript family compilation and generated join transforms live in the IR module; Senior feature analysis and `curs`/gated-feature/`calt`/stylistic-set emission live together in `tools/quikscript_fea.py`.
-
-Within that pipeline, `tools/glyph_compiler.py` owns the canonical variant-level compilation result. `CompiledGlyphSet` carries legacy flat `glyphs:` data, compiled Quikscript `JoinGlyph`s, and merged glyph metadata; Quikscript stays in `JoinGlyph` form through feature analysis and emission, and only flattens back to raw glyph dicts at the final generic font-build boundary. Those flat glyph dicts are build materialization only; compiler metadata lives on `JoinGlyph`, not in `_base_name`-style keys on the flattened output.
-
-## Shaping leaks: what you have to drive
-
-A “shaping leak” is a letter changing shape across a pen-lift (a non-join) because of a neighbor it cannot connect to. The typical case is a stroke reaching out to join a letter that isn’t there, dangling into space. [doc/definitions/shaping-leakage.md](doc/definitions/shaping-leakage.md) has the full definition and the design decisions behind it. The detection and classification tools run on their own; this section covers the decisions a human has to make.
-
-The tools sort every visible leak into **bad** (a defect: a dangle) or **benign** (a subtractive trim, a standalone-variant swap, or an intended cosmetic tuck, the slightly hand-drawn variation we want). The sort is a mechanical modifier test and is validated against your past triage, but when it is wrong, you correct it with an override (below). The two sets live in two checked-in files:
-
-- `site/bad-leak-backlog.txt` — the defects still outstanding. This is the to-do list.
-- `site/benign-leak-list.txt` — the welcome variation. This is a list of accepted variation, not a defect list.
-
-### When a gate complains
-
-- **`make test` fails with “NEW bad isolation leak(s)”.** A change you made added a dangle. Either fix it by making the break-facing edge subtractive (or reverting it) for that one context, with the recipes in the tweak-an-old-font-join skill (`.claude/skills/tweak-an-old-font-join/SKILL.md`), or, if you decide the new bad leak is acceptable, re-bless (next bullet) so it joins the backlog. Resolving an _existing_ backlog entry never fails the gate; it prints a “nice — re-bless” notice.
-- **`make test-leaks` (the deep, ≈1-minute gate) fails on the benign list.** The set of benign variation changed. This is informational, not a defect on its own, but read the diff so you _notice_ the set changing, then re-bless.
-- **Re-bless after any intended change:** `make leak-snapshot` regenerates both files. Always `git diff` them before committing. Reviewing that diff is the purpose of the gate.
-
-### When the bad/benign call is wrong (overrides)
-
-The modifier test occasionally mislabels a leak. Correct it per signature instead of changing the test:
-
-- `site/leak-force-bad.yaml` — a leak the modifier test calls benign but you find ugly. Add its 4-tuple signature here and it counts as a defect.
-- `site/leak-force-benign.yaml` — a leak the modifier test calls bad but you’ve decided is fine (a legitimate standalone variant). Add its signature here and it stops failing the gate.
-
-A signature is the `[isolated_left, left_chosen, isolated_right, right_chosen]` 4-tuple — copy it straight off the `:: *L a->b | *R c->d` line in the backlog or the benign list. After editing either file, run `uv run python tools/leak_verdict_reconcile.py` to confirm the classifier still reconciles cleanly (it scores the modifier test against your historical triage and prints precision/recall).
-
-### Eyeballing leaks
-
-`make check-html-after` regenerates `site/check.html`; open it and scroll to “Auto-generated: isolation leaks”. Each row is tagged `bad` or `benign` and shows the in-context shaping beside the two halves shaped separately. Start with the `bad` rows, which are the defects. See [doc/isolation-leaks.md](doc/isolation-leaks.md) for the full workflow.
-
-### Fixing the backlog in bulk (the loop)
-
-The leak-fixing loop, which would fix a backlog of bad leaks in bulk, is _not yet built_. When it is, you will still launch it and approve the batch it produces. Its brief (how it diagnoses each dangle, the per-fix verify gate, and how it accumulates fixes and stops for one approval instead of committing on its own) is [doc/definitions/shaping-leak-loop.md](doc/definitions/shaping-leak-loop.md). Until it exists, fix bad leaks by hand: pick a backlog entry, apply a subtractive fix, run `make test-leaks`, re-bless, and repeat.
-
-## What makes a good tester page
-
-A tester page is any side-by-side render harness you generate to inspect glyph changes and record a verdict: `site/check.html`, a one-off fix gallery, an ad-hoc before/after comparison. A good one makes it clear _what to look at_ and makes recording a verdict fast enough that you do it. The requirements and the extras below come from `site/check.html` and the fix-gallery harness.
-
-### Showing the glyphs
-
-- **Put a checkered background behind the rendered glyphs.** Advance width and overhang are invisible against a flat fill, and how far a glyph reaches past its own ink is often what you are checking.
-- **Make it clear which two letters are under review.** A test sequence is usually four or five letters, but only one join, between two adjacent letters, is the point; the rest is context. Highlight that pair and mute the surrounding letters. Feedback about the wrong two letters sends the fix to the wrong place.
-- **Render before and after side by side** by embedding both font builds with `@font-face` (the baseline build lives in `site/before/`; the before/after workflow is the one the auto-generated `site/check.html` documents). The “before” shows the dangle; the “after” shows the fix.
-
-### Recording verdicts fast (the keyboard review loop)
-
-- A **highlighted “current” row** that auto-scrolls to center as you move, so you always know where you are.
-- **One-key verdicts that auto-advance**, kept on the home row for one-handed triage — the fix gallery uses `f` = fine/accept, `a` = bad, `x` = complicated (which also jumps you into a note). Tapping a verdict moves to the next row automatically.
-- **Up/down navigation on both the arrow keys and letter keys** (`i` / `k`), with Enter inside a note field blurring it and advancing.
-- A **per-row note field**, and rows **colored by their verdict** so progress is visible at a glance.
-- A **“copy my verdicts” button** that emits _only_ the rows needing attention (a non-default verdict, or a note) as plain text you can paste straight back, with a `<textarea>` fallback for when clipboard access is blocked.
-
-### General
-
-- **Self-contained** — inline all CSS and JS, reference only the font files (relatively), no CDNs — so it works offline and over `make serve`.
-- **Don’t hand-edit auto-generated pages.** `site/check.html` is rebuilt wholesale by `tools/build_check_html.py`; put a bespoke harness in its own file, gitignored if it is scratch.
 
 ## Understanding
 

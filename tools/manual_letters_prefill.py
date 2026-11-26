@@ -20,12 +20,11 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "test"))
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))
 
-import test_shaping as shaping  # noqa: E402
-
+from rebuild.tools import suite_fonts  # noqa: E402
+from rebuild.validation.check import CheckFont  # noqa: E402
 from rebuild.validation.expect import CHAR_TO_GLYPH  # noqa: E402
 
 from manual_letters_words import load_page, page_path, save_page  # noqa: E402
@@ -147,23 +146,15 @@ def _split_words(stream: list[_Char | None]) -> list[list[_Char]]:
     return words
 
 
-def _shape_run(text: str, variant: str, features: tuple[str, ...]) -> list[tuple[str, int]]:
-    """Shape one single-font run and return each glyph's compiled name and cluster."""
-    import uharfbuzz as hb
-
-    buf = hb.Buffer()
-    buf.add_str(text)
-    buf.guess_segment_properties()
-    hb.shape(_font(variant), buf, {name: True for name in features})
-    return [(shaping.shaped_glyph_name(variant, info.codepoint), info.cluster) for info in buf.glyph_infos]
+_FONTS: dict[str, CheckFont] = {}
 
 
-_FONTS: dict[str, Any] = {}
-
-
-def _font(variant: str) -> Any:
+def _font(variant: str) -> CheckFont:
+    """The Senior or Junior under site/, read by the `data-expect` checker with the Senior's glyph-facts sidecar, which also names the traits of the Junior glyphs that share a name with a Senior one."""
     if variant not in _FONTS:
-        _FONTS[variant] = shaping.load_font(variant)
+        path = suite_fonts.font_paths(ROOT)[variant]
+        facts = suite_fonts.glyph_facts_path(ROOT)
+        _FONTS[variant] = CheckFont(path, glyph_facts=facts, cursive=variant == "senior")
     return _FONTS[variant]
 
 
@@ -182,30 +173,26 @@ def _predict(chars: list[_Char], names: dict[str, str]) -> tuple[list[str], list
             chars[start].features,
         ):
             end += 1
-        variant = chars[start].font
-        anchor_map, _ = shaping.build_anchor_map(variant)
-        glyphs = _shape_run("".join(c.ch for c in chars[start:end]), variant, chars[start].features)
-        spans: list[tuple[str, list[int]]] = []
-        for g, (name, cluster) in enumerate(glyphs):
-            next_cluster = glyphs[g + 1][1] if g + 1 < len(glyphs) else end - start
+        font = _font(chars[start].font)
+        result = font.shape(
+            "".join(c.ch for c in chars[start:end]), {name: True for name in chars[start].features}
+        )
+        for g, (name, cluster) in enumerate(zip(result.names, result.clusters)):
+            next_cluster = result.clusters[g + 1] if g + 1 < len(result.names) else end - start
             covered = [position[start + k] for k in range(cluster, next_cluster) if start + k in position]
-            spans.append((name, covered))
-        for g, (name, covered) in enumerate(spans):
-            if not covered:
+            facts = font.glyph_facts(name)
+            if covered and facts is not None:
+                for trait in ("half", "alt"):
+                    if trait in facts.traits:
+                        forms[covered[0]] += f".{trait}"
+        for k, junction in enumerate(font.junctions(result, end - start)):
+            if start + k not in position or start + k + 1 not in position:
                 continue
-            meta = shaping._compiled_glyph_meta(name, variant)
-            for trait in ("half", "alt"):
-                if trait in meta.traits:
-                    forms[covered[0]] += f".{trait}"
-            for a in covered[:-1]:
-                joins[a] = "+"
-            if variant == "junior" or g + 1 >= len(spans) or not spans[g + 1][1]:
-                continue
-            exits = {a[1] for a in anchor_map.get(name, {}).get("exit", [])}
-            entries = {a[1] for a in anchor_map.get(spans[g + 1][0], {}).get("entry", [])}
-            common = sorted(exits & entries)
-            if common:
-                joins[covered[-1]] = JOIN_CODES.get(common[0], str(common[0]))
+            if junction == "lig":
+                joins[position[start + k]] = "+"
+            elif junction != "break":
+                height = min(int(part.removeprefix("y")) for part in junction.split("+"))
+                joins[position[start + k]] = JOIN_CODES.get(height, str(height))
         start = end
     return forms, joins
 

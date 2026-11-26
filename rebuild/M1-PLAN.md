@@ -48,7 +48,7 @@ Tests are `rebuild/test_<module>.py`. Pytest’s `testpaths` excludes `rebuild/`
 
 The build writes its artifacts to `rebuild/out/m1/` (gitignored with `rebuild/out/`): `M1.otf`, `M1.fea`, `settlement-<config>.tsv`, `joins-<config>.tsv`, and the per-gate summaries (`pipeline_summary.json`, `manual_pins_summary.json`, `conform_summary.json`, `readback_summary.json`, and others). One checked-in, human-reviewed source file feeds the gates: the defect gates’ allow-list `rebuild/m1-contact-allow.yaml`. Its header gives the signature forms it takes; most of its entries are off-anchor contacts the old font already draws on a join it also makes. `make prettier` runs black over the repository, `rebuild/` included (line length 110). `rebuild/REVIEW-PLAN.md` specifies the review corpus.
 
-`make rebuild-fonts` (`rebuild/tools/build_fonts.py`) writes the six shipped fonts under their shipped file names into `rebuild/out/fonts/`: Mono and Junior from `build_family`, which reads the spec and the glyph files the Senior compile reads (`compile_font.load_font_sources`) and no table, and Senior copied from `M1.otf` and `M1-Bold.otf` once run_m1's last green build covers the inputs on disk.
+`make all` (`rebuild/tools/build_fonts.py`) publishes the six shipped fonts under their shipped file names into `site/`: Mono and Junior from `build_family`, which reads the spec and the glyph files the Senior compile reads (`compile_font.load_font_sources`) and no table, and Senior copied from `M1.otf` and `M1-Bold.otf` once run_m1's last green build covers the inputs on disk, which it runs first when it does not.
 
 ## 2. M1 scope
 

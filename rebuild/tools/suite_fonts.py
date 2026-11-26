@@ -1,20 +1,19 @@
-"""The rebuilt fonts the font suite checks the `data-expect` pins against: Senior and Junior Regular under rebuild/out/fonts/, as `rebuild/tools/build_fonts.py` writes them, and the glyph-facts sidecar it copies beside the Senior. The root conftest builds them at the start of a session that collects the pin pages and reads them here, and gate:make-test's key hashes them (`artifact_cycle.make_test_font_lines`).
+"""The fonts the font suite checks: the six under site/ that `rebuild/tools/build_fonts.py` publishes, which the root conftest publishes at the start of a session that collects the suite and reads here, and the glyph-facts sidecar the `data-expect` checker reads for the Senior, which stays beside the build under rebuild/out/m1. gate:make-test's key hashes what they are published from (`artifact_cycle.make_test_font_lines`).
 
-The module imports nothing from the repo, so the root conftest can name the fonts without adding rebuild.pipeline to every rebuild test's closure (`rebuild.tools.cycle_paths` explains why that matters). The names restate `build_fonts.DEFAULT_OUT_DIR`, `build_family.font_file_name` and `check.glyph_facts_path`, and rebuild/test_build_fonts.py holds them to those.
+The module imports nothing from the repo, so the root conftest can name the fonts without adding rebuild.pipeline to every rebuild test's closure (`rebuild.tools.cycle_paths` explains why that matters). The names restate `build_fonts.SITE_DIR`, `build_family.font_file_name` and `glyph_facts.FILE_NAME`, and rebuild/test_build_fonts.py holds them to those.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-FONTS_DIR = Path("rebuild") / "out" / "fonts"
+FONTS_DIR = Path("site")
+# Each pin font's file by the run font it shapes.
 FONT_FILES = {
     "senior": "AbbotsMortonSpaceportSansSenior-Regular.otf",
     "junior": "AbbotsMortonSpaceportSansJunior-Regular.otf",
 }
-SENIOR_GLYPH_FACTS = "AbbotsMortonSpaceportSansSenior.glyph-facts.json"
-# The fonts the session builds, as `build_fonts --fonts` names them.
-BUILT_FONTS = ("junior", "senior")
+SENIOR_GLYPH_FACTS = Path("rebuild") / "out" / "m1" / "M1.glyph-facts.json"
 
 
 def fonts_dir(repo_root: Path) -> Path:
@@ -27,4 +26,4 @@ def font_paths(repo_root: Path) -> dict[str, Path]:
 
 
 def glyph_facts_path(repo_root: Path) -> Path:
-    return fonts_dir(repo_root) / SENIOR_GLYPH_FACTS
+    return Path(repo_root) / SENIOR_GLYPH_FACTS

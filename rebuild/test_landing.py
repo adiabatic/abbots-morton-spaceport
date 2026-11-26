@@ -331,7 +331,6 @@ ROUTE_IMPORTS_OUTSIDE_THE_DIGEST = {
     "rebuild/tools/lock_digest.py": "uv.lock's line of the run_m1 key, which the routes never compute",
     "rebuild/tools/memory_budget.py": "pool widths",
     "rebuild/tools/peak_rss.py": "memory telemetry",
-    "rebuild/tools/site_fonts.py": "the fonts component of the corpus's fingerprint, which the routes never compute",
 }
 
 

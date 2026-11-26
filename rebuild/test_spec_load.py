@@ -1710,16 +1710,3 @@ class TestVariationSequences:
         twice = VARIATION_REGISTRY + "- {selector: 0xFE00, fonts: [junior], runes: {qsIt: sole}}\n"
         error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, twice)
         assert any("U+FE00 has another record" in issue.message for issue in error.issues)
-
-    def test_the_senior_sequences_name_the_letters_the_old_build_maps(self, spec):
-        """The old build reads its variation sequences from glyph_data/metadata.yaml and the rebuild from the registry. Until the old build leaves the tree, each selector maps the same letters in both, so the rebuilt Senior keeps every sequence the shipped one has and adds none; only what each one selects differs (rebuild/CUTOVER-PLAN.md section 3)."""
-        metadata = yaml.safe_load((spec_load.REPO_ROOT / "glyph_data" / "metadata.yaml").read_text())[
-            "metadata"
-        ]
-        old = {selector: set(mapping) for selector, mapping in metadata["variation_sequences"].items()}
-        new = {
-            selector: set(entry.runes)
-            for selector, entry in spec.registry.variation_sequences.items()
-            if "senior" in entry.fonts
-        }
-        assert new == old

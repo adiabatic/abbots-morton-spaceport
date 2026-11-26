@@ -16,9 +16,6 @@ wheels/
 /site/DepartureMono-Regular.otf
 /site/*.woff2
 /site/print.pdf
-/site/check.html
-/site/before/
-/site/scoped-anchor-review/
 /rebuild/kernel-rs/target/
 /rebuild/kernel-rs/proofs/.lake/
 

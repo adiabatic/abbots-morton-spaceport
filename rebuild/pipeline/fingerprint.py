@@ -18,14 +18,12 @@ The other data inputs have prose-insensitive digests too, chosen by `_data_diges
 
 `code_file_digest` projects code files the same way. A `.py` file is hashed as its syntax tree with every docstring's text set to None, and a `.rs` file with its whole-line `//` comments removed, so rewording either moves no key built by `path_lines` or `hash_paths`. Everything the interpreter or compiler sees stays in: every identifier, every non-docstring string constant (matchers compare against error text), every annotation, default, and decorator, and every Rust code line including its trailing comment. The presence of each docstring stays too. A file that fails to parse or decode is hashed as raw bytes, as `_projected_digest` does, so the failure stays visible. Every other file type that reaches `path_lines`, such as the app's static files and the crate's manifest and lock, is hashed raw by `file_sha256`.
 
-Three closures outside this module hash code files raw. The rebuild-lane closure (`artifact_cycle._closure_digest`) and gate:make-test's closure (`artifact_cycle.make_test_closure_fingerprint`) do so because test fixtures and the closure tests read source text, so gate:rebuild-contracts and gate:make-test still run after a prose-only edit. The pyright gate's closure (`pyright_gate.closure_fingerprint`) does so because a `# pyright: ignore` comment changes pyright's result. The first two hash data inputs raw as well. The rebuild-lane closure hashes the schemas and the other YAML data inputs, so a schema hover or a data-file comment still re-runs the contracts tests whose closure holds the file. gate:make-test's closure hashes glyph_data/punctuation.yaml and the kern sidecar, which `make all` reads, so a comment edit to either still runs `make test`. rebuild/test_fingerprint.py checks what the projection keeps and drops.
+Three closures outside this module hash code files raw. The rebuild-lane closure (`artifact_cycle._closure_digest`) and gate:make-test's closure (`artifact_cycle.make_test_closure_fingerprint`) do so because test fixtures and the closure tests read source text, so gate:rebuild-contracts and gate:make-test still run after a prose-only edit. The pyright gate's closure (`pyright_gate.closure_fingerprint`) does so because a `# pyright: ignore` comment changes pyright's result. The first two hash data inputs raw as well. The rebuild-lane closure hashes the schemas and the other YAML data inputs, so a schema hover or a data-file comment still re-runs the contracts tests whose closure holds the file. gate:make-test's closure hashes glyph_data/punctuation.yaml, which the Mono and Junior builds read, so a comment edit to it still runs `make test`. rebuild/test_fingerprint.py checks what the projection keeps and drops.
 
-The site fonts and `uv.lock`, which a version bump rewrites, have version-blind digests too, so neither moves a component or key that hashes it this way. The bump still reruns the rebuild suite and pyright, whose closures hash pyproject.toml raw, and gate:make-test, whose closure hashes glyph_data/metadata.yaml raw. `make all` writes the new version into both site fonts' `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
+The fonts and `uv.lock`, which a version bump rewrites, have version-blind digests too, so neither moves a component or key that hashes it this way. The bump still reruns the rebuild suite and pyright, whose closures hash pyproject.toml raw, and gate:make-test, whose closure hashes glyph_data/metadata.yaml raw. A build writes the new version into each font's `name` table and `head.fontRevision`, and the bump-minor skill refreshes `uv.lock`, where only the project's own `[[package]]` block changes.
 
 - `font_content_digest` hashes a font table by table from the bytes the `sfnt` reader returns: the sorted table tags, then each table's length and digest, leaving out `head` and `name` (`FONT_VERSION_TABLES`). `head` holds the revision, the checksum adjustment, and the modification time, and `name` holds the version strings. A shaper reads neither to position a glyph. `head` also holds `unitsPerEm`, but an edit to `units_per_em` in glyph_data/metadata.yaml still reaches the digest through `CFF `: tools/build_font.py passes `FontBuilder.setupCFF` no FontMatrix, so fontTools writes the matrix as 1/unitsPerEm. rebuild/test_fingerprint.py checks that fontTools default. Only a hand edit to `head.unitsPerEm` alone would go unseen, and nothing in the tree makes one. Every table that can affect a shaped run stays (`CFF `, `hmtx`, `GPOS`, `GSUB`, `cmap`), and so does the list of tables. A file fontTools cannot open, or whose table it cannot read, is hashed as raw bytes.
 - `lock_digest` (in `rebuild.tools.lock_digest`, a separate module because the pyright gate also hashes the lock and must not import rebuild.pipeline) removes the project's own block from the lock and hashes the rest, so a changed dependency pin or an added or removed package still moves it.
-
-`fonts_value` is `hash_paths` with `font_content_digest` per font. It is the contracts lane's `fonts` label.
 """
 
 from __future__ import annotations
@@ -43,7 +41,6 @@ import yaml
 
 from rebuild.pipeline import spec_load
 from rebuild.tools.lock_digest import lock_digest
-from rebuild.tools.site_fonts import font_paths
 
 FORMAT = "ams-inputs-fingerprint/2"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
@@ -356,13 +353,6 @@ def kern_only_lookups(table: Any) -> frozenset[int]:
         for i in record.Feature.LookupListIndex
     ]
     return frozenset(reached(kern_roots) - reached(other_roots))
-
-
-def fonts_value(repo_root: Path, paths: list[Path]) -> str:
-    """Return `hash_paths` over the given fonts with `font_content_digest` in place of the raw digest, so the `make all` of a version bump leaves the contracts lane's `fonts` label unchanged."""
-    return digest_lines(
-        sorted(f"{_label(repo_root, path)}\t{font_content_digest(path)}" for path in paths if path.is_file())
-    )
 
 
 def _labels_of(lines: Iterable[str]) -> dict[str, str]:

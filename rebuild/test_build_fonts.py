@@ -1,14 +1,14 @@
-"""Tests for `rebuild/tools/build_fonts.py`, the six-font command: the Senior currency check and copy over a synthetic root whose run_m1 records each test writes, the glyph-facts sidecar copied beside the Senior, and the shipped file names, which `rebuild/tools/suite_fonts.py` restates for the font suite."""
+"""Tests for `rebuild/tools/build_fonts.py`, the six-font publish: the Senior currency check and copy over a synthetic root whose run_m1 records each test writes, the build it runs first under `--build`, and the shipped file names and the glyph-facts sidecar's home, which `rebuild/tools/suite_fonts.py` restates for the font suite."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from rebuild.pipeline import build_family, fingerprint, glyph_facts, run_m1
 from rebuild.tools import build_fonts, cycle_paths, suite_fonts
-from rebuild.validation import check
 from rebuild.tools.artifact_cycle import run_m1_skip_files, run_m1_skip_fingerprint
 from rebuild.tools.build_fonts import StaleSeniorError
 from rebuild.tools.green_record import record_green
@@ -34,7 +34,10 @@ class TestTheSenior:
         assert REPO_ROOT / build_fonts.M1_OUT == run_m1.OUT_DIR
         assert build_fonts.SENIOR_SOURCES["Bold"] == run_m1.BOLD_FONT
 
-    def test_a_senior_its_green_build_covers_is_copied_under_the_shipped_names(self, tmp_path):
+    def test_a_senior_its_green_build_covers_is_copied_under_the_shipped_names_without_its_sidecar(
+        self, tmp_path
+    ):
+        """The fonts alone go to the published directory; the glyph-facts sidecar stays beside the build, where the font suite reads it."""
         root = tmp_path / "root"
         _fake_build(root)
         out = tmp_path / "fonts"
@@ -44,10 +47,32 @@ class TestTheSenior:
             "AbbotsMortonSpaceportSansSenior-Bold.otf",
         ]
         assert [path.read_bytes() for path in written] == [b"senior Regular", b"senior Bold"]
-        assert (
-            check.glyph_facts_path(written[0]).read_bytes()
-            == (root / build_fonts.M1_OUT / glyph_facts.FILE_NAME).read_bytes()
+        assert sorted(path.name for path in out.iterdir()) == sorted(path.name for path in written)
+
+    def test_build_runs_the_senior_build_only_while_the_senior_is_stale(self, tmp_path, monkeypatch):
+        """`--build` runs the build command once when the Senior is stale and not at all when it is current, and refuses, naming the command, when the build fails."""
+        root = tmp_path / "root"
+        _fake_build(root)
+        spawned: list[list[str]] = []
+        returncodes = [0]
+
+        def fake_run(argv, cwd, check):
+            spawned.append(list(argv))
+            return SimpleNamespace(returncode=returncodes[0])
+
+        monkeypatch.setattr(build_fonts.subprocess, "run", fake_run)
+        build_fonts.build_stale_senior(root)
+        assert spawned == []
+        staleness = ["its inputs moved"]
+        monkeypatch.setattr(
+            build_fonts, "senior_staleness", lambda at: staleness.pop(0) if staleness else None
         )
+        build_fonts.build_stale_senior(root)
+        assert [argv[-2:] for argv in spawned] == [["-m", build_fonts.RUN_M1_MODULE]]
+        staleness[:] = ["its inputs moved"]
+        returncodes[0] = 1
+        with pytest.raises(StaleSeniorError, match="failed"):
+            build_fonts.build_stale_senior(root)
 
     def test_a_missing_glyph_facts_sidecar_is_named(self, tmp_path):
         root = tmp_path / "root"
@@ -94,12 +119,9 @@ class TestTheSenior:
         assert build_fonts.senior_staleness(root) == "run_m1 has no green build on record"
 
 
-def test_the_font_suite_names_the_fonts_and_the_sidecar_this_command_writes():
-    """The root conftest and gate:make-test's key name the pin fonts through `suite_fonts`, which imports nothing; its names are the ones this command writes, and the sidecar's is the one the checker looks for beside the Senior and the one run_m1 writes under rebuild/out/m1."""
-    assert suite_fonts.fonts_dir(REPO_ROOT) == build_fonts.DEFAULT_OUT_DIR
+def test_the_font_suite_names_the_fonts_this_command_writes_and_the_sidecar_run_m1_writes():
+    """The root conftest and gate:make-test's key name the pin fonts through `suite_fonts`, which imports nothing; its names are the ones this command writes into site/, and its sidecar is the one run_m1 writes beside the Senior under rebuild/out/m1."""
+    assert suite_fonts.fonts_dir(REPO_ROOT) == build_fonts.SITE_DIR
     for font, name in suite_fonts.FONT_FILES.items():
         assert name == build_family.font_file_name(font, "Regular")
-    senior = suite_fonts.font_paths(REPO_ROOT)["senior"]
-    assert suite_fonts.glyph_facts_path(REPO_ROOT) == check.glyph_facts_path(senior)
-    assert check.glyph_facts_path(run_m1.OUT_DIR / "M1.otf").name == glyph_facts.FILE_NAME
-    assert set(suite_fonts.BUILT_FONTS) <= set(build_fonts.FONTS)
+    assert suite_fonts.glyph_facts_path(REPO_ROOT) == run_m1.OUT_DIR / glyph_facts.FILE_NAME

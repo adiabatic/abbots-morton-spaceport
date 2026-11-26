@@ -1,4 +1,4 @@
-"""Integration tests for `compile_font.build_font`. The mini font: six glyphs of four mini-spec letters and a hand-written settlement lookup compiled through `tools/build_font.build_font`'s `quikscript_fea=` path, then shaped and classified. The full font: the checked-in runes' raw glyphs and variation glyphs compiled with the non-Quikscript part (`compile_font.load_font_sources`), then compared glyph for glyph with the shipped Senior that `make all` writes under site/, and its Bold with its Regular. The old pipeline is only read, never modified."""
+"""Integration tests for `compile_font.build_font`. The mini font: six glyphs of four mini-spec letters and a hand-written settlement lookup compiled through `tools/build_font.build_font`'s `quikscript_fea=` path, then shaped and classified. The full font: the checked-in runes' raw glyphs and variation glyphs compiled with the non-Quikscript part (`compile_font.load_font_sources`), then compared glyph for glyph with the Junior `build_family` builds from the same glyph files, and its Bold with its Regular."""
 
 import threading
 from types import SimpleNamespace
@@ -6,14 +6,12 @@ from typing import Any
 
 import pytest
 
-from rebuild.pipeline import compile_font, emit_gpos, geometry, pack_gsub, readback, run_m1
+from rebuild.pipeline import build_family, compile_font, emit_gpos, geometry, pack_gsub, readback, run_m1
 from rebuild.pipeline.fixtures import mini_spec
 from rebuild.pipeline.model import CellId, CellPlan, GlyphRecord
 from rebuild.pipeline.spec_load import REPO_ROOT, load_default_spec
 from rebuild.tools import console
-from rebuild.tools.site_fonts import font_paths
 
-SHIPPED_SENIOR = font_paths(REPO_ROOT)[0]
 NAME_IDS = (0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 19)
 # A rune FEA that substitutes nothing, so both builds carry a GSUB the Latin features are written ahead of.
 NOOP_FEA = "lookup t_noop {\n    sub qsPea' qsTea by qsPea;\n} t_noop;\nfeature calt {\n    lookup t_noop;\n} calt;\n"
@@ -144,8 +142,8 @@ def _open(path) -> Any:
 
 
 def _rune_owned(name: str) -> bool:
-    """A glyph the runes draw. The angle parentheses carry the `qs` prefix but no rune: the full font draws them from their records in glyph_data/punctuation.yaml, as the old Senior does."""
-    return name.startswith(("qs", "uniE6")) and not name.startswith("qsAngleParen")
+    """A glyph whose drawing or advance Senior's compile owns: the rune glyphs, and every glyph whose name carries the `qs` or `uniE6` prefix, whose advance the Senior tightening trims, the angle parentheses among them."""
+    return name.startswith(("qs", "uniE6"))
 
 
 def _drawing(font, name):
@@ -159,7 +157,7 @@ def _drawing(font, name):
 
 @pytest.fixture(scope="module")
 def full(tmp_path_factory):
-    """The checked-in runes' raw glyphs, the glyphs their variation sequences select, and the namer dot pair, compiled twice over a rune FEA that substitutes nothing: once with the non-Quikscript part and Bold beside it, and once without, as the tests' mini fonts are."""
+    """The checked-in runes' raw glyphs, the glyphs their variation sequences select, and the namer dot pair, compiled twice over a rune FEA that substitutes nothing: once with the non-Quikscript part and Bold beside it, and once without, as the tests' mini fonts are. Junior Regular, which `build_family` builds from the same glyph files, is built beside them."""
     spec = load_default_spec()
     bare, _copies, _ss10 = run_m1.mint_raw_glyphs(spec)
     variation = run_m1.mint_variation_glyphs(spec, {})
@@ -175,6 +173,7 @@ def full(tmp_path_factory):
         bold_path=directory / "M1-Bold.otf",
     )
     mini = compile_font.build_font(glyphs, NOOP_FEA, directory / "Mini.otf")
+    junior = build_family.build_mono_and_junior(directory, ("junior",))[0]
     return SimpleNamespace(
         spec=spec,
         sources=sources,
@@ -182,29 +181,33 @@ def full(tmp_path_factory):
         regular=regular,
         bold=directory / "M1-Bold.otf",
         mini=mini,
+        junior=junior,
     )
 
 
 class TestTheFullFont:
-    def test_the_cmap_is_the_shipped_seniors(self, full):
-        """Every code point the shipped Senior maps, and no other, less the letters an alphabet switch leaves out."""
-        shipped = set(_open(SHIPPED_SENIOR).getBestCmap())
-        letters = {rune.codepoint for rune in full.spec.runes.values() if rune.codepoint is not None}
-        quikscript = {code for code in shipped if 0xE650 <= code <= 0xE67E and code not in (0xE66E, 0xE66F)}
-        assert set(_open(full.regular).getBestCmap()) == (shipped - quikscript) | letters
+    def test_the_cmap_is_juniors(self, full):
+        """Every code point Junior maps, and no other: each letter's and each glyph file's."""
+        assert set(_open(full.regular).getBestCmap()) == set(_open(full.junior).getBestCmap())
 
-    def test_every_glyph_the_runes_do_not_draw_is_the_shipped_seniors(self, full):
-        """The Latin, numeral, punctuation, symbol and Shavian glyphs, the angle parentheses, `space`, `uni200C` and the namer dot pair draw with the outline, advance and side bearing the shipped Senior gives them."""
-        shipped, built = _open(SHIPPED_SENIOR), _open(full.regular)
+    def test_every_glyph_the_runes_do_not_draw_is_juniors(self, full):
+        """The Latin, numeral, punctuation, symbol and Shavian glyphs, `space`, `uni200C` and the namer dot pair draw with the outline, advance and side bearing Junior gives them, and the angle parentheses with Junior's outline less the pixel the Senior tightening trims from their advance."""
+        junior, built = _open(full.junior), _open(full.regular)
         names = {name for name in built.getGlyphOrder() if not _rune_owned(name)}
-        assert names == {name for name in shipped.getGlyphOrder() if not _rune_owned(name)}
-        assert [name for name in sorted(names) if _drawing(built, name) != _drawing(shipped, name)] == []
+        assert names == {name for name in junior.getGlyphOrder() if not _rune_owned(name)}
+        assert [name for name in sorted(names) if _drawing(built, name) != _drawing(junior, name)] == []
         assert built["hmtx"]["space"][0] == 7 * emit_gpos.PIXEL
+        for name in ("qsAngleParenLeft", "qsAngleParenRight"):
+            (outline, (advance, side)), (junior_outline, (junior_advance, junior_side)) = (
+                _drawing(built, name),
+                _drawing(junior, name),
+            )
+            assert (outline, advance, side) == (junior_outline, junior_advance - emit_gpos.PIXEL, junior_side)
 
-    def test_the_name_table_is_the_shipped_seniors(self, full):
-        shipped, built = _open(SHIPPED_SENIOR), _open(full.regular)
+    def test_the_name_table_is_juniors_under_seniors_name(self, full):
+        junior, built = _open(full.junior), _open(full.regular)
         assert {i: built["name"].getDebugName(i) for i in NAME_IDS} == {
-            i: shipped["name"].getDebugName(i) for i in NAME_IDS
+            i: (junior["name"].getDebugName(i) or "").replace("Junior", "Senior") for i in NAME_IDS
         }
 
     def test_the_latin_features_come_ahead_of_the_rune_features(self, full):

@@ -6,7 +6,7 @@ A test's closure is the union of these:
 - The static import closure of the test module: the repo modules reachable through `import` statements at any nesting, absolute or relative, `if TYPE_CHECKING:` included, resolved against the repo root, the importer's directory, and the `test/` and `tools/` directories the suite puts on `sys.path`.
 - The static import closure of every module the test imported dynamically, and of both conftests. The `import` audit event fires on a module's first load in a worker. `importlib.import_module` raises no such event but opens the module's `.pyc` or source file, so every `.py` file a test read is also treated as an imported module.
 - The import-time reads of every module in that closure. A module's body runs once per process, under whichever test imported it first, so the recorder credits what the body reads to the module, and every test that can reach the module gets those reads.
-- The labels in `GLOBAL_LABELS`, which every test depends on without opening: the two conftests, pyproject.toml, uv.lock, and the `fonts` label, which the lane key hashes as one value.
+- The labels in `GLOBAL_LABELS`, which every test depends on without opening: the two conftests, pyproject.toml and uv.lock.
 
 Selection runs a test whenever skipping it cannot be shown safe. A test with no recorded closure runs, which covers a new or renamed test id. A test that spawned a child runs, because the hook sees nothing a subprocess or multiprocessing worker reads, with two exceptions. A `git` command that reads only the object store or a ref (`hermetic_child`) cannot see the diff. The M1 kernel and the `cargo build` that makes it (`kernel_child`) read only the crate's sources beyond the scratch files the parent wrote, so every tracked file under `KERNEL_PREFIX` is added to that test's closure. A diff that adds or removes any input runs the whole lane, because `Path.exists()` and `os.stat` raise no audit event and a test may depend on a directory listing or an existence check. A diff that touches a global label runs the whole lane. Any other test whose closure contains no changed file is skipped, because every input it reads is byte-identical to the run it passed.
 
@@ -43,7 +43,7 @@ from rebuild.tools.closure_record import (
 )
 
 CONFTEST_PATHS = ("conftest.py", "rebuild/conftest.py")
-GLOBAL_LABELS = frozenset((*CONFTEST_PATHS, "pyproject.toml", "uv.lock", "fonts"))
+GLOBAL_LABELS = frozenset((*CONFTEST_PATHS, "pyproject.toml", "uv.lock"))
 SIBLING_ROOTS = ("tools",)
 
 
