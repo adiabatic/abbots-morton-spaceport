@@ -10,8 +10,8 @@
   "yaml.maxItemsComputed": 6000,
   "yaml.schemas": {
     "./.vscode/permissive.schema.json": ["glyph_data/metadata.yaml"],
-    "./rebuild/schema/rune.schema.json": ["glyph_data/runes/*.yaml"],
-    "./rebuild/schema/script.schema.json": ["glyph_data/script.yaml"]
+    "./engine/schema/rune.schema.json": ["glyph_data/runes/*.yaml"],
+    "./engine/schema/script.schema.json": ["glyph_data/script.yaml"]
   },
 
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",

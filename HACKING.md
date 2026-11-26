@@ -6,19 +6,19 @@
 make all
 ```
 
-`make all` publishes the six fonts into `site/` (`rebuild/tools/build_fonts.py`): Mono and Junior built from the rune files and the other glyph files, and Senior copied from the rebuild's own build under `rebuild/out/m1/`, which it runs first when that build is stale. Dependencies are managed with `uv` and defined in `pyproject.toml`. The Senior's table build runs in the Rust crate under `rebuild/kernel-rs/`, so the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`: without it you cannot build Senior, settle a window, or run the rebuild test suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it.
+`make all` publishes the six fonts into `site/` (`engine/tools/build_fonts.py`): Mono and Junior built from the rune files and the other glyph files, and Senior copied from the rebuild's own build under `engine/out/build/`, which it runs first when that build is stale. Dependencies are managed with `uv` and defined in `pyproject.toml`. The Senior's table build runs in the Rust crate under `engine/kernel-rs/`, so the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`: without it you cannot build Senior, settle a window, or run the rebuild test suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it.
 
 `make serve` serves `site/` on `http://localhost:7293/` and reloads the open pages when a font changes.
 
 ## Where the letters live
 
-- Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `rebuild/schema/rune.schema.json`: its ductus, its stances with their bitmaps and join surfaces, its policy records and its kerning. `doc/rebuild-design.md` explains the model.
+- Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `engine/schema/rune.schema.json`: its ductus, its stances with their bitmaps and join surfaces, its policy records and its kerning. `doc/engine-design.md` explains the model.
 - The Latin, numeral, punctuation, composite, symbol and Shavian glyphs, the font metadata and the Latin kerning rules are the other `glyph_data/*.yaml` files, and `postscript_glyph_names.yaml` maps glyph names to code points.
 - The variation sequences and the stylistic sets are in the registry, `glyph_data/script.yaml`, the one file in `glyph_data/` that holds no glyphs.
 
 ## Testing
 
-`doc/testing.md` maps each kind of change to the gate that checks it. In short: `make test` checks the published fonts, the `data-expect` pins on the site pages among them (`doc/data-expect.md`); `make test-rebuild` checks the pipeline under `rebuild/`; and `uv run python -m rebuild.pipeline.run_m1` rebuilds Senior's tables and font after a rune or pipeline edit.
+`doc/testing.md` maps each kind of change to the gate that checks it. In short: `make test` checks the published fonts, the `data-expect` pins on the site pages among them (`doc/data-expect.md`); `make test-engine` checks the pipeline under `engine/`; and `uv run python -m engine.pipeline.run_build` rebuilds Senior's tables and font after a rune or pipeline edit.
 
 Open `site/index.html` (through `make serve`) to test the fonts interactively. For the repeatable workflow for finding Quikscript words in `site/the-manual.html` that are missing `data-expect` coverage elsewhere in the file, see [doc/checking-data-expect-coverage.md](doc/checking-data-expect-coverage.md).
 
@@ -33,7 +33,7 @@ The fonts are built here and GitHub publishes them: the Senior's table build nee
 1. Bump the version with the bump-minor or bump-major skill, which opens a `### <version>` heading in `FONTLOG.md`.
 2. Fill that section with what changed for the fonts' users (the summarize-for-FONTLOG command drafts it). It becomes the release notes.
 3. Commit, with the commit-time gates (`make artifact-cycle`), and push `master`.
-4. Run `make all`, so that `site/` holds the six fonts of that commit, then `make draft-release`, a dry run that prints its checks and what it would upload. `make draft-release ARGS=--apply` uploads the six fonts and their manifest, `fonts.json`, to a draft release for `release/<version>`, replacing any draft for that tag; `rebuild/tools/release_fonts.py`'s module docstring lists what it refuses.
+4. Run `make all`, so that `site/` holds the six fonts of that commit, then `make draft-release`, a dry run that prints its checks and what it would upload. `make draft-release ARGS=--apply` uploads the six fonts and their manifest, `fonts.json`, to a draft release for `release/<version>`, replacing any draft for that tag; `engine/tools/release_fonts.py`'s module docstring lists what it refuses.
 5. Run the two commands it prints, `git tag release/<version> <commit>` and `git push origin release/<version>`. The push runs the workflow, which checks the fonts against `fonts.json` and the tagged commit, makes the WOFF2 files, deploys the site, attaches `abbots-morton-spaceport-<version>.zip` and publishes the release with the `FONTLOG.md` section as its notes.
 
 Running the workflow by hand from the Actions page redeploys the site with the fonts of the latest published release, or of the release its `tag` input names (`release/12.000` or later).

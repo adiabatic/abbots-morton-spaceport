@@ -1,0 +1,29 @@
+[package]
+name = "ams-kernel"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "ams_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ams-kernel"
+path = "src/main.rs"
+
+[features]
+# Exposes the hand-written spec dumps in src/index.rs (`index::fixtures`) so the integration tests in tests/ can link them like any other caller of the library. Enabled only for this crate's own dev targets.
+fixtures = []
+
+[dependencies]
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+sha2 = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+# The crate depends on itself so that integration tests get a feature the library is otherwise built without. Only dev targets see this dependency.
+ams-kernel = { path = ".", features = ["fixtures"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

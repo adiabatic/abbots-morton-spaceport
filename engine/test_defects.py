@@ -1,0 +1,393 @@
+"""Defect-gate tests over the fixture spec, with small duck-typed stand-ins for the decision and join tables."""
+
+import textwrap
+from dataclasses import dataclass, field
+
+import pytest
+
+from engine.pipeline import defects, geometry, surface
+from engine.pipeline.fixtures import mini_spec
+from engine.pipeline.model import CellId, CellPlan, GlyphRecord
+from engine.test_spec_load import load_tmp_spec
+
+
+@dataclass(frozen=True)
+class FakeRule:
+    input_glyph: str = "qsIt"
+    backtrack: tuple[str, ...] | None = None
+    look1: tuple[str, ...] | None = None
+    look2: tuple[str, ...] | None = None
+    look3: tuple[str, ...] | None = None
+    look4: tuple[str, ...] | None = None
+    outcome: str = "qsIt"
+    joint: bool = False
+    provenance: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FakeJoinRow:
+    left: CellId | None
+    right: CellId | None
+    join: str | None
+    extension: int = 0
+    provenance: tuple = ()
+
+
+@dataclass
+class FakeDecision:
+    rules: list = field(default_factory=list)
+    cells: frozenset = frozenset()
+
+    def reachable_cells(self):
+        return self.cells
+
+
+@dataclass
+class FakeJoinTable:
+    rows: tuple = ()
+
+
+@pytest.fixture(scope="module")
+def spec():
+    return mini_spec()
+
+
+def _realize(spec, rune, stance, entry, exit, adjustments=(), **kwargs):
+    cell = CellId(rune, stance, entry, exit, tuple(adjustments))
+    return cell, geometry.realize(spec, CellPlan(cell=cell, **kwargs))
+
+
+def _tables(rules=(), rows=()):
+    return {frozenset(): (FakeDecision(rules=list(rules)), FakeJoinTable(rows=tuple(rows)))}
+
+
+def _cite_all_policy(spec):
+    """A rule citing every fixture policy record, scoped row, and unlock, so unrelated tests report no dead policy."""
+    cited = []
+    for rune in spec.runes.values():
+        for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+            for record in getattr(rune.policy, kind):
+                cited.append(str(record.provenance) if record.provenance else f"{rune.name}.policy.{kind}")
+        for stance in rune.stances.values():
+            for side, rows in (("entries", stance.surface.entries), ("exits", stance.surface.exits)):
+                for height, row in rows.items():
+                    if row.scope:
+                        cited.append(f"{rune.name}.{stance.name}.{side}.{height}.scope")
+            for unlock in stance.surface.unlocks:
+                cited.append(str(unlock.provenance) if unlock.provenance else "")
+    return FakeRule(provenance=tuple(cited))
+
+
+class TestDangle:
+    def test_unsafe_unjoined_claim_fails(self, spec):
+        cell, record = _realize(
+            spec, "qsMay", "loop", None, "x-height", safety_checks=(("exit", "x-height"),)
+        )
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
+        assert any(d.code == "E-DANGLE" for d in report.errors)
+
+    def test_safe_unjoined_claim_passes(self, spec):
+        cell, record = _realize(spec, "qsIt", "sole", None, None, safety_checks=(("exit", "baseline"),))
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
+        assert not [d for d in report.errors if d.code == "E-DANGLE"]
+
+    def test_allow_channel_blesses_by_signature(self, spec):
+        cell, record = _realize(
+            spec, "qsMay", "loop", None, "x-height", safety_checks=(("exit", "x-height"),)
+        )
+        signature = f"dangle:{record.name}:exit:x-height"
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record}, allow=frozenset({signature})
+        )
+        assert not report.errors
+        assert any(d.signature == signature for d in report.blessed)
+
+
+class TestAnchorConvention:
+    def test_convention_violation_is_an_error(self, spec):
+        cell = CellId("qsIt", "sole", None, "baseline", ())
+        record = GlyphRecord(name="qsIt.bad", bitmap=("#",) * 6, y_offset=0, exit=(2, 0))
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
+        assert any(d.code == "E-ANCHOR" for d in report.errors)
+
+    def test_exempt_side_is_skipped(self, spec):
+        cell = CellId("qsIt", "sole", None, "baseline", ("ex-trim-1",))
+        record = GlyphRecord(
+            name="qsIt.trimmed", bitmap=("#",) * 6, y_offset=0, exit=(2, 0), convention_exempt=("exit",)
+        )
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
+        assert not [d for d in report.errors if d.code == "E-ANCHOR"]
+
+    def test_ink_y_fallback_satisfies_the_exit_convention(self, spec):
+        cell, record = _realize(spec, "qsPea", "half", None, "x-height", exit_ink_y=6)
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
+        assert not [d for d in report.errors if d.code == "E-ANCHOR"]
+
+    def test_unselectable_entry_row_is_checked_against_the_base_drawing(self, tmp_path):
+        text = textwrap.dedent("""\
+            rune: qsIt
+            codepoint: 0xE670
+            ductus:
+              sole: |
+                A vertical stroke.
+            stances:
+              sole:
+                motion: sole
+                bitmap: [" #", " #", " #", " #", " #", " #"]
+                surface:
+                  entries:
+                    baseline: {x: 1}
+                    x-height: {x: 0, selectable: false}
+                  exits:
+                    baseline: {x: 2, unjoined: safe}
+            """)
+        spec = load_tmp_spec(tmp_path, {"qsIt": text})
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})
+        errors = [d for d in report.errors if d.code == "E-ANCHOR"]
+        signature = "anchor:qsIt.sole.en-x-height:coverage-only"
+        assert [d.signature for d in errors] == [signature]
+
+        flagged = load_tmp_spec(
+            tmp_path,
+            {
+                "qsIt": text.replace(
+                    "{x: 0, selectable: false}", "{x: 0, selectable: false, x_off_convention: true}"
+                )
+            },
+        )
+        report = defects.run_gates(flagged, _tables(rules=[_cite_all_policy(flagged)]), {})
+        assert not [d for d in report.errors if d.code == "E-ANCHOR"]
+
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)]), {}, allow=frozenset({signature})
+        )
+        assert not report.errors
+        assert [d.signature for d in report.blessed] == [signature]
+
+    def test_x_off_convention_exempts_only_its_own_side(self, tmp_path):
+        template = textwrap.dedent("""\
+            rune: qsIt
+            codepoint: 0xE670
+            ductus:
+              sole: |
+                A vertical stroke.
+            stances:
+              sole:
+                motion: sole
+                bitmap: [" #", " #", " #", " #", " #", " #"]
+                surface:
+                  entries:
+                    baseline: {ENTRY}
+                  exits:
+                    baseline: {EXIT}
+            """)
+        cell = CellId("qsIt", "sole", "baseline", "baseline", ())
+        for entry_row, exit_row, exempt, violating in (
+            ("x: 0, x_off_convention: true", "x: 3, unjoined: safe", ("entry",), "exit"),
+            ("x: 0", "x: 3, unjoined: safe, x_off_convention: true", ("exit",), "entry"),
+        ):
+            spec = load_tmp_spec(
+                tmp_path,
+                {"qsIt": template.replace("ENTRY", entry_row).replace("EXIT", exit_row)},
+            )
+            plan = surface.resolve_cell(spec, cell)
+            assert plan.convention_exempt == exempt
+            record = geometry.realize(spec, plan)
+            assert record.convention_exempt == exempt
+            report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {plan.cell: record})
+            errors = [d for d in report.errors if d.code == "E-ANCHOR"]
+            assert [d.signature for d in errors] == [f"anchor:{record.name}:{violating}"]
+
+
+class TestUnrealized:
+    def test_gap_zero_join_passes(self, spec):
+        left_cell, left = _realize(spec, "qsIt", "sole", None, "baseline")
+        right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert not [d for d in report.errors if d.code == "E-UNREALIZED"]
+
+    def test_nonzero_gap_fails(self, spec):
+        left_cell = CellId("qsIt", "sole", None, "baseline", ())
+        left = GlyphRecord(
+            name="qsIt.gappy",
+            bitmap=("#", "#", "#", "#", "#", "# "),
+            y_offset=0,
+            exit=(2, 0),
+            convention_exempt=("exit",),
+        )
+        right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert any(d.code == "E-UNREALIZED" for d in report.errors)
+
+
+class TestExtensionBand:
+    def test_extension_within_band_passes(self, spec):
+        left_cell, left = _realize(spec, "qsMay", "loop", None, "x-height", ["ex-ext-1"])
+        right_cell, right = _realize(spec, "qsIt", "sole", "x-height", "baseline")
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="x-height", extension=1)]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert not [d for d in report.errors if d.code == "E-EXTENSION-BAND"]
+        assert not [d for d in report.flags if d.code == "E-EXTENSION-BAND"]
+
+    def test_extension_beyond_every_band_flags(self, spec):
+        left_cell, left = _realize(spec, "qsMay", "loop", None, "x-height", ["ex-ext-2"])
+        right_cell, right = _realize(spec, "qsIt", "sole", "x-height", "baseline", ["en-ext-1"])
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="x-height", extension=3)]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert any(d.code == "E-EXTENSION-BAND" for d in report.flags)
+
+    def test_extension_with_no_authored_record_fails(self, spec):
+        left_cell, left = _realize(spec, "qsTea_qsOy", "sole", None, "baseline", ["ex-ext-1"])
+        right_cell, right = _realize(spec, "qsOy", "sole", None, None)
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=1)]
+        glyphs = {left_cell: left, right_cell: right}
+        right_entry = GlyphRecord(name=right.name, bitmap=right.bitmap, y_offset=right.y_offset, entry=(0, 0))
+        glyphs[right_cell] = right_entry
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), glyphs)
+        assert any(d.code == "E-EXTENSION-BAND" for d in report.errors)
+
+
+class TestContact:
+    def test_overlapping_ink_fails(self, spec):
+        left_cell = CellId("qsIt", "sole", None, "baseline", ())
+        right_cell = CellId("qsMay", "loop", "baseline", None, ())
+        left = GlyphRecord(name="l", bitmap=("##",), y_offset=0, exit=(1, 0), convention_exempt=("exit",))
+        right = GlyphRecord(name="r", bitmap=("##",), y_offset=0, entry=(0, 0), convention_exempt=("entry",))
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline")]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert any(d.code == "E-CONTACT" for d in report.errors)
+        assert any(d.code == "E-UNREALIZED" for d in report.errors)
+
+    def test_every_off_junction_row_is_its_own_finding(self, spec):
+        left_cell = CellId("qsIt", "sole", None, "baseline", ())
+        right_cell = CellId("qsMay", "loop", "baseline", None, ())
+        left = GlyphRecord(
+            name="l", bitmap=("#", "#", "#"), y_offset=0, exit=(1, 0), convention_exempt=("exit",)
+        )
+        right = GlyphRecord(
+            name="r", bitmap=("#", "#", "#"), y_offset=0, entry=(0, 0), convention_exempt=("entry",)
+        )
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline")]
+        report = defects.run_gates(
+            spec,
+            _tables(rules=[_cite_all_policy(spec)], rows=rows),
+            {left_cell: left, right_cell: right},
+            allow=frozenset({"contact:l:r:y1"}),
+        )
+        assert [d.signature for d in report.blessed if d.code == "E-CONTACT"] == ["contact:l:r:y1"]
+        assert [d.signature for d in report.errors if d.code == "E-CONTACT"] == ["contact:l:r:y2"]
+
+    def test_overlap_does_not_hide_off_junction_rows(self, spec):
+        left_cell = CellId("qsIt", "sole", None, "baseline", ())
+        right_cell = CellId("qsMay", "loop", "baseline", None, ())
+        left = GlyphRecord(name="l", bitmap=("#", "##"), y_offset=0, exit=(1, 0), convention_exempt=("exit",))
+        right = GlyphRecord(
+            name="r", bitmap=("#", "#"), y_offset=0, entry=(0, 0), convention_exempt=("entry",)
+        )
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline")]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert [d.signature for d in report.errors if d.code == "E-CONTACT"] == [
+            "contact:l:r:overlap",
+            "contact:l:r:y1",
+        ]
+
+    def test_clean_join_has_no_contact(self, spec):
+        left_cell, left = _realize(spec, "qsTea", "full", None, "baseline")
+        right_cell, right = _realize(spec, "qsMay", "loop", "baseline", "x-height")
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join="baseline", extension=0)]
+        report = defects.run_gates(
+            spec, _tables(rules=[_cite_all_policy(spec)], rows=rows), {left_cell: left, right_cell: right}
+        )
+        assert not [d for d in report.errors if d.code == "E-CONTACT"]
+
+
+class TestKernedContact:
+    """A break sits at the left glyph's compiled advance (its widest row plus two blank pixels, less the Senior tightening's pixel) plus the kern stage's value, so two bars one pixel wide stand one blank column apart unkerned, touch at a kern of -1, and overlap at -2. Touching across a break is no error; an overlap is E-CONTACT."""
+
+    def _pair(self):
+        left_cell = CellId("qsIt", "sole", None, None, ())
+        right_cell = CellId("qsMay", "loop", None, None, ())
+        left = GlyphRecord(name="l", bitmap=("#",), y_offset=0)
+        right = GlyphRecord(name="r", bitmap=("#",), y_offset=0)
+        return left_cell, right_cell, {left_cell: left, right_cell: right}
+
+    def _contacts(self, spec, kern, rows=True):
+        left_cell, right_cell, glyphs = self._pair()
+        table_rows = [FakeJoinRow(left=left_cell, right=right_cell, join=None)] if rows else []
+        report = defects.run_gates(
+            spec,
+            _tables(rules=[_cite_all_policy(spec)], rows=table_rows),
+            glyphs,
+            kern={(left_cell, right_cell): kern} if kern else None,
+        )
+        return [d.signature for d in report.errors if d.code == "E-CONTACT"]
+
+    def test_a_break_overlaps_only_at_the_kern_that_pushes_ink_into_ink(self, spec):
+        assert self._contacts(spec, 0) == []
+        assert self._contacts(spec, -1) == []
+        assert self._contacts(spec, -2) == ["contact:l:r:overlap:kern-2"]
+
+    def test_a_kerned_break_no_join_row_records_is_checked_too(self, spec):
+        assert self._contacts(spec, -2, rows=False) == ["contact:l:r:overlap:kern-2"]
+
+    def test_a_bless_at_one_kern_does_not_cover_a_deeper_one(self, spec):
+        """The signature names the kern, so the entry blessing the overlap at -2 leaves the same pair at -4 an error. The bars are three pixels wide, so both kerns overlap."""
+        left_cell, right_cell, _glyphs = self._pair()
+        glyphs = {
+            left_cell: GlyphRecord(name="l", bitmap=("###",), y_offset=0),
+            right_cell: GlyphRecord(name="r", bitmap=("###",), y_offset=0),
+        }
+        rows = [FakeJoinRow(left=left_cell, right=right_cell, join=None)]
+
+        def errors(kern):
+            report = defects.run_gates(
+                spec,
+                _tables(rules=[_cite_all_policy(spec)], rows=rows),
+                glyphs,
+                allow=frozenset({"contact:l:r:overlap:kern-2"}),
+                kern={(left_cell, right_cell): kern},
+            )
+            return [d.signature for d in report.errors if d.code == "E-CONTACT"]
+
+        assert errors(-2) == []
+        assert errors(-4) == ["contact:l:r:overlap:kern-4"]
+
+
+class TestDeadPolicy:
+    def test_cited_records_are_live(self, spec):
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {})
+        assert not report.unused_records
+
+    def test_records_waiting_on_unmigrated_letters_are_partitioned(self, spec):
+        report = defects.run_gates(spec, _tables(), {})
+        waiting = "\n".join(report.waiting_on_unmigrated)
+        # The fixture's qsMay contract names only qsFee, which the fixture spec lacks, so it is waiting on an unmigrated letter. The real qsMay gets pulled-back-stubless from its x-height entry row's `joined:` key instead of from a contract.
+        assert "qsMay.yaml:policy.contract[0]" in waiting
+
+    def test_unexercised_records_not_waiting_on_unmigrated_letters_are_unused(self, spec):
+        report = defects.run_gates(spec, _tables(), {})
+        unused = "\n".join(report.unused_records)
+        # qsIt's baseline-exit extension has only a `self_entry` condition and names no family, so when no rule cites it, it is unused, not waiting on an unmigrated letter.
+        assert "qsIt.yaml:policy.extend[2]" in unused
+
+    def test_fail_if_broken_raises(self, spec):
+        cell, record = _realize(
+            spec, "qsMay", "loop", None, "x-height", safety_checks=(("exit", "x-height"),)
+        )
+        report = defects.run_gates(spec, _tables(rules=[_cite_all_policy(spec)]), {cell: record})
+        with pytest.raises(AssertionError):
+            report.fail_if_broken()

@@ -1,0 +1,34 @@
+--- a/engine/kernel-rs/src/fixpoint.rs
++++ b/engine/kernel-rs/src/fixpoint.rs
+@@ -1406,12 +1406,14 @@
+                                     settled
+                                 }
+                             };
++                            let unpinned = index.resolve(right1.letter()) == "qsRoe"
++                                && cell_label(index, &settled_pool.get(settled).cell) == "qsPea.full.ex-y0";
+                             items.push(
+                                 &mut worklist,
+                                 Item {
+                                     left: lefts.letter(index, &settled_pool, settled),
+                                     rune: right1.letter(),
+-                                    right1: Some(right2),
++                                    right1: if unpinned { None } else { Some(right2) },
+                                     right2_allowed: Some(Rc::new(
+                                         admitted3.iter().copied().collect(),
+                                     )),
+@@ -1546,12 +1548,14 @@
+                                     )),
+                                 }
+                             };
++                            let unpinned = index.resolve(right1.letter()) == "qsRoe"
++                                && cell_label(index, &settled_pool.get(settled).cell) == "qsPea.full.ex-y0";
+                             items.push(
+                                 &mut worklist,
+                                 Item {
+                                     left: lefts.letter(index, &settled_pool, settled),
+                                     rune: right1.letter(),
+-                                    right1: Some(right2),
++                                    right1: if unpinned { None } else { Some(right2) },
+                                     right2_allowed: successor_allowed,
+                                     right3_allowed: right4.map(singleton),
+                                 },

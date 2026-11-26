@@ -117,15 +117,15 @@ jobs:
           fi
           ls -l fonts
 
-      # On a tag push the fonts must be the ones fonts.json records for the tagged commit; `rebuild/tools/release_fonts.py`'s module docstring gives the checks.
+      # On a tag push the fonts must be the ones fonts.json records for the tagged commit; `engine/tools/release_fonts.py`'s module docstring gives the checks.
       - name: Check the fonts
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
-            uv run python -m rebuild.tools.release_fonts verify fonts --version "$VERSION" --commit "$GITHUB_SHA"
+            uv run python -m engine.tools.release_fonts verify fonts --version "$VERSION" --commit "$GITHUB_SHA"
           else
-            uv run python -m rebuild.tools.release_fonts verify fonts --version "$VERSION"
+            uv run python -m engine.tools.release_fonts verify fonts --version "$VERSION"
           fi
 
       - name: Convert to woff2

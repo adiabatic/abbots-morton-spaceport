@@ -1,0 +1,3122 @@
+# Curated sequence set for the CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
+# One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
+# Codepoints: doc/glyph-names.md maps each letter to its codepoint; the others are space 0020, namer dot 00B7, and ZWNJ 200C.
+# The driver runs every line under every configuration in `coretext_smoke.FEATURE_CONFIGURATIONS`.
+#
+# The prototype probe rows, carried forward.
+E670                      # It in isolation
+E652                      # Tea in isolation
+E665                      # May in isolation
+E670 E665                 # It May (baseline join)
+E652 E665                 # Tea May (baseline join)
+E652 E670                 # Tea It (x-height join, half-Tea)
+E665 E670                 # May It (x-height join, exit-extended)
+E665 E665                 # May May (baseline join)
+E670 E670                 # It It (no join)
+E665 E652                 # May Tea (unjoined by default; joins under ss03)
+E652 E670 E665            # Tea It May (backtrack: entered It carries the extension)
+E665 E670 E665            # May It May (extension ownership at both junctions)
+E670 E665 E670            # It May It (middle May double-extended)
+E665 E652 E670            # May Tea It (ss03 chain)
+E652 E670 E652 E670       # Tea It Tea It (unjoined exit mid-chain)
+E670 200C E652            # It ZWNJ Tea
+E652 E670 200C E665       # Tea It ZWNJ May
+E665 200C E670 E652       # May ZWNJ It Tea
+E665 200C E652            # May ZWNJ Tea (the fixed ss03 leak)
+E665 0020 E652            # May space Tea
+200C E652 E670            # ZWNJ Tea It (locked copy settles its exit)
+200C E665 E670            # ZWNJ May It
+#
+# qsPea rows: the y6 chain, the dips, and boundary forms.
+E650                      # Pea in isolation
+E650 E650                 # Pea Pea (the y6 join chain)
+E650 E650 E650            # Pea Pea Pea
+E665 E650                 # May Pea (x-height entry dip)
+E665 E650 E670            # May Pea It (the both-dipped half cell)
+E650 E670                 # Pea It
+E650 E665                 # Pea May
+E650 E652                 # Pea Tea
+E652 E650                 # Tea Pea
+E670 E650                 # It Pea
+200C E650 E650            # ZWNJ Pea Pea (locked Pea before the y6 chain)
+E650 200C E650            # Pea ZWNJ Pea
+#
+# qsOy and the qsTea_qsOy ligature windows.
+E679                      # Oy in isolation
+E652 E679                 # Tea Oy (ligature forms)
+E670 E652 E679            # It Tea Oy
+E665 E652 E679            # May Tea Oy (post-marker ligature formation: forms under ss03 too)
+E652 E679 E670            # Tea+Oy It (ligature forward junction)
+E652 E679 E652            # Tea+Oy Tea
+E652 E679 E665            # Tea+Oy May
+E652 E679 E652 E679       # Tea+Oy Tea+Oy
+E652 200C E679            # Tea ZWNJ Oy (formation severed)
+E653 E67A                 # Day Utter (ligature forms; splits to bare Day Utter under ss10)
+E650 E653 E67A E652       # Pea Day+Utter Tea (ligature mid-window; all bare under ss10)
+E665 E679                 # May Oy (x-height join into the opened loop)
+E650 E679                 # Pea Oy
+E679 E670                 # Oy It
+#
+# Namer-dot rows (the dot-lowering mini-calt; the dot never splits runs).
+00B7 E670                 # namer dot before short It (lowers)
+00B7 E652                 # namer dot before tall Tea (stays)
+E665 00B7 E670            # mid-word namer dot before It
+00B7 200C E670            # namer dot ZWNJ It (the dot must not lower through the ZWNJ)
+#
+# Four-family junctions and longer mixed windows.
+E650 E665 E652            # Pea May Tea
+E652 E670 E665 E679       # Tea It May Oy
+E670 E665 E652 E679       # It May Tea Oy
+E650 E650 E670 E665       # Pea Pea It May
+E665 E650 E650            # May Pea Pea
+E652 E670 E652 E679 E670  # Tea It Tea+Oy It (five tokens, ligature mid-chain)
+#
+# Depth-3 windows: the third lookahead class in the settlement lookup (qsLow E667).
+E653 E652 E67A E667       # Day Tea Utter Low (Day keeps its baseline exit; Tea joins on neither side otherwise)
+E679 E652 E67A E667       # Oy Tea Utter Low (Oy keeps its baseline exit)
+E653 E652 E67A            # Day Tea Utter (contrast: Day still yields to the Tea Utter join)
+E653 E652 E67A E665       # Day Tea Utter May (contrast: the yield survives a non-Low fourth letter)
+E653 E652 E67A 200C E667  # Day Tea Utter ZWNJ Low (the third-slot class must not match across the break)
+E650 E679 E652 E67A E667  # Pea Oy Tea Utter Low (the depth-3 window with a settled left)
+#
+# qsFee windows: the x-height one-way street (joined to XOR from, never both).
+E658                      # Fee in isolation
+E665 E658                 # May Fee (extended x-height join into the reversed loop)
+E658 E665                 # Fee May (the triple-extended exit into the pulled-back stubless May)
+E658 E652                 # Fee Tea (unjoined by default; joins under ss03)
+E658 E67A E666            # Fee Utter No (the alternate Utter reaches back to Fee)
+E658 E679                 # Fee Oy (x-height join into the opened loop)
+E667 E658                 # Low Fee (extended x-height join)
+E653 E67A E658            # Day+Utter Fee (the ligature's exit extended into Fee)
+E665 E658 E665            # May Fee May (the entered Fee cannot exit; the second junction breaks)
+200C E658                 # ZWNJ Fee (locked copy)
+E658 200C E665            # Fee ZWNJ May (exit severed)
+#
+# qsAh windows: baseline in, x-height out (the Short diagonal).
+E676                      # Ah in isolation
+E650 E676                 # Pea Ah (the full Pea's baseline exit into Ah)
+E652 E676                 # Tea Ah (baseline join)
+E670 E676                 # It Ah (baseline join)
+E666 E676                 # No Ah (the flipped No's baseline exit into Ah)
+E67A E676                 # Utter Ah (the alternate Utter's baseline exit into Ah)
+E653 E676                 # Day Ah (break: Ah's entry does not receive Day)
+E679 E676                 # Oy Ah (break: Ah's entry does not receive Oy)
+E676 E665                 # Ah May (extended x-height exit into the pulled-back May)
+E676 E658                 # Ah Fee (extended x-height exit into the reversed loop)
+E676 E652                 # Ah Tea (unjoined by default; extended x-height join under ss03)
+E676 E679                 # Ah Oy (unextended x-height join into the opened loop)
+E665 E676 E665            # May Ah May (joined on both sides: baseline in, extended x-height out)
+200C E676                 # ZWNJ Ah (locked copy)
+E676 200C E665            # Ah ZWNJ May (exit severed)
+#
+# qsI windows: baseline in, x-height out, and the tighter loop after Pea.
+E675                      # I in isolation
+E650 E675                 # Pea I (the smaller loop, after the full Pea's baseline exit)
+E652 E675                 # Tea I (baseline join)
+E653 E675                 # Day I (baseline join)
+E670 E675                 # It I (It's extended baseline exit into I)
+E666 E675                 # No I (the flipped No's baseline exit into I)
+E67A E675                 # Utter I (the alternate Utter's baseline exit into I)
+E679 E675                 # Oy I (baseline join)
+E658 E675                 # Fee I (break: Fee exits only at the x-height)
+E676 E675                 # Ah I (break: Ah exits only at the x-height)
+E675 E665                 # I May (extended x-height exit into the pulled-back May)
+E675 E653                 # I Day (extended x-height exit)
+E675 E652                 # I Tea (unjoined by default; x-height entry under ss02, extended under ss03)
+E675 E670                 # I It (extended x-height exit)
+E650 E675 E665            # Pea I May (the smaller loop keeping its shape under an extended exit)
+E652 E679 E675            # Tea+Oy ligature into I (baseline join off the ligature)
+200C E675                 # ZWNJ I (locked copy)
+E675 200C E665            # I ZWNJ May (exit severed)
+#
+# qsRoe windows: the two-tipped short letter, entered at one height and leaving from the other.
+E668                      # Roe in isolation
+E650 E668                 # Pea Roe (the dipping half-Pea's x-height exit into a contracted entry)
+E652 E668                 # Tea Roe (half-Tea's x-height exit into a contracted entry)
+E653 E668                 # Day Roe (baseline join into the lower tip)
+E658 E668                 # Fee Roe (extended x-height exit into the upper tip)
+E665 E668                 # May Roe (both sides reach: May's exit and Roe's x-height entry)
+E670 E668                 # It Roe (It's x-height exit into an extended entry)
+E67A E668                 # Utter Roe (the mono Utter's x-height exit)
+E668 E652                 # Roe Tea (break: Roe reaches neither of Tea's entries)
+E668 E665                 # Roe May (baseline exit, run out under the bowl)
+E668 E666                 # Roe No (x-height exit, run out over the bowl)
+E668 E667                 # Roe Low (extended baseline exit)
+E668 E668                 # Roe Roe (x-height exit into the next Roe's upper tip)
+E668 E675                 # Roe I (extended baseline exit into the tighter loop)
+E668 E676                 # Roe Ah (baseline exit into Ah's entry)
+E668 E679                 # Roe Oy (x-height exit into the opened loop)
+E668 E67A                 # Roe Utter (break: no junction either way)
+E666 E668 E665            # No Roe May (entered at the x-height, so the exit has to go low)
+E666 E668 E666            # No Roe No (entered high, leaving low into the flipped No)
+E670 E668 E666            # It Roe No (extended baseline entry, x-height exit)
+E668 E67A E667            # Roe Utter Low (the "orally" window: break, then alt-Utter's baseline exit)
+200C E668                 # ZWNJ Roe (locked copy)
+E668 200C E665            # Roe ZWNJ May (exit severed)
+#
+# qsEt windows: the short diagonal, entered high on the left and leaving low on the right.
+E672                      # Et in isolation
+E650 E672                 # Pea Et (the dipping half-Pea's x-height exit into an extended entry)
+E652 E672                 # Tea Et (half-Tea's x-height exit into an extended entry)
+E658 E672                 # Fee Et (extended x-height exit into the entry)
+E665 E672                 # May Et (x-height join)
+E666 E672                 # No Et (x-height join)
+E670 E672                 # It Et (x-height join)
+E675 E672                 # I Et (extended x-height exit)
+E67A E672                 # Utter Et (the mono Utter's x-height exit)
+E668 E672                 # Roe Et (break: Roe's x-height exit does not reach Et)
+E672 E652                 # Et Tea (the baseline join that spends Tea's slot backward)
+E672 E652 E653            # Et Tea Day (Tea joins Et and leaves Day unjoined; ss05 unlocks the both-baseline Tea)
+E672 E652 E679            # Et Tea+Oy (Et drops its exit before the entryless ligature)
+E672 E653                 # Et Day (baseline join into the chaining half)
+E672 E653 E67A            # Et Day+Utter (baseline join into the ligature's half)
+E672 E665                 # Et May (baseline join)
+E672 E666                 # Et No (baseline join into the flipped No)
+E672 E667                 # Et Low (baseline join)
+E672 E668                 # Et Roe (baseline join into the lower tip)
+E672 E670                 # Et It (baseline join)
+E672 E675                 # Et I (baseline join, the regular loop)
+E672 E676                 # Et Ah (baseline join)
+E672 E67A                 # Et Utter (baseline join into the mono Utter)
+E672 E672                 # Et Et (no join)
+E653 E652 E672            # Day Tea Et (the Day-Tea-X family window)
+200C E672                 # ZWNJ Et (locked copy)
+E672 200C E652            # Et ZWNJ Tea (exit severed)
+#
+# qsSee windows: the tall serpentine — entered at the baseline foot, exiting at the top, at the Short letters' top, or (entryless) at the baseline.
+E65A                      # See in isolation
+E650 E65A                 # Pea See (baseline join onto the foot)
+E652 E65A                 # Tea See (baseline join onto the foot)
+E653 E65A                 # Day See (baseline join onto the foot)
+E665 E65A                 # May See (the grounded loop's exit onto the foot)
+E666 E65A                 # No See (the flipped No's baseline exit onto the foot)
+E668 E65A                 # Roe See (baseline join onto the foot)
+E670 E65A                 # It See (baseline join onto the foot)
+E672 E65A                 # Et See (baseline join onto the foot)
+E679 E65A                 # Oy See (baseline join onto the foot)
+E67A E65A                 # Utter See (alt-Utter's baseline exit onto the foot)
+E658 E65A                 # Fee See (break: See has no x-height entry)
+E667 E65A                 # Low See (break)
+E675 E65A                 # I See (break)
+E676 E65A                 # Ah See (break)
+E65A E652                 # See Tea (the top join)
+E65A E658                 # See Fee (the top join into the loop's stub)
+E65A E650                 # See Pea (the curled exit into half-Pea's top)
+E65A E650 E650            # See Pea Pea (the y6 chain)
+E65A E667                 # See Low (the baseline exit, extended by 2, into Low's extended entry)
+E650 E65A E667            # Pea See Low (the left join yields so the baseline-exit See serves Low)
+E670 E65A E667            # It See Low (It keeps its join and Low is left unjoined)
+E65A E652 E653            # See Tea Day (the top entry leaves Tea's baseline slot for Day)
+E672 E652 E65A            # Et Tea See (Tea spends its slot backward and leaves See unjoined; ss05 chains on)
+E653 E652 E65A            # Day Tea See (the Day-Tea-X family window)
+E65A E67A                 # See+Utter (the ligature)
+E650 E65A E67A            # Pea See+Utter (the predecessor reverts before the entryless ligature)
+E65A E67A E665            # See+Utter May (the extended x-height exit)
+E65A E67A E658            # See+Utter Fee (the extended x-height exit into the reversed loop)
+E65A E67A E650            # See+Utter Pea (the x-height exit into full Pea)
+E65A E67A E652            # See+Utter Tea (break; ss03 extends into half-Tea)
+E65A E67A E667            # See+Utter Low (the guard un-forms so alt-Utter serves Low)
+E65A E67A E65A            # See+Utter See (the guard un-forms so alt-Utter serves See)
+E65A E65A                 # See See (no join)
+200C E65A                 # ZWNJ See (locked copy)
+E65A 200C E652            # See ZWNJ Tea (exit severed)
+#
+# qsVie windows: the Deep bowl-and-descender — entered on the baseline bar, exiting (swept out of the descender) at the baseline toward a few receivers.
+E659                      # Vie in isolation
+E650 E659                 # Pea Vie (baseline join, extended entry)
+E652 E659                 # Tea Vie (baseline join, extended entry)
+E653 E659                 # Day Vie (baseline join)
+E665 E659                 # May Vie (the grounded loop's exit onto the bar)
+E666 E659                 # No Vie (the flipped No's baseline exit onto the bar; ·Vie's entry contracts by one)
+E666 E659 E67A            # No Vie Utter (the flipped No's baseline exit onto the bar; Vie's entry and its swept exit into Utter each contract by one)
+E668 E659                 # Roe Vie (baseline join, run out under the bowl)
+E670 E659                 # It Vie (baseline join, extended entry)
+E672 E659                 # Et Vie (baseline join)
+E679 E659                 # Oy Vie (baseline join)
+E67A E659                 # Utter Vie (alt-Utter's baseline exit onto the bar)
+E658 E659                 # Fee Vie (break: Fee never reaches the baseline)
+E65A E659                 # See Vie (break: Vie is not in the baseline exit's scope)
+E667 E659                 # Low Vie (break)
+E675 E659                 # I Vie (break)
+E676 E659                 # Ah Vie (break)
+E659 E659                 # Vie Vie (the swept exit onto the bar; Vie's entry contracts by one)
+E659 E659 E67A            # Vie Vie Utter (the swept exit onto the bar, then the contracted swept exit into Utter)
+E659 E666                 # Vie No (the swept exit, contracted by one, into the flipped No)
+E659 E667                 # Vie Low (the swept exit)
+E659 E668                 # Vie Roe (the swept exit into the lower tip)
+E659 E652                 # Vie Tea (break: Tea is not in the exit's scope)
+E659 E665                 # Vie May (break)
+E670 E659 E666            # It Vie No (entered and exiting, the extended entry live)
+E653 E670 E659            # Day It Vie (ss04: the entered It joins at the baseline on both sides, into Vie)
+E653 E652 E659            # Day Tea Vie (the Day-Tea-X family window)
+E672 E652 E659            # Et Tea Vie (Tea spends its slot backward and leaves Vie unjoined; ss05 chains on)
+E665 E652 E659            # May Tea Vie (ss03: half-Tea takes the left join and Vie breaks)
+E659 E67A                 # Vie Utter (the swept exit, contracted by one, into Utter)
+E650 E659 E67A            # Pea Vie Utter (baseline joins on both sides of Vie)
+E659 E67A E665            # Vie Utter May (Utter's x-height exit into the pulled-back May)
+E659 E67A E658            # Vie Utter Fee (Utter's extended x-height exit into the reversed loop)
+E659 E67A E653            # Vie Utter Day (Utter's x-height exit)
+E659 E67A E652            # Vie Utter Tea (alt-Utter serves Tea and Vie breaks; under ss03 Utter joins full Tea at the x-height)
+E659 E67A E667            # Vie Utter Low (alt-Utter serves Low and Vie breaks)
+E659 E67A E659            # Vie Utter Vie (alt-Utter serves Vie and Vie breaks)
+E659 200C E67A            # Vie ZWNJ Utter (join severed)
+200C E659                 # ZWNJ Vie (locked copy)
+E659 200C E666            # Vie ZWNJ No (exit severed)
+00B7 E659                 # namer dot before Deep Vie (stays)
+#
+# qsOut windows: the Short arch — entered at the baseline, exiting (swept up past the crown) at the x-height toward a few receivers; the after-See forms trim the leg's foot, and the swept-up form swaps in the arch's leg (`low-bend`).
+E67B                      # Out in isolation
+E650 E67B                 # Pea Out (baseline join)
+E652 E67B                 # Tea Out (baseline join)
+E653 E67B                 # Day Out (baseline join)
+E65A E67B                 # See Out (the contracted baseline exit; Out takes the trimmed diagonal leg)
+E665 E67B                 # May Out (baseline join)
+E666 E67B                 # No Out (the flipped No's baseline exit)
+E670 E67B                 # It Out (baseline join)
+E672 E67B                 # Et Out (baseline join)
+E679 E67B                 # Oy Out (baseline join)
+E67A E67B                 # Utter Out (alt-Utter's baseline exit)
+E652 E679 E67B            # Tea+Oy Out (the ligature's baseline exit)
+E658 E67B                 # Fee Out (break: Fee never reaches the baseline)
+E659 E67B                 # Vie Out (break: Out is not in the swept exit's scope)
+E667 E67B                 # Low Out (break)
+E668 E67B                 # Roe Out (break)
+E675 E67B                 # I Out (break)
+E676 E67B                 # Ah Out (break)
+E67B E67B                 # Out Out (break)
+E67B E653                 # Out Day (the swept exit into the descending left side)
+E67B E653 E67A            # Out Day+Utter (the swept exit into the half ligature)
+E67B E658                 # Out Fee (the extended swept exit into the reversed loop)
+E67B E666                 # Out No (the swept exit into the flipped No)
+E67B E668                 # Out Roe (the swept exit)
+E67B E672                 # Out Et (the swept exit)
+E67B E679                 # Out Oy (the swept exit into the open left side)
+E67B E650                 # Out Pea (break)
+E67B E665                 # Out May (break)
+E67B E67A                 # Out Utter (break)
+E65A E67B E653            # See Out Day (the diagonal leg with the swept exit)
+E65A E67B E658            # See Out Fee (the diagonal leg with the further-extended exit)
+E65A E67B E679            # See Out Oy (the diagonal leg with the swept exit)
+E653 E652 E67B            # Day Tea Out (the Day-Tea-X family window)
+E666 E652 E67B            # No Tea Out (the No-Tea-X family window)
+E67B E652                 # Out+Tea (the ligature; forms under every set)
+E65A E67B E652            # See Out+Tea (the ligature's diagonal leg)
+E650 E67B E652            # Pea Out+Tea (the ligature entered at the baseline)
+E67B E652 E653            # Out+Tea Day (break: the ligature never exits)
+E67B E652 E668            # Out+Tea Roe (break: the ligature never exits)
+E67B 200C E652            # Out ZWNJ Tea (formation severed)
+200C E67B                 # ZWNJ Out (locked copy)
+E67B 200C E653            # Out ZWNJ Day (exit severed)
+00B7 E67B                 # namer dot lowers before Short Out
+
+# qsJai windows: the Deep crown-and-descender-loop — entered at the x-height crown, exiting at the right end of the baseline bar; ·J'ai+·Utter always forms.
+E65D                      # Jai in isolation
+E650 E65D                 # Pea Jai (half-Pea's dipped exit; Jai's entry contracts by one)
+E652 E65D                 # Tea Jai (half-Tea's x-height exit; Jai's entry contracts by one)
+E658 E65D                 # Fee Jai (the forward x-height join)
+E665 E65D                 # May Jai (the consolidated three-pixel exit extension)
+E666 E65D                 # No Jai (Jai's entry contracts by one)
+E667 E65D                 # Low Jai (Jai's entry contracts by one)
+E668 E65D                 # Roe Jai (x-height join)
+E670 E65D                 # It Jai (It's extended x-height exit)
+E675 E65D                 # I Jai (Jai's entry contracts by one)
+E676 E65D                 # Ah Jai (Jai's entry contracts by two)
+E67A E65D                 # Utter Jai (Jai's entry contracts by two)
+E67B E65D                 # Out Jai (the swept exit)
+E653 E67A E65D            # Day+Utter Jai (the ligature's exit; Jai's entry contracts by two)
+E653 E65D                 # Day Jai (break)
+E659 E65D                 # Vie Jai (break)
+E65A E65D                 # See Jai (break)
+E672 E65D                 # Et Jai (break)
+E679 E65D                 # Oy Jai (break)
+E65D E65D                 # Jai Jai (break)
+E65D E652                 # Jai Tea (the extended baseline exit into full Tea)
+E65D E652 E650            # Jai Tea Pea (the join holds: Tea gains nothing forward)
+E65D E652 E653            # Jai Tea Day (Jai yields; Tea keeps its forward baseline join)
+E65D E652 E666            # Jai Tea No (Jai yields; Tea groups rightward)
+E65D E652 E670            # Jai Tea It (Jai yields; half-Tea takes the x-height join)
+E65D E653                 # Jai Day (the un-extended exit into half-Day)
+E65D E653 E67A            # Jai Day+Utter (the exit into the half ligature)
+E65D E659                 # Jai Vie (the extended exit)
+E65D E659 E67A            # Jai Vie Utter (Jai's baseline exit into Vie, whose swept exit joins Utter)
+E65D E65A                 # Jai See (the extended exit)
+E65D E65A E67A            # Jai See+Utter (break: the ligature takes no entry)
+E65D E665                 # Jai May (the un-extended exit into the loop)
+E65D E666                 # Jai No (the extended exit into the flipped No)
+E65D E667                 # Jai Low (the extended exit)
+E65D E668                 # Jai Roe (the extended exit)
+E65D E670                 # Jai It (the extended exit)
+E65D E675                 # Jai I (the extended exit)
+E65D E676                 # Jai Ah (the un-extended exit)
+E65D E67B                 # Jai Out (the un-extended exit into the arch)
+E65D E67B E652            # Jai Out+Tea (the exit into the ligature)
+E65D E650                 # Jai Pea (break)
+E65D E658                 # Jai Fee (break)
+E65D E672                 # Jai Et (break)
+E65D E679                 # Jai Oy (break)
+E65D E652 E679            # Jai Tea+Oy (break: the ligature takes no entry)
+E65D E67A                 # Jai+Utter (the ligature; forms under every set)
+E650 E65D E67A            # Pea Jai+Utter (entered at the crown, contracted)
+E665 E65D E67A            # May Jai+Utter (the consolidated exit extension)
+E676 E65D E67A            # Ah Jai+Utter (the entry contracts by two)
+E65D E67A E650            # Jai+Utter Pea (the ligature's x-height exit)
+E65D E67A E653            # Jai+Utter Day (the ligature's x-height exit)
+E65D E67A E658            # Jai+Utter Fee (the extended exit into the reversed loop)
+E65D E67A E65D            # Jai+Utter Jai (the follower's entry contracts by two)
+E65D E67A E65D E67A       # Jai+Utter Jai+Utter (ligature to ligature)
+E65D E67A E672            # Jai+Utter Et (the x-height exit)
+E65D E67A E679            # Jai+Utter Oy (the x-height exit)
+E65D E67A E659            # Jai+Utter Vie (un-forms: alt-Utter takes the baseline join)
+E65D E67A E667            # Jai+Utter Low (un-forms: alt-Utter takes the baseline join)
+E65D E67A E676            # Jai+Utter Ah (un-forms: alt-Utter takes the baseline join)
+E65D E67A E652            # Jai+Utter Tea (break at default; ss03 reaches half-Tea)
+E65D 200C E67A            # Jai ZWNJ Utter (formation severed)
+200C E65D                 # ZWNJ Jai (locked copy)
+E65D 200C E652            # Jai ZWNJ Tea (exit severed)
+00B7 E65D                 # namer dot before Deep Jai
+
+# qsAwe windows: the Short sigmoid — entered at the left along the x-height, exiting at the right end of the baseline; no ligature of its own, and it yields its ·Tea join wherever ·Tea gains a forward join by it.
+E677                      # Awe in isolation
+E650 E677                 # Pea Awe (half-Pea's dipped exit)
+E652 E677                 # Tea Awe (half-Tea's x-height exit; Awe's entry extends by one)
+E658 E677                 # Fee Awe (the forward x-height join)
+E665 E677                 # May Awe (the bare loop's x-height exit)
+E666 E677                 # No Awe (x-height join)
+E667 E677                 # Low Awe (x-height join)
+E668 E677                 # Roe Awe (the x-height exit)
+E670 E677                 # It Awe (It's extended x-height exit)
+E675 E677                 # I Awe (x-height join)
+E676 E677                 # Ah Awe (the Short diagonal's x-height exit)
+E67A E677                 # Utter Awe (the crown's x-height exit)
+E67B E677                 # Out Awe (the swept exit)
+E677 E665 E677            # Awe May Awe (the entered loop's exit extends by one)
+E653 E67A E677            # Day+Utter Awe (the ligature's x-height exit)
+E659 E67A E677            # Vie Utter Awe (Utter's x-height exit)
+E65A E67A E677            # See+Utter Awe (the ligature's x-height exit)
+E65D E67A E677            # Jai+Utter Awe (the ligature's x-height exit)
+E653 E677                 # Day Awe (break)
+E659 E677                 # Vie Awe (break)
+E65A E677                 # See Awe (break)
+E65D E677                 # Jai Awe (break)
+E672 E677                 # Et Awe (break)
+E679 E677                 # Oy Awe (break)
+E677 E677                 # Awe Awe (break)
+E677 E652                 # Awe Tea (the baseline exit into full Tea)
+E677 E652 E650            # Awe Tea Pea (the join holds: Tea gains nothing forward)
+E677 E652 E652            # Awe Tea Tea (the join holds: Tea gains nothing forward)
+E677 E652 E658            # Awe Tea Fee (the join holds: Tea gains nothing forward)
+E677 E652 E653            # Awe Tea Day (Awe yields; Tea keeps its forward baseline join)
+E677 E652 E666            # Awe Tea No (Awe yields; Tea groups rightward)
+E677 E652 E670            # Awe Tea It (Awe yields; half-Tea takes the x-height join)
+E677 E653                 # Awe Day (the exit into half-Day)
+E677 E653 E67A            # Awe Day+Utter (the exit into the half ligature)
+E677 E659                 # Awe Vie (the baseline exit)
+E677 E659 E67A            # Awe Vie Utter (the exit into Vie)
+E677 E65A                 # Awe See (the baseline exit)
+E677 E665                 # Awe May (the exit into the loop)
+E677 E666                 # Awe No (the exit into the flipped No)
+E677 E667                 # Awe Low (the baseline exit)
+E677 E668                 # Awe Roe (the baseline exit)
+E677 E670                 # Awe It (the baseline exit)
+E677 E670 E653            # Awe It Day (It withholds the entry; its baseline exit serves Day)
+E677 E675                 # Awe I (the baseline exit)
+E677 E676                 # Awe Ah (the baseline exit)
+E677 E67A                 # Awe Utter (the baseline entry on bare Utter)
+E677 E67B                 # Awe Out (the exit into the arch)
+E677 E67B E652            # Awe Out+Tea (the exit into the ligature)
+E677 E650                 # Awe Pea (break)
+E677 E658                 # Awe Fee (break)
+E677 E65D                 # Awe Jai (break)
+E677 E672                 # Awe Et (break)
+E677 E679                 # Awe Oy (break)
+E677 E65A E67A            # Awe See+Utter (break: the ligature takes no entry)
+E677 E652 E679            # Awe Tea+Oy (break: the ligature takes no entry)
+200C E677                 # ZWNJ Awe (locked copy)
+E677 200C E652            # Awe ZWNJ Tea (exit severed)
+00B7 E677                 # namer dot lowers before Short Awe
+
+# qsOx windows: the Short slant — entered at the left along the x-height, dropping by a straight diagonal to a short vertical tail at the baseline; no ligature of its own, and it yields its ·Tea join wherever ·Tea gains a forward join by it.
+E678                      # Ox in isolation
+E650 E678                 # Pea Ox (half-Pea's dipped exit)
+E652 E678                 # Tea Ox (half-Tea's x-height exit; Ox's entry extends by one)
+E658 E678                 # Fee Ox (the forward x-height join)
+E665 E678                 # May Ox (the bare loop's x-height exit)
+E666 E678                 # No Ox (x-height join)
+E667 E678                 # Low Ox (x-height join)
+E668 E678                 # Roe Ox (the x-height exit)
+E670 E678                 # It Ox (It's extended x-height exit)
+E675 E678                 # I Ox (x-height join)
+E676 E678                 # Ah Ox (the Short diagonal's x-height exit)
+E67A E678                 # Utter Ox (the crown's x-height exit)
+E67B E678                 # Out Ox (the swept exit)
+E678 E665 E678            # Ox May Ox (the entered loop's exit extends by one)
+E653 E67A E678            # Day+Utter Ox (the ligature's x-height exit)
+E659 E67A E678            # Vie Utter Ox (Utter's x-height exit)
+E65A E67A E678            # See+Utter Ox (the ligature's x-height exit)
+E65D E67A E678            # Jai+Utter Ox (the ligature's x-height exit)
+E653 E678                 # Day Ox (break)
+E659 E678                 # Vie Ox (break)
+E65A E678                 # See Ox (break)
+E65D E678                 # Jai Ox (break)
+E672 E678                 # Et Ox (break)
+E679 E678                 # Oy Ox (break)
+E678 E678                 # Ox Ox (break)
+E678 E652                 # Ox Tea (the baseline exit into full Tea)
+E678 E652 E650            # Ox Tea Pea (the join holds: Tea gains nothing forward)
+E678 E652 E652            # Ox Tea Tea (the join holds: Tea gains nothing forward)
+E678 E652 E658            # Ox Tea Fee (the join holds: Tea gains nothing forward)
+E678 E652 E653            # Ox Tea Day (Ox yields; Tea keeps its forward baseline join)
+E678 E652 E666            # Ox Tea No (Ox yields; Tea groups rightward)
+E678 E652 E670            # Ox Tea It (Ox yields; half-Tea takes the x-height join)
+E678 E653                 # Ox Day (the exit into half-Day)
+E678 E653 E67A            # Ox Day+Utter (the exit into the half ligature)
+E678 E659                 # Ox Vie (the baseline exit)
+E678 E659 E67A            # Ox Vie Utter (the exit into Vie)
+E678 E65A                 # Ox See (the baseline exit)
+E678 E665                 # Ox May (the exit into the loop)
+E678 E666                 # Ox No (the exit into the flipped No)
+E678 E667                 # Ox Low (the baseline exit)
+E678 E668                 # Ox Roe (the baseline exit)
+E678 E670                 # Ox It (the baseline exit)
+E678 E670 E653            # Ox It Day (It withholds the entry; its baseline exit serves Day)
+E678 E675                 # Ox I (the baseline exit)
+E678 E676                 # Ox Ah (the baseline exit)
+E678 E67A                 # Ox Utter (the baseline entry on bare Utter)
+E678 E67B                 # Ox Out (the exit into the arch)
+E678 E67B E652            # Ox Out+Tea (the exit into the ligature)
+E678 E650                 # Ox Pea (break)
+E678 E658                 # Ox Fee (break)
+E678 E65D                 # Ox Jai (break)
+E678 E672                 # Ox Et (break)
+E678 E679                 # Ox Oy (break)
+E678 E65A E67A            # Ox See+Utter (break: the ligature takes no entry)
+E678 E652 E679            # Ox Tea+Oy (break: the ligature takes no entry)
+200C E678                 # ZWNJ Ox (locked copy)
+E678 200C E652            # Ox ZWNJ Tea (exit severed)
+00B7 E678                 # namer dot lowers before Short Ox
+
+# qsEight windows: the Short bowl-and-tail — entered at the left along the x-height, a small closed bowl under the x-height, then a straight diagonal falling to the baseline; no ligature of its own, and it yields its ·Tea join wherever ·Tea gains a forward join by it.
+E673                      # Eight in isolation
+E650 E673                 # Pea Eight (half-Pea's dipped exit; Eight's entry extends by one)
+E652 E673                 # Tea Eight (half-Tea's x-height exit; Eight's entry extends by one)
+E658 E673                 # Fee Eight (Fee's exit extends by one to reach it)
+E665 E673                 # May Eight (the bare loop's x-height exit)
+E666 E673                 # No Eight (x-height join)
+E667 E673                 # Low Eight (x-height join)
+E668 E673                 # Roe Eight (the x-height exit)
+E670 E673                 # It Eight (It's x-height exit)
+E675 E673                 # I Eight (I's exit extends by one)
+E676 E673                 # Ah Eight (the Short diagonal's x-height exit)
+E67A E673                 # Utter Eight (the crown's x-height exit)
+E67B E673                 # Out Eight (the swept exit)
+E673 E665 E673            # Eight May Eight (the entered loop's exit extends by one)
+E653 E67A E673            # Day+Utter Eight (the ligature's x-height exit)
+E659 E67A E673            # Vie Utter Eight (Utter's x-height exit)
+E65A E67A E673            # See+Utter Eight (the ligature's x-height exit)
+E65D E67A E673            # Jai+Utter Eight (the ligature's x-height exit)
+E653 E673                 # Day Eight (break)
+E659 E673                 # Vie Eight (break)
+E65A E673                 # See Eight (break)
+E65D E673                 # Jai Eight (break)
+E672 E673                 # Et Eight (break)
+E679 E673                 # Oy Eight (break)
+E673 E673                 # Eight Eight (break)
+E673 E652                 # Eight Tea (the baseline exit; Tea's entry extends by one)
+E673 E652 E650            # Eight Tea Pea (the join holds: Tea gains nothing forward)
+E673 E652 E652            # Eight Tea Tea (the join holds: Tea gains nothing forward)
+E673 E652 E658            # Eight Tea Fee (the join holds: Tea gains nothing forward)
+E673 E652 E653            # Eight Tea Day (Eight yields; Tea keeps its forward baseline join)
+E673 E652 E666            # Eight Tea No (Eight yields; Tea groups rightward)
+E673 E652 E670            # Eight Tea It (Eight yields; half-Tea takes the x-height join)
+E673 E653                 # Eight Day (the exit into half-Day)
+E673 E653 E67A            # Eight Day+Utter (the exit into the half ligature)
+E673 E659                 # Eight Vie (the baseline exit)
+E673 E659 E67A            # Eight Vie Utter (the exit into Vie)
+E673 E65A                 # Eight See (the baseline exit)
+E673 E665                 # Eight May (the exit into the loop)
+E673 E666                 # Eight No (the exit into the flipped No)
+E673 E667                 # Eight Low (the baseline exit)
+E673 E668                 # Eight Roe (Roe's baseline entry extends by one)
+E673 E670                 # Eight It (Eight's exit extends by one)
+E673 E670 E653            # Eight It Day (It withholds the entry; its baseline exit serves Day)
+E673 E675                 # Eight I (the baseline exit)
+E673 E676                 # Eight Ah (the baseline exit)
+E673 E67A                 # Eight Utter (the baseline entry on bare Utter)
+E673 E67B                 # Eight Out (the exit into the arch)
+E673 E67B E652            # Eight Out+Tea (the exit into the ligature)
+E673 E650                 # Eight Pea (break)
+E673 E658                 # Eight Fee (break)
+E673 E65D                 # Eight Jai (break)
+E673 E672                 # Eight Et (break)
+E673 E679                 # Eight Oy (break)
+E673 E65A E67A            # Eight See+Utter (break: the ligature takes no entry)
+E673 E652 E679            # Eight Tea+Oy (break: the ligature takes no entry)
+E652 E673 E652 E679       # Tea Eight Tea+Oy (the bare entry before the entryless ligature)
+200C E673                 # ZWNJ Eight (locked copy)
+E673 200C E652            # Eight ZWNJ Tea (exit severed)
+00B7 E673                 # namer dot lowers before Short Eight
+
+# qsAt windows: the Short rising stroke, normally entered at the baseline and exiting at the x-height; before baseline-entered ·May it reverses direction and runs out along the baseline instead.
+E674                      # At in isolation
+E650 E674                 # Pea At (baseline join)
+E652 E674                 # Tea At (baseline join)
+E652 E679 E674            # Tea+Oy At (the ligature's baseline exit)
+E653 E674                 # Day At (baseline join)
+E65A E674                 # See At (At's entry extends by one)
+E65D E674                 # Jai At (baseline join)
+E665 E674                 # May At (the grounded loop's baseline exit)
+E666 E674                 # No At (the flipped stance's baseline exit)
+E668 E674                 # Roe At (the baseline exit)
+E670 E674                 # It At (the baseline exit)
+E672 E674                 # Et At (the baseline exit)
+E673 E674                 # Eight At (the baseline exit)
+E677 E674                 # Awe At (the baseline exit)
+E678 E674                 # Ox At (the baseline exit)
+E679 E674                 # Oy At (the baseline exit)
+E67A E674                 # Utter At (the alternate stance's baseline exit)
+E658 E674                 # Fee At (break)
+E659 E674                 # Vie At (break)
+E667 E674                 # Low At (break)
+E675 E674                 # I At (break)
+E676 E674                 # Ah At (break)
+E67B E674                 # Out At (break)
+E674 E653                 # At Day (x-height join)
+E674 E653 E67A            # At Day+Utter (x-height join into the ligature)
+E674 E65D                 # At Jai (the old exit tuck is rewritten as Jai's entry contraction)
+E674 E65D E67A            # At Jai+Utter (the same rewritten tuck into the ligature)
+E65A E674 E65D            # See At Jai (Jai suppresses At's entry extension)
+E674 E665                 # At May (the special baseline exit extends across the letter)
+E674 E666                 # At No (x-height join)
+E674 E666 E67A E665       # At No Utter May (No does not spend its exit on Utter)
+E674 E668                 # At Roe (x-height join)
+E674 E670                 # At It (x-height join)
+E674 E672                 # At Et (x-height join)
+E674 E673                 # At Eight (x-height join)
+E674 E677                 # At Awe (x-height join)
+E674 E678                 # At Ox (x-height join)
+E674 E650                 # At Pea (break)
+E674 E652                 # At Tea (break)
+E674 E658                 # At Fee (break)
+E674 E659                 # At Vie (break)
+E674 E65A                 # At See (break)
+E674 E667                 # At Low (break)
+E674 E674                 # At At (break)
+E674 E675                 # At I (break)
+E674 E676                 # At Ah (break)
+E674 E679                 # At Oy (break)
+E674 E67A                 # At Utter (break)
+E674 E67B                 # At Out (break)
+E650 E674 E665            # Pea At May (At gives up its entry to join May at the baseline)
+200C E674                 # ZWNJ At (locked copy)
+E674 200C E653            # At ZWNJ Day (exit severed)
+00B7 E674                 # namer dot lowers before Short At
+
+# qsOoze windows: the Short pointed arch — entered at the bottom of its left leg on the baseline and exiting at the foot of its right leg, also on the baseline; no other anchors, no ligature of its own, and it yields its ·Tea join wherever ·Tea gains a forward join by it.
+E67E                      # Ooze in isolation
+E650 E67E                 # Pea Ooze (baseline join)
+E652 E67E                 # Tea Ooze (baseline join)
+E652 E679 E67E            # Tea+Oy Ooze (the ligature's baseline exit)
+E653 E67E                 # Day Ooze (baseline join)
+E65A E67E                 # See Ooze (the straightest tail, no extension)
+E65A E67E E665            # See Ooze May (the straightest tail, then the loop's baseline entry)
+E65D E67E                 # Jai Ooze (baseline join)
+E666 E67E                 # No Ooze (the flipped stance's baseline exit)
+E670 E67E                 # It Ooze (the baseline exit)
+E672 E67E                 # Et Ooze (the baseline exit)
+E673 E67E                 # Eight Ooze (the baseline exit)
+E677 E67E                 # Awe Ooze (the baseline exit)
+E678 E67E                 # Ox Ooze (the baseline exit)
+E679 E67E                 # Oy Ooze (the baseline exit)
+E67A E67E                 # Utter Ooze (the alternate stance's baseline exit)
+E653 E67A E67E            # Day Utter Ooze (Utter serves Ooze at the baseline, so the ligature does not form)
+E658 E67E                 # Fee Ooze (break)
+E659 E67E                 # Vie Ooze (break)
+E665 E67E                 # May Ooze (break: the grounded loop refuses Ooze)
+E667 E67E                 # Low Ooze (break)
+E668 E67E                 # Roe Ooze (break)
+E674 E67E                 # At Ooze (break)
+E675 E67E                 # I Ooze (break)
+E676 E67E                 # Ah Ooze (break)
+E67B E67E                 # Out Ooze (break)
+E67B E652 E67E            # Out+Tea Ooze (break: the ligature has no exit)
+E67E E652                 # Ooze Tea (the baseline exit into full Tea)
+E67E E652 E650            # Ooze Tea Pea (the join holds: Tea gains nothing forward)
+E67E E652 E652            # Ooze Tea Tea (the join holds: Tea gains nothing forward)
+E67E E652 E658            # Ooze Tea Fee (the join holds: Tea gains nothing forward)
+E67E E652 E653            # Ooze Tea Day (Ooze yields; Tea keeps its forward baseline join)
+E67E E652 E666            # Ooze Tea No (Ooze yields; Tea groups rightward)
+E67E E652 E670            # Ooze Tea It (Ooze yields; half-Tea takes the x-height join)
+E67E E653                 # Ooze Day (the exit into half-Day)
+E67E E653 E67A            # Ooze Day+Utter (the exit into the half ligature)
+E67E E659                 # Ooze Vie (the baseline exit)
+E67E E659 E67A            # Ooze Vie Utter (the exit into Vie)
+E67E E65A                 # Ooze See (the baseline exit)
+E67E E665                 # Ooze May (the exit into the loop)
+E67E E665 E67E            # Ooze May Ooze (the loop takes the entry and refuses the baseline exit)
+E67E E666                 # Ooze No (the exit into the flipped No)
+E67E E666 E67A E665       # Ooze No Utter May (No spends its exit on Utter, as after every baseline enterer)
+E67E E667                 # Ooze Low (the baseline exit)
+E67E E668                 # Ooze Roe (the baseline exit)
+E67E E670                 # Ooze It (the baseline exit)
+E67E E670 E653            # Ooze It Day (It withholds the entry; its baseline exit serves Day)
+E67E E674                 # Ooze At (the baseline exit)
+E67E E675                 # Ooze I (the baseline exit)
+E67E E676                 # Ooze Ah (the baseline exit)
+E67E E67A                 # Ooze Utter (the baseline entry on bare Utter)
+E67E E67A E652 E653       # Ooze Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
+E67E E67B                 # Ooze Out (the exit into the arch)
+E67E E67B E652            # Ooze Out+Tea (the exit into the ligature)
+E67E E67E                 # Ooze Ooze (the baseline exit into the next leg)
+E67E E650                 # Ooze Pea (break)
+E67E E658                 # Ooze Fee (break)
+E67E E65D                 # Ooze Jai (break)
+E67E E672                 # Ooze Et (break)
+E67E E673                 # Ooze Eight (break)
+E67E E677                 # Ooze Awe (break)
+E67E E678                 # Ooze Ox (break)
+E67E E679                 # Ooze Oy (break)
+E67E E65A E67A            # Ooze See+Utter (break: the ligature takes no entry)
+E67E E65D E67A            # Ooze Jai+Utter (break: the ligature takes no entry)
+E67E E652 E679            # Ooze Tea+Oy (break: the ligature takes no entry)
+200C E67E                 # ZWNJ Ooze (locked copy)
+E67E 200C E652            # Ooze ZWNJ Tea (exit severed)
+00B7 E67E                 # namer dot lowers before Short Ooze
+
+# qsBay windows: the Deep descender loop — a vertical falling from the x-height through the baseline into a counterclockwise loop below it, closing rightward along the baseline. Entered at the x-height by ·I, ·Ah and ·Utter only; its baseline exit reaches the same receivers ·Awe's does, and it yields its ·Tea join wherever ·Tea gains a forward join by it.
+E651                      # Bay in isolation
+E675 E651                 # I Bay (x-height join)
+E675 E651 E652            # I Bay Tea (entered and exiting onward)
+E676 E651                 # Ah Bay (Ah's exit extends by one)
+E67A E651                 # Utter Bay (Utter's exit extends by one)
+E653 E67A E651            # Day+Utter Bay (the ligature's extended x-height exit)
+E652 E653 E67A E651       # Tea Day+Utter Bay (the entered half ligature's extended exit)
+E659 E67A E651            # Vie Utter Bay (Utter's extended x-height exit)
+E65A E67A E651            # See+Utter Bay (the ligature's extended x-height exit)
+E65D E67A E651            # Jai+Utter Bay (the ligature's extended x-height exit)
+E652 E679 E651            # Tea+Oy Bay (break: the ligature's tail exits at the baseline)
+E650 E651                 # Pea Bay (break)
+E651 E651                 # Bay Bay (break)
+E652 E651                 # Tea Bay (break)
+E653 E651                 # Day Bay (break)
+E658 E651                 # Fee Bay (break)
+E659 E651                 # Vie Bay (break)
+E65A E651                 # See Bay (break)
+E65D E651                 # Jai Bay (break)
+E665 E651                 # May Bay (break)
+E666 E651                 # No Bay (break)
+E667 E651                 # Low Bay (break)
+E668 E651                 # Roe Bay (break)
+E670 E651                 # It Bay (break)
+E672 E651                 # Et Bay (break)
+E673 E651                 # Eight Bay (break)
+E674 E651                 # At Bay (break)
+E677 E651                 # Awe Bay (break)
+E678 E651                 # Ox Bay (break)
+E679 E651                 # Oy Bay (break)
+E67B E651                 # Out Bay (break)
+E67B E652 E651            # Out+Tea Bay (break: the ligature has no exit)
+E67E E651                 # Ooze Bay (break)
+E651 E652                 # Bay Tea (the baseline exit into full Tea)
+E651 E652 E650            # Bay Tea Pea (the join holds: Tea gains nothing forward)
+E651 E652 E652            # Bay Tea Tea (the join holds: Tea gains nothing forward)
+E651 E652 E658            # Bay Tea Fee (the join holds: Tea gains nothing forward)
+E651 E652 E653            # Bay Tea Day (Bay yields; Tea keeps its forward baseline join)
+E651 E652 E666            # Bay Tea No (Bay yields; Tea groups rightward)
+E651 E652 E670            # Bay Tea It (Bay yields; half-Tea takes the x-height join)
+E651 E653                 # Bay Day (the exit into half-Day)
+E651 E653 E67A            # Bay Day+Utter (the exit into the half ligature)
+E651 E659                 # Bay Vie (the baseline exit; ·Vie's entry contracts by one)
+E651 E659 E67A            # Bay Vie Utter (the exit into Vie, whose entry contracts by one)
+E651 E65A                 # Bay See (the baseline exit)
+E651 E665                 # Bay May (the exit into the loop)
+E651 E665 E651            # Bay May Bay (the loop takes the entry; its x-height exit never reaches Bay)
+E651 E666                 # Bay No (the exit into the flipped No contracts by one)
+E653 E666                 # Day No (the exit into the flipped No contracts by one)
+E670 E653 E666            # It Day No (half-Day's exit into the flipped No contracts by one)
+E651 E666 E67A E665       # Bay No Utter May (the alternate Utter serves May, as after every baseline enterer)
+E651 E667                 # Bay Low (the baseline exit)
+E651 E668                 # Bay Roe (the baseline exit)
+E651 E670                 # Bay It (the baseline exit)
+E651 E670 E653            # Bay It Day (It withholds the entry; its baseline exit serves Day)
+E651 E670 E67A            # Bay It Utter (It withholds the entry; its baseline exit serves Utter)
+E651 E670 E652            # Bay It Tea (the entry holds; It's x-height exit never reaches Tea)
+E651 E674                 # Bay At (the baseline exit)
+E651 E674 E665            # Bay At May (At gives up its entry to join May at the baseline)
+E651 E675                 # Bay I (the baseline exit)
+E651 E676                 # Bay Ah (the baseline exit)
+E651 E67A                 # Bay Utter (the baseline entry on bare Utter)
+E651 E67A E652 E653       # Bay Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
+E651 E67A E659            # Bay Utter Vie (Bay's join yields; the alternate Utter serves Vie)
+E651 E67A E65A            # Bay Utter See (Bay's join yields; the alternate Utter serves See)
+E651 E67B                 # Bay Out (the exit into the arch)
+E651 E67B E652            # Bay Out+Tea (the exit into the ligature)
+E651 E67E                 # Bay Ooze (the baseline exit)
+E651 E650                 # Bay Pea (break)
+E651 E658                 # Bay Fee (break)
+E651 E65D                 # Bay Jai (break)
+E651 E672                 # Bay Et (break)
+E651 E673                 # Bay Eight (break)
+E651 E677                 # Bay Awe (break)
+E651 E678                 # Bay Ox (break)
+E651 E679                 # Bay Oy (break)
+E651 E65A E67A            # Bay See+Utter (break: the ligature takes no entry)
+E651 E65D E67A            # Bay Jai+Utter (break: the ligature takes no entry)
+E651 E652 E679            # Bay Tea+Oy (break: the ligature takes no entry)
+200C E651                 # ZWNJ Bay (locked copy)
+E651 200C E652            # Bay ZWNJ Tea (exit severed)
+00B7 E651                 # namer dot before Deep Bay (stays)
+
+# qsKey windows: the Tall angle — a stroke slanting in from the top left to a point at the middle, back out to the bottom left, and closing with a rightward foot on the baseline. Entered at the top by ·See alone; its baseline exit reaches the same receivers ·Awe's does, it yields its ·Tea join wherever ·Tea gains a forward join by it, and ·It gives up its backward join after it to serve nearly every baseline follower.
+E654                      # Key in isolation
+E65A E654                 # See Key (the top join)
+E65A E654 E652            # See Key Tea (entered and exiting onward)
+E650 E65A E654            # Pea See Key (See entered at the baseline still reaches the top)
+E650 E654                 # Pea Key (break)
+E651 E654                 # Bay Key (break)
+E652 E654                 # Tea Key (break)
+E653 E654                 # Day Key (break)
+E654 E654                 # Key Key (break)
+E658 E654                 # Fee Key (break)
+E659 E654                 # Vie Key (break)
+E65D E654                 # Jai Key (break)
+E665 E654                 # May Key (break)
+E666 E654                 # No Key (break)
+E667 E654                 # Low Key (break)
+E668 E654                 # Roe Key (break)
+E670 E654                 # It Key (break)
+E672 E654                 # Et Key (break)
+E673 E654                 # Eight Key (break)
+E674 E654                 # At Key (break)
+E675 E654                 # I Key (break)
+E676 E654                 # Ah Key (break)
+E677 E654                 # Awe Key (break)
+E678 E654                 # Ox Key (break)
+E679 E654                 # Oy Key (break)
+E67A E654                 # Utter Key (break)
+E67B E654                 # Out Key (break)
+E67E E654                 # Ooze Key (break)
+E653 E67A E654            # Day+Utter Key (break: the ligature's x-height exit never reaches Key)
+E67B E652 E654            # Out+Tea Key (break: the ligature has no exit)
+E652 E679 E654            # Tea+Oy Key (break: the ligature's tail exits at the baseline)
+E654 E652                 # Key Tea (the baseline exit into full Tea, Tea's entry extended by one)
+E654 E652 E650            # Key Tea Pea (the join holds: Tea gains nothing forward)
+E654 E652 E653            # Key Tea Day (Key yields; Tea keeps its forward baseline join)
+E654 E652 E666            # Key Tea No (Key yields; Tea groups rightward)
+E654 E652 E670            # Key Tea It (Key yields; half-Tea takes the x-height join)
+E654 E653                 # Key Day (the exit into half-Day)
+E654 E653 E67A            # Key Day+Utter (the exit into the half ligature)
+E654 E659                 # Key Vie (the baseline exit)
+E654 E659 E67A            # Key Vie Utter (the exit into Vie)
+E654 E65A                 # Key See (the baseline exit)
+E654 E65A E654            # Key See Key (See takes the entry and its top exit reaches on)
+E654 E665                 # Key May (the exit into the loop)
+E654 E665 E654            # Key May Key (the loop takes the entry; its x-height exit never reaches Key)
+E654 E666                 # Key No (the exit into the flipped No)
+E654 E666 E67A E665       # Key No Utter May (the chain holds; Utter's x-height reach serves May)
+E654 E667                 # Key Low (the baseline exit)
+E654 E668                 # Key Roe (the baseline exit)
+E654 E670                 # Key It (the baseline exit, It's entry extended by one)
+E654 E670 E653            # Key It Day (It gives Key's join up; its baseline exit serves Day)
+E654 E670 E67A            # Key It Utter (It gives Key's join up; its baseline exit serves Utter)
+E654 E670 E665            # Key It May (It gives Key's join up; its baseline exit serves May)
+E654 E670 E675            # Key It I (It gives Key's join up; its extended baseline exit serves I)
+E654 E670 E652            # Key It Tea (the entry holds; It's x-height exit never reaches Tea)
+E654 E670 E668            # Key It Roe (the entry holds and It's x-height exit serves Roe)
+E654 E670 E677            # Key It Awe (the entry holds and It's x-height exit serves Awe)
+E654 E670 E659 E67A       # Key It Vie Utter (It gives Key's join up; its baseline exit serves Vie)
+E654 E674                 # Key At (the baseline exit)
+E654 E674 E665            # Key At May (At gives up its entry to join May at the baseline)
+E654 E675                 # Key I (the baseline exit)
+E654 E676                 # Key Ah (the baseline exit)
+E654 E67A                 # Key Utter (the baseline entry on bare Utter)
+E654 E67A E665            # Key Utter May (the baseline join into the mono Utter, which reaches May at the x-height; ss08 keeps The Manual's break)
+E654 E67A E652 E653       # Key Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
+E654 E67A E659            # Key Utter Vie (Key's join yields; the alternate Utter serves Vie)
+E654 E67A E65A            # Key Utter See (Key's join yields; the alternate Utter serves See)
+E654 E67A E65A E674       # Key Utter See At (Key keeps its join; See exits at the baseline into At)
+E654 E67B                 # Key Out (the exit into the arch)
+E654 E67B E652            # Key Out+Tea (the exit into the ligature)
+E654 E67E                 # Key Ooze (the baseline exit)
+E654 E650                 # Key Pea (break)
+E654 E651                 # Key Bay (break)
+E654 E658                 # Key Fee (break)
+E654 E65D                 # Key Jai (break)
+E654 E672                 # Key Et (break)
+E654 E673                 # Key Eight (break)
+E654 E677                 # Key Awe (break)
+E654 E678                 # Key Ox (break)
+E654 E679                 # Key Oy (break)
+E654 E65A E67A            # Key See+Utter (break: the ligature takes no entry)
+E654 E65D E67A            # Key Jai+Utter (break: the ligature takes no entry)
+E654 E652 E679            # Key Tea+Oy (break: the ligature takes no entry)
+200C E654                 # ZWNJ Key (locked copy)
+E654 200C E652            # Key ZWNJ Tea (exit severed)
+00B7 E654                 # namer dot before Tall Key (stays)
+
+# qsGay windows: the Deep crown-and-loop — a short crown bar at the x-height, a zigzag descent to the baseline, and a loop closing below it. Entered at the baseline by nine lefts (onto the reaching drawing) or at the x-height by ·Utter and the ·Utter ligatures (the crown's right pixel retracts); an entry at one height always pairs with the exit at the other. The baseline exit reaches eighteen entryless receivers plus ·Ooze when entered, extending by one toward the seven it reaches for; the x-height exit serves ·J'ai (by two), ·No (by one), ·Eight, ·Awe, ·Ox, and ·Oy, and reaches ·Et only from an entered ·Gay; and the backward baseline join yields whenever a reach-for follower comes next.
+E655                      # Gay in isolation
+E651 E655                 # Bay Gay (the baseline entry)
+E653 E655                 # Day Gay (the baseline entry)
+E654 E655                 # Key Gay (the baseline entry)
+E655 E655                 # Gay Gay (the self-join at the baseline)
+E65D E655                 # Jai Gay (the baseline entry)
+E665 E655                 # May Gay (the grounded loop enters at the baseline)
+E666 E655                 # No Gay (the flipped No enters at the baseline)
+E672 E655                 # Et Gay (the baseline entry)
+E677 E655                 # Awe Gay (the baseline entry)
+E67A E655                 # Utter Gay (the x-height entry, Utter's exit extended by one)
+E653 E67A E655            # Day+Utter Gay (the ligature's extended exit reaches the x-height entry)
+E659 E67A E655            # Vie Utter Gay (Utter's x-height exit reaches the x-height entry)
+E65A E67A E655            # See+Utter Gay (the ligature's extended exit reaches the x-height entry)
+E65D E67A E655            # Jai+Utter Gay (the ligature's extended exit reaches the x-height entry)
+E650 E655                 # Pea Gay (break)
+E652 E655                 # Tea Gay (break)
+E658 E655                 # Fee Gay (break)
+E659 E655                 # Vie Gay (break)
+E65A E655                 # See Gay (break)
+E667 E655                 # Low Gay (break)
+E668 E655                 # Roe Gay (break)
+E670 E655                 # It Gay (break)
+E673 E655                 # Eight Gay (break)
+E674 E655                 # At Gay (break)
+E675 E655                 # I Gay (break)
+E676 E655                 # Ah Gay (break)
+E678 E655                 # Ox Gay (break)
+E679 E655                 # Oy Gay (break)
+E67B E655                 # Out Gay (break)
+E67E E655                 # Ooze Gay (break)
+E652 E679 E655            # Tea+Oy Gay (break: the ligature's tail exits at the baseline)
+E67B E652 E655            # Out+Tea Gay (break: the ligature has no exit)
+E655 E652                 # Gay Tea (the baseline exit, extended by one)
+E655 E652 E650            # Gay Tea Pea (the join holds: Tea gains nothing forward)
+E655 E652 E653            # Gay Tea Day (Gay yields; Tea keeps its forward baseline join)
+E655 E652 E666            # Gay Tea No (Gay yields; Tea groups rightward)
+E655 E652 E670            # Gay Tea It (Gay yields; half-Tea takes the x-height join)
+E655 E653                 # Gay Day (the extended exit into half-Day)
+E655 E653 E67A            # Gay Day+Utter (the extended exit into the half ligature)
+E655 E659                 # Gay Vie (the baseline exit)
+E655 E659 E67A            # Gay Vie Utter (the exit into Vie)
+E655 E65A                 # Gay See (the baseline exit)
+E655 E665                 # Gay May (the exit into the loop)
+E655 E666                 # Gay No (the exit into the flipped No)
+E655 E666 E67A E665       # Gay No Utter May (the chain's tail follows No's and Utter's own records)
+E655 E667                 # Gay Low (the baseline exit)
+E655 E668                 # Gay Roe (the extended baseline exit)
+E655 E670                 # Gay It (the extended baseline exit)
+E655 E670 E652            # Gay It Tea (the join holds; It's x-height exit never reaches Tea)
+E655 E670 E653            # Gay It Day (It gives Gay's join up; its baseline exit serves Day)
+E655 E670 E653 E67A       # Gay It Day+Utter (It gives Gay's join up for the half ligature)
+E655 E670 E67A            # Gay It Utter (It gives Gay's join up; its baseline exit serves Utter)
+E655 E670 E67A E667       # Gay It Utter Low (the carve: Utter's own records rule the tail junction)
+E655 E670 E67A E665       # Gay It Utter May (the carve: It keeps Gay's join; the alternate Utter serves May)
+E655 E670 E668            # Gay It Roe (the entry holds and It's x-height exit serves Roe)
+E655 E674                 # Gay At (the baseline exit)
+E655 E674 E665            # Gay At May (At gives up its entry to join May at the baseline)
+E655 E675                 # Gay I (the extended baseline exit)
+E655 E676                 # Gay Ah (the baseline exit)
+E655 E67A                 # Gay Utter (the baseline entry on bare Utter)
+E655 E67A E665            # Gay Utter May (the chain holds; Utter's x-height reach serves May)
+E655 E67A E659            # Gay Utter Vie (Gay's join yields; the alternate Utter serves Vie)
+E655 E67A E652 E653       # Gay Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
+E655 E67B                 # Gay Out (the baseline exit)
+E655 E67B E652            # Gay Out+Tea (the extended exit into the ligature)
+E655 E67E                 # Gay Ooze (break: the entryless exit never reaches Ooze)
+E67A E655 E67E            # Utter Gay Ooze (entered at the x-height, Gay serves Ooze at the baseline)
+E655 E65D                 # Gay Jai (the x-height exit, extended by two, into the extended entry)
+E651 E655 E65D            # Bay Gay Jai (entered at the baseline, Gay still reaches Jai at the x-height)
+E655 E65D E67A            # Gay Jai+Utter (the doubly-extended junction into the ligature)
+E655 E673                 # Gay Eight (the x-height exit)
+E655 E677                 # Gay Awe (the x-height exit)
+E655 E678                 # Gay Ox (the x-height exit)
+E655 E679                 # Gay Oy (the x-height exit into the opened loop)
+E67A E655 E652            # Utter Gay Tea (entered at the x-height, the unextended baseline exit serves Tea)
+E67A E655 E65D            # Utter Gay Jai (break: the entered Gay cannot exit at the x-height)
+E653 E655 E652            # Day Gay Tea (Gay gives the backward join up to reach Tea)
+E655 E655 E652            # Gay Gay Tea (the second Gay does the same)
+E653 E655 E652 E653       # Day Gay Tea Day (Gay keeps the backward join; Tea keeps Day)
+E655 E650                 # Gay Pea (break)
+E655 E651                 # Gay Bay (break)
+E655 E654                 # Gay Key (break)
+E655 E658                 # Gay Fee (break)
+E655 E672                 # Gay Et (break)
+E655 E65A E67A            # Gay See+Utter (break: the ligature takes no entry)
+E655 E652 E679            # Gay Tea+Oy (break: the ligature takes no entry)
+200C E655                 # ZWNJ Gay (locked copy)
+E655 200C E652            # Gay ZWNJ Tea (exit severed)
+00B7 E655                 # namer dot before Deep Gay (stays)
+
+# qsThaw windows: the Tall hook-and-stem — an arched hook at the top, a stem falling down the right side, and a slant coming to rest on the baseline at the foot. The baseline entry admits the lefts its `from:` names onto the bare drawing, ·-ing among them; the one exit, at the foot, serves ·-ing alone and wins over the entry when both could join, so every other junction out of ·Thaw is a break, and the Tall lefts that once summoned the old font's after-tall form sit outside the entry's scope.
+E656                      # Thaw in isolation
+E651 E656                 # Bay Thaw (the baseline entry on the bare carrier)
+E653 E656                 # Day Thaw (the baseline entry)
+E655 E656                 # Gay Thaw (the baseline entry)
+E65D E656                 # Jai Thaw (the extended exit meets the entry)
+E665 E656                 # May Thaw (the grounded loop's exit)
+E666 E656                 # No Thaw (the flipped No's baseline exit)
+E668 E656                 # Roe Thaw (the pre-wired toward goes live)
+E670 E656                 # It Thaw (the baseline entry)
+E672 E656                 # Et Thaw (the baseline entry)
+E673 E656                 # Eight Thaw (the baseline entry)
+E677 E656                 # Awe Thaw (the baseline entry)
+E678 E656                 # Ox Thaw (the baseline entry)
+E679 E656                 # Oy Thaw (the baseline entry)
+E67A E656                 # Utter Thaw (the alternate Utter's baseline exit)
+E67E E656                 # Ooze Thaw (the baseline entry)
+E652 E679 E656            # Tea+Oy Thaw (the ligature's tail serves the entry)
+E650 E656                 # Pea Thaw (break: outside the entry's scope)
+E652 E656                 # Tea Thaw (break)
+E654 E656                 # Key Thaw (break)
+E658 E656                 # Fee Thaw (break)
+E659 E656                 # Vie Thaw (break)
+E65A E656                 # See Thaw (break)
+E667 E656                 # Low Thaw (break)
+E674 E656                 # At Thaw (break)
+E675 E656                 # I Thaw (break)
+E676 E656                 # Ah Thaw (break)
+E67B E656                 # Out Thaw (break)
+E656 E656                 # Thaw Thaw (break: the exit serves ·-ing alone)
+E67B E652 E656            # Out+Tea Thaw (break: the ligature has no exit)
+E654 E670 E656            # Key It Thaw (It gives Key's entry up to serve Thaw)
+E679 E670 E656            # Oy It Thaw (the standing Oy·It gain keeps the backward join)
+E651 E670 E656            # Bay It Thaw (It keeps Bay's entry; the refuse holds)
+E653 E655 E656            # Day Gay Thaw (the crossover: entered Gay cannot serve Thaw)
+E67A E655 E656            # Utter Gay Thaw (entered at the x-height, Gay serves Thaw at the baseline)
+E655 E655 E656            # Gay Gay Thaw (the second Gay keeps the self-join)
+E652 E670 E656            # Tea It Thaw (entered It rides through, exit extended by one)
+E67A E670 E656            # Utter It Thaw (entered It rides through, exit extended by one)
+E653 E67A E656            # Day Utter Thaw (the ligature yields; the alternate Utter serves Thaw)
+E659 E67A E656            # Vie Utter Thaw (alt-Utter serves Thaw and Vie breaks)
+E670 E67A E656            # It Utter Thaw (the hand-off: the alternate Utter takes the window)
+E67A E665 E656            # Utter May Thaw (entered May refuses the baseline exit)
+E655 E665 E656            # Gay May Thaw (entered May refuses the baseline exit)
+E651 E666 E656            # Bay No Thaw (the flipped No carries both baseline joins)
+E650 E666 E656            # Pea No Thaw (No entered at the x-height breaks to Thaw)
+E651 E668 E656            # Bay Roe Thaw (entered Roe keeps the backward join)
+E67A E668 E656            # Utter Roe Thaw (entered at the x-height, Roe serves Thaw)
+E650 E673 E656            # Pea Eight Thaw (entered Eight rides through)
+E655 E65D E656            # Gay Jai Thaw (the doubly-extended junction, then the extended exit into Thaw)
+E656 E670 E656            # Thaw It Thaw (It serves the second Thaw)
+E656 E652 E653            # Thaw Tea Day (Thaw stands aside; Tea keeps Day)
+200C E656                 # ZWNJ Thaw (locked copy)
+E651 200C E656            # Bay ZWNJ Thaw (entry severed)
+00B7 E656                 # namer dot before Tall Thaw (stays)
+
+# qsThey windows: the Deep down-stroke and hook — a stroke from the x-height slanting down through the baseline into a hook that curls right and back up below it. Entered at the top after ·I, ·Ah and ·Utter (the four ·Utter ligatures ride in on their trail); unentered it exits from the top toward seven x-height receivers and lifts the hook up to the baseline for ·May alone; once entered it lifts the hook for every baseline-entering follower. ·They+·Utter forms after every left and un-forms wherever the alternate ·Utter can serve a baseline follower instead.
+E657                      # They in isolation
+E675 E657                 # I They (the x-height entry, extended by one)
+E676 E657                 # Ah They (Ah's extended exit meets the x-height entry)
+E67A E657                 # Utter They (Utter's extended exit meets the x-height entry)
+E653 E67A E657            # Day+Utter They (the ligature's extended exit)
+E659 E67A E657            # Vie Utter They (Utter's extended x-height exit)
+E65A E67A E657            # See+Utter They (the ligature's extended exit)
+E65D E67A E657            # Jai+Utter They (the ligature's extended exit)
+E657 E666                 # They No (the x-height exit)
+E657 E668                 # They Roe (the x-height exit)
+E657 E670                 # They It (the x-height exit into It's x-height entry)
+E657 E672                 # They Et (the x-height exit)
+E657 E673                 # They Eight (the x-height exit)
+E657 E677                 # They Awe (the x-height exit)
+E657 E678                 # They Ox (the x-height exit)
+E657 E665                 # They May (the hook lifted to the baseline, unentered)
+E650 E657                 # Pea They (break)
+E651 E657                 # Bay They (break)
+E652 E657                 # Tea They (break)
+E653 E657                 # Day They (break)
+E655 E657                 # Gay They (break)
+E656 E657                 # Thaw They (break)
+E658 E657                 # Fee They (break)
+E665 E657                 # May They (break)
+E666 E657                 # No They (break)
+E667 E657                 # Low They (break)
+E668 E657                 # Roe They (break)
+E670 E657                 # It They (break)
+E657 E650                 # They Pea (break)
+E657 E652                 # They Tea (break)
+E657 E653                 # They Day (break)
+E657 E655                 # They Gay (break)
+E657 E656                 # They Thaw (break)
+E657 E657                 # They They (break)
+E657 E65D                 # They Jai (break)
+E657 E667                 # They Low (break)
+E657 E675                 # They I (break)
+E657 E676                 # They Ah (break)
+E657 E679                 # They Oy (break)
+E657 E67E                 # They Ooze (break)
+E676 E657 E665            # Ah They May (entered; the hook serves May)
+E675 E657 E665            # I They May (the extended entry, then the hook)
+E676 E657 E652            # Ah They Tea (break: They never joins Tea)
+E676 E657 E652 E653       # Ah They Tea Day (break; Tea keeps Day)
+E676 E657 E652 E650       # Ah They Tea Pea (break, even where Tea gains nothing forward)
+E676 E657 E652 E666       # Ah They Tea No (break; half-Tea takes the x-height join)
+E676 E657 E653            # Ah They Day (the hook serves half-Day)
+E676 E657 E653 E67A       # Ah They Day+Utter (the hook serves the half ligature)
+E676 E657 E655            # Ah They Gay (the hook serves Gay's baseline entry)
+E676 E657 E655 E652       # Ah They Gay Tea (Gay gives the backward join up to serve Tea)
+E676 E657 E656            # Ah They Thaw (the hook serves Thaw)
+E676 E657 E659            # Ah They Vie (the hook serves Vie)
+E676 E657 E659 E67A       # Ah They Vie Utter (the hook serves Vie)
+E676 E657 E65A            # Ah They See (break: They never joins See)
+E676 E657 E666            # Ah They No (the hook serves the flipped No)
+E676 E657 E667            # Ah They Low (the hook serves Low)
+E676 E657 E668            # Ah They Roe (the hook serves Roe)
+E676 E657 E668 E652       # Ah They Roe Tea (entered Roe keeps the backward join)
+E67A E657 E668            # Utter They Roe (entered from Utter; the hook serves Roe)
+E676 E657 E670            # Ah They It (the hook serves It's baseline entry)
+E676 E657 E670 E653       # Ah They It Day (It gives the backward join up to serve Day)
+E676 E657 E670 E67A       # Ah They It Utter (It gives the backward join up to serve Utter)
+E676 E657 E670 E672       # Ah They It Et (entered It exits at the x-height)
+E676 E657 E674            # Ah They At (break: They never joins At)
+E676 E657 E675            # Ah They I (break: They never joins I)
+E676 E657 E676            # Ah They Ah (break: They never joins Ah)
+E676 E657 E67B            # Ah They Out (break: They never joins Out)
+E676 E657 E67B E652       # Ah They Out+Tea (break: They never joins the ligature)
+E676 E657 E67E            # Ah They Ooze (break: They never joins Ooze)
+E676 E657 E672            # Ah They Et (break: entered They cannot exit at the top)
+E676 E657 E651            # Ah They Bay (break: no baseline entry to serve)
+E657 E67A                 # They+Utter (the ligature; forms under every set)
+E676 E657 E67A            # Ah They+Utter (the entered ligature)
+E675 E657 E67A            # I They+Utter (the ligature's entry extends by one)
+E67A E657 E67A            # Utter They+Utter (the entered ligature)
+E665 E657 E67A            # May They+Utter (break: the ligature takes no entry from May)
+E666 E657 E67A            # No They+Utter (break)
+E667 E657 E67A            # Low They+Utter (break)
+E674 E657 E67A            # At They+Utter (break)
+E650 E657 E67A            # Pea They+Utter (break)
+E657 E67A E650            # They+Utter Pea (the ligature's x-height exit)
+E657 E67A E653            # They+Utter Day (the x-height exit)
+E657 E67A E653 E67A       # They+Utter Day+Utter (ligature to ligature)
+E657 E67A E655            # They+Utter Gay (the x-height exit into the crown)
+E657 E67A E65D            # They+Utter Jai (Jai's entry contracts by one)
+E657 E67A E65D E67A       # They+Utter Jai+Utter (ligature to ligature, uncontracted)
+E665 E657 E67A E65D       # May They+Utter Jai (the same one-pixel contraction after May)
+E657 E67A E665            # They+Utter May (the x-height exit)
+E657 E67A E666            # They+Utter No (the x-height exit)
+E657 E67A E668            # They+Utter Roe (the x-height exit)
+E657 E67A E670            # They+Utter It (the x-height exit)
+E657 E67A E672            # They+Utter Et (the x-height exit)
+E657 E67A E673            # They+Utter Eight (the x-height exit)
+E657 E67A E677            # They+Utter Awe (the x-height exit)
+E657 E67A E678            # They+Utter Ox (the x-height exit)
+E657 E67A E679            # They+Utter Oy (the x-height exit)
+E657 E67A E652            # They+Utter Tea (break at default; ss03 reaches half-Tea, unextended)
+E657 E67A E652 E653       # They+Utter Tea Day (the ligature stands aside; Tea keeps Day)
+E657 E67A E651            # They+Utter Bay (break)
+E657 E67A E658            # They+Utter Fee (break)
+E657 E67A E67A            # They+Utter Utter (break)
+E657 E67A E659            # They+Utter Vie (un-forms: alt-Utter takes the baseline join)
+E657 E67A E65A            # They+Utter See (un-forms: alt-Utter takes the baseline join)
+E657 E67A E656            # They+Utter Thaw (un-forms: alt-Utter takes the baseline join)
+E657 E67A E667            # They+Utter Low (un-forms: alt-Utter takes the baseline join)
+E657 E67A E674            # They+Utter At (un-forms: alt-Utter takes the baseline join)
+E657 E67A E675            # They+Utter I (un-forms: alt-Utter takes the baseline join)
+E657 E67A E676            # They+Utter Ah (un-forms: alt-Utter takes the baseline join)
+E657 E67A E67B            # They+Utter Out (un-forms: alt-Utter takes the baseline join)
+E657 E67A E67E            # They+Utter Ooze (un-forms: alt-Utter takes the baseline join)
+E657 200C E67A            # They ZWNJ Utter (formation severed)
+200C E657                 # ZWNJ They (locked copy)
+E676 200C E657            # Ah ZWNJ They (entry severed)
+E657 200C E666            # They ZWNJ No (exit severed)
+00B7 E657                 # namer dot before Deep They (stays)
+
+# qsZoo windows: the full motion receives at the x-height, the half motion at the baseline; both exit below the baseline into a baseline receiver. The qsThey_qsZoo ligature offers a baseline exit to flipped ·No.
+E65B                      # ·Zoo in isolation
+E651 E670 E65B            # Entered ·It reaches full ·Zoo at the x-height
+E651 E666 E65B            # Entered alternate ·No reaches half-·Zoo at the baseline
+E658 E652 E65B            # Under ss03, entered full ·Tea reaches half-·Zoo at the baseline
+200C E670 E65B            # Locked ·It reaches full ·Zoo at the x-height
+E650 E65B                 # ·Pea enters full ·Zoo at the x-height; ·Zoo contracts by two
+E651 E65B                 # ·Bay enters half-·Zoo at the baseline
+E652 E65B                 # Half-·Tea enters full ·Zoo at the x-height; ·Zoo contracts by one
+E653 E65B                 # ·Day enters half-·Zoo at the baseline
+E654 E65B                 # ·Key enters half-·Zoo at the baseline
+E655 E65B                 # ·Gay extends into half-·Zoo at the baseline
+E658 E65B                 # ·Fee enters full ·Zoo at the x-height
+E65B E65B                 # Full ·Zoo enters half-·Zoo at the baseline
+E65D E65B                 # ·J’ai enters half-·Zoo at the baseline
+E665 E65B                 # ·May enters full ·Zoo at the x-height; ·Zoo extends by one
+E666 E65B                 # ·No enters full ·Zoo at the x-height
+E667 E65B                 # ·Low enters full ·Zoo at the x-height
+E670 E65B                 # ·It enters half-·Zoo at the baseline
+E672 E65B                 # ·Et enters half-·Zoo at the baseline
+E673 E65B                 # ·Eight enters half-·Zoo at the baseline
+E674 E65B                 # ·At enters full ·Zoo at the x-height
+E675 E65B                 # ·I enters full ·Zoo at the x-height
+E676 E65B                 # ·Ah enters full ·Zoo at the x-height
+E677 E65B                 # ·Awe enters half-·Zoo at the baseline
+E678 E65B                 # ·Ox enters half-·Zoo at the baseline
+E679 E65B                 # ·Oy enters half-·Zoo at the baseline
+E67A E65B                 # ·Utter enters full ·Zoo at the x-height
+E67B E65B                 # ·Out enters full ·Zoo at the x-height
+E67E E65B                 # ·Ooze enters half-·Zoo at the baseline
+E656 E65B                 # ·Thaw and ·Zoo break
+E659 E65B                 # ·Vie and ·Zoo break
+E65A E65B                 # ·See and ·Zoo break
+E668 E65B                 # ·Roe and ·Zoo break
+E65B E652                 # ·Zoo enters full ·Tea at the baseline
+E65B E653                 # ·Zoo enters half-·Day at the baseline
+E65B E655                 # ·Zoo enters ·Gay at the baseline
+E65B E656                 # ·Zoo enters ·Thaw at the baseline
+E65B E659                 # ·Zoo enters ·Vie at the baseline
+E65B E65A                 # ·Zoo enters ·See at the baseline
+E65B E665                 # ·Zoo enters ·May at the baseline
+E65B E666                 # ·Zoo enters flipped ·No at the baseline
+E65B E667                 # ·Zoo enters ·Low at the baseline
+E65B E668                 # ·Zoo enters ·Roe at the baseline
+E65B E670                 # ·Zoo enters ·It at the baseline
+E65B E674                 # ·Zoo enters rising ·At at the baseline
+E65B E675                 # ·Zoo enters ·I at the baseline
+E65B E676                 # ·Zoo enters ·Ah at the baseline
+E65B E67A                 # ·Zoo enters ·Utter at the baseline
+E65B E67B                 # ·Zoo enters ·Out at the baseline
+E65B E67E                 # ·Zoo enters ·Ooze at the baseline
+E65B E650                 # ·Zoo and ·Pea break
+E65B E651                 # ·Zoo and ·Bay break
+E65B E654                 # ·Zoo and ·Key break
+E65B E657                 # ·Zoo and ·They break
+E65B E658                 # ·Zoo and ·Fee break
+E65B E65D                 # ·Zoo and ·J’ai break
+E65B E672                 # ·Zoo and ·Et break
+E65B E673                 # ·Zoo and ·Eight break
+E65B E677                 # ·Zoo and ·Awe break
+E65B E678                 # ·Zoo and ·Ox break
+E65B E679                 # ·Zoo and ·Oy break
+E651 E65B E665            # Half-·Zoo keeps both baseline joins
+E665 E65B E665            # Full ·Zoo keeps the extended entry and baseline exit
+E650 E65B E665            # Full ·Zoo keeps the contracted entry and baseline exit
+E652 E65B E665            # Full ·Zoo keeps the one-pixel contraction and baseline exit
+E651 E655 E65B            # ·Gay yields its entry to reach half-·Zoo
+E65B E652 E653            # ·Zoo yields so ·Tea joins ·Day
+E65B E652 E650            # ·Zoo keeps its entry into ·Tea before ·Pea
+E65B E67A E652 E653       # ·Zoo ·Utter ·Tea ·Day yield window
+E65B E666 E672            # ·Zoo breaks before ·No joins ·Et
+E65B E674 E665            # ·At yields its entry to serve ·May
+E65B E670 E67A            # ·Zoo ·It ·Utter yield window
+E651 E65B E670 E67A       # Half-·Zoo yields so ·It joins ·Utter
+E65B E670 E67A E650       # ·It joins ·Utter as ·Utter reaches ·Pea at the x-height
+E65B E670 E67A E656       # ·Zoo joins ·It while alternate ·Utter serves ·Thaw
+E65B E670 E67A E659       # ·Zoo joins ·It while alternate ·Utter serves ·Vie
+E65B E670 E67A E65A       # ·Zoo joins ·It while alternate ·Utter serves ·See
+E65B E670 E67A E665       # ·Zoo joins ·It while alternate ·Utter serves ·May
+E65B E670 E67A E667       # ·Zoo joins ·It while alternate ·Utter serves ·Low
+E65B E670 E67A E674       # ·Zoo joins ·It while alternate ·Utter serves ·At
+E65B E670 E67A E675       # ·Zoo joins ·It while alternate ·Utter serves ·I
+E65B E670 E67A E676       # ·Zoo joins ·It while alternate ·Utter serves ·Ah
+E65B E670 E67A E67B       # ·Zoo joins ·It while alternate ·Utter serves ·Out
+E65B E670 E67A E67E       # ·Zoo joins ·It while alternate ·Utter serves ·Ooze
+E653 E67A E65B            # `·Day+Utter` enters full ·Zoo at the x-height
+E657 E67A E65B            # `·They+Utter` enters full ·Zoo at the x-height
+E659 E67A E65B            # ·Vie·Utter enters full ·Zoo at the x-height
+E65A E67A E65B            # `·See+Utter` enters full ·Zoo at the x-height
+E65D E67A E65B            # `·J’ai+Utter` enters full ·Zoo at the x-height
+E652 E679 E65B            # `·Tea+Oy` enters half-·Zoo at the baseline
+E67B E652 E65B            # `·Out+Tea` and ·Zoo break
+E65B E653 E67A            # ·Zoo enters `·Day+Utter.half` at the baseline
+E65B E659 E67A            # ·Zoo enters ·Vie·Utter at the baseline
+E65B E67B E652            # ·Zoo enters `·Out+Tea` at the baseline
+E65B E65A E67A            # ·Zoo and `·See+Utter` break
+E65B E65D E67A            # ·Zoo and `·J’ai+Utter` break
+E65B E652 E679            # ·Zoo and `·Tea+Oy` break
+E657 E65B                 # `·They+Zoo` in isolation
+E675 E657 E65B            # ·I and `·They+Zoo` break
+E676 E657 E65B            # ·Ah and `·They+Zoo` break
+E67A E657 E65B            # ·Utter and `·They+Zoo` break
+E65B E657 E65B            # ·Zoo and `·They+Zoo` break
+E657 E65B E652            # `·They+Zoo` and ·Tea break
+E657 E65B E666            # `·They+Zoo ~b~ ·No.alt`
+E657 E65B E666 E659       # `·They+Zoo ~b~ ·No.alt ~b~ ·Vie`
+E657 E65B E666 E672       # `·They+Zoo | ·No ~x~ ·Et`
+E657 E65B E65B            # `·They+Zoo` and ·Zoo break
+E657 E65B E657 E65B       # Adjacent `·They+Zoo` ligatures break
+E657 200C E65B            # ZWNJ severs `·They+Zoo` formation
+200C E65B                 # Locked ·Zoo copy
+200C E65B E665            # Locked ·Zoo keeps its baseline exit
+E651 200C E65B            # ZWNJ severs the entry from ·Bay
+E65B 200C E665            # ZWNJ severs the exit into ·May
+200C E657 E65B            # Locked `·They+Zoo` copy
+00B7 E65B                 # Namer dot before Deep ·Zoo
+00B7 E657 E65B            # Namer dot before Deep `·They+Zoo`
+
+# ·She
+E65C                     # ·She in isolation
+E65C E652                 # ·She enters full ·Tea at the baseline
+E65C E653                 # ·She enters half-·Day at the baseline
+E65C E655                 # ·She enters ·Gay at the baseline
+E65C E659                 # ·She enters ·Vie at the baseline
+E65C E65A                 # ·She enters ·See at the baseline
+E65C E65B                 # ·She enters half-·Zoo at the baseline
+E65C E665                 # ·She enters ·May at the baseline
+E65C E666                 # ·She enters flipped ·No at the baseline
+E65C E667                 # ·She enters ·Low at the baseline
+E65C E668                 # ·She enters ·Roe at the baseline
+E65C E670                 # ·She enters ·It at the baseline
+E65C E674                 # ·She enters rising ·At at the baseline
+E65C E675                 # ·She enters ·I at the baseline
+E65C E676                 # ·She enters ·Ah at the baseline
+E65C E67A                 # ·She enters ·Utter at the baseline
+E65C E67B                 # ·She enters ·Out at the baseline
+E65C E67E                 # ·She enters ·Ooze at the baseline
+E65C E650                 # ·She and ·Pea break
+E65C E651                 # ·She and ·Bay break
+E65C E654                 # ·She and ·Key break
+E65C E656                 # ·She and ·Thaw break
+E65C E657                 # ·She and ·They break
+E65C E658                 # ·She and ·Fee break
+E65C E65C                 # Adjacent ·She letters break
+E65C E65D                 # ·She and ·J’ai break
+E65C E672                 # ·She and ·Et break
+E65C E673                 # ·She and ·Eight break
+E65C E677                 # ·She and ·Awe break
+E65C E678                 # ·She and ·Ox break
+E65C E679                 # ·She and ·Oy break
+E650 E65C                 # ·Pea and ·She break
+E651 E65C                 # ·Bay and ·She break
+E652 E65C                 # ·Tea and ·She break
+E653 E65C                 # ·Day and ·She break
+E654 E65C                 # ·Key and ·She break
+E655 E65C                 # ·Gay and ·She break
+E656 E65C                 # ·Thaw and ·She break
+E657 E65C                 # ·They and ·She break
+E658 E65C                 # ·Fee and ·She break
+E659 E65C                 # ·Vie and ·She break
+E65A E65C                 # ·See and ·She break
+E65B E65C                 # ·Zoo and ·She break
+E65D E65C                 # ·J’ai and ·She break
+E665 E65C                 # ·May and ·She break
+E666 E65C                 # ·No and ·She break
+E667 E65C                 # ·Low and ·She break
+E668 E65C                 # ·Roe and ·She break
+E670 E65C                 # ·It and ·She break
+E672 E65C                 # ·Et and ·She break
+E673 E65C                 # ·Eight and ·She break
+E674 E65C                 # ·At and ·She break
+E675 E65C                 # ·I and ·She break
+E676 E65C                 # ·Ah and ·She break
+E677 E65C                 # ·Awe and ·She break
+E678 E65C                 # ·Ox and ·She break
+E679 E65C                 # ·Oy and ·She break
+E67A E65C                 # ·Utter and ·She break
+E67B E65C                 # ·Out and ·She break
+E67E E65C                 # ·Ooze and ·She break
+E65C E652 E653            # ·She ·Tea ·Day yield window
+E65C E652 E650            # ·She ·Tea ·Pea window
+E65C E67A E652 E653       # ·She ·Utter ·Tea ·Day yield window
+E65C E666 E672            # ·She ·No ·Et yield window
+E65C E65B E666            # ·She ·Zoo ·No yield window
+E65C E674 E665            # ·She ·At ·May yield window
+E65C E670 E67A            # ·She ·It ·Utter yield window
+E65C E670 E653            # ·She ·It ·Day capability window
+E65C E670 E653 E67A       # ·She yields to the baseline entry into `·Day+Utter.half`; ss04 keeps both joins
+E65A E670 E666 E673       # The Manual's `·See | ·It ~b~ ·No.alt | ·Eight` grouping
+E658 E674 E65A E670 E666 E673 E65C E666 # The Manual's complete word containing ·She
+E65C E670 E667            # ·She ·It ·Low capability window
+E65C E655 E652            # ·She ·Gay ·Tea yield window
+E65C E653 E67A            # ·She enters `·Day+Utter.half` at the baseline
+E65C E659 E67A            # ·She enters ·Vie·Utter at the baseline
+E65C E67B E652            # ·She enters `·Out+Tea` at the baseline
+E65C E652 E679            # ·She and `·Tea+Oy` break
+E65C E657 E67A            # ·She and `·They+Utter` break
+E65C E657 E65B            # ·She and `·They+Zoo` break
+E65C E65A E67A            # ·She and `·See+Utter` break
+E65C E65D E67A            # ·She and `·J’ai+Utter` break
+E652 E679 E65C            # `·Tea+Oy` and ·She break
+E653 E67A E65C            # `·Day+Utter` and ·She break
+E657 E67A E65C            # `·They+Utter` and ·She break
+E657 E65B E65C            # `·They+Zoo` and ·She break
+E659 E67A E65C            # ·Vie·Utter and ·She break
+E65A E67A E65C            # `·See+Utter` and ·She break
+E65D E67A E65C            # `·J’ai+Utter` and ·She break
+E67B E652 E65C            # `·Out+Tea` and ·She break
+200C E65C                 # Locked ·She copy
+200C E65C E665            # Locked ·She keeps its baseline exit
+E65C 200C E665            # ZWNJ severs the exit into ·May
+00B7 E65C                 # Namer dot before Tall ·She
+
+# ·Cheer
+E65E                     # ·Cheer in isolation
+E650 E65E                # ·Pea before ·Cheer
+E65E E650                # ·Cheer before ·Pea
+E651 E65E                # ·Bay before ·Cheer
+E65E E651                # ·Cheer before ·Bay
+E652 E65E                # ·Tea before ·Cheer
+E65E E652                # ·Cheer before ·Tea
+E653 E65E                # ·Day before ·Cheer
+E65E E653                # ·Cheer before ·Day
+E654 E65E                # ·Key before ·Cheer
+E65E E654                # ·Cheer before ·Key
+E655 E65E                # ·Gay before ·Cheer
+E65E E655                # ·Cheer before ·Gay
+E656 E65E                # ·Thaw before ·Cheer
+E65E E656                # ·Cheer before ·Thaw
+E657 E65E                # ·They before ·Cheer
+E65E E657                # ·Cheer before ·They
+E658 E65E                # ·Fee before ·Cheer
+E65E E658                # ·Cheer before ·Fee
+E659 E65E                # ·Vie before ·Cheer
+E65E E659                # ·Cheer before ·Vie
+E65A E65E                # ·See before ·Cheer
+E65E E65A                # ·Cheer before ·See
+E65B E65E                # ·Zoo before ·Cheer
+E65E E65B                # ·Cheer before ·Zoo
+E65C E65E                # ·She before ·Cheer
+E65E E65C                # ·Cheer before ·She
+E65D E65E                # ·Jai before ·Cheer
+E65E E65D                # ·Cheer before ·Jai
+E65E E65E                # ·Cheer before ·Cheer
+E665 E65E                # ·May before ·Cheer
+E65E E665                # ·Cheer before ·May
+E666 E65E                # ·No before ·Cheer
+E65E E666                # ·Cheer before ·No
+E667 E65E                # ·Low before ·Cheer
+E65E E667                # ·Cheer before ·Low
+E668 E65E                # ·Roe before ·Cheer
+E65E E668                # ·Cheer before ·Roe
+E670 E65E                # ·It before ·Cheer
+E65E E670                # ·Cheer before ·It
+E672 E65E                # ·Et before ·Cheer
+E65E E672                # ·Cheer before ·Et
+E673 E65E                # ·Eight before ·Cheer
+E65E E673                # ·Cheer before ·Eight
+E674 E65E                # ·At before ·Cheer
+E65E E674                # ·Cheer before ·At
+E675 E65E                # ·I before ·Cheer
+E65E E675                # ·Cheer before ·I
+E676 E65E                # ·Ah before ·Cheer
+E65E E676                # ·Cheer before ·Ah
+E677 E65E                # ·Awe before ·Cheer
+E65E E677                # ·Cheer before ·Awe
+E678 E65E                # ·Ox before ·Cheer
+E65E E678                # ·Cheer before ·Ox
+E679 E65E                # ·Oy before ·Cheer
+E65E E679                # ·Cheer before ·Oy
+E67A E65E                # ·Utter before ·Cheer
+E65E E67A                # ·Cheer before ·Utter
+E67B E65E                # ·Out before ·Cheer
+E65E E67B                # ·Cheer before ·Out
+E67E E65E                # ·Ooze before ·Cheer
+E65E E67E                # ·Cheer before ·Ooze
+E652 E679 E65E           # qsTea_qsOy before ·Cheer
+E65E E652 E679           # ·Cheer before qsTea_qsOy
+E653 E67A E65E           # qsDay_qsUtter before ·Cheer
+E65E E653 E67A           # ·Cheer before qsDay_qsUtter
+E657 E65B E65E           # qsThey_qsZoo before ·Cheer
+E65E E657 E65B           # ·Cheer before qsThey_qsZoo
+E657 E67A E65E           # qsThey_qsUtter before ·Cheer
+E65E E657 E67A           # ·Cheer before qsThey_qsUtter
+E659 E67A E65E           # ·Vie·Utter before ·Cheer
+E65E E659 E67A           # ·Cheer before ·Vie·Utter
+E65A E67A E65E           # qsSee_qsUtter before ·Cheer
+E65E E65A E67A           # ·Cheer before qsSee_qsUtter
+E65D E67A E65E           # qsJai_qsUtter before ·Cheer
+E65E E65D E67A           # ·Cheer before qsJai_qsUtter
+E67B E652 E65E           # qsOut_qsTea before ·Cheer
+E65E E67B E652           # ·Cheer before qsOut_qsTea
+E65E E652 E653           # ·Cheer yields to the ·Tea·Day join
+E65E E67A E652 E653      # ·Utter preserves the ·Tea·Day join after ·Cheer
+E65E E670 E67A           # ·It·Utter continuation after ·Cheer
+E65E E670 E653           # ·It·Day continuation after ·Cheer
+E651 E670 E65E           # Entered ·It reaches ·Cheer at the x-height
+E651 E655 E65E           # Entered ·Gay reaches ·Cheer at the x-height
+E65E E666 E672           # ·No·Et continuation after ·Cheer
+200C E65E                # Locked ·Cheer copy
+200C E65E E665           # Locked ·Cheer retains its baseline exit
+E665 200C E65E           # ZWNJ severs the entry from ·May
+E65E 200C E665           # ZWNJ severs the exit into ·May
+00B7 E65E                # Namer dot before Tall ·Cheer
+E65E E670 E656           # ·It forward baseline join after ·Cheer
+E65E E670 E659           # ·It forward baseline join after ·Cheer
+E65E E670 E65A           # ·It forward baseline join after ·Cheer
+E65E E670 E65B           # ·It forward baseline join after ·Cheer
+E65E E670 E665           # ·It forward baseline join after ·Cheer
+E65E E670 E666           # ·It forward baseline join after ·Cheer
+E65E E670 E667           # ·It forward baseline join after ·Cheer
+E65E E670 E674           # ·It forward baseline join after ·Cheer
+E65E E670 E675           # ·It forward baseline join after ·Cheer
+E65E E670 E676           # ·It forward baseline join after ·Cheer
+E65E E670 E67B           # ·It forward baseline join after ·Cheer
+E65E E670 E67E           # ·It forward baseline join after ·Cheer
+E65E E670 E67A E656      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E659      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E65A      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E665      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E667      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E674      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E675      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E676      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E67B      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E67A E67E      # Alternate ·Utter continuation after ·Cheer·It
+E65E E670 E674 E665      # ·At serves ·May after ·Cheer·It
+E65E E670 E653 E67A      # `·Day+Utter.half` receives ·It after ·Cheer
+E65E E670 E659 E67A      # ·Vie·Utter receives ·It after ·Cheer
+E65E E670 E67B E652      # ·Out+Tea receives ·It after ·Cheer
+E670 E666 E65E           # Manual: `·It ~b~ ·No.alt | ·Cheer`
+E651 E670 E666 E65E      # ·Bay enters ·It before ·No·Cheer
+E653 E670 E666 E65E      # ·Day enters ·It before ·No·Cheer
+E655 E670 E666 E65E      # ·Gay enters ·It before ·No·Cheer
+E65C E670 E666 E65E      # ·She enters ·It before ·No·Cheer
+
+# ·Jay
+E65F                     # ·Jay in isolation
+E650 E65F                # ·Pea before ·Jay
+E65F E650                # ·Jay before ·Pea
+E651 E65F                # ·Bay before ·Jay
+E65F E651                # ·Jay before ·Bay
+E652 E65F                # ·Tea before ·Jay
+E65F E652                # ·Jay before ·Tea
+E653 E65F                # ·Day before ·Jay
+E65F E653                # ·Jay before ·Day
+E654 E65F                # ·Key before ·Jay
+E65F E654                # ·Jay before ·Key
+E655 E65F                # ·Gay before ·Jay
+E65F E655                # ·Jay before ·Gay
+E656 E65F                # ·Thaw before ·Jay
+E65F E656                # ·Jay before ·Thaw
+E657 E65F                # ·They before ·Jay
+E65F E657                # ·Jay before ·They
+E658 E65F                # ·Fee before ·Jay
+E65F E658                # ·Jay before ·Fee
+E659 E65F                # ·Vie before ·Jay
+E65F E659                # ·Jay before ·Vie
+E65A E65F                # ·See before ·Jay
+E65F E65A                # ·Jay before ·See
+E65B E65F                # ·Zoo before ·Jay
+E65F E65B                # ·Jay before ·Zoo
+E65C E65F                # ·She before ·Jay
+E65F E65C                # ·Jay before ·She
+E65D E65F                # ·Jai before ·Jay
+E65F E65D                # ·Jay before ·Jai
+E65E E65F                # ·Cheer before ·Jay
+E65F E65E                # ·Jay before ·Cheer
+E665 E65F                # ·May before ·Jay
+E65F E665                # ·Jay before ·May
+E666 E65F                # ·No before ·Jay
+E65F E666                # ·Jay before ·No
+E667 E65F                # ·Low before ·Jay
+E65F E667                # ·Jay before ·Low
+E668 E65F                # ·Roe before ·Jay
+E65F E668                # ·Jay before ·Roe
+E670 E65F                # ·It before ·Jay
+E65F E670                # ·Jay before ·It
+E672 E65F                # ·Et before ·Jay
+E65F E672                # ·Jay before ·Et
+E673 E65F                # ·Eight before ·Jay
+E65F E673                # ·Jay before ·Eight
+E674 E65F                # ·At before ·Jay
+E65F E674                # ·Jay before ·At
+E675 E65F                # ·I before ·Jay
+E65F E675                # ·Jay before ·I
+E676 E65F                # ·Ah before ·Jay
+E65F E676                # ·Jay before ·Ah
+E677 E65F                # ·Awe before ·Jay
+E65F E677                # ·Jay before ·Awe
+E678 E65F                # ·Ox before ·Jay
+E65F E678                # ·Jay before ·Ox
+E679 E65F                # ·Oy before ·Jay
+E65F E679                # ·Jay before ·Oy
+E67A E65F                # ·Utter before ·Jay
+E65F E67A                # ·Jay+Utter (the ligature; forms under every set)
+E67B E65F                # ·Out before ·Jay
+E65F E67B                # ·Jay before ·Out
+E67E E65F                # ·Ooze before ·Jay
+E65F E67E                # ·Jay before ·Ooze
+E652 E679 E65F           # qsTea_qsOy before ·Jay
+E65F E652 E679           # ·Jay before qsTea_qsOy
+E653 E67A E65F           # qsDay_qsUtter before ·Jay
+E65F E653 E67A           # ·Jay before qsDay_qsUtter
+E657 E65B E65F           # qsThey_qsZoo before ·Jay
+E65F E657 E65B           # ·Jay before qsThey_qsZoo
+E657 E67A E65F           # qsThey_qsUtter before ·Jay
+E65F E657 E67A           # ·Jay before qsThey_qsUtter
+E659 E67A E65F           # ·Vie·Utter before ·Jay
+E65F E659 E67A           # ·Jay before ·Vie·Utter
+E65A E67A E65F           # qsSee_qsUtter before ·Jay
+E65F E65A E67A           # ·Jay before qsSee_qsUtter
+E65D E67A E65F           # qsJai_qsUtter before ·Jay
+E65F E65D E67A           # ·Jay before qsJai_qsUtter
+E67B E652 E65F           # qsOut_qsTea before ·Jay
+E65F E67B E652           # ·Jay before qsOut_qsTea
+E65F E652 E653           # ·Jay yields to the ·Tea·Day join
+E65F E67A E652 E653      # ·Utter preserves the ·Tea·Day join after ·Jay
+E65F E652 E650           # ·Jay·Tea holds; ·Tea gains nothing forward
+E650 E65F                # Half-·Pea's dipped exit; ·Jay's entry contracts by one
+E652 E65F                # Half-·Tea's x-height exit; ·Jay's entry contracts by one
+E65A E652 E65F           # Entered half-·Tea still tucks into ·Jay
+E670 E65F                # ·It's x-height exit; ·Jay's entry extends by one
+E651 E670 E65F           # Entered ·It reaches ·Jay at the x-height
+E655 E670 E65F           # ·Gay·It·Jay: ·It enters at the baseline and exits at the x-height
+E650 E65F E675           # ·Jay's exit extension before ·I supersedes its entry contraction after ·Pea
+E652 E65F E675           # ·Jay's entry contraction after ·Tea persists before ·I
+E670 E65F E675           # ·Jay's exit extension before ·I supersedes its entry extension after ·It
+E665 E65F                # ·May's one-pixel exit extension into ·Jay
+E651 E665 E65F           # Entered ·May keeps the one-pixel reach into ·Jay
+E65F E652                # The extended ·Tea baseline entry after ·Jay
+E65F E668                # ·Roe's extended baseline entry after ·Jay
+E65F E670 E653           # ·It after ·Jay breaks at default; under ss04 it joins at the baseline on both sides
+E65F E670 E67A           # ·It after ·Jay before ·Utter: break at default; under ss04 it joins at the baseline on both sides
+E65F E670 E667           # ·It after ·Jay before ·Low
+E65F E67A E656           # ·Jay·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
+E65F E67A E659           # ·Jay·Utter un-forms before ·Vie
+E65F E67A E667           # ·Jay·Utter un-forms before ·Low
+E65F E67A E676           # ·Jay·Utter un-forms before ·Ah
+E65F E67A E67A           # ·Jay+Utter joins the second ·Utter at the x-height
+E65F E67A E650           # ·Jay+Utter's x-height exit into ·Pea
+E65F E67A E651           # ·Jay+Utter's extended exit into ·Bay
+E65F E67A E652           # ·Jay+Utter before ·Tea: break at default; ss03 reaches half-·Tea
+E65F E67A E653           # ·Jay+Utter's x-height exit into ·Day
+E65F E67A E653 E67A      # ·Jay+Utter before ·Day+Utter
+E65F E67A E655           # ·Jay+Utter's extended exit into ·Gay
+E65F E67A E657           # ·Jay+Utter's extended exit into ·They
+E65F E67A E657 E67A      # ·Jay+Utter before ·They+Utter
+E65F E67A E658           # ·Jay+Utter's extended exit into the reversed loop ·Fee
+E65F E67A E65B           # ·Jay+Utter's x-height exit into ·Zoo
+E65F E67A E65D           # ·Jay+Utter before ·Jai: the follower's entry contracts by two
+E65F E67A E65D E67A      # ·Jay+Utter before ·Jai+Utter
+E65F E67A E65E           # ·Jay+Utter's x-height exit into ·Cheer
+E65F E67A E65F           # ·Jay+Utter before ·Jay
+E65F E67A E65F E67A      # ·Jay+Utter before ·Jay+Utter
+E65F E67A E665           # ·Jay+Utter's x-height exit into ·May
+E65F E67A E666           # ·Jay+Utter's x-height exit into ·No
+E65F E67A E668           # ·Jay+Utter's x-height exit into ·Roe
+E65F E67A E670           # ·Jay+Utter's x-height exit into ·It
+E65F E67A E672           # ·Jay+Utter's x-height exit into ·Et
+E65F E67A E673           # ·Jay+Utter's x-height exit into ·Eight
+E65F E67A E674           # ·Jay+Utter before ·At (break)
+E65F E67A E677           # ·Jay+Utter's x-height exit into ·Awe
+E65F E67A E678           # ·Jay+Utter's x-height exit into ·Ox
+E65F E67A E679           # ·Jay+Utter's x-height exit into ·Oy
+E65F E67A E65A           # ·Jay+Utter before ·See (break)
+E65F E67A E67E           # ·Jay+Utter before ·Ooze
+E650 E65F E67A           # ·Pea before ·Jay+Utter: the ligature's entry contracts by one
+E652 E65F E67A           # ·Tea before ·Jay+Utter: the ligature's entry contracts by one
+E670 E65F E67A           # ·It before ·Jay+Utter: the ligature's entry extends by one
+E650 E65F E67A E651      # ·Pea·Jay+Utter·Bay: the ligature keeps its entry contraction under its exit extension
+E670 E65F E67A E651      # ·It·Jay+Utter·Bay: the ligature keeps its entry extension under its exit extension
+E665 E65F E67A           # ·May before ·Jay+Utter: the one-pixel reach
+E676 E65F E67A           # ·Ah before ·Jay+Utter
+E67A E65F E67A           # ·Utter before ·Jay+Utter
+E653 E67A E65F E67A      # ·Day+Utter before ·Jay+Utter
+200C E65F                # Locked ·Jay copy
+200C E65F E675           # Locked ·Jay keeps its extended baseline exit into ·I
+200C E65F E67A           # ·Jay+Utter after ZWNJ
+E65F 200C E67A           # ZWNJ severs the ligature
+E665 200C E65F           # ZWNJ severs the entry from ·May
+E65F 200C E665           # ZWNJ severs the exit into ·May
+00B7 E65F                # Namer dot before Deep ·Jay
+00B7 E65F E67A           # Namer dot before ·Jay+Utter
+
+# ·Ye
+E660                     # ·Ye in isolation
+E650 E660                # ·Pea before ·Ye
+E660 E650                # ·Ye before ·Pea
+E651 E660                # ·Bay before ·Ye
+E660 E651                # ·Ye before ·Bay
+E652 E660                # ·Tea before ·Ye
+E660 E652                # ·Ye before ·Tea
+E653 E660                # ·Day before ·Ye
+E660 E653                # ·Ye before ·Day
+E654 E660                # ·Key before ·Ye
+E660 E654                # ·Ye before ·Key
+E655 E660                # ·Gay before ·Ye
+E660 E655                # ·Ye before ·Gay
+E656 E660                # ·Thaw before ·Ye
+E660 E656                # ·Ye before ·Thaw
+E657 E660                # ·They before ·Ye
+E660 E657                # ·Ye before ·They
+E658 E660                # ·Fee before ·Ye
+E660 E658                # ·Ye before ·Fee
+E659 E660                # ·Vie before ·Ye
+E660 E659                # ·Ye before ·Vie
+E65A E660                # ·See before ·Ye
+E660 E65A                # ·Ye before ·See
+E65B E660                # ·Zoo before ·Ye
+E660 E65B                # ·Ye before ·Zoo
+E65C E660                # ·She before ·Ye
+E660 E65C                # ·Ye before ·She
+E65D E660                # ·Jai before ·Ye
+E660 E65D                # ·Ye before ·Jai
+E65E E660                # ·Cheer before ·Ye
+E660 E65E                # ·Ye before ·Cheer
+E65F E660                # ·Jay before ·Ye
+E660 E65F                # ·Ye before ·Jay
+E660 E660                # ·Ye before ·Ye
+E665 E660                # ·May before ·Ye
+E660 E665                # ·Ye before ·May
+E666 E660                # ·No before ·Ye
+E660 E666                # ·Ye before ·No
+E667 E660                # ·Low before ·Ye
+E660 E667                # ·Ye before ·Low
+E668 E660                # ·Roe before ·Ye
+E660 E668                # ·Ye before ·Roe
+E670 E660                # ·It before ·Ye
+E660 E670                # ·Ye before ·It
+E672 E660                # ·Et before ·Ye
+E660 E672                # ·Ye before ·Et
+E673 E660                # ·Eight before ·Ye
+E660 E673                # ·Ye before ·Eight
+E674 E660                # ·At before ·Ye
+E660 E674                # ·Ye before ·At
+E675 E660                # ·I before ·Ye
+E660 E675                # ·Ye before ·I
+E676 E660                # ·Ah before ·Ye
+E660 E676                # ·Ye before ·Ah
+E677 E660                # ·Awe before ·Ye
+E660 E677                # ·Ye before ·Awe
+E678 E660                # ·Ox before ·Ye
+E660 E678                # ·Ye before ·Ox
+E679 E660                # ·Oy before ·Ye
+E660 E679                # ·Ye before ·Oy
+E67A E660                # ·Utter before ·Ye
+E660 E67A                # ·Ye before ·Utter
+E67B E660                # ·Out before ·Ye
+E660 E67B                # ·Ye before ·Out
+E67E E660                # ·Ooze before ·Ye
+E660 E67E                # ·Ye before ·Ooze
+E652 E679 E660           # qsTea_qsOy before ·Ye
+E660 E652 E679           # ·Ye before qsTea_qsOy
+E653 E67A E660           # qsDay_qsUtter before ·Ye
+E660 E653 E67A           # ·Ye before qsDay_qsUtter
+E657 E65B E660           # qsThey_qsZoo before ·Ye
+E660 E657 E65B           # ·Ye before qsThey_qsZoo
+E657 E67A E660           # qsThey_qsUtter before ·Ye
+E660 E657 E67A           # ·Ye before qsThey_qsUtter
+E659 E67A E660           # ·Vie·Utter before ·Ye
+E660 E659 E67A           # ·Ye before ·Vie·Utter
+E65A E67A E660           # qsSee_qsUtter before ·Ye
+E660 E65A E67A           # ·Ye before qsSee_qsUtter
+E65D E67A E660           # qsJai_qsUtter before ·Ye
+E660 E65D E67A           # ·Ye before qsJai_qsUtter
+E65F E67A E660           # qsJay_qsUtter before ·Ye
+E660 E65F E67A           # ·Ye before qsJay_qsUtter
+E67B E652 E660           # qsOut_qsTea before ·Ye
+E660 E67B E652           # ·Ye before qsOut_qsTea
+E651 E660 E653           # Baseline-entered ·Ye never exits: one of the two baseline junctions gives way
+E673 E660 E653           # The same choice after ·Eight's extended exit
+E651 E660 E665 E652      # ·Bay·Ye·May·Tea: under ss03 ·May reaches half-·Tea and the ·Ye·May junction gives way
+E665 E660 E653           # The climbing loop: entered at the x-height, exiting at the baseline
+E655 E660 E653           # ·Gay's x-height exit into the climbing loop
+E658 E660 E653           # ·Fee's x-height exit into the climbing loop
+E655 E670 E660           # Entered ·It exits at the x-height into ·Ye
+E651 E670 E660           # ·Bay·It·Ye: ·It entered at the baseline exits at the x-height into ·Ye
+E660 E675                # ·Ye's exit extends by one into ·I
+E665 E660 E675           # The climbing loop's exit extends by one into ·I
+E660 E65A E650           # ·Ye joins the curled-over ·See before ·Pea
+E660 E65A E67E           # ·Ye before the straightest ·See (break)
+E660 E656                # ·Ye before ·Thaw: the after-Tall break
+E660 E674 E665           # ·Ye before the falling ·At into ·May (break)
+E660 E666 E658           # ·Ye before ·No that must exit high into ·Fee (break)
+E660 E67A E656           # ·Ye before the alternate ·Utter into ·Thaw
+E660 E67A E667           # ·Ye before the alternate ·Utter into ·Low
+E660 E653 E652 E679      # ·Ye·Day yields before qsTea_qsOy
+E660 E65B E652 E679      # ·Ye·Zoo before qsTea_qsOy
+E660 E67B E658           # ·Ye into the swept-up ·Out before ·Fee
+E660 E666 E653           # ·Ye into the flipped ·No before ·Day
+E660 E668 E666           # ·Ye's baseline exit into ·Roe's extended lower tip, then high into ·No
+E660 E659 E676           # ·Ye into ·Vie's extended baseline entry, then ·Ah
+200C E660                # Locked ·Ye copy
+200C E660 E675           # Locked ·Ye keeps its extended baseline exit into ·I
+E660 200C E653           # ZWNJ severs the exit into ·Day
+E665 200C E660           # ZWNJ severs the entry from ·May
+E651 200C E660           # ZWNJ severs the entry from ·Bay
+00B7 E660                # Namer dot before Tall ·Ye
+
+# ·Way
+E661                     # ·Way in isolation
+E650 E661                # ·Pea before ·Way
+E661 E650                # ·Way before ·Pea
+E651 E661                # ·Bay before ·Way
+E661 E651                # ·Way before ·Bay
+E652 E661                # ·Tea before ·Way
+E661 E652                # ·Way before ·Tea
+E653 E661                # ·Day before ·Way
+E661 E653                # ·Way before ·Day
+E654 E661                # ·Key before ·Way
+E661 E654                # ·Way before ·Key
+E655 E661                # ·Gay before ·Way
+E661 E655                # ·Way before ·Gay
+E656 E661                # ·Thaw before ·Way
+E661 E656                # ·Way before ·Thaw
+E657 E661                # ·They before ·Way
+E661 E657                # ·Way before ·They
+E658 E661                # ·Fee before ·Way
+E661 E658                # ·Way before ·Fee
+E659 E661                # ·Vie before ·Way
+E661 E659                # ·Way before ·Vie
+E65A E661                # ·See before ·Way
+E661 E65A                # ·Way before ·See
+E65B E661                # ·Zoo before ·Way
+E661 E65B                # ·Way before ·Zoo
+E65C E661                # ·She before ·Way
+E661 E65C                # ·Way before ·She
+E65D E661                # ·Jai before ·Way
+E661 E65D                # ·Way before ·Jai
+E65E E661                # ·Cheer before ·Way
+E661 E65E                # ·Way before ·Cheer
+E65F E661                # ·Jay before ·Way
+E661 E65F                # ·Way before ·Jay
+E660 E661                # ·Ye before ·Way
+E661 E660                # ·Way before ·Ye
+E661 E661                # ·Way before ·Way
+E665 E661                # ·May before ·Way
+E661 E665                # ·Way before ·May
+E666 E661                # ·No before ·Way
+E661 E666                # ·Way before ·No
+E667 E661                # ·Low before ·Way
+E661 E667                # ·Way before ·Low
+E668 E661                # ·Roe before ·Way
+E661 E668                # ·Way before ·Roe
+E670 E661                # ·It before ·Way
+E661 E670                # ·Way before ·It
+E672 E661                # ·Et before ·Way
+E661 E672                # ·Way before ·Et
+E673 E661                # ·Eight before ·Way
+E661 E673                # ·Way before ·Eight
+E674 E661                # ·At before ·Way
+E661 E674                # ·Way before ·At
+E675 E661                # ·I before ·Way
+E661 E675                # ·Way before ·I
+E676 E661                # ·Ah before ·Way
+E661 E676                # ·Way before ·Ah
+E677 E661                # ·Awe before ·Way
+E661 E677                # ·Way before ·Awe
+E678 E661                # ·Ox before ·Way
+E661 E678                # ·Way before ·Ox
+E679 E661                # ·Oy before ·Way
+E661 E679                # ·Way before ·Oy
+E67A E661                # ·Utter before ·Way
+E661 E67A                # ·Way+Utter (the ligature; forms under every set)
+E67B E661                # ·Out before ·Way
+E661 E67B                # ·Way before ·Out
+E67E E661                # ·Ooze before ·Way
+E661 E67E                # ·Way before ·Ooze
+E652 E679 E661           # qsTea_qsOy before ·Way
+E661 E652 E679           # ·Way before qsTea_qsOy
+E653 E67A E661           # qsDay_qsUtter before ·Way
+E661 E653 E67A           # ·Way before qsDay_qsUtter
+E657 E65B E661           # qsThey_qsZoo before ·Way
+E661 E657 E65B           # ·Way before qsThey_qsZoo
+E657 E67A E661           # qsThey_qsUtter before ·Way
+E661 E657 E67A           # ·Way before qsThey_qsUtter
+E659 E67A E661           # ·Vie·Utter before ·Way
+E661 E659 E67A           # ·Way before ·Vie·Utter
+E65A E67A E661           # qsSee_qsUtter before ·Way
+E661 E65A E67A           # ·Way before qsSee_qsUtter
+E65D E67A E661           # qsJai_qsUtter before ·Way
+E661 E65D E67A           # ·Way before qsJai_qsUtter
+E65F E67A E661           # qsJay_qsUtter before ·Way
+E661 E65F E67A           # ·Way before qsJay_qsUtter
+E661 E67A E661           # qsWay_qsUtter before ·Way
+E661 E661 E67A           # ·Way before qsWay_qsUtter
+E67B E652 E661           # qsOut_qsTea before ·Way
+E661 E67B E652           # ·Way before qsOut_qsTea
+E661 E655 E656           # ·Way's half keeps its baseline join into ·Gay before ·Thaw
+E661 E655 E655           # ·Way's half keeps its join into ·Gay before a second ·Gay
+E661 E655 E67A           # ·Way's half keeps its join into ·Gay before ·Utter
+E661 E665 E655           # ·Way's half keeps its join into ·May before ·Gay
+E661 E668 E656           # ·Way's half keeps its join into ·Roe before ·Thaw
+E661 E655 E652           # ·Gay's extended baseline exit into ·Tea wins over ·Way's half
+E661 E655 E653           # ·Gay's extended baseline exit into half-·Day wins over ·Way's half
+E661 E655 E67B           # ·Gay's baseline exit into ·Out wins over ·Way's half
+E661 E674 E665           # The falling ·At's extended exit into ·May wins over ·Way's half
+E661 E655 E652 E653      # ·Way's half keeps ·Gay before ·Tea·Day; under ss05 ·Gay joins ·Tea and ·Way breaks
+E661 E655 E670 E653      # ·Way's half keeps ·Gay before ·It·Day; under ss04 ·Gay joins ·It and ·Way breaks
+E661 E655 E666           # ·Way's half into ·Gay, whose x-height exit reaches ·No
+E661 E665 E658           # ·Way's half into ·May, whose x-height exit reaches the reversed-loop ·Fee
+E661 E665 E652           # ·Way's half into ·May; under ss03 ·May also joins ·Tea at the x-height
+E661 E652 E653           # ·Way before ·Tea·Day (break), keeping the ·Tea·Day join
+E661 E670 E653           # ·Way's x-height exit into ·It, which joins half-·Day at the baseline
+E661 E670 E667           # ·Way into ·It into ·Low
+E661 E670 E67A           # ·Way into ·It into ·Utter
+E661 E670 E67B E652      # Manual: `·Way ~x~ ·It ~b~ ·Out+Tea`
+E661 E653 E666 E652      # Manual: `·Way ~x~ ·Day ~b~ ·No.alt ~b~ ·Tea`
+E661 E675 E667 E653      # Manual: `·Way.half ~b~ ·I | ·Low ~x~ ·Day`
+E661 E675 E65B           # Manual: `·Way.half ~b~ ·I ~x~ ·Zoo`
+E661 E673 E65B           # Manual: `·Way ~x~ ·Eight ~b~ ·Zoo.half`
+E661 E672 E666 E652      # Manual: `·Way ~x~ ·Et ~b~ ·No.alt ~b~ ·Tea`
+E661 E65E E653           # ·Way before ·Cheer (break); ·Cheer joins half-·Day
+E661 E65E E652 E679      # ·Way before ·Cheer before qsTea_qsOy: the ·Way·Cheer pair still breaks
+E661 E67A E650           # ·Way+Utter's x-height exit into ·Pea
+E661 E67A E651           # ·Way+Utter's extended exit into ·Bay
+E661 E67A E652           # ·Way+Utter before ·Tea: break at default; ss03 joins ·Tea at the x-height with the extended exit
+E661 E67A E653           # ·Way+Utter's x-height exit into ·Day
+E661 E67A E653 E67A      # ·Way+Utter before ·Day+Utter
+E661 E67A E654           # ·Way+Utter before ·Key (break)
+E661 E67A E655           # ·Way+Utter's extended exit into ·Gay
+E661 E67A E655 E65D      # ·Way+Utter keeps its extended exit into ·Gay before ·Jai
+E661 E67A E656           # ·Way·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
+E661 E67A E657           # ·Way+Utter's extended exit into ·They
+E661 E67A E657 E67A      # ·Way+Utter's extended exit into ·They+Utter
+E661 E67A E658           # ·Way+Utter's extended exit into the reversed loop ·Fee
+E661 E67A E659           # ·Way·Utter un-forms before ·Vie
+E661 E67A E65A           # ·Way·Utter un-forms before ·See
+E661 E67A E65B           # ·Way+Utter's x-height exit into ·Zoo
+E661 E67A E65C           # ·Way+Utter before ·She (break)
+E661 E67A E65D           # ·Way+Utter before ·Jai: the follower's entry contracts by two
+E661 E67A E65D E67A      # ·Way+Utter before ·Jai+Utter: the follower's entry contracts by two
+E661 E67A E65E           # ·Way+Utter's x-height exit into ·Cheer
+E661 E67A E65F           # ·Way+Utter's x-height exit into ·Jay
+E661 E67A E65F E67A      # ·Way+Utter before ·Jay+Utter
+E661 E67A E660           # ·Way+Utter's x-height exit into the climbing loop ·Ye
+E661 E67A E665           # ·Way+Utter's x-height exit into ·May
+E661 E67A E666           # Manual: `·Way+Utter ~x~ ·No`
+E661 E67A E667           # ·Way·Utter un-forms before ·Low
+E661 E67A E668           # Manual: `·Way+Utter ~x~ ·Roe`
+E661 E67A E670           # ·Way+Utter's x-height exit into ·It
+E661 E67A E672           # ·Way+Utter's x-height exit into ·Et
+E661 E67A E673           # ·Way+Utter's x-height exit into ·Eight
+E661 E67A E674           # ·Way·Utter un-forms before ·At
+E661 E67A E675           # ·Way·Utter un-forms before ·I
+E661 E67A E676           # ·Way·Utter un-forms before ·Ah
+E661 E67A E677           # ·Way+Utter's x-height exit into ·Awe
+E661 E67A E678           # ·Way+Utter's x-height exit into ·Ox
+E661 E67A E679           # ·Way+Utter's x-height exit into ·Oy
+E661 E67A E67A           # ·Way+Utter before ·Utter (break)
+E661 E67A E67A E667      # ·Way+Utter's x-height exit into the alternate ·Utter before ·Low
+E661 E67A E67B           # ·Way·Utter un-forms before ·Out
+E661 E67A E67E           # ·Way·Utter un-forms before ·Ooze
+E661 E67A E652 E653      # ·Way+Utter before ·Tea·Day: break at default, keeping ·Tea·Day; ss03 joins ·Tea at the x-height
+E661 E67A E668 E653      # Manual: `·Way+Utter ~x~ ·Roe | ·Day`
+E661 E67A E668 E656      # Manual: `·Way+Utter ~x~ ·Roe ~b~ ·Thaw`
+E661 E67A E666 E65A      # Manual: `·Way+Utter ~x~ ·No | ·See`
+E661 E67A E65B E666 E652 # Manual: `·Way+Utter ~x~ ·Zoo ~b~ ·No.alt ~b~ ·Tea`
+E650 E661 E67A           # ·Pea before ·Way+Utter (break)
+E665 E661 E67A           # ·May before ·Way+Utter (break)
+E670 E661 E67A           # ·It before ·Way+Utter (break)
+200C E661                # ·Way after ZWNJ: it has no entry, so there is no locked copy
+200C E661 E655           # ·Way after ZWNJ keeps its half's baseline join into ·Gay
+E661 200C E653           # ZWNJ severs the exit into ·Day
+E661 200C E655           # ZWNJ severs the half's exit into ·Gay
+200C E661 E67A           # ·Way+Utter after ZWNJ
+E661 200C E67A           # ZWNJ severs the ligature
+00B7 E661                # Namer dot before Deep ·Way
+00B7 E661 E67A           # Namer dot before ·Way+Utter
+
+# ·He
+E662                     # ·He in isolation
+E650 E662                # ·Pea before ·He (break)
+E662 E650                # ·He before ·Pea (break)
+E651 E662                # ·Bay's baseline exit into ·He
+E662 E651                # ·He before ·Bay (break)
+E652 E662                # ·Tea before ·He (break)
+E662 E652                # ·He before ·Tea (break)
+E653 E662                # ·Day's baseline exit into ·He
+E662 E653                # ·He's baseline exit into half-·Day
+E654 E662                # ·Key's baseline exit into ·He
+E662 E654                # ·He before ·Key (break)
+E655 E662                # ·Gay before ·He (break)
+E662 E655                # ·He before ·Gay (break)
+E656 E662                # ·Thaw before ·He (break)
+E662 E656                # ·He before ·Thaw (break)
+E657 E662                # ·They before ·He (break)
+E662 E657                # ·He before ·They (break)
+E658 E662                # ·Fee before ·He (break)
+E662 E658                # ·He before ·Fee (break)
+E659 E662                # ·Vie before ·He (break)
+E662 E659                # ·He's baseline exit into ·Vie
+E65A E662                # ·See before ·He (break)
+E662 E65A                # ·He before ·See (break)
+E65B E662                # ·Zoo's baseline exit into ·He
+E662 E65B                # ·He's half into ·Zoo, whose entry contracts by one
+E65C E662                # ·She before ·He (break)
+E662 E65C                # ·He before ·She (break)
+E65D E662                # ·J’ai before ·He (break)
+E662 E65D                # ·He's half into ·J’ai at the x-height
+E65E E662                # ·Cheer's baseline exit into ·He
+E662 E65E                # ·He before ·Cheer (break)
+E65F E662                # ·Jay before ·He (break)
+E662 E65F                # ·He's half into ·Jay at the x-height
+E660 E662                # ·Ye before ·He (break)
+E662 E660                # ·He before ·Ye (break)
+E661 E662                # ·Way before ·He (break)
+E662 E661                # ·He before ·Way (break)
+E662 E662                # ·He before ·He (break)
+E665 E662                # ·May before ·He (break)
+E662 E665                # ·He's baseline exit into ·May
+E666 E662                # ·No before ·He (break)
+E662 E666                # ·He's half into ·No at the x-height
+E667 E662                # ·Low before ·He (break)
+E662 E667                # ·He's baseline exit into ·Low
+E668 E662                # ·Roe before ·He (break)
+E662 E668                # ·He's half into ·Roe at the x-height
+E670 E662                # ·It before ·He (break)
+E662 E670                # ·He's half into ·It at the x-height
+E672 E662                # ·Et's baseline exit into ·He
+E662 E672                # ·He's half into ·Et at the x-height
+E673 E662                # ·Eight's baseline exit into ·He
+E662 E673                # ·He's half into ·Eight at the x-height
+E674 E662                # ·At before ·He (break)
+E662 E674                # ·He's baseline exit into ·At
+E675 E662                # ·I before ·He (break)
+E662 E675                # ·He's extended baseline exit into ·I
+E676 E662                # ·Ah before ·He (break)
+E662 E676                # ·He's baseline exit into ·Ah
+E677 E662                # ·Awe's baseline exit into ·He
+E662 E677                # ·He's half into ·Awe at the x-height
+E678 E662                # ·Ox's baseline exit into ·He
+E662 E678                # ·He's half into ·Ox at the x-height
+E679 E662                # ·Oy's baseline exit into ·He
+E662 E679                # ·He before ·Oy (break)
+E67A E662                # ·Utter before ·He (break)
+E662 E67A                # ·He's baseline exit into ·Utter
+E67B E662                # ·Out before ·He (break)
+E662 E67B                # ·He's baseline exit into ·Out
+E67E E662                # ·Ooze's baseline exit into ·He
+E662 E67E                # ·He's baseline exit into ·Ooze
+E652 E679 E662           # qsTea_qsOy's baseline exit into ·He
+E662 E652 E679           # ·He before qsTea_qsOy (break)
+E653 E67A E662           # qsDay_qsUtter before ·He (break)
+E662 E653 E67A           # ·He's baseline exit into half qsDay_qsUtter
+E657 E65B E662           # qsThey_qsZoo before ·He (break)
+E662 E657 E65B           # ·He before qsThey_qsZoo (break)
+E657 E67A E662           # qsThey_qsUtter before ·He (break)
+E662 E657 E67A           # ·He before qsThey_qsUtter (break)
+E659 E67A E662           # ·Vie·Utter before ·He (break)
+E662 E659 E67A           # ·He's baseline exit into ·Vie's extended entry
+E65A E67A E662           # qsSee_qsUtter before ·He (break)
+E662 E65A E67A           # ·He before qsSee_qsUtter (break)
+E65D E67A E662           # qsJai_qsUtter before ·He (break)
+E662 E65D E67A           # ·He's half into qsJai_qsUtter, whose entry contracts by one
+E65F E67A E662           # qsJay_qsUtter before ·He (break)
+E662 E65F E67A           # ·He's half into qsJay_qsUtter, whose entry contracts by one
+E661 E67A E662           # qsWay_qsUtter before ·He (break)
+E662 E661 E67A           # ·He before qsWay_qsUtter (break)
+E67B E652 E662           # qsOut_qsTea before ·He (break)
+E662 E67B E652           # ·He's baseline exit into qsOut_qsTea
+E651 E662 E653           # ·He yields its entry from ·Bay to its baseline exit into half-·Day
+E653 E662 E653           # ·He yields its entry from ·Day to its baseline exit into half-·Day
+E651 E662 E65D           # ·He yields its entry from ·Bay to its half's exit into ·Jai
+E651 E662 E655           # ·Bay joins ·He when ·He cannot exit into ·Gay
+E651 E662 E670 E65F      # ·He yields its entry from ·Bay to its half's exit into ·It, which does not join ·Jay
+E651 E662 E67A E656      # ·Bay joins ·He, and the alternate ·Utter takes the baseline join into ·Thaw
+E651 E662 E674 E665      # ·Bay joins ·He, and the falling ·At's extended exit takes ·May
+E662 E670 E65D           # ·He before ·It (break), whose extended x-height exit reaches ·Jai
+E662 E670 E656           # ·He's half into ·It, which does not join ·Thaw after a Tall letter
+E662 E670 E653           # ·He's half into ·It, which joins half-·Day at the baseline
+E662 E655                # ·He before ·Gay (break)
+E652 E653 E662           # ·Tea·Day keeps its join ahead of ·Day's exit into ·He
+E67A E652 E653 E662      # ·Utter·Tea·Day keeps the ·Tea·Day join ahead of ·Day's exit into ·He
+E662 E674 E653           # Manual: `·He ~b~ ·At ~x~ ·Day`
+E662 E67A E668           # Manual: `·He ~b~ ·Utter ~x~ ·Roe`
+E662 E670 E667           # Manual: `·He.half ~x~ ·It ~b~ ·Low`
+E662 E672 E653           # Manual: `·He.half ~x~ ·Et ~b~ ·Day.half`
+E662 E673 E65B           # Manual: `·He.half ~x~ ·Eight ~b~ ·Zoo.half`
+E662 E677 E667           # Manual: `·He ~x~ ·Awe ~b~ ·Low`
+E662 E67E E65B           # Manual: `·He ~b~ ·Ooze ~b~ ·Zoo.half`
+E662 E659 E666 E652      # Manual: `·He ~b~ ·Vie ~b~ ·No.alt ~b~ ·Tea`
+200C E662                # Locked ·He copy
+200C E662 E653           # Locked ·He keeps its baseline exit into half-·Day
+200C E662 E65D           # Locked ·He keeps its half's exit into ·Jai
+E662 200C E653           # ZWNJ severs the exit into ·Day
+E662 200C E65D           # ZWNJ severs the half's exit into ·Jai
+E651 200C E662           # ZWNJ severs the entry from ·Bay
+00B7 E662                # Namer dot before Tall ·He
+
+# ·Why
+E663                     # ·Why in isolation
+E650 E663                # ·Pea before ·Why (break)
+E663 E650                # ·Why before ·Pea (break)
+E651 E663                # ·Bay before ·Why (break)
+E663 E651                # ·Why before ·Bay (break)
+E652 E663                # ·Tea before ·Why (break)
+E663 E652                # ·Why before ·Tea (break)
+E653 E663                # ·Day before ·Why (break)
+E663 E653                # ·Why's x-height exit into ·Day
+E654 E663                # ·Key before ·Why (break)
+E663 E654                # ·Why before ·Key (break)
+E655 E663                # ·Gay before ·Why (break)
+E663 E655                # ·Why before ·Gay (break)
+E656 E663                # ·Thaw before ·Why (break)
+E663 E656                # ·Why before ·Thaw (break)
+E657 E663                # ·They before ·Why (break)
+E663 E657                # ·Why before ·They (break)
+E658 E663                # ·Fee before ·Why (break)
+E663 E658                # ·Why before ·Fee (break)
+E659 E663                # ·Vie before ·Why (break)
+E663 E659                # ·Why before ·Vie (break)
+E65A E663                # ·See before ·Why (break)
+E663 E65A                # ·Why before ·See (break)
+E65B E663                # ·Zoo before ·Why (break)
+E663 E65B                # ·Why's x-height exit into ·Zoo
+E65C E663                # ·She before ·Why (break)
+E663 E65C                # ·Why before ·She (break)
+E65D E663                # ·Jai before ·Why (break)
+E663 E65D                # ·Why's x-height exit into ·Jai
+E65E E663                # ·Cheer before ·Why (break)
+E663 E65E                # ·Why before ·Cheer (break)
+E65F E663                # ·Jay before ·Why (break)
+E663 E65F                # ·Why's x-height exit into ·Jay
+E660 E663                # ·Ye before ·Why (break)
+E663 E660                # ·Why before ·Ye (break)
+E661 E663                # ·Way before ·Why (break)
+E663 E661                # ·Why before ·Way (break)
+E662 E663                # ·He before ·Why (break)
+E663 E662                # ·Why before ·He (break)
+E663 E663                # ·Why before ·Why (break)
+E665 E663                # ·May before ·Why (break)
+E663 E665                # ·Why before ·May (break)
+E666 E663                # ·No before ·Why (break)
+E663 E666                # ·Why's x-height exit into ·No
+E667 E663                # ·Low before ·Why (break)
+E663 E667                # ·Why before ·Low (break)
+E668 E663                # ·Roe before ·Why (break)
+E663 E668                # ·Why's x-height exit into ·Roe
+E670 E663                # ·It before ·Why (break)
+E663 E670                # ·Why's x-height exit into ·It
+E672 E663                # ·Et before ·Why (break)
+E663 E672                # ·Why's x-height exit into ·Et
+E673 E663                # ·Eight before ·Why (break)
+E663 E673                # ·Why's x-height exit into ·Eight
+E674 E663                # ·At before ·Why (break)
+E663 E674                # ·Why before ·At (break)
+E675 E663                # ·I before ·Why (break)
+E663 E675                # ·Why before ·I (break)
+E676 E663                # ·Ah before ·Why (break)
+E663 E676                # ·Why before ·Ah (break)
+E677 E663                # ·Awe before ·Why (break)
+E663 E677                # ·Why's x-height exit into ·Awe
+E678 E663                # ·Ox before ·Why (break)
+E663 E678                # ·Why's x-height exit into ·Ox
+E679 E663                # ·Oy before ·Why (break)
+E663 E679                # ·Why before ·Oy (break)
+E67A E663                # ·Utter before ·Why (break)
+E663 E67A                # ·Why+Utter (the ligature; forms under every set but ss10)
+E67B E663                # ·Out before ·Why (break)
+E663 E67B                # ·Why before ·Out (break)
+E67E E663                # ·Ooze before ·Why (break)
+E663 E67E                # ·Why before ·Ooze (break)
+E652 E679 E663           # qsTea_qsOy before ·Why (break)
+E663 E652 E679           # ·Why before qsTea_qsOy (break)
+E653 E67A E663           # qsDay_qsUtter before ·Why (break)
+E663 E653 E67A           # ·Why's x-height exit into qsDay_qsUtter
+E657 E65B E663           # qsThey_qsZoo before ·Why (break)
+E663 E657 E65B           # ·Why before qsThey_qsZoo (break)
+E657 E67A E663           # qsThey_qsUtter before ·Why (break)
+E663 E657 E67A           # ·Why before qsThey_qsUtter (break)
+E659 E67A E663           # ·Vie·Utter before ·Why (break)
+E663 E659 E67A           # ·Why before ·Vie·Utter (break)
+E65A E67A E663           # qsSee_qsUtter before ·Why (break)
+E663 E65A E67A           # ·Why before qsSee_qsUtter (break)
+E65D E67A E663           # qsJai_qsUtter before ·Why (break)
+E663 E65D E67A           # ·Why's x-height exit into qsJai_qsUtter
+E65F E67A E663           # qsJay_qsUtter before ·Why (break)
+E663 E65F E67A           # ·Why's x-height exit into qsJay_qsUtter
+E661 E67A E663           # qsWay_qsUtter before ·Why (break)
+E663 E661 E67A           # ·Why before qsWay_qsUtter (break)
+E663 E67A E663           # qsWhy_qsUtter before ·Why (break)
+E663 E663 E67A           # ·Why before qsWhy_qsUtter (break)
+E67B E652 E663           # qsOut_qsTea before ·Why (break)
+E663 E67B E652           # ·Why before qsOut_qsTea (break)
+E663 E67A E650           # ·Why+Utter's x-height exit into ·Pea
+E663 E67A E651           # ·Why+Utter's extended x-height exit into ·Bay
+E663 E67A E652           # ·Why+Utter before ·Tea: break at default; ss03 joins ·Tea at the x-height with the extended exit
+E663 E67A E653           # ·Why+Utter's x-height exit into ·Day
+E663 E67A E654           # ·Why+Utter before ·Key (break)
+E663 E67A E655           # ·Why+Utter's extended x-height exit into ·Gay
+E663 E67A E656           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Thaw
+E663 E67A E657           # ·Why+Utter's extended x-height exit into ·They
+E663 E67A E658           # ·Why+Utter's extended x-height exit into ·Fee
+E663 E67A E659           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Vie
+E663 E67A E65A           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·See
+E663 E67A E65B           # ·Why+Utter's x-height exit into ·Zoo
+E663 E67A E65C           # ·Why+Utter before ·She (break)
+E663 E67A E65D           # ·Why+Utter before ·Jai: the follower's entry contracts by two
+E663 E67A E65E           # ·Why+Utter's x-height exit into ·Cheer
+E663 E67A E65F           # ·Why+Utter's x-height exit into ·Jay
+E663 E67A E660           # ·Why+Utter's x-height exit into ·Ye
+E663 E67A E661           # ·Why+Utter before ·Way (break)
+E663 E67A E662           # ·Why+Utter before ·He (break)
+E663 E67A E665           # ·Why+Utter's x-height exit into ·May
+E663 E67A E666           # ·Why+Utter's x-height exit into ·No
+E663 E67A E667           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Low
+E663 E67A E668           # ·Why+Utter's x-height exit into ·Roe
+E663 E67A E670           # ·Why+Utter's x-height exit into ·It
+E663 E67A E672           # ·Why+Utter's x-height exit into ·Et
+E663 E67A E673           # ·Why+Utter's x-height exit into ·Eight
+E663 E67A E674           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·At
+E663 E67A E675           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·I
+E663 E67A E676           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Ah
+E663 E67A E677           # ·Why+Utter's x-height exit into ·Awe
+E663 E67A E678           # ·Why+Utter's x-height exit into ·Ox
+E663 E67A E679           # ·Why+Utter's x-height exit into ·Oy
+E663 E67A E67B           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Out
+E663 E67A E67E           # ·Why·Utter un-forms: alternate ·Utter takes the baseline join into ·Ooze
+E663 E652 E653           # ·Why before ·Tea·Day (break), keeping the ·Tea·Day join
+E663 E67A E652 E653      # ·Why+Utter before ·Tea·Day: break at default, keeping ·Tea·Day; ss03 joins ·Tea at the x-height
+E663 E670 E653           # ·Why's x-height exit into ·It, which joins half-·Day at the baseline
+E663 E668 E653           # ·Why's x-height exit into ·Roe, which does not join ·Day
+E663 E672                # Manual: `·Why ~x~ ·Et`
+E663 E675                # Manual: `·Why | ·I`
+E663 E672 E666           # Manual: `·Why ~x~ ·Et ~b~ ·No.alt`
+E663 E672 E659           # Manual: `·Why ~x~ ·Et ~b~ ·Vie`
+E663 E672 E659 E67A E668 # Manual: `·Why ~x~ ·Et ~b~ ·Vie+?Utter ~x~ ·Roe`
+200C E663                # ·Why after ZWNJ: it has no entry, so there is no locked copy
+200C E663 E653           # ·Why after ZWNJ keeps its x-height exit into ·Day
+E663 200C E653           # ZWNJ severs the exit into ·Day
+200C E663 E67A           # ·Why+Utter after ZWNJ
+E663 200C E67A           # ZWNJ severs the ligature
+00B7 E663                # Namer dot before Deep ·Why
+00B7 E663 E67A           # Namer dot before ·Why+Utter
+
+# ·-ing
+E664                     # ·-ing in isolation
+E650 E664                # ·Pea's baseline exit into ·-ing
+E664 E650                # ·-ing before ·Pea (break)
+E651 E664                # ·Bay's baseline exit into ·-ing
+E664 E651                # ·-ing before ·Bay (break)
+E652 E664                # ·Tea's baseline exit into ·-ing, with no extension
+E664 E652                # ·-ing's baseline exit into ·Tea
+E653 E664                # ·Day's baseline exit into ·-ing
+E664 E653                # ·-ing's baseline exit into half-·Day
+E654 E664                # ·Key's baseline exit into ·-ing
+E664 E654                # ·-ing before ·Key (break)
+E655 E664                # ·Gay's baseline exit into ·-ing
+E664 E655                # ·-ing before ·Gay (break)
+E656 E664                # ·Thaw's foot into ·-ing, whose entry extends by two
+E664 E656                # ·-ing's exit, extended by two, into ·Thaw
+E657 E664                # ·They before ·-ing (break)
+E664 E657                # ·-ing before ·They (break)
+E658 E664                # ·Fee before ·-ing (break)
+E664 E658                # ·-ing before ·Fee (break)
+E659 E664                # ·Vie's swept-out exit, contracted by one, into ·-ing
+E664 E659                # ·-ing's baseline exit into ·Vie, whose entry contracts by one
+E65A E664                # ·See before ·-ing (break)
+E664 E65A                # ·-ing's baseline exit into ·See
+E65B E664                # ·Zoo's baseline exit into ·-ing
+E664 E65B                # ·-ing's baseline exit into half-·Zoo
+E65C E664                # ·She's baseline exit into ·-ing
+E664 E65C                # ·-ing before ·She (break)
+E65D E664                # ·J’ai's baseline exit into ·-ing, with no extension
+E664 E65D                # ·-ing before ·J’ai (break)
+E65E E664                # ·Cheer's baseline exit into ·-ing
+E664 E65E                # ·-ing before ·Cheer (break)
+E65F E664                # ·Jay's baseline exit into ·-ing
+E664 E65F                # ·-ing before ·Jay (break)
+E660 E664                # ·Ye before ·-ing (break: ·-ing takes no entry from ·Ye)
+E664 E660                # ·-ing's baseline exit into ·Ye, whose entry extends by one
+E661 E664                # half-·Way's baseline exit into ·-ing
+E664 E661                # ·-ing before ·Way (break)
+E662 E664                # ·He before ·-ing (break: ·-ing takes no entry from ·He)
+E664 E662                # ·-ing's baseline exit into ·He
+E663 E664                # ·Why before ·-ing (break)
+E664 E663                # ·-ing before ·Why (break)
+E665 E664                # the grounded ·May's baseline exit into ·-ing
+E664 E665                # ·-ing's baseline exit into the loop, whose entry contracts by one
+E666 E664                # the flipped ·No's baseline exit into ·-ing
+E664 E666                # ·-ing's baseline exit into the flipped ·No
+E667 E664                # ·Low before ·-ing (break)
+E664 E667                # ·-ing's baseline exit into ·Low
+E668 E664                # ·Roe's baseline exit into ·-ing
+E664 E668                # ·-ing's baseline exit into ·Roe
+E670 E664                # ·It's baseline exit into ·-ing
+E664 E670                # ·-ing's baseline exit into ·It
+E672 E664                # ·Et's baseline exit into ·-ing
+E664 E672                # ·-ing before ·Et (break)
+E673 E664                # ·Eight's baseline exit into ·-ing
+E664 E673                # ·-ing before ·Eight (break)
+E674 E664                # ·At before ·-ing (break)
+E664 E674                # ·-ing's baseline exit into the rising ·At
+E675 E664                # ·I before ·-ing (break)
+E664 E675                # ·-ing's baseline exit into ·I
+E676 E664                # ·Ah before ·-ing (break)
+E664 E676                # ·-ing's baseline exit into ·Ah
+E677 E664                # ·Awe's baseline exit into ·-ing
+E664 E677                # ·-ing before ·Awe (break)
+E678 E664                # ·Ox's baseline exit into ·-ing
+E664 E678                # ·-ing before ·Ox (break)
+E679 E664                # ·Oy's baseline exit into ·-ing
+E664 E679                # ·-ing before ·Oy (break)
+E67A E664                # the alternate ·Utter's baseline exit into ·-ing
+E664 E67A                # ·-ing's baseline exit into the mono ·Utter
+E67B E664                # ·Out before ·-ing (break)
+E664 E67B                # ·-ing's baseline exit into ·Out
+E67E E664                # ·Ooze's baseline exit into ·-ing
+E664 E67E                # ·-ing's baseline exit into ·Ooze
+E664 E664                # ·-ing's baseline exit into the next ·-ing
+E652 E679 E664           # the ·Tea+Oy ligature's baseline exit into ·-ing, with no extension
+E67B E652 E664           # ·Out+Tea before ·-ing (break: the ligature has no exit)
+E657 E65B E664           # ·They+Zoo before ·-ing (break: ·-ing takes no entry from the ligature)
+E664 E653 E67A           # ·-ing's baseline exit into half-·Day+Utter
+E664 E659 E67A           # ·-ing's baseline exit into ·Vie, whose entry contracts by one
+E664 E67B E652           # ·-ing's baseline exit into ·Out+Tea
+E664 E65A E67A           # ·-ing before ·See+Utter (break)
+E664 E652 E679           # ·-ing before ·Tea+Oy (break)
+E656 E664 E656           # ·-ing extends its entry by two after ·Thaw and its exit by two before ·Thaw
+E652 E664 E656           # ·-ing keeps its entry after ·Tea and extends its exit by two before ·Thaw
+E653 E656 E664           # ·Thaw gives up ·Day's entry to serve ·-ing
+E664 E656 E664           # ·Thaw takes no entry from ·-ing and serves the second ·-ing
+E675 E657 E664           # ·They entered at the x-height after ·I serves ·-ing at the baseline
+E676 E657 E664           # ·They entered at the x-height after ·Ah serves ·-ing at the baseline
+E67A E657 E664           # ·They entered at the x-height after ·Utter serves ·-ing at the baseline
+E65E E67A E664           # the alternate ·Utter gives up ·Cheer's entry to serve ·-ing
+E653 E67A E664           # the ligature yields; the alternate ·Utter serves ·-ing
+E665 E67A E664           # ·Utter entered at the x-height reaches back and serves ·-ing
+E67A E665 E664           # ·Utter enters ·May at the x-height; the grounded ·May serves ·-ing
+E664 E652 E653           # ·-ing yields; ·Tea keeps its forward baseline join
+E664 E652 E650           # the join holds: ·Tea gains nothing forward
+E664 E652 E666           # ·-ing yields; ·Tea groups rightward
+E664 E652 E670           # ·-ing yields; half-·Tea takes the x-height join
+E664 E67A E652 E653      # the mono ·Utter breaks, and ·Tea keeps ·Day
+E664 E670 E653           # ·It withholds the entry; its baseline exit serves ·Day
+E664 E660 E653           # ·Ye withholds the entry; its baseline exit serves ·Day
+E664 E662 E653           # ·He withholds the entry; its baseline exit serves ·Day
+E664 E65A E667           # the straighter ·See takes no entry; its baseline exit serves ·Low
+E664 E674 E665           # the falling ·At takes no entry; its baseline exit serves ·May
+E650 E666 E664           # the flipped ·No carries both baseline joins
+E651 E655 E664           # entered ·Gay cannot serve ·-ing
+E672 E650 E670 E664      # ·Et yields; half-·Pea joins ·It at the x-height, which serves ·-ing (The Manual)
+E672 E650 E670           # ·Et keeps its baseline join into ·Pea when no ·-ing follows ·It
+E67A E665 E656           # a bare ·Utter at a run start enters ·May at the x-height before ·Thaw (The Manual)
+200C E67A E665 E656      # the same after ZWNJ
+200C E664                # ZWNJ ·-ing (locked copy)
+E664 200C E656           # ZWNJ severs the exit into ·Thaw
+00B7 E664                # namer dot before Tall ·-ing (stays)
+
+# ·Loch
+E669                     # ·Loch in isolation
+E650 E669                # ·Pea before ·Loch (break)
+E669 E650                # ·Loch before ·Pea (break)
+E651 E669                # ·Bay before ·Loch (break)
+E669 E651                # ·Loch before ·Bay (break)
+E652 E669                # ·Tea before ·Loch (break)
+E669 E652                # ·Loch before ·Tea (break)
+E653 E669                # ·Day before ·Loch (break)
+E669 E653                # ·Loch before ·Day (break)
+E654 E669                # ·Key before ·Loch (break)
+E669 E654                # ·Loch before ·Key (break)
+E655 E669                # ·Gay before ·Loch (break)
+E669 E655                # ·Loch before ·Gay (break)
+E656 E669                # ·Thaw before ·Loch (break)
+E669 E656                # ·Loch before ·Thaw (break)
+E657 E669                # ·They before ·Loch (break)
+E669 E657                # ·Loch before ·They (break)
+E658 E669                # ·Fee before ·Loch (break)
+E669 E658                # ·Loch before ·Fee (break)
+E659 E669                # ·Vie before ·Loch (break)
+E669 E659                # ·Loch before ·Vie (break)
+E65A E669                # ·See before ·Loch (break)
+E669 E65A                # ·Loch before ·See (break)
+E65B E669                # ·Zoo before ·Loch (break)
+E669 E65B                # ·Loch before ·Zoo (break)
+E65C E669                # ·She before ·Loch (break)
+E669 E65C                # ·Loch before ·She (break)
+E65D E669                # ·J’ai before ·Loch (break)
+E669 E65D                # ·Loch before ·J’ai (break)
+E65E E669                # ·Cheer before ·Loch (break)
+E669 E65E                # ·Loch before ·Cheer (break)
+E65F E669                # ·Jay before ·Loch (break)
+E669 E65F                # ·Loch before ·Jay (break)
+E660 E669                # ·Ye before ·Loch (break)
+E669 E660                # ·Loch before ·Ye (break)
+E661 E669                # ·Way before ·Loch (break)
+E669 E661                # ·Loch before ·Way (break)
+E662 E669                # ·He before ·Loch (break)
+E669 E662                # ·Loch before ·He (break)
+E663 E669                # ·Why before ·Loch (break)
+E669 E663                # ·Loch before ·Why (break)
+E664 E669                # ·-ing before ·Loch (break)
+E669 E664                # ·Loch before ·-ing (break)
+E665 E669                # ·May before ·Loch (break)
+E669 E665                # ·Loch before ·May (break)
+E666 E669                # ·No before ·Loch (break)
+E669 E666                # ·Loch before ·No (break)
+E667 E669                # ·Low before ·Loch (break)
+E669 E667                # ·Loch before ·Low (break)
+E668 E669                # ·Roe before ·Loch (break)
+E669 E668                # ·Loch before ·Roe (break)
+E670 E669                # ·It before ·Loch (break)
+E669 E670                # ·Loch before ·It (break)
+E672 E669                # ·Et before ·Loch (break)
+E669 E672                # ·Loch before ·Et (break)
+E673 E669                # ·Eight before ·Loch (break)
+E669 E673                # ·Loch before ·Eight (break)
+E674 E669                # ·At before ·Loch (break)
+E669 E674                # ·Loch before ·At (break)
+E675 E669                # ·I before ·Loch (break)
+E669 E675                # ·Loch before ·I (break)
+E676 E669                # ·Ah before ·Loch (break)
+E669 E676                # ·Loch before ·Ah (break)
+E677 E669                # ·Awe before ·Loch (break)
+E669 E677                # ·Loch before ·Awe (break)
+E678 E669                # ·Ox before ·Loch (break)
+E669 E678                # ·Loch before ·Ox (break)
+E679 E669                # ·Oy before ·Loch (break)
+E669 E679                # ·Loch before ·Oy (break)
+E67A E669                # ·Utter before ·Loch (break)
+E669 E67A                # ·Loch before ·Utter (break)
+E67B E669                # ·Out before ·Loch (break)
+E669 E67B                # ·Loch before ·Out (break)
+E67E E669                # ·Ooze before ·Loch (break)
+E669 E67E                # ·Loch before ·Ooze (break)
+E669 E669                # ·Loch before ·Loch (break)
+E652 E679 E669           # ·Tea+Oy before ·Loch (break)
+E653 E67A E669           # ·Day+Utter before ·Loch (break)
+E657 E65B E669           # ·They+Zoo before ·Loch (break)
+E657 E67A E669           # ·They+Utter before ·Loch (break)
+E65A E67A E669           # ·See+Utter before ·Loch (break)
+E65D E67A E669           # ·J’ai+Utter before ·Loch (break)
+E65F E67A E669           # ·Jay+Utter before ·Loch (break)
+E661 E67A E669           # ·Way+Utter before ·Loch (break)
+E663 E67A E669           # ·Why+Utter before ·Loch (break)
+E67B E652 E669           # ·Out+Tea before ·Loch (break)
+E669 E652 E679           # ·Loch before ·Tea+Oy (break)
+E669 E653 E67A           # ·Loch before ·Day+Utter (break)
+E669 E657 E65B           # ·Loch before ·They+Zoo (break)
+E669 E657 E67A           # ·Loch before ·They+Utter (break)
+E669 E65A E67A           # ·Loch before ·See+Utter (break)
+E669 E65D E67A           # ·Loch before ·J’ai+Utter (break)
+E669 E65F E67A           # ·Loch before ·Jay+Utter (break)
+E669 E661 E67A           # ·Loch before ·Way+Utter (break)
+E669 E663 E67A           # ·Loch before ·Why+Utter (break)
+E669 E67B E652           # ·Loch before ·Out+Tea (break)
+E652 E653 E669           # ·Tea ~b~ ·Day.half keeps its join before ·Loch
+E67A E652 E653 E669      # ·Utter·Tea·Day before ·Loch draws as at a word end
+E669 E652 E653           # ·Tea ~b~ ·Day.half after ·Loch
+E669 E656                # ·Thaw after the Tall ·Loch (break)
+E669 E670 E656           # ·It after ·Loch joins ·Thaw at the baseline
+E670 E669 E670           # ·Loch between two ·It (breaks on both sides)
+E665 E669 E665           # ·Loch between two ·May (breaks on both sides)
+200C E669                # ZWNJ before ·Loch
+E669 200C E669           # ZWNJ between two ·Loch
+E652 200C E669           # ZWNJ after ·Tea, before ·Loch
+00B7 E669                # namer dot before Tall ·Loch
+
+# ·Llan
+E66A                     # ·Llan in isolation
+E650 E66A                # half-·Pea's x-height exit into ·Llan, whose entry extends by one
+E66A E650                # ·Llan before ·Pea (break)
+E651 E66A                # ·Bay before ·Llan (break)
+E66A E651                # ·Llan before ·Bay (break)
+E652 E66A                # half-·Tea's x-height exit into ·Llan, whose entry extends by one
+E66A E652                # ·Llan's baseline exit into ·Tea
+E653 E66A                # ·Day before ·Llan (break)
+E66A E653                # ·Llan's baseline exit into half-·Day
+E654 E66A                # ·Key before ·Llan (break)
+E66A E654                # ·Llan before ·Key (break)
+E655 E66A                # ·Gay's x-height exit into ·Llan
+E66A E655                # ·Llan's baseline exit into ·Gay
+E656 E66A                # ·Thaw before ·Llan (break)
+E66A E656                # ·Llan's baseline exit into ·Thaw
+E657 E66A                # ·They's x-height exit into ·Llan
+E66A E657                # ·Llan before ·They (break)
+E658 E66A                # ·Fee's x-height exit, extended by one, into ·Llan
+E66A E658                # ·Llan before ·Fee (break)
+E659 E66A                # ·Vie before ·Llan (break)
+E66A E659                # ·Llan's baseline exit into ·Vie
+E65A E66A                # ·See before ·Llan (break)
+E66A E65A                # ·Llan's baseline exit into ·See
+E65B E66A                # ·Zoo before ·Llan (break)
+E66A E65B                # ·Llan's baseline exit into half-·Zoo
+E65C E66A                # ·She before ·Llan (break)
+E66A E65C                # ·Llan before ·She (break)
+E65D E66A                # ·J’ai before ·Llan (break)
+E66A E65D                # ·Llan before ·J’ai (break)
+E65E E66A                # ·Cheer before ·Llan (break)
+E66A E65E                # ·Llan before ·Cheer (break)
+E65F E66A                # ·Jay before ·Llan (break)
+E66A E65F                # ·Llan before ·Jay (break)
+E660 E66A                # ·Ye before ·Llan (break)
+E66A E660                # ·Llan's baseline exit into ·Ye
+E661 E66A                # ·Way's x-height exit into ·Llan
+E66A E661                # ·Llan before ·Way (break)
+E662 E66A                # half-·He's x-height exit into ·Llan, whose entry extends by one
+E66A E662                # ·Llan's baseline exit into ·He
+E663 E66A                # ·Why's x-height exit into ·Llan
+E66A E663                # ·Llan before ·Why (break)
+E664 E66A                # ·-ing before ·Llan (break)
+E66A E664                # ·Llan's baseline exit into ·-ing
+E665 E66A                # the loop's x-height exit into ·Llan
+E66A E665                # ·Llan's baseline exit into the loop
+E666 E66A                # the ·No loop's x-height exit into ·Llan
+E66A E666                # ·Llan's baseline exit into the flipped ·No
+E667 E66A                # ·Low's x-height exit into ·Llan
+E66A E667                # ·Llan's baseline exit into ·Low
+E668 E66A                # ·Roe before ·Llan (break)
+E66A E668                # ·Llan's baseline exit into ·Roe
+E669 E66A                # ·Loch before ·Llan (break)
+E66A E669                # ·Llan before ·Loch (break)
+E670 E66A                # ·It's x-height exit into ·Llan
+E66A E670                # ·Llan's baseline exit into ·It
+E672 E66A                # ·Et before ·Llan (break)
+E66A E672                # ·Llan before ·Et (break)
+E673 E66A                # ·Eight before ·Llan (break)
+E66A E673                # ·Llan before ·Eight (break)
+E674 E66A                # the rising ·At's x-height exit into ·Llan
+E66A E674                # ·Llan's baseline exit into the rising ·At
+E675 E66A                # ·I's x-height exit, extended by one, into ·Llan
+E66A E675                # ·Llan's baseline exit into ·I
+E676 E66A                # ·Ah's x-height exit into ·Llan
+E66A E676                # ·Llan's baseline exit into ·Ah
+E677 E66A                # ·Awe before ·Llan (break)
+E66A E677                # ·Llan before ·Awe (break)
+E678 E66A                # ·Ox before ·Llan (break)
+E66A E678                # ·Llan before ·Ox (break)
+E679 E66A                # ·Oy before ·Llan (break)
+E66A E679                # ·Llan before ·Oy (break)
+E67A E66A                # the mono ·Utter's x-height exit into ·Llan
+E66A E67A                # ·Llan's baseline exit into the mono ·Utter
+E67B E66A                # the swept-up ·Out's x-height exit into ·Llan
+E66A E67B                # ·Llan's baseline exit into ·Out
+E67E E66A                # ·Ooze before ·Llan (break)
+E66A E67E                # ·Llan's baseline exit into ·Ooze
+E66A E66A                # ·Llan before ·Llan (break: the exit is at the baseline, the entry at the x-height)
+E66A E653 E67A           # ·Llan's baseline exit into half-·Day+Utter
+E66A E67B E652           # ·Llan's baseline exit into ·Out+Tea
+E66A E65D E67A           # ·Llan before ·J’ai+Utter (break)
+E66A E65A E67A           # ·Llan before ·See+Utter (break)
+E66A E652 E679           # ·Llan before ·Tea+Oy (break)
+E66A E657 E65B           # ·Llan before ·They+Zoo (break)
+E653 E67A E66A           # ·Day+Utter's x-height exit into ·Llan
+E65D E67A E66A           # ·J’ai+Utter's x-height exit into ·Llan
+E65F E67A E66A           # ·Jay+Utter's x-height exit into ·Llan
+E65A E67A E66A           # ·See+Utter's x-height exit into ·Llan
+E657 E67A E66A           # ·They+Utter's x-height exit into ·Llan
+E661 E67A E66A           # ·Way+Utter's x-height exit into ·Llan
+E663 E67A E66A           # ·Why+Utter's x-height exit into ·Llan
+E657 E65B E66A           # ·They+Zoo before ·Llan (break)
+E67B E652 E66A           # ·Out+Tea before ·Llan (break)
+E652 E679 E66A           # ·Tea+Oy before ·Llan (break)
+E665 E65D E67A E66A      # ·May into ·J’ai+Utter, which carries on into ·Llan at the x-height
+E66A E652 E653           # ·Llan yields; ·Tea keeps its forward baseline join
+E66A E652 E650           # the join holds: ·Tea gains nothing forward
+E66A E652 E670           # ·Llan yields; half-·Tea takes the x-height join
+E66A E652 E66A           # ·Llan yields; half-·Tea joins the second ·Llan, whose entry extends by one
+E66A E67A E652 E653      # the mono ·Utter breaks, and ·Tea keeps ·Day
+E653 E652 E66A           # ·Day yields; half-·Tea joins ·Llan
+E666 E652 E66A           # ·No yields; half-·Tea joins ·Llan
+E66A E656 E664           # ·Thaw gives up ·Llan's entry to serve ·-ing
+E66A E65A E667           # the straighter ·See takes no entry; its baseline exit serves ·Low
+E66A E660 E653           # ·Ye withholds the entry; its baseline exit serves ·Day
+E66A E662 E653           # ·He withholds the entry; its baseline exit serves ·Day
+E66A E670 E653           # ·It withholds the entry; its baseline exit serves ·Day
+200C E66A                # ZWNJ before ·Llan (the locked copy)
+E66A 200C E66A           # ZWNJ between two ·Llan
+E652 200C E66A           # ZWNJ severs half-·Tea's exit into ·Llan
+E66A 200C E653           # ZWNJ severs ·Llan's exit into ·Day
+00B7 E66A                # namer dot before ·Llan
+
+# ·Excite
+E66B                     # ·Excite in isolation
+E650 E66B                # ·Pea before ·Excite (break)
+E66B E650                # ·Excite before ·Pea (break)
+E651 E66B                # ·Bay's baseline exit into ·Excite, whose left foot splays
+E66B E651                # ·Excite before ·Bay (break)
+E652 E66B                # ·Tea before ·Excite (break)
+E66B E652                # ·Excite's splayed right foot joins ·Tea at the baseline
+E653 E66B                # ·Day's baseline exit into ·Excite, whose left foot splays
+E66B E653                # ·Excite's splayed right foot joins half-·Day at the baseline
+E654 E66B                # ·Key's baseline exit into ·Excite, whose left foot splays
+E66B E654                # ·Excite before ·Key (break)
+E655 E66B                # ·Gay before ·Excite (break)
+E66B E655                # ·Excite before ·Gay (break)
+E656 E66B                # ·Thaw before ·Excite (break)
+E66B E656                # ·Excite before ·Thaw (break)
+E657 E66B                # ·They before ·Excite (break)
+E66B E657                # ·Excite before ·They (break)
+E658 E66B                # ·Fee before ·Excite (break)
+E66B E658                # ·Excite before ·Fee (break)
+E659 E66B                # the swept-out ·Vie's baseline exit into ·Excite, whose left foot splays
+E66B E659                # ·Excite's splayed right foot joins ·Vie at the baseline
+E65A E66B                # ·See before ·Excite (break)
+E66B E65A                # ·Excite's splayed right foot joins ·See at the baseline
+E65B E66B                # ·Zoo's baseline exit into ·Excite, whose left foot splays
+E66B E65B                # ·Excite's splayed right foot joins half-·Zoo at the baseline
+E65C E66B                # ·She's flattened baseline exit into ·Excite, whose left foot splays
+E66B E65C                # ·Excite before ·She (break)
+E65D E66B                # ·J’ai's baseline exit into ·Excite, whose left foot splays
+E66B E65D                # ·Excite before ·J’ai (break)
+E65E E66B                # ·Cheer's baseline exit into ·Excite, whose left foot splays
+E66B E65E                # ·Excite before ·Cheer (break)
+E65F E66B                # ·Jay's baseline exit into ·Excite, whose left foot splays
+E66B E65F                # ·Excite before ·Jay (break)
+E660 E66B                # ·Ye before ·Excite (break)
+E66B E660                # ·Excite before ·Ye (break)
+E661 E66B                # ·Way before ·Excite (break)
+E66B E661                # ·Excite before ·Way (break)
+E662 E66B                # ·He before ·Excite (break)
+E66B E662                # ·Excite before ·He (break)
+E663 E66B                # ·Why before ·Excite (break)
+E66B E663                # ·Excite before ·Why (break)
+E664 E66B                # ·-ing's baseline exit into ·Excite, whose left foot splays
+E66B E664                # ·Excite's splayed right foot joins ·-ing at the baseline
+E665 E66B                # the grounded ·May's baseline exit into ·Excite, whose left foot splays
+E66B E665                # ·Excite's splayed right foot joins the ·May loop at the baseline
+E666 E66B                # the flipped ·No's baseline exit into ·Excite, whose left foot splays
+E66B E666                # ·Excite's splayed right foot joins the flipped ·No at the baseline
+E667 E66B                # ·Low before ·Excite (break)
+E66B E667                # ·Excite's splayed right foot joins ·Low at the baseline
+E668 E66B                # ·Roe before ·Excite (break)
+E66B E668                # ·Excite's splayed right foot joins ·Roe at the baseline
+E669 E66B                # ·Loch before ·Excite (break)
+E66B E669                # ·Excite before ·Loch (break)
+E66A E66B                # ·Llan's baseline exit into ·Excite, whose left foot splays
+E66B E66A                # ·Excite before ·Llan (break)
+E670 E66B                # ·It's baseline exit into ·Excite, whose left foot splays
+E66B E670                # ·Excite's splayed right foot joins ·It at the baseline
+E672 E66B                # ·Et's baseline exit into ·Excite, whose left foot splays
+E66B E672                # ·Excite before ·Et (break)
+E673 E66B                # ·Eight's baseline exit into ·Excite, whose left foot splays
+E66B E673                # ·Excite before ·Eight (break)
+E674 E66B                # ·At before ·Excite (break)
+E66B E674                # ·Excite's splayed right foot joins the rising ·At at the baseline
+E675 E66B                # ·I before ·Excite (break)
+E66B E675                # ·Excite's splayed right foot joins ·I at the baseline
+E676 E66B                # ·Ah before ·Excite (break)
+E66B E676                # ·Excite's splayed right foot joins ·Ah at the baseline
+E677 E66B                # ·Awe's baseline exit into ·Excite, whose left foot splays
+E66B E677                # ·Excite before ·Awe (break)
+E678 E66B                # ·Ox's baseline exit into ·Excite, whose left foot splays
+E66B E678                # ·Excite before ·Ox (break)
+E679 E66B                # ·Oy's baseline exit into ·Excite, whose left foot splays
+E66B E679                # ·Excite before ·Oy (break)
+E67A E66B                # the alternate ·Utter's baseline exit into ·Excite, whose left foot splays
+E66B E67A                # ·Excite's splayed right foot joins the mono ·Utter at the baseline
+E67B E66B                # ·Out before ·Excite (break)
+E66B E67B                # ·Excite's splayed right foot joins ·Out at the baseline
+E67E E66B                # ·Ooze's baseline exit into ·Excite, whose left foot splays
+E66B E67E                # ·Excite's splayed right foot joins ·Ooze at the baseline
+E66B E66B                # ·Excite into ·Excite: the first splays right, the second left
+E66B E66B E66B           # the middle ·Excite splays both feet
+E651 E66B E652           # ·Bay ~b~ ·Excite ~b~ ·Tea: both feet splay
+E650 E66B E652           # ·Pea | ·Excite ~b~ ·Tea: the right foot alone splays
+E66B E653 E67A           # ·Excite's baseline exit into half-·Day+Utter
+E66B E67B E652           # ·Excite's baseline exit into ·Out+Tea
+E66B E659 E67A           # ·Excite's baseline exit into ·Vie, which joins ·Utter at the baseline
+E66B E65D E67A           # ·Excite before ·J’ai+Utter (break)
+E66B E65A E67A           # ·Excite before ·See+Utter (break)
+E66B E652 E679           # ·Excite before ·Tea+Oy (break)
+E66B E657 E65B           # ·Excite before ·They+Zoo (break)
+E652 E679 E66B           # ·Tea+Oy's baseline exit into ·Excite
+E657 E65B E66B           # ·They+Zoo's baseline exit into ·Excite
+E67B E652 E66B           # ·Out+Tea before ·Excite (break)
+E653 E67A E66B           # ·Day+Utter before ·Excite (break)
+E65D E67A E66B           # ·J’ai+Utter before ·Excite (break)
+E67A E655 E66B           # ·Utter ~x~ ·Gay | ·Excite: the entered ·Gay still breaks before ·Excite
+E675 E657 E66B           # ·I ~x~ ·They | ·Excite: the entered ·They still breaks before ·Excite
+E676 E657 E66B           # ·Ah ~x~ ·They | ·Excite
+E675 E652 E66B           # ·I before ·Tea, which never joins ·Excite at the baseline
+E66B E652 E653           # ·Excite yields; ·Tea keeps its forward baseline join
+E66B E652 E650           # the join holds: ·Tea gains nothing forward
+E66B E652 E670           # ·Excite yields; half-·Tea takes the x-height join
+E66B E67A E652 E653      # the mono ·Utter breaks, and ·Tea keeps ·Day
+E651 E66B E652 E653      # ·Excite yields to ·Tea·Day and keeps only the left splay
+E653 E652 E66B           # ·Day ~b~ ·Tea | ·Excite
+E666 E672 E66B E652      # The Manual's ·No ~x~ ·Et ~b~ ·Excite ~b~ ·Tea
+E672 E66B E650 E672      # The Manual's ·Et ~b~ ·Excite | ·Pea.half ~x~ ·Et
+E670 E66B E652 E670      # The Manual's ·It ~b~ ·Excite | ·Tea.half ~x~ ·It
+200C E66B                # ZWNJ before ·Excite (the locked copy)
+E66B 200C E66B           # ZWNJ between two ·Excite
+E651 200C E66B           # ZWNJ severs ·Bay's exit into ·Excite
+E66B 200C E653           # ZWNJ severs ·Excite's exit into ·Day
+0020 E66B E652           # word-initial ·Excite joins ·Tea, as at a text edge
+00B7 E66B                # namer dot before ·Excite
+00B7 E66B E652           # namer dot, then ·Excite joins ·Tea as at a word start
+
+# ·Eat
+E671                     # ·Eat in isolation
+E650 E671                # the full ·Pea's baseline exit into ·Eat
+E671 E650                # ·Eat before ·Pea (break)
+E651 E671                # ·Bay's baseline exit into ·Eat
+E671 E651                # ·Eat before ·Bay (break)
+E652 E671                # ·Tea's baseline exit into ·Eat
+E671 E652                # ·Eat before ·Tea (break)
+E653 E671                # the ·Day+Eat ligature
+E671 E653                # ·Eat's baseline exit into half-·Day
+E654 E671                # ·Key's baseline exit into ·Eat
+E671 E654                # ·Eat before ·Key (break)
+E655 E671                # ·Gay's baseline exit into ·Eat
+E671 E655                # ·Eat before ·Gay (break)
+E656 E671                # ·Thaw before ·Eat (break)
+E671 E656                # ·Eat's baseline exit into ·Thaw
+E657 E671                # ·They before ·Eat (break)
+E671 E657                # ·Eat before ·They (break)
+E658 E671                # ·Fee before ·Eat (break)
+E671 E658                # ·Eat before ·Fee (break)
+E659 E671                # ·Vie before ·Eat (break)
+E671 E659                # ·Eat's baseline exit into ·Vie
+E65A E671                # the ·See+Eat ligature
+E671 E65A                # ·Eat's baseline exit into ·See
+E65B E671                # ·Zoo's baseline exit into ·Eat
+E671 E65B                # ·Eat's baseline exit into half-·Zoo
+E65C E671                # ·She's baseline exit into ·Eat
+E671 E65C                # ·Eat before ·She (break)
+E65D E671                # ·J’ai's baseline exit into ·Eat
+E671 E65D                # ·Eat before ·J’ai (break)
+E65E E671                # ·Cheer's baseline exit into ·Eat
+E671 E65E                # ·Eat before ·Cheer (break)
+E65F E671                # ·Jay's baseline exit into ·Eat
+E671 E65F                # ·Eat before ·Jay (break)
+E660 E671                # ·Ye's baseline exit into ·Eat
+E671 E660                # ·Eat before ·Ye (break)
+E661 E671                # ·Way before ·Eat (break)
+E671 E661                # ·Eat before ·Way (break)
+E662 E671                # ·He's baseline exit into ·Eat
+E671 E662                # ·Eat before ·He (break)
+E663 E671                # ·Why before ·Eat (break)
+E671 E663                # ·Eat before ·Why (break)
+E664 E671                # ·-ing's baseline exit into ·Eat
+E671 E664                # ·Eat's baseline exit into ·-ing
+E665 E671                # ·May before ·Eat (break)
+E671 E665                # ·Eat's baseline exit into the ·May loop
+E666 E671                # the flipped ·No's baseline exit into ·Eat
+E671 E666                # ·Eat's baseline exit into the flipped ·No
+E667 E671                # ·Low before ·Eat (break)
+E671 E667                # ·Eat's baseline exit into ·Low
+E668 E671                # ·Roe before ·Eat (break)
+E671 E668                # ·Eat's baseline exit into ·Roe
+E669 E671                # ·Loch before ·Eat (break)
+E671 E669                # ·Eat before ·Loch (break)
+E66A E671                # ·Llan's baseline exit into ·Eat
+E671 E66A                # ·Eat before ·Llan (break)
+E66B E671                # ·Excite's splayed right foot joins ·Eat at the baseline
+E671 E66B                # ·Eat's baseline exit into ·Excite, whose left foot splays
+E670 E671                # ·It's baseline exit into ·Eat
+E671 E670                # ·Eat before ·It (break, under ss04 too)
+E672 E671                # ·Et's baseline exit into ·Eat
+E671 E672                # ·Eat before ·Et (break)
+E673 E671                # ·Eight's baseline exit into ·Eat
+E671 E673                # ·Eat before ·Eight (break)
+E674 E671                # ·At before ·Eat (break)
+E671 E674                # ·Eat's baseline exit into ·At
+E675 E671                # ·I before ·Eat (break)
+E671 E675                # ·Eat's baseline exit, extended by one, into ·I
+E676 E671                # ·Ah before ·Eat (break)
+E671 E676                # ·Eat's baseline exit into ·Ah
+E677 E671                # ·Awe's baseline exit into ·Eat
+E671 E677                # ·Eat before ·Awe (break)
+E678 E671                # ·Ox's baseline exit into ·Eat
+E671 E678                # ·Eat before ·Ox (break)
+E679 E671                # ·Oy's baseline exit into ·Eat
+E671 E679                # ·Eat before ·Oy (break)
+E67A E671                # the alternate ·Utter's baseline exit into ·Eat
+E671 E67A                # ·Eat's baseline exit into the mono ·Utter
+E67B E671                # ·Out before ·Eat (break)
+E671 E67B                # ·Eat's baseline exit into ·Out
+E67E E671                # ·Ooze's baseline exit into ·Eat
+E671 E67E                # ·Eat's baseline exit into ·Ooze
+E671 E671                # ·Eat's baseline exit into a second ·Eat
+E671 E671 E671           # three ·Eat joined at the baseline
+E651 E671 E675           # ·Bay ~b~ ·Eat ~b~ ·I: the exit extends by one
+E671 E653 E67A           # ·Eat's baseline exit into half-·Day+Utter
+E671 E653 E671           # ·Eat's baseline exit into half-·Day+Eat
+E671 E67B E652           # ·Eat's baseline exit into ·Out+Tea
+E671 E65A E671           # ·Eat before ·See+Eat (break: the ligature has no entry)
+E671 E65A E67A           # ·Eat before ·See+Utter (break)
+E671 E65D E67A           # ·Eat before ·J’ai+Utter (break)
+E671 E652 E679           # ·Eat before ·Tea+Oy (break)
+E671 E657 E65B           # ·Eat before ·They+Zoo (break)
+E652 E679 E671           # ·Tea+Oy's baseline exit into ·Eat
+E657 E65B E671           # ·They+Zoo before ·Eat (break)
+E67B E652 E671           # ·Out+Tea before ·Eat (break)
+E653 E67A E671           # ·Day | ·Utter.alt ~b~ ·Eat: the ·Day+Utter ligature does not form
+E65A E67A E671           # ·See+Utter before ·Eat
+E651 E653 E671           # ·Bay's baseline exit into half-·Day+Eat
+E652 E653 E671           # ·Tea's baseline exit into half-·Day+Eat
+E661 E653 E671           # ·Way's x-height exit into the full ·Day+Eat
+E675 E653 E671           # ·I's x-height exit into the full ·Day+Eat
+E670 E653 E671           # ·It's baseline exit into half-·Day+Eat
+E668 E653 E671           # ·Roe before ·Day+Eat (break)
+E653 E671 E653           # ·Day+Eat's baseline exit into half-·Day
+E653 E671 E675           # ·Day+Eat's baseline exit into ·I
+E653 E671 E670           # ·Day+Eat before ·It (break)
+E653 E671 E670 E65B      # ·Day+Eat | ·It ~b~ half-·Zoo, as after ·Eat
+E653 E671 E652           # ·Day+Eat before ·Tea (break)
+E65A E671 E675           # ·See+Eat's baseline exit, extended by one, into ·I
+E65A E671 E67B           # ·See+Eat's baseline exit into ·Out, drawn as after ·Eat
+E65A E671 E653           # ·See+Eat's baseline exit into half-·Day
+E651 E65A E671           # ·Bay before ·See+Eat (break)
+E675 E657 E671           # ·I ~x~ ·They | ·Eat: ·They's tuck for ·May does not reach ·Eat
+E676 E657 E671           # ·Ah ~x~ ·They | ·Eat
+E675 E657 E653 E671      # ·I ~x~ ·They ~b~ half-·Day+Eat, as before half-·Day
+E671 E670 E653           # ·Eat | ·It ~b~ half-·Day, under ss04 too
+E671 E670 E67A           # ·Eat | ·It ~b~ ·Utter, under ss04 too
+E671 E670 E65B           # ·Eat | ·It ~b~ half-·Zoo
+E671 E674 E665           # ·Eat | ·At ~b~ ·May: ·At's baseline tuck joins ·May instead
+E671 E67A E652 E653      # ·Eat into the alternate ·Utter, which breaks, and ·Tea keeps ·Day
+E671 E67A E65A           # ·Eat | ·Utter.alt ~b~ ·See
+E671 E666 E655 E653      # ·Eat | the flipped ·No ~b~ ·Gay ~b~ half-·Day
+E672 E652 E671           # ·Et ~b~ ·Tea | ·Eat
+E651 E655 E671           # ·Bay ~b~ ·Gay | ·Eat: the entered ·Gay exits only at the x-height
+E651 E670 E671           # ·Bay ~b~ ·It | ·Eat: the entered ·It exits only at the x-height
+200C E671                # ZWNJ before ·Eat (the locked copy)
+E671 200C E671           # ZWNJ between two ·Eat
+E651 200C E671           # ZWNJ severs ·Bay's exit into ·Eat
+E671 200C E653           # ZWNJ severs ·Eat's exit into ·Day
+200C E653 E671           # ZWNJ before the ·Day+Eat ligature
+200C E671 E675           # the locked ·Eat's baseline exit, extended by one, into ·I
+00B7 E671                # namer dot before ·Eat
+00B7 E66B E671           # namer dot, then ·Excite joins ·Eat as at a word start
+00B7 E653 E671           # namer dot before the ·Day+Eat ligature
+
+# ·Foot
+E67D                     # ·Foot in isolation
+E650 E67D                # half-·Pea's x-height exit into ·Foot, whose entry extends by one
+E67D E650                # ·Foot before ·Pea (break)
+E651 E67D                # ·Bay before ·Foot (break)
+E67D E651                # ·Foot before ·Bay (break)
+E652 E67D                # ·Tea before ·Foot (break)
+E67D E652                # ·Foot before ·Tea (break); under ss03 ·Foot's x-height exit into the full bar
+E653 E67D                # ·Day before ·Foot (break)
+E67D E653                # ·Foot's x-height exit into the full ·Day
+E654 E67D                # ·Key before ·Foot (break)
+E67D E654                # ·Foot before ·Key (break)
+E655 E67D                # ·Gay's x-height exit, extended by one, into ·Foot
+E67D E655                # ·Foot before ·Gay (break)
+E656 E67D                # ·Thaw before ·Foot (break)
+E67D E656                # ·Foot before ·Thaw (break)
+E657 E67D                # ·They's x-height exit into ·Foot
+E67D E657                # ·Foot before ·They (break)
+E658 E67D                # ·Fee's x-height exit, extended by one, into ·Foot
+E67D E658                # ·Foot before ·Fee (break)
+E659 E67D                # ·Vie before ·Foot (break)
+E67D E659                # ·Foot before ·Vie (break)
+E65A E67D                # ·See before ·Foot (break)
+E67D E65A                # ·Foot before ·See (break)
+E65B E67D                # ·Zoo before ·Foot (break)
+E67D E65B                # ·Foot's x-height exit into the full ·Zoo
+E65C E67D                # ·She before ·Foot (break)
+E67D E65C                # ·Foot before ·She (break)
+E65D E67D                # ·J’ai before ·Foot (break)
+E67D E65D                # ·Foot's x-height exit into ·J’ai, whose entry contracts by one
+E65E E67D                # ·Cheer before ·Foot (break)
+E67D E65E                # ·Foot's x-height exit into ·Cheer
+E65F E67D                # ·Jay before ·Foot (break)
+E67D E65F                # ·Foot's x-height exit into ·Jay
+E660 E67D                # ·Ye before ·Foot (break)
+E67D E660                # ·Foot's x-height exit into the climbing ·Ye
+E661 E67D                # ·Way's x-height exit into ·Foot
+E67D E661                # ·Foot before ·Way (break)
+E662 E67D                # half-·He's x-height exit into ·Foot, whose entry extends by one
+E67D E662                # ·Foot before ·He (break)
+E663 E67D                # ·Why's x-height exit into ·Foot
+E67D E663                # ·Foot before ·Why (break)
+E664 E67D                # ·-ing before ·Foot (break)
+E67D E664                # ·Foot before ·-ing (break)
+E665 E67D                # the ·May loop's x-height exit into ·Foot
+E67D E665                # ·Foot before ·May (break)
+E666 E67D                # the ·No loop's x-height exit into ·Foot
+E67D E666                # ·Foot's x-height exit into the ·No loop
+E667 E67D                # ·Low's x-height exit into ·Foot
+E67D E667                # ·Foot before ·Low (break)
+E668 E67D                # ·Roe before ·Foot (break)
+E67D E668                # ·Foot's x-height exit into ·Roe
+E669 E67D                # ·Loch before ·Foot (break)
+E67D E669                # ·Foot before ·Loch (break)
+E66A E67D                # ·Llan before ·Foot (break)
+E67D E66A                # ·Foot's x-height exit into ·Llan
+E66B E67D                # ·Excite before ·Foot (break)
+E67D E66B                # ·Foot before ·Excite (break)
+E670 E67D                # ·It's x-height exit into ·Foot
+E67D E670                # ·Foot's x-height exit into ·It
+E671 E67D                # ·Eat before ·Foot (break)
+E67D E671                # ·Foot before ·Eat (break)
+E672 E67D                # ·Et before ·Foot (break)
+E67D E672                # ·Foot's x-height exit into ·Et
+E673 E67D                # ·Eight before ·Foot (break)
+E67D E673                # ·Foot's x-height exit into ·Eight
+E674 E67D                # the rising ·At's x-height exit into ·Foot
+E67D E674                # ·Foot before ·At (break)
+E675 E67D                # ·I's x-height exit, extended by one, into ·Foot
+E67D E675                # ·Foot before ·I (break)
+E676 E67D                # ·Ah's x-height exit into ·Foot
+E67D E676                # ·Foot before ·Ah (break)
+E677 E67D                # ·Awe before ·Foot (break)
+E67D E677                # ·Foot's x-height exit into ·Awe
+E678 E67D                # ·Ox before ·Foot (break)
+E67D E678                # ·Foot's x-height exit into ·Ox
+E679 E67D                # ·Oy before ·Foot (break)
+E67D E679                # ·Foot before ·Oy (break)
+E67A E67D                # the mono ·Utter's x-height exit into ·Foot
+E67D E67A                # ·Foot before ·Utter (break)
+E67B E67D                # the swept-up ·Out's x-height exit into ·Foot
+E67D E67B                # ·Foot before ·Out (break)
+E67E E67D                # ·Ooze before ·Foot (break)
+E67D E67E                # ·Foot before ·Ooze (break)
+E67D E67D                # ·Foot's x-height exit into a second ·Foot
+E67D E67D E67D           # three ·Foot joined at the x-height
+E650 E67D E65D           # half-·Pea ~x~ ·Foot ~x~ ·J’ai: ·Foot's entry extends and ·J’ai's contracts
+E662 E67D E65D           # half-·He ~x~ ·Foot ~x~ ·J’ai
+E67D E653 E67A           # ·Foot's x-height exit into the full ·Day+Utter
+E67D E653 E671           # ·Foot's x-height exit into the full ·Day+Eat
+E67D E65D E67A           # ·Foot's x-height exit into ·J’ai+Utter, whose entry contracts by one
+E67D E65F E67A           # ·Foot's x-height exit into ·Jay+Utter
+E653 E67A E67D           # ·Day+Utter's x-height exit into ·Foot
+E65D E67A E67D           # ·J’ai+Utter's x-height exit into ·Foot
+E65F E67A E67D           # ·Jay+Utter's x-height exit into ·Foot
+E657 E67A E67D           # ·They+Utter's x-height exit into ·Foot
+E65A E67A E67D           # ·See+Utter's x-height exit into ·Foot
+E661 E67A E67D           # ·Way+Utter's x-height exit into ·Foot
+E663 E67A E67D           # ·Why+Utter's x-height exit into ·Foot
+E67D E652 E679           # ·Foot before ·Tea+Oy (break)
+E67D E657 E65B           # ·Foot before ·They+Zoo (break)
+E67D E657 E67A           # ·Foot before ·They+Utter (break)
+E67D E65A E67A           # ·Foot before ·See+Utter (break)
+E67D E67B E652           # ·Foot before ·Out+Tea (break)
+E652 E679 E67D           # ·Tea+Oy before ·Foot (break)
+E657 E65B E67D           # ·They+Zoo before ·Foot (break)
+E67B E652 E67D           # ·Out+Tea before ·Foot (break)
+E653 E671 E67D           # ·Day+Eat before ·Foot (break)
+E65A E671 E67D           # ·See+Eat before ·Foot (break)
+E67D E655 E652 E679      # ·Foot | ·Gay | ·Tea+Oy, as after ·Low
+E67D E655 E656 E664      # ·Foot | ·Gay before ·Thaw·-ing, as after ·Low
+E651 E655 E67D           # ·Bay ~b~ ·Gay ~x~ ·Foot: the entered ·Gay's exit extends by one
+E651 E665 E67D           # ·Bay ~b~ ·May ~x~ ·Foot: the entered ·May's exit extends by one
+E651 E670 E67D           # ·Bay ~b~ ·It ~x~ ·Foot
+E67D E670 E653           # ·Foot ~x~ ·It ~b~ half-·Day
+E67D E652 E653           # ·Foot | ·Tea ~b~ half-·Day; under ss03 the full bar takes both joins
+E67D E652 E67A           # ·Foot | ·Tea ~b~ ·Utter; under ss03 the full bar takes both joins
+E67D E652 E670           # ·Foot | half-·Tea ~x~ ·It; under ss03 ·Foot ~x~ ·Tea | ·It
+E650 E67D E652           # half-·Pea ~x~ ·Foot | ·Tea; under ss03 ·Foot joins the full bar too
+E67D E67A E652 E653      # ·Foot | ·Utter, and ·Tea keeps ·Day
+E67A E652 E653 E67D      # ·Utter·Tea·Day before ·Foot: ·Tea keeps ·Day
+200C E67D                # ZWNJ before ·Foot (the locked copy)
+E67D 200C E67D           # ZWNJ between two ·Foot
+E675 200C E67D           # ZWNJ severs ·I's exit into ·Foot
+E67D 200C E653           # ZWNJ severs ·Foot's exit into ·Day
+200C E67D E65D           # the locked ·Foot's x-height exit into ·J’ai, whose entry contracts by one
+00B7 E67D                # namer dot before ·Foot
+00B7 E67D E653           # namer dot, then ·Foot joins ·Day as at a word start
+
+# ·Exam
+E66C                     # ·Exam in isolation
+E650 E66C                # ·Pea before ·Exam (break)
+E66C E650                # ·Exam before ·Pea (break)
+E651 E66C                # ·Bay's baseline exit into ·Exam
+E66C E651                # ·Exam before ·Bay (break)
+E652 E66C                # ·Tea before ·Exam (break)
+E66C E652                # ·Exam before ·Tea (break)
+E653 E66C                # ·Day's baseline exit into ·Exam
+E66C E653                # ·Exam before ·Day (break)
+E654 E66C                # ·Key's baseline exit into ·Exam
+E66C E654                # ·Exam before ·Key (break)
+E655 E66C                # ·Gay's baseline exit, extended by one, into ·Exam
+E66C E655                # ·Exam before ·Gay (break)
+E656 E66C                # ·Thaw before ·Exam (break)
+E66C E656                # ·Exam before ·Thaw (break)
+E657 E66C                # ·They before ·Exam (break: the unentered ·They exits at the baseline only before ·May)
+E66C E657                # ·Exam before ·They (break)
+E658 E66C                # ·Fee before ·Exam (break)
+E66C E658                # ·Exam before ·Fee (break)
+E659 E66C                # ·Vie's swept-out baseline exit, contracted by one, into ·Exam
+E66C E659                # ·Exam before ·Vie (break)
+E65A E66C                # ·See before ·Exam (break)
+E66C E65A                # ·Exam before ·See (break)
+E65B E66C                # ·Zoo's baseline exit into ·Exam
+E66C E65B                # ·Exam before ·Zoo (break)
+E65C E66C                # ·She's flattened baseline exit into ·Exam
+E66C E65C                # ·Exam before ·She (break)
+E65D E66C                # ·J’ai's baseline exit, extended by one, into ·Exam
+E66C E65D                # ·Exam before ·J’ai (break)
+E65E E66C                # ·Cheer's baseline exit into ·Exam
+E66C E65E                # ·Exam before ·Cheer (break)
+E65F E66C                # ·Jay's baseline exit, extended by one, into ·Exam
+E66C E65F                # ·Exam before ·Jay (break)
+E660 E66C                # ·Ye before ·Exam (break)
+E66C E660                # ·Exam before ·Ye (break)
+E661 E66C                # half-·Way's baseline exit into ·Exam
+E66C E661                # ·Exam before ·Way (break)
+E662 E66C                # ·He's baseline exit, extended by one, into ·Exam
+E66C E662                # ·Exam before ·He (break)
+E663 E66C                # ·Why before ·Exam (break)
+E66C E663                # ·Exam before ·Why (break)
+E664 E66C                # ·-ing's baseline exit into ·Exam
+E66C E664                # ·Exam before ·-ing (break)
+E665 E66C                # the grounded ·May's baseline exit into ·Exam
+E66C E665                # ·Exam before ·May (break)
+E666 E66C                # the flipped ·No's baseline exit into ·Exam
+E66C E666                # ·Exam before ·No (break)
+E667 E66C                # ·Low before ·Exam (break)
+E66C E667                # ·Exam before ·Low (break)
+E668 E66C                # ·Roe before ·Exam (break)
+E66C E668                # ·Exam before ·Roe (break)
+E669 E66C                # ·Loch before ·Exam (break)
+E66C E669                # ·Exam before ·Loch (break)
+E66A E66C                # ·Llan's baseline exit into ·Exam
+E66C E66A                # ·Exam before ·Llan (break)
+E66B E66C                # ·Excite's splayed right foot joins ·Exam at the baseline
+E66C E66B                # ·Exam before ·Excite (break)
+E670 E66C                # ·It before ·Exam (break)
+E66C E670                # ·Exam before ·It (break)
+E671 E66C                # ·Eat before ·Exam (break)
+E66C E671                # ·Exam before ·Eat (break)
+E672 E66C                # ·Et's baseline exit into ·Exam
+E66C E672                # ·Exam before ·Et (break)
+E673 E66C                # ·Eight's baseline exit, extended by one, into ·Exam
+E66C E673                # ·Exam before ·Eight (break)
+E674 E66C                # ·At before ·Exam (break)
+E66C E674                # ·Exam before ·At (break)
+E675 E66C                # ·I before ·Exam (break)
+E66C E675                # ·Exam before ·I (break)
+E676 E66C                # ·Ah before ·Exam (break)
+E66C E676                # ·Exam before ·Ah (break)
+E677 E66C                # ·Awe's baseline exit into ·Exam
+E66C E677                # ·Exam before ·Awe (break)
+E678 E66C                # ·Ox's baseline exit into ·Exam
+E66C E678                # ·Exam before ·Ox (break)
+E679 E66C                # ·Oy's baseline exit into ·Exam
+E66C E679                # ·Exam before ·Oy (break)
+E67A E66C                # the alternate ·Utter's baseline exit into ·Exam
+E66C E67A                # ·Exam before ·Utter (break)
+E67B E66C                # ·Out before ·Exam (break)
+E66C E67B                # ·Exam before ·Out (break)
+E67D E66C                # ·Foot before ·Exam (break)
+E66C E67D                # ·Exam before ·Foot (break)
+E67E E66C                # ·Ooze's baseline exit into ·Exam
+E66C E67E                # ·Exam before ·Ooze (break)
+E66C E66C                # ·Exam before a second ·Exam (break)
+E66B E66B E66C           # ·Excite ~b~ ·Excite ~b~ ·Exam: the middle ·Excite splays both feet
+E652 E679 E66C           # ·Tea+Oy's baseline exit into ·Exam
+E657 E65B E66C           # ·They+Zoo's baseline exit into ·Exam
+E67B E652 E66C           # ·Out+Tea before ·Exam (break)
+E653 E671 E66C           # ·Day+Eat before ·Exam (break)
+E65A E671 E66C           # ·See+Eat before ·Exam (break)
+E653 E67A E66C           # ·Day | ·Utter ~b~ ·Exam: no ·Day+Utter before ·Exam
+E65D E67A E66C           # ·J’ai | ·Utter ~b~ ·Exam: no ·J’ai+Utter before ·Exam
+E66C E653 E67A           # ·Exam before ·Day+Utter (break)
+E66C E652 E679           # ·Exam before ·Tea+Oy (break)
+E66C E657 E65B           # ·Exam before ·They+Zoo (break)
+E66C E67B E652           # ·Exam before ·Out+Tea (break)
+E651 E655 E66C           # ·Bay | ·Gay ~b~ ·Exam: ·Gay takes its extended exit
+E67A E655 E66C           # ·Utter ~x~ ·Gay ~b~ ·Exam: the entered ·Gay's exit extends by one too
+E675 E657 E66C           # ·I ~x~ ·They ~b~ ·Exam: the entered ·They joins ·Exam
+E676 E657 E66C           # ·Ah ~x~ ·They ~b~ ·Exam
+E658 E652 E66C           # ·Fee before ·Tea, which never joins ·Exam at the baseline
+E672 E652 E66C           # ·Et ~b~ ·Tea | ·Exam, under ss05 too
+E653 E670 E66C           # ·Day ~b~ ·It | ·Exam, under ss04 too
+E651 E670 E66C           # ·Bay ~b~ ·It | ·Exam
+E650 E665 E66C           # ·Pea ~b~ ·May | ·Exam
+E650 E666 E66C           # ·Pea ~b~ ·No ~b~ ·Exam, as before ·Excite
+E657 E65B E660 E66C      # ·They+Zoo ~b~ ·Ye | ·Exam
+E67A E652 E653 E66C      # ·Utter·Tea·Day·Exam: ·Tea keeps ·Day, and ·Day joins ·Exam
+E66C E67A E652 E653      # ·Exam | ·Utter, and ·Tea keeps ·Day
+E652 E653 E66C           # ·Tea ~b~ half-·Day ~b~ ·Exam
+200C E66C                # ZWNJ before ·Exam (the locked copy)
+E66C 200C E66C           # ZWNJ between two ·Exam
+E651 200C E66C           # ZWNJ severs ·Bay's exit into ·Exam
+0020 E66B E66C           # word-initial ·Excite joins ·Exam, as at a text edge
+00B7 E66C                # namer dot before ·Exam
+00B7 E66B E66C           # namer dot, then ·Excite joins ·Exam as at a word start
+
+# ·Owe
+E67C                     # ·Owe in isolation
+E650 E67C                # ·Pea before ·Owe (break)
+E67C E650                # ·Owe before ·Pea (break)
+E651 E67C                # ·Bay before ·Owe (break)
+E67C E651                # ·Owe before ·Bay (break)
+E652 E67C                # ·Tea before ·Owe (break)
+E67C E652                # ·Owe before ·Tea (break)
+E653 E67C                # ·Day before ·Owe (break)
+E67C E653                # ·Owe before ·Day (break)
+E654 E67C                # ·Key before ·Owe (break)
+E67C E654                # ·Owe before ·Key (break)
+E655 E67C                # ·Gay's x-height exit, extended by 2, into ·Owe
+E67C E655                # ·Owe before ·Gay (break)
+E656 E67C                # ·Thaw before ·Owe (break)
+E67C E656                # ·Owe before ·Thaw (break)
+E657 E67C                # ·They's x-height exit into ·Owe
+E67C E657                # ·Owe before ·They (break)
+E658 E67C                # ·Fee's x-height exit, extended by 1, into ·Owe
+E67C E658                # ·Owe's x-height exit, extended by 2, into ·Fee
+E659 E67C                # ·Vie before ·Owe (break)
+E67C E659                # ·Owe before ·Vie (break)
+E65A E67C                # ·See before ·Owe (break)
+E67C E65A                # ·Owe before ·See (break)
+E65B E67C                # ·Zoo before ·Owe (break)
+E67C E65B                # ·Owe's x-height exit into ·Zoo
+E65C E67C                # ·She before ·Owe (break)
+E67C E65C                # ·Owe before ·She (break)
+E65D E67C                # ·J’ai before ·Owe (break)
+E67C E65D                # ·Owe's x-height exit into ·J’ai
+E65E E67C                # ·Cheer before ·Owe (break)
+E67C E65E                # ·Owe's x-height exit, extended by 1, into ·Cheer
+E65F E67C                # ·Jay before ·Owe (break)
+E67C E65F                # ·Owe's x-height exit into ·Jay
+E660 E67C                # ·Ye before ·Owe (break)
+E67C E660                # ·Owe's x-height exit into ·Ye
+E661 E67C                # ·Way's x-height exit into ·Owe
+E67C E661                # ·Owe before ·Way (break)
+E662 E67C                # ·He before ·Owe (break)
+E67C E662                # ·Owe before ·He (break)
+E663 E67C                # ·Why before ·Owe (break)
+E67C E663                # ·Owe before ·Why (break)
+E664 E67C                # ·-ing before ·Owe (break)
+E67C E664                # ·Owe before ·-ing (break)
+E665 E67C                # ·May's x-height exit into ·Owe
+E67C E665                # ·Owe before ·May (break)
+E666 E67C                # ·No's x-height exit into ·Owe
+E67C E666                # ·Owe's x-height exit into ·No
+E667 E67C                # ·Low's x-height exit into ·Owe
+E67C E667                # ·Owe before ·Low (break)
+E668 E67C                # ·Roe before ·Owe (break)
+E67C E668                # ·Owe's x-height exit, extended by 1, into ·Roe
+E669 E67C                # ·Loch before ·Owe (break)
+E67C E669                # ·Owe before ·Loch (break)
+E66A E67C                # ·Llan before ·Owe (break)
+E67C E66A                # ·Owe's x-height exit into ·Llan
+E66B E67C                # ·Excite before ·Owe (break)
+E67C E66B                # ·Owe before ·Excite (break)
+E66C E67C                # ·Exam before ·Owe (break)
+E67C E66C                # ·Owe before ·Exam (break)
+E670 E67C                # ·It's x-height exit, extended by 1, into ·Owe
+E67C E670                # ·Owe's x-height exit, extended by 1, into ·It
+E671 E67C                # ·Eat before ·Owe (break)
+E67C E671                # ·Owe before ·Eat (break)
+E672 E67C                # ·Et before ·Owe (break)
+E67C E672                # ·Owe's x-height exit into ·Et
+E673 E67C                # ·Eight before ·Owe (break)
+E67C E673                # ·Owe's x-height exit into ·Eight
+E674 E67C                # ·At's x-height exit into ·Owe
+E67C E674                # ·Owe before ·At (break)
+E675 E67C                # ·I's x-height exit into ·Owe
+E67C E675                # ·Owe before ·I (break)
+E676 E67C                # ·Ah's x-height exit into ·Owe
+E67C E676                # ·Owe before ·Ah (break)
+E677 E67C                # ·Awe before ·Owe (break)
+E67C E677                # ·Owe's x-height exit into ·Awe
+E678 E67C                # ·Ox before ·Owe (break)
+E67C E678                # ·Owe's x-height exit into ·Ox
+E679 E67C                # ·Oy before ·Owe (break)
+E67C E679                # ·Owe's x-height exit into ·Oy
+E67A E67C                # ·Utter's x-height exit into ·Owe
+E67C E67A                # ·Owe before ·Utter (break)
+E67B E67C                # ·Out's x-height exit into ·Owe
+E67C E67B                # ·Owe before ·Out (break)
+E67D E67C                # ·Foot's x-height exit into ·Owe
+E67C E67D                # ·Owe's x-height exit into ·Foot
+E67E E67C                # ·Ooze before ·Owe (break)
+E67C E67E                # ·Owe before ·Ooze (break)
+E67C E67C                # ·Owe's x-height exit into a second ·Owe
+E67C E65D E67A           # ·Owe's x-height exit into ·J’ai+Utter
+E67C E65F E67A           # ·Owe's x-height exit into ·Jay+Utter
+E67C E653 E67A           # ·Owe before ·Day+Utter (break; joins under ss07)
+E67C E653 E671           # ·Owe before ·Day+Eat (break; joins under ss07)
+E653 E67A E67C           # ·Day+Utter's x-height exit into ·Owe
+E65D E67A E67C           # ·J’ai+Utter's x-height exit into ·Owe
+E657 E65B E67C           # ·They+Zoo before ·Owe (break)
+E652 E679 E67C           # ·Tea+Oy before ·Owe (break)
+E67B E652 E67C           # ·Out+Tea before ·Owe (break)
+E67C E652 E679           # ·Owe before ·Tea+Oy (break)
+E67C E657 E65B           # ·Owe before ·They+Zoo (break)
+E674 E666 E67C E653      # ·At ~x~ ·No ~x~ ·Owe | ·Day; under ss07 ·Owe ~x~ ·Day, as The Manual pins
+E67C E652 E67A           # ·Owe | ·Tea; under ss03 ·Owe ~x~ the half ·Tea, which then breaks
+E665 E67C E652           # ·May ~x~ ·Owe | ·Tea; under ss03 ·Owe's exit, extended by one, reaches the half ·Tea
+E651 E655 E67C           # ·Bay ~b~ ·Gay ~x~ ·Owe
+E653 E655 E67C           # ·Day ~b~ ·Gay ~x~ ·Owe
+E67A E655 E67C           # ·Utter ~x~ ·Gay | ·Owe: an x-height-entered ·Gay cannot exit at the x-height
+E676 E655 E67C           # ·Ah | ·Gay ~x~ ·Owe: after ·Ah, ·Gay prefers its x-height exit
+E65A E667 E67C           # ·See ~b~ ·Low ~x~ ·Owe; The Manual's pin breaks it with a ZWNJ
+E655 E667 E67C E651      # ·Gay ~b~ ·Low ~x~ ·Owe | ·Bay; The Manual's pin breaks ·Low·Owe with a ZWNJ
+E667 E67C E65B           # ·Low ~x~ ·Owe ~x~ ·Zoo
+E65A E667 200C E67C      # ·See ~b~ ·Low | ZWNJ | ·Owe, as The Manual pins
+E67C E66A E655           # ·Owe ~x~ ·Llan ~b~ ·Gay
+E657 E67C E67C           # ·They ~x~ ·Owe ~x~ ·Owe: both rings open where they join
+E657 E67C E65B           # ·They ~x~ ·Owe ~x~ ·Zoo: ·Owe joined on both sides
+E670 E67C E670           # ·It ~x~ ·Owe ~x~ ·It, each exit extended by one
+E67C E670 E653           # ·Owe ~x~ ·It ~b~ ·Day
+E67C E67A E652 E653      # ·Owe | ·Utter, and ·Tea keeps ·Day
+E67A E652 E653 E67C      # ·Utter·Tea·Day | ·Owe: ·Tea keeps ·Day
+200C E67C                # ZWNJ before ·Owe (the locked copy; gapped under ss06)
+E67C 200C E67C           # ZWNJ between two ·Owe
+E657 200C E67C           # ZWNJ severs ·They's exit into ·Owe
+E67C 200C E65B           # ZWNJ severs ·Owe's exit into ·Zoo
+200C E67C E65B           # the locked ·Owe's x-height exit into ·Zoo
+200C E655 E67C           # ZWNJ, then the locked ·Gay's x-height exit into ·Owe
+00B7 E67C                # namer dot before ·Owe
+00B7 E67C E65B           # namer dot, then ·Owe joins ·Zoo as at a word start

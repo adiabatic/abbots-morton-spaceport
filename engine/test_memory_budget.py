@@ -1,0 +1,634 @@
+"""Tests for the memory-budget policy in `engine/tools/memory_budget.py`, for the widths derived from it, and for the `-n auto` hook.
+
+Most tests are pure functions over an invented machine, because `total_bytes`, `floor_bytes` and `fraction` are keyword parameters on every policy function. The probes are tested through their pure parsers over the checked-in samples under `engine/fixtures/memory_budget/`, and the two cgroup readers are pointed at those sample roots, so every container case runs on a laptop. The only test that compares a live reading with an outside figure checks `total_memory_bytes()` against `sysctl -n hw.memsize`, on Darwin only.
+
+Three constants here are recorded measurements, kept as literals so that re-measuring a shipped constant cannot move the reproduction of an earlier width. `KERNEL_CONFIG_BYTES` is what one kernel configuration in flight cost when issue #85 was written; it does not follow `kernel_exec.DELTA_SLOT_BYTES`. `FONT_POOL_BYTES` is ten font-suite workers at the top of the 0.11–0.28 GB range the root `conftest.py` records beside `FONT_SUITE_WORKER_BYTES`; it does not follow that constant, which rounds up past the range. `ISSUE_RESERVE_FLOOR_BYTES` is the 4 GB reserve floor issue #85 stated its widths under; the shipped floor, `RESERVE_FLOOR_BYTES`, is 8 GB.
+
+`TestTheWidthsAlreadyOnRecord` shows the formula reproducing widths that were measured independently of it, over an invented 32 GB machine. The shipped kernel width is derived from the running machine, so no test compares it with a fixed number. Instead the tests check that the shipped kernel terms (`kernel_exec.table_build_booking_bytes`) still fit the whole wave, every configuration at once, on the fleet's 48 GiB machines when the build runs alone; `engine/test_artifact_cycle.py` checks the widths beside the cycle's pytest pool. `TestWhatDashNAutoResolvesTo` drives the root `pytest_xdist_auto_num_workers` hook, and `TestTheHandRunDefaults` checks that each width a hand run gets without naming one is still derived from the machine.
+
+Nothing here reads a live build artifact. The audit guard in `engine/conftest.py` fails any contracts test that reads `engine/out/`, `tmp/`, `var/`, or a root `verdicts-*` store.
+"""
+
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+from types import ModuleType
+
+import pytest
+
+from engine.pipeline.kernel_exec import DEFAULT_MEMO_BYTES, SCRATCH_PEAK_BYTES
+from engine.tools import memory_budget
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SAMPLES = REPO_ROOT / "engine" / "fixtures" / "memory_budget"
+
+KERNEL_CONFIG_BYTES = 9_000_000_000
+FONT_POOL_BYTES = 2_800_000_000
+ISSUE_RESERVE_FLOOR_BYTES = 4_000_000_000
+MACHINE_32_GIB = 34_359_738_368
+MACHINE_48_GIB = 51_539_607_552
+MACHINE_32_GB = 32_000_000_000
+MACHINE_64_GB = 64_000_000_000
+MACHINE_1_TB = 1_000_000_000_000
+SPELLINGS_OF_32_GB = (MACHINE_32_GIB, MACHINE_32_GB)
+
+MACHINE_SIZES = (
+    4_000_000_000,
+    8_000_000_000,
+    16_000_000_000,
+    MACHINE_32_GB,
+    MACHINE_32_GIB,
+    48_000_000_000,
+    64_000_000_000,
+    96_000_000_000,
+    128_000_000_000,
+    192_000_000_000,
+    256_000_000_000,
+    512_000_000_000,
+)
+
+CLAUSE = re.compile(
+    r"^(?P<count>\d+) at (?P<per_unit>[\d.]+) GB each out of (?P<total>[\d.]+) GB total"
+    r", less a reserve of (?P<reserve>[\d.]+) GB"
+    r"(?:, less (?P<coresident>[\d.]+) GB co-resident)?"
+)
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_override(monkeypatch: pytest.MonkeyPatch):
+    """Clear both environment variables this module reads, so that a value exported in the shell that started pytest cannot decide a width. A test that is about one of them sets it again. An exported `PYTEST_XDIST_AUTO_NUM_WORKERS` would make every hook return that number and let the hook tests pass for the wrong reason."""
+    monkeypatch.delenv("AMS_TOTAL_MEMORY_BYTES", raising=False)
+    monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
+
+
+def _sample(*parts: str) -> str:
+    return SAMPLES.joinpath(*parts).read_text(encoding="utf-8")
+
+
+def _defined_public_names() -> set[str]:
+    """Return the public names `memory_budget` defines itself, leaving out imports. Modules (`os`, `re`, `sys`) are dropped by type, and `Path`, `format_gb` and `annotations` by their `__module__`. An int, a float or a dict has no `__module__`, so a policy constant stays in the set, and so would a mapping of per-unit costs."""
+    home = memory_budget.__name__
+    return {
+        name
+        for name, value in vars(memory_budget).items()
+        if not name.startswith("_")
+        and not isinstance(value, ModuleType)
+        and getattr(value, "__module__", home) == home
+    }
+
+
+def _loaded_conftest(pytestconfig: pytest.Config, path: Path) -> ModuleType:
+    """Return the conftest module pytest loaded from `path`, looked up on the plugin manager, which registers each conftest under its absolute path. The tests need the live object, not an import: `import engine.conftest` would execute a second copy beside the one pytest loaded and installed the audit hook in, and the root `conftest.py` cannot be imported by name in a run collected under engine/, where the plain `conftest` in `sys.modules` is engine/'s own."""
+    plugin = pytestconfig.pluginmanager.get_plugin(str(path))
+    assert isinstance(plugin, ModuleType), f"pytest has not loaded {path} as a plugin"
+    return plugin
+
+
+class TestTheWidthsAlreadyOnRecord:
+    @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
+    def test_the_formula_gives_the_solo_kernel_width_issue_46_measured(self, total: int):
+        """Sub-issue #46 ran the fan-out at widths 1, 2, 3 and 6 on a 10-core 32 GB Darwin machine and concluded that the solo width there "is about 3". That measurement did not use this module, and this module was not tuned toward it: the divisor is the recorded cost of one configuration in flight and the floor is the one issue #85 stated. Both readings of "32 GB" are tested, so the result does not depend on the unit convention."""
+        assert (
+            memory_budget.how_many_fit(
+                KERNEL_CONFIG_BYTES, total_bytes=total, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES
+            )
+            == 3
+        )
+
+    @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
+    def test_subtracting_the_font_pool_gives_the_width_the_32_gb_machine_shipped(self, total: int):
+        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `engine/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `make_test_pool_width` workers (the gate lane's share of the cores), not ten, so this test keeps the recorded fact with its own constants. The live `kernel_exec.kernel_threads_default` is not asserted, because it is the running machine's solo width and differs between machines."""
+        assert (
+            memory_budget.how_many_fit(
+                KERNEL_CONFIG_BYTES,
+                coresident_bytes=FONT_POOL_BYTES,
+                total_bytes=total,
+                floor_bytes=ISSUE_RESERVE_FLOOR_BYTES,
+            )
+            == 2
+        )
+
+    @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
+    def test_the_shipped_eight_gigabyte_floor_yields_the_width_the_32_gb_machine_shipped(self, total: int):
+        """The shipped policy reserves 8 GB instead of the issue's 4 GB, which costs the same 32 GB machine one configuration: with nothing subtracted it returns 2 where the issue's floor returned 3, and it still returns 2 with the font pool subtracted. That is why the floor is a parameter, so the test above can reproduce the issue's width."""
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total) == 2
+        assert (
+            memory_budget.how_many_fit(
+                KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=total
+            )
+            == 2
+        )
+
+    def test_the_shipped_terms_fit_the_whole_wave_on_the_48_gib_machines(self, monkeypatch):
+        """The criterion the kernel terms are chosen against: on the fleet's 48 GiB machines the solo width is the configuration count, every delta in a slot of its own and `default`'s fold preparation in one more, so the wave runs in one round. A change to any of `DELTA_SLOT_BYTES`, `FOLD_PREPARATION_BYTES`, `DEFAULT_MEMO_BYTES`, `PARKED_FOLD_BYTES` or `READ_BACK_FOLD_BYTES` that costs those machines a slot fails here. With `SCRATCH_PEAK_BYTES` as it stands, those machines also have room for every delta from scratch beside `default` and start them all; a re-measure that leaves room for fewer fails here, so the count is pinned where it is chosen. The last assertion checks that `TABLE_BUILD_PEAK_BYTES`, which `make job-costs` holds the higher of the build step's peak and the table build's peak footprint to, is the booking at that width with every delta from scratch beside `default`, so re-measuring a term moves it too. `AMS_KERNEL_THREADS` is cleared first, because an exported width would pass whatever the constants are."""
+        from engine.pipeline.conform import SETTLEMENT_CONFIGS
+        from engine.pipeline.kernel_exec import (
+            TABLE_BUILD_PEAK_BYTES,
+            deltas_from_scratch,
+            kernel_threads_default,
+            table_build_booking_bytes,
+        )
+
+        monkeypatch.delenv("AMS_KERNEL_THREADS", raising=False)
+        count = len(SETTLEMENT_CONFIGS)
+        assert kernel_threads_default(configs=count, total_bytes=MACHINE_48_GIB) == count
+        assert deltas_from_scratch(count, configs=count, total_bytes=MACHINE_48_GIB) == count - 1
+        assert TABLE_BUILD_PEAK_BYTES == table_build_booking_bytes(
+            count, configs=count, scratch_beside_default=count - 1
+        )
+
+    def test_the_replay_divisor_fits_every_configuration_on_both_fleet_machines(self, monkeypatch):
+        """The criterion `REPLAY_PEAK_BYTES` is chosen against: on both fleet machines, 48 GiB each, the string replay's memory-derived width covers every settlement configuration, so all texts replay in one round. The second assertion checks that a replay costs less than a configuration enumerated from scratch, since a replay's engine holds a subset of what that enumeration holds; a value at or above `SCRATCH_PEAK_BYTES` means the constant no longer measures the replay. `AMS_REPLAY_THREADS` is cleared first, for the same reason as in the delta-wave test."""
+        from engine.pipeline.conform import SETTLEMENT_CONFIGS
+        from engine.pipeline.kernel_exec import REPLAY_PEAK_BYTES, replay_threads_default
+
+        monkeypatch.delenv("AMS_REPLAY_THREADS", raising=False)
+        assert replay_threads_default(total_bytes=MACHINE_48_GIB) >= len(SETTLEMENT_CONFIGS)
+        assert 0 < REPLAY_PEAK_BYTES < SCRATCH_PEAK_BYTES
+
+    def test_the_memo_term_is_positive_and_the_slot_terms_keep_their_order(self):
+        """`DEFAULT_MEMO_BYTES` books `default`'s memo snapshot kept alive for the wave, so it is positive. A parked fold product is part of what its configuration held at its peak, so `PARKED_FOLD_BYTES` is smaller than `SCRATCH_PEAK_BYTES`, or a from-scratch slot's divisor would not be positive. The slot that runs only `default`'s fold preparation costs no more than a delta's (`FOLD_PREPARATION_BYTES` at most `DELTA_SLOT_BYTES`), so a width at or below the delta count, where a delta takes that slot once the preparation ends, is booked at its deltas alone."""
+        from engine.pipeline.kernel_exec import DELTA_SLOT_BYTES, FOLD_PREPARATION_BYTES, PARKED_FOLD_BYTES
+
+        assert 0 < DEFAULT_MEMO_BYTES
+        assert 0 < PARKED_FOLD_BYTES < SCRATCH_PEAK_BYTES
+        assert 0 < FOLD_PREPARATION_BYTES <= DELTA_SLOT_BYTES
+
+
+class TestWhatDashNAutoResolvesTo:
+    """The root hook resolves every repository collection to the usable cores unless the environment names a width. Memory never narrows this pool, so the tests vary `AMS_TOTAL_MEMORY_BYTES` while pinning the same core count."""
+
+    @pytest.fixture
+    def root_hook(self, pytestconfig: pytest.Config):
+        return _loaded_conftest(pytestconfig, REPO_ROOT / "conftest.py")
+
+    @pytest.mark.parametrize("total", ["4000000000", str(MACHINE_1_TB)])
+    def test_every_core_is_used_regardless_of_memory(
+        self,
+        root_hook: ModuleType,
+        pytestconfig: pytest.Config,
+        monkeypatch: pytest.MonkeyPatch,
+        total: str,
+    ):
+        """No rebuild worker reads a live artifact, and font-suite workers are small enough that cores limit their pool before memory does."""
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", total)
+        monkeypatch.setattr(memory_budget, "usable_cores", lambda: 7)
+        assert root_hook.pytest_xdist_auto_num_workers(pytestconfig) == 7
+
+    @pytest.mark.parametrize("width", ["3", "0"])
+    def test_the_environment_override_outranks_the_default_and_keeps_one_worker(
+        self,
+        root_hook: ModuleType,
+        pytestconfig: pytest.Config,
+        monkeypatch: pytest.MonkeyPatch,
+        width: str,
+    ):
+        monkeypatch.setenv("PYTEST_XDIST_AUTO_NUM_WORKERS", width)
+        monkeypatch.setattr(memory_budget, "usable_cores", lambda: pytest.fail("override probed cores"))
+        assert root_hook.pytest_xdist_auto_num_workers(pytestconfig) == max(1, int(width))
+
+
+class TestTheFloorAtOne:
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"total_bytes": 2_000_000_000},
+            {"total_bytes": 8_000_000_000},
+            {"total_bytes": MACHINE_32_GB, "cap": 0},
+            {"total_bytes": MACHINE_32_GB, "cap": -4},
+            {"total_bytes": MACHINE_32_GB, "coresident_bytes": 24_000_000_000},
+            {"total_bytes": MACHINE_32_GB, "coresident_bytes": 1_000_000_000_000},
+            {"total_bytes": 1},
+        ],
+    )
+    def test_a_machine_too_small_for_one_unit_answers_one_and_never_zero(self, kwargs: dict[str, int]):
+        """A build that will not start on a small machine is worse than one that runs slowly, so every way of reaching a budget of nothing returns one instead of zero: a tiny machine, a cap of zero or less, a co-resident pool that uses up the budget, and a pool larger than the machine. A negative budget does not raise."""
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, **kwargs) == 1
+
+    def test_a_per_unit_cost_larger_than_any_machine_still_answers_one(self):
+        assert memory_budget.how_many_fit(1_000_000_000_000_000, total_bytes=512_000_000_000) == 1
+
+    def test_an_unmeasured_unit_answers_the_cap_or_one_and_never_divides_by_zero(self):
+        """A per-unit cost of zero or less means the unit is unmeasured, so it gets no memory-derived width: the answer is the cap if there is one, and one otherwise."""
+        assert memory_budget.how_many_fit(0, total_bytes=MACHINE_32_GB) == 1
+        assert memory_budget.how_many_fit(0, total_bytes=MACHINE_32_GB, cap=6) == 6
+        assert memory_budget.how_many_fit(-1, total_bytes=MACHINE_32_GB, cap=6) == 6
+        assert memory_budget.how_many_fit(0, total_bytes=MACHINE_32_GB, cap=0) == 1
+
+
+class TestNoInputWidensTheAnswerByAccident:
+    """Every degenerate input produces a narrower width, and every input the signatures accept produces an int, because a width is passed to `range` or to an argv."""
+
+    @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
+    def test_a_negative_co_resident_pool_subtracts_nothing_rather_than_adding(self, total: int):
+        """A call site that computes a pool's footprint as a difference can reach a negative number, and subtracting it would give a budget larger than the machine. It is clamped at zero, so the width equals the width with no pool, and `describe_fit` prints no co-resident clause, since that clause appears only when something was subtracted."""
+        unstated = memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total)
+        assert (
+            memory_budget.how_many_fit(
+                KERNEL_CONFIG_BYTES, coresident_bytes=-100_000_000_000, total_bytes=total
+            )
+            == unstated
+        )
+        assert memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES, coresident_bytes=-100_000_000_000, total_bytes=total
+        ) == memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=total)
+
+    def test_a_byte_count_written_the_way_this_repo_writes_a_gigabyte_answers_an_int(self):
+        """`peak_rss.py` writes a gigabyte as `1e9`, so a byte-count keyword is often a float. A float width fails far from its cause (`range` raises on it and an argv carries it as `-n 4.0`), so each byte count is truncated to an int on the way in."""
+        width = memory_budget.how_many_fit(9e9, total_bytes=MACHINE_32_GB, floor_bytes=4e9)
+        assert isinstance(width, int)
+        assert width == memory_budget.how_many_fit(
+            KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES
+        )
+        assert isinstance(memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB, floor_bytes=8e9), int)
+        assert "4.0" not in memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES,
+            total_bytes=MACHINE_32_GB,
+            cap=4.0,  # pyright: ignore[reportArgumentType]
+        )
+
+    def test_a_cap_arrives_as_a_count_and_leaves_as_one(self):
+        """The cap is a count, so its annotation stays `int` and pyright rejects a float at any call site in this tree. The coercion is for the bench harnesses `memory_budget`'s docstring mentions, which import it without type checking."""
+        capped = memory_budget.how_many_fit(
+            KERNEL_CONFIG_BYTES,
+            total_bytes=512_000_000_000,
+            cap=4.0,  # pyright: ignore[reportArgumentType]
+        )
+        assert isinstance(capped, int)
+        assert capped == 4
+
+
+class TestTheReserveAndCapShape:
+    def test_the_sweep_straddles_the_crossover_so_both_branches_are_exercised(self):
+        crossover = memory_budget.RESERVE_FLOOR_BYTES / memory_budget.RESERVE_FRACTION
+        assert min(MACHINE_SIZES) < crossover < max(MACHINE_SIZES)
+
+    @pytest.mark.parametrize("total", MACHINE_SIZES)
+    def test_the_floor_binds_below_the_crossover_and_the_fraction_above_it(self, total: int):
+        floor = memory_budget.RESERVE_FLOOR_BYTES
+        fraction = memory_budget.RESERVE_FRACTION
+        reserve = memory_budget.os_reserve_bytes(total_bytes=total)
+        assert reserve == max(floor, int(total * fraction))
+        if total < floor / fraction:
+            assert reserve == floor
+        else:
+            assert reserve == int(total * fraction) > floor
+
+    def test_the_floor_and_the_fraction_are_both_levers(self):
+        """Both the floor and the fraction change the reserve, which lets a test reproduce an earlier policy's widths without fitting today's constants to them."""
+        assert (
+            memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES)
+            == 4_800_000_000
+        )
+        assert memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB) == 8_000_000_000
+        assert memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB, fraction=0.5) == 16_000_000_000
+        assert (
+            memory_budget.os_reserve_bytes(
+                total_bytes=MACHINE_32_GB, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES, fraction=0.0
+            )
+            == ISSUE_RESERVE_FLOOR_BYTES
+        )
+
+    def test_the_count_never_falls_as_the_machine_grows(self):
+        totals = sorted(MACHINE_SIZES)
+        counts = [memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total) for total in totals]
+        with_pool = [
+            memory_budget.how_many_fit(
+                KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=total
+            )
+            for total in totals
+        ]
+        assert counts == sorted(counts)
+        assert with_pool == sorted(with_pool)
+        assert min(counts) >= 1 and min(with_pool) >= 1
+        assert counts[0] == 1 and counts[-1] > counts[0]
+        assert all(pooled <= alone for pooled, alone in zip(with_pool, counts))
+
+    @pytest.mark.parametrize(
+        "cores, shares", [(18, (9, 9)), (12, (6, 6)), (10, (5, 5)), (9, (5, 4)), (1, (1, 1))]
+    )
+    def test_the_lanes_split_the_cores_with_the_odd_one_to_the_build_and_one_each_at_least(
+        self, cores: int, shares: tuple[int, int]
+    ):
+        """`split_cores` gives the build lane the odd core, so its parent and workers never get fewer cores than gate:make-test's pool, and gives each lane at least one, so a one-core machine still starts both."""
+        assert memory_budget.split_cores(cores) == shares
+
+    @pytest.mark.parametrize("total", MACHINE_SIZES)
+    def test_the_cap_binds_when_it_is_lower_and_is_invisible_when_it_is_not(self, total: int):
+        uncapped = memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total)
+        capped = memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total, cap=4)
+        assert capped == min(uncapped, 4)
+        assert 1 <= capped <= 4
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=total, cap=10_000) == uncapped
+        assert uncapped >= 1
+
+
+class TestTheCgroupClamp:
+    def test_a_v2_chain_binds_on_the_least_limit_along_the_walk_not_the_leafs(self):
+        """The sample container's leaf scope sets 4 GB and an ancestor sets 2 GB. A reader that stopped at the leaf would return the looser figure, and the container would be OOM-killed at the tighter one."""
+        assert memory_budget._cgroup_memory_limit_bytes(SAMPLES / "container-v2") == 2_000_000_000
+
+    def test_a_v1_unlimited_sentinel_is_absent_and_the_containers_own_limit_binds(self):
+        """`memory.limit_in_bytes` writes unlimited as a page-rounded 2**63-1, which parses as a valid int and would clamp nothing while appearing to."""
+        assert memory_budget._cgroup_memory_limit_bytes(SAMPLES / "container-v1") == 2_147_483_648
+
+    def test_memory_high_is_a_limit_too_and_not_only_memory_max(self, tmp_path: Path):
+        """The checked-in v2 chain has a `memory.high`, but its tightest limit is a `memory.max`, so only a root whose sole limit is a `memory.high` shows that both v2 files are read."""
+        (tmp_path / "proc" / "self").mkdir(parents=True)
+        (tmp_path / "proc" / "self" / "cgroup").write_text("0::/only.slice\n", encoding="utf-8")
+        only = tmp_path / "sys" / "fs" / "cgroup" / "only.slice"
+        only.mkdir(parents=True)
+        (only / "memory.max").write_text("max\n", encoding="utf-8")
+        (only / "memory.high").write_text("1500000000\n", encoding="utf-8")
+        assert memory_budget._cgroup_memory_limit_bytes(tmp_path) == 1_500_000_000
+
+    def test_a_desktop_with_max_everywhere_clamps_nothing(self):
+        assert memory_budget._cgroup_memory_limit_bytes(SAMPLES / "host-unlimited") is None
+        assert memory_budget._cgroup_cpu_allowance(SAMPLES / "host-unlimited") is None
+
+    def test_a_root_with_no_proc_self_cgroup_answers_none_at_the_first_open(self):
+        """With no `/proc/self/cgroup` under the root, each reader returns None after one failed open and no walk, so both clamps cost almost nothing on Darwin."""
+        assert memory_budget._cgroup_memory_limit_bytes(SAMPLES / "no-such-machine") is None
+        assert memory_budget._cgroup_cpu_allowance(SAMPLES / "no-such-machine") is None
+
+    def test_the_cpu_quota_clamp_reads_v2_and_v1_alike(self):
+        """The v2 leaf sets two cores under an ancestor's `max 100000`, and the v1 container sets one and a half cores under a mount root whose quota is -1; both return two whole cores."""
+        assert memory_budget._cgroup_cpu_allowance(SAMPLES / "container-v2") == 2
+        assert memory_budget._cgroup_cpu_allowance(SAMPLES / "container-v1") == 2
+
+    def test_usable_cores_takes_the_cgroup_quota_when_one_is_stated(self):
+        """The CPU clamp is separate from the memory clamp because `os.process_cpu_count` reads the affinity mask on Linux but not the CFS quota, so a quota-limited container that was never pinned reports every core the host has."""
+        host = os.process_cpu_count() or os.cpu_count() or 1
+        assert memory_budget.usable_cores(SAMPLES / "container-v2") == min(host, 2)
+        assert memory_budget.usable_cores(SAMPLES / "container-v1") == min(host, 2)
+        assert memory_budget.usable_cores(SAMPLES / "host-unlimited") == memory_budget.usable_cores(
+            SAMPLES / "no-such-machine"
+        )
+
+    def test_the_memory_clamp_is_linux_only(self):
+        """`sysconf` reads the host's memory inside a container, so the cgroup clamp is what makes the figure correct there. The clamp applies only on Linux, so Darwin pointed at the same sample tree still returns its own memory."""
+        assert (
+            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "container-v2")
+            == 2_000_000_000
+        )
+        assert memory_budget.total_memory_bytes(
+            platform="darwin", cgroup_root=SAMPLES / "container-v2"
+        ) == memory_budget.total_memory_bytes(platform="darwin")
+
+    def test_meminfo_is_the_linux_fallback_where_sysconf_cannot_answer(self, monkeypatch: pytest.MonkeyPatch):
+        """On Linux, when `_sysconf_total_bytes` returns None, the probe falls back to `/proc/meminfo` and then to `_LAST_RESORT_TOTAL_BYTES`, which equals the shipped reserve floor, so a machine that cannot be probed has no budget and every width is one. Darwin never reads `/proc/meminfo`."""
+        monkeypatch.setattr(memory_budget, "_sysconf_total_bytes", lambda: None)
+        assert (
+            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "host-unlimited")
+            == 16_219_492 * 1024
+        )
+        assert (
+            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "container-v2")
+            == 2_000_000_000
+        )
+        assert (
+            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "no-such-machine")
+            == memory_budget.RESERVE_FLOOR_BYTES
+        )
+        assert (
+            memory_budget.total_memory_bytes(platform="darwin", cgroup_root=SAMPLES / "host-unlimited")
+            == memory_budget.RESERVE_FLOOR_BYTES
+        )
+        assert (
+            memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, total_bytes=memory_budget.RESERVE_FLOOR_BYTES)
+            == 1
+        )
+
+
+class TestThePureParsers:
+    def test_meminfo_reads_kib_and_answers_bytes(self):
+        assert (
+            memory_budget._parse_meminfo_total_bytes(_sample("container-v1", "proc", "meminfo"))
+            == 32_770_272 * 1024
+        )
+        assert (
+            memory_budget._parse_meminfo_total_bytes(_sample("container-v2", "proc", "meminfo"))
+            == 65_805_864 * 1024
+        )
+        assert (
+            memory_budget._parse_meminfo_total_bytes(_sample("host-unlimited", "proc", "meminfo"))
+            == 16_219_492 * 1024
+        )
+        assert memory_budget._parse_meminfo_total_bytes("") is None
+        assert memory_budget._parse_meminfo_total_bytes("MemFree: 812336 kB\n") is None
+
+    def test_a_memory_limit_reads_max_and_the_v1_sentinel_as_absent(self):
+        v2 = ("container-v2", "sys", "fs", "cgroup", "kubepods.slice")
+        assert memory_budget._parse_memory_limit(_sample(*v2, "memory.max")) is None
+        assert (
+            memory_budget._parse_memory_limit(
+                _sample(*v2, "kubepods-burstable.slice", "kubepods-burstable-pod9f2c.slice", "memory.max")
+            )
+            == 2_000_000_000
+        )
+        v1 = ("container-v1", "sys", "fs", "cgroup", "memory")
+        assert memory_budget._parse_memory_limit(_sample(*v1, "memory.limit_in_bytes")) is None
+        assert (
+            memory_budget._parse_memory_limit(_sample(*v1, "docker", "3a7ecb1f9d2e", "memory.limit_in_bytes"))
+            == 2_147_483_648
+        )
+        assert memory_budget._parse_memory_limit(str(2**63 - 1)) is None
+        assert memory_budget._parse_memory_limit(str(2**62)) is None
+        assert memory_budget._parse_memory_limit(str(2**62 - 1)) == 2**62 - 1
+        assert memory_budget._parse_memory_limit("") is None
+        assert memory_budget._parse_memory_limit("   \n") is None
+        assert memory_budget._parse_memory_limit("plenty") is None
+        assert memory_budget._parse_memory_limit("0") is None
+        assert memory_budget._parse_memory_limit("-1") is None
+
+    def test_cpu_max_reads_both_spellings_and_rounds_a_fractional_quota_up(self):
+        v2 = ("container-v2", "sys", "fs", "cgroup", "kubepods.slice")
+        assert memory_budget._parse_cpu_max(_sample(*v2, "cpu.max")) is None
+        assert (
+            memory_budget._parse_cpu_max(
+                _sample(
+                    *v2,
+                    "kubepods-burstable.slice",
+                    "kubepods-burstable-pod9f2c.slice",
+                    "cri-containerd-3a7e.scope",
+                    "cpu.max",
+                )
+            )
+            == 2
+        )
+        assert memory_budget._parse_cpu_max("100000 100000") == 1
+        assert memory_budget._parse_cpu_max("150000 100000") == 2
+        assert memory_budget._parse_cpu_max("50000 100000") == 1
+        assert memory_budget._parse_cpu_max("max") is None
+        assert memory_budget._parse_cpu_max("") is None
+        assert memory_budget._parse_cpu_max("plenty 100000") is None
+        assert memory_budget._parse_cpu_max("200000 0") is None
+
+    def test_a_cfs_quota_of_minus_one_is_absent_and_a_real_one_rounds_up(self):
+        v1 = ("container-v1", "sys", "fs", "cgroup", "cpu,cpuacct")
+        assert (
+            memory_budget._parse_cpu_cfs_quota(
+                _sample(*v1, "cpu.cfs_quota_us"), _sample(*v1, "cpu.cfs_period_us")
+            )
+            is None
+        )
+        assert (
+            memory_budget._parse_cpu_cfs_quota(
+                _sample(*v1, "docker", "3a7ecb1f9d2e", "cpu.cfs_quota_us"),
+                _sample(*v1, "docker", "3a7ecb1f9d2e", "cpu.cfs_period_us"),
+            )
+            == 2
+        )
+        assert memory_budget._parse_cpu_cfs_quota("100000", "100000") == 1
+        assert memory_budget._parse_cpu_cfs_quota("plenty", "100000") is None
+        assert memory_budget._parse_cpu_cfs_quota("100000", "0") is None
+
+    def test_proc_self_cgroup_maps_the_unified_line_and_every_v1_controller(self):
+        unified = memory_budget._parse_proc_cgroup(_sample("container-v2", "proc", "self", "cgroup"))
+        assert set(unified) == {""}
+        assert unified[""].endswith("cri-containerd-3a7e.scope")
+        legacy = memory_budget._parse_proc_cgroup(_sample("container-v1", "proc", "self", "cgroup"))
+        assert legacy["memory"] == legacy["cpu"] == legacy["cpuacct"] == "/docker/3a7ecb1f9d2e"
+        assert "" not in legacy
+        assert memory_budget._parse_proc_cgroup("") == {}
+
+    def test_the_walk_is_leaf_first_and_takes_in_the_mount_root(self):
+        mount = Path("/sys/fs/cgroup")
+        assert memory_budget._cgroup_dirs(mount, "/a/b") == [mount / "a" / "b", mount / "a", mount]
+        assert memory_budget._cgroup_dirs(mount, "/") == [mount]
+
+
+class TestTheEnvironmentOverride:
+    def test_it_replaces_the_probe_and_outranks_even_the_cgroup_clamp(self, monkeypatch: pytest.MonkeyPatch):
+        """The override lets a container state its own allowance, a large machine reproduce a small machine's widths, and a dry run print the same plan on every machine."""
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", "12345678901")
+        assert memory_budget.total_memory_bytes() == 12_345_678_901
+        assert (
+            memory_budget.total_memory_bytes(platform="linux", cgroup_root=SAMPLES / "container-v2")
+            == 12_345_678_901
+        )
+
+    def test_it_moves_the_machine_and_never_the_policy(self, monkeypatch: pytest.MonkeyPatch):
+        """The override replaces only the probed total: the same reserve is applied on top, and the floor and fraction parameters still decide the width."""
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", str(MACHINE_32_GB))
+        assert memory_budget.os_reserve_bytes() == memory_budget.os_reserve_bytes(total_bytes=MACHINE_32_GB)
+        assert memory_budget.os_reserve_bytes() == memory_budget.RESERVE_FLOOR_BYTES
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES) == memory_budget.how_many_fit(
+            KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB
+        )
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, floor_bytes=ISSUE_RESERVE_FLOOR_BYTES) == 3
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES) == 2
+        assert memory_budget.describe_fit(KERNEL_CONFIG_BYTES).endswith(
+            "out of 32.00 GB total, less a reserve of 8.00 GB"
+        )
+
+    @pytest.mark.parametrize("junk", ["", "   ", "not a number", "0", "-1", "32GB", "3.2e10", "32.0", "0x8"])
+    def test_junk_in_it_is_ignored_rather_than_raised_on(self, monkeypatch: pytest.MonkeyPatch, junk: str):
+        """A typo in this reproduction setting should leave the probe in charge instead of stopping a build, so only a bare decimal count of bytes is read and anything else is ignored."""
+        probed = memory_budget.total_memory_bytes()
+        monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", junk)
+        assert memory_budget.total_memory_bytes() == probed
+
+
+class TestTheLiveProbe:
+    def test_the_machine_answers_a_plausible_positive_figure_and_answers_it_twice(self):
+        total = memory_budget.total_memory_bytes()
+        assert 1_000_000_000 <= total <= 100_000_000_000_000
+        assert memory_budget.total_memory_bytes() == total
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="hw.memsize is the Darwin spelling of the probe")
+    def test_the_portable_probe_is_byte_identical_to_hw_memsize_on_darwin(self):
+        stated = subprocess.run(
+            ["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, check=True
+        ).stdout
+        assert memory_budget.total_memory_bytes() == int(stated.strip())
+
+    def test_usable_cores_is_at_least_one_and_never_more_than_the_machine_offers(self):
+        cores = memory_budget.usable_cores()
+        assert cores >= 1
+        assert cores <= (os.process_cpu_count() or os.cpu_count() or 1)
+
+    def test_a_width_taken_off_the_live_machine_is_startable_and_honors_its_cap(self):
+        cores = memory_budget.usable_cores()
+        assert memory_budget.how_many_fit(KERNEL_CONFIG_BYTES) >= 1
+        assert 1 <= memory_budget.how_many_fit(KERNEL_CONFIG_BYTES, cap=cores) <= cores
+
+
+class TestDescribeFit:
+    def test_the_clause_names_the_cost_the_machine_the_reserve_and_the_co_resident_pool(self):
+        clause = memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES,
+            coresident_bytes=FONT_POOL_BYTES,
+            total_bytes=MACHINE_32_GIB,
+            floor_bytes=ISSUE_RESERVE_FLOOR_BYTES,
+        )
+        assert clause == (
+            "2 at 9.00 GB each out of 34.36 GB total, less a reserve of 5.15 GB, less 2.80 GB co-resident"
+        )
+
+    def test_the_clause_is_a_fragment_fit_for_a_plan_line(self):
+        clause = memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GIB, cap=8)
+        assert "\n" not in clause
+        assert clause == clause.strip()
+        assert not clause.endswith(".")
+        assert clause[0].isdigit()
+        assert len(clause) < 160
+
+    def test_a_reader_can_recompute_the_width_from_the_clause(self):
+        """The clause exists so that a reader surprised by a width can check its derivation instead of trusting it."""
+        clause = memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=MACHINE_32_GB
+        )
+        stated = CLAUSE.match(clause)
+        assert stated is not None
+        budget = float(stated["total"]) - float(stated["reserve"]) - float(stated["coresident"])
+        assert int(budget // float(stated["per_unit"])) == int(stated["count"])
+        assert int(stated["count"]) == memory_budget.how_many_fit(
+            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=MACHINE_32_GB
+        )
+
+    def test_the_optional_clauses_appear_only_when_they_apply(self):
+        plain = memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB)
+        assert "co-resident" not in plain and "capped at" not in plain and "floored" not in plain
+        assert "capped at 8" in memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES, total_bytes=MACHINE_32_GB, cap=8
+        )
+        assert "less 2.80 GB co-resident" in memory_budget.describe_fit(
+            KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=MACHINE_32_GB
+        )
+        assert memory_budget.describe_fit(KERNEL_CONFIG_BYTES, total_bytes=8_000_000_000) == (
+            "1 at 9.00 GB each out of 8.00 GB total, less a reserve of 8.00 GB, floored at one"
+        )
+
+    def test_an_unmeasured_unit_says_so_instead_of_inventing_a_divisor(self):
+        assert memory_budget.describe_fit(0, total_bytes=MACHINE_32_GB, cap=6) == (
+            "6 at an unmeasured per-unit cost, so no memory-derived width, capped at 6"
+        )
+
+    def test_the_clause_and_the_count_never_disagree(self):
+        for total in MACHINE_SIZES:
+            clause = memory_budget.describe_fit(
+                KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=total, cap=6
+            )
+            count = memory_budget.how_many_fit(
+                KERNEL_CONFIG_BYTES, coresident_bytes=FONT_POOL_BYTES, total_bytes=total, cap=6
+            )
+            assert clause.startswith(f"{count} at ")
+
+
+def test_the_module_owns_the_arithmetic_and_holds_no_table_of_per_unit_costs():
+    """Issue #85 names the risk: a central `UNIT_COSTS` mapping would hold the per-unit numbers while leaving the arguments for them at the call sites. Asserting the exact set of public names makes adding such a mapping fail this test."""
+    assert _defined_public_names() == {
+        "total_memory_bytes",
+        "os_reserve_bytes",
+        "usable_cores",
+        "split_cores",
+        "how_many_fit",
+        "describe_fit",
+        "RESERVE_FLOOR_BYTES",
+        "RESERVE_FRACTION",
+    }
+    assert memory_budget.RESERVE_FLOOR_BYTES == 8_000_000_000
+    assert memory_budget.RESERVE_FRACTION == 0.15

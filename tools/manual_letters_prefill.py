@@ -23,9 +23,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT))
 
-from rebuild.tools import suite_fonts  # noqa: E402
-from rebuild.validation.check import CheckFont  # noqa: E402
-from rebuild.validation.expect import CHAR_TO_GLYPH  # noqa: E402
+from engine.tools import suite_fonts  # noqa: E402
+from engine.validation.check import CheckFont  # noqa: E402
+from engine.validation.expect import CHAR_TO_GLYPH  # noqa: E402
 
 from manual_letters_words import load_page, page_path, save_page  # noqa: E402
 

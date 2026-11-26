@@ -1,0 +1,211 @@
+# The fault kit's manifest: every row of doc/engine-design.md §10 that some gate catches, as a patch against the current head, with the gates that catch it and the steps that reach them. engine/tools/fault_kit.py's docstring describes the format and how a row runs; §10 describes each fault. Each row's alphabet is the smallest the kit, run on the row, found to keep the row's rule shape and what every unfaulted build needs (doc/perf-check.md § The fault kit).
+format: ams-fault-kit/1
+gates:
+  enumeration: {modules: [engine.pipeline.kernel_exec], crate: true, files: [engine/pipeline/run_build.py, engine/pipeline/run_build_gates.py]}
+  fold: {modules: [engine.pipeline.kernel_exec], crate: true, files: [engine/pipeline/run_build.py, engine/pipeline/run_build_gates.py]}
+  string-replay: {modules: [engine.pipeline.kernel_exec], crate: true, files: [engine/pipeline/run_build.py, engine/pipeline/run_build_gates.py]}
+  witness: {modules: [engine.pipeline.witness], crate: true, files: [engine/pipeline/run_build.py]}
+  shipped-order: {modules: [engine.pipeline.kernel_exec], crate: true, files: [engine/pipeline/run_build.py, engine/pipeline/run_build_gates.py]}
+  read-back: {modules: [engine.pipeline.readback], crate: false, files: [engine/pipeline/run_build.py, engine/pipeline/run_build_gates.py]}
+  conform: {modules: [engine.pipeline.conform], crate: true, files: [engine/pipeline/run_build_gates.py]}
+  deep-replay: {modules: [engine.tools.deep_replay], crate: true, files: []}
+rows:
+  - id: "01"
+    section10: 1
+    slug: third-slot-forced-dead-ah-before-gay-no
+    patch: faults/01.patch
+    alphabet: [qsPea, qsTea, qsGay, qsSee, qsNo, qsAh, qsOy, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/windows-default.tsv.gz.head, engine/out/build/windows-default.head.json.gz, engine/out/build/settlement-default.tsv]
+    unreached: [witness]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: string-replay
+        exit: 1
+        require: {output: ["the string replay found the tables incomplete:", qsAh]}
+        detail:
+          output: [at position 0 of qsAh qsGay qsNo qsOy, "settlement says qsAh.sole, rules say qsAh.sole.ex-y5"]
+          files: {engine/out/build/replay_summary.json: ['"pass": false']}
+      - argv: [uv, run, python, -m, engine.pipeline.run_build, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {engine/out/build/conform_summary.json: ['"pass": false']}}
+  - id: "02"
+    section10: 2
+    slug: product-row-dropped-awe-after-ah-before-at-may
+    patch: faults/02.patch
+    alphabet: [qsPea, qsTea, qsSee, qsMay, qsAt, qsAh, qsAwe, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/windows-default.tsv.gz.head, engine/out/build/windows-default.head.json.gz, engine/out/build/settlement-default.tsv]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: string-replay
+        exit: 1
+        require: {output: ["the string replay found the tables incomplete:", qsAwe]}
+        detail:
+          output: [at position 1 of qsAh qsAwe qsAt qsMay, "settlement says qsAwe.sole.en-y5, rules say qsAwe.sole.en-y5.ex-y0"]
+          files: {engine/out/build/replay_summary.json: ['"pass": false']}
+      - argv: [uv, run, python, -m, engine.pipeline.run_build, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAwe]}
+        detail: {files: {engine/out/build/conform_summary.json: ['"pass": false']}}
+  - id: "03"
+    section10: 3
+    slug: right1-unpinned-ye-loop-before-see
+    patch: faults/03.patch
+    alphabet: [qsPea, qsTea, qsSee, qsYe, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/windows-default.tsv.gz.head, engine/out/build/windows-default.head.json.gz, engine/out/build/settlement-default.tsv]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: enumeration
+        exit: 1
+        require: {output: ["the kernel exited 1 on build-tables:", E-UNACCEPTED-EXIT, qsSee]}
+        detail: {output: [qsYe.loop.ex-y0 committed an exit at baseline but qsSee has no acceptor cell]}
+  - id: "04"
+    section10: 4
+    slug: member-settles-apart-bay-after-extended-utter
+    patch: faults/04.patch
+    alphabet: [qsPea, qsBay, qsTea, qsDay, qsGay, qsSee, qsIt, qsUtter, qsDay_qsUtter]
+    effect: [engine/out/build/windows-default.tsv.gz.head, engine/out/build/windows-default.head.json.gz, engine/out/build/settlement-default.tsv]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        exit: 0
+      - argv: [uv, run, python, -m, engine.tools.deep_replay, --families, qsPea]
+        gate: deep-replay
+        exit: 1
+        require: {output: ["deep replay: the tables disagree with the engine", qsBay]}
+        detail: {output: [qsUtter qsBay qsGay qsIt qsPea, "settlement says qsBay.sole.en-y5.ex-y0, rules say qsBay.sole.en-y5"]}
+  - id: "05"
+    section10: 5
+    slug: settle-rules-swapped-in-fea-text-alone
+    patch: faults/05.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/Senior.fea, engine/out/build/Senior-Regular.otf]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {engine/out/build/readback_summary.json: [qsAh]}
+        detail:
+          files: {engine/out/build/readback_summary.json: ["settle: qsAh ", expected a piece of plan rule, "[] [{qsFee}, {qsUtter}] -> qsAh.sole.ex-y5"]}
+      - argv: [uv, run, python, -m, engine.pipeline.run_build, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {engine/out/build/conform_summary.json: ['"pass": false']}}
+  - id: "06"
+    section10: 6
+    slug: settle-rules-swapped-in-plan-text-and-mirror
+    patch: faults/06.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/Senior.fea, engine/out/build/Senior-Regular.otf]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: shipped-order
+        exit: 1
+        require: {output: ["the shipped settlement order answers a row differently from its table:", qsAh]}
+        detail:
+          output: [settles to qsAh.sole, answers qsAh.sole.ex-y5]
+          files: {engine/out/build/emitted_order_summary.json: ['"pass": false']}
+      - argv: [uv, run, python, -m, engine.pipeline.run_build, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {engine/out/build/conform_summary.json: ['"pass": false']}}
+  - id: "07"
+    section10: 7
+    slug: lookahead-glyph-moved-between-packed-classes
+    patch: faults/07.patch
+    alphabet: [qsPea, qsTea, qsSee, qsAh, qsUtter, qsOoze, qsSee_qsUtter]
+    effect: [engine/out/build/Senior.fea, engine/out/build/Senior-Regular.otf]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {engine/out/build/readback_summary.json: ["settle: the lookup does not decompile"]}
+        detail:
+          files: {engine/out/build/readback_summary.json: [packed rule references lookahead class, which classes no glyph]}
+      - argv: [uv, run, python, -m, engine.pipeline.run_build, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed]}
+        detail: {output: [E67E], files: {engine/out/build/conform_summary.json: ['"pass": false']}}
+  - id: "08"
+    section10: 8
+    slug: zwnj-boundary-row-omitted-ah-before-fee
+    patch: faults/08.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/Senior.fea, engine/out/build/Senior-Regular.otf]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {engine/out/build/readback_summary.json: [qsAh]}
+        detail:
+          files: {engine/out/build/readback_summary.json: ["settle: qsAh ", expected a piece of plan rule, "[] [{qsFee}, {periodcentered space uni200C}] -> qsAh.sole.ex-y5"]}
+  - id: "09"
+    section10: 9
+    slug: third-lookahead-emitted-as-boundary-class
+    patch: faults/09.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/Senior.fea, engine/out/build/Senior-Regular.otf]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {engine/out/build/readback_summary.json: [qsAh]}
+        detail:
+          files: {engine/out/build/readback_summary.json: ["settle: qsAh ", expected a piece of plan rule, "{qsTea.ss03}"]}
+  - id: "10"
+    section10: 10
+    slug: curs-anchor-dropped-ah-sole-ex-y5
+    patch: faults/10.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/Senior.fea, engine/out/build/Senior-Regular.otf]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: read-back
+        exit: 1
+        require:
+          output: [read-back divergence(s) between the compiled font and the plan]
+          files: {engine/out/build/readback_summary.json: [qsAh.sole.ex-y5]}
+        detail:
+          files: {engine/out/build/readback_summary.json: ["cursive y5:", "missing ['qsAh.sole.ex-y5']"]}
+      - argv: [uv, run, python, -m, engine.pipeline.run_build, --conform-only]
+        gate: conform
+        exit: 1
+        require: {output: [font conformance failed, qsAh]}
+        detail: {files: {engine/out/build/conform_summary.json: ['"pass": false']}}
+  - id: "13"
+    section10: 13
+    slug: right1-unpinned-pea-full-before-roe
+    patch: faults/13.patch
+    alphabet: [qsPea, qsTea, qsSee, qsRoe, qsOy, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/settlement-default.tsv]
+    unreached: [witness]
+    steps:
+      - argv: [uv, run, python, -m, engine.pipeline.run_build]
+        gate: fold
+        exit: 1
+        require: {output: ["the kernel exited 1 on build-tables:", none of them lies on a row chain from a start row, qsPea.full.ex-y0]}
+        detail: {output: ["(qsRoe, qsPea.full.ex-y0, periodcentered, #NA, #NA, #NA)", none of them carries periodcentered at its second slot]}
+  - id: "14"
+    section10: 14
+    slug: delta-reads-defaults-snapshot-past-its-exclusion
+    patch: faults/14.patch
+    alphabet: [qsPea, qsTea, qsDay, qsFee, qsSee, qsAh, qsUtter, qsSee_qsUtter]
+    effect: [engine/out/build/settlement-ss03.tsv, engine/out/build/settlement-ss05.tsv, engine/out/build/settlement-ss03+ss05.tsv]
+    steps:
+      - argv: [env, AMS_KERNEL_THREADS=1, uv, run, python, -m, engine.pipeline.run_build]
+        gate: enumeration
+        exit: 1
+        require: {output: ["the kernel exited 1 on build-tables:", deep-class member mismatch, qsTea]}
+        detail: {output: ["ss03+ss05: deep-class member mismatch at", "where the representative traced qsUtter.mono.en-y0 (junction none"]}

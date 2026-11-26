@@ -1,0 +1,1919 @@
+"""The kernel interface: the Python side of the Rust kernel. It builds the binary, runs the table build and the stream fan-out, reads the section 5.7 guard verdicts, settles batched windows for explain, review, conform and the tests, runs the string and shipped-order replays, and returns single-configuration products and tables to callers other than `run_build`. It lives in the pipeline because the pipeline calls it. The `engine/tools/kernel_*.py` scripts are separate measurement harnesses.
+
+The semantics defaults live here beside the flags that pass them to the kernel. `SIMULATED_PROSPECT_DEFAULT` and `FOLLOWER_PREFER_SLOTS_DEFAULT` control settlement, and `DEEP_CLASSES_DEFAULT` controls enumeration. Each is a module attribute read at call time, so a process sets them through the environment and a test can monkeypatch them. A caller that wants a different mode set builds a `SettlementModes` and passes it to `settle_cases`, `settle_windows` or `settle_sequences`.
+
+The build is `cargo build --release` against the crate's manifest. Release is the only profile anything in the repository runs: the pipeline and the spec-echo test in `engine/test_kernel_io.py` both run `target/release/ams-kernel`, and a debug binary is too slow to substitute for it. A machine without `cargo` gets a `KernelBuildError` that says how to install it. `ensure_built` builds once per process, and every caller in the process shares that build. `make kernel-build` runs the same build by hand through `main`. `binary_sha256` hashes the binary that build left, for the table-reuse record's key (`run_build.table_reuse_lines`).
+
+`build_table_files` is what `run_build` calls. It hands the crate the spec dump (`kernel_io.spec_bytes`) through a pipe the crate inherits (`_InheritedPipes`), which the crate reads once, front to back, before it opens any payload, so the dump never reaches the disk. One `build-tables` process enumerates every settlement configuration and folds each in place. It writes each configuration's settlement TSV, join TSV and plain window payload, which for a configuration whose previous windows rows it is handed (`PriorPart`, each part decompressed into a pipe of its own by a thread of this process, headers stripped) holds only the rows that differ from them, merged by key at the configuration's finish (`engine/kernel-rs/src/row_merge.rs`), and returns the table digest of each configuration's pair of tables with the crate's `[t]` lines and the process's own resident peak and peak footprint (`TableBuild`). No transition stream is written, because the fold reads the product the worklist still holds; that saves writing, reading and parsing several hundred megabytes per configuration. The configurations after `default` are deltas over it. `default` enumerates first and keeps its trace memo, and each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and traces only the rest; `engine/kernel-rs/src/memo.rs` gives the argument. Where memory has room, the heaviest of them enumerate from scratch beside `default` instead, from the start (`deltas_from_scratch`); when every delta does, `default` keeps no memo. The memo lives only inside the process: every build enumerates cold, and none reads or writes a memo file. Each fourth-slot prospect probe that runs whole groups its sweep: an ask whose token answers every question an earlier ask of the probe recorded alike takes that ask's result instead of settling its own window again, which writes the same tables (`engine/kernel-rs/src/liveness.rs`). Before any table is written, the configurations exchange windows (`engine/kernel-rs/src/crossconfig.rs`): each configuration's table takes in the windows another configuration keeps live where its own rules would answer them wrongly ahead of every right answer in the order the font ships, so a configuration's tables depend on the whole set it was built with. The windows head lists what each table took in (`table.DecisionTable.imports`), and a guard rule that only such a window reaches carries a certificate the witness stage settles under the configuration the window is live in (`witness.GUARD_MARKER`).
+
+`enumerate_configs` is the stream fan-out. One process enumerates every named configuration and writes each one's transition stream to its own file. Nothing on the build's path calls it; `enumerate_transitions` and the tests do.
+
+The table build's width is limited by memory, because a live configuration holds its whole working set until it has emitted. Each configuration runs on its own thread from its enumeration to its files, and its prepared product waits parked and compact from the end of its preparation until every configuration has parked, so at the end of the delta wave every configuration's parked product is resident beside the last delta's enumeration; then every configuration reads its product back whole for the cross-configuration exchange (`doc/parallelism.md`). `table_build_booking_bytes` is the memory a build at a given width is booked at: `DEFAULT_MEMO_BYTES` for the `default` memo snapshot kept alive for the wave, `PARKED_FOLD_BYTES` for each configuration's parked product, `DELTA_SLOT_BYTES` for each delta in flight beyond its parked product, and `FOLD_PREPARATION_BYTES` for a slot that runs only `default`'s fold preparation, which a width above the delta count has, and every width is booked at no less than the rendezvous, `READ_BACK_FOLD_BYTES` for each configuration's product read back. A build in which every configuration enumerates from scratch books each slot at `SCRATCH_PEAK_BYTES` less its parked product instead, and so does each delta a build starts from scratch beside `default`, in place of a delta's slot; such a build is booked at no less than its start, one `SCRATCH_PEAK_BYTES` for each of them and, for `default`, `UNCAPPED_SCRATCH_PEAK_BYTES` while a delta is left to read its memo, or one more `SCRATCH_PEAK_BYTES` once none is. `kernel_threads_default` is the widest width, up to the configuration count, whose booking fits the machine's memory less the reserve that policy states, floored at one; `deltas_from_scratch` then decides how many deltas start from scratch beside `default` at that width, and never narrows it. A larger machine, or a container limited by its cgroup, gets its own width without editing a constant. `AMS_KERNEL_THREADS` overrides the arithmetic in either direction. The artifacts are byte-identical at any width, so the override changes only memory use. Callers cap the width, a stated one included, at the number of settlement configurations (`conform.SETTLEMENT_CONFIGS`; the overlay configuration is never enumerated) and at the usable cores. The string replay after a build has its own divisor, `REPLAY_PEAK_BYTES`, what one configuration's walk and the worker absorbing its window memo hold together. `replay_threads_default` divides by it with nothing subtracted first, because the replay's engines are built after the build process has exited and no memo outlives it, and its answer is how many walks run at once. `AMS_REPLAY_THREADS` overrides it.
+
+`build_tables` and `enumerate_transitions` are the single-configuration forms, and neither writes anything that outlives the call. A single configuration has no other configuration to take windows from, so `build_tables` gives the same windows and joins as a build of the whole set but can give a different settlement table. `build_tables` hands `build-tables` its spec through a pipe, as `build_table_files` does, runs it into a scratch directory, and reads the two tables back through `table.read_windows` and `table.read_join_tsv`. `enumerate_transitions` dumps one spec to a scratch directory, enumerates the raw product into it as a stream and parses that into a `table.FixpointProduct`. Only tests call either.
+
+`guard_sweep` runs `guard-sweep` once and returns the complete mapping from `(ligature, first raw slot, second raw slot)` to the configuration-independent formation verdict. It is memoized per spec identity, so a process sweeps a spec once however many callers ask. `guard_sweep_under` returns the same mapping for one named configuration instead of quantifying over the powerset. It is not memoized, because only tests read it; they compare each configuration's verdicts with the quantified ones.
+
+`replay_emitted` is the shipped-order walk: it reads a configuration's windows head (`row_delta`), opens every part the head lists, and hands the crate's `replay-emitted` the base on its standard input and each segment on a pipe of its own, each decompressed by a thread of this process, and the crate walks the rows merged by key. A build and its walks hold a descriptor or two a part, which can pass macOS's default soft limit, so `raise_descriptor_limit` raises it toward the hard limit where each starts, and the crate inherits it.
+
+The settlement and replay functions share the memoized spec dump. `replay_strings` and `replay_memo_walk` are the enumeration-completeness check `run_build.run_replay_strings` runs after every table build. A `replay-strings` process reads the settlement TSVs the build wrote and walks every text up to the maximum length, or only the texts naming the families the caller says changed, checking each window against the crate's own settlement: `replay_strings` walks every named configuration in one process, and `replay_memo_walk` walks one configuration in a process of its own and hands its window memo to a reader through a pipe the crate inherits, which is how a full replay fills the settle memo. A disagreement raises `ReplayDisagreement` with the crate's message, which names the configuration, the window and the text. `settle_cases` is the raw form. It writes one tab-separated case line per independent window (`case_line` writes one) and returns the full Rust trace for each. It checks the case result count and that each output line starts with its case line verbatim, and decodes each distinct result once however many windows returned it. `settle_windows` asks the crate for the settled record alone (seven tab-separated fields under `--settled-only`) and decodes each straight to a `Settled`. The conform walker and the ligature outgoing check use it because they need only outcomes, not traces. Like `settle_sequences`, it takes an `on_error` argument, so a caller prefilling windows it may never read can get `None` for a refused window and keep the rest of the batch, and its `tolerate` argument gives `None` for only the refusal buckets it names. `settle_sequences` is what explain, the probe and the review corpus call. The subcommand takes independent windows, but a sequence's next left context is the previous window's result, so a batch of sequences advances in waves: every sequence's first position, then every second position using the first wave's results. Boundary positions are settled locally because their results are model constants. `settle_codepoints` settles one text. The CLI writes boundary tokens as `edge`, `space`, `zwnj`, `namer-dot` and `unknown`. The guard parser converts them to the `RightToken` constants in `settle`, so consumers never confuse these model tokens with glyph names such as `uni200C` or `periodcentered`.
+
+The codecs between the transport lines and the pipeline's model types live here too, because every settlement caller needs them: `case_line` for case lines, and `trace_of` and `_settled_of_fields` for case results. A window the crate refuses returns `{raise, message}`. That becomes a `settle.SettleError` carrying the crate's error code as its bucket and its message verbatim, so a caller can sort refusals without parsing text. Any other malformed case result means the kernel interface itself is wrong and raises `KernelRunError`.
+
+Every invocation is waited for up to a limit, and one that has not answered by then is killed and raises `KernelRunError` (`_run_kernel`'s `timeout`). The verbs that answer in seconds or minutes at any alphabet size wait `TIMEOUT`. `build-tables` and `replay-strings` grow with the alphabet, so each derives its limit at the call from the size of the spec's alphabet (`build_tables_timeout`, `replay_timeout`), and neither waits less than `TIMEOUT`.
+
+Every invocation's result is checked strictly against the CLI contract. Exit 2 is a usage error, which for a well-formed invocation means the subcommand is missing or the flag sets on the two sides have diverged. Any other nonzero exit is the kernel rejecting its inputs. Output on stderr after a clean exit is a failure unless timings were requested. In that case every `[t]` line is copied to this process's stderr verbatim, so the cycle journal records the kernel's per-configuration wall-clock times the same way it records Python's, and any other stderr line is still a failure. Enumeration writes its results to files, so any stdout output there is a failure. `build-tables` also writes files but reports its digests on stdout, one JSON object per line, and the configurations they name are checked against the ones requested. `guard-sweep` writes every verdict to stdout as TSV, which is parsed strictly.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import fcntl
+import functools
+import gzip
+import hashlib
+import io
+import json
+import os
+import resource
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from concurrent.futures import Future
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import IO, BinaryIO
+
+from engine.pipeline import kernel_io, labels, row_delta, settle, table
+from engine.pipeline.model import CellId, Provenance, ResolvedSpec, Settled, feature_config_token
+from engine.pipeline.table import DecisionTable, FixpointProduct, JoinTable
+from engine.tools import memory_budget
+from engine.tools.peak_rss import ReapedPeaks, format_gb, reap_peaks_bytes
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+BINARY = REPO_ROOT / "engine" / "kernel-rs" / "target" / "release" / "ams-kernel"
+MANIFEST = REPO_ROOT / "engine" / "kernel-rs" / "Cargo.toml"
+# What `build_table_files`, `replay_strings` and `replay_memo_walk` add to the environment of the `build-tables` and `replay-strings` processes they spawn on macOS (`_allocator_environment`), the pipeline's two kernel verbs whose memos grow through doublings into tables of gigabytes. The string replay runs through `replay_memo_walk` on a full replay and `replay_strings` on a narrowed one, and each deep replay unit (`engine/tools/deep_replay.py`) through `replay_strings`; the spawn workers that absorb a full replay's window memos are Python processes it does not reach. `MallocLargeCache=0` turns off the allocator's cache of freed large allocations, so a table that a memo, the fixpoint's base index or its item table outgrows goes back to the system when it is freed, rather than staying resident and in the footprint until the kernel reclaims it at a time of its own choosing. The tables, a walk's counts and its window memo are the same bytes either way. Every table-build term below, DELTA_SLOT_BYTES through TABLE_BUILD_PEAK_BYTES, is measured with it set (SCRATCH_PEAK_BYTES's comment has the readings without it), and so are REPLAY_PEAK_BYTES and `deep_replay.DEEP_REPLAY_PEAK_BYTES`.
+KERNEL_ALLOCATOR_ENVIRONMENT = {"MallocLargeCache": "0"}
+# What one delta in flight adds to the table build's peak beyond its own parked product (PARKED_FOLD_BYTES), when it runs over default's memo: the per-slot term of `table_build_booking_bytes`, and the divisor of `kernel_threads_default` below the configuration count. A delta holds its whole product from its enumeration until it parks it compact at the end of its preparation, inside its slot (`fold::Prepared::park`), so the slot counts that whole product beyond the compact one it parks. A delta traces only the windows default's memo cannot answer, so it costs less than a configuration enumerated from scratch (SCRATCH_PEAK_BYTES). Its `--cache-stats` lines show how much: `shared_memo_hits` counts the windows it takes from that memo, and its trace_cache length counts the windows its own memo holds of those it traces beyond it. A delta's trace memo is held to `fixpoint::TABLE_TRACE_CEILING`, so that length leaves out the windows with a concrete third slot and a known fourth, which the memo does not store, and those a shard forgot to make room, which its `memo_clears` line's `trace=` counts the evictions of; it is the count the delta traces only in a build with `--no-trace-memo-skip` at a `--trace-memo-buckets=` no shard reaches. In the wave readings below no delta's trace memo clears a shard, and its length reads 17.59M for `ss03`, 17.37M for `ss03+ss05`, 7.71M for `ss08`, 4.43M for `ss05`, 3.81M for `ss04` and 2.53M for `ss07`, each taking 32.20M to 37.84M windows from default's memo, which holds 66.03M. What a slot costs depends on what runs beside it, so the term is set against the whole wave, not against one configuration built alone. The readings are the memory series' line for one bare `build-tables` over every settlement configuration at 56 runes (`make memory-series ARGS='--holder tables 56 --idle-seconds 5 --after-seconds 5 --interval 0.2 --kernel-threads <W> --scratch-beside-default <S>'`), its outputs through pipes and to the null device, with `--cache-stats` and `--timings` and KERNEL_ALLOCATOR_ENVIRONMENT set, sampled every 0.2 s, on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), one line at a time with the desktop open as usual, three runs each: each width from one to seven with every delta over default's memo, and seven wide with two, three and six deltas from scratch, the counts whole tiers reach (SCRATCH_PEAK_BYTES), in `var/keep/ram-inventory/v5/r56-readings/` (the `readings/wave-w<W>-r<n>.txt` and `readings/scratch-s<S>-r<n>.txt` lines; its `summarize.py` prints the figures here). Each run's whole-build peak is the higher of its resident and footprint lines, because the resident line under-reads a build by whatever the memory compressor has taken from the process and the footprint leaves out the pages the allocator retains; the compressor held 13.7 to 17.6 GB of the machine's other pages as each line started, the footprint is the higher line in most runs, and no run swapped. It reads 18.16 to 18.20 GB one wide, 18.25 to 18.27 GB two wide, 18.29 to 18.33 GB three wide, 18.43 to 18.45 GB four wide, 18.50 to 18.58 GB five wide, 18.55 to 18.58 GB six wide and 18.66 to 18.72 GB seven wide, and seven wide 18.67 to 18.73 GB with two from scratch, 18.63 to 18.66 GB with three and 19.45 to 20.12 GB with six. At 56 runes the whole-build peak comes at the rendezvous in every run: it lies above every resident line any configuration records before it parks, and the peak sample falls 19 to 97 s before the build ends, in the cross-configuration exchange; READ_BACK_FOLD_BYTES books that peak. The highest resident line any configuration records before it parks reads 6.59 GB one wide, where it is default's `resident_before_release`, 6.92 GB two wide, 9.75 to 9.82 GB three wide, 9.44 to 10.00 GB four wide, 11.61 to 11.65 GB five wide, 15.50 to 15.54 GB six wide and 15.40 to 16.38 GB seven wide, a delta's `resident_after_sort` from two wide up, and seven wide 13.13 to 13.17 GB with two from scratch, 11.29 GB with three and 15.99 to 17.47 GB with six; the `[c] <config> resident_parked` line, once every configuration has parked, reads 1.51 to 3.22 GB. No series line records the wave's peak before every configuration has parked, so no reading measures this term on its own, and since the rendezvous covers every reading, `table_build_booking_bytes` covers every whole-build peak above at any value of this term: the covering rule does not bound it. The recorded resident lines before parking set a floor instead. The wave's booking covers each width's highest such line only with this term at 3.39 GB or more, one wide binding, where that line is default's `resident_before_release`, taken while it holds the uncapped memo the deltas read (UNCAPPED_SCRATCH_PEAK_BYTES), or 3.4 GB rounded up to the tenth; two to six wide need 1.69 to 2.21 GB. The value is that floor, 3.4 GB: at least FOLD_PREPARATION_BYTES, because a width at or below the delta count books the preparation's slot as a delta's, which covers the preparation only while that term is at most this one (`engine/test_memory_budget.py` checks it), and no more than the 3.4 GB a slot from scratch books (SCRATCH_PEAK_BYTES less PARKED_FOLD_BYTES), so a delta over default's memo is never booked above a delta from scratch. At 3.4 GB the booking covers every reading by 1.72 GB or more: the rendezvous's 20.3 GB one to five wide, the wave's 23.6 GB six wide and 26.3 GB seven wide, with or without deltas from scratch. It errs high on purpose: a per-unit estimate that is too low puts the machine into swap, while one that is too high only narrows the wave. With the other terms as they stand, a value of 5.83 GB or more costs the 18-core machine its whole wave under a gated cycle, with gate:make-test's pytest pool running, 5.98 GB or more costs the 12-core machine its whole wave under a gated cycle, and 6.28 GB or more costs both machines their whole wave alone; `engine/test_memory_budget.py` and `engine/test_artifact_cycle.py` check those widths. The same build takes 249.6 to 253.5 s seven wide, 256.7 to 259.1 s six wide, 272.2 to 279.8 s five wide, 287.4 to 288.3 s four wide, 313.7 to 319.8 s three wide, 382.5 to 386.2 s two wide and 575.8 to 580.7 s one wide. On both fleet machines every run_build starts every delta from scratch beside default, which SCRATCH_PEAK_BYTES books, so no build step peak in `engine/out/cycle-timings.ndjson` measures this term. Re-measure this constant, FOLD_PREPARATION_BYTES, SCRATCH_PEAK_BYTES, UNCAPPED_SCRATCH_PEAK_BYTES, DEFAULT_MEMO_BYTES, PARKED_FOLD_BYTES and READ_BACK_FOLD_BYTES together, and TABLE_BUILD_PEAK_BYTES from them, whenever the alphabet grows or a per-configuration working set changes, on a 48 GiB machine with no other build running, one series line at a time with KERNEL_ALLOCATOR_ENVIRONMENT set, at least three runs each, as `var/keep/ram-inventory/v5/r56-readings/``run.zsh` takes them and its `uncapped.py` the last: the whole-wave build the readings above describe, at one wide through the configuration count with every delta over default's memo and at the configuration count with each count of deltas from scratch that whole tiers reach (`--scratch-beside-default <S>`, `fanout::scratch_tiers`), whose `parked_heap` lines give PARKED_FOLD_BYTES, whose count that starts every delta reads SCRATCH_PEAK_BYTES and whose counts below it check UNCAPPED_SCRATCH_PEAK_BYTES net of a SCRATCH_PEAK_BYTES for each delta from scratch; then each settlement configuration alone at one wide (`--configs <config> --kernel-threads 1`), since the highest reading is not always the same configuration's (SCRATCH_PEAK_BYTES), `default`'s resident lines through its fold among them (FOLD_PREPARATION_BYTES); and `default` alone again with `--no-trace-memo-skip` at a `--trace-memo-buckets=` no shard reaches (UNCAPPED_SCRATCH_PEAK_BYTES). Of the whole-wave builds, a run whose peak falls after every configuration has parked, later than its `resident_parked` line and above every resident line before it, is a READ_BACK_FOLD_BYTES reading, and one whose peak falls at its start is the start's. This term and FOLD_PREPARATION_BYTES are each the smallest value, rounded up to the tenth, at which `table_build_booking_bytes` covers every run's whole-build peak; where the rendezvous and the start already cover every reading, as at 56 runes, that leaves them unbounded, and each is set at or above the floor the recorded resident lines before parking set, with FOLD_PREPARATION_BYTES at most this term: at 56 runes this term at its 3.4 GB floor and FOLD_PREPARATION_BYTES at 2.7 GB over its 2.0 GB floor.
+DELTA_SLOT_BYTES = 3_400_000_000
+# What the slot that runs only default's fold preparation holds beyond default's parked product: the last term of `table_build_booking_bytes` at a width above the delta count. Default's preparation (its expansion, row chains and first rules) takes a worker slot when the delta wave starts (`fanout::run_configs_tables`). Above the delta count that slot runs nothing else; at or below it, a delta takes the slot when the preparation ends, so there the slot is booked as a delta's. The preparation consumes default's enumeration product and holds its prepared product whole until it parks it compact at its end, inside the slot (`fold::Prepared::park`), so beyond the parked product PARKED_FOLD_BYTES counts, the slot holds up to that whole product. The enumeration frees its worklist's stack, its item table, its pending rows and its row log's base index before its memo release and holds its rows in a row log whose drain frees one input's chunks at a time (SCRATCH_PEAK_BYTES), and the partition check that runs between the sort and the preparation holds one base's claims at a time (TABLE_BUILD_PEAK_BYTES). No series line records the slot's peak inside the preparation and its parking. One bare `build-tables` of `default` alone at one wide at 56 runes, through the series and on the machine DELTA_SLOT_BYTES's readings use, three runs (the `readings/solo-default-r<n>.txt` lines in `var/keep/ram-inventory/v5/r56-readings/`), records 2.62 GB at its release point, and its resident lines from there read 0.90 GB after the release, 2.27 GB after the sort and 0.77 GB once the product is parked compact; its `read_back_heap` line, the whole product and the spec read back, reads 2.60 GB, and the build peaks at 3.56 GB, 8.4 s after its enumeration ends, with that product read back. Only a width above the delta count books this term, and in DELTA_SLOT_BYTES's readings the rendezvous covers every whole-build peak at any value of it, so the covering rule does not bound it. The recorded resident lines before parking set a floor: 2.27 GB after the sort, less PARKED_FOLD_BYTES, is 1.97 GB, or 2.0 GB rounded up to the tenth. The value is what default's own `read_back_heap` line alone puts the whole product and the spec at, 2.60 GB, rounded up to the tenth, 2.7 GB, above that floor. It is at most DELTA_SLOT_BYTES, which `engine/test_memory_budget.py` checks, so a width at or below the delta count, where the preparation and the deltas share the slots, is booked at its deltas alone. `engine/test_memory_budget.py` and `engine/test_artifact_cycle.py` check the count of deltas from scratch at the shipped value. In every reading DELTA_SLOT_BYTES cites the build peaks at the rendezvous, after every configuration's preparation has ended with its parking, so no reading holds the preparation's slot at its peak, and this term errs high. With the other terms as they stand, a value of 17.24 GB or more costs the 18-core machine its whole wave under a gated cycle, 18.14 GB or more the 12-core machine, and 19.94 GB or more both machines alone.
+FOLD_PREPARATION_BYTES = 2_700_000_000
+# The peak of one configuration enumerated from scratch and alone, through its fold: what a slot holds, with its parked product, in a build where every configuration enumerates from scratch (`table_build_booking_bytes` with `from_scratch`): a narrowed `engine/tools/scratch_build.py` set without `default`, or `default_memo_sharing=False`. A build that includes `default` and at least one delta enumerates `default` from scratch before the wave, alone or beside the deltas `deltas_from_scratch` starts from scratch with it, and each of those runs under this bound: `table_build_booking_bytes` books each of them at one such bound in that start and at this bound less its parked product in the wave. `default` runs under this bound only in a start where every delta starts from scratch, and the booking then charges it one SCRATCH_PEAK_BYTES; in a start with fewer it keeps its trace memo uncapped for the deltas that read it and runs under UNCAPPED_SCRATCH_PEAK_BYTES, which the booking charges it instead. The whole-process reading is one slot's cost, with no separate allowance for the process: what the slots share is the parsed spec and its index, which the process holds in about 0.1 GB before a configuration's engine is built. An enumeration's engine keeps its trace memo and its transition map in sixteen shards each (`hash::ShardedMap`; #535 holds the readings behind `hash::SHARD_BITS`), holds its prospect memo to 2^20 buckets and its candidate memo to 2^22 (`fixpoint::TABLE_MEMO_CEILINGS`), clearing each in place when it fills that table and deriving a dropped entry again when it is next asked for, holds its trace memo to 2^25 buckets, clearing a shard whose next insert would double its table, and stores none of the windows with a concrete third slot and a known fourth (`fixpoint::TABLE_TRACE_CEILING`), settling a forgotten window again when it is next asked for, and records its rows in a row log (`fixpoint::RowLog`): one chain of 64 KiB chunks an input at twelve bytes a row, a twenty-four-byte header for each fragment of one base's rows, and a base index of seventeen bytes a bucket from each base to its first fragment, which its `[c] <config> row_log bytes= fragments= revisited_bases=` line reports. Its pending class-grain rows are forty-eight bytes of narrowed ids with no index of their own, its worklist's stack holds a four-byte id an item, and its drain decodes one input's chain at a time into the row vector, sorting that input's rows and freeing the chain. So of what it holds only the rows grow with the windows it settles once the trace memo reaches its ceiling, and below the ceiling a narrower memo key or entry lowers this bound by as much as it shrinks the trace memo. `default` holds its trace memo to no ceiling while a delta is left to read it, which UNCAPPED_SCRATCH_PEAK_BYTES books. The reading is one bare `build-tables` of each settlement configuration alone at one wide, from scratch through its fold, at 56 runes, the memory series' line taken as DELTA_SLOT_BYTES's are (`--configs <config> --kernel-threads 1`), three runs each (the `readings/solo-<config>-r<n>.txt` lines in `var/keep/ram-inventory/v5/r56-readings/`). Its peak, its resident line in every run, reads 3.612 GB for `ss03`, 3.578 GB for `ss03+ss05`, 3.556 to 3.557 GB for `default` and `ss07`, 3.555 GB for `ss08`, 3.522 GB for `ss05` and 3.422 GB for `ss04`, each configuration's three runs within 0.001 GB of each other and each run's peak footprint 0.64 to 0.69 GB below. The peak falls in the fold, 7.4 to 8.7 s after the enumeration ends, once the product is read back: each configuration's `read_back_heap` line reads 2.50 to 2.64 GB, and its release point, the `resident_before_release` line, 2.57 to 2.64 GB, 0.86 to 0.98 GB below the peak. Each configuration holds 17.84M (`ss04`) to 19.25M (`ss03`) windows in a trace memo of 2^25 buckets whose shards clear 16 times as they reach its ceiling, clears its prospect memo 5 times and its candidate memo 11 or 12 times, and its `resident_after_sort` line reads 2.23 to 2.30 GB. The constant is the highest reading, 3.612 GB for `ss03`, rounded up to the tenth. With the allocator's large cache on, the same solo builds at 45 runes on a crate that also wrote memo files read 2.97 to 3.11 GB above the same builds with it off, chiefly earlier tables of the memos that grew (#537; #519 lists them). The deltas started from scratch beside default peak together with default near the end of their enumerations, which is why the start books every engine in it at its own bound at once: this bound for each delta from scratch, and for `default` this bound with every delta from scratch or UNCAPPED_SCRATCH_PEAK_BYTES with fewer. The reading is the same series' build over every settlement configuration seven wide with two, three and six deltas from scratch (DELTA_SLOT_BYTES's `scratch-s<S>` lines). The crate starts whole tiers of equal unlocking-rune count (`fanout::scratch_tiers`): at 56 runes the worklist's tiers unlock 6, 6, 2, 1, 1 and 1 runes, so two starts `ss03` and `ss03+ss05`, three adds `ss08`, four and five start the same three, and six starts every delta. At every count the build peaks at the rendezvous, not at the start: the highest resident line any configuration records before it parks reads 15.99 to 17.47 GB with six from scratch, a delta's `resident_before_release`, and the process's resident line at default's release 7.67 to 7.69 GB with two and 8.44 to 8.45 GB with three. Only the start with every delta from scratch, divided by its configuration count, reads this term: at most 2.50 GB a configuration, below the solo readings. A start with fewer reads UNCAPPED_SCRATCH_PEAK_BYTES plus a SCRATCH_PEAK_BYTES for each delta from scratch, which that term's comment checks. The count trades memory and CPU for wall time: three from scratch takes 228.4 to 233.2 s and 824.9 to 842.8 CPU-s, and six 166.1 to 167.3 s and 1083.6 to 1089.2 CPU-s, at peak footprints of 18.63 to 18.66 and 19.23 to 19.50 GB. Starting every delta from scratch rather than three takes 61.1 to 67.2 s off the build, for 240.8 to 264.3 CPU-s and 0.57 to 0.87 GB more peak footprint, so `deltas_from_scratch` starts as many as the booking fits. The tables are the same bytes at every count and ceiling: each configuration's digest is the same in every build over the whole set at every width and count, and `default`'s in every build of it alone at either ceiling, while `ss05` and `ss03+ss05` built alone write other tables, because a configuration's tables depend on the set built beside it (`build_table_files`). With the other terms as they stand, a value of 5.84 GB or more leaves the 18-core machine under a gated cycle, with gate:make-test's pytest pool running, fewer than every delta from scratch, 5.97 GB or more leaves the 12-core machine under a gated cycle fewer, and 6.22 GB or more leaves either machine alone fewer. At this value both machines start every delta from scratch beside default, alone and under a gated cycle; `engine/test_memory_budget.py` and `engine/test_artifact_cycle.py` check that count in each of those cases. Re-measure it with DELTA_SLOT_BYTES.
+SCRATCH_PEAK_BYTES = 3_700_000_000
+# The peak of `default` enumerated from scratch while it keeps every window its trace memo settles for the deltas that read it: what `table_build_booking_bytes` books for `default` in the start of a build that starts some deltas from scratch beside it but fewer than there are deltas, where each of those books SCRATCH_PEAK_BYTES. A trace memo another enumeration reads has no ceiling, since that reader's hits on a memo that forgets would be lost (`fixpoint::MemoAccess` in the crate), so this is SCRATCH_PEAK_BYTES' engine with a trace memo that grows with every window it settles and stores the windows with a concrete third slot and a known fourth too. When every delta starts from scratch no delta reads `default`'s memo, and `default` books SCRATCH_PEAK_BYTES as they do. The reading is one bare `build-tables` of `default` alone at one wide with its trace memo at a ceiling no shard reaches and storing every window (`--configs=default --threads=1 --trace-memo-buckets=134217728 --no-trace-memo-skip`), at 56 runes, through the release binary under `/usr/bin/time -l` with `--cache-stats`, `--timings` and KERNEL_ALLOCATOR_ENVIRONMENT set and its payloads linked to the null device, on the machine DELTA_SLOT_BYTES's readings use, three runs (`var/keep/ram-inventory/v5/r56-readings/`, `uncapped.py` and its `readings/uncapped.ndjson` records): its resident peak reads 6.337 GB in all three, each run's peak footprint 0.04 GB below, at the release point, with 66.03M windows in a trace memo of 2^27 buckets and no shard cleared, where the same build at the ceiling holds 18.75M. The constant is that reading rounded up to the tenth. The starts with two and three deltas from scratch check it, in DELTA_SLOT_BYTES's `scratch-s2` and `scratch-s3` lines: their `default` holds the same 66.03M windows, and the process's resident line at its release reads 7.67 to 7.69 GB with two and 8.44 to 8.45 GB with three, under the 13.8 and 17.5 GB this term and two or three SCRATCH_PEAK_BYTES book. Neither fleet machine books it, since both start every delta from scratch, so no value of it moves their count.
+UNCAPPED_SCRATCH_PEAK_BYTES = 6_400_000_000
+# The memory of the default memo snapshot shared by the delta wave, and of the caches its readers keep, the first term of `table_build_booking_bytes`. `fanout::run_configs_tables` keeps default's whole snapshot alive while a delta is left to read it, which is whenever fewer deltas start from scratch than there are deltas; when every delta starts from scratch, default keeps none (`fanout::default_access`). `memo::MemoSnapshot` holds the snapshot: `memo::SnapshotEntries` packs its records sorted by key in blocks of 512, a block's first record whole and each later one coded against the one before it, in chunks of 16 MiB, beside a fence of twenty-four bytes a block and a blocked Bloom filter of ten bits a key, and beside them sit the settled, notes, deltas and reads tables the records' ids index (`MemoSnapshot::pool_bytes`); the `[c] default snapshot` line `--cache-stats` prints reports each as `packed_bytes`, `fence_bytes`, `filter_bytes` and `pool_bytes`. Each delta's engine reads it through a cache of 455 decoded blocks of its own (`memo::StoreReader`), whose `cache_bytes` its `[c] <config> shared_memo_store` line reports at its full size, 8.4 MB. Where some delta reads the snapshot, it also carries the liveness verdicts default published for those deltas (`fanout::run_configs_tables`), whose record table, slots and fired deltas `--cache-stats` reports as `published_verdicts`, and `pool_bytes` leaves those fired deltas out of the delta table it counts, so the sum counts each once. The reading is three memory-series lines of one bare `build-tables` over every settlement configuration at 56 runes seven wide with every delta over default's snapshot, taken as DELTA_SLOT_BYTES's are (the `readings/wave-w7-r<n>.txt` lines in `var/keep/ram-inventory/v5/r56-readings/`). In every run its `[c] default snapshot` line reads 66,032,382 records in 128,970 blocks, 475,061,214 packed bytes, 7.19 bytes a record, beside 3,095,280 bytes of fences, 82,540,480 of filter and 169,509,464 of pools, 0.730 GB in all, the release's sort taking 6.119 to 6.205 s and its coding 4.303 to 4.386 s; `published_verdicts` reads 0.263 GB; and each of the six readers' `shared_memo_store` lines reads a `cache_bytes` of 8,386,560, so seven caches, one a worker slot, hold 0.059 GB. The constant is the snapshot's packed blocks, fences, filter and pools, the highest of those verdicts and seven caches, 1.052 GB, rounded up to the tenth. The snapshot reads the same at every width, and 0.731 GB with two and with three deltas from scratch, where `published_verdicts` reads 0.234 and 0.206 GB; with every delta from scratch default takes no snapshot. With the other terms as they stand, a value of 15.64 GB or more costs the 18-core machine its whole wave under a gated cycle, 16.54 GB or more the 12-core machine, and 18.34 GB or more both machines alone.
+DEFAULT_MEMO_BYTES = 1_100_000_000
+# What one configuration's prepared fold product holds while it waits parked (`fold::Parked`, `fanout::run_configs_tables`): its class rows coded against the previous row in blocks of about 4 KiB that end at near-slot run boundaries, each with a 27-byte index entry, its label-grain expansion as one joint bit a row, and its row chains as stretches of rows that share a parent and a chain length, nine bytes a stretch, beside its window options, its first rules, its source-row index, its label pool, whose texts are `Rc`s, and its outcome, settled and provenance tables, which stay as they are, from the end of its preparation, inside its slot, until every configuration has parked. Every configuration's parked product is resident at once at the end of the wave, so a wave that reuses a worker slot holds the finished configurations' products beside the deltas still enumerating; `table_build_booking_bytes` books one per configuration, and DELTA_SLOT_BYTES and FOLD_PREPARATION_BYTES each count a slot beyond its own configuration's product. Once every configuration has parked, each reads its product back whole for the cross-configuration exchange, which READ_BACK_FOLD_BYTES books. With `--cache-stats` each configuration's `[c] <config> parked bytes= class_rows= fold_rows= stretches=` line gives what its coded forms hold and how many class rows, label-grain rows and stretches they code, so a build reads off its parked bytes a class row. The reading is `build-tables` with `--cache-stats`, whose `[c] <config> parked_heap` line gives the bytes the process's malloc zones hold allocated at the rendezvous before any product is read back, where every configuration's parked product and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). The constant is the highest reading divided by the count of settlement configurations that reading built, the spec's share included, rounded up to the tenth. In the whole-wave readings DELTA_SLOT_BYTES cites, the line reads 1.367 GB over seven configurations at every width and every count from scratch, 0.195 GB a configuration, and 0.186 to 0.201 GB for each configuration built alone (SCRATCH_PEAK_BYTES's solo lines), so the constant is 0.3 GB. Of that, each configuration's `parked` line reads 0.12 to 0.13 GB of coded forms, 3.53 to 3.56 bytes a class row over 34.47M to 35.12M class rows, 43.96M to 48.21M label-grain rows and 0.81M to 0.89M stretches, and the rest is the part of the product that stays as it is and the spec's share. With the other terms as they stand, a value of 2.38 GB or more costs the 18-core machine its whole wave under a gated cycle, with gate:make-test's pytest pool running, 2.51 GB or more the 12-core machine, and 2.77 GB or more both machines alone; `engine/test_memory_budget.py` holds it under SCRATCH_PEAK_BYTES. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a parked product holds changes.
+PARKED_FOLD_BYTES = 300_000_000
+# What one configuration's prepared fold product holds once it is read back (`fold::Parked::unpark`): the class rows, their label-grain expansion, whose row holds pool ids rather than strings (`fold::FoldRow`, sixteen bytes) and is allocated at its exact length, the row chains, the window options, its first rules and its source-row index, from the rendezvous through the cross-configuration exchange (`engine/kernel-rs/src/crossconfig.rs`) until the configuration finishes. Every configuration reads its product back once every configuration has parked, which is after the last delta has enumerated, whatever the width, so the rendezvous holds every configuration's product read back at once and nothing that enumerates: `table_build_booking_bytes` books this term once per configuration as the rendezvous and books no width below it, so a narrow `AMS_KERNEL_THREADS` books no less than the rendezvous holds. Each configuration's share of what the exchange and the allocator hold beside the products is booked here too. The reading is the whole build's peak where it falls after every configuration has parked, the higher of its resident and footprint lines, in the whole-wave readings DELTA_SLOT_BYTES cites: at 56 runes that is every run, at every width and every count from scratch (DELTA_SLOT_BYTES says how a rendezvous reading is told from the start's). It reads 18.16 GB one wide to 18.72 GB seven wide with every delta over default's memo, 18.63 to 18.73 GB seven wide with two and three from scratch and 19.45 to 20.12 GB with six. The constant is the highest reading, 20.12 GB, divided by the seven settlement configurations that build holds, 2.87 GB, rounded up to the tenth. The floor it rests on is the `[c] <config> read_back_heap` line `--cache-stats` prints: the bytes the process's malloc zones hold allocated once every configuration has read its product back and before the exchange's first round, where those products and the parsed spec are all the process holds (`fixpoint::heap_bytes`, from `/usr/bin/heap`). It reads 18.11 GB over seven configurations at every width and every count from scratch, 2.59 GB a configuration, and 2.50 to 2.64 GB for each configuration built alone. The rest of the peak is the exchange's working set beside the products and the allocator's retained pages: the peak footprint of those builds reads 18.16 to 19.50 GB, and the memory compressor's share of the build puts the resident line between 2.36 GB below it and 0.89 GB above it. With the other terms as they stand, a value of 5.84 GB or more leaves the 18-core machine under a gated cycle, with gate:make-test's pytest pool running, no width whose booking fits, which costs it its whole wave and every delta from scratch, 5.97 GB or more does the same to the 12-core machine under a gated cycle, and 6.22 GB or more to both machines alone. A configuration's finish also holds, beside its product, the merge of its windows rows against its previous ones when it has any (`engine/kernel-rs/src/row_merge.rs`): one buffer of 1 MiB a part it reads, and since an output at its segment cap plus `row_delta.FOLD_OVERRUN` folds and reads no part, at most a base and twenty segments, 21 streams and 21 MiB a configuration; this term books it with the rest of the finish, at the value above. Re-measure it with DELTA_SLOT_BYTES whenever the alphabet grows or what a prepared product holds changes.
+READ_BACK_FOLD_BYTES = 2_900_000_000
+# The peak `table_build_booking_bytes` books for the one `build-tables` process at the configuration count with every delta started from scratch beside default: the width and the count `kernel_threads_default` and `deltas_from_scratch` give a bare run_build on the 48 GiB machines (`doc/fleet.md`). A gated cycle there runs the same width and count, since gate:make-test's pytest pool still leaves room for every delta from scratch (SCRATCH_PEAK_BYTES), so it books the same. It is the highest of the wave, DEFAULT_MEMO_BYTES plus PARKED_FOLD_BYTES per configuration plus SCRATCH_PEAK_BYTES less PARKED_FOLD_BYTES for each delta from scratch plus DELTA_SLOT_BYTES for each other delta plus FOLD_PREPARATION_BYTES, the start, a SCRATCH_PEAK_BYTES for each delta from scratch and, for default, UNCAPPED_SCRATCH_PEAK_BYTES while a delta is left to read its memo or one more SCRATCH_PEAK_BYTES once none is, and the rendezvous, READ_BACK_FOLD_BYTES per configuration; with seven configurations and every delta from scratch the wave's 26.3 GB binds over the start's 25.9 GB and the rendezvous's 20.3 GB. `engine/test_memory_budget.py` checks that it equals that booking, so it moves whenever a term is re-measured. `make job-costs` compares every build step since its commit with it, and an overrun means a build outgrew what its width books, so the kernel constants need re-measuring. Its reading is the higher of two lines: the step's peak, which is the build process's resident line, and the build's peak footprint, which `build_table_files` reads between the process's exit and its reap and run_build writes on its `[t] kernel_build_tables` line. The resident line leaves out what the memory compressor holds of the build, so the row prints both lines, and an overrun the compressor's share makes can be told apart from a build that grew. A record without a footprint, which includes every build on Linux, where an exited process's footprint cannot be read, reads its resident line alone. At 56 runes the whole-build peak comes at the rendezvous at every width and every count from scratch (DELTA_SLOT_BYTES). Every reading in `var/keep/ram-inventory/v5/r56-readings/` is inside it, the highest, 20.12 GB with every delta from scratch, by 6.18 GB, and inside the booking at its own width and count, by 1.72 GB or more, each the higher of its resident and footprint lines: 19.45 to 20.12 GB seven wide with six from scratch and 18.63 to 18.73 GB with two and three, booked at 26.3 GB, 18.66 to 18.72 GB seven wide with none, booked at 26.3 GB, 18.55 to 18.58 GB six wide, booked at 23.6 GB, and 18.16 to 18.58 GB one to five wide, booked at the rendezvous's 20.3 GB. So are the two run_build steps `engine/out/cycle-timings.ndjson` records at 56 runes before those readings, 17.06 and 16.38 GB resident beside 19.23 and 19.77 GB footprint. Building a snapshot is inside this bound. `Engine::take_memo` releases the other live memos, then drains the trace map into an array one shard at a time, holding the array beside the shards not yet drained and freeing each shard's table once its entries have moved, so the map is gone before the sort. It sorts the array in place with an unstable sort, which allocates nothing beside it, then codes it into blocks held in chunks of 16 MiB beside the fences and the filter, so only those stand beside the drained records until the array is dropped; it holds no source positions and no partition. In the readings above the release sets no peak: every build peaks at the rendezvous, after `default`'s memo is gone. Enumeration and the fold still hold corpus-sized state. An enumeration frees its worklist's stack, its item table, its pending class-grain rows and its row log's base index once its member cross-check has appended the class rows to its row log (after its `--cache-stats` lines, when they are asked for), ahead of its memo release, so everything from there to its return (its snapshot build, its drain, its sort and its partition check) runs without them, and the partition check holds the member claims of one base at a time (`fixpoint::DeepPartitionCheck`). Every engine of the build, `default`'s, each delta's and each delta's started from scratch, holds its prospect and candidate memos to the ceilings SCRATCH_PEAK_BYTES describes (`fixpoint::TABLE_MEMO_CEILINGS`), its rows in a row log, its pending class-grain rows as narrowed ids and its worklist's stack as item ids, and every reading the terms rest on is of that crate.
+TABLE_BUILD_PEAK_BYTES = 26_300_000_000
+# What one configuration's length-4 string replay holds on a full replay, its walk and the absorb of its window memo together, which run at once: the walk is one `replay-strings` process for that configuration alone, and its absorb is the spawn worker that reads the walk's window memo through a pipe as the walk writes it (`replay_memo_walk`, `run_build.run_replay_strings`). `run_build._replay_threads` divides the machine's memory by it for the replay's width, the number of walks that run at once, and each absorb runs beside its own walk. The walk takes its texts a last symbol at a time (`engine/kernel-rs/src/replay.rs`), so it holds one unit's walk memo and engine memos, released after each unit, beside the side memo of the windows that cross units and the row store of every window it has settled, fourteen bytes a row at the narrow width, which it frees a chunk at a time as it writes the memo; its engine keeps its prospect and candidate memos unbounded within the unit, because only the table fixpoint sets `EngineModes::memo_ceilings`. The absorb holds the memo's seven columns, preallocated from its head in anonymous memory whose pages fill only as the rows arrive, so the rows the walk frees a chunk at a time as it writes them are held about once between the two (`conform.read_replay_memo`), and then what its route (`conform.plan_settle_memos`) lays out once the walk has exited, until every walk has passed: on a base route, a configuration's first memo, one that does not read or a fold, the probe index it builds over the refill and the finished base, the readings below; on the segment route, every other, the standing memo's parts mapped, whose pages are the page cache's, its flags, 3 bytes a standing row and 5 on a compare that probes, and the segment of the windows that differ, copied out of the refill's columns as it releases them, with its own index, Bloom filter and dead bitmaps (`conform.compare_replay`). Where every window settles alike, the landing pass's case, it holds the flags where a base route holds its index, and so less; where nearly every window changed, after a crate edit that moves every outcome, the segment's columns and index stand where the refill's and a base's stand, and its flags and filter, 4 to 6 bytes a row, with the heap its copy and its index leave freed, put it 0.03 to 0.04 GB above a base route at 45 runes, under the constant. Either route lays its part out once its walk has exited, so that peak stands beside no walk of its own. The replay gates its walks and not its workers: each worker holds its walk's slot until its part is laid out, and it then holds the part in the slot it leaves only once every walk has a slot, while below the configuration count a worker whose part is laid out while a walk still waits for a slot writes it at once under its final name and holds nothing, so the walks running and the parts held never outnumber the width, and this term books an absorb at its peak beside its walk at its own. Below the configuration count the workers not walking also hold their interpreters, which no term books. A narrowed walk writes no memo and walks every configuration it walks as a thread of one process, each a share of this term. Nothing is subtracted before the division: the replay starts after the `build-tables` process has exited, so no configuration's memo is alive, and each walk loads one settlement TSV and builds its own engine. The readings are the memory series' replay holder (`engine/tools/memory_series.py`) at 45 runes on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), kept in `var/keep/ram-inventory/v4/change9-readings/after/`, whose `summarize.py` prints the figures here: three lines of every settlement configuration at width 6 (`wide-45.txt`, `make memory-series ARGS='--holder replay --replay-threads 6 --idle-seconds 5 --after-seconds 5 --interval 0.2 45 45 45'` with `--out` naming it) and three of `default` alone at width 1 (`solo-45.txt`, the same with `--configs default --replay-threads 1`). Each line runs a full replay as `run_build` runs it, in a tree with no memo, so every absorb takes the base route, which holds more than the segment route but where nearly every window changed (above), with KERNEL_ALLOCATOR_ENVIRONMENT set on the walks and each absorb discarding its file, and sums each configuration's walk and absorb at each sample, the pair, and the whole step's walks and absorbs, the combined peak. The pair's peak, the higher of resident and footprint, reads 0.164 to 0.171 GB, the resident figure the higher in every configuration, and the wide step's combined peak reads 0.987 to 0.993 GB, 0.165 a configuration. The constant is the higher of those, 0.171, plus a quarter, 0.214, rounded up to the tenth. A walk alone peaks at 0.126 to 0.130 GB and an absorb at 0.129 to 0.130 resident and 0.117 to 0.118 footprint, and the sum of each walk's and its absorb's own peaks, 0.255 to 0.260 GB, which bounds any moment between the 0.2 s samples, sits under the constant as well. It errs high for the reason DELTA_SLOT_BYTES gives, and the headroom also covers neighbors no term subtracts: the replay shares run_build's process tree with the glyph chain, the window packers and the shipped-order walkers, each a small, flat working set beside it (`run_build._core_bound_threads` sizes the last two). The criterion is that both fleet machines (`doc/fleet.md`) replay every settlement configuration in one round, alone and in a gated cycle with gate:make-test's pytest pool running; `engine/test_memory_budget.py` and `engine/test_artifact_cycle.py` check it. The replay-walk row of `make job-costs` checks each full replay's walks against it by each walk's own crate peak, and a narrowed replay by its one process's peak over the walks it ran at once (`run_build._record_replay_walk`); the replay-absorb row reports each absorb worker's peak footprint beside it. Re-measure it whenever the alphabet grows, `REPLAY_MAX_LENGTH` changes, or what a unit, a row store row or an absorb holds changes shape.
+REPLAY_PEAK_BYTES = 300_000_000
+
+
+def table_build_booking_bytes(
+    width: int,
+    *,
+    configs: int,
+    from_scratch: bool = False,
+    scratch_beside_default: int = 0,
+) -> int:
+    """The memory a table build of `configs` configurations at `width` worker slots is booked at, which `kernel_threads_default` fits to the machine and `TABLE_BUILD_PEAK_BYTES` states at the configuration count. Every build books `DEFAULT_MEMO_BYTES` for `default`'s memo snapshot and the caches its readers keep of it, and `PARKED_FOLD_BYTES` for each configuration, whose prepared fold product waits parked and compact from the end of its preparation until every configuration has parked. A build that shares `default`'s memo books `DELTA_SLOT_BYTES` for each delta in flight, at most `configs - 1`, and above that delta count `FOLD_PREPARATION_BYTES` for the slot that runs only `default`'s fold preparation; a slot beyond the configuration count holds nothing. Both slot terms count only what a slot holds beyond its own configuration's parked product. With `scratch_beside_default`, capped as the crate caps it at the delta count and one less than `width`, that many of the deltas enumerate from scratch beside `default` instead (`fanout::run_configs_tables`), and each books `SCRATCH_PEAK_BYTES` less its parked product in place of a delta's slot. Such a build holds `default`'s live engine and theirs at their from-scratch peaks together before any delta starts, which the wave's terms do not cover, so its booking is the higher of that start and the wave. The start books one `SCRATCH_PEAK_BYTES` for each of them and, for `default`, `UNCAPPED_SCRATCH_PEAK_BYTES` while fewer of them start from scratch than there are deltas, since `default` then keeps every window its trace memo settles for the deltas that read it, or one more `SCRATCH_PEAK_BYTES` once every delta starts from scratch and `default`'s trace memo is held to its ceiling like theirs. With `from_scratch`, for a build in which every configuration enumerates from scratch (a set without `default`, or `default_memo_sharing=False`), each slot up to the configuration count books `SCRATCH_PEAK_BYTES` less its parked product instead, and `scratch_beside_default` adds nothing, because such a build has no `default` to start beside.
+
+    Once every configuration has parked, which is after the last delta has enumerated, each reads its product back whole and holds it through the exchange, whatever the width. So every build is booked at no less than that rendezvous, `READ_BACK_FOLD_BYTES` for each configuration, and its booking is the higher of the rendezvous and the wave, or the highest of the rendezvous, the start and the wave; without it, a narrow width, a stated `AMS_KERNEL_THREADS` among them, would book below what the rendezvous holds.
+    """
+    fixed = DEFAULT_MEMO_BYTES + configs * PARKED_FOLD_BYTES
+    rendezvous = configs * READ_BACK_FOLD_BYTES
+    if from_scratch:
+        return max(fixed + min(width, configs) * (SCRATCH_PEAK_BYTES - PARKED_FOLD_BYTES), rendezvous)
+    deltas = configs - 1
+    scratch = max(0, min(scratch_beside_default, deltas, width - 1))
+    slots = (
+        scratch * (SCRATCH_PEAK_BYTES - PARKED_FOLD_BYTES)
+        + min(width - scratch, deltas - scratch) * DELTA_SLOT_BYTES
+        + (FOLD_PREPARATION_BYTES if width > deltas else 0)
+    )
+    wave = fixed + slots
+    if not scratch:
+        return max(wave, rendezvous)
+    lead = SCRATCH_PEAK_BYTES if scratch == deltas else UNCAPPED_SCRATCH_PEAK_BYTES
+    return max(wave, lead + scratch * SCRATCH_PEAK_BYTES, rendezvous)
+
+
+def kernel_threads_default(
+    *,
+    configs: int,
+    coresident_bytes: float = 0,
+    total_bytes: int | None = None,
+    from_scratch: bool = False,
+) -> int:
+    """The number of table-build worker slots this machine has memory for, for a build of `configs` configurations: the widest width up to `configs` whose `table_build_booking_bytes` fits the machine's memory, less the reserve `memory_budget` states and less `coresident_bytes`, floored at one. `AMS_KERNEL_THREADS` overrides the arithmetic whenever it is set. Each slot runs one delta configuration, and `default`'s fold preparation takes one of them when the wave starts. So the width is `configs` when the whole wave fits, with `default`'s preparation in a slot of its own; otherwise it is `memory_budget.how_many_fit` over `DELTA_SLOT_BYTES`, with `DEFAULT_MEMO_BYTES` and a `PARKED_FOLD_BYTES` per configuration taken off first, capped at the delta count, where the preparation's slot passes to a delta once the preparation ends. `from_scratch` is for a build in which every configuration enumerates from scratch (a set without `default`, which `run_build.build_tables` passes it for, or `default_memo_sharing=False`): its divisor is `SCRATCH_PEAK_BYTES` less `PARKED_FOLD_BYTES`, capped at `configs`. A stated `AMS_KERNEL_THREADS` below the configuration count still parks every configuration's product and reads every one back at the rendezvous, so a width of one does not bound the peak near one delta. The rendezvous (`READ_BACK_FOLD_BYTES` for each configuration) is the same at every width, so a machine whose memory it does not fit fits no width's booking, and the division still gives that machine the widest width whose wave fits below the configuration count, since a narrower one holds the same rendezvous.
+
+    A stated width is floored at one and not capped here, because the configuration count and the usable cores are not memory facts. `run_build._table_build_threads` and the cycle's `artifact_cycle.kernel_threads_budget` apply those caps; this module cannot name `conform.SETTLEMENT_CONFIGS`, since `conform` imports it. A value that is not a bare count (a typo, a `GB` suffix, an empty variable) raises instead of falling back to the arithmetic. `AMS_TOTAL_MEMORY_BYTES` ignores such a value, because it only reproduces another machine. This variable is what someone sets to keep a build out of swap, and a width they did not ask for defeats that. `total_bytes` is a keyword so a test can compute the width for an invented machine. The alternative, `importlib.reload`, re-runs module scope, resets `_BUILT` and deletes the live `_SPEC_DUMPS` directories under a caller still holding a `spec_path`. `configs` comes from the caller for the same reason, so no width is computed at import.
+
+    `coresident_bytes` is for a caller that runs the fan-out beside something else: the artifact cycle, whose pytest pool runs for the whole table build. Those bytes come off the machine with the reserve, so the width fits the machine the fan-out will run on. `AMS_KERNEL_THREADS` still overrides it, because nothing derived here may narrow a stated width. A bare `run_build` has nothing beside it and passes `0`. Callers use this function instead of calling `how_many_fit` themselves, which would duplicate the override branch.
+    """
+    stated = os.environ.get("AMS_KERNEL_THREADS")
+    if stated is not None:
+        try:
+            return max(1, int(stated))
+        except ValueError:
+            raise RuntimeError(
+                f"AMS_KERNEL_THREADS={stated!r} is not a width: it takes a bare decimal count of configurations to hold in flight, and leaving it unset is what asks for the width this machine's own memory derives."
+            ) from None
+    total = memory_budget.total_memory_bytes() if total_bytes is None else int(total_bytes)
+    usable = total - memory_budget.os_reserve_bytes(total_bytes=total) - max(0, int(coresident_bytes))
+    if not from_scratch and table_build_booking_bytes(configs, configs=configs) <= usable:
+        return configs
+    per_slot, cap = (
+        (SCRATCH_PEAK_BYTES - PARKED_FOLD_BYTES, configs) if from_scratch else (DELTA_SLOT_BYTES, configs - 1)
+    )
+    return memory_budget.how_many_fit(
+        per_slot,
+        coresident_bytes=DEFAULT_MEMO_BYTES + configs * PARKED_FOLD_BYTES + coresident_bytes,
+        cap=cap,
+        total_bytes=total,
+    )
+
+
+def deltas_from_scratch(
+    width: int,
+    *,
+    configs: int,
+    coresident_bytes: float = 0,
+    total_bytes: int | None = None,
+    from_scratch: bool = False,
+) -> int:
+    """At most how many of the deltas a table build of `configs` configurations at `width` worker slots enumerates from scratch beside `default`, the `scratch_beside_default` `run_build.build_tables` passes `build_table_files`. The crate takes them heaviest first (`fanout::delta_worklist`), so the count is all this decides: it is the largest count, up to the delta count and one less than `width`, at which the build's booking (`table_build_booking_bytes`) fits the machine's memory, less the reserve `memory_budget` states and less `coresident_bytes`. Every count is tried, not only those below the first that misses, because the booking can fall at the last one: while a delta is left to read `default`'s memo, `default`'s start books `UNCAPPED_SCRATCH_PEAK_BYTES`, and with every delta from scratch it books one `SCRATCH_PEAK_BYTES` instead, so every delta can fit where one fewer does not. The crate starts them only in whole tiers of equal unlocking-rune count up to that bound (`fanout::scratch_tiers`), because a delta left tied with one taken still runs after `default` as long as the one taken would have, while `default` enumerates more slowly beside them; where it starts fewer, the booking at this count errs high. The width is decided first and never narrowed by this, so a machine whose width memory sets runs every delta over `default`'s memo unless what that width leaves over holds the from-scratch peaks. The count trades memory and CPU for wall time, since a delta enumerated from scratch traces all of its windows instead of waiting for `default`'s memo, and memory alone decides it (`SCRATCH_PEAK_BYTES` gives the measured trade). A stated width is judged the same way. A from-scratch build has nothing to start beside `default`, so it answers zero. `coresident_bytes` and `total_bytes` mean what they mean for `kernel_threads_default`."""
+    if from_scratch:
+        return 0
+    total = memory_budget.total_memory_bytes() if total_bytes is None else int(total_bytes)
+    usable = total - memory_budget.os_reserve_bytes(total_bytes=total) - max(0, int(coresident_bytes))
+    return max(
+        (
+            count
+            for count in range(min(configs - 1, width - 1) + 1)
+            if table_build_booking_bytes(width, configs=configs, scratch_beside_default=count) <= usable
+        ),
+        default=0,
+    )
+
+
+def describe_kernel_threads(*, configs: int, total_bytes: int | None = None) -> str:
+    """`kernel_threads_default`'s arithmetic for a build of `configs` configurations that shares `default`'s memo, with nothing beside it, as one clause for `run_build --help`, so a reader can check where the derived width comes from. When the whole wave fits, the clause gives the booking at the configuration count; otherwise it is `memory_budget.describe_fit` over the terms `kernel_threads_default` divides. `AMS_KERNEL_THREADS` is left out, because the help names it beside the clause."""
+    total = memory_budget.total_memory_bytes() if total_bytes is None else int(total_bytes)
+    reserve = memory_budget.os_reserve_bytes(total_bytes=total)
+    booked = table_build_booking_bytes(configs, configs=configs)
+    if booked <= total - reserve:
+        return f"{configs}, the whole wave, booked at {format_gb(booked)} GB out of {format_gb(total)} GB total, less a reserve of {format_gb(reserve)} GB"
+    return memory_budget.describe_fit(
+        DELTA_SLOT_BYTES,
+        coresident_bytes=DEFAULT_MEMO_BYTES + configs * PARKED_FOLD_BYTES,
+        cap=configs - 1,
+        total_bytes=total,
+    )
+
+
+def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | None = None) -> int:
+    """The number of settlement configurations the string replay walks at once, as far as memory decides: on a full replay how many walk processes run beside their absorb workers, and on a narrowed one how many walks its one crate process runs. `AMS_REPLAY_THREADS` overrides the arithmetic whenever it is set. Otherwise `memory_budget.how_many_fit` divides the machine's memory, less the reserve that policy states, by `REPLAY_PEAK_BYTES`, floored at one. Nothing else is subtracted: a replay loads one settlement TSV and builds its own engine after the `build-tables` process has exited, so no `default` memo is alive. The configuration-count and usable-core caps are applied by `run_build._replay_threads` and the cycle's `artifact_cycle.replay_threads_budget`, because this module cannot name `conform.SETTLEMENT_CONFIGS`, since `conform` imports it. A stated width is floored at one and not capped here, and a value that is not a bare count raises, for the same reason as with `AMS_KERNEL_THREADS`.
+
+    `coresident_bytes` is for a caller that runs the replay beside something else: the artifact cycle, whose pytest pool runs for the whole build step. `total_bytes` is a keyword so a test can compute the width for an invented machine. On every fleet machine (`doc/fleet.md`) the configuration count is smaller than the memory answer, with or without the pool subtracted, so the memory term only matters on a smaller machine.
+    """
+    stated = os.environ.get("AMS_REPLAY_THREADS")
+    if stated is not None:
+        try:
+            return max(1, int(stated))
+        except ValueError:
+            raise RuntimeError(
+                f"AMS_REPLAY_THREADS={stated!r} is not a width: it takes a bare decimal count of settlement configurations to replay at once, and leaving it unset is what asks for the width this machine's own memory derives."
+            ) from None
+    return memory_budget.how_many_fit(
+        REPLAY_PEAK_BYTES, coresident_bytes=coresident_bytes, total_bytes=total_bytes
+    )
+
+
+# How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `enumerate-configs`, which only the tests run, `settle-cases`, `guard-sweep`, `replay-emitted`, `cargo build`, and the first run after it. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
+TIMEOUT = 1800
+# The factor between the duration `build_tables_timeout` or `replay_timeout` scales from a measurement and the limit it returns. It covers what the scaling leaves out: the 12-core M4 Pro Mac mini (`doc/fleet.md`), which has no measured duration; a call that shares its cores with another pool; and for the replay, the growth in what a text costs as the tables grow, which the full-alphabet projection puts at up to 1.3 times. A limit set too low kills a healthy call and loses its whole work, while one set too high only delays the error a hung crate gets, so the margin errs high.
+KERNEL_TIMEOUT_MARGIN = 3
+# The alphabet the two measured durations below were taken over: the 44-rune alphabet's 34 letters and three boundary tokens (`labels.spec_alphabet`).
+MEASURED_SYMBOLS = 37
+# The slowest whole-set table build at MEASURED_SYMBOLS: one `build-tables` over every settlement configuration one wide, from scratch, on a crate that also wrote each configuration's memo file, 432.2 s on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), the slowest of that alphabet's whole-wave readings (#511). Every wider build of the same alphabet took less.
+BUILD_TABLES_SECONDS = 432.2
+# How the table build's time grows with the alphabet: as the symbol count to this power, the number of slots in a window (its input, its left and four rights). It gives the 35th, 36th and 37th symbols 19.0%, 18.4% and 17.9% more time, against the 16.4%, 15.5–16.3% and 18.8% that fresh builds of the same code grew by when ·Jay, ·Ye and ·Way were added, and from 37 symbols to the full alphabet's 47 it gives 4.2 times, above the 3.6 to 3.8 times that is the pessimistic projection of that growth.
+BUILD_TABLES_GROWTH = 6
+# What one text costs the replay at MEASURED_SYMBOLS: the slowest of five walks over every text at maximum length 5, one configuration each, run at once in one `replay-strings` process at a memo ceiling of 7,340,032 windows on the 18-core M5 Pro 48 GiB MacBook Pro (`doc/fleet.md`), 71,270,177 texts in 542.3 s (#495). The build's own replay at maximum length 4 costs less a text: 11.3 s for 2,141,490 texts at most, in REPLAY_PEAK_BYTES's wide run with ·He in the alphabet.
+REPLAY_TEXT_SECONDS = 542.3 / 71_270_177
+# On macOS, where cargo copies the binary into target/release instead of hard-linking it, every `cargo build` replaces it there (it removes the file, then copies the new one in) even when nothing recompiled. So a build in one process can make another process's exec miss the file for an instant, and can end the first-exec scan of the file it removes: syspolicyd holds a new file's first run until its scan ends, and a scan that finds the path gone ends in a Gatekeeper termination of every process waiting on it, each an exit of -9 with empty stderr. This lock orders them: a build holds it exclusively for the whole `cargo build` and the new binary's first run (`_finish_first_exec_scan`), so no scan is in flight when the next build starts, and an invocation holds it shared for the spawn only, never for the run. `cargo_build` is how every build in the repository takes it, `make kernel-build` included; a `cargo build` typed by hand takes no lock.
+LOCK_PATH = MANIFEST.parent / "target" / ".ams-kernel-relink.lock"
+# How many lines of a failed build's stderr the exception includes: cargo reports the error in its last few lines, after the full compilation log.
+BUILD_TAIL_LINES = 20
+# On by default: the third join-count term is scored by the follower's simulated transition instead of junction-bearing candidacy. `AMS_SIMULATED_PROSPECT=0` turns it off for a comparison run, and run_build's spawn-pool workers inherit that through the environment. It is read at call time, so a test may monkeypatch it; a caller that wants one named mode set regardless passes `SettlementModes`.
+SIMULATED_PROSPECT_DEFAULT = os.environ.get("AMS_SIMULATED_PROSPECT", "1") != "0"
+# On by default: follower prefers are evaluated over the settled position's real shifted slots (follower prefer right1 = position right2, right2 = position right3, right3 = position right4) instead of pinning every slot past the follower prefer's own right1 to UNKNOWN, so a chained follower prefer resolves inside the window instead of firing optimistically wherever its then: hop read the pin. `AMS_FOLLOWER_PREFER_SLOTS=0` is the comparison state. It is a module attribute read at call time, like SIMULATED_PROSPECT_DEFAULT.
+FOLLOWER_PREFER_SLOTS_DEFAULT = os.environ.get("AMS_FOLLOWER_PREFER_SLOTS", "1") != "0"
+# On by default: deep window slots are enumerated at class grain, one row per outcome fiber, expanded back to labels for every fold-side consumer. It is a kernel invocation flag passed by `mode_flags` like the two defaults above, read at call time, with `AMS_DEEP_CLASSES=0` the label-grain comparison state. `class_grain` states the grain rule the crate applies.
+DEEP_CLASSES_DEFAULT = os.environ.get("AMS_DEEP_CLASSES", "1") != "0"
+# The semantics flags a fixpoint's shape depends on, each as (the kernel flag that turns it off, the module holding the default, the attribute name). The module is named instead of closed over so a later call reads a monkeypatched attribute. Only a flag that is off appears on the command line, so the default modes invoke the subcommand with none.
+SETTLEMENT_FLAGS = (
+    ("--candidacy-prospect", sys.modules[__name__], "SIMULATED_PROSPECT_DEFAULT"),
+    ("--follower-prefer-slots-off", sys.modules[__name__], "FOLLOWER_PREFER_SLOTS_DEFAULT"),
+)
+MODE_FLAGS = (
+    *SETTLEMENT_FLAGS,
+    ("--deep-classes-off", sys.modules[__name__], "DEEP_CLASSES_DEFAULT"),
+)
+GUARD_TAIL_TOKENS = {
+    token.kind: token for token in (settle.EDGE, settle.SPACE, settle.ZWNJ, settle.NAMER_DOT, settle.UNKNOWN)
+}
+FormationGuard = settle.FormationGuard
+# How many windows one `settle-cases` invocation takes on the sequence path, where every case result is a whole decoded trace. A spawn with its spec load costs about nine milliseconds and a case about fifteen microseconds to settle and serialize, so at this size the spawn is under a quarter of a batch's kernel time, while the decoded traces, each under a kilobyte of text, stay bounded.
+SETTLE_CASE_BATCH_SIZE = 2048
+# The same bound for `settle_windows`, where a case result decodes to a `Settled` only. It is eight times the trace batch because a settled record costs a fraction of a trace's memory. At this size the spawn is under a twentieth of a batch's kernel time, so a larger batch gains nothing measurable (issue #153 measured it).
+SETTLE_WINDOW_BATCH = 16384
+
+_BUILT = False
+# The stamp for a window enumeration that is not kept. `build-tables` always writes the windows payload, whose head is where a caller reads the rules and cells back from, and always requires a stamp for that head. A caller with no fingerprint over the rune files has no stamp to give, so it passes this word and keeps no payload: `run_build.build_tables` keeps the head from its pipe and drops the rest as it arrives, and this module's `build_tables` reads a payload file in a scratch directory it deletes, so the word never reaches an artifact.
+UNSTAMPED_WINDOWS = "unstamped"
+
+# One scratch dump per live spec, keyed on identity. Each entry holds the spec itself so its id cannot be reused while the entry exists. A dump costs about ten milliseconds and a couple of hundred kilobytes, which the settlement functions would otherwise pay on every invocation. The cap is small because the callers that matter hold one spec, and eviction deletes the directory of a dump this process wrote, never one it adopted (`adopt_spec_dump`), which has no directory here.
+_SPEC_DUMPS: OrderedDict[int, tuple[ResolvedSpec, tempfile.TemporaryDirectory | None, Path]] = OrderedDict()
+_SPEC_DUMPS_CAP = 4
+_SPEC_DUMPS_LOCK = threading.Lock()
+
+# The same structure for the guard verdicts, which cost a crate invocation instead of a file write.
+_GUARD_SWEEPS: OrderedDict[int, tuple[ResolvedSpec, FormationGuard]] = OrderedDict()
+_GUARD_SWEEPS_CAP = 4
+_GUARD_SWEEPS_LOCK = threading.Lock()
+
+
+def build_tables_timeout(symbols: int) -> float:
+    """How long one `build-tables` call over an alphabet of `symbols` symbols is waited for: `KERNEL_TIMEOUT_MARGIN` times `BUILD_TABLES_SECONDS` scaled by `symbols` over `MEASURED_SYMBOLS` to the `BUILD_TABLES_GROWTH` power, and at least `TIMEOUT`. It takes no width or configuration count, because the duration it scales is the whole set one wide, the slowest form the build runs in."""
+    scaled = BUILD_TABLES_SECONDS * (symbols / MEASURED_SYMBOLS) ** BUILD_TABLES_GROWTH
+    return max(float(TIMEOUT), KERNEL_TIMEOUT_MARGIN * scaled)
+
+
+def replay_timeout(*, symbols: int, max_length: int, configs: int, threads: int, last: bool) -> float:
+    """How long one `replay-strings` call is waited for: `KERNEL_TIMEOUT_MARGIN` times what its walks take at `REPLAY_TEXT_SECONDS` a text, and at least `TIMEOUT`. A walk covers every text of length 1 to `max_length` over `symbols` symbols, or with `last` the texts ending in one of them; a family list only narrows that, so the limit counts every text. A call's workers each walk their configurations one after another, so it takes as many walks' time as the most configurations one worker walks: `configs` over the width, rounded up, where the width is the smallest of `threads`, `configs` and the usable cores, as the crate caps it. A call of `replay_memo_walk` walks one configuration one wide, so its limit is one walk's; the time its process waits for the replay's gate before it starts is not counted, because the call starts after it."""
+    texts = sum(symbols ** (length - 1 if last else length) for length in range(1, max_length + 1))
+    width = max(1, min(threads, configs, memory_budget.usable_cores()))
+    rounds = -(-configs // width)
+    return max(float(TIMEOUT), KERNEL_TIMEOUT_MARGIN * REPLAY_TEXT_SECONDS * texts * rounds)
+
+
+class KernelBuildError(RuntimeError):
+    """`cargo` is absent or the crate did not build. Distinct from a run failure, which is a binary that exists and answered badly."""
+
+
+class KernelRunError(RuntimeError):
+    """The binary refused the invocation, exited nonzero, reported an error on a clean exit, or left a stream unwritten."""
+
+
+def cargo_build(*, capture: bool = True) -> None:
+    """Build the kernel in release mode, holding the binary relink lock exclusively through the build and the new binary's first run. Checking that the binary exists is not enough, because a stale binary sits at the same path as a fresh one; building makes sure the sources on disk are what runs. A warm build takes a fraction of a second; `ensure_built` runs it once per process. With `capture` false, cargo writes to this process's stdout and stderr as it runs, and a failure's exception quotes none of it."""
+    arguments = ["cargo", "build", "--release", "--manifest-path", str(MANIFEST)]
+    try:
+        with _relink_lock(fcntl.LOCK_EX):
+            finished = subprocess.run(arguments, capture_output=capture, timeout=TIMEOUT)
+            if finished.returncode == 0:
+                _finish_first_exec_scan()
+    except FileNotFoundError:
+        raise KernelBuildError(
+            "no cargo on PATH — install the Rust toolchain (https://rustup.rs) to build the kernel"
+        ) from None
+    except subprocess.TimeoutExpired:
+        raise KernelBuildError(
+            f"cargo gave no answer within {TIMEOUT} seconds on {' '.join(arguments)}"
+        ) from None
+    if finished.returncode != 0:
+        if not capture:
+            raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode})")
+        errors = finished.stderr.decode(errors="replace").strip().split("\n")
+        tail = "\n".join(errors[-BUILD_TAIL_LINES:])
+        raise KernelBuildError(f"the kernel did not build (cargo exited {finished.returncode}):\n{tail}")
+
+
+def _finish_first_exec_scan() -> None:
+    """Run the new binary with no arguments, to which the crate answers with its usage and exit 2, and wait for it to exit. The process cannot exit before the file's first-exec scan ends, so the caller, which holds the relink lock exclusively, keeps every other build from replacing the file during the scan (`LOCK_PATH`). Raises `KernelRunError` for a missing binary, a run that has not answered within `TIMEOUT`, or any other exit."""
+    arguments = [str(BINARY)]
+    try:
+        finished = subprocess.run(arguments, capture_output=True, timeout=TIMEOUT)
+    except FileNotFoundError:
+        raise _no_binary() from None
+    except subprocess.TimeoutExpired:
+        raise _no_answer(arguments, "its first run", TIMEOUT) from None
+    if finished.returncode != 2:
+        errors = finished.stderr.decode(errors="replace").strip()
+        raise KernelRunError(f"the kernel exited {finished.returncode} on its first run: {errors}")
+
+
+class _RelinkLock:
+    def __init__(self, mode: int) -> None:
+        self._mode = mode
+        self._handle = None
+
+    def __enter__(self):
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        self._handle = LOCK_PATH.open("w")
+        fcntl.flock(self._handle, self._mode)
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        assert self._handle is not None
+        fcntl.flock(self._handle, fcntl.LOCK_UN)
+        self._handle.close()
+
+
+def _relink_lock(mode: int) -> _RelinkLock:
+    return _RelinkLock(mode)
+
+
+def _spawn_kernel(
+    arguments: list[str],
+    *,
+    stdin: int | None,
+    env: Mapping[str, str] | None = None,
+    pass_fds: Sequence[int] = (),
+) -> subprocess.Popen:
+    """Spawn the binary with the relink lock held shared for the spawn only, the moment a concurrent `cargo build` could make the path disappear, so the caller waits without the lock and a long enumeration never blocks a build elsewhere. `stdin` is the child's standard input as `subprocess.Popen` takes it: `subprocess.PIPE` for a pipe the caller writes through `communicate`, a descriptor the child reads, or None for this process's own. With `env`, the child runs with that environment instead of this process's. `pass_fds` are the descriptors the child inherits at their own numbers (`_InheritedPipes`); `subprocess` closes every other descriptor in the child, so a child spawned beside another call's never holds that call's pipes. Raises `KernelRunError` for a missing binary."""
+    try:
+        with _relink_lock(fcntl.LOCK_SH):
+            return subprocess.Popen(
+                arguments,
+                stdin=stdin,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                pass_fds=pass_fds,
+            )
+    except FileNotFoundError:
+        raise _no_binary() from None
+
+
+def _no_binary() -> KernelRunError:
+    return KernelRunError(
+        f"no kernel binary at {BINARY} — run `make kernel-build` first, or let the caller's cargo_build() build it"
+    )
+
+
+def _no_answer(arguments: list[str], verb: str, timeout: float) -> KernelRunError:
+    return KernelRunError(
+        f"the kernel gave no answer within {timeout:.0f} seconds on {verb} ({' '.join(arguments)})"
+    )
+
+
+def _run_kernel(
+    arguments: list[str], verb: str, stdin: bytes | None = None, *, timeout: float
+) -> subprocess.CompletedProcess:
+    """Run the binary to completion (`_spawn_kernel`) and return its exit code and output, waiting at most `timeout` seconds, the limit the caller states for its verb. With `stdin`, the child's stdin carries those bytes and is then closed. Raises `KernelRunError` for a missing binary or a call that has not answered within `timeout`, after killing it."""
+    process = _spawn_kernel(arguments, stdin=subprocess.PIPE if stdin is not None else None)
+    try:
+        stdout, stderr = process.communicate(stdin, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.communicate()
+        raise _no_answer(arguments, verb, timeout) from None
+    return subprocess.CompletedProcess(arguments, process.returncode, stdout, stderr)
+
+
+def _allocator_environment() -> dict[str, str] | None:
+    """The environment `build_table_files`, `replay_strings` and `replay_memo_walk` spawn their crate process with: on macOS this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT`, elsewhere None, which leaves the child this process's own."""
+    return {**os.environ, **KERNEL_ALLOCATOR_ENVIRONMENT} if sys.platform == "darwin" else None
+
+
+def _write_all(descriptor: int, view: memoryview) -> None:
+    while view:
+        view = view[os.write(descriptor, view) :]
+
+
+def _feed_bytes(data: bytes) -> Callable[[int], None]:
+    """An `_InheritedPipes` input that writes `data` whole through a view of it, so however many pipes carry one object, none copies it."""
+
+    def write(descriptor: int) -> None:
+        _write_all(descriptor, memoryview(data))
+
+    return write
+
+
+# The one buffer each decompressing writer copies through: a pipe holds 64 KiB at most on macOS, so a larger buffer only adds to what a writer blocked on its pipe holds.
+FEED_CHUNK_BYTES = 1 << 16
+
+
+def _feed_gunzipped(
+    source: Path | BinaryIO, strip: Callable[[gzip.GzipFile], object] | None = None
+) -> Callable[[int], None]:
+    """An `_InheritedPipes` input that writes the gzip file at `source`, a path or a handle open at any position, decompressed, because the crate has no decompressor. It copies through one buffer of `FEED_CHUNK_BYTES` written straight to the descriptor, so a writer blocked on its pipe holds that buffer, the gzip stream's read buffer and the inflate window, and nothing else. `strip`, when given, reads and checks the leading lines the crate is not to see, a part's header lines, before the rest is copied; what it raises fails the writer, and so the call."""
+
+    def write(descriptor: int) -> None:
+        if isinstance(source, Path):
+            opened = gzip.open(source, "rb")
+        else:
+            source.seek(0)
+            opened = gzip.GzipFile(fileobj=source, mode="rb")
+        with opened as stream:
+            if strip is not None:
+                strip(stream)
+            buffer = memoryview(bytearray(FEED_CHUNK_BYTES))
+            while count := stream.readinto(buffer):
+                _write_all(descriptor, buffer[:count])
+
+    return write
+
+
+@dataclass(frozen=True)
+class PriorPart:
+    """One part of a configuration's previous windows rows that `build-tables` merges its own against: its name, which labels its pipe, the rows its head lists, which the crate checks, and the input that writes its rows, decompressed and without its header lines, into a pipe (`_feed_gunzipped`)."""
+
+    name: str
+    rows: int
+    feed: Callable[[int], None]
+
+    @classmethod
+    def gunzipped(
+        cls, name: str, rows: int, handle: BinaryIO, strip: Callable[[gzip.GzipFile], object]
+    ) -> PriorPart:
+        """A part read from its open handle and decompressed, `strip` checking and dropping its header lines (`_feed_gunzipped`)."""
+        return cls(name, rows, _feed_gunzipped(handle, strip))
+
+
+def raise_descriptor_limit() -> int:
+    """Raise this process's soft limit on open descriptors to its hard limit and return the limit in force. A build or a walk over windows outputs at their widest holds a descriptor or two a part, more than the 256 macOS's launchd gives a process by default, and a crate it spawns inherits the raised limit. A system that refuses the raise keeps its limit, and a build that then needs more fails at the open that passes it."""
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if soft == hard:
+        return soft
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+    except ValueError, OSError:
+        return soft
+    return hard
+
+
+class _InheritedPipes:
+    """The inputs one crate process reads through pipes it inherits, so none reaches the disk. `inputs` maps each input's label to the function that writes it into a descriptor without closing it (`_feed_bytes`, `_feed_gunzipped`). Each input gets its own `os.pipe()`, whose two descriptors no child inherits unless it is named to the spawn; the read end goes to the child through `pass_fds`, which keeps its number, so the child opens it as `path(label)`, `/dev/fd/<number>`, except the input `stdin` names, which is the child's standard input. Since `subprocess` closes every descriptor outside `pass_fds` in a child, calls spawning at once from several threads never hand one child another call's write end, which would keep that call's pipe from ever ending.
+
+    `_run_kernel_reaped` runs it. This process closes its read ends right after the spawn, and after a failed spawn too (`close_read_ends`): a read end it kept would keep a child that exits early from breaking the pipe, and the writer would block for good. Then one daemon thread a pipe writes its input and closes the write end (`start`), so a writer an interrupted call leaves never holds the interpreter open. Each writer takes its write end from this object under a lock as it begins, so every write end has one owner, the writer that took it or this object, and only its owner closes it. A broken pipe ends a writer quietly, since the child has exited or closed the pipe, as `replay-emitted` does at its disagreement limit, and the child's exit status says why; Python ignores SIGPIPE, so the write raises `BrokenPipeError` instead of ending the process. Once the child is reaped, every writer is joined (`finish`): a writer that failed any other way fails the call, and a child that exited 0 must not have broken any input's pipe, so every writer wrote all of its input into its pipe. That checks what was written, not what the child read: an input that fits in a pipe's buffer is written whole whether or not the child reads it. A wait that ends in an exception kills and reaps the child, then closes every write end no writer has taken and joins every writer that took one (`abort`), so none is left blocked and no writer outlives the call; a writer whose start the exception cut short before it took its write end finds it closed and ends without writing. As a context manager it closes, on exit, every descriptor no writer has taken over, so a call that never spawns leaks none.
+    """
+
+    def __init__(self, inputs: Mapping[str, Callable[[int], None]], *, stdin: str | None = None) -> None:
+        self._inputs = dict(inputs)
+        self._stdin = stdin
+        self._read: dict[str, int] = {}
+        self._write: dict[str, int] = {}
+        self._lock = threading.Lock()
+        self._writers: dict[str, threading.Thread] = {}
+        self._broken: list[str] = []
+        self._failures: list[tuple[str, BaseException]] = []
+        try:
+            for label in self._inputs:
+                self._read[label], self._write[label] = os.pipe()
+        except BaseException:
+            self.close()
+            raise
+
+    def __enter__(self) -> _InheritedPipes:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def path(self, label: str) -> str:
+        """The path the child opens one input's pipe at."""
+        return f"/dev/fd/{self._read[label]}"
+
+    @property
+    def stdin(self) -> int | None:
+        """The read end the child takes as its standard input, as `_spawn_kernel` takes `stdin`."""
+        return None if self._stdin is None else self._read[self._stdin]
+
+    @property
+    def pass_fds(self) -> tuple[int, ...]:
+        """The read ends the child inherits at their own numbers."""
+        return tuple(descriptor for label, descriptor in self._read.items() if label != self._stdin)
+
+    def close_read_ends(self) -> None:
+        while self._read:
+            _label, descriptor = self._read.popitem()
+            os.close(descriptor)
+
+    def start(self) -> None:
+        for label in list(self._write):
+            writer = threading.Thread(target=self._run, args=(label,), name=f"input {label}", daemon=True)
+            writer.start()
+            self._writers[label] = writer
+
+    def _run(self, label: str) -> None:
+        with self._lock:
+            descriptor = self._write.pop(label, None)
+            if descriptor is None:
+                return
+            self._writers[label] = threading.current_thread()
+        try:
+            try:
+                self._inputs[label](descriptor)
+            finally:
+                os.close(descriptor)
+        except BrokenPipeError:
+            self._broken.append(label)
+        except BaseException as error:
+            self._failures.append((label, error))
+
+    def join(self) -> None:
+        for writer in list(self._writers.values()):
+            writer.join()
+
+    def abort(self) -> None:
+        """Close every write end no writer has taken, then join every writer, for a wait that ended in an exception, which may have cut a writer's start short."""
+        self._close_write_ends()
+        self.join()
+
+    def finish(self, verb: str, returncode: int) -> None:
+        """Join every writer once the child is reaped, then raise `KernelRunError` for a writer that failed other than on a broken pipe, naming its input, or for a broken pipe under a child that exited 0, which ended without taking every byte."""
+        self.join()
+        if self._failures:
+            label, error = self._failures[0]
+            raise KernelRunError(f"{label}: {error}") from error
+        if returncode == 0 and self._broken:
+            raise KernelRunError(
+                f"the kernel exited 0 on {verb} without reading all of {', '.join(sorted(self._broken))}"
+            )
+
+    def close(self) -> None:
+        self.close_read_ends()
+        self._close_write_ends()
+
+    def _close_write_ends(self) -> None:
+        with self._lock:
+            while self._write:
+                _label, descriptor = self._write.popitem()
+                os.close(descriptor)
+
+
+def _run_kernel_reaped(
+    arguments: list[str],
+    verb: str,
+    *,
+    timeout: float,
+    env: Mapping[str, str] | None = None,
+    pipes: _InheritedPipes | None = None,
+    payloads: PayloadPipes | None = None,
+) -> tuple[subprocess.CompletedProcess, ReapedPeaks]:
+    """`_run_kernel` with the child's inputs on inherited pipes or none, returning beside the result the child process's own resident peak and peak footprint in bytes (`peak_rss.reap_peaks_bytes`), either None where it cannot be read. `communicate` reaps the child with `waitpid`, which discards its resource usage and its footprint, so this drains each pipe on a thread of its own and, once both are closed, waits for the child's exit, reads its peak footprint and reaps it with `os.wait4`. The crate starts no process of its own, so both figures are the crate's. `env` is the child's environment, as `_spawn_kernel` takes it. With `pipes`, the child inherits their read ends and their writers run while it does, and once it is reaped they are joined and checked (`_InheritedPipes`); without them, it inherits this process's standard input. With `payloads`, the child also inherits the write end of each payload's pipe, and this process closes its own copies right after the spawn, and after a failed spawn too, so each payload's reader meets end of file when the child exits (`PayloadPipes`). Raises `KernelRunError` for a missing binary, for a timeout after killing the child, or for an input whose writer failed, or whose pipe broke under a child that exited 0. An interrupt while it waits kills and reaps the child before it propagates, and then closes every write end no writer has taken and joins the writers (`_InheritedPipes.abort`), so no crate outlives its caller's cleanup, which for a call with `payloads` includes waiting for each payload's reader (`stream_payloads`), and no writer outlives the call."""
+    try:
+        process = _spawn_kernel(
+            arguments,
+            stdin=pipes.stdin if pipes is not None else None,
+            env=env,
+            pass_fds=(
+                *(pipes.pass_fds if pipes is not None else ()),
+                *(payloads.pass_fds if payloads is not None else ()),
+            ),
+        )
+    finally:
+        if pipes is not None:
+            pipes.close_read_ends()
+        if payloads is not None:
+            payloads.close_write_ends()
+    assert process.stdout is not None and process.stderr is not None
+    drained: dict[str, bytes] = {}
+
+    def drain(name: str, stream: IO[bytes]) -> None:
+        with stream:
+            drained[name] = stream.read()
+
+    readers = [
+        threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
+        threading.Thread(target=drain, args=("stderr", process.stderr), daemon=True),
+    ]
+    deadline = time.monotonic() + timeout
+    try:
+        if pipes is not None:
+            pipes.start()
+        for reader in readers:
+            reader.start()
+        for reader in readers:
+            reader.join(max(0.0, deadline - time.monotonic()))
+    except BaseException:
+        process.kill()
+        process.wait()
+        if pipes is not None:
+            pipes.abort()
+        raise
+    if any(reader.is_alive() for reader in readers):
+        process.kill()
+        for reader in readers:
+            reader.join()
+        process.wait()
+        if pipes is not None:
+            pipes.join()
+        raise _no_answer(arguments, verb, timeout)
+    peaks = reap_peaks_bytes(process)
+    returncode = process.wait()
+    if pipes is not None:
+        pipes.finish(verb, returncode)
+    return subprocess.CompletedProcess(arguments, returncode, drained["stdout"], drained["stderr"]), peaks
+
+
+def ensure_built() -> None:
+    """Run `cargo_build` once per process and do nothing on later calls. A warm `cargo` still costs a fraction of a second, and a suite or cycle stage that builds a hundred tables would pay it a hundred times for a binary that cannot have changed. A caller that wants cargo consulted again calls `cargo_build` directly."""
+    global _BUILT
+    if _BUILT:
+        return
+    cargo_build()
+    _BUILT = True
+
+
+def binary_sha256() -> str:
+    """The sha256 of the built binary's bytes, read with the relink lock held shared, so a `cargo build` elsewhere cannot replace the file while it is read. `run_build.table_reuse_lines` keys the table-reuse record on it beside the crate's sources, because the repository pins no toolchain, so a compiler or a build flag can change the binary while no source file moves. Raises `KernelRunError` for a missing binary."""
+    digest = hashlib.sha256()
+    try:
+        with _relink_lock(fcntl.LOCK_SH), BINARY.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                digest.update(chunk)
+    except FileNotFoundError:
+        raise _no_binary() from None
+    return digest.hexdigest()
+
+
+def mode_flags() -> list[str]:
+    """The mode flags that make the kernel enumerate under this process's mode set: one per default that is off. The defaults are read at call time. `run_build.tables_inputs` stamps the same three settings through `enumeration_tokens`, so an enumeration made with a flag on is never mistaken for one made with it off."""
+    return [flag for flag, module, attribute in MODE_FLAGS if not getattr(module, attribute)]
+
+
+@dataclass(frozen=True)
+class SettlementModes:
+    """One named settlement mode set, for a caller that wants a mode set other than its process's. `current()` returns the process's own, read from the module defaults at call time. `flags()` returns the command-line flags for the two booleans, written and ordered by `SETTLEMENT_FLAGS`. Passing an explicit pair lets a caller, such as a test, choose a mode set without changing the module defaults every other caller in the process reads."""
+
+    simulated_prospect: bool
+    follower_prefer_slots: bool
+
+    @classmethod
+    def current(cls) -> SettlementModes:
+        return cls(
+            simulated_prospect=SIMULATED_PROSPECT_DEFAULT, follower_prefer_slots=FOLLOWER_PREFER_SLOTS_DEFAULT
+        )
+
+    def flags(self) -> list[str]:
+        on = {
+            "SIMULATED_PROSPECT_DEFAULT": self.simulated_prospect,
+            "FOLLOWER_PREFER_SLOTS_DEFAULT": self.follower_prefer_slots,
+        }
+        return [flag for flag, _module, attribute in SETTLEMENT_FLAGS if not on[attribute]]
+
+
+def settlement_flags(modes: SettlementModes | None = None) -> list[str]:
+    """The two mode flags every direct settlement invocation takes, for `modes` or for this process's mode set. Deep-class grain applies only to enumeration, so it is not in this list."""
+    if modes is None:
+        modes = SettlementModes.current()
+    return modes.flags()
+
+
+def class_grain() -> bool:
+    """Whether this process's enumeration splits deep slots into outcome fibers, restating the crate's grain rule for Python callers. `AMS_DEEP_CLASSES` asks for class grain, but fibers exist only where a deep token can change an outcome. In the pinned mode set, with neither the simulated prospect nor the shifted follower prefer slots, nothing can, and the crate enumerates at label grain whatever the flag says. `enumeration_tokens` reads this, because the stamp on a serialized enumeration must distinguish the two grains."""
+    return DEEP_CLASSES_DEFAULT and (SIMULATED_PROSPECT_DEFAULT or FOLLOWER_PREFER_SLOTS_DEFAULT)
+
+
+def enumeration_tokens() -> list[str]:
+    """The semantics tokens a stamp over this process's enumeration must include, in stamp order: the simulated prospect, the shifted follower prefer slots and the class-grain deep slots, each present only while it is on. Each changes settlement semantics or enumeration grain without changing a hashed source, so a key over the sources alone would treat an enumeration made with a flag on as current in a process with it off, and the reverse. `run_build.tables_inputs` appends these to the tables' stamp, `run_build.memo_structure_stamp` includes them in the table build record's structure stamp, `run_build.locality_lines` in the string replay's stamp, and `artifact_cycle.deep_replay_structure_stamp` in the deep replay's, so all four agree."""
+    tokens: list[str] = []
+    if SIMULATED_PROSPECT_DEFAULT:
+        tokens.append("simulated-prospect")
+    if FOLLOWER_PREFER_SLOTS_DEFAULT:
+        tokens.append("follower-prefer-slots")
+    if class_grain():
+        tokens.append("deep-classes")
+    return tokens
+
+
+def _spec_dump(spec: ResolvedSpec) -> Path:
+    """The path of this spec's `spec.json`, dumped once per spec identity per process. Every settlement function and the guard sweep read the same file, so a walker that settles a hundred batches of one spec writes it once. The entry holds the spec so its `id` cannot be reused while the dump stands for it, and holds the `TemporaryDirectory` so eviction removes the file instead of garbage collection."""
+    key = id(spec)
+    with _SPEC_DUMPS_LOCK:
+        held = _SPEC_DUMPS.get(key)
+        if held is not None and held[0] is spec:
+            _SPEC_DUMPS.move_to_end(key)
+            return held[2]
+        scratch = tempfile.TemporaryDirectory()
+        path = Path(scratch.name) / "spec.json"
+        kernel_io.write_spec(spec, path)
+        _SPEC_DUMPS[key] = (spec, scratch, path)
+        _SPEC_DUMPS.move_to_end(key)
+        _evict_spec_dumps()
+        return path
+
+
+def adopt_spec_dump(spec: ResolvedSpec, path: Path) -> None:
+    """Make `path`, a dump of `spec` another process wrote and owns (`_spec_dump` in a pool's parent), the dump this process's settlement functions and guard sweep read for `spec`, so a pool worker writes no `spec.json` of its own. Nothing here deletes the file: an adopted entry has no directory for eviction to remove, and the process that wrote the dump removes it."""
+    with _SPEC_DUMPS_LOCK:
+        _SPEC_DUMPS[id(spec)] = (spec, None, Path(path))
+        _SPEC_DUMPS.move_to_end(id(spec))
+        _evict_spec_dumps()
+
+
+def _evict_spec_dumps() -> None:
+    while len(_SPEC_DUMPS) > _SPEC_DUMPS_CAP:
+        _evicted_key, (_evicted_spec, evicted_scratch, _evicted_path) = _SPEC_DUMPS.popitem(last=False)
+        if evicted_scratch is not None:
+            evicted_scratch.cleanup()
+
+
+def enumerate_configs(
+    spec_path: Path,
+    out_dir: Path,
+    configs: Sequence[str],
+    *,
+    threads: int,
+    timings: bool = False,
+    timings_tag: str | None = None,
+) -> dict[str, Path]:
+    """Every named configuration's transition stream, enumerated by one kernel process into `out_dir` and returned as `{config: path}`. The streams are byte-identical to what the same binary writes one configuration at a time, at any thread width. The files are plain ndjson, since compression is Python's job and the crate depends only on serde_json. The caller's configuration token names each file, because the crate rejects a token that is not the canonical form of the features it names. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit that left a stream unwritten.
+
+    `timings_tag` names the configuration a whole invocation stands for, for a caller that runs one process per configuration. The crate already labels its per-configuration lines `enumerate[<config>]`, but `spec_parse` and `enumerate_total` name the process, so without a tag each process's pair could not be attributed in the cycle journal. Tagged, they read `spec_parse[<config>]`.
+    """
+    arguments = [
+        str(BINARY),
+        "enumerate-configs",
+        str(spec_path),
+        str(out_dir),
+        f"--configs={','.join(configs)}",
+        f"--threads={threads}",
+        *mode_flags(),
+    ]
+    if timings:
+        arguments.append("--timings")
+    finished = _run_kernel(arguments, "enumerate-configs", timeout=TIMEOUT)
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support enumerate-configs yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on enumerate-configs: {errors}")
+    if finished.stdout:
+        raise KernelRunError(
+            f"the kernel wrote {len(finished.stdout)} bytes to stdout on a clean enumerate-configs exit, where the answer is the files"
+        )
+    _forward_stderr(errors, timings, arguments, timings_tag)
+    streams = {config: out_dir / f"transitions-{config}.ndjson" for config in configs}
+    missing = [config for config, path in streams.items() if not path.is_file()]
+    if missing:
+        left = sorted(found.name for found in out_dir.glob("*")) if out_dir.is_dir() else []
+        raise KernelRunError(
+            f"the kernel exited clean but wrote no stream for {', '.join(missing)} — it left {left}"
+        )
+    return streams
+
+
+@dataclass(frozen=True)
+class TableBuild:
+    """What `build_table_files` returns: each configuration's table digest, keyed by configuration, the bytes the crate wrote of each configuration's window payload (`windows_bytes`), which a caller that read the payload from a pipe checks what it received against, the `[t]` lines the crate wrote under `--timings`, as `_forward_stderr` copied them to stderr, and the `build-tables` process's own resident peak and peak footprint (`_run_kernel_reaped`). `run_build.build_tables` keeps the lines for run_build's check line, which has no captured output to parse them from, and writes the two peaks on its `[t] kernel_build_tables` line."""
+
+    digests: dict[str, str]
+    windows_bytes: dict[str, int]
+    timings: tuple[str, ...]
+    peaks: ReapedPeaks
+
+
+def build_table_files(
+    spec_bytes: bytes,
+    out_dir: Path,
+    configs: Sequence[str],
+    *,
+    inputs: str,
+    threads: int,
+    symbols: int,
+    timings: bool = False,
+    timings_tag: str | None = None,
+    default_memo_sharing: bool = True,
+    scratch_beside_default: int = 0,
+    verdict_sharing: bool = True,
+    previous: Mapping[str, Sequence[PriorPart]] | None = None,
+    payloads: PayloadPipes | None = None,
+) -> TableBuild:
+    """Every named configuration folded in the crate: its settlement TSV, its join TSV, its plain window payload stamped `inputs`, and the table digest of the pair, returned as `TableBuild.digests` (`{config: digest}`) beside the bytes of each window payload the crate wrote (`TableBuild.windows_bytes`) and the `[t]` lines `--timings` made the crate write.
+
+    `previous` maps a configuration to its previous windows rows, its base and then its segments in order (`PriorPart`), and its payload then holds its head line and only the rows that differ from them, merged by key at its finish, with no column line (`engine/kernel-rs/src/row_merge.rs`). Each part reaches the crate decompressed on a pipe of its own (`_InheritedPipes`), written by a thread of this process for the crate's whole run, and the crate reads it once, front to back, at the configuration's finish, refusing a part whose keys do not strictly ascend or whose rows are not its count. A configuration it does not name writes its whole payload, as every configuration does when it is empty.
+
+    `spec_bytes` is the spec dump (`kernel_io.spec_bytes`). The crate reads it as its spec positional, `/dev/fd/<number>`, from a pipe it inherits (`_InheritedPipes`), once, front to back, before it opens any payload, so the dump never reaches the disk.
+
+    This is `enumerate-configs` plus the fold in one process, so there is no stream between them: the fold runs on the product the worklist still holds. The windows payload is written uncompressed because the crate depends only on serde_json. `payloads` says where it goes. With it (`stream_payloads` hands one to its `run`), each configuration it names writes its payload into a pipe the crate inherits, named to the crate as `--windows=<config>=/dev/fd/<number>`, and the payload's reader takes it as the crate writes it, so it never reaches the disk and stands at no path another process could open: `run_build.build_tables` keeps its head line as the configuration's head file and packs the rest into the next segment or base of its windows output. Without it, the crate writes the file at `windows_payload`, as this module's `build_tables` and the tests want. Only `run_build.build_tables` passes `previous`, so every other caller's payload is the whole enumeration.
+
+    One process handles every named configuration because the configurations after `default` are enumerated as deltas over it. `default` enumerates first and keeps its trace memo. Each other configuration reads that memo for every window whose key names none of its own unlocking runes and whose settlement read none of them, and settles only the rest, `threads` worker slots at a time, with `default`'s fold preparation in one of them. `engine/kernel-rs/src/memo.rs` gives the argument; the window locality rule, applied across configurations, makes the shared results exact. `default_memo_sharing=False` enumerates every configuration from scratch, and `engine/test_kernel_exec.py` checks that it writes the same tables as the delta build. `scratch_beside_default` starts up to that many of the heaviest deltas from scratch beside `default` instead, in whole tiers of equal unlocking-rune count, which writes the same tables and holds what `table_build_booking_bytes` books for it (`deltas_from_scratch` decides it); when every delta starts that way, `default` keeps no memo. When some delta reads `default`'s memo, `default` also publishes its deep-slot liveness verdicts beside it, and a delta served one reruns only the probe's asks that name one of its own unlocking runes (`engine/kernel-rs/src/liveness.rs`); `verdict_sharing=False` runs every probe whole, and `engine/test_kernel_exec.py` checks that it writes the same tables.
+
+    The memo lives only inside the process: the build reads no memo file and writes none, so every build enumerates cold.
+
+    `symbols` is the size of the spec's alphabet (`labels.spec_alphabet`), which sets how long the call is waited for (`build_tables_timeout`).
+
+    The process runs through `_run_kernel_reaped`, which reads its peak footprint after it exits and before it is reaped, so `TableBuild.peaks` carries both its resident peak and its peak footprint. The resident line leaves out what the memory compressor holds of the build, and the kernel-build row of `make job-costs` reads the higher of the two (`TABLE_BUILD_PEAK_BYTES`). On macOS it runs with this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT` (`_allocator_environment`), so the tables a memo outgrows go back to the system as they are freed.
+
+    The digests are returned on stdout, one JSON object per line in the order the configurations were named, each beside its payload's byte count, because a digest is a value the caller keeps and reports, not a separate artifact. Raises `KernelRunError` for every kind of failure the CLI contract distinguishes, and for a clean exit whose output names a different set of configurations from the one requested.
+    """
+    parts = {config: list(listed) for config, listed in (previous or {}).items() if listed}
+    inputs_of = {"spec": _feed_bytes(spec_bytes)} | {
+        part.name: part.feed for listed in parts.values() for part in listed
+    }
+    with _InheritedPipes(inputs_of) as pipes:
+        arguments = [
+            str(BINARY),
+            "build-tables",
+            pipes.path("spec"),
+            str(out_dir),
+            f"--configs={','.join(configs)}",
+            f"--inputs={inputs}",
+            f"--threads={threads}",
+            *mode_flags(),
+        ]
+        for config, listed in parts.items():
+            named = ",".join(f"{pipes.path(part.name)}:{part.rows}" for part in listed)
+            arguments.append(f"--previous={config}={named}")
+        if payloads is not None:
+            arguments.extend(payloads.windows_flags(configs))
+        if not default_memo_sharing:
+            arguments.append("--no-default-memo-sharing")
+        if not verdict_sharing:
+            arguments.append("--no-verdict-sharing")
+        if scratch_beside_default:
+            arguments.append(f"--scratch-beside-default={scratch_beside_default}")
+        if timings:
+            arguments.append("--timings")
+        finished, peaks = _run_kernel_reaped(
+            arguments,
+            "build-tables",
+            timeout=build_tables_timeout(symbols),
+            env=_allocator_environment(),
+            pipes=pipes,
+            payloads=payloads,
+        )
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support build-tables yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on build-tables: {errors}")
+    forwarded = _forward_stderr(errors, timings, arguments, timings_tag, verb="build-tables")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 build-tables output: {error}") from None
+    digests: dict[str, str] = {}
+    windows_bytes: dict[str, int] = {}
+    for number, line in enumerate(lines, 1):
+        try:
+            answer = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise KernelRunError(f"build-tables line {number} is not JSON: {error.msg}") from None
+        if (
+            not isinstance(answer, dict)
+            or set(answer) != TABLE_ANSWER_KEYS
+            or type(answer["windows_bytes"]) is not int
+        ):
+            raise KernelRunError(
+                f"build-tables line {number} is not a {{config, digest, windows_bytes}} answer"
+            )
+        digests[answer["config"]] = answer["digest"]
+        windows_bytes[answer["config"]] = answer["windows_bytes"]
+    if sorted(digests) != sorted(configs):
+        raise KernelRunError(
+            f"build-tables answered for {sorted(digests)} where {sorted(configs)} were asked for"
+        )
+    return TableBuild(digests, windows_bytes, tuple(forwarded), peaks)
+
+
+# The keys of one configuration's `build-tables` answer line: its token, its table digest, and the bytes its window payload took.
+TABLE_ANSWER_KEYS = frozenset({"config", "digest", "windows_bytes"})
+
+
+def windows_payload(out_dir: Path, config: str) -> Path:
+    """Where `build-tables` writes one configuration's plain window payload under `out_dir` when the caller names no other place for it (`build_table_files`), and the name a payload read from a pipe goes by in a refusal (`payload_head`)."""
+    return Path(out_dir) / f"windows-{config}.tsv"
+
+
+def payload_head(head: bytes, path: Path) -> io.StringIO:
+    """A payload's head line, as a reader of its pipe kept it, as the open text stream `table.read_windows` reads with `windows=False`, named for the payload's path so that a refusal names it."""
+    stream = io.StringIO(head.decode("utf-8"))
+    stream.name = str(path)
+    return stream
+
+
+class PayloadPipes[T]:
+    """One anonymous pipe a payload that a crate process writes, and one daemon thread reading each as `read(name, stream)`. The crate inherits every write end at its own number (`pass_fds`) and opens it as `path(name)`, `/dev/fd/<number>`, so a payload has no name in the file system: only this process, which holds the read end, and the crate it spawns, which inherits the write end, can reach it, and a reader in another process, such as a `grep` over the artifact directory, cannot take bytes from it. Each pipe's two descriptors are ones no child inherits unless they are named to its spawn.
+
+    A reader meets end of file once every write end of its pipe is closed: the crate's, at its exit, since the descriptor it inherits stays open beside the one it opens, and this process's, at `close_write_ends`, which the spawner calls right after the spawn (`_run_kernel_reaped`) and `stream_payloads` calls again once `run` has ended. So a crate that never opens a payload gives its reader an empty stream, and so does a `run` that never spawns. A reader closes its descriptor before it reports, so one that fails breaks the crate's pipe at the crate's next write instead of leaving it to fill. The threads are daemons so that a reader an interrupted `finish` leaves waiting never holds the interpreter open.
+    """
+
+    def __init__(self, names: Iterable[str], read: Callable[[str, IO[bytes]], T]) -> None:
+        self._write: dict[str, int] = {}
+        self._results: dict[str, Future[T]] = {}
+        try:
+            for name in names:
+                source, self._write[name] = os.pipe()
+                self._results[name] = result = Future()
+                try:
+                    threading.Thread(
+                        target=self._run,
+                        args=(source, functools.partial(read, name), result),
+                        name=f"payload {name}",
+                        daemon=True,
+                    ).start()
+                except BaseException:
+                    os.close(source)
+                    raise
+        except BaseException:
+            self.close_write_ends()
+            raise
+
+    @staticmethod
+    def _run(descriptor: int, read: Callable[[IO[bytes]], T], result: Future[T]) -> None:
+        try:
+            with os.fdopen(descriptor, "rb") as source:
+                value = read(source)
+        except BaseException as error:
+            result.set_exception(error)
+        else:
+            result.set_result(value)
+
+    def path(self, name: str) -> str:
+        """The path the crate opens one payload's pipe at, while this process holds its write end."""
+        return f"/dev/fd/{self._write[name]}"
+
+    @property
+    def pass_fds(self) -> tuple[int, ...]:
+        """The write ends the crate inherits at their own numbers."""
+        return tuple(self._write.values())
+
+    def windows_flags(self, configs: Iterable[str]) -> list[str]:
+        """The `build-tables` flags that send each of `configs` this object names to its pipe, `--windows=<config>=<path>`, for pipes named by configuration."""
+        return [f"--windows={config}={self.path(config)}" for config in configs if config in self._write]
+
+    def close_write_ends(self) -> None:
+        """Close this process's copy of every write end, once the crate has inherited them or will not be spawned. Calling it again does nothing."""
+        while self._write:
+            _name, descriptor = self._write.popitem()
+            os.close(descriptor)
+
+    def finish(self) -> tuple[dict[str, T], Exception | None]:
+        """Wait for every reader, each one even after another has failed, and return what they read beside the first failure among them. Call it once the crate has exited and `close_write_ends` has run, so that every reader has met end of file."""
+        values: dict[str, T] = {}
+        failure: Exception | None = None
+        for name, result in self._results.items():
+            try:
+                values[name] = result.result()
+            except Exception as error:
+                if failure is None:
+                    failure = error
+        return values, failure
+
+
+_STOP_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
+
+@contextlib.contextmanager
+def _stop_signals_interrupt() -> Iterator[None]:
+    """Make SIGINT, SIGTERM and SIGHUP raise `KeyboardInterrupt` in the main thread for the length of the block, where each would otherwise end the process at once or raise it there anyway. A crate that writes payloads needs that: a stop that reaches only this process, such as the SIGTERM the artifact cycle's driver sends a step's `uv run`, which passes it on, would otherwise end it with no cleanup and leave the crate running, holding its memory until its first write into a pipe no one reads breaks. Only a signal at its default action or at Python's own SIGINT handler is taken over: one that is ignored stays ignored, as under `nohup`, and a handler a caller installed, such as `artifact_cycle.stop_signals`', keeps doing what it does. Only the first of them raises and later ones are dropped until the block ends, because a stop sent to the process group arrives again as `uv run` forwards it and must not cut short the cleanup the first started. Only the main thread can install handlers, so on any other thread this installs none. The previous handlers are restored on exit."""
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+    caught: list[int] = []
+
+    def stop(signum: int, _frame: object) -> None:
+        if caught:
+            return
+        caught.append(signum)
+        raise KeyboardInterrupt(signal.Signals(signum).name)
+
+    previous = {}
+    for signum in _STOP_SIGNALS:
+        handler = signal.getsignal(signum)
+        if handler in (signal.SIG_DFL, signal.default_int_handler):
+            previous[signum] = handler
+            signal.signal(signum, stop)
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
+def stream_payloads[R, T](
+    names: Iterable[str], read: Callable[[str, IO[bytes]], T], run: Callable[[PayloadPipes[T]], R]
+) -> tuple[R, dict[str, T]]:
+    """Run `run`, which runs a crate process that writes a payload for each of `names`, with a pipe for each and a thread reading it as `read(name, stream)` (`PayloadPipes`), so each payload goes from the crate to its reader without reaching the disk or standing at a path, and return what `run` returned beside what each reader returned, keyed as `names` is. `run` takes the pipes: it spawns the crate with their write ends inherited (`pass_fds`) and names each to the crate by its path (`path`, or `windows_flags` for a table build), as `build_table_files` and `replay_memo_walk` do. However `run` ends, this process's write ends are closed and every reader is waited for, so a payload the crate never opened gives its reader an empty stream. A reader's failure is raised after a clean `run`, and otherwise set as the cause of `run`'s own failure, since a reader that stops early breaks the crate's pipe; an interrupt is raised as it came. `run` must not end while its crate still runs, so on an interrupt it kills and reaps the crate first, as `_run_kernel_reaped` and `engine/tools/scaling_sweep.py`'s `run_size` do: a crate left running holds its write ends, and the wait for the readers would not end.
+
+    Called on the main thread, it makes a SIGTERM or SIGHUP that would end the process at once raise an interrupt instead for its length (`_stop_signals_interrupt`), so a stop that reaches only this process still kills and reaps the crate. A SIGKILL skips all of this: the crate it leaves running fails at its first write into a pipe whose reader is gone, and nothing is left on disk.
+    """
+    with _stop_signals_interrupt():
+        pipes = PayloadPipes(names, read)
+        try:
+            ran = run(pipes)
+        except BaseException as error:
+            pipes.close_write_ends()
+            _values, failure = pipes.finish()
+            if failure is not None and isinstance(error, Exception):
+                raise error from failure
+            raise
+        pipes.close_write_ends()
+        values, failure = pipes.finish()
+        if failure is not None:
+            raise failure
+        return ran, values
+
+
+class ReplayDisagreement(KernelRunError):
+    """`replay-strings` found a window its rules and its engine settle differently, or one the engine refuses. The message is the crate's, naming the configuration, the window and the text it was reached in. A separate class lets a build tell this finding, a failed build naming a text, from a kernel interface failure."""
+
+
+# The head token of the window memo `replay-strings` writes per configuration under `--memo-dir` (`engine/kernel-rs/src/replay.rs`'s `MEMO_FORMAT`); `conform.read_replay_memo` and `conform.absorb_replay_memo` reject a memo with any other token.
+REPLAY_MEMO_FORMAT = "ams-replay-memo/1"
+
+
+def replay_memo_dump(out_dir: Path, config: str) -> Path:
+    """Where `replay-strings` writes one configuration's window memo under a memo directory (`replay_strings`'s `memo_dir`; `fanout::replay_memo_path` builds the same name), and the name the build's own walks give that memo's stream in a message. The build's walks write no file here: `replay_memo_walk` hands each walk a pipe, so the memo goes from the crate to its reader and never reaches the disk. It is a build input, not an artifact."""
+    return Path(out_dir) / f"replay-windows-{config}.bin"
+
+
+@dataclass(frozen=True)
+class ReplayWalk[T]:
+    """What `replay_memo_walk` returns for its one configuration: the walk's `{texts, windows, skipped}`, the `[t]` lines the crate wrote, and its `[c]` lines when asked, untagged and not yet copied anywhere, the `replay-strings` process's own peaks (`_run_kernel_reaped`), and what the caller's `read` returned for the window memo."""
+
+    counts: dict[str, int]
+    lines: tuple[str, ...]
+    peaks: ReapedPeaks
+    memo: T
+
+
+def replay_memo_walk[T](
+    spec_path: Path,
+    out_dir: Path,
+    config: str,
+    *,
+    max_length: int,
+    symbols: int,
+    read: Callable[[IO[bytes]], T],
+    cache_stats: bool = False,
+) -> ReplayWalk[T]:
+    """Walk one configuration's persisted rules under `out_dir` over every text up to `max_length`, as `replay_strings` walks one, in a `replay-strings` process of its own at `--threads=1` with `--timings`, and hand its window memo to `read` through a pipe the crate inherits and is named as `--memo-file=` as the crate writes it (`stream_payloads`), so the memo never reaches the disk and stands at no path. `spec_path` is the spec dump the caller already wrote (`_spec_dump`), and `symbols` the size of its alphabet, which sets the limit (`replay_timeout`). With `cache_stats` the crate also writes its `[c]` lines, which come back beside the `[t]` lines. It returns the walk (`ReplayWalk`) beside what `read` returned.
+
+    `read` runs on a thread of its own while the crate walks; its first read waits for the crate's first write, at the walk's end, and the crate's exit gives it end of file. A walk that fails never opens the pipe, so `read` gets an empty stream. A reader that stops early breaks the crate's pipe, which the crate takes as its reader gone: it still answers and exits 0 with nothing on stderr. So `read` should report its own failure in what it returns rather than raise, since a raise fails the call after a clean walk as `stream_payloads` raises it. A disagreement raises `ReplayDisagreement` with the crate's message, and every other failure the CLI contract distinguishes `KernelRunError`, each after the reader has finished. The crate runs with `KERNEL_ALLOCATOR_ENVIRONMENT` on macOS. A process whose `_BUILT` its pool initializer set runs no cargo here.
+    """
+    ensure_built()
+    arguments = [
+        str(BINARY),
+        "replay-strings",
+        str(spec_path),
+        str(out_dir),
+        f"--configs={config}",
+        f"--max-length={max_length}",
+        "--threads=1",
+        *settlement_flags(),
+        "--timings",
+    ]
+    if cache_stats:
+        arguments.append("--cache-stats")
+    timeout = replay_timeout(symbols=symbols, max_length=max_length, configs=1, threads=1, last=False)
+
+    def walk(pipes: PayloadPipes[T]) -> tuple[subprocess.CompletedProcess, ReapedPeaks]:
+        arguments.append(f"--memo-file={pipes.path(config)}")
+        return _run_kernel_reaped(
+            arguments, "replay-strings", timeout=timeout, env=_allocator_environment(), payloads=pipes
+        )
+
+    (finished, peaks), memos = stream_payloads([config], lambda _name, source: read(source), walk)
+    answered, lines = _replay_answer(finished, arguments, [config], cache_stats=cache_stats)
+    return ReplayWalk(answered[config], tuple(lines), peaks, memos[config])
+
+
+def replay_strings(
+    spec: ResolvedSpec,
+    out_dir: Path,
+    configs: Sequence[str],
+    *,
+    max_length: int,
+    families: Sequence[str] | None,
+    threads: int,
+    timings: bool = False,
+    memo_dir: Path | None = None,
+    memo_windows: int | None = None,
+    last: str | None = None,
+    on_peak: Callable[[int], None] | None = None,
+) -> dict[str, dict[str, int]]:
+    """Replay every named configuration's persisted rules under `out_dir` over every text up to `max_length`, in one `replay-strings` process that runs `threads` walks at once, and return `{config: {texts, windows, skipped}}` on a clean walk. Each walk takes its texts a last symbol at a time and releases its memos after each (`engine/kernel-rs/src/replay.rs`). With `families`, only the texts naming one of those runes are walked. With `last`, one symbol of the spec's alphabet (`labels.spec_alphabet`), only the texts ending in it are walked, as in the deep sweep's units (`run_build_gates.sweep_units`): the walks over every symbol partition the texts between them, and `skipped` counts only the texts ending in it that `families` leaves out. It reaches the subcommand as `--last=` and the symbol's code point, and a string that is not one character raises `ValueError` before anything is spawned, as does `last` beside `memo_dir`, since a memo written from one symbol's texts would hold only part of a configuration's windows. Rules apply first-match with the settled left fed forward, and each window is checked against the crate's own settlement. `windows` counts window settles: each distinct window once on a walk with no ceiling, and again each time it is met after a ceiling release. The spec is the same memoized dump the settlement functions and the guard sweep read.
+
+    A disagreement or a refused window raises `ReplayDisagreement` with the crate's message. Every other failure the CLI contract distinguishes raises `KernelRunError`, as does a clean exit whose output names a different set of configurations from the one requested. An empty `families` raises `ValueError` before anything is spawned, because the subcommand treats it as a usage error and a caller with nothing to walk has nothing to ask.
+
+    With `memo_dir`, each passing walk writes its window memo to `replay_memo_dump(memo_dir, config)`: every distinct window it settled, keyed in the crate's own form, with every distinct settled record beside them. The result is unchanged. The build's full replay walks through `replay_memo_walk` instead, one configuration a process with its memo through a pipe; a caller that wants the memos on disk, such as a test, asks here. The deep walk (`engine/tools/deep_replay.py`) never asks for a memo and passes `memo_windows` instead, which reaches the subcommand as `--memo-windows=`: the most windows a walk keeps memoized before it releases its memos and continues. Passing both raises `ValueError` before anything is spawned, because a walk that released its memo holds only the windows settled since, and a walk that writes its memo has no ceiling. A ceiling below one window also raises.
+
+    `on_peak`, when given, is called with the crate process's own peak RSS in bytes once a walk has answered cleanly (`_run_kernel_reaped`), before this returns. The walks are threads of that one process, so the figure covers every walk it ran at once. The build's narrowed replay (`run_build.run_replay_strings`) and the deep replay (`engine/tools/deep_replay.py`) record it for `make job-costs`. On macOS the process runs with this process's environment and `KERNEL_ALLOCATOR_ENVIRONMENT` (`_allocator_environment`), so the tables the trace memo and the walk memo outgrow go back to the system as they are freed.
+    """
+    if families is not None and not families:
+        raise ValueError("replay_strings takes a non-empty family list or None for every text")
+    if last is not None and len(last) != 1:
+        raise ValueError(f"replay_strings takes one symbol as the last, not {last!r}")
+    if memo_windows is not None and memo_windows < 1:
+        raise ValueError(f"replay_strings takes a memo ceiling of at least one window, not {memo_windows}")
+    if memo_windows is not None and memo_dir is not None:
+        raise ValueError(
+            "replay_strings takes a memo directory or a memo ceiling, not both: a walk that writes its memo walks with no ceiling, since a released memo holds only the windows settled since the release"
+        )
+    if last is not None and memo_dir is not None:
+        raise ValueError(
+            "replay_strings takes a memo directory or a last symbol, not both: a walk over the texts ending in one symbol settles only part of its configuration's windows"
+        )
+    spec_path = _spec_dump(spec)
+    ensure_built()
+    arguments = [
+        str(BINARY),
+        "replay-strings",
+        str(spec_path),
+        str(out_dir),
+        f"--configs={','.join(configs)}",
+        f"--max-length={max_length}",
+        f"--threads={threads}",
+        *settlement_flags(),
+    ]
+    if families is not None:
+        arguments.append(f"--families={','.join(families)}")
+    if last is not None:
+        arguments.append(f"--last=U+{ord(last):04X}")
+    if memo_dir is not None:
+        arguments.append(f"--memo-dir={memo_dir}")
+    if memo_windows is not None:
+        arguments.append(f"--memo-windows={memo_windows}")
+    if timings:
+        arguments.append("--timings")
+    timeout = replay_timeout(
+        symbols=len(labels.spec_alphabet(spec)),
+        max_length=max_length,
+        configs=len(configs),
+        threads=threads,
+        last=last is not None,
+    )
+    finished, peaks = _run_kernel_reaped(
+        arguments, "replay-strings", timeout=timeout, env=_allocator_environment()
+    )
+    answered, lines = _replay_answer(finished, arguments, configs, timings=timings)
+    _write_lines(lines)
+    if on_peak is not None and peaks.resident:
+        on_peak(peaks.resident)
+    return answered
+
+
+def _replay_answer(
+    finished: subprocess.CompletedProcess,
+    arguments: list[str],
+    configs: Sequence[str],
+    *,
+    timings: bool = True,
+    cache_stats: bool = False,
+) -> tuple[dict[str, dict[str, int]], list[str]]:
+    """Hold one `replay-strings` result to the CLI contract and return `{config: {texts, windows, skipped}}` beside its stderr lines (`_stderr_lines`). Exit 2 raises `KernelRunError` as a usage error, a disagreement or a refused window `ReplayDisagreement`, and any other failure, a clean exit whose stderr holds a stray line, or one that answers for another set of configurations `KernelRunError`."""
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support replay-strings yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        if "replay disagreement" in errors or "the engine refused the window" in errors:
+            raise ReplayDisagreement(errors)
+        raise KernelRunError(f"the kernel exited {finished.returncode} on replay-strings: {errors}")
+    lines = _stderr_lines(errors, timings, arguments, verb="replay-strings", cache_stats=cache_stats)
+    try:
+        text = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 replay-strings output: {error}") from None
+    answered: dict[str, dict[str, int]] = {}
+    for number, line in enumerate(text, 1):
+        try:
+            answer = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise KernelRunError(f"replay-strings line {number} is not JSON: {error.msg}") from None
+        if not isinstance(answer, dict) or set(answer) != {"config", "texts", "windows", "skipped"}:
+            raise KernelRunError(
+                f"replay-strings line {number} is not a {{config, texts, windows, skipped}} answer"
+            )
+        answered[answer["config"]] = {key: int(answer[key]) for key in ("texts", "windows", "skipped")}
+    if sorted(answered) != sorted(configs):
+        raise KernelRunError(
+            f"replay-strings answered for {sorted(answered)} where {sorted(configs)} were asked for"
+        )
+    return answered, lines
+
+
+class EmittedOrderDisagreement(KernelRunError):
+    """`replay-emitted` found a row the shipped settlement order settles differently from its configuration's table. The message is the crate's, naming the configuration, the row, the continuation of its open slot, the emitted rule that fired and the table's own rule. A separate class lets a build tell this finding from a kernel interface failure."""
+
+
+EMITTED_COUNTS = ("rows", "checked_per_member", "open_rows", "continued")
+"""The counts the crate's `replay-emitted` answer line carries beside the configuration, in the order it writes them."""
+
+
+def replay_emitted(
+    head: Path,
+    *,
+    config: str,
+    table: Path,
+    order: bytes,
+    order_rules: int,
+    context: bytes,
+    timings: bool = False,
+) -> dict[str, int]:
+    """Walk one configuration's window rows against the shipped settlement order with the crate's `replay-emitted` subcommand (`engine/kernel-rs/src/shipped_order.rs`). Returns `{rows, checked_per_member, open_rows, continued}` on a clean walk, where `checked_per_member` counts the rows tried member by member because an emitted lookahead class contained their deep class only in part, `open_rows` the rows whose key leaves a slot open after a letter (every continuation of which the walk checks), and `continued` those whose continuations it searched because their deciding rule constrains the open slot or a later one. `head` is the configuration's windows head the build committed (`table.windows_head_path`). Every part it lists is opened here, its size checked against the head (`row_delta.open_parts`), and fed decompressed, because the crate reads plain rows and has no decompressor: the base whole, its head and column lines included, on the subcommand's standard input, and each segment, its header checked and stripped, on a pipe of its own, with each part's row count beside it (`--base-rows=`, `--segments=`), so the crate walks the rows merged by key and refuses a part whose keys or count are wrong, naming it. A head that is missing or does not read, or a part missing or of another size, raises `KernelRunError` naming it. `table` is the configuration's settlement TSV. `order` is the text `emit_gsub.emitted_order_tsv` returns, encoded, and `context` the text `emit_gsub.emitted_context_tsv` returns, encoded; each reaches the crate on a pipe of its own that it inherits and opens as `/dev/fd/<number>` (`_InheritedPipes`), written whole from the object passed, so callers that walk at once can share one `order` and none copies it. The crate reads the table, the order and the context in turn, then the windows, so no writer waits on another. `order_rules` is the number of rules `order` holds, which the crate checks the order it read against, so an order that ends short is refused rather than walked. A disagreement raises `EmittedOrderDisagreement` with the crate's message; every other failure raises `KernelRunError`."""
+    ensure_built()
+    directory, output = head.parent, head.name.removesuffix(".head")
+    try:
+        read = row_delta.read_head(directory, output)
+        if read is None:
+            raise row_delta.HeadError("no such head")
+        if read.merge != row_delta.MERGE_KEY:
+            raise row_delta.HeadError("not a head of window rows, which merge by key")
+        opened = row_delta.open_parts(directory, read)
+    except row_delta.HeadError as error:
+        raise KernelRunError(f"{head}: {error}") from None
+    with opened:
+        base, *segments = read.parts
+        inputs = {
+            "order": _feed_bytes(order),
+            "context": _feed_bytes(context),
+            base.name: _feed_gunzipped(opened.handles[0]),
+        }
+        for number, (part, handle) in enumerate(zip(segments, opened.handles[1:], strict=True), start=1):
+            inputs[part.name] = _feed_gunzipped(
+                handle,
+                functools.partial(_strip_segment_header, read=read, number=number),
+            )
+        with _InheritedPipes(inputs, stdin=base.name) as pipes:
+            arguments = [
+                str(BINARY),
+                "replay-emitted",
+                "-",
+                f"--config={config}",
+                f"--table={table}",
+                f"--order={pipes.path('order')}",
+                f"--order-rules={order_rules}",
+                f"--context={pipes.path('context')}",
+                f"--base-rows={base.rows}",
+            ]
+            if segments:
+                arguments.append(
+                    "--segments=" + ",".join(f"{pipes.path(part.name)}:{part.rows}" for part in segments)
+                )
+            if timings:
+                arguments.append("--timings")
+            finished, _peaks = _run_kernel_reaped(arguments, "replay-emitted", timeout=TIMEOUT, pipes=pipes)
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support replay-emitted yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        if "shipped-order disagreement" in errors:
+            raise EmittedOrderDisagreement(errors)
+        raise KernelRunError(f"the kernel exited {finished.returncode} on replay-emitted: {errors}")
+    _forward_stderr(errors, timings, arguments, verb="replay-emitted")
+    try:
+        answer = json.loads(finished.stdout.decode())
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise KernelRunError(f"the kernel's replay-emitted answer is not one JSON line: {error}") from None
+    if (
+        not isinstance(answer, dict)
+        or set(answer) != {"config", *EMITTED_COUNTS}
+        or answer["config"] != config
+    ):
+        raise KernelRunError(
+            f"replay-emitted answered {answer!r} where a {{config: {config!r}, {', '.join(EMITTED_COUNTS)}}} line was asked for"
+        )
+    return {key: int(answer[key]) for key in EMITTED_COUNTS}
+
+
+def _strip_segment_header(stream: gzip.GzipFile, *, read: row_delta.Head, number: int) -> None:
+    """Read segment `number`'s header line from its decompressed stream and check it against the head that lists it, a merge by key included (`row_delta.check_segment_header`)."""
+    row_delta.check_segment_header(stream.readline(), read.output, read.generation, number, read.merge)
+
+
+def _forward_stderr(
+    errors: str,
+    timings: bool,
+    arguments: list[str],
+    tag: str | None = None,
+    verb: str = "enumerate-configs",
+) -> list[str]:
+    """Copy the kernel's timing lines to this process's stderr, return them as copied, and raise on anything else (`_stderr_lines`). Copying them verbatim puts the kernel's per-configuration wall-clock times in the same journal as the Python stage's, since `cycle_timings` reads both from a step's captured output."""
+    copied = _stderr_lines(errors, timings, arguments, tag, verb)
+    _write_lines(copied)
+    return copied
+
+
+def _stderr_lines(
+    errors: str,
+    timings: bool,
+    arguments: list[str],
+    tag: str | None = None,
+    verb: str = "enumerate-configs",
+    cache_stats: bool = False,
+) -> list[str]:
+    """The kernel's stderr lines on a clean exit, tagged and checked, raising `KernelRunError` on anything else. Of the flags this module passes, `--timings` is the only one that writes to stderr on a clean exit unless `cache_stats` says `--cache-stats` was passed too, and they write only `[t] <label> <secs>s` and `[c] <config> …` lines, buffered and written in `--configs` order. A `tag` in brackets is appended to each `[t]` label that does not already end in one, so a fan-out that runs one process per configuration stays attributable."""
+    if not errors:
+        return []
+    lines = errors.split("\n")
+    if not timings and not cache_stats:
+        raise KernelRunError(
+            f"the kernel wrote to stderr on a clean {verb} exit: {errors} ({' '.join(arguments)})"
+        )
+    allowed = ("[t] ", "[c] ") if cache_stats else ("[t] ",)
+    stray = [line for line in lines if not line.startswith(allowed)]
+    if stray:
+        raise KernelRunError(
+            f"the kernel wrote {len(stray)} non-timing lines to stderr on a clean {verb} exit: {stray[0]}"
+        )
+    return [_tagged(line, tag) if tag and line.startswith("[t] ") else line for line in lines]
+
+
+def _write_lines(lines: Sequence[str]) -> None:
+    """Write `lines` to this process's stderr."""
+    for line in lines:
+        sys.stderr.write(line + "\n")
+    sys.stderr.flush()
+
+
+def _tagged(line: str, tag: str) -> str:
+    marker, _, rest = line.partition(" ")
+    label, separator, tail = rest.partition(" ")
+    if not separator or label.endswith("]"):
+        return line
+    return f"{marker} {label}[{tag}] {tail}"
+
+
+def _json_result(text: str):
+    """Parse one case result's text as JSON. This is the trace shape and the default decode for `_settle_cases`, so a caller without its own `decode` gets the parsed result."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as error:
+        raise KernelRunError(f"the case result is not JSON: {error.msg}") from None
+
+
+def _settle_cases(
+    spec_path: Path,
+    cases: Sequence[str],
+    features: frozenset[str],
+    modes: SettlementModes | None = None,
+    decode=_json_result,
+    settled_only: bool = False,
+):
+    """Run `settle-cases` over the already-dumped spec with the case lines on its stdin, and check that the kernel returned one case result per case line without changing or reordering any. The check is on bytes: the crate echoes each case line verbatim before its result, so an output line must start with its own case line and a tab, and the case line is never parsed back. A case line the crate cannot read makes it exit with an error instead of settling. `decode` reads one case result's text (everything after that tab) into whatever the caller keeps, the parsed JSON by default. It runs once per distinct case result text in the batch, since identical case results decode to the same value. That keeps a batch's Python cost proportional to the distinct case results: the review corpus's windows overlap heavily, so much of every batch repeats a trace already decoded. `settled_only` asks for the settled record's seven fields instead of the trace, which `settle_windows` reads through `_settled_of_fields`."""
+    arguments = [str(BINARY), "settle-cases", str(spec_path), "-"]
+    if features:
+        arguments.append(f"--features={','.join(sorted(features))}")
+    if settled_only:
+        arguments.append("--settled-only")
+    arguments.extend(settlement_flags(modes))
+    finished = _run_kernel(
+        arguments, "settle-cases", "".join(line + "\n" for line in cases).encode(), timeout=TIMEOUT
+    )
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support settle-cases yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on settle-cases: {errors}")
+    if errors:
+        raise KernelRunError(f"the kernel wrote to stderr on a clean settle-cases exit: {errors}")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 settle-cases output: {error}") from None
+    if len(lines) != len(cases):
+        raise KernelRunError(f"settle-cases returned {len(lines)} case results for {len(cases)} case lines")
+    results = []
+    decoded: dict[str, object] = {}
+    for line_number, (line, case) in enumerate(zip(lines, cases), 1):
+        cut = len(case)
+        if not line.startswith(case) or len(line) <= cut or line[cut] != "\t":
+            raise KernelRunError(f"settle-cases line {line_number} changed or reordered its case line")
+        text = line[cut + 1 :]
+        try:
+            value = decoded[text]
+        except KeyError:
+            try:
+                value = decoded[text] = decode(text)
+            except KernelRunError as error:
+                raise KernelRunError(f"settle-cases line {line_number}: {error}") from None
+        results.append(value)
+    return results
+
+
+def _settle_batch(
+    spec: ResolvedSpec,
+    cases: Sequence[str],
+    features: frozenset[str],
+    modes: SettlementModes | None,
+    decode,
+    settled_only: bool = False,
+) -> list:
+    """Settle one batch in one invocation. The spec dump is the memoized one, and the case lines go over a pipe, so a batch writes no file."""
+    if not cases:
+        return []
+    spec_path = _spec_dump(spec)
+    ensure_built()
+    return _settle_cases(spec_path, cases, frozenset(features), modes, decode, settled_only)
+
+
+def settle_cases(
+    spec: ResolvedSpec,
+    cases: Sequence[str],
+    features: frozenset[str],
+    modes: SettlementModes | None = None,
+    decode=None,
+) -> list:
+    """Settle a batch of windows through the crate in one invocation. The cases are case lines (`case_line` builds one), and each case result is the crate's whole trace. Without `decode`, the list holds each window's parsed result, which `trace_of` reads into a `TransitionTrace`. With `decode`, it holds what `decode` returned for each parsed result (`settle_sequences` wants a trace or a refusal), decoded once per distinct result in the batch (`_settle_cases`), so a caller that wants one model value per window never builds a list of result dictionaries. A caller that wants only the settled record should use `settle_windows`, which asks the crate for that record instead of a trace. `modes` names the settlement mode set; without it the process's defaults apply."""
+    if decode is None:
+        return _settle_batch(spec, cases, features, modes, _json_result)
+    return _settle_batch(spec, cases, features, modes, lambda text: decode(_json_result(text)))
+
+
+# The index of the rune being settled among a case line's tab-separated fields: the left's kind and its seven record fields come first, the four right slots after.
+CASE_INPUT_FIELD = 8
+_NO_RECORD = ("",) * 7
+
+
+def case_line(left: settle.LeftContext, token: settle.RightToken, rights: Sequence[settle.RightToken]) -> str:
+    """One independent window as a `settle-cases` case line, tab-separated: the left's kind and its record (rune, stance, entry, exit, comma-joined adjustments, junction, extension; all seven empty for a left with no record, and a height or junction empty where there is none), then the rune being settled and the four raw slots after it, each a rune name or the kind name of a boundary or unknown slot. The crate echoes the line verbatim before its result, which is how a batch's case results are matched to its case lines."""
+    settled = left.settled
+    if settled is None:
+        record = _NO_RECORD
+    else:
+        cell = settled.cell
+        record = (
+            cell.rune,
+            cell.stance,
+            cell.entry or "",
+            cell.exit or "",
+            ",".join(cell.adjustments),
+            settled.junction or "",
+            str(settled.extension),
+        )
+    return "\t".join(
+        (
+            left.kind,
+            *record,
+            token.letter,
+            *(right.letter if right.kind == "letter" else right.kind for right in rights),
+        )
+    )
+
+
+def _refusal(result: Mapping) -> None:
+    """Raise the crate's refusal result as `settle.SettleError`. A well-formed refusal is `{raise, message}` and nothing else: the raise identity becomes the error's bucket and the crate's message becomes the error message verbatim, so nothing downstream has to parse text to tell refusals apart. Anything else with a `raise` key means the kernel interface is wrong, not the window, and raises `KernelRunError`."""
+    if "raise" not in result:
+        return
+    bucket = result.get("raise")
+    message = result.get("message")
+    if set(result) != {"raise", "message"} or not isinstance(bucket, str) or not isinstance(message, str):
+        raise KernelRunError(f"settle-cases returned a malformed refusal: {result!r}")
+    raise settle.SettleError(message, bucket)
+
+
+# The pieces of a trace repeat far more than traces do: a batch of tens of thousands of case results names a few hundred distinct candidates, ranked candidates, eliminations and settled cells, and building a frozen dataclass costs more than looking one up. So each piece is built once per distinct row and shared, keyed on the row's values; sharing is invisible to a reader because every piece is immutable. A table that reaches `_INTERN_CAP` entries is cleared, which bounds each kind at that many objects in a long process.
+_INTERN_CAP = 8192
+_CANDIDATES: dict[tuple, settle.Candidate] = {}
+_RANKED_CANDIDATES: dict[tuple, settle.RankedCandidate] = {}
+_ELIMINATIONS: dict[tuple, settle.Elimination] = {}
+_SETTLED: dict[tuple, Settled] = {}
+
+
+def _interned(table: dict, key: tuple, build):
+    value = table.get(key)
+    if value is None:
+        if len(table) >= _INTERN_CAP:
+            table.clear()
+        value = table[key] = build()
+    return value
+
+
+def _candidate_of(row) -> settle.Candidate:
+    if not isinstance(row, list) or len(row) != 5:
+        raise KernelRunError(f"settle-cases returned a malformed candidate: {row!r}")
+    try:
+        return _interned(_CANDIDATES, tuple(row), lambda: settle.Candidate(*row))
+    except TypeError:
+        raise KernelRunError(f"settle-cases returned a malformed candidate: {row!r}") from None
+
+
+def _ranked_candidate_of(row) -> settle.RankedCandidate:
+    if not isinstance(row, list) or len(row) != 3 or not isinstance(row[0], list):
+        raise KernelRunError("settle-cases returned a malformed ranking")
+    try:
+        return _interned(
+            _RANKED_CANDIDATES,
+            (tuple(row[0]), row[1], row[2]),
+            lambda: settle.RankedCandidate(_candidate_of(row[0]), row[1], row[2]),
+        )
+    except TypeError:
+        raise KernelRunError("settle-cases returned a malformed ranking") from None
+
+
+def _elimination_of(row) -> settle.Elimination:
+    if not isinstance(row, list) or len(row) != 3:
+        raise KernelRunError("settle-cases returned malformed eliminations")
+    try:
+        return _interned(
+            _ELIMINATIONS, tuple(row), lambda: settle.Elimination(row[0], row[1], _provenance_of(row[2]))
+        )
+    except TypeError:
+        raise KernelRunError("settle-cases returned malformed eliminations") from None
+
+
+def settled_of_row(row) -> Settled:
+    """Decode one settled record in the crate's JSON form (`types::settled_json`), `{"cell": [rune, stance, entry, exit, [adjustments]], "junction": …, "extension": …}`, to an interned `Settled`. A `settle-cases` trace carries this shape under `settled`, and the replay's window memo carries one per line, so both decode here. The interning key is `(rune, stance, entry, exit, adjustments, junction, extension)` with each absent height `None`. `_settled_of_fields` builds the same key from the tab-separated form, so a record read from either result shape is the same object."""
+    if not isinstance(row, Mapping) or set(row) != {"cell", "junction", "extension"}:
+        raise KernelRunError(f"the kernel spelled a malformed settled record: {row!r}")
+    cell_row = row["cell"]
+    if not isinstance(cell_row, list) or len(cell_row) != 5 or not isinstance(cell_row[4], list):
+        raise KernelRunError(f"the kernel spelled a malformed cell: {cell_row!r}")
+    try:
+        return _interned(
+            _SETTLED,
+            (*cell_row[:4], tuple(cell_row[4]), row["junction"], row["extension"]),
+            lambda: Settled(
+                CellId(cell_row[0], cell_row[1], cell_row[2], cell_row[3], tuple(cell_row[4])),
+                row["junction"],
+                row["extension"],
+            ),
+        )
+    except TypeError:
+        raise KernelRunError(f"the kernel spelled a malformed cell: {cell_row!r}") from None
+
+
+def _settled_of(result) -> Settled:
+    """The settled cell alone from a trace, for a caller that does not need the ranking that chose it."""
+    if not isinstance(result, Mapping):
+        raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+    _refusal(result)
+    return settled_of_row(result.get("settled"))
+
+
+# The number of fields in a settled-only case result, in `types::settled_fields` order: the same seven a case line uses for its left record.
+_SETTLED_FIELDS = 7
+
+
+def _settled_of_fields(text: str) -> Settled:
+    """Decode one settled-only case result to an interned `Settled`. The result is seven tab-separated fields (rune, stance, entry, exit, comma-joined adjustments, junction, extension, with a height empty where there is none), or, starting with `{`, the crate's refusal object, which `_refusal` raises as it does for a trace. The interning key is the one `settled_of_row` builds, so a record read from either result shape is the same object."""
+    if text.startswith("{"):
+        result = _json_result(text)
+        if not isinstance(result, Mapping):
+            raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+        _refusal(result)
+        raise KernelRunError(f"settle-cases returned an object for a settled-only case line: {text!r}")
+    fields = text.split("\t")
+    if len(fields) != _SETTLED_FIELDS:
+        raise KernelRunError(f"the kernel spelled a malformed settled record: {text!r}")
+    rune, stance, entry, exit_height, adjustments, junction, extension = fields
+    try:
+        extension_value = int(extension)
+    except ValueError:
+        raise KernelRunError(f"the kernel spelled a malformed settled record: {text!r}") from None
+    entry_height = entry or None
+    exit_height = exit_height or None
+    adjustment_tokens = tuple(adjustments.split(",")) if adjustments else ()
+    junction_height = junction or None
+    return _interned(
+        _SETTLED,
+        (rune, stance, entry_height, exit_height, adjustment_tokens, junction_height, extension_value),
+        lambda: Settled(
+            CellId(rune, stance, entry_height, exit_height, adjustment_tokens),
+            junction_height,
+            extension_value,
+        ),
+    )
+
+
+def _provenance_of(pointer) -> Provenance | None:
+    if pointer is None:
+        return None
+    if not isinstance(pointer, str) or ":" not in pointer:
+        raise KernelRunError(f"settle-cases returned a malformed provenance pointer: {pointer!r}")
+    file, path = pointer.rsplit(":", 1)
+    return Provenance(file, path)
+
+
+def trace_of(result) -> settle.TransitionTrace:
+    """Read one case result's parsed `result` into the trace every author-facing consumer renders: the settled cell, the ranked candidates, the eliminations with their YAML provenance, the deciding stage, the runner-up and the notes."""
+    if not isinstance(result, Mapping):
+        raise KernelRunError(f"settle-cases returned a malformed result: {result!r}")
+    _refusal(result)
+    expected = {
+        "settled",
+        "prospect",
+        "joint_tiebreak",
+        "notes",
+        "fired",
+        "decided_stage",
+        "runner_up",
+        "ranked",
+        "eliminations",
+    }
+    if set(result) != expected:
+        raise KernelRunError(
+            f"settle-cases returned trace fields {sorted(result)}, expected {sorted(expected)}"
+        )
+    for field_name in ("notes", "fired", "ranked", "eliminations"):
+        if not isinstance(result[field_name], list):
+            raise KernelRunError(
+                f"settle-cases returned a malformed {field_name} field: {result[field_name]!r}"
+            )
+    ranked = tuple(map(_ranked_candidate_of, result["ranked"]))
+    eliminations = tuple(map(_elimination_of, result["eliminations"]))
+    runner_up = None if result["runner_up"] is None else _candidate_of(result["runner_up"])
+    return settle.TransitionTrace(
+        settled=_settled_of(result),
+        joint_tiebreak=result["joint_tiebreak"],
+        prospect=result["prospect"],
+        ranked=ranked,
+        eliminations=eliminations,
+        decided_stage=result["decided_stage"],
+        runner_up=runner_up,
+        notes=tuple(result["notes"]),
+    )
+
+
+def _tolerated_settled_fields(text: str, buckets: frozenset[str] | None = None) -> Settled | None:
+    """`_settled_of_fields`, returning `None` for a refusal instead of raising: any refusal when `buckets` is `None`, otherwise only a refusal whose bucket `buckets` names, with any other refusal still raised. Only the crate's own refusal is caught: a malformed case result still raises `KernelRunError`, because it means the kernel interface is wrong, not the window."""
+    try:
+        return _settled_of_fields(text)
+    except settle.SettleError as error:
+        if buckets is not None and error.bucket not in buckets:
+            raise
+        return None
+
+
+def _trace_or_refusal(result) -> settle.TransitionTrace | settle.SettleError:
+    """`trace_of`, returning a refusal instead of raising it. A batch decodes each distinct result once, so the refusal has to be carried back to the sequence that asked, which is the only place that knows whether to raise it or drop the sequence. A malformed case result still raises `KernelRunError`."""
+    try:
+        return trace_of(result)
+    except settle.SettleError as error:
+        return error
+
+
+def settle_windows(
+    spec: ResolvedSpec,
+    cases: Sequence[str],
+    features: frozenset[str],
+    batch: int = SETTLE_WINDOW_BATCH,
+    modes: SettlementModes | None = None,
+    on_error: str = "raise",
+    tolerate: frozenset[str] = frozenset(),
+) -> list[Settled | None]:
+    """One `Settled` per case, in the order the cases were given, decoded directly from each output line. The conform walker and the ligature outgoing check use this: they keep only each window's outcome, so it asks the crate for the settled record alone (`--settled-only`, seven tab-separated fields) instead of a trace whose ranking nothing reads. `batch` limits how many windows one invocation takes.
+
+    `on_error="raise"` raises a refusal from the batch that met it, with the crate's message naming the left and the input, except that a refusal whose bucket `tolerate` names gives `None`. The ligature outgoing check tolerates `E-UNREACHABLE` this way, because a window no candidate can settle is a missing capability to it, while any other refusal is a fault it must report. `on_error="drop"` puts `None` in the slot of every refused case and decodes every other line as usual. A caller that settles windows it did not choose (the witness stage, which prefills every candidate string it might read) wants the other results, and wants a refusal to surface only where something reads that window. A malformed case result means the kernel interface is wrong, not the window, and raises `KernelRunError` in either mode.
+    """
+    if on_error == "drop":
+        decode = _tolerated_settled_fields
+    elif tolerate:
+        decode = lambda text: _tolerated_settled_fields(text, tolerate)
+    else:
+        decode = _settled_of_fields
+    out: list[Settled | None] = []
+    for start in range(0, len(cases), batch):
+        out.extend(
+            _settle_batch(spec, cases[start : start + batch], features, modes, decode, settled_only=True)
+        )
+    return out
+
+
+@dataclass
+class _SequenceState:
+    tokens: tuple[settle.RightToken, ...]
+    features: frozenset[str]
+    traces: list[settle.TransitionTrace] = field(default_factory=list)
+    left: settle.LeftContext = settle.LeftContext("edge")
+    dropped: bool = False
+
+
+def settle_sequences(
+    spec: ResolvedSpec,
+    requests: Sequence[tuple[Sequence[settle.RightToken], frozenset[str]]],
+    *,
+    on_error: str = "raise",
+    modes: SettlementModes | None = None,
+) -> list[list[settle.TransitionTrace] | None]:
+    """A trace per position for each already-formed token sequence, in the order the sequences were given. `settle-cases` settles independent windows, but a sequence's next left context is the previous window's result, so the batch advances in waves: every sequence's first position, then every sequence's second position using the first wave's results. Each wave costs one invocation per feature configuration per `SETTLE_CASE_BATCH_SIZE` windows instead of one per sequence. Boundary positions are not sent to the kernel: they settle to a model constant and reset the left here.
+
+    The caller does tokenization and formation, since a caller that already has its tokens should not have to pass codepoints to re-derive them; `settle_codepoints` does both. `on_error="raise"` raises a refusal at the wave that met it, with the crate's message naming the left and the input. `on_error="drop"` returns `None` for that one sequence and lets every other sequence in the wave finish. A caller sweeping texts it does not control (the kerning inventory's settle, `kern_inventory.kernel_settle`) wants the other results, not the first error.
+    """
+    states = [
+        _SequenceState(tokens=tuple(tokens), features=frozenset(features)) for tokens, features in requests
+    ]
+    max_positions = max((len(state.tokens) for state in states), default=0)
+    for position in range(max_positions):
+        batches: dict[frozenset[str], list[tuple[_SequenceState, str]]] = {}
+        for state in states:
+            if state.dropped or position >= len(state.tokens):
+                continue
+            token = state.tokens[position]
+            if token.kind != "letter":
+                state.traces.append(
+                    settle.TransitionTrace(
+                        settle.boundary_settled(token.kind), False, 0, (), (), "boundary", None, ()
+                    )
+                )
+                state.left = settle.LeftContext(token.kind)
+                continue
+            rights = tuple(
+                state.tokens[index] if index < len(state.tokens) else settle.EDGE
+                for index in range(position + 1, position + 5)
+            )
+            batches.setdefault(state.features, []).append((state, case_line(state.left, token, rights)))
+        for features, pending in batches.items():
+            for start in range(0, len(pending), SETTLE_CASE_BATCH_SIZE):
+                chunk = pending[start : start + SETTLE_CASE_BATCH_SIZE]
+                results = settle_cases(
+                    spec, [case for _state, case in chunk], features, modes=modes, decode=_trace_or_refusal
+                )
+                for (state, _case), trace in zip(chunk, results):
+                    if isinstance(trace, settle.SettleError):
+                        if on_error != "drop":
+                            raise trace
+                        state.dropped = True
+                        continue
+                    state.traces.append(trace)
+                    state.left = settle.LeftContext("letter", trace.settled)
+    return [None if state.dropped else state.traces for state in states]
+
+
+def settle_codepoints(
+    spec: ResolvedSpec,
+    codepoints: Sequence[int],
+    features: frozenset[str],
+    guard_verdicts: FormationGuard | None = None,
+) -> list[Settled]:
+    """Settle one text end to end: tokenize it, form its ligatures against the guard verdicts, settle every position through the crate, and return the settled cells. A caller that already has a sweep passes it as `guard_verdicts` to skip the memo lookup."""
+    if guard_verdicts is None:
+        guard_verdicts = guard_sweep(spec)
+    tokens = settle.form_ligatures(spec, settle.tokens_from_codepoints(spec, codepoints), guard_verdicts)
+    traces = settle_sequences(spec, [(tokens, frozenset(features))])[0]
+    assert traces is not None
+    return [trace.settled for trace in traces]
+
+
+def _guard_verdicts(spec: ResolvedSpec, spec_path: Path, config: str | None = None) -> FormationGuard:
+    """Run `guard-sweep` over one already-dumped spec and parse its complete output. Without `config` the verdicts quantify over the powerset; with one they are that configuration's, named as `conform.ACCEPTANCE_CONFIGS` names it so the no-feature configuration can be named. Completeness and uniqueness are checked here instead of left to a consumer's lookup miss, because a clean kernel exit that omitted or duplicated a row is a kernel interface failure, not an emitter error."""
+    arguments = [str(BINARY), "guard-sweep", str(spec_path)]
+    if config is not None:
+        arguments.append(f"--config={config}")
+    finished = _run_kernel(arguments, "guard-sweep", timeout=TIMEOUT)
+    errors = finished.stderr.decode(errors="replace").strip()
+    if finished.returncode == 2:
+        raise KernelRunError(
+            f"kernel does not support guard-sweep yet, or rejected the invocation as a usage error: {errors} ({' '.join(arguments)})"
+        )
+    if finished.returncode != 0:
+        raise KernelRunError(f"the kernel exited {finished.returncode} on guard-sweep: {errors}")
+    if errors:
+        raise KernelRunError(f"the kernel wrote to stderr on a clean guard-sweep exit: {errors}")
+    try:
+        lines = finished.stdout.decode().splitlines()
+    except UnicodeDecodeError as error:
+        raise KernelRunError(f"the kernel wrote non-UTF-8 guard-sweep output: {error}") from None
+
+    rune_names = frozenset(spec.runes)
+    ligature_names = frozenset(name for name, rune in spec.runes.items() if rune.sequence)
+    verdicts: FormationGuard = {}
+    for line_number, line in enumerate(lines, 1):
+        fields = line.split("\t")
+        if len(fields) != 4:
+            raise KernelRunError(
+                f"guard-sweep line {line_number} has {len(fields)} tab-separated fields, expected 4: {line!r}"
+            )
+        ligature, right1_name, right2_name, verdict = fields
+        if ligature not in ligature_names:
+            raise KernelRunError(
+                f"guard-sweep line {line_number} names non-ligature {ligature!r} as its ligature"
+            )
+        if right1_name not in rune_names:
+            raise KernelRunError(
+                f"guard-sweep line {line_number} names unknown first-slot rune {right1_name!r}"
+            )
+        right1 = settle.RightToken("letter", right1_name)
+        if right2_name in rune_names:
+            right2 = settle.RightToken("letter", right2_name)
+        else:
+            right2 = GUARD_TAIL_TOKENS.get(right2_name)
+            if right2 is None:
+                raise KernelRunError(
+                    f"guard-sweep line {line_number} names unknown second-slot token {right2_name!r}"
+                )
+        if verdict not in ("blocked", "free"):
+            raise KernelRunError(
+                f"guard-sweep line {line_number} has unknown verdict {verdict!r}, expected 'blocked' or 'free'"
+            )
+        key = (ligature, right1, right2)
+        if key in verdicts:
+            raise KernelRunError(f"guard-sweep line {line_number} duplicates {fields[:3]}")
+        verdicts[key] = verdict == "blocked"
+
+    letters = tuple(settle.RightToken("letter", name) for name in sorted(rune_names))
+    second_slots = (*letters, *GUARD_TAIL_TOKENS.values())
+    expected = {
+        (ligature, right1, right2)
+        for ligature in ligature_names
+        for right1 in letters
+        for right2 in second_slots
+    }
+    missing = expected - verdicts.keys()
+    extra = verdicts.keys() - expected
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append(f"missing {len(missing)}")
+        if extra:
+            detail.append(f"carrying {len(extra)} unexpected")
+        raise KernelRunError(
+            f"guard-sweep returned an incomplete guard verdict map ({', '.join(detail)} verdicts)"
+        )
+    return verdicts
+
+
+def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
+    """The crate's complete configuration-independent section 5.7 guard verdicts for `spec`, parsed into Python model tokens. One `guard-sweep` invocation runs per spec identity per process, however many callers ask. The first sweep in a process takes about a fifth of a second and a repeat about a twentieth, and the mapping has one entry per ligature, first-slot rune and second-slot token. Formation comes before every other stage, so a corpus build, an emitter and a walker in one process would otherwise each spawn for the same result. The returned mapping is the memo's own and is shared; treat it as read-only and copy it before changing it."""
+    key = id(spec)
+    with _GUARD_SWEEPS_LOCK:
+        held = _GUARD_SWEEPS.get(key)
+        if held is not None and held[0] is spec:
+            _GUARD_SWEEPS.move_to_end(key)
+            return held[1]
+        spec_path = _spec_dump(spec)
+        ensure_built()
+        verdicts = _guard_verdicts(spec, spec_path)
+        _GUARD_SWEEPS[key] = (spec, verdicts)
+        _GUARD_SWEEPS.move_to_end(key)
+        while len(_GUARD_SWEEPS) > _GUARD_SWEEPS_CAP:
+            _GUARD_SWEEPS.popitem(last=False)
+        return verdicts
+
+
+def guard_sweep_under(spec: ResolvedSpec, features: frozenset[str]) -> FormationGuard:
+    """The section 5.7 guard verdicts as one configuration alone produces them, with the same keys as `guard_sweep`'s. Every call is a crate invocation, with no memo, because nothing that ships reads per-configuration verdicts. The rebuild tests call it once per configuration to compare each configuration's verdicts with the quantified ones."""
+    spec_path = _spec_dump(spec)
+    ensure_built()
+    return _guard_verdicts(spec, spec_path, "+".join(sorted(features)) or "default")
+
+
+def read_stream(stream: Path) -> FixpointProduct:
+    """Read one kernel stream back as a `FixpointProduct`. `enumerate-configs` writes plain ndjson, which `kernel_io.read_transitions` reads from the open handle; the gzip it applies to a path is for the artifacts under `engine/out/`. The file is deleted once the product is read, because a live configuration's stream is hundreds of megabytes and a whole cycle's would otherwise stay in the scratch directory for the rest of the build."""
+    with stream.open("rt", encoding="utf-8") as handle:
+        product = kernel_io.read_transitions(handle)
+    stream.unlink()
+    return product
+
+
+def enumerate_transitions(spec: ResolvedSpec, features: frozenset[str]) -> FixpointProduct:
+    """One configuration's reachable windows, enumerated by the crate and parsed into a `table.FixpointProduct`. The product holds everything the fold reads and nothing else the engine touched, so a consumer that wants what a table drops (the settled cells, the junctions, the optimistic prospect, the fired provenance per row) asks for the product. Only tests call this; `build_tables` folds in the crate without writing a stream. Nothing survives the call: the spec dump and the stream live in a scratch directory removed on return."""
+    with tempfile.TemporaryDirectory() as scratch:
+        directory = Path(scratch)
+        spec_path = directory / "spec.json"
+        kernel_io.write_spec(spec, spec_path)
+        ensure_built()
+        streams = enumerate_configs(
+            spec_path, directory / "streams", [feature_config_token(features)], threads=1
+        )
+        return read_stream(next(iter(streams.values())))
+
+
+def build_tables(spec: ResolvedSpec, features: frozenset[str]) -> tuple[DecisionTable, JoinTable]:
+    """One configuration's decision and join tables, in memory, leaving no files: one `build-tables` process (`build_table_files`) into a scratch directory, then the windows payload and the join TSV read back from it. The rows are read in full here, unlike on the build's own path, because a caller of this function wants the table, and the table is fixture-sized; `run_build.build_tables` builds the live alphabet's. The crate raises its own errors during enumeration and folding (E-UNACCEPTED-EXIT, and the fold's checks listed in `engine/kernel-rs/src/fold.rs`), so a returned table has passed them."""
+    with tempfile.TemporaryDirectory() as scratch:
+        tables = Path(scratch)
+        ensure_built()
+        config = feature_config_token(features)
+        build_table_files(
+            kernel_io.spec_bytes(spec),
+            tables,
+            [config],
+            inputs=UNSTAMPED_WINDOWS,
+            threads=1,
+            symbols=len(labels.spec_alphabet(spec)),
+        )
+        with windows_payload(tables, config).open("rt", encoding="utf-8") as handle:
+            _stamp, decision = table.read_windows(handle)
+        return decision, table.read_join_tsv(tables / f"joins-{config}.tsv")
+
+
+def main() -> None:
+    """`make kernel-build`: build the kernel with cargo's own output on the terminal, so an author sees every diagnostic, and report a failed build in one line instead of a traceback."""
+    try:
+        cargo_build(capture=False)
+    except (KernelBuildError, KernelRunError) as error:
+        raise SystemExit(str(error)) from None
+
+
+if __name__ == "__main__":
+    main()

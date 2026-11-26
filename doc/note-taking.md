@@ -4,15 +4,15 @@ Git holds the history. A checked-in note is justified only when it records one o
 
 ## Where each kind of record goes
 
-| Record                                   | Where it goes                                                             |
-| ---------------------------------------- | ------------------------------------------------------------------------- |
-| What should happen next, open decisions  | `WHATNEXT.md`                                                             |
-| A milestone’s design                     | A `*-PLAN.md` under `rebuild/`, written before the work                   |
-| A durable design fact found mid-work     | The milestone’s PLAN, or `doc/rebuild-design.md`                          |
-| The user’s rationale for a rune decision | The rune’s `why:` field (never written by an agent)                       |
-| What a change did and why                | The commit message; multiline bodies are fine in this repository          |
-| An in-flight batch’s parked state        | One bounded progress file under `rebuild/`, deleted when the batch closes |
-| Evidence for a still-open decision       | `rebuild/evidence/` under the rules in its `README.md`                    |
+| Record                                   | Where it goes                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------ |
+| What should happen next, open decisions  | `WHATNEXT.md`                                                            |
+| A milestone’s design                     | A `*-PLAN.md` under `engine/`, written before the work                   |
+| A durable design fact found mid-work     | The milestone’s PLAN, or `doc/engine-design.md`                          |
+| The user’s rationale for a rune decision | The rune’s `why:` field (never written by an agent)                      |
+| What a change did and why                | The commit message; multiline bodies are fine in this repository         |
+| An in-flight batch’s parked state        | One bounded progress file under `engine/`, deleted when the batch closes |
+| Evidence for a still-open decision       | `engine/evidence/` under the rules in its `README.md`                    |
 
 There is no `*-REPORT.md`. When a milestone is committed, its record is the commit history plus the runes’ `why:` fields. A report that restates counts, gate tallies, and edits duplicates what git already keeps.
 
@@ -31,15 +31,15 @@ It does not list the batch’s commits, because the commit that creates the file
 
 A count in prose names the artifact that reports it, not the number. The rebuild measures itself on every cycle, so a number written into a note is out of date after the next cycle. When a fact exists both in prose and in a machine-written file, the prose copy is the one that goes stale. That state is recorded in:
 
-- `rebuild/out/cycle_summary.json` for the last cycle’s record, and the per-gate summaries under `rebuild/out/m1/`
-- `rebuild/out/review/manifest.json` for corpus totals
+- `engine/out/cycle_summary.json` for the last cycle’s record, and the per-gate summaries under `engine/out/build/`
+- `engine/out/review/manifest.json` for corpus totals
 - `make verdict-ready` for whether a review session can start
 
 Prefer a qualitative description (“the sweep is exact”, “a pending pin is counted and does not fail the gate”) to a figure. Definitional numbers are not counts and may stay: Tall/Deep/Short as 9/9/6 rows, the depth-4 chain cap, the dev-server ports, a hash that must stay byte-identical, and a fixed fact about the old font. Write a commit-stamped filename with its placeholder, such as `verdicts-carried-<sha>.json`, not with the current cycle’s hash.
 
 ## Executable authorities
 
-When a fact is recorded both in prose and in something executable, the executable version is binding and the prose says so. Examples are a field list a validator enforces (`build.check_manifest`), a gate’s list of exempt paths (`make_test_exempt`), a keyboard map the frontend binds (`keyboard.js`), and the signatures an allow-list holds (`rebuild/m1-contact-allow.yaml`). Restating one of these in a note creates a second copy that nothing checks and that goes out of date. Name the authority and describe the shape instead.
+When a fact is recorded both in prose and in something executable, the executable version is binding and the prose says so. Examples are a field list a validator enforces (`build.check_manifest`), a gate’s list of exempt paths (`make_test_exempt`), a keyboard map the frontend binds (`keyboard.js`), and the signatures an allow-list holds (`engine/contact-allow.yaml`). Restating one of these in a note creates a second copy that nothing checks and that goes out of date. Name the authority and describe the shape instead.
 
 ## Reconnaissance and evidence
 

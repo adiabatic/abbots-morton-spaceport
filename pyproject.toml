@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-# The default run skips `slow` tests. `make test-rebuild-slow` runs the rebuild suite's slow tests.
+# The default run skips `slow` tests. `make test-engine-slow` runs the rebuild suite's slow tests.
 markers = ["slow: expensive deep sweeps, excluded from the default test run"]
 addopts = "-m 'not slow'"
 # `test/` holds the Python suite and `site/` the data-expect HTML corpora that the root `conftest.py` collects as shaping tests.
@@ -39,6 +39,6 @@ target-version = ["py314"]
 [tool.pyright]
 pythonVersion = "3.14"
 typeCheckingMode = "standard"
-include = ["tools", "test", "conftest.py", "rebuild"]
+include = ["tools", "test", "conftest.py", "engine"]
 extraPaths = ["tools"]
 stubPath = "typings"

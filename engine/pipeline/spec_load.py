@@ -1,0 +1,2083 @@
+"""Load the rune files and the script registry into a `ResolvedSpec` (engine/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, `kern:` as the file's last key, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, the kern records' reference checks (`_check_kern`), ligature outgoing inheritance, and left-facing ligature expansion.
+
+A rune's `kern:` block becomes its `Rune.kern` (`model.KernBlock`), which the kernel's spec dump leaves out (engine/KERN-PLAN.md §4). Ligature outgoing inheritance records which trailing stance each ligature stance takes its kern records from (`KernBlock.inherits`); `engine/pipeline/kern.py` applies them.
+
+Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under engine/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
+
+The alphabet switch, `AMS_RUNES` (`RUNES_ENV`), narrows `load_default_spec` to a small alphabet for the fault kit (`narrowed`). Everything that reads the alphabet reads it from the spec, `alphabet.ALPHABET` included, every stamp over a build carries the switch's token while it is set (`alphabet_token`), and the entry points that write the live tree refuse it outside the kit (`small_alphabet_refusal`). A spec the switch narrows to fewer runes than the store holds carries `model.ResolvedSpec.narrowed`, which the kern stage reads and no dump or stamp does, so the kern stage leaves stale records to the whole alphabet's build (`engine/pipeline/kern.py`'s **Errors.** paragraph).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import warnings
+from dataclasses import dataclass, replace
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Iterable, NoReturn
+from urllib.parse import quote, unquote
+
+import yaml
+from jsonschema import Draft202012Validator, validators
+from jsonschema.exceptions import SchemaError, ValidationError
+from referencing import Registry
+from referencing.exceptions import NoSuchResource
+
+from engine.pipeline.model import (
+    RIGHT_CHAIN_CAP,
+    Bitmap,
+    BoundaryToken,
+    COSMETIC_OVERLAY,
+    CellBinding,
+    Condition,
+    CosmeticRecord,
+    FamilyInfo,
+    FeatureInfo,
+    KernBlock,
+    KernFollower,
+    KernRecord,
+    Pairing,
+    Pairings,
+    Policy,
+    PolicyRecord,
+    Provenance,
+    ResolvedSpec,
+    Rune,
+    ScriptRegistry,
+    Stance,
+    Stub,
+    Surface,
+    SurfaceRow,
+    Unlock,
+    VariationSelector,
+    When,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+_SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+DEFAULT_RUNES_DIR = REPO_ROOT / "glyph_data" / "runes"
+DEFAULT_REGISTRY_PATH = REPO_ROOT / "glyph_data" / "script.yaml"
+DEFAULT_SCHEMA_DIR = REPO_ROOT / "engine" / "schema"
+RUNES_ENV = "AMS_RUNES"
+CYCLE_RUN_ENV = "AMS_CYCLE_RUN"
+FAULT_KIT_RUN = "fault-kit"
+ALPHABET_LABEL = "alphabet"
+
+FORBIDDEN_ID_PATTERN = re.compile(r"(before|after|noentry|noexit|nonjoining|ss[0-9])")
+
+SOLE_NAME = "sole"
+_KEY_TYPE_ERROR = "keys must be strings"
+
+_NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbors, boundaries, or features (doc/engine-design.md section 3.1), except that a single-stance rune names its only stance and only motion 'sole' (a reserved name; the pen-motion label lives in the ductus prose)"
+_WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/engine-design.md section 3.3)"
+_OVER_RULE = "a prefer's over: names the candidates its cell: outranks, so over: takes effect only beside a cell: and needs one (doc/engine-design.md section 3.3)"
+_CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
+_KERN_LAST_RULE = "kern: is the last key of a rune file, so the kern editor can rewrite the block from its first line to the end of the file without touching anything before it (engine/KERN-PLAN.md sections 2 and 6)"
+_CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/engine-design.md section 3.4)"
+
+
+@dataclass(frozen=True)
+class SpecIssue:
+    file: str
+    path: str
+    message: str
+    line: int | None = None
+
+    def __str__(self) -> str:
+        where = f"{self.file}:{self.line}" if self.line is not None else self.file
+        at = f" at {self.path}" if self.path else ""
+        return f"{where}{at}: {self.message}"
+
+
+class SpecError(Exception):
+    def __init__(
+        self,
+        file: str,
+        path: str,
+        message: str,
+        line: int | None = None,
+        issues: tuple[SpecIssue, ...] | None = None,
+    ):
+        if issues is None:
+            issues = (SpecIssue(file, path, message, line),)
+        self.issues = tuple(issues)
+        super().__init__("\n".join(str(issue) for issue in self.issues))
+
+    @classmethod
+    def from_issues(cls, issues: list[SpecIssue] | tuple[SpecIssue, ...]) -> "SpecError":
+        ordered = tuple(issues)
+        first = ordered[0]
+        return cls(first.file, first.path, first.message, first.line, issues=ordered)
+
+
+class SpecWarning(UserWarning):
+    pass
+
+
+def _strict_integer(_checker: object, value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _deny_schema_retrieval(uri: str) -> NoReturn:
+    raise NoSuchResource(ref=uri)
+
+
+_STRICT_VALIDATOR = validators.extend(
+    Draft202012Validator,
+    type_checker=Draft202012Validator.TYPE_CHECKER.redefine("integer", _strict_integer),
+)
+
+
+def _schema_path(parts: Iterable[str | int]) -> str:
+    path = ""
+    for part in parts:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        else:
+            path += f".{part}" if path else part
+    return path
+
+
+class _SchemaValidator:
+    """Adapt Draft 2020-12 errors to YAML paths while checking the project's closed schema vocabulary and root-local references before any record is validated."""
+
+    VALIDATOR = _STRICT_VALIDATOR
+
+    _KEYWORDS = frozenset(
+        {
+            "type",
+            "enum",
+            "const",
+            "pattern",
+            "minimum",
+            "items",
+            "minItems",
+            "maxItems",
+            "minProperties",
+            "properties",
+            "patternProperties",
+            "additionalProperties",
+            "required",
+            "propertyNames",
+            "allOf",
+            "anyOf",
+            "oneOf",
+            "not",
+            "if",
+            "then",
+            "$ref",
+            "$defs",
+        }
+    )
+    _ANNOTATIONS = frozenset({"$schema", "$id", "title", "description"})
+    _IGNORED = _ANNOTATIONS
+    _TYPES = frozenset({"object", "array", "string", "integer", "boolean"})
+    _SCHEMA_MAPS = frozenset({"$defs", "properties", "patternProperties"})
+    _SCHEMA_ARRAYS = frozenset({"allOf", "anyOf", "oneOf"})
+    _SCHEMA_VALUES = frozenset({"items", "additionalProperties", "propertyNames", "not", "if", "then"})
+
+    def __init__(self, schema: dict, schema_name: str):
+        self.schema = schema
+        self.schema_name = schema_name
+        self._root_schema = schema
+        self._definitions: dict[str, _SchemaValidator] = {}
+        self._check_schema_contract()
+        # A referenced root keeps this validator's integer type checker when it carries no dialect annotation.
+        runtime_schema = {key: value for key, value in schema.items() if key != "$schema"}
+        self._validator = self.VALIDATOR(runtime_schema, registry=Registry(retrieve=_deny_schema_retrieval))
+
+    def _check_schema_contract(self) -> None:
+        schema_paths: set[tuple[str | int, ...]] = set()
+        references: list[str] = []
+
+        def walk(schema: object, path: tuple[str | int, ...]) -> None:
+            if not isinstance(schema, (dict, bool)):
+                return
+            schema_paths.add(path)
+            if isinstance(schema, bool):
+                return
+            for keyword, value in schema.items():
+                if keyword not in self._KEYWORDS and keyword not in self._IGNORED:
+                    raise ValueError(f"{self.schema_name}: unsupported JSON Schema keyword {keyword!r}")
+                if keyword == "type" and (not isinstance(value, str) or value not in self._TYPES):
+                    raise ValueError(f"{self.schema_name}: unsupported type {value!r}")
+                if keyword in {"$id", "$schema"} and path:
+                    raise ValueError(f"{self.schema_name}: {keyword} is supported only at the schema root")
+                if keyword == "$schema" and value != Draft202012Validator.META_SCHEMA["$id"]:
+                    raise ValueError(f"{self.schema_name}: $schema must name JSON Schema Draft 2020-12")
+                if keyword == "$ref" and isinstance(value, str):
+                    references.append(value)
+                elif keyword in self._SCHEMA_MAPS and isinstance(value, dict):
+                    for name, child in value.items():
+                        walk(child, (*path, keyword, name))
+                elif keyword in self._SCHEMA_ARRAYS and isinstance(value, list):
+                    for index, child in enumerate(value):
+                        walk(child, (*path, keyword, index))
+                elif keyword in self._SCHEMA_VALUES:
+                    walk(value, (*path, keyword))
+
+        walk(self.schema, ())
+        try:
+            self.VALIDATOR.check_schema(self.schema)
+        except SchemaError as error:
+            raise ValueError(f"{self.schema_name}: invalid JSON Schema: {error.message}") from error
+        for reference in references:
+            if reference != "#" and not reference.startswith("#/"):
+                raise ValueError(
+                    f"{self.schema_name}: only root-local JSON Pointer $refs are supported: {reference!r}"
+                )
+            target: object = self.schema
+            target_path: list[str | int] = []
+            fragment = unquote(reference[1:])
+            for token in fragment[1:].split("/") if fragment else ():
+                token = token.replace("~1", "/").replace("~0", "~")
+                if isinstance(target, dict) and token in target:
+                    target = target[token]
+                    target_path.append(token)
+                elif isinstance(target, list) and token.isdigit() and int(token) < len(target):
+                    index = int(token)
+                    target = target[index]
+                    target_path.append(index)
+                else:
+                    raise ValueError(f"{self.schema_name}: dangling $ref {reference!r}")
+            if tuple(target_path) not in schema_paths:
+                raise ValueError(f"{self.schema_name}: $ref {reference!r} does not name a schema")
+
+    def for_definition(self, name: str) -> "_SchemaValidator":
+        if name not in self._root_schema.get("$defs", {}):
+            raise ValueError(f"{self.schema_name}: unknown schema definition {name!r}")
+        if name not in self._definitions:
+            pointer = quote(name.replace("~", "~0").replace("/", "~1"), safe="")
+            selected = object.__new__(_SchemaValidator)
+            selected.schema = {"$ref": f"#/$defs/{pointer}"}
+            selected.schema_name = self.schema_name
+            selected._root_schema = self._root_schema
+            selected._definitions = self._definitions
+            selected._validator = self._validator.evolve(schema=selected.schema)
+            self._definitions[name] = selected
+        return self._definitions[name]
+
+    def check(self, value: object) -> list[tuple[str, str]]:
+        errors: list[tuple[str, str]] = []
+
+        def check_keys(item: object, path: str) -> None:
+            if isinstance(item, dict):
+                for key, child in item.items():
+                    key_path = f"{path}.{key}" if path else str(key)
+                    if not isinstance(key, str):
+                        errors.append((key_path, f"{_KEY_TYPE_ERROR}, got {key!r}"))
+                    check_keys(child, key_path)
+            elif isinstance(item, list):
+                for index, child in enumerate(item):
+                    check_keys(child, f"{path}[{index}]")
+
+        check_keys(value, "")
+        if errors:
+            return errors
+        for error in self._validator.iter_errors(value):
+            errors.extend(self._diagnostics(error, value))
+        return list(dict.fromkeys(errors))
+
+    def _diagnostics(self, error: ValidationError, value: object) -> list[tuple[str, str]]:
+        parts = list(error.absolute_path)
+        instance = error.instance
+        document_value = value
+        for part in parts:
+            if isinstance(document_value, dict):
+                document_value = document_value[part]
+            elif isinstance(document_value, list) and isinstance(part, int):
+                document_value = document_value[part]
+        if isinstance(document_value, dict) and isinstance(instance, str) and instance in document_value:
+            parts.append(instance)
+        path = _schema_path(parts)
+        keyword = error.validator
+        limit = error.validator_value
+        if keyword == "required" and isinstance(instance, dict) and isinstance(limit, list):
+            return [
+                (_schema_path((*parts, key)), f"missing required key {key!r}")
+                for key in limit
+                if key not in instance
+            ]
+        if (
+            keyword == "additionalProperties"
+            and limit is False
+            and isinstance(instance, dict)
+            and isinstance(error.schema, dict)
+        ):
+            properties = error.schema.get("properties", {})
+            patterns = error.schema.get("patternProperties", {})
+            known = sorted(set(properties) | set(patterns))
+            return [
+                (
+                    _schema_path((*parts, key)),
+                    f"unknown key {key!r} (closed vocabulary; expected one of {known})",
+                )
+                for key in instance
+                if key not in properties and not any(re.search(pattern, key) for pattern in patterns)
+            ]
+        if keyword == "type":
+            message = f"expected {limit}, got {type(instance).__name__} ({instance!r})"
+        elif keyword == "const":
+            message = f"must be {limit!r}, got {instance!r}"
+        elif keyword == "enum":
+            message = f"must be one of {limit}, got {instance!r}"
+        elif keyword == "pattern":
+            message = f"{instance!r} does not match required pattern {limit!r}"
+        elif keyword == "minimum":
+            message = f"must be >= {limit}, got {instance}"
+        elif keyword == "minItems":
+            message = f"must have at least {limit} items"
+        elif keyword == "maxItems":
+            message = f"must have at most {limit} items"
+        elif keyword == "minProperties":
+            message = f"must have at least {limit} keys"
+        elif keyword == "anyOf":
+            message = "does not satisfy any permitted alternative"
+        elif keyword == "oneOf" and isinstance(limit, list):
+            matched = sum(self._validator.evolve(schema=child).is_valid(instance) for child in limit)
+            message = f"must satisfy exactly one of {len(limit)} alternatives, matched {matched}"
+        elif keyword == "not":
+            message = "matches a forbidden form"
+        else:
+            message = error.message
+        return [(path, message)]
+
+
+def _line_index(
+    text: str,
+    key_paths: dict[str, str] | None = None,
+    key_errors: list[tuple[str, str]] | None = None,
+) -> dict[str, int]:
+    loader = _SAFE_LOADER(text)
+    try:
+        root = loader.get_single_node()
+    except yaml.YAMLError:
+        loader.dispose()
+        return {}
+    index: dict[str, int] = {}
+
+    def walk(node: yaml.Node, path: str, check_path: str) -> None:
+        index.setdefault(path, node.start_mark.line + 1)
+        if key_paths is not None and check_path != path:
+            key_paths[check_path] = path
+        if isinstance(node, yaml.MappingNode):
+            for key_node, value_node in node.value:
+                if isinstance(key_node, yaml.ScalarNode):
+                    spelling = key_node.value
+                    key = (
+                        spelling
+                        if key_node.tag in {"tag:yaml.org,2002:merge", "tag:yaml.org,2002:value"}
+                        else loader.construct_object(key_node)
+                    )
+                else:
+                    spelling = text[key_node.start_mark.index : key_node.end_mark.index].strip()
+                    key = spelling
+                    if key_errors is not None:
+                        key_path = f"{path}.{spelling}" if path else spelling
+                        key_errors.append((key_path, f"{_KEY_TYPE_ERROR}, got collection key {spelling!r}"))
+                child = f"{path}.{spelling}" if path else spelling
+                check_child = f"{check_path}.{key}" if check_path else str(key)
+                index[child] = key_node.start_mark.line + 1
+                walk(value_node, child, check_child)
+        elif isinstance(node, yaml.SequenceNode):
+            for position, item in enumerate(node.value):
+                walk(item, f"{path}[{position}]", f"{check_path}[{position}]")
+
+    try:
+        if root is not None:
+            walk(root, "", "")
+    finally:
+        loader.dispose()
+    return index
+
+
+def _line_for(lines: dict[str, int], path: str) -> int | None:
+    candidate = path
+    while candidate:
+        if candidate in lines:
+            return lines[candidate]
+        trimmed = re.sub(r"(\.[^.\[\]]+|\[\d+\])$", "", candidate)
+        if trimmed == candidate:
+            break
+        candidate = trimmed
+    return lines.get("")
+
+
+class _FileContext:
+    def __init__(self, path: Path, issues: list[SpecIssue]):
+        try:
+            self.file = str(path.relative_to(REPO_ROOT))
+        except ValueError:
+            self.file = str(path)
+        self.issues = issues
+        text = path.read_text()
+        self.key_paths: dict[str, str] = {}
+        key_errors: list[tuple[str, str]] = []
+        self.lines = _line_index(text, self.key_paths, key_errors)
+        self.data: Any
+        if key_errors:
+            for key_path, message in key_errors:
+                self.error(key_path, message)
+            self.data = None
+        else:
+            self.data = yaml.load(text, Loader=_SAFE_LOADER)
+
+    def error(self, path: str, message: str) -> None:
+        path = self.key_paths.get(path, path)
+        self.issues.append(SpecIssue(self.file, path, message, _line_for(self.lines, path)))
+
+    def provenance(self, path: str) -> Provenance:
+        return Provenance(file=self.file, path=path)
+
+
+def _as_tuple(value: str | Iterable[str] | None) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
+
+
+def _condition(raw: dict) -> Condition:
+    return Condition(
+        family=_as_tuple(raw.get("family")),
+        klass=_as_tuple(raw.get("class")),
+        stance=_as_tuple(raw.get("stance")),
+        joined_at=raw.get("joined_at"),
+        stroke=raw.get("stroke"),
+        is_token=raw.get("is"),
+        except_=tuple(_condition(item) for item in raw.get("except", ())),
+        then=_condition(raw["then"]) if raw.get("then") is not None else None,
+    )
+
+
+def _when(raw: dict | None) -> When:
+    if not raw:
+        return When()
+    self_state = raw.get("self") or {}
+    return When(
+        left=_condition(raw["left"]) if "left" in raw else None,
+        right=_condition(raw["right"]) if "right" in raw else None,
+        self_entry=self_state.get("entry"),
+        self_exit=self_state.get("exit"),
+        word=raw.get("word"),
+        feature=raw.get("feature"),
+    )
+
+
+def _stub(raw: dict | None) -> Stub | None:
+    if raw is None:
+        return None
+    return Stub(cols=tuple(raw["cols"]), inks_when=raw["inks_when"])
+
+
+def _bitmap(raw: dict) -> Bitmap:
+    return Bitmap(rows=tuple(raw["bitmap"]), y_offset=raw.get("y_offset", 0))
+
+
+def _cosmetic_steer_message(feature: str) -> str:
+    return f"feature {feature!r} is a cosmetic set (`overlay: cosmetic`), which redraws unjoined shapes after joining has settled and never steers a join, so no `when:` condition or unlock may name it"
+
+
+def _cosmetic_block(rune_name: str, raw: dict, context: _FileContext) -> tuple[CosmeticRecord, ...]:
+    """Build a rune's `cosmetic:` records, each with its `cosmetic[index]` provenance."""
+    return tuple(
+        CosmeticRecord(
+            rune=rune_name,
+            feature=item["feature"],
+            stance=item["stance"],
+            bitmap=_bitmap(item),
+            provenance=context.provenance(f"cosmetic[{index}]"),
+        )
+        for index, item in enumerate(raw.get("cosmetic") or ())
+    )
+
+
+def _entry_row(height: str, raw: dict, provenance: Provenance) -> SurfaceRow:
+    return SurfaceRow(
+        height=height,
+        x=raw["x"],
+        stroke=raw.get("stroke"),
+        joined=raw.get("joined"),
+        joined_x=raw.get("joined_x"),
+        stub=_stub(raw.get("stub")),
+        scope=tuple(_condition(item) for item in raw.get("from", ())),
+        selectable=raw.get("selectable", True),
+        x_off_convention=raw.get("x_off_convention", False),
+        provenance=provenance,
+    )
+
+
+def _exit_row(height: str, raw: dict, provenance: Provenance) -> SurfaceRow:
+    return SurfaceRow(
+        height=height,
+        x=raw["x"],
+        stroke=raw.get("stroke"),
+        unjoined=raw.get("unjoined"),
+        stub=_stub(raw.get("stub")),
+        scope=tuple(_condition(item) for item in raw.get("toward", ())),
+        ink_y=raw.get("ink_y"),
+        x_off_convention=raw.get("x_off_convention", False),
+        provenance=provenance,
+    )
+
+
+def _pairing(raw: dict) -> Pairing:
+    return Pairing(entry=raw["entry"], exit=raw["exit"])
+
+
+def _surface(raw: dict | None, context: _FileContext, base_path: str) -> Surface:
+    if not raw:
+        return Surface()
+    pairings_raw = raw.get("pairings") or {}
+    return Surface(
+        entries={
+            height: _entry_row(height, row, context.provenance(f"{base_path}.entries.{height}"))
+            for height, row in (raw.get("entries") or {}).items()
+        },
+        exits={
+            height: _exit_row(height, row, context.provenance(f"{base_path}.exits.{height}"))
+            for height, row in (raw.get("exits") or {}).items()
+        },
+        pairings=Pairings(
+            never=tuple(_pairing(item) for item in pairings_raw.get("never", ())),
+            only=tuple(_pairing(item) for item in pairings_raw["only"]) if "only" in pairings_raw else None,
+        ),
+        cells=tuple(
+            CellBinding(
+                entry=item["entry"],
+                exit=item["exit"],
+                bitmap=item["bitmap"],
+                entry_x=item.get("entry_x"),
+                exit_x=item.get("exit_x"),
+                provenance=context.provenance(f"{base_path}.cells[{index}]"),
+            )
+            for index, item in enumerate(raw.get("cells", ()))
+        ),
+        unlocks=tuple(
+            Unlock(
+                feature=item["feature"],
+                entry=item.get("entry"),
+                exit=item.get("exit"),
+                pairing=_pairing(item["pairing"]) if "pairing" in item else None,
+                when=_when(item.get("when")) if item.get("when") else None,
+                why=item.get("why"),
+                provenance=context.provenance(f"{base_path}.unlocks[{index}]"),
+            )
+            for index, item in enumerate(raw.get("unlocks", ()))
+        ),
+        require=tuple(raw.get("require", ())),
+    )
+
+
+_RECORD_KINDS = ("refuse", "prefer", "extend", "contract")
+_PAD_LEFT_ROW_KEYS = ("stub", "joined_x", "selectable", "ink_y", "x_off_convention")
+
+
+def _stance_rows(raw: dict) -> dict[str, dict[str, set[str]]]:
+    """Return each stance's entry and exit heights, unlock rows included."""
+    rows: dict[str, dict[str, set[str]]] = {}
+    for stance_name, stance_raw in (raw.get("stances") or {}).items():
+        surface = stance_raw.get("surface") or {}
+        entries = set(surface.get("entries") or {})
+        exits = set(surface.get("exits") or {})
+        for unlock in surface.get("unlocks", ()):
+            if unlock.get("entry"):
+                entries.add(unlock["entry"])
+            if unlock.get("exit"):
+                exits.add(unlock["exit"])
+        rows[stance_name] = {"entry": entries, "exit": exits}
+    return rows
+
+
+def _policy_record(kind: str, raw: dict, provenance: Provenance) -> PolicyRecord:
+    ok = raw.get("ok")
+    split = raw.get("split")
+    return PolicyRecord(
+        kind=kind,
+        when=_when(raw.get("when")),
+        id=raw.get("id"),
+        stance=raw.get("stance"),
+        entry=raw.get("entry"),
+        exit=raw.get("exit"),
+        cell=raw.get("cell"),
+        over=raw.get("over"),
+        mode=raw.get("mode"),
+        by=raw.get("by"),
+        ok=(ok[0], ok[1]) if ok else None,
+        bind=raw.get("bind"),
+        trim=raw.get("trim"),
+        split=(split[0], split[1]) if split else None,
+        why=raw.get("why"),
+        provenance=provenance,
+    )
+
+
+def _resolve_record(context: _FileContext, raw: dict, path: str, provenance: Provenance) -> PolicyRecord:
+    """Build a resolve record in the §5.8 against-a-named-record form, `{against: {rune, id}, when, pick, why}`. The tiebreak form (`at:`) and grouped resolves are designed but not implemented. A resolve's `when:` may not carry `self:`, because the record is consulted where two prefers collided, before any cell at that position is chosen, so there is no self state to read."""
+    against_raw = raw.get("against")
+    if "at" in raw or against_raw is None:
+        context.error(
+            path,
+            "resolve tiebreak form (at:) and grouped resolves are not yet implemented; only against-a-named-record resolves ({against: {rune, id}, when, pick, why}) are supported",
+        )
+    if isinstance(raw.get("when"), dict) and "self" in raw["when"]:
+        context.error(
+            path,
+            "self: conditions on a resolve are not yet implemented (a resolve is consulted before any cell at its position is chosen)",
+        )
+    against = (against_raw["rune"], against_raw.get("id")) if against_raw else None
+    return PolicyRecord(
+        kind="resolve",
+        when=_when(raw.get("when")),
+        id=raw.get("id"),
+        against=against,
+        pick=raw.get("pick"),
+        migrated=raw.get("migrated"),
+        why=raw.get("why"),
+        provenance=provenance,
+    )
+
+
+def _kern_follower(raw: dict) -> KernFollower:
+    return KernFollower(
+        family=_as_tuple(raw.get("family")),
+        klass=raw.get("class"),
+        stance=raw.get("stance"),
+        exit=raw.get("exit"),
+        bitmap=raw.get("bitmap"),
+        except_=tuple(_kern_follower(item) for item in raw.get("except", ())),
+    )
+
+
+def _kern_block(rune_name: str, raw: dict, context: _FileContext) -> KernBlock:
+    """Build a rune's `kern:` records (engine/KERN-PLAN.md §2), each carrying the rune that holds it and its `kern[index]` provenance. The inheritance map is filled in later, by `_inherit_ligature_outgoing`."""
+    return KernBlock(
+        records=tuple(
+            KernRecord(
+                rune=rune_name,
+                right=_kern_follower(item["right"]),
+                by=item["by"],
+                stance=item.get("stance"),
+                entry=item.get("entry"),
+                bitmap=item.get("bitmap"),
+                why=item.get("why"),
+                provenance=context.provenance(f"kern[{index}]"),
+            )
+            for index, item in enumerate(raw.get("kern") or ())
+        )
+    )
+
+
+@lru_cache(maxsize=16)
+def _schema_from_text(name: str, text: str) -> _SchemaValidator:
+    return _SchemaValidator(json.loads(text), name)
+
+
+def _load_schema(schema_dir: Path, name: str) -> _SchemaValidator:
+    path = schema_dir / name
+    return _schema_from_text(name, path.read_text())
+
+
+def _walk_conditions(raw: object, path: str):
+    """Yields (path, condition_dict) for every condition object reachable from a when:/scope structure, except: atoms and then: hops included."""
+    if isinstance(raw, dict):
+        yield path, raw
+        for atom_index, atom in enumerate(raw.get("except", ()) or ()):
+            yield from _walk_conditions(atom, f"{path}.except[{atom_index}]")
+        if isinstance(raw.get("then"), dict):
+            yield from _walk_conditions(raw["then"], f"{path}.then")
+
+
+def _right_chain_reach(raw: dict) -> int:
+    """Return how many raw slots past its own slot a right condition's `then:` chains read. A `then:` hop advances one slot. An `except:` entry tests its parent's slot, so its hops count from there."""
+    reach = 0
+    if isinstance(raw.get("then"), dict):
+        reach = max(reach, 1 + _right_chain_reach(raw["then"]))
+    for atom in raw.get("except", ()) or ():
+        if isinstance(atom, dict):
+            reach = max(reach, _right_chain_reach(atom))
+    return reach
+
+
+def _when_conditions(raw: dict | None, path: str):
+    if not raw:
+        return
+    for side in ("left", "right"):
+        if isinstance(raw.get(side), dict):
+            yield from _walk_conditions(raw[side], f"{path}.{side}")
+
+
+class _Linter:
+    def __init__(
+        self,
+        context: _FileContext,
+        registry_families: dict,
+        registry_classes: dict,
+        registry_features: set[str],
+        cosmetic_features: frozenset[str] = frozenset(),
+    ):
+        self.context = context
+        self.raw = context.data
+        self.families = registry_families
+        self.classes = registry_classes
+        self.features = registry_features
+        self.cosmetic_features = cosmetic_features
+        policy = self.raw.get("policy")
+        self.group_names = set(policy.get("groups") or {}) if isinstance(policy, dict) else set()
+        self.stance_rows: dict[str, dict[str, set[str]]] = {}
+
+    def run_shallow(self) -> None:
+        """Run the lints that are safe on any document shape. They run even when schema validation already failed, so the design-rule messages always appear beside the schema errors."""
+        self._lint_identifiers()
+        self._lint_single_stance_name()
+        self._lint_single_motion_name()
+        self._lint_ductus_parity()
+        self._lint_refuse_window_rule()
+        self._lint_prefer_over_needs_cell()
+        self._lint_right_chain_depth()
+        self._lint_kern_is_last()
+
+    def run_deep(self) -> None:
+        self.stance_rows = _stance_rows(self.raw)
+        self._lint_registry_consistency()
+        self._lint_stances()
+        self._lint_policy()
+        self._lint_cosmetic()
+
+    def _stances(self) -> dict[str, dict]:
+        stances = self.raw.get("stances")
+        if not isinstance(stances, dict):
+            return {}
+        return {name: value for name, value in stances.items() if isinstance(value, dict)}
+
+    def _lint_identifiers(self) -> None:
+        for stance_name, stance_raw in self._stances().items():
+            if FORBIDDEN_ID_PATTERN.search(stance_name):
+                self.context.error(
+                    f"stances.{stance_name}",
+                    f"stance ID {stance_name!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
+                )
+            motion = stance_raw.get("motion")
+            if isinstance(motion, str) and FORBIDDEN_ID_PATTERN.search(motion):
+                self.context.error(
+                    f"stances.{stance_name}.motion",
+                    f"motion name {motion!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
+                )
+        ductus = self.raw.get("ductus")
+        for motion_name in ductus if isinstance(ductus, dict) else ():
+            if FORBIDDEN_ID_PATTERN.search(str(motion_name)):
+                self.context.error(
+                    f"ductus.{motion_name}",
+                    f"motion name {motion_name!r} matches the forbidden pattern {FORBIDDEN_ID_PATTERN.pattern}; {_NAMING_RULE}",
+                )
+
+    def _lint_single_stance_name(self) -> None:
+        keys = list(self._stances())
+        if len(keys) == 1 and keys[0] != SOLE_NAME:
+            self.context.error(
+                f"stances.{keys[0]}",
+                f"single-stance rune must name its only stance {SOLE_NAME!r} (the reserved name for one-stance runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
+            )
+        elif len(keys) > 1 and SOLE_NAME in keys:
+            self.context.error(
+                f"stances.{SOLE_NAME}",
+                f"{SOLE_NAME!r} is reserved for the only stance of a single-stance rune; a rune with multiple stances may not use it",
+            )
+
+    def _lint_single_motion_name(self) -> None:
+        ductus = self.raw.get("ductus")
+        keys = list(ductus) if isinstance(ductus, dict) else []
+        if len(keys) == 1 and keys[0] != SOLE_NAME:
+            self.context.error(
+                f"ductus.{keys[0]}",
+                f"single-motion ductus must name its only motion {SOLE_NAME!r} (the reserved name for one-motion runes; the pen-motion label lives in the ductus prose), not {keys[0]!r}",
+            )
+        elif len(keys) > 1 and SOLE_NAME in keys:
+            self.context.error(
+                f"ductus.{SOLE_NAME}",
+                f"{SOLE_NAME!r} is reserved for the only motion of a single-motion ductus; a rune with multiple motions may not use it",
+            )
+
+    def _lint_refuse_window_rule(self) -> None:
+        policy = self.raw.get("policy")
+        refuse = policy.get("refuse") if isinstance(policy, dict) else None
+        for index, record in enumerate(refuse if isinstance(refuse, list) else ()):
+            if not isinstance(record, dict):
+                continue
+            when = record.get("when")
+            right = when.get("right") if isinstance(when, dict) else None
+            if isinstance(right, dict) and "then" in right:
+                self.context.error(f"policy.refuse[{index}].when.right.then", _WINDOW_RULE)
+
+    def _lint_prefer_over_needs_cell(self) -> None:
+        policy = self.raw.get("policy")
+        prefer = policy.get("prefer") if isinstance(policy, dict) else None
+        for index, record in enumerate(prefer if isinstance(prefer, list) else ()):
+            if isinstance(record, dict) and "over" in record and "cell" not in record:
+                self.context.error(f"policy.prefer[{index}].over", _OVER_RULE)
+
+    def _lint_right_chain_depth(self) -> None:
+        policy = self.raw.get("policy")
+        for kind in ("prefer", "resolve", "extend", "contract", "pad_left"):
+            records = policy.get(kind) if isinstance(policy, dict) else None
+            for index, record in enumerate(records if isinstance(records, list) else ()):
+                if not isinstance(record, dict):
+                    continue
+                when = record.get("when")
+                right = when.get("right") if isinstance(when, dict) else None
+                if isinstance(right, dict) and _right_chain_reach(right) > RIGHT_CHAIN_CAP:
+                    self.context.error(f"policy.{kind}[{index}].when.right", _CHAIN_RULE)
+        for stance_name, stance_raw in self._stances().items():
+            surface = stance_raw.get("surface")
+            unlocks = surface.get("unlocks") if isinstance(surface, dict) else None
+            for index, unlock in enumerate(unlocks if isinstance(unlocks, list) else ()):
+                if not isinstance(unlock, dict):
+                    continue
+                when = unlock.get("when")
+                right = when.get("right") if isinstance(when, dict) else None
+                if isinstance(right, dict) and _right_chain_reach(right) > RIGHT_CHAIN_CAP:
+                    self.context.error(
+                        f"stances.{stance_name}.surface.unlocks[{index}].when.right", _CHAIN_RULE
+                    )
+
+    def _lint_cosmetic(self) -> None:
+        """Check each `cosmetic:` record: its feature is a registered cosmetic set, its stance exists, no other record redraws that stance, and its drawing has the stance's row count, width and `y_offset`, so the cosmetic copy takes the unjoined glyph's place, advance and kerning unchanged."""
+        stances = self._stances()
+        seen: dict[str, str] = {}
+        for index, record in enumerate(self.raw.get("cosmetic") or ()):
+            path = f"cosmetic[{index}]"
+            feature = record.get("feature")
+            if feature not in self.features:
+                self.context.error(f"{path}.feature", f"feature {feature!r} is not registered in script.yaml")
+            elif feature not in self.cosmetic_features:
+                self.context.error(
+                    f"{path}.feature",
+                    f"feature {feature!r} is not a cosmetic set: only a set the registry marks `overlay: cosmetic` can redraw an unjoined shape",
+                )
+            stance_name = record.get("stance")
+            stance = stances.get(stance_name)
+            if stance is None:
+                self.context.error(f"{path}.stance", f"cosmetic record names unknown stance {stance_name!r}")
+                continue
+            if stance_name in seen:
+                self.context.error(
+                    f"{path}.stance", f"stance {stance_name!r} is already redrawn by {seen[stance_name]}"
+                )
+            seen.setdefault(stance_name, path)
+            rows = tuple(record.get("bitmap") or ())
+            base = tuple(stance.get("bitmap") or ())
+            width = max((len(row) for row in rows), default=0)
+            base_width = max((len(row) for row in base), default=0)
+            if len(rows) != len(base) or width != base_width:
+                self.context.error(
+                    f"{path}.bitmap",
+                    f"the cosmetic drawing is {width}x{len(rows)} but stance {stance_name!r} is {base_width}x{len(base)}: a cosmetic drawing keeps its stance's size, so the letter takes the same space",
+                )
+            if record.get("y_offset", 0) != stance.get("y_offset", 0):
+                self.context.error(
+                    f"{path}.y_offset",
+                    f"the cosmetic drawing's y_offset {record.get('y_offset', 0)} differs from stance {stance_name!r}'s {stance.get('y_offset', 0)}",
+                )
+
+    def _lint_kern_is_last(self) -> None:
+        keys = list(self.raw)
+        if "kern" in keys and keys[-1] != "kern":
+            self.context.error("kern", _KERN_LAST_RULE)
+
+    def _lint_ductus_parity(self) -> None:
+        ductus = self.raw.get("ductus")
+        if not isinstance(ductus, dict):
+            ductus = {}
+        realized = set(ductus)
+        used: set[str | None] = set()
+        for stance_name, stance_raw in self._stances().items():
+            motion = stance_raw.get("motion")
+            used.add(motion)
+            if motion not in ductus:
+                self.context.error(
+                    f"stances.{stance_name}.motion",
+                    f"stance {stance_name!r} names motion {motion!r}, which is not in the ductus",
+                )
+        for motion in sorted(realized - used):
+            self.context.error(
+                f"ductus.{motion}",
+                f"motion {motion!r} is realized in the ductus but no stance names it (ductus parity, doc/engine-design.md section 3.1)",
+            )
+
+    def _lint_registry_consistency(self) -> None:
+        rune_name = self.raw.get("rune")
+        stem = Path(self.context.file).stem
+        if rune_name != stem:
+            self.context.error("rune", f"rune {rune_name!r} does not match its file name {stem!r}")
+        info = self.families.get(rune_name)
+        if info is None:
+            self.context.error("rune", f"rune {rune_name!r} is not in the registry's families table")
+            return
+        codepoint = self.raw.get("codepoint")
+        if codepoint is not None and info.get("codepoint") != codepoint:
+            self.context.error(
+                "codepoint",
+                f"codepoint 0x{codepoint:04X} disagrees with the registry's 0x{info.get('codepoint', 0):04X} for {rune_name}",
+            )
+        sequence = self.raw.get("sequence")
+        if sequence is not None and tuple(info.get("sequence") or ()) != tuple(sequence):
+            self.context.error(
+                "sequence", f"sequence {sequence} disagrees with the registry's {info.get('sequence')}"
+            )
+        for position, member in enumerate(sequence or ()):
+            self._check_family(member, f"sequence[{position}]")
+
+    def _check_family(self, name: str, path: str) -> None:
+        if name not in self.families:
+            self.context.error(
+                path, f"unknown family {name!r}; every family reference must resolve against the registry"
+            )
+
+    def _check_class(self, name: str, path: str) -> None:
+        if name not in self.classes and name not in self.group_names:
+            self.context.error(
+                path,
+                f"unknown class {name!r}; not a registry predicate class and not a rune-local group of this rune",
+            )
+
+    def _check_condition_atom(self, condition: dict, condition_path: str) -> None:
+        for family in _as_tuple(condition.get("family")):
+            self._check_family(family, f"{condition_path}.family")
+        for klass in _as_tuple(condition.get("class")):
+            self._check_class(klass, f"{condition_path}.class")
+        if "trait" in condition:
+            self.context.error(
+                f"{condition_path}.trait",
+                "trait qualifiers in conditions are not representable in the frozen model contract (Condition has no trait axis); use a predicate class or a rune-local group",
+            )
+
+    def _check_condition_refs(self, raw: dict, path: str) -> None:
+        for condition_path, condition in _walk_conditions(raw, path):
+            self._check_condition_atom(condition, condition_path)
+
+    def _check_when_refs(self, raw: dict | None, path: str) -> None:
+        if not raw:
+            return
+        for condition_path, condition in _when_conditions(raw, path):
+            self._check_condition_atom(condition, condition_path)
+        feature = raw.get("feature")
+        if feature is not None and feature not in self.features:
+            self.context.error(f"{path}.feature", f"feature {feature!r} is not registered in script.yaml")
+        elif feature in self.cosmetic_features:
+            self.context.error(f"{path}.feature", _cosmetic_steer_message(feature))
+
+    def _lint_stances(self) -> None:
+        for stance_name, stance_raw in (self.raw.get("stances") or {}).items():
+            base = f"stances.{stance_name}"
+            bitmaps = set(stance_raw.get("bitmaps") or {})
+            surface = stance_raw.get("surface") or {}
+            for height, row in (surface.get("entries") or {}).items():
+                row_path = f"{base}.surface.entries.{height}"
+                self._check_condition_refs_list(row.get("from"), f"{row_path}.from")
+                joined = row.get("joined")
+                if joined is not None and joined not in bitmaps:
+                    self.context.error(
+                        f"{row_path}.joined", f"joined binding {joined!r} names no bitmaps: sibling"
+                    )
+            for height, row in (surface.get("exits") or {}).items():
+                row_path = f"{base}.surface.exits.{height}"
+                self._check_condition_refs_list(row.get("toward"), f"{row_path}.toward")
+                unjoined = row.get("unjoined")
+                if unjoined not in (None, "safe") and unjoined not in bitmaps:
+                    self.context.error(
+                        f"{row_path}.unjoined",
+                        f"unjoined binding {unjoined!r} names no bitmaps: sibling",
+                    )
+            entries = self.stance_rows[stance_name]["entry"]
+            exits = self.stance_rows[stance_name]["exit"]
+            pairings = surface.get("pairings") or {}
+            for group_key in ("never", "only"):
+                for index, pair in enumerate(pairings.get(group_key, ()) or ()):
+                    for side, declared in (("entry", entries), ("exit", exits)):
+                        height = pair.get(side)
+                        if height not in (None, "none") and height not in declared:
+                            warnings.warn(
+                                f"{self.context.file}: {base}.surface.pairings.{group_key}[{index}] names {side} {height!r}, which {stance_name!r} never declares; the pairing is vacuous",
+                                SpecWarning,
+                                stacklevel=2,
+                            )
+            for index, cell in enumerate(surface.get("cells", ())):
+                cell_path = f"{base}.surface.cells[{index}]"
+                if cell.get("bitmap") not in bitmaps:
+                    self.context.error(
+                        f"{cell_path}.bitmap",
+                        f"cell binding {cell.get('bitmap')!r} names no bitmaps: sibling",
+                    )
+                for side, declared in (("entry", entries), ("exit", exits)):
+                    state = cell.get(side)
+                    height = state.removesuffix("-unjoined") if isinstance(state, str) else state
+                    if height not in (None, "none") and height not in declared:
+                        self.context.error(
+                            f"{cell_path}.{side}",
+                            f"cell binding references {side} {state!r}, but {stance_name!r} declares no {side} row at {height!r}",
+                        )
+            for index, unlock in enumerate(surface.get("unlocks", ())):
+                unlock_path = f"{base}.surface.unlocks[{index}]"
+                feature = unlock.get("feature")
+                if feature not in self.features:
+                    self.context.error(
+                        f"{unlock_path}.feature", f"feature {feature!r} is not registered in script.yaml"
+                    )
+                elif feature in self.cosmetic_features:
+                    self.context.error(f"{unlock_path}.feature", _cosmetic_steer_message(feature))
+                self._check_when_refs(unlock.get("when"), f"{unlock_path}.when")
+                pairing = unlock.get("pairing")
+                if pairing:
+                    for side, declared in (("entry", entries), ("exit", exits)):
+                        height = pairing.get(side)
+                        if height not in (None, "none") and height not in declared:
+                            self.context.error(
+                                f"{unlock_path}.pairing.{side}",
+                                f"unlock pairing references {side} {height!r}, but {stance_name!r} declares no {side} row there",
+                            )
+
+    def _check_condition_refs_list(self, scope: list | None, path: str) -> None:
+        for index, condition in enumerate(scope or ()):
+            self._check_condition_refs(condition, f"{path}[{index}]")
+
+    def _lint_policy(self) -> None:
+        policy = self.raw.get("policy") or {}
+        stances = set(self.raw.get("stances") or {})
+        for position, stance_name in enumerate(policy.get("order", ())):
+            if stance_name not in stances:
+                self.context.error(f"policy.order[{position}]", f"order names unknown stance {stance_name!r}")
+        for kind in _RECORD_KINDS:
+            for index, record in enumerate(policy.get(kind, ())):
+                record_path = f"policy.{kind}[{index}]"
+                self._lint_record(kind, record, record_path, stances)
+        for index, record in enumerate(policy.get("pad_left", ())):
+            record_path = f"policy.pad_left[{index}]"
+            self._lint_record("pad_left", record, record_path, stances)
+            self._lint_pad_left(record, record_path, stances)
+        for index, record in enumerate(policy.get("resolve", ())):
+            record_path = f"policy.resolve[{index}]"
+            if not (record.get("why") or "").strip():
+                self.context.error(record_path, "a resolve is a judgment call and its why: is mandatory")
+            against = record.get("against")
+            if isinstance(against, dict):
+                self._check_family(against.get("rune", ""), f"{record_path}.against.rune")
+            self._check_when_refs(record.get("when"), f"{record_path}.when")
+        for group_name, group in (policy.get("groups") or {}).items():
+            group_path = f"policy.groups.{group_name}"
+            if group_name in self.classes:
+                self.context.error(group_path, f"group {group_name!r} shadows a registry predicate class")
+            for part in ("union", "minus"):
+                for index, atom in enumerate(group.get(part, ()) or ()):
+                    atom_path = f"{group_path}.{part}[{index}]"
+                    for family in _as_tuple(atom.get("family")):
+                        self._check_family(family, f"{atom_path}.family")
+                    for klass in _as_tuple(atom.get("class")):
+                        if klass not in self.classes:
+                            self.context.error(
+                                f"{atom_path}.class",
+                                f"group atom class {klass!r} is not a registry predicate class",
+                            )
+
+    def _lint_record(self, kind: str, record: dict, record_path: str, stances: set[str]) -> None:
+        when = record.get("when") or {}
+        self._check_when_refs(when, f"{record_path}.when")
+        stance_name = record.get("stance")
+        if stance_name is not None and stance_name not in stances:
+            self.context.error(f"{record_path}.stance", f"record names unknown stance {stance_name!r}")
+        for side in ("entry", "exit"):
+            height = record.get(side)
+            if height is None:
+                continue
+            offering = [name for name, rows in self.stance_rows.items() if height in rows[side]]
+            if stance_name is not None:
+                if stance_name in stances and height not in self.stance_rows[stance_name][side]:
+                    self.context.error(
+                        f"{record_path}.{side}",
+                        f"stance {stance_name!r} declares no {side} row at {height!r} (unlock rows included)",
+                    )
+            elif not offering:
+                self.context.error(f"{record_path}.{side}", f"no stance declares a {side} row at {height!r}")
+            elif len(offering) > 1 and kind in ("extend", "contract"):
+                self.context.error(
+                    f"{record_path}.{side}",
+                    f"{kind} target is ambiguous: stances {sorted(offering)} all offer {side} {height!r}; declare stance: explicitly (refuse-to-guess, doc/engine-design.md section 3.3)",
+                )
+        bind = record.get("bind")
+        if bind is not None:
+            owners = [stance_name] if stance_name else sorted(stances)
+            stance_bitmaps = {
+                name: set(((self.raw.get("stances") or {}).get(name) or {}).get("bitmaps") or {})
+                for name in owners
+            }
+            if not any(bind in named for named in stance_bitmaps.values()):
+                self.context.error(
+                    f"{record_path}.bind", f"bind {bind!r} names no bitmaps: sibling of the targeted stance"
+                )
+
+    def _lint_pad_left(self, record: dict, record_path: str, stances: set[str]) -> None:
+        stance_name = record.get("stance")
+        if stance_name is None and len(stances) > 1:
+            self.context.error(
+                record_path,
+                f"pad_left target is ambiguous: stances {sorted(stances)}; declare stance: explicitly",
+            )
+            return
+        stance_name = stance_name or next(iter(stances), None)
+        if stance_name not in stances:
+            return
+        stance_raw = (self.raw.get("stances") or {})[stance_name]
+        exits = self.stance_rows[stance_name]["exit"]
+        if len(exits) != 1:
+            self.context.error(
+                record_path,
+                f"pad_left binds its padded bitmap on the stance's one exit, but {stance_name!r} has exits {sorted(exits)}",
+            )
+        surface = stance_raw.get("surface") or {}
+        rows = [*(surface.get("entries") or {}).values(), *(surface.get("exits") or {}).values()]
+        keys = sorted({key for row in rows for key in _PAD_LEFT_ROW_KEYS if key in (row or {})})
+        if stance_raw.get("bitmaps"):
+            self.context.error(
+                record_path,
+                f"pad_left pads {stance_name!r}'s one bitmap, so the stance may not declare bitmaps:",
+            )
+        if keys:
+            self.context.error(
+                record_path,
+                f"pad_left re-places {stance_name!r}'s anchors by convention, so its rows may not set {', '.join(keys)}",
+            )
+
+
+def _left_facing_conditions(raw: dict):
+    """Yields (path, condition_dict) for every top-level left-facing condition a rune authors: each policy record's and unlock's `when.left`, and each entry row's `from:` scope entries. The `except:` atoms beneath them are not visited, since the schema gives those no `bitmap` key."""
+    policy = raw.get("policy") or {}
+    for kind in _RECORD_KINDS + ("pad_left", "resolve"):
+        for index, record in enumerate(policy.get(kind, ()) or ()):
+            left = (record.get("when") or {}).get("left") if isinstance(record, dict) else None
+            if isinstance(left, dict):
+                yield f"policy.{kind}[{index}].when.left", left
+    for stance_name, stance_raw in (raw.get("stances") or {}).items():
+        surface = stance_raw.get("surface") or {}
+        for index, unlock in enumerate(surface.get("unlocks", ()) or ()):
+            left = (unlock.get("when") or {}).get("left") if isinstance(unlock, dict) else None
+            if isinstance(left, dict):
+                yield f"stances.{stance_name}.surface.unlocks[{index}].when.left", left
+        for height, row in (surface.get("entries") or {}).items():
+            for index, condition in enumerate(row.get("from", ()) or ()):
+                if isinstance(condition, dict):
+                    yield f"stances.{stance_name}.surface.entries.{height}.from[{index}]", condition
+
+
+def _resolve_left_bitmaps(contexts: list[_FileContext], rune_raws: dict[str, dict]) -> None:
+    """Rewrite the `bitmap:` axis of each left condition to the `stance:` it stands for (design §3.4). The engine remembers a settled left as its rune, stance, and junction, not which of a stance's sibling drawings the cell used. So a drawing is addressable only when it is its stance's only drawing: the name must be a stance of every family the condition names, and that stance must have no `bitmaps:` siblings. The rewrite happens in place on the raw record before `_condition` reads it, so the kernel's spec never has the axis and a rune written with `stance:` hashes the same."""
+    for context in contexts:
+        for path, condition in _left_facing_conditions(context.data):
+            bitmap = condition.get("bitmap")
+            if bitmap is None:
+                continue
+            families = _as_tuple(condition.get("family"))
+            if not families:
+                context.error(
+                    f"{path}.bitmap",
+                    "bitmap: needs family: beside it, naming the runes whose drawing this is",
+                )
+                continue
+            if condition.get("stance") is not None:
+                context.error(
+                    f"{path}.bitmap", "bitmap: and stance: name the same axis; write one or the other"
+                )
+                continue
+            resolved = True
+            for family in families:
+                stances = (rune_raws.get(family) or {}).get("stances") or {}
+                stance_raw = stances.get(bitmap)
+                if family not in rune_raws:
+                    context.error(f"{path}.bitmap", f"bitmap {bitmap!r}: {family} is not a modeled rune")
+                    resolved = False
+                elif stance_raw is None:
+                    context.error(
+                        f"{path}.bitmap",
+                        f"bitmap {bitmap!r} names no stance of {family}: a bitmap is addressed by the stance whose base drawing it is",
+                    )
+                    resolved = False
+                elif stance_raw.get("bitmaps"):
+                    siblings = sorted(stance_raw["bitmaps"])
+                    context.error(
+                        f"{path}.bitmap",
+                        f"bitmap {bitmap!r} is one of several drawings {family}.{bitmap} renders (siblings {siblings}); the settled left carries stance and junction only, so a bitmap condition can name only a stance's sole drawing",
+                    )
+                    resolved = False
+            if not resolved:
+                continue
+            condition["stance"] = condition.pop("bitmap")
+
+
+def _stance_satisfies(expression: dict, rune_raw: dict, stance_raw: dict, is_ligature: bool) -> bool:
+    if "can_enter_at" in expression:
+        entries = ((stance_raw.get("surface") or {}).get("entries")) or {}
+        row = entries.get(expression["can_enter_at"])
+        return row is not None and row.get("selectable", True)
+    if "can_exit_at" in expression:
+        exits = ((stance_raw.get("surface") or {}).get("exits")) or {}
+        return expression["can_exit_at"] in exits
+    if "trait" in expression:
+        return expression["trait"] in (stance_raw.get("traits") or ())
+    if "height_class" in expression:
+        if is_ligature:
+            return False
+        rows = len(stance_raw.get("bitmap") or ())
+        y_offset = stance_raw.get("y_offset", 0)
+        wanted = expression["height_class"]
+        if wanted == "tall":
+            return rows == 9 and y_offset == 0
+        if wanted == "short":
+            return rows == 6 and y_offset == 0
+        return rows == 9 and y_offset == -3
+    if "stroke_at" in expression:
+        surface = stance_raw.get("surface") or {}
+        for side, key in (("entry", "entries"), ("exit", "exits")):
+            wanted = expression["stroke_at"].get(side)
+            if wanted is None:
+                continue
+            if not any(row.get("stroke") == wanted for row in (surface.get(key) or {}).values()):
+                return False
+        return True
+    if "all" in expression:
+        return all(_stance_satisfies(sub, rune_raw, stance_raw, is_ligature) for sub in expression["all"])
+    if "union" in expression:
+        return any(_stance_satisfies(sub, rune_raw, stance_raw, is_ligature) for sub in expression["union"])
+    raise ValueError(f"unsupported predicate-class expression {expression!r}")
+
+
+def _evaluate_predicate_classes(registry_raw: dict, rune_raws: dict[str, dict]) -> dict[str, frozenset[str]]:
+    members: dict[str, frozenset[str]] = {}
+    for class_name, expression in (registry_raw.get("predicate_classes") or {}).items():
+        matched = set()
+        for rune_name, rune_raw in rune_raws.items():
+            is_ligature = "sequence" in rune_raw
+            for stance_raw in (rune_raw.get("stances") or {}).values():
+                if _stance_satisfies(expression, rune_raw, stance_raw, is_ligature):
+                    matched.add(rune_name)
+                    break
+        members[class_name] = frozenset(matched)
+    return members
+
+
+def _check_kern(
+    runes: dict[str, Rune], contexts: dict[str, _FileContext], classes: dict[str, frozenset[str]]
+) -> None:
+    """Check each kern record's references against the built runes (engine/KERN-PLAN.md §2): its `stance` is one of the rune's stances, its `bitmap` is a bound drawing of that stance (of any stance when it names none), a `bitmaps:` sibling or a `padded-left-N` copy a `pad_left` record makes, and its `right:` names only runes that have a rune file, and classes that are predicate classes or the rune's own groups. A `right.stance` must be a stance of at least one follower the record names, and a `right.bitmap` a bound drawing of one of them; an `except:` entry that names no follower of its own is checked against its parent's. Class membership is the loader's own: `classes` and the rune's resolved `policy.groups`."""
+    for name, rune in runes.items():
+        context = contexts[name]
+        for index, record in enumerate(rune.kern.records):
+            path = f"kern[{index}]"
+            if record.stance is not None and record.stance not in rune.stances:
+                context.error(
+                    f"{path}.stance", f"kern record names unknown stance {record.stance!r} of {name}"
+                )
+            if record.bitmap is not None and (record.stance is None or record.stance in rune.stances):
+                owners = [rune.stances[record.stance]] if record.stance else list(rune.stances.values())
+                if not any(record.bitmap in stance.bitmaps for stance in owners):
+                    context.error(
+                        f"{path}.bitmap",
+                        f"bitmap {record.bitmap!r} is not a bound drawing of {name}{'.' + record.stance if record.stance else ''}: name a bitmaps: sibling or a padded-left-N copy a pad_left record makes",
+                    )
+            _check_kern_follower(
+                record.right, f"{path}.right", rune, runes, classes, context, frozenset(runes)
+            )
+
+
+def _check_kern_follower(
+    follower: KernFollower,
+    path: str,
+    rune: Rune,
+    runes: dict[str, Rune],
+    classes: dict[str, frozenset[str]],
+    context: _FileContext,
+    parent: frozenset[str],
+) -> None:
+    followers = parent
+    if follower.family:
+        for family in follower.family:
+            if family not in runes:
+                context.error(
+                    f"{path}.family",
+                    f"kern follower {family!r} has no rune file; a kern record names only loaded runes",
+                )
+        followers = frozenset(follower.family) & frozenset(runes)
+    if follower.klass is not None:
+        members = classes.get(follower.klass)
+        if members is None:
+            members = rune.policy.groups.get(follower.klass)
+        if members is None:
+            context.error(
+                f"{path}.class",
+                f"unknown class {follower.klass!r}; not a registry predicate class and not a rune-local group of this rune",
+            )
+            members = frozenset()
+        followers = (followers if follower.family else frozenset(runes)) & members
+    if follower.stance is not None and not any(follower.stance in runes[name].stances for name in followers):
+        context.error(
+            f"{path}.stance",
+            f"no follower this record names ({', '.join(sorted(followers)) or 'none'}) has a stance {follower.stance!r}",
+        )
+    if follower.bitmap is not None:
+        stances = [
+            stance
+            for name in followers
+            for stance_name, stance in runes[name].stances.items()
+            if follower.stance in (None, stance_name)
+        ]
+        if not any(follower.bitmap in stance.bitmaps for stance in stances):
+            context.error(
+                f"{path}.bitmap",
+                f"bitmap {follower.bitmap!r} is not a bound drawing of any follower this record names ({', '.join(sorted(followers)) or 'none'})",
+            )
+    for index, atom in enumerate(follower.except_):
+        _check_kern_follower(atom, f"{path}.except[{index}]", rune, runes, classes, context, followers)
+
+
+def _ligatures_by_trailing(rune_raws: dict[str, dict]) -> dict[str, tuple[str, ...]]:
+    """Return the modeled ligature runes keyed by trailing component, for left-facing family transparency (`_expand_ligature_lefts`). A registry family with a sequence but no rune file is not included."""
+    by_trailing: dict[str, list[str]] = {}
+    for name in sorted(rune_raws):
+        sequence = rune_raws[name].get("sequence") or ()
+        if sequence:
+            by_trailing.setdefault(sequence[-1], []).append(name)
+    return {family: tuple(names) for family, names in by_trailing.items()}
+
+
+def _expanded_family(family: tuple[str, ...], by_trailing: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    additions = [
+        ligature for name in family for ligature in by_trailing.get(name, ()) if ligature not in family
+    ]
+    if not additions:
+        return family
+    return family + tuple(dict.fromkeys(additions))
+
+
+def _expanded_left_condition(cond: Condition, by_trailing: dict[str, tuple[str, ...]]) -> Condition:
+    family = _expanded_family(cond.family, by_trailing)
+    if family is cond.family:
+        return cond
+    return replace(cond, family=family)
+
+
+def _expanded_when(when: When | None, by_trailing: dict[str, tuple[str, ...]]) -> When | None:
+    if when is None or when.left is None:
+        return when
+    left = _expanded_left_condition(when.left, by_trailing)
+    if left is when.left:
+        return when
+    return replace(when, left=left)
+
+
+def _expanded_surface(surface: Surface, by_trailing: dict[str, tuple[str, ...]]) -> Surface:
+    entries = {
+        height: (
+            replace(row, scope=tuple(_expanded_left_condition(cond, by_trailing) for cond in row.scope))
+            if row.scope
+            else row
+        )
+        for height, row in surface.entries.items()
+    }
+    unlocks = tuple(
+        replace(unlock, when=_expanded_when(unlock.when, by_trailing)) for unlock in surface.unlocks
+    )
+    return replace(surface, entries=entries, unlocks=unlocks)
+
+
+def _expanded_records(
+    records: tuple[PolicyRecord, ...], by_trailing: dict[str, tuple[str, ...]]
+) -> tuple[PolicyRecord, ...]:
+    return tuple(replace(record, when=_expanded_when(record.when, by_trailing)) for record in records)
+
+
+def _expand_ligature_lefts(
+    runes: dict[str, Rune], by_trailing: dict[str, tuple[str, ...]]
+) -> dict[str, Rune]:
+    """Apply left-facing family transparency: a family named in an entry `from:` scope or a `when.left` also matches every modeled ligature rune whose sequence ends in that family. A new ligature therefore gets its trailing component's treatment from every follower without an edit to each follower's rune. `_resolve_groups` applies the same expansion to the family atoms of rune-local group unions, where the raw atoms are still available so `minus` stays literal. This is the rebuild's equivalent of the old font's `expand_selectors_for_ligatures` and follows the same rules. The expansion only adds: `except:` entries and group `minus` atoms stay literal, so excluding a ligature means naming it. Right-facing lists (`toward:` scopes, `when.right` chains) are not expanded; lead-side semantics is an open design question. Naming a ligature explicitly in a list is still legal and harmless. Specificity stays consistent because the expansion runs before any records are compared."""
+    if not by_trailing:
+        return runes
+    expanded: dict[str, Rune] = {}
+    for name, rune in runes.items():
+        stances = {
+            stance_name: replace(stance, surface=_expanded_surface(stance.surface, by_trailing))
+            for stance_name, stance in rune.stances.items()
+        }
+        policy = replace(
+            rune.policy,
+            refuse=_expanded_records(rune.policy.refuse, by_trailing),
+            prefer=_expanded_records(rune.policy.prefer, by_trailing),
+            extend=_expanded_records(rune.policy.extend, by_trailing),
+            contract=_expanded_records(rune.policy.contract, by_trailing),
+            resolve=_expanded_records(rune.policy.resolve, by_trailing),
+        )
+        expanded[name] = replace(rune, stances=stances, policy=policy)
+    return expanded
+
+
+def outgoing_policy_record(record: PolicyRecord, source: Stance, target_stance: str) -> PolicyRecord | None:
+    """Return a trailing component's exit-side policy record projected onto a ligature stance, or None when it does not apply. It applies when it is an extend or contract naming one of the source's exits, a prefer whose `cell` (and `over`, if present) name only the exit side, or a refuse naming one of the source's exits or neither side. A refusal naming neither side vetoes the only junction an entryless ligature has. Records that name an entry or another stance, or read the left neighbor, word position, or self entry, stay with the component. The caller handles bitmap bindings, which need an explicit exception and a ligature-local replacement."""
+    if record.stance not in (None, source.name) or record.entry is not None:
+        return None
+    when = record.when
+    if when.left is not None or when.word is not None or when.self_entry is not None:
+        return None
+    heights = set(source.surface.exits) | {
+        unlock.exit for unlock in source.surface.unlocks if unlock.exit is not None
+    }
+    if record.kind == "prefer":
+        if not record.cell or set(record.cell) != {"exit"}:
+            return None
+        if record.over is not None and set(record.over) != {"exit"}:
+            return None
+        if any(
+            pattern["exit"] not in heights | {"none"} for pattern in (record.cell, record.over) if pattern
+        ):
+            return None
+    elif record.kind == "refuse":
+        if record.exit is not None and record.exit not in heights:
+            return None
+    elif record.kind not in ("extend", "contract") or record.exit not in heights:
+        return None
+    return replace(record, stance=target_stance)
+
+
+def _inherit_ligature_outgoing(runes: dict[str, Rune], contexts: dict[str, _FileContext]) -> dict[str, Rune]:
+    """Give each ligature stance the outgoing stroke it preserves from its trailing component (the stance's `outgoing:` declaration): the exit scopes, the exit-only unlocks with no left, word-position, or self-entry condition, and the applicable policy records (`outgoing_policy_record`). It also records the trailing stance each such ligature stance takes its kern records from (`KernBlock.inherits`); `engine/pipeline/kern.py` decides which of them apply, and a stance that opts out with `outgoing: {exception: …}` takes none. This runs before left-family transparency. The ligature keeps its own drawings. A missing exit row, a `toward:` override without an exception, an exception that matches nothing, and an inherited policy that binds a component bitmap are errors. These checks do not depend on the formation guard's probe of the unformed components."""
+    resolved: dict[str, Rune] = {}
+    visiting: set[str] = set()
+
+    def inherit(name: str) -> Rune:
+        if name in resolved:
+            return resolved[name]
+        rune = runes[name]
+        context = contexts[name]
+        if name in visiting:
+            context.error("sequence", "cyclic outgoing inheritance")
+            return rune
+        visiting.add(name)
+        stances = dict(rune.stances)
+        kern_sources: dict[str, str] = {}
+        records = {kind: list(getattr(rune.policy, kind)) for kind in _RECORD_KINDS}
+        groups = dict(rune.policy.groups)
+        source_rune = inherit(rune.sequence[-1]) if rune.sequence and rune.sequence[-1] in runes else None
+        for stance_name, stance in rune.stances.items():
+            raw = context.data["stances"][stance_name]
+            declaration = raw.get("outgoing", {})
+            path = f"stances.{stance_name}.outgoing"
+            if not rune.sequence:
+                if "outgoing" in raw:
+                    context.error(path, "outgoing is only valid on a ligature stance")
+                continue
+            if "exception" in declaration:
+                if not declaration["exception"].strip():
+                    context.error(path, "an outgoing exception needs a reason")
+                continue
+            if source_rune is None:
+                context.error(
+                    path,
+                    "the trailing component must be migrated or the stance must declare an outgoing exception",
+                )
+                continue
+            source_name = declaration.get("stance")
+            if source_name is None:
+                if len(source_rune.stances) == 1:
+                    source_name = next(iter(source_rune.stances))
+                else:
+                    context.error(
+                        path,
+                        "the trailing component has multiple stances; declare outgoing.stance explicitly",
+                    )
+                    continue
+            source = source_rune.stances.get(source_name)
+            if source is None:
+                context.error(path, f"unknown trailing stance {source_name!r} on {source_rune.name}")
+                continue
+            kern_sources[stance_name] = source_name
+            exceptions = declaration.get("exceptions", {})
+            used: set[str] = set()
+
+            def excepted(key: str) -> bool:
+                if key not in exceptions:
+                    return False
+                used.add(key)
+                if not exceptions[key].strip():
+                    context.error(f"{path}.exceptions", f"{key} needs an exception reason")
+                return True
+
+            def condition(cond: Condition) -> Condition:
+                renamed = []
+                for group in cond.klass:
+                    if group in source_rune.policy.groups:
+                        key = f"{source_rune.name}.{group}"
+                        groups[key] = source_rune.policy.groups[group]
+                        renamed.append(key)
+                    else:
+                        renamed.append(group)
+                return replace(
+                    cond,
+                    klass=tuple(renamed),
+                    except_=tuple(condition(item) for item in cond.except_),
+                    then=condition(cond.then) if cond.then else None,
+                )
+
+            def when(value: When) -> When:
+                return replace(value, right=condition(value.right) if value.right else None)
+
+            exits = dict(stance.surface.exits)
+            raw_exits = (raw.get("surface") or {}).get("exits") or {}
+            for height, row in source.surface.exits.items():
+                key = f"surface.exits.{height}"
+                if excepted(key):
+                    continue
+                local = exits.get(height)
+                if local is None:
+                    context.error(
+                        path,
+                        f"preserved outgoing join loses {key}; declare ligature-local geometry or an explicit exception",
+                    )
+                    continue
+                scope = tuple(condition(item) for item in row.scope)
+                if "toward" in raw_exits.get(height, {}) and local.scope != row.scope:
+                    context.error(
+                        path, f"{key}.toward overrides the trailing component; declare an explicit exception"
+                    )
+                exits[height] = replace(local, scope=scope)
+            unlocks = list(stance.surface.unlocks)
+            for index, unlock in enumerate(source.surface.unlocks):
+                if unlock.exit is None or unlock.entry is not None or unlock.pairing is not None:
+                    continue
+                if unlock.when and (
+                    unlock.when.left is not None
+                    or unlock.when.self_entry is not None
+                    or unlock.when.word is not None
+                ):
+                    continue
+                key = f"surface.unlocks[{index}]"
+                if not excepted(key):
+                    unlocks.append(replace(unlock, when=when(unlock.when) if unlock.when else None))
+            for kind in _RECORD_KINDS:
+                for index, record in enumerate(getattr(source_rune.policy, kind)):
+                    projected = outgoing_policy_record(record, source, stance_name)
+                    if projected is None:
+                        continue
+                    key = f"policy.{kind}[{index}]"
+                    if excepted(key):
+                        if projected.bind is not None and key not in declaration.get("replacements", {}):
+                            context.error(
+                                f"{path}.replacements",
+                                f"{key} binds a component bitmap; its exception needs a replacements entry naming the ligature-local policy",
+                            )
+                        continue
+                    if projected.bind is not None:
+                        context.error(
+                            path,
+                            f"{key} binds a component bitmap; declare an exception and a ligature-local policy",
+                        )
+                        continue
+                    records[kind].append(replace(projected, when=when(projected.when)))
+            for key in exceptions.keys() - used:
+                context.error(
+                    f"{path}.exceptions",
+                    f"{key!r} does not name an applicable inherited exit, unlock, or policy",
+                )
+            for key, replacement in declaration.get("replacements", {}).items():
+                match = re.fullmatch(r"policy\.(refuse|prefer|extend|contract)\[(\d+)\]", replacement)
+                if key not in used or not key.startswith("policy.") or match is None:
+                    context.error(
+                        f"{path}.replacements",
+                        f"{key!r} must name an excepted source policy and point to a local policy record",
+                    )
+                    continue
+                kind, index_text = match.groups()
+                local_records = getattr(rune.policy, kind)
+                index = int(index_text)
+                if (
+                    not key.startswith(f"policy.{kind}[")
+                    or index >= len(local_records)
+                    or local_records[index].stance not in (None, stance_name)
+                ):
+                    context.error(
+                        f"{path}.replacements",
+                        f"{replacement!r} must name a local record of the same kind applicable to {stance_name}",
+                    )
+            stances[stance_name] = replace(
+                stance, surface=replace(stance.surface, exits=exits, unlocks=tuple(unlocks))
+            )
+        visiting.remove(name)
+        resolved[name] = replace(
+            rune,
+            stances=stances,
+            policy=replace(
+                rune.policy, groups=groups, **{kind: tuple(items) for kind, items in records.items()}
+            ),
+            kern=replace(rune.kern, inherits=kern_sources),
+        )
+        return resolved[name]
+
+    for name in runes:
+        inherit(name)
+    return {name: resolved[name] for name in runes}
+
+
+def _resolve_groups(
+    context: _FileContext,
+    policy_raw: dict,
+    classes: dict[str, frozenset[str]],
+    by_trailing: dict[str, tuple[str, ...]],
+) -> dict[str, frozenset[str]]:
+    resolved: dict[str, frozenset[str]] = {}
+    for group_name, group in (policy_raw.get("groups") or {}).items():
+        members: set[str] = set()
+        for atom in group.get("union", ()) or ():
+            if atom.get("trait") or atom.get("stance"):
+                warnings.warn(
+                    f"{context.file}: policy.groups.{group_name} carries a trait/stance qualifier; the frozen model resolves groups at family grain, so the qualifier is widened away",
+                    SpecWarning,
+                    stacklevel=2,
+                )
+            members.update(_expanded_family(_as_tuple(atom.get("family")), by_trailing))
+            for klass in _as_tuple(atom.get("class")):
+                members.update(classes.get(klass, frozenset()))
+        for atom in group.get("minus", ()) or ():
+            removed = set(_as_tuple(atom.get("family")))
+            for klass in _as_tuple(atom.get("class")):
+                removed.update(classes.get(klass, frozenset()))
+            if not (atom.get("trait") or atom.get("stance")):
+                members -= removed
+            else:
+                warnings.warn(
+                    f"{context.file}: policy.groups.{group_name} subtracts a qualified atom; family-grain resolution keeps the families (the qualifier cannot be honored)",
+                    SpecWarning,
+                    stacklevel=2,
+                )
+        resolved[group_name] = frozenset(members)
+    return resolved
+
+
+def _pad_left_targets(raw: dict) -> list[tuple[str, str, str, Bitmap]]:
+    """Return each `policy.pad_left` record's stance, that stance's one exit height, and the name and rows of its padded bitmap: the stance's own rows with `by` blank columns in front, which the record binds on that exit (doc/engine-design.md section 3.3)."""
+    stances = raw.get("stances") or {}
+    rows = _stance_rows(raw)
+    targets = []
+    for record in (raw.get("policy") or {}).get("pad_left", ()):
+        stance_name = record.get("stance") or next(iter(stances))
+        stance_raw = stances[stance_name]
+        (exit_height,) = rows[stance_name]["exit"]
+        padded = Bitmap(
+            rows=tuple(" " * record["by"] + row for row in stance_raw["bitmap"]),
+            y_offset=stance_raw.get("y_offset", 0),
+        )
+        targets.append((stance_name, exit_height, f"padded-left-{record['by']}", padded))
+    return targets
+
+
+def _build_rune(
+    context: _FileContext,
+    classes: dict[str, frozenset[str]],
+    by_trailing: dict[str, tuple[str, ...]],
+) -> Rune:
+    raw = context.data
+    ductus = dict(raw.get("ductus") or {})
+    pads = _pad_left_targets(raw)
+    stances = {}
+    for stance_name, stance_raw in (raw.get("stances") or {}).items():
+        base_path = f"stances.{stance_name}"
+        stances[stance_name] = Stance(
+            name=stance_name,
+            motion=stance_raw["motion"],
+            traits=tuple(stance_raw.get("traits") or ()),
+            bitmap=Bitmap(rows=tuple(stance_raw["bitmap"]), y_offset=stance_raw.get("y_offset", 0)),
+            bitmaps={
+                **{name: _bitmap(drawing) for name, drawing in (stance_raw.get("bitmaps") or {}).items()},
+                **{name: padded for target, _height, name, padded in pads if target == stance_name},
+            },
+            surface=_surface(stance_raw.get("surface"), context, f"{base_path}.surface"),
+        )
+    policy_raw = raw.get("policy") or {}
+    policy = Policy(
+        order=tuple(policy_raw.get("order") or ()),
+        refuse=tuple(
+            _policy_record("refuse", record, context.provenance(f"policy.refuse[{index}]"))
+            for index, record in enumerate(policy_raw.get("refuse", ()))
+        ),
+        prefer=tuple(
+            _policy_record("prefer", record, context.provenance(f"policy.prefer[{index}]"))
+            for index, record in enumerate(policy_raw.get("prefer", ()))
+        ),
+        extend=tuple(
+            _policy_record("extend", record, context.provenance(f"policy.extend[{index}]"))
+            for index, record in enumerate(policy_raw.get("extend", ()))
+        ),
+        contract=(
+            *(
+                _policy_record("contract", record, context.provenance(f"policy.contract[{index}]"))
+                for index, record in enumerate(policy_raw.get("contract", ()))
+            ),
+            *(
+                _policy_record(
+                    "contract",
+                    {**record, "by": None, "stance": stance_name, "exit": height, "bind": name},
+                    context.provenance(f"policy.pad_left[{index}]"),
+                )
+                for index, (record, (stance_name, height, name, _padded)) in enumerate(
+                    zip(policy_raw.get("pad_left", ()), pads)
+                )
+            ),
+        ),
+        resolve=tuple(
+            _resolve_record(
+                context, record, f"policy.resolve[{index}]", context.provenance(f"policy.resolve[{index}]")
+            )
+            for index, record in enumerate(policy_raw.get("resolve", ()))
+        ),
+        groups=_resolve_groups(context, policy_raw, classes, by_trailing),
+    )
+    seen_ids: dict[str, str] = {}
+    for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+        for record in getattr(policy, kind):
+            if record.id is None:
+                continue
+            if record.id in seen_ids:
+                context.error(
+                    str(record.provenance.path) if record.provenance else f"policy.{kind}",
+                    f"record id {record.id!r} is already used by {seen_ids[record.id]} — ids are unique within a rune",
+                )
+            elif record.provenance is not None:
+                seen_ids[record.id] = record.provenance.path
+    return Rune(
+        name=raw["rune"],
+        codepoint=raw.get("codepoint"),
+        sequence=tuple(raw["sequence"]) if raw.get("sequence") else None,
+        ductus=ductus,
+        notes=raw.get("notes"),
+        mono=_bitmap(raw["mono"]) if raw.get("mono") else None,
+        stances=stances,
+        policy=policy,
+        cosmetic=_cosmetic_block(raw["rune"], raw, context),
+        kern=_kern_block(raw["rune"], raw, context),
+    )
+
+
+def _check_variation_sequences(
+    registry_context: _FileContext, raw: dict, contexts: list[_FileContext]
+) -> None:
+    """Report a selector outside the two variation-selector blocks (U+FE00–U+FE0F and U+E0100–U+E01EF) or given two records, a font named twice, and a variation sequence whose rune is not a registered letter with a code point, since a sequence starts from a code point, or whose stance the rune's file does not declare. A rune whose file this store does not hold is checked against the registry alone, as a fixture store holds only some runes."""
+    families = raw.get("families") or {}
+    stances_by_rune = {
+        context.data["rune"]: set((context.data.get("stances") or {}))
+        for context in contexts
+        if isinstance(context.data, dict) and isinstance(context.data.get("rune"), str)
+    }
+    seen: set[int] = set()
+    entries: list[dict] = raw.get("variation_sequences") or []
+    for index, entry in enumerate(entries):
+        selector = entry["selector"]
+        if not (0xFE00 <= selector <= 0xFE0F or 0xE0100 <= selector <= 0xE01EF):
+            registry_context.error(
+                f"variation_sequences[{index}].selector", f"U+{selector:04X} is not a variation selector"
+            )
+        if selector in seen:
+            registry_context.error(
+                f"variation_sequences[{index}].selector", f"U+{selector:04X} has another record"
+            )
+        seen.add(selector)
+        fonts = list(entry["fonts"])
+        if len(set(fonts)) != len(fonts):
+            registry_context.error(f"variation_sequences[{index}].fonts", f"names a font twice: {fonts}")
+        for rune_name, stance in entry["runes"].items():
+            path = f"variation_sequences[{index}].runes.{rune_name}"
+            info = families.get(rune_name)
+            if not isinstance(info, dict) or info.get("codepoint") is None:
+                registry_context.error(
+                    path, f"{rune_name!r} is not a registered letter with a code point to start a sequence"
+                )
+                continue
+            stances = stances_by_rune.get(rune_name)
+            if stances is not None and stance not in stances:
+                registry_context.error(path, f"{rune_name} declares no stance {stance!r}")
+
+
+def _build_registry(raw: dict, classes: dict[str, frozenset[str]]) -> ScriptRegistry:
+    features_raw = dict(raw.get("features") or {})
+    interactions = tuple(tuple(group) for group in features_raw.pop("interactions", ()))
+    return ScriptRegistry(
+        heights=dict(raw["heights"]),
+        boundary_tokens={
+            name: BoundaryToken(codepoint=token["codepoint"], splits_runs=token["splits_runs"])
+            for name, token in (raw.get("boundary_tokens") or {}).items()
+        },
+        features={
+            tag: FeatureInfo(
+                kind=info["kind"], description=info.get("description", ""), overlay=info.get("overlay")
+            )
+            for tag, info in features_raw.items()
+        },
+        interactions=interactions,
+        predicate_classes=classes,
+        families={
+            name: FamilyInfo(
+                codepoint=info.get("codepoint"),
+                sequence=tuple(info["sequence"]) if info.get("sequence") else None,
+            )
+            for name, info in (raw.get("families") or {}).items()
+        },
+        variation_sequences={
+            entry["selector"]: VariationSelector(fonts=tuple(entry["fonts"]), runes=dict(entry["runes"]))
+            for entry in raw.get("variation_sequences") or ()
+        },
+    )
+
+
+def _flag_duplicate_groups(contexts: list[_FileContext], runes: dict[str, Rune]) -> None:
+    seen: dict[frozenset[str], list[tuple[str, str]]] = {}
+    for rune in runes.values():
+        for group_name, members in rune.policy.groups.items():
+            seen.setdefault(members, []).append((rune.name, group_name))
+    for members, owners in seen.items():
+        if len(owners) > 1:
+            described = ", ".join(f"{rune}.{group}" for rune, group in owners)
+            warnings.warn(
+                f"rune-local groups with identical membership across files: {described}; candidates for a predicate class (doc/engine-design.md section 2)",
+                SpecWarning,
+                stacklevel=2,
+            )
+
+
+def load_spec(runes_dir: Path, registry_path: Path, schema_dir: Path) -> ResolvedSpec:
+    issues: list[SpecIssue] = []
+    rune_checker = _load_schema(schema_dir, "rune.schema.json")
+    script_checker = _load_schema(schema_dir, "script.schema.json")
+
+    registry_context = _FileContext(registry_path, issues)
+    if not isinstance(registry_context.data, dict):
+        registry_context.error("", "the registry must be a YAML mapping")
+        raise SpecError.from_issues(issues)
+    for path, message in script_checker.check(registry_context.data):
+        registry_context.error(path, message)
+    registry_clean = not issues
+
+    rune_paths = sorted(runes_dir.glob("*.yaml"))
+    if not rune_paths:
+        raise SpecError(str(runes_dir), "", f"no rune files found under {runes_dir}")
+    contexts: list[_FileContext] = []
+    schema_clean: dict[int, bool] = {}
+    shallow_safe: set[int] = set()
+    for path in rune_paths:
+        context = _FileContext(path, issues)
+        if not isinstance(context.data, dict):
+            context.error("", "a rune file must be a YAML mapping")
+            continue
+        schema_errors = rune_checker.check(context.data)
+        for error_path, message in schema_errors:
+            context.error(error_path, message)
+        schema_clean[id(context)] = not schema_errors
+        if not any(message.startswith(_KEY_TYPE_ERROR) for _, message in schema_errors):
+            shallow_safe.add(id(context))
+        contexts.append(context)
+    if not registry_clean:
+        raise SpecError.from_issues(issues)
+
+    registry_raw = registry_context.data
+    registry_families = registry_raw.get("families") or {}
+    registry_classes = registry_raw.get("predicate_classes") or {}
+    registry_features = {tag for tag in (registry_raw.get("features") or {}) if tag != "interactions"}
+    cosmetic_features = frozenset(
+        tag
+        for tag, info in (registry_raw.get("features") or {}).items()
+        if tag != "interactions" and isinstance(info, dict) and info.get("overlay") == COSMETIC_OVERLAY
+    )
+    for group in (registry_raw.get("features") or {}).get("interactions", ()):
+        for tag in group:
+            if tag not in registry_features:
+                registry_context.error(
+                    "features.interactions", f"interaction names unregistered feature {tag!r}"
+                )
+    for family_name, info in registry_families.items():
+        for position, member in enumerate(info.get("sequence") or ()):
+            if member not in registry_families:
+                registry_context.error(
+                    f"families.{family_name}.sequence[{position}]",
+                    f"unknown family {member!r} in ligature sequence",
+                )
+    _check_variation_sequences(registry_context, registry_raw, contexts)
+
+    for context in contexts:
+        linter = _Linter(context, registry_families, registry_classes, registry_features, cosmetic_features)
+        if id(context) in shallow_safe:
+            linter.run_shallow()
+        if schema_clean[id(context)]:
+            linter.run_deep()
+    if issues:
+        raise SpecError.from_issues(issues)
+
+    rune_raws = {context.data["rune"]: context.data for context in contexts}
+    if len(rune_raws) != len(contexts):
+        names = [context.data["rune"] for context in contexts]
+        duplicates = sorted({name for name in names if names.count(name) > 1})
+        raise SpecError(str(runes_dir), "", f"duplicate rune files for {duplicates}")
+
+    _resolve_left_bitmaps(contexts, rune_raws)
+    if issues:
+        raise SpecError.from_issues(issues)
+    classes = _evaluate_predicate_classes(registry_raw, rune_raws)
+    by_trailing = _ligatures_by_trailing(rune_raws)
+    runes = {context.data["rune"]: _build_rune(context, classes, by_trailing) for context in contexts}
+    if issues:
+        raise SpecError.from_issues(issues)
+    context_by_rune = {context.data["rune"]: context for context in contexts}
+    _check_kern(runes, context_by_rune, classes)
+    if issues:
+        raise SpecError.from_issues(issues)
+    runes = _inherit_ligature_outgoing(runes, context_by_rune)
+    if issues:
+        raise SpecError.from_issues(issues)
+    runes = _expand_ligature_lefts(runes, by_trailing)
+    for rune in runes.values():
+        for record in rune.policy.resolve:
+            if record.against is None:
+                continue
+            target_name, target_id = record.against
+            path = record.provenance.path if record.provenance else "policy.resolve"
+            target = runes.get(target_name)
+            if target is None:
+                context_by_rune[rune.name].error(
+                    path, f"resolve names unknown rune {target_name!r} in against:"
+                )
+                continue
+            if target_id is not None:
+                target_ids = {
+                    r.id
+                    for kind in ("refuse", "prefer", "extend", "contract", "resolve")
+                    for r in getattr(target.policy, kind)
+                    if r.id is not None
+                }
+                if target_id not in target_ids:
+                    context_by_rune[rune.name].error(
+                        path,
+                        f"resolve's against: names no record — {target_name} has no record with id {target_id!r}",
+                    )
+    if issues:
+        raise SpecError.from_issues(issues)
+    _flag_duplicate_groups(contexts, runes)
+    registry = _build_registry(registry_raw, classes)
+    return ResolvedSpec(runes=runes, registry=registry)
+
+
+def switch_runes() -> tuple[str, ...] | None:
+    """Return the rune names the alphabet switch (`RUNES_ENV`) lists, sorted and without repeats, or None when it is unset. The value is a comma-separated list of rune names, and blanks around a name are dropped. A set value that names nothing gives an empty tuple, which `narrowed` refuses."""
+    value = os.environ.get(RUNES_ENV)
+    if value is None:
+        return None
+    return tuple(sorted({name.strip() for name in value.split(",") if name.strip()}))
+
+
+def alphabet_token() -> str | None:
+    """Return the alphabet token, the switch's rune names (`switch_runes`) joined by commas, or None when the switch is unset. While the switch is set, the token joins every stamp over a build's enumeration or the artifacts beside it: the tables' stamp (`run_build.tables_inputs`), the run_build skip key (`artifact_cycle.run_build_skip_lines`), the Stage A record (`fingerprint.stage_a`) and the settle memo's stamp (`settle_memo_keys.settle_memo_stamp`), so an enumeration or record made over the whole alphabet never reads current to a process on a small one, nor the reverse. While it is unset, no stamp carries anything for it."""
+    runes = switch_runes()
+    return None if runes is None else ",".join(runes)
+
+
+def alphabet_lines() -> list[str]:
+    """Return the `label\\tvalue` line a stamp built from such lines appends while the switch is set, `ALPHABET_LABEL` and `alphabet_token`, or no line while it is unset."""
+    token = alphabet_token()
+    return [] if token is None else [f"{ALPHABET_LABEL}\t{token}"]
+
+
+def narrowed(spec: ResolvedSpec, names: Iterable[str]) -> ResolvedSpec:
+    """Return `spec` holding only the runes `names` lists, in its own rune order, with its registry, predicate classes and every rune's resolved records as the whole store left them, which is `scaling_series.sub_spec`'s rule. A ligature is kept only when it is named, and naming one is refused unless every component it names is named too, as is naming no rune or a rune the store does not hold, so the alphabet a build runs on is exactly the one named. The result carries `narrowed` (`model.ResolvedSpec.narrowed`) when it holds fewer runes than `spec`, or `spec` is already narrowed, so naming every rune of the store gives a spec the kern stage treats as the whole alphabet."""
+    wanted = frozenset(names)
+    if not wanted:
+        raise SpecError(RUNES_ENV, "", "names no runes")
+    unknown = sorted(wanted - spec.runes.keys())
+    if unknown:
+        raise SpecError(RUNES_ENV, "", f"names runes the store does not hold: {', '.join(unknown)}")
+    stranded = sorted(
+        name for name in wanted if (sequence := spec.runes[name].sequence) and not set(sequence) <= wanted
+    )
+    if stranded:
+        raise SpecError(
+            RUNES_ENV, "", f"names ligatures without every component they name: {', '.join(stranded)}"
+        )
+    runes = {name: rune for name, rune in spec.runes.items() if name in wanted}
+    return replace(spec, runes=runes, narrowed=spec.narrowed or len(runes) < len(spec.runes))
+
+
+def small_alphabet_refusal(what: str) -> str | None:
+    """Return why `what`, an entry point that writes the live tree's builds, corpus or verdict store, refuses to run, or None when it may. It refuses while the alphabet switch (`RUNES_ENV`) is set, unless `CYCLE_RUN_ENV` says the fault kit started it (`FAULT_KIT_RUN`), so a shell that leaks the switch cannot build a small alphabet into the live tree. The artifact cycle, run_build's command line, the review build and the land each call it first. `CYCLE_RUN_ENV` restates `cycle_timings.CYCLE_RUN_ENV` and `FAULT_KIT_RUN` `fault_kit.CYCLE_RUN_VALUE`, because this module is in the settle memo's code closure (`settle_memo_keys.SETTLE_MEMO_CODE_PATHS`), whose walk stops only at modules that import nothing outside its stop-set, and cycle_timings does."""
+    if RUNES_ENV not in os.environ or os.environ.get(CYCLE_RUN_ENV) == FAULT_KIT_RUN:
+        return None
+    return (
+        f"{what} refuses: {RUNES_ENV} is set ({os.environ[RUNES_ENV]!r}), which narrows the alphabet, "
+        f"and only the fault kit ({CYCLE_RUN_ENV}={FAULT_KIT_RUN}) builds a small alphabet, in a tree of its own; "
+        f"unset {RUNES_ENV} to run {what} on the whole alphabet"
+    )
+
+
+def load_default_spec() -> ResolvedSpec:
+    """Load the rune files, the registry and the schemas this checkout holds. When the alphabet switch (`RUNES_ENV`) is set, the whole store loads and resolves first, so `against:` targets and the predicate classes resolve against every rune, and the result is `narrowed` to the runes the switch names (`switch_runes`)."""
+    spec = load_spec(DEFAULT_RUNES_DIR, DEFAULT_REGISTRY_PATH, DEFAULT_SCHEMA_DIR)
+    runes = switch_runes()
+    return spec if runes is None else narrowed(spec, runes)
+
+
+def spec_structure_digest(spec: ResolvedSpec) -> str:
+    """Return a hash of the resolved-spec facts that cross rune boundaries, which can change a result even when none of the rune files it names changed: the alphabet and its ligature sequences (which determine formation pairs, the enumeration set, and `_expand_ligature_lefts`' rewrite of other runes' left conditions), the registry predicate classes (whose membership depends on every rune's surface), and the resolved rune-local groups (whose membership can change through class atoms and ligature expansion). A change to any of these invalidates everything stamped with it: the settle memo's stamp, `run_build.locality_lines`, and the deep replay's structure stamp (`artifact_cycle.deep_replay_structure_stamp`)."""
+    payload = {
+        "runes": {name: list(rune.sequence) if rune.sequence else None for name, rune in spec.runes.items()},
+        "classes": {name: sorted(members) for name, members in spec.registry.predicate_classes.items()},
+        "groups": {
+            name: {group: sorted(members) for group, members in rune.policy.groups.items()}
+            for name, rune in spec.runes.items()
+            if rune.policy.groups
+        },
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def capability_features(spec: ResolvedSpec) -> list[str]:
+    """Return every feature tag any stance unlocks, sorted: all the capability routes a settlement can take. No single rune's digest covers this set, so the stamps that depend on it hash it whole."""
+    return sorted(
+        {
+            unlock.feature
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        }
+    )
+
+
+def rune_closure(spec: ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Return, for each rune, itself plus its trailing component and `resolve.against` targets, followed transitively. Ligature outgoing inheritance reads the trailing component's policy and permissions even in windows that contain only the formed glyph, and a stance that opts out with an exception keeps the dependency too, which can only cause extra invalidation. Other cross-rune dependencies go through the resolved spec structure, which is stamped whole-store (`spec_structure_digest`)."""
+    edges: dict[str, set[str]] = {}
+    for name, rune in spec.runes.items():
+        targets = set()
+        if rune.sequence and rune.sequence[-1] in spec.runes:
+            targets.add(rune.sequence[-1])
+        for records in (
+            rune.policy.refuse,
+            rune.policy.prefer,
+            rune.policy.extend,
+            rune.policy.contract,
+            rune.policy.resolve,
+        ):
+            for record in records:
+                if record.against is not None and record.against[0] in spec.runes:
+                    targets.add(record.against[0])
+        edges[name] = targets
+    closure: dict[str, frozenset[str]] = {}
+    for name in spec.runes:
+        seen = {name}
+        frontier = [name]
+        while frontier:
+            for target in edges.get(frontier.pop(), ()):
+                if target not in seen:
+                    seen.add(target)
+                    frontier.append(target)
+        closure[name] = frozenset(seen)
+    return closure

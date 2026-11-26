@@ -1,0 +1,238 @@
+"""The explain CLI from design section 6.3, item (a): settle a rune sequence under a stylistic-set configuration and print, per position, the candidate table, every elimination with the file and record that caused it, and the ranking stage that chose the winner.
+
+Usage: uv run python -m engine.pipeline.explain E665:E670:E665 --features ss03
+
+Sequence positions are separated by colons. Each is a hex codepoint (E665, 0xE665, U+E665), a qs-name (qsMay), or a boundary token name (`space`, `zwnj`, `namer-dot`), in any mix. The CLI loads the rune files through spec_load, and if loading raises it prints a notice and uses the hand-built fixtures spec.
+
+`kernel_exec.settle_sequences` does the settling. This module tokenizes, forms the ligatures against the crate's formation guard, and renders the returned traces. `explain_many` takes a batch because the review corpus explains thousands of units, and `settle_sequences` batches them into few kernel processes.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+from engine.pipeline import kernel_exec
+from engine.pipeline.model import ResolvedSpec, Settled, feature_config_token, isolated_overlay_active
+from engine.pipeline.settle import (
+    ISOLATED_OVERLAY_STAGE,
+    FormationGuard,
+    TransitionTrace,
+    cell_label,
+    form_ligatures,
+    is_boundary_settled,
+    isolated_overlay_traces,
+    tokens_from_codepoints,
+)
+
+
+@dataclass(frozen=True)
+class PositionReport:
+    index: int
+    token: str
+    trace: TransitionTrace
+
+
+@dataclass(frozen=True)
+class ExplainReport:
+    spec: ResolvedSpec
+    codepoints: tuple[int, ...]
+    features: frozenset[str]
+    positions: tuple[PositionReport, ...]
+
+    @property
+    def settled(self) -> tuple[Settled, ...]:
+        return tuple(position.trace.settled for position in self.positions)
+
+    def render(self) -> str:
+        lines: list[str] = []
+        sequence = ":".join(f"{cp:04X}" for cp in self.codepoints)
+        lines.append(f"sequence {sequence}   config {feature_config_token(self.features)}")
+        lines.append("settled: " + " ".join(cell_label(self.spec, s.cell) for s in self.settled))
+        for position in self.positions:
+            trace = position.trace
+            settled = trace.settled
+            lines.append("")
+            lines.append(f"position {position.index}: {position.token}")
+            if is_boundary_settled(settled):
+                lines.append(
+                    "  boundary token; splits run"
+                    if settled.cell.rune in ("space", "zwnj")
+                    else "  boundary token; does not split the run"
+                )
+                continue
+            if trace.decided_stage == ISOLATED_OVERLAY_STAGE:
+                lines.append(
+                    f"  isolated overlay: the ss10 input substitution renders the letter as its anchor-free copy before formation, so nothing settles and both junctions break   settled: {cell_label(self.spec, settled.cell)}"
+                )
+                continue
+            lines.append(f"  candidates (join-count = left junction + own junction + optimistic prospect):")
+            for ranked in trace.ranked:
+                candidate = ranked.candidate
+                marker = (
+                    "->"
+                    if (candidate.stance, candidate.entry, candidate.junction)
+                    == (settled.cell.stance, settled.cell.entry, settled.junction)
+                    else "  "
+                )
+                entry = candidate.entry or "none"
+                junction = candidate.junction or "none"
+                lines.append(
+                    f"  {marker} {candidate.stance:<16} entry={entry:<10} junction={junction:<10} join-count={ranked.join_count} prospect={ranked.prospect}"
+                )
+            if trace.eliminations:
+                lines.append("  eliminated before ranking:")
+                for elimination in trace.eliminations:
+                    source = f"  [{elimination.provenance}]" if elimination.provenance else ""
+                    lines.append(f"    - ({elimination.stage}) {elimination.description}{source}")
+            decided = f"  decided by: {trace.decided_stage}"
+            if trace.runner_up is not None:
+                runner = trace.runner_up
+                decided += f" (over {runner.stance} entry={runner.entry or 'none'} junction={runner.junction or 'none'})"
+            lines.append(decided)
+            if trace.joint_tiebreak:
+                lines.append(
+                    "  joint: the final tiebreak broke a realization tie — routed to the expensive test tier"
+                )
+            for note in trace.notes:
+                lines.append(f"  note: {note}")
+            lines.append(
+                f"  settled: {cell_label(self.spec, settled.cell)}   junction={settled.junction or 'none'}   extension={settled.extension}"
+            )
+        return "\n".join(lines)
+
+
+def explain(spec: ResolvedSpec, codepoints: Sequence[int], features: frozenset[str]) -> ExplainReport:
+    return explain_many(spec, [(codepoints, features)])[0]
+
+
+def explain_many(
+    spec: ResolvedSpec,
+    requests: Sequence[tuple[Sequence[int], frozenset[str]]],
+    guard_verdicts: FormationGuard | None = None,
+) -> list[ExplainReport]:
+    """Settle a batch of sequences through the Rust kernel and return one report per request, in request order. Ligatures are formed here against `guard_verdicts`, which is fetched once with `kernel_exec.guard_sweep` when the caller passes none. `kernel_exec.settle_sequences` then settles the batch one position at a time, with one `settle-cases` call per feature configuration per position (split every `SETTLE_CASE_BATCH_SIZE` windows), so a corpus build does not start one process per review unit. A request whose features turn on the isolated overlay (ss10) is not sent to the kernel, because nothing settles under it: its report is `settle.isolated_overlay_traces` over the raw, unformed tokens."""
+    if not requests:
+        return []
+    reports: list[ExplainReport | None] = [None] * len(requests)
+    settling: list[int] = []
+    for index, (codepoints, features) in enumerate(requests):
+        if isolated_overlay_active(spec, features):
+            traces = isolated_overlay_traces(spec, tokens_from_codepoints(spec, codepoints))
+            reports[index] = _report_of(spec, codepoints, frozenset(features), traces)
+        else:
+            settling.append(index)
+    if settling:
+        if guard_verdicts is None:
+            guard_verdicts = kernel_exec.guard_sweep(spec)
+        sequences = [
+            (
+                form_ligatures(spec, tokens_from_codepoints(spec, requests[index][0]), guard_verdicts),
+                frozenset(requests[index][1]),
+            )
+            for index in settling
+        ]
+        answers = kernel_exec.settle_sequences(spec, sequences)
+        for index, traces in zip(settling, answers):
+            assert traces is not None
+            codepoints, features = requests[index]
+            reports[index] = _report_of(spec, codepoints, frozenset(features), traces)
+    return [report for report in reports if report is not None]
+
+
+def _report_of(
+    spec: ResolvedSpec,
+    codepoints: Sequence[int],
+    features: frozenset[str],
+    traces: Sequence[TransitionTrace],
+) -> ExplainReport:
+    tokens = _position_tokens(spec, traces)
+    positions = tuple(
+        PositionReport(index, token, trace) for index, (token, trace) in enumerate(zip(tokens, traces))
+    )
+    return ExplainReport(spec=spec, codepoints=tuple(codepoints), features=features, positions=positions)
+
+
+def _position_tokens(spec: ResolvedSpec, traces: Sequence[TransitionTrace]) -> list[str]:
+    return [
+        trace.settled.cell.rune if not is_boundary_settled(trace.settled) else trace.settled.cell.rune
+        for trace in traces
+    ]
+
+
+def parse_sequence(spec: ResolvedSpec, text: str) -> list[int]:
+    by_name = {
+        name: info.codepoint for name, info in spec.registry.families.items() if info.codepoint is not None
+    }
+    boundary_by_name = {name: token.codepoint for name, token in spec.registry.boundary_tokens.items()}
+    codepoints: list[int] = []
+    for part in text.split(":"):
+        part = part.strip()
+        if not part:
+            continue
+        if part in by_name:
+            codepoints.append(by_name[part])
+            continue
+        if part in boundary_by_name:
+            codepoints.append(boundary_by_name[part])
+            continue
+        cleaned = part
+        for prefix in ("U+", "u+", "0x", "0X"):
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix) :]
+                break
+        try:
+            codepoints.append(int(cleaned, 16))
+        except ValueError:
+            raise SystemExit(
+                f"cannot parse sequence position {part!r}: not a qs-name, boundary token, or hex codepoint"
+            )
+    return codepoints
+
+
+def _load_spec() -> tuple[ResolvedSpec, str | None]:
+    try:
+        from pathlib import Path
+
+        from engine.pipeline import spec_load  # noqa: PLC0415
+
+        repo = Path(__file__).resolve().parents[2]
+        spec = spec_load.load_spec(
+            repo / "glyph_data" / "runes", repo / "glyph_data" / "script.yaml", repo / "engine" / "schema"
+        )
+        return spec, None
+    except Exception as error:  # noqa: BLE001 — the fixtures fallback is deliberate
+        from engine.pipeline import fixtures
+
+        return (
+            fixtures.mini_spec(),
+            f"spec_load unavailable ({type(error).__name__}: {error}); using the hand-built fixtures spec",
+        )
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="Replay settlement for a rune sequence, printing the full candidate table per position."
+    )
+    parser.add_argument(
+        "sequence",
+        help="colon-separated positions: hex codepoints or qs-names, e.g. E665:E670:E665 or qsMay:qsIt:qsMay",
+    )
+    parser.add_argument(
+        "--features",
+        action="append",
+        default=[],
+        help="active stylistic sets, comma-separable, e.g. --features ss03 or --features ss02,ss03",
+    )
+    args = parser.parse_args(argv)
+    features = frozenset(tag for chunk in args.features for tag in chunk.split(",") if tag)
+    spec, notice = _load_spec()
+    if notice:
+        print(f"note: {notice}")
+    report = explain(spec, parse_sequence(spec, args.sequence), features)
+    print(report.render())
+
+
+if __name__ == "__main__":
+    main()

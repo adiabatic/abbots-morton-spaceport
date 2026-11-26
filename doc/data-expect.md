@@ -1,6 +1,6 @@
 # `data-expect` attribute format
 
-The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output. `parse_expect` in `rebuild/validation/expect.py` is the grammar's authority, and `rebuild/validation/check.py` is the checker. The root `conftest.py` collects each attribute as a pytest item and checks it against the fonts in `site/`, which the session publishes first; the build's pin gate (`rebuild/pipeline/manual_pins.py`) checks the same pins against the font it has just compiled. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
+The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output. `parse_expect` in `engine/validation/expect.py` is the grammar's authority, and `engine/validation/check.py` is the checker. The root `conftest.py` collects each attribute as a pytest item and checks it against the fonts in `site/`, which the session publishes first; the build's pin gate (`engine/pipeline/manual_pins.py`) checks the same pins against the font it has just compiled. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
 
 The `data-expect-noncanonically` attribute has the same syntax and test behavior as `data-expect`. It marks Senior Quikscript joins that are worth testing but do not appear in Read’s manual.
 
@@ -13,13 +13,13 @@ The `data-expect-noncanonically` attribute has the same syntax and test behavior
 | `\X`          | Literal character (via glyph names or `uniXXXX`) | `\.`     |
 | `◊name`       | Special glyph by name (`◊space`, `◊ZWNJ`)        | `◊space` |
 
-`◊ZWNJ` and `◊space` both stand for the `space` token (`LOZENGE_MAP` in `rebuild/validation/expect.py`), which matches the shaped `space` glyph or the ZWNJ's own glyph, `uni200C` (`check.BOUNDARY_GLYPH_EQUIVALENTS`).
+`◊ZWNJ` and `◊space` both stand for the `space` token (`LOZENGE_MAP` in `engine/validation/expect.py`), which matches the shaped `space` glyph or the ZWNJ's own glyph, `uni200C` (`check.BOUNDARY_GLYPH_EQUIVALENTS`).
 
 A token's glyph is the first glyph of the cluster that covers the token's first character, so a variation selector after a letter belongs to that letter's token.
 
 ## Variant assertions
 
-Append dot-separated modifiers to assert properties of the selected glyph. A glyph's name is its cell's label (`settle.cell_label`: rune, stance, entry and exit heights, adjustments) or the name of a raw cmap glyph or one of its copies, and the checker reads it with `check.parse_glyph_name`. What a name does not carry comes from the glyph-facts sidecar the build writes beside the Senior (`rebuild/pipeline/glyph_facts.py`).
+Append dot-separated modifiers to assert properties of the selected glyph. A glyph's name is its cell's label (`settle.cell_label`: rune, stance, entry and exit heights, adjustments) or the name of a raw cmap glyph or one of its copies, and the checker reads it with `check.parse_glyph_name`. What a name does not carry comes from the glyph-facts sidecar the build writes beside the Senior (`engine/pipeline/glyph_facts.py`).
 
 | Modifier                                                         | Holds when the glyph                                                               | Read from | Example                   |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------- | ------------------------- |
@@ -81,7 +81,7 @@ A join is read from the font's GPOS `curs` lookups, one per height: two adjacent
 
 ### Break-isolation invariant
 
-When `|` separates two Quikscript letter tokens, or `?` separates a pair that does not join, the checker also asserts that **neither letter influences the other’s shape choice**. It shapes the run whole and split at each such break in separate HarfBuzz buffers, both with the `kern` feature off, and checks that the glyphs of each token beside the break have the same outlines and the same position records (offsets and advances) in both. A glyph with a different name but the same outline and position passes. A difference means a contextual lookup is reaching across the non-join, and the failure message names the whole-run and split glyphs. The `kern` feature is off because a kern pair is the space the font puts between the two letters at the break, which no split reproduces; the conformance sweep checks every break's kern. The check runs only on text shaped with the Senior font (`_check_break_isolation` in `rebuild/validation/check.py`).
+When `|` separates two Quikscript letter tokens, or `?` separates a pair that does not join, the checker also asserts that **neither letter influences the other’s shape choice**. It shapes the run whole and split at each such break in separate HarfBuzz buffers, both with the `kern` feature off, and checks that the glyphs of each token beside the break have the same outlines and the same position records (offsets and advances) in both. A glyph with a different name but the same outline and position passes. A difference means a contextual lookup is reaching across the non-join, and the failure message names the whole-run and split glyphs. The `kern` feature is off because a kern pair is the space the font puts between the two letters at the break, which no split reproduces; the conformance sweep checks every break's kern. The check runs only on text shaped with the Senior font (`_check_break_isolation` in `engine/validation/check.py`).
 
 So there is no need to write `.!half`, `.!alt`, and so on beside a `|` to assert that one glyph was not chosen because of the other. The checker checks this for letter-to-letter pairs only. Boundary tokens such as `◊space`, `◊ZWNJ`, and escaped punctuation are excluded, because they exist to influence the shape of their neighbors.
 

@@ -9,9 +9,9 @@ from typing import Any, TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from rebuild.tools.pyright_gate import Check
-    from rebuild.validation.check import CheckFont
-    from rebuild.validation.corpus import Pin
+    from engine.tools.pyright_gate import Check
+    from engine.validation.check import CheckFont
+    from engine.validation.corpus import Pin
 
 ROOT = Path(__file__).resolve().parent
 
@@ -26,7 +26,7 @@ PIN_PAGE_NAMES = ("index.html", "the-manual.html", "extra-senior-words.html")
 # The fonts the session checks: `_published` once the session has published the six fonts into site/ (`_publish_fonts`), in this process or, on a worker, in the controller, then the pin fonts by run font (`_pin_fonts`).
 _font_cache: dict[str, Any] = {}
 
-# The pyright check that pytest_configure starts on a rebuild-only run, for pytest_sessionfinish to join. It is popped, not read, so nothing is waited on twice.
+# The pyright check that pytest_configure starts on an engine-only run, for pytest_sessionfinish to join. It is popped, not read, so nothing is waited on twice.
 _deferred_pyright: list["Check"] = []
 
 
@@ -48,17 +48,17 @@ def _make_env() -> dict[str, str]:
     return env
 
 
-def _is_rebuild_only(config: pytest.Config) -> bool:
-    rebuild = (ROOT / "rebuild").resolve()
+def _is_engine_only(config: pytest.Config) -> bool:
+    engine = (ROOT / "engine").resolve()
     invocation_dir = Path(config.invocation_params.dir)
     targets = [(invocation_dir / arg.split("::", 1)[0]).resolve() for arg in config.args]
-    return bool(targets) and all(target == rebuild or rebuild in target.parents for target in targets)
+    return bool(targets) and all(target == engine or engine in target.parents for target in targets)
 
 
 def _publish_fonts() -> None:
-    """Publish the six fonts the font suite checks into site/ through rebuild/tools/build_fonts.py's command in a child, which writes nothing when the fonts on disk already hold the bytes. It is a child because that module reaches rebuild.pipeline, which no import of this file may (`TestTheConftestsStayLeaves` in rebuild/test_contracts_closure.py). A session never starts a table build, so the command runs without `--build`: when the rebuild's Senior is stale it refuses, naming the build command, and the session fails with its message."""
+    """Publish the six fonts the font suite checks into site/ through engine/tools/build_fonts.py's command in a child, which writes nothing when the fonts on disk already hold the bytes. It is a child because that module reaches engine.pipeline, which no import of this file may (`TestTheConftestsStayLeaves` in engine/test_contracts_closure.py). A session never starts a table build, so the command runs without `--build`: when the rebuild's Senior is stale it refuses, naming the build command, and the session fails with its message."""
     result = subprocess.run(
-        [sys.executable, "-m", "rebuild.tools.build_fonts"],
+        [sys.executable, "-m", "engine.tools.build_fonts"],
         cwd=ROOT,
         check=False,
         env=_make_env(),
@@ -78,11 +78,11 @@ def pytest_configure(config: pytest.Config) -> None:
         return
     if config.getoption("dist", "no") == "no":
         return
-    # A rebuild-only run reads no site font, so it publishes nothing, and its pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it. Any other run publishes the fonts with the check running beside the publish.
-    from rebuild.tools import pyright_gate
+    # An engine-only run reads no site font, so it publishes nothing, and its pyright check is deferred for pytest_sessionfinish to join, so it runs beside the xdist pool instead of before it. Any other run publishes the fonts with the check running beside the publish.
+    from engine.tools import pyright_gate
 
     pyright = pyright_gate.begin(os.environ, ROOT, env=_make_env())
-    if _is_rebuild_only(config):
+    if _is_engine_only(config):
         if pyright is not None:
             _deferred_pyright.append(pyright)
         return
@@ -100,17 +100,17 @@ def pytest_configure(config: pytest.Config) -> None:
 FONT_SUITE_WORKER_BYTES = 400_000_000
 
 
-# Returns the machine's usable cores for `-n auto` everywhere in the repo: the cores this process may run on, counting the affinity mask and any cgroup CPU quota, which os.cpu_count() ignores. A font-suite worker costs only FONT_SUITE_WORKER_BYTES, so the cores limit that pool before memory does. No rebuild-suite worker reads a live build artifact (rebuild/conftest.py's audit guard checks this), so `uv run pytest rebuild/`, a single rebuild test file, a mixed `pytest rebuild/ test/`, and `pytest .` all get the same width. memory_budget is imported inside the hook because every pytest run loads this file but only runs that request `-n auto` call the hook. This firstresult hook overrides xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so this hook reads the variable itself. The variable overrides the default in every collection mode.
+# Returns the machine's usable cores for `-n auto` everywhere in the repo: the cores this process may run on, counting the affinity mask and any cgroup CPU quota, which os.cpu_count() ignores. A font-suite worker costs only FONT_SUITE_WORKER_BYTES, so the cores limit that pool before memory does. No rebuild-suite worker reads a live build artifact (engine/conftest.py's audit guard checks this), so `uv run pytest engine/`, a single rebuild test file, a mixed `pytest engine/ test/`, and `pytest .` all get the same width. memory_budget is imported inside the hook because every pytest run loads this file but only runs that request `-n auto` call the hook. This firstresult hook overrides xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so this hook reads the variable itself. The variable overrides the default in every collection mode.
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
     override = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if override:
         return max(1, int(override))
-    from rebuild.tools.memory_budget import usable_cores
+    from engine.tools.memory_budget import usable_cores
 
     return usable_cores()
 
 
-# Peak RSS per xdist worker. Each worker reports its own peak at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line, so every run measures what `-n auto` costs in memory. Figures are decimal GB, formatted by rebuild.tools.peak_rss.
+# Peak RSS per xdist worker. Each worker reports its own peak at session finish through workeroutput, the controller collects them as nodes shut down, and the terminal summary prints one line, so every run measures what `-n auto` costs in memory. Figures are decimal GB, formatted by engine.tools.peak_rss.
 _worker_peak_rss: dict[str, int] = {}
 
 
@@ -118,7 +118,7 @@ _worker_peak_rss: dict[str, int] = {}
 @pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> Generator[None, object, object]:
     if hasattr(session.config, "workerinput"):
-        from rebuild.tools.peak_rss import peak_rss_self_bytes
+        from engine.tools.peak_rss import peak_rss_self_bytes
 
         workeroutput = session.config.workeroutput  # pyright: ignore[reportAttributeAccessIssue]
         workeroutput["peak_rss_bytes"] = peak_rss_self_bytes()
@@ -144,8 +144,8 @@ def pytest_testnodedown(node, error) -> None:
 def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config) -> None:
     if hasattr(config, "workerinput"):
         return
-    from rebuild.tools.cycle_timings import POOL_UNIT_ENV, gateway_order, record_pool
-    from rebuild.tools.peak_rss import format_gb, peak_rss_self_bytes
+    from engine.tools.cycle_timings import POOL_UNIT_ENV, gateway_order, record_pool
+    from engine.tools.peak_rss import format_gb, peak_rss_self_bytes
 
     controller_peak = peak_rss_self_bytes()
     line = f"peak RSS (GB): controller {format_gb(controller_peak)}"
@@ -157,7 +157,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config: pytest.Config)
         line += f"; workers {workers}"
     terminalreporter.write_line(line)
 
-    # Records the same measurement in the cycle-timings journal so `make job-costs` can compare it with the checked-in constants (FONT_SUITE_WORKER_BYTES above, the corpus build's constants in rebuild/tools/artifact_cycle.py). Only a pool whose caller set POOL_UNIT_ENV is recorded, so an unlabeled `uv run pytest` writes nothing. The width comes from the resolved numprocesses, not len(_worker_peak_rss): xdist resolves "auto" through the hook above during pytest_cmdline_main, so the option holds the width the pool ran at, while the peaks dict is one short whenever a node dies without returning its workeroutput. cycle_timings is imported inside the hook because this file is loaded by every pytest run and by tools that are not pytest, while only a controller reaches this line. Its `gateway_order` also sorts the printed line above, so both list the workers in the same order. POOL_UNIT_ENV is only ever set on a child's own environment dict, never on os.environ, so a nested pytest cannot inherit a stale unit name and record its pool under another name.
+    # Records the same measurement in the cycle-timings journal so `make job-costs` can compare it with the checked-in constants (FONT_SUITE_WORKER_BYTES above, the corpus build's constants in engine/tools/artifact_cycle.py). Only a pool whose caller set POOL_UNIT_ENV is recorded, so an unlabeled `uv run pytest` writes nothing. The width comes from the resolved numprocesses, not len(_worker_peak_rss): xdist resolves "auto" through the hook above during pytest_cmdline_main, so the option holds the width the pool ran at, while the peaks dict is one short whenever a node dies without returning its workeroutput. cycle_timings is imported inside the hook because this file is loaded by every pytest run and by tools that are not pytest, while only a controller reaches this line. Its `gateway_order` also sorts the printed line above, so both list the workers in the same order. POOL_UNIT_ENV is only ever set on a child's own environment dict, never on os.environ, so a nested pytest cannot inherit a stale unit name and record its pool under another name.
     unit = os.environ.get(POOL_UNIT_ENV, "").strip()
     width = getattr(config.option, "numprocesses", None)
     if unit and _worker_peak_rss and isinstance(width, int) and width >= 1:
@@ -174,8 +174,8 @@ def _pin_fonts() -> dict[str, "CheckFont"]:
     if "fonts" not in _font_cache:
         if "_published" not in _font_cache:
             _publish_fonts()
-        from rebuild.tools import suite_fonts
-        from rebuild.validation.check import CheckFont
+        from engine.tools import suite_fonts
+        from engine.validation.check import CheckFont
 
         paths = suite_fonts.font_paths(ROOT)
         _font_cache["fonts"] = {
@@ -198,10 +198,10 @@ def pytest_collect_file(parent: pytest.Collector, file_path: Path) -> "ShapingFi
 
 
 class ShapingFile(pytest.File):
-    """A pin page: one item per `data-expect` pin, read by the corpus collector (`rebuild/validation/corpus.py`)."""
+    """A pin page: one item per `data-expect` pin, read by the corpus collector (`engine/validation/corpus.py`)."""
 
     def collect(self) -> Iterator["ShapingItem"]:
-        from rebuild.validation.corpus import collect_pins
+        from engine.validation.corpus import collect_pins
 
         page = self.path.relative_to(ROOT).as_posix() if self.path.is_relative_to(ROOT) else self.path.name
         seen_ids: dict[str, int] = {}
@@ -219,7 +219,7 @@ class ShapingFile(pytest.File):
 
 
 class ShapingItem(pytest.Item):
-    """One pin, checked against the fonts under site/ by the checker the build's pin gate runs (`rebuild/validation/check.py`, `check_pin`). A pending pin (`corpus.PENDING_ATTRIBUTE`) is an expected failure, and fails once it passes, so its mark cannot outlive the disagreement it records."""
+    """One pin, checked against the fonts under site/ by the checker the build's pin gate runs (`engine/validation/check.py`, `check_pin`). A pending pin (`corpus.PENDING_ATTRIBUTE`) is an expected failure, and fails once it passes, so its mark cannot outlive the disagreement it records."""
 
     def __init__(self, name: str, parent: pytest.Item, pin: "Pin") -> None:
         super().__init__(name, parent)
@@ -229,8 +229,8 @@ class ShapingItem(pytest.Item):
         _pin_fonts()
 
     def runtest(self) -> None:
-        from rebuild.validation.check import check_pin
-        from rebuild.validation.corpus import PENDING_ATTRIBUTE
+        from engine.validation.check import check_pin
+        from engine.validation.corpus import PENDING_ATTRIBUTE
 
         outcome = check_pin(_pin_fonts(), self.pin)
         status = outcome.status

@@ -7,7 +7,7 @@ ignores:
   - ".uv-cache/**"
   - "tmp/**"
   - "var/**"
-  - "rebuild/kernel-rs/target/**"
+  - "engine/kernel-rs/target/**"
 
 config:
   line-length: false

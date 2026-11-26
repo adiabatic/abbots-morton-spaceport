@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble one pixel font from glyph records with fontTools' FontBuilder: the generic font assembly the rebuild's builds call, `rebuild/pipeline/compile_font.py` for Senior and `rebuild/pipeline/build_family.py` for Mono and Junior.
+"""Assemble one pixel font from glyph records with fontTools' FontBuilder: the generic font assembly the rebuild's builds call, `engine/pipeline/compile_font.py` for Senior and `engine/pipeline/build_family.py` for Mono and Junior.
 
 `build_font` takes a font's records (`glyph_records.GlyphData`, as `load_glyph_data` reads the glyph files and the rebuild hands in its own beside them) and a variant, `mono`, `junior` or `senior`, and returns the unsaved TTFont: the glyph order and cmap, the outlines and metrics, the name, OS/2, post, gasp and head tables, and the layout. Mono bundles Departure Mono's glyphs and copies its GDEF, GSUB and GPOS. Junior and Senior compile the Latin `kern`, `ccmp` and `mark` features the records give, then the caller's Quikscript feature code (`quikscript_fea`), and Senior trims a pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening).
 
@@ -37,7 +37,7 @@ def load_postscript_glyph_names() -> dict[str, int]:
 
 # The top-level keys a glyph file's document may carry.
 _GLYPH_FILE_KEYS = frozenset({"metadata", "glyphs", "kerning"})
-# The YAML files in glyph_data/ that are not glyph files: the rebuild's registry, which rebuild/pipeline/spec_load.py reads (`DEFAULT_REGISTRY_PATH`). A directory load leaves them out by name, as `fingerprint.font_data_paths` does.
+# The YAML files in glyph_data/ that are not glyph files: the rebuild's registry, which engine/pipeline/spec_load.py reads (`DEFAULT_REGISTRY_PATH`). A directory load leaves them out by name, as `fingerprint.font_data_paths` does.
 NON_GLYPH_FILE_NAMES = frozenset({"script.yaml"})
 
 
@@ -680,7 +680,7 @@ def _assemble_fea(
 
 @dataclass(frozen=True)
 class CompiledSeniorOTL:
-    """The Senior layout tables as compiled bytes, keyed by tag, with the `usMaxContext` value feaLib computes for them. The font that receives the tables does not run feaLib, so it takes its OS/2 `usMaxContext` from here; rebuild/pipeline/compile_font.py hands Bold the tables Regular compiled this way."""
+    """The Senior layout tables as compiled bytes, keyed by tag, with the `usMaxContext` value feaLib computes for them. The font that receives the tables does not run feaLib, so it takes its OS/2 `usMaxContext` from here; engine/pipeline/compile_font.py hands Bold the tables Regular compiled this way."""
 
     tables: dict[str, bytes]
     max_context: int
@@ -701,7 +701,7 @@ def build_font(
         variant: "mono", "junior", or "senior".
         pixel_width: Width of each pixel in font units. Defaults to metadata["pixel_size"], which is always the pixel height.
         bold: Widen each drawn pixel by `pixel_width // 2` units to the right, and name and style-link the font as Bold. The pixel grid, advance widths, and anchors do not change.
-        quikscript_fea: The caller's Quikscript feature code, which goes after `mark`: for Senior, the rune FEA (rebuild/pipeline/compile_font.py), and for Junior, the stylistic sets and the namer dot (rebuild/pipeline/build_family.py). Mono ignores it.
+        quikscript_fea: The caller's Quikscript feature code, which goes after `mark`: for Senior, the rune FEA (engine/pipeline/compile_font.py), and for Junior, the stylistic sets and the namer dot (engine/pipeline/build_family.py). Mono ignores it.
         compiled: The variant's records (`glyph_records.compile_glyph_records`). `bold` does not affect them, so a caller building both styles compiles them once. When None, the build compiles its own.
         senior_otl: Senior's GDEF, GSUB and GPOS as another build of the same glyph order compiled them, used only for Senior. When given, the build writes these bytes instead of compiling the feature code.
     """

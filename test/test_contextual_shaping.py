@@ -1,4 +1,4 @@
-"""Regression checks on the Senior's shaping that no `data-expect` pin and no any-of check in test/test_calt_expectations.py states: pairs the runes keep apart in every context, joins that hold in every context, and stylistic-set behavior. Most sweeps shape the letters with one symbol of context on each side, drawn from the plain Quikscript letters, a space and a ZWNJ; every check reads joins from the font's `curs` lookups and glyph facts from the sidecar (`rebuild/validation/check.py`). The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`)."""
+"""Regression checks on the Senior's shaping that no `data-expect` pin and no any-of check in test/test_calt_expectations.py states: pairs the runes keep apart in every context, joins that hold in every context, and stylistic-set behavior. Most sweeps shape the letters with one symbol of context on each side, drawn from the plain Quikscript letters, a space and a ZWNJ; every check reads joins from the font's `curs` lookups and glyph facts from the sidecar (`engine/validation/check.py`). The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`)."""
 
 from collections.abc import Callable, Iterator, Sequence
 from functools import cache
@@ -6,9 +6,9 @@ from functools import cache
 import pytest
 from fontTools.ttLib import TTFont
 
-from rebuild.validation.check import CheckFont, assert_expect_any, parse_glyph_name
-from rebuild.validation.expect import CHAR_TO_GLYPH
-from rebuild.validation.shaping import ShapeResult, first_glyph_covering, last_glyph_covering
+from engine.validation.check import CheckFont, assert_expect_any, parse_glyph_name
+from engine.validation.expect import CHAR_TO_GLYPH
+from engine.validation.shaping import ShapeResult, first_glyph_covering, last_glyph_covering
 
 ZWNJ = "\u200c"
 _CHARS = {name: char for char, name in CHAR_TO_GLYPH.items()}

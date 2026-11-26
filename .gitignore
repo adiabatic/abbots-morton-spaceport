@@ -16,8 +16,8 @@ wheels/
 /site/DepartureMono-Regular.otf
 /site/*.woff2
 /site/print.pdf
-/rebuild/kernel-rs/target/
-/rebuild/kernel-rs/proofs/.lake/
+/engine/kernel-rs/target/
+/engine/kernel-rs/proofs/.lake/
 
 # Scratch files, wiped freely between change sets
 tmp/
@@ -25,8 +25,8 @@ tmp/
 # Kept output: cycle build logs, review-corpus snapshots, hand-kept archives, the verdict orphans and the kerning view's journal
 /var/
 
-# Rebuild output: the M1 build, the review corpus, green records, and the cycle-timings journal
-rebuild/out/
+# Engine output: the build, the review corpus, green records, and the cycle-timings journal
+engine/out/
 
 # Claude Code local state
 .claude/scheduled_tasks.lock

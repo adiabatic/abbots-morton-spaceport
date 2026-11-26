@@ -1,6 +1,6 @@
 # The demote oracle
 
-The old Senior engine compiled one YAML file of letter families and stances into a `calt` of chained contextual substitutions. Commit `d23c0a87`, the last before the cutover to the rebuild, holds its code, its data and its documents; the rune files and the pipeline under `rebuild/` replace all of it.
+The old Senior engine compiled one YAML file of letter families and stances into a `calt` of chained contextual substitutions. Commit `d23c0a87`, the last before the cutover to the rebuild, holds its code, its data and its documents; the rune files and the pipeline under `engine/` replace all of it.
 
 ## The design
 
@@ -20,4 +20,4 @@ The deeper fault is the model the tables patch. The emitted chain is the meaning
 
 ## What replaced it
 
-The rebuild settles before it emits (`doc/rebuild-design.md` §1). The kernel's settlement function computes the final stance, join and extension of every position, and the FEA transcribes its decision table as final, positive substitutions whose context is already settled when they run (§7). Nothing is committed early, so nothing is demoted. A behavior of the old tables that the runes keep is an explicit `refuse`, `prefer` or `resolve` in a rune file with a `why:` (§13), the conformance sweep checks that the compiled font shapes as the settlement function says, and a `|` in a `data-expect` pin asserts that the text on each side of a break shapes as it does alone.
+The rebuild settles before it emits (`doc/engine-design.md` §1). The kernel's settlement function computes the final stance, join and extension of every position, and the FEA transcribes its decision table as final, positive substitutions whose context is already settled when they run (§7). Nothing is committed early, so nothing is demoted. A behavior of the old tables that the runes keep is an explicit `refuse`, `prefer` or `resolve` in a rune file with a `why:` (§13), the conformance sweep checks that the compiled font shapes as the settlement function says, and a `|` in a `data-expect` pin asserts that the text on each side of a break shapes as it does alone.

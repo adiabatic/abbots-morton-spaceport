@@ -1,0 +1,734 @@
+"""Tests for `make job-costs` (`engine/tools/calibrate_budgets.py`): which journal records count as observations of each unit, when an observation is an overrun, and what the report prints.
+
+`_main` passes no constant commit times, so the measurement cutoff excludes no fixture record. The tests of the measurement cutoff pass their own commit times. A peak that a test compares with a constant is computed from the real constant, so the tests still pass after a constant is re-measured.
+"""
+
+import json
+
+import pytest
+
+from engine.tools import calibrate_budgets as cb
+from engine.tools import make_test_gate as mtg
+from engine.tools import memory_budget
+from engine.tools import engine_gate as rg
+from engine.tools.cycle_timings import parse_inner_timings
+from engine.tools.peak_rss import footprint_token, format_gb, rss_token
+
+HOST = "this.local"
+OTHER = "other.local"
+CONSTANTS = cb.read_constants()
+
+
+def _unit(name):
+    return next(unit for unit in cb.UNITS if unit.name == name)
+
+
+def _pool(unit, peaks, *, host=HOST, at="2026-08-20T12:00:00Z", controller=400_000_000):
+    record = {
+        "format": "ams-cycle-timings/1",
+        "kind": "pool",
+        "host": host,
+        "unit": unit,
+        "finished_at": at,
+        "width": len(peaks),
+        "controller_peak_rss_bytes": controller,
+        "worker_peak_rss_bytes": {f"gw{index}": peak for index, peak in enumerate(peaks)},
+    }
+    return record
+
+
+def _step(name, peak, *, host=HOST, at="2026-08-20T12:00:00Z", run="r1"):
+    return {
+        "format": "ams-cycle-timings/1",
+        "kind": "step",
+        "run": run,
+        "host": host,
+        "name": name,
+        "argv": ["uv", "run", "fake"],
+        "rc": 0,
+        "elapsed_s": 1.0,
+        "finished_at": at,
+        "peak_rss_bytes": peak,
+    }
+
+
+def _journal(tmp_path, entries):
+    path = tmp_path / "j.ndjson"
+    path.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n", encoding="utf-8")
+    return path
+
+
+def _main(path, *args, constant_commit_times=None):
+    return cb.main(
+        ["--journal", str(path), *args],
+        constant_commit_times={} if constant_commit_times is None else constant_commit_times,
+    )
+
+
+def _run(capsys, path, *args):
+    code = _main(path, "--host", HOST, *args)
+    return code, capsys.readouterr().out
+
+
+def test_every_unit_with_a_constant_names_one_its_source_file_actually_defines():
+    named = {unit.name for unit in cb.UNITS if unit.constant is not None}
+    assert set(CONSTANTS) == named
+    assert all(isinstance(value, int) and value > 0 for value in CONSTANTS.values())
+    with pytest.raises(RuntimeError):
+        cb._int_constant(cb.ROOT / "conftest.py", "NO_SUCH_WORKER_BYTES")
+
+
+def test_every_pool_name_a_gate_wrapper_sets_is_one_the_registry_reads():
+    """The gate wrappers set a pool's unit name in the child's environment, and the registry looks the name up in the journal; no import links the two. Nothing else catches a mismatch: the pool's records match no unit, and the unit reports no observations, which looks the same as a lane this machine has not run."""
+    known = {name for unit in cb.UNITS for name in unit.pool_units}
+    assert {mtg.POOL_UNIT, rg.POOL_UNIT} <= known
+
+
+def test_a_pool_record_supplies_one_observation_per_worker():
+    record = _pool("font-suite", [1_000_000, 2_000_000, 3_000_000])
+    observed, dropped, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
+    assert [item.peak_bytes for item in observed] == [1_000_000, 2_000_000, 3_000_000]
+    assert {item.source for item in observed} == {"pool"}
+    assert dropped == 0
+
+
+def test_the_controllers_own_peak_is_never_one_of_the_workers_observations():
+    record = _pool("font-suite", [1_000_000], controller=9_000_000)
+    observed, _, _ = cb.observations(_unit("font-suite"), [record], {}, host=HOST, recent=20)
+    assert [item.peak_bytes for item in observed] == [1_000_000]
+
+
+def test_a_conform_sweep_pool_record_goes_to_the_sweep_row_only():
+    """The conformance sweep and the string replay both fan out from run_build, but a conformance-sweep worker and a replay walk hold different data. Each row reads only its own pool's records, because a record read by the other row would misstate that row's peak."""
+    sweep = _pool("conform-sweep", [390_000_000, 920_000_000])
+    observed, _, _ = cb.observations(_unit("conform-sweep"), [sweep], {}, host=HOST, recent=20)
+    assert [item.peak_bytes for item in observed] == [390_000_000, 920_000_000]
+    assert {item.source for item in observed} == {"pool"}
+    walks, _, _ = cb.observations(_unit("replay-walk"), [sweep], {}, host=HOST, recent=20)
+    assert walks == []
+    walk = _pool("replay-walk", [560_000_000])
+    crossed, _, _ = cb.observations(_unit("conform-sweep"), [walk], {}, host=HOST, recent=20)
+    assert crossed == []
+
+
+def test_the_conform_sweep_row_also_reads_the_journals_conform_belt_records(tmp_path):
+    """Older journal lines name the conformance sweep's pool `conform-belt`. `load_pool_records` reads them under the current name, so the conform-sweep row keeps its measured history."""
+    path = _journal(tmp_path, [_pool("conform-belt", [390_000_000]), _pool("conform-sweep", [420_000_000])])
+    pools = cb.load_pool_records(path)
+    observed, _, _ = cb.observations(_unit("conform-sweep"), pools, {}, host=HOST, recent=20)
+    assert sorted(item.peak_bytes for item in observed) == [390_000_000, 420_000_000]
+
+
+def test_a_conform_step_peak_is_never_read_as_a_sweep_worker():
+    """`reap_peak_rss_bytes` takes the max over gate:conform's process tree, so the step peak measures one process, not the pool. No row reads it."""
+    steps = {"r1": [_step("gate:conform", 3_000_000_000)]}
+    observed, _, _ = cb.observations(_unit("conform-sweep"), [], steps, host=HOST, recent=20)
+    assert observed == []
+    assert all("gate:conform" not in unit.step_names for unit in cb.UNITS)
+
+
+def test_an_overrun_of_the_sweep_constant_trips_the_check(tmp_path, capsys):
+    """A conformance-sweep unit peak above `CONFORM_SWEEP_UNIT_BYTES` fails `--check` like an overrun of any other constant, because gate:conform's pool width is computed from it."""
+    over = _journal(tmp_path, [_pool("conform-sweep", [CONSTANTS["conform-sweep"] + 1])])
+    code, out = _run(capsys, over, "--check")
+    assert code == 1
+    assert "re-measure CONFORM_SWEEP_UNIT_BYTES in engine/tools/artifact_cycle.py" in out
+    under = _journal(tmp_path, [_pool("conform-sweep", [CONSTANTS["conform-sweep"] - 1])])
+    assert _main(under, "--host", HOST, "--check") == 0
+
+
+@pytest.mark.parametrize(
+    ("unit", "record"),
+    [
+        ("land", lambda peak: _step("land", peak)),
+        ("corpus-build", lambda peak: _step("corpus-build", peak)),
+        ("replay-walk", lambda peak: _pool("replay-walk", [peak])),
+        ("deep-replay-walk", lambda peak: _pool("deep-replay-walk", [peak])),
+    ],
+)
+def test_check_trips_on_a_build_lane_or_replay_peak_above_its_constant(tmp_path, capsys, unit, record):
+    """The land, the corpus build, the string replay and the deep replay each have a row, so a recorded peak above `LAND_BYTES`, `CORPUS_BUILD_BYTES`, `REPLAY_PEAK_BYTES` or `DEEP_REPLAY_PEAK_BYTES` fails `--check` and names the constant to re-measure, and a peak at the constant passes."""
+    row = _unit(unit)
+    over = _journal(tmp_path, [record(CONSTANTS[unit] + 1)])
+    code, out = _run(capsys, over, "--check")
+    assert code == 1
+    assert f"re-measure {row.constant} in {row.source}" in _block(out, unit)
+    at = _journal(tmp_path, [record(CONSTANTS[unit])])
+    assert _main(at, "--host", HOST, "--check") == 0
+
+
+def test_the_kernel_build_row_reads_every_record_since_its_constants_commit(tmp_path, capsys):
+    """The kernel-build row proposes no value, so it keeps a high reading however many newer runs follow it, where the recency bound ages one out of every other row."""
+    over = CONSTANTS["kernel-build"] * 2
+    under = CONSTANTS["kernel-build"] // 2
+    steps = [_step("build", over, at="2026-09-01T00:00:00Z", run="old")] + [
+        _step("build", under, at=f"2026-09-02T00:{minute:02}:00Z", run=f"r{minute}") for minute in range(25)
+    ]
+    path = _journal(tmp_path, steps)
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    assert "26 records" in _block(out, "kernel-build")
+    assert "(kernel-build: every record since it)" in out
+
+
+def test_the_sweep_cap_reads_the_acceptance_configurations_the_pipeline_defines():
+    """The conformance sweep's cap beside a corpus build never falls below the acceptance-configuration count, which `_acceptance_config_count` parses from `conform.py` without importing it, as `artifact_cycle._conform_core_cap` floors it."""
+    from engine.pipeline import conform
+
+    assert cb._acceptance_config_count(cb.ROOT / cb.CONFORM_SOURCE) == len(conform.ACCEPTANCE_CONFIGS)
+
+
+def test_the_kernel_build_row_reads_the_higher_of_the_builds_resident_and_footprint_lines(tmp_path, capsys):
+    """A build step whose `[t] kernel_build_tables` line carries the build's peak footprint reads the higher of that and its step peak, so a footprint over the constant trips the check while the resident line fits, and the report prints both lines of the highest reading. A record without a footprint reads its resident line alone."""
+    constant = CONSTANTS["kernel-build"]
+    resident = constant // 2
+    footprint = round(float(format_gb(constant + 1_000_000_000)) * 1e9)
+    compressed = _step("build", resident, run="r1")
+    compressed["inner"] = parse_inner_timings(
+        f"[t] kernel_build_tables 200.0s width=5 runes=45 {rss_token(resident)} {footprint_token(footprint)}"
+    )
+    plain = _step("build", resident, run="r2")
+    observed, _, _ = cb.observations(
+        _unit("kernel-build"), [], {"r1": [compressed], "r2": [plain]}, host=HOST, recent=20
+    )
+    assert [(item.peak_bytes, item.resident_bytes, item.footprint_bytes) for item in observed] == [
+        (footprint, resident, footprint),
+        (resident, resident, None),
+    ]
+    code, out = _run(capsys, _journal(tmp_path, [compressed, plain]), "--check")
+    assert code == 1
+    block = _block(out, "kernel-build")
+    assert (
+        f"  lines     : max {format_gb(footprint)} GB is the higher of resident {format_gb(resident)} GB and footprint {format_gb(footprint)} GB;"
+        " 1 of 2 observations carries a footprint line, and the rest read their resident line alone"
+    ) in block.splitlines()
+
+
+def test_a_named_step_peak_supplies_an_observation():
+    steps = {"r1": [_step("build", 9_000_000_000)]}
+    observed, _, _ = cb.observations(_unit("kernel-build"), [], steps, host=HOST, recent=20)
+    assert [(item.peak_bytes, item.source) for item in observed] == [(9_000_000_000, "step:build")]
+
+
+def test_a_make_test_step_peak_is_never_read_as_a_font_suite_worker(tmp_path, capsys):
+    path = _journal(tmp_path, [_step("gate:make-test", CONSTANTS["font-suite"] * 50)])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    assert "OVERRUN" not in out
+    assert "no observations" in out
+
+
+def test_check_trips_when_an_observed_peak_outruns_its_constant(tmp_path, capsys):
+    peak = CONSTANTS["font-suite"] * 2
+    path = _journal(tmp_path, [_pool("font-suite", [peak])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    assert "OVERRUN" in out
+    assert "FONT_SUITE_WORKER_BYTES" in out
+
+
+def test_check_is_green_when_every_observed_peak_fits(tmp_path, capsys):
+    path = _journal(
+        tmp_path,
+        [
+            _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
+            _step("build", CONSTANTS["kernel-build"] // 2),
+        ],
+    )
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    assert "OVERRUN" not in out
+    assert "job costs: green" in out
+
+
+def test_a_unit_with_no_observations_is_informational_rather_than_a_failure(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    assert "no observations" in out
+
+
+def test_a_unit_with_no_rows_from_this_host_says_the_constant_is_unverified_here(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2], host=OTHER)])
+    code, out = _run(capsys, path)
+    assert code == 0
+    assert "UNVERIFIED HERE" in out
+    assert "never which machine a constant was sized on" in out
+
+
+def test_a_committed_unit_this_host_never_ran_keeps_the_never_ran_wording(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2], host=OTHER)])
+    assert _main(path, "--host", HOST, constant_commit_times={"font-suite": "2026-09-01T00:00:00Z"}) == 0
+    block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("font-suite"))
+    assert "never which machine a constant was sized on" in block
+    assert "measured since the commit that set the constant" not in block
+
+
+def test_rows_from_other_hosts_are_reported_and_never_checked(tmp_path, capsys):
+    peak = CONSTANTS["font-suite"] * 3
+    path = _journal(
+        tmp_path,
+        [
+            _pool("font-suite", [peak], host=OTHER),
+            _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
+        ],
+    )
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    assert "OVERRUN" not in out
+    assert "1 record from other hosts was not checked" in out
+
+
+def test_host_all_checks_every_machine(tmp_path, capsys):
+    peak = CONSTANTS["font-suite"] * 3
+    path = _journal(
+        tmp_path,
+        [
+            _pool("font-suite", [peak], host=OTHER),
+            _pool("font-suite", [CONSTANTS["font-suite"] // 2]),
+        ],
+    )
+    assert _main(path, "--host", "all", "--check") == 1
+    assert "OVERRUN" in capsys.readouterr().out
+
+
+def test_the_recency_bound_ages_out_a_peak_a_memory_saver_retired(tmp_path, capsys):
+    over = CONSTANTS["font-suite"] * 2
+    under = CONSTANTS["font-suite"] // 2
+    path = _journal(
+        tmp_path,
+        [_pool("font-suite", [over], at=f"2026-01-0{day}T12:00:00Z") for day in (1, 2, 3)]
+        + [_pool("font-suite", [under], at=f"2026-08-0{day}T12:00:00Z") for day in (1, 2)],
+    )
+    assert _main(path, "--host", HOST, "--recent", "2", "--check") == 0
+    capsys.readouterr()
+    assert _main(path, "--host", HOST, "--recent", "0", "--check") == 1
+    assert "OVERRUN" in capsys.readouterr().out
+
+
+def test_a_record_older_than_the_constants_commit_is_never_held_against_it(tmp_path, capsys):
+    over = CONSTANTS["kernel-build"] * 3
+    under = CONSTANTS["kernel-build"] // 2
+    path = _journal(
+        tmp_path,
+        [_step("build", over, at="2026-09-04T08:00:00Z", run="old")]
+        + [_step("build", under, at="2026-09-06T08:00:00Z", run="new")],
+    )
+    committed = {"kernel-build": "2026-09-05T20:18:22Z"}
+    assert _main(path, "--host", HOST, "--check", constant_commit_times=committed) == 0
+    out = capsys.readouterr().out
+    assert (
+        "since     : 2026-09-05T20:18:22Z, the commit that set TABLE_BUILD_PEAK_BYTES to its current value; 1 older record set aside"
+        in out
+    )
+    assert _main(path, "--host", HOST, "--check") == 1
+    assert "has no commit yet" in capsys.readouterr().out
+
+
+def test_the_full_history_run_reads_past_the_constants_commit(tmp_path, capsys):
+    over = CONSTANTS["kernel-build"] * 3
+    path = _journal(tmp_path, [_step("build", over, at="2026-09-04T08:00:00Z")])
+    committed = {"kernel-build": "2026-09-05T20:18:22Z"}
+    assert _main(path, "--host", HOST, "--check", constant_commit_times=committed) == 0
+    block = next(block for block in capsys.readouterr().out.split("\n\n") if block.startswith("kernel-build"))
+    assert (
+        "no record from this host for this unit has been measured since the commit that set the constant"
+        in block
+    )
+    assert "never which machine a constant was sized on" not in block
+    assert _main(path, "--host", HOST, "--check", "--recent", "0", constant_commit_times=committed) == 1
+
+
+def test_a_record_with_no_stamp_is_kept_under_the_measurement_cutoff():
+    record = _step("build", 1)
+    del record["finished_at"]
+    observed, _, older = cb.observations(
+        _unit("kernel-build"), [], {"r1": [record]}, host=HOST, recent=20, since="2026-09-05T00:00:00Z"
+    )
+    assert [item.peak_bytes for item in observed] == [1]
+    assert older == 0
+
+
+def test_the_constant_commit_time_is_the_committer_time_of_the_constants_own_line(tmp_path):
+    import subprocess
+
+    tree = tmp_path / "tree"
+    (tree / "engine" / "pipeline").mkdir(parents=True)
+    source = tree / "engine" / "pipeline" / "kernel_exec.py"
+    source.write_text("OTHER = 1\nDELTA_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_DATE": "2026-09-05T20:18:22Z",
+        "GIT_AUTHOR_DATE": "2026-09-05T20:18:22Z",
+        "PATH": __import__("os").environ["PATH"],
+    }
+    git = lambda *args: subprocess.run(["git", *args], cwd=tree, env=env, check=True, capture_output=True)
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "measure")
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-05T20:18:22Z"
+    source.write_text("OTHER = 1\nDELTA_PEAK_BYTES = 3_000_000_000\n", encoding="utf-8")
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tree) is None
+    env["GIT_COMMITTER_DATE"] = env["GIT_AUTHOR_DATE"] = "2026-09-06T01:02:03Z"
+    git("commit", "-q", "-am", "re-measure")
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tree) == "2026-09-06T01:02:03Z"
+
+
+def test_a_constant_moves_only_when_its_value_differs_from_heads(tmp_path):
+    import os
+    import shutil
+    import subprocess
+
+    tree = tmp_path / "tree"
+    for source in {source for source, _ in cb.watched_constants()}:
+        (tree / source).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(cb.ROOT / source, tree / source)
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "PATH": os.environ["PATH"],
+    }
+    git = lambda *args: subprocess.run(["git", *args], cwd=tree, env=env, check=True, capture_output=True)
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "measure")
+    kernel = tree / cb.KERNEL_SOURCE
+    text = kernel.read_text(encoding="utf-8")
+    kernel.write_text('"""A rewritten docstring."""\n' + text, encoding="utf-8")
+    assert cb.moved_constants(tree) == []
+    delta = cb._module_assignment(text, cb.KERNEL_DELTA_NAME)
+    assert delta is not None
+    value, lineno = delta
+    lines = text.splitlines(keepends=True)
+    lines[lineno - 1] = f"{cb.KERNEL_DELTA_NAME} = {value + 1_000_000_000}\n"
+    kernel.write_text("".join(lines), encoding="utf-8")
+    assert cb.moved_constants(tree) == [(cb.KERNEL_DELTA_NAME, value, value + 1_000_000_000)]
+
+
+def test_the_moved_listing_names_each_constant_where_the_cycle_reads_it(capsys, monkeypatch):
+    from engine.tools import artifact_cycle as ac
+
+    moved = [
+        ("DELTA_PEAK_BYTES", 5_500_000_000, 6_500_000_000),
+        ("TABLE_BUILD_PEAK_BYTES", 19_000_000_000, 21_000_000_000),
+    ]
+    monkeypatch.setattr(cb, "moved_constants", lambda root=cb.ROOT: moved)
+    assert cb.main(["--moved"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        out
+        == "DELTA_PEAK_BYTES: 5.50 GB at HEAD, 6.50 GB in the working tree\nTABLE_BUILD_PEAK_BYTES: 19.00 GB at HEAD, 21.00 GB in the working tree\n"
+    )
+    assert [match[1] for line in out.splitlines() if (match := ac._MOVED_CONSTANT.match(line))] == [
+        "DELTA_PEAK_BYTES",
+        "TABLE_BUILD_PEAK_BYTES",
+    ]
+
+
+def test_a_tree_that_is_not_a_checkout_has_no_measurement_cutoff(tmp_path):
+    source = tmp_path / "kernel_exec.py"
+    source.write_text("DELTA_PEAK_BYTES = 4_000_000_000\n", encoding="utf-8")
+    assert cb.constant_set_at(source, "DELTA_PEAK_BYTES", root=tmp_path) is None
+
+
+def test_the_live_tree_dates_its_constants_in_the_journals_own_stamp_shape():
+    import re
+
+    stamps = cb.read_constant_commit_times()
+    priced = {unit.name for unit in cb.UNITS if unit.constant is not None}
+    assert set(stamps) <= priced
+    for stamp in stamps.values():
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp)
+
+
+def test_the_recency_window_is_one_machines_worth_under_host_all(tmp_path, capsys):
+    """Under `--host all` the recency window is kept per host. A single global window would fill with the busiest machine's records and drop an overrun on a less active machine without reporting it."""
+    over = CONSTANTS["font-suite"] * 2
+    under = CONSTANTS["font-suite"] // 2
+    path = _journal(
+        tmp_path,
+        [_pool("font-suite", [under], at=f"2026-08-0{day}T12:00:00Z") for day in (1, 2, 3, 4)]
+        + [_pool("font-suite", [over], at="2026-01-01T12:00:00Z", host=OTHER)],
+    )
+    assert _main(path, "--host", "all", "--recent", "2", "--check") == 1
+    assert "OVERRUN" in capsys.readouterr().out
+
+
+def test_a_fleet_survey_never_claims_a_constant_is_unverified_here(tmp_path, capsys):
+    """`--host all` names no host, so the report never prints UNVERIFIED HERE. The observed line already says there are no observations."""
+    path = _journal(tmp_path, [_step("gate:make-test", CONSTANTS["font-suite"] * 50)])
+    assert _main(path, "--host", "all", "--check") == 0
+    out = capsys.readouterr().out
+    assert "UNVERIFIED HERE" not in out
+    assert "no observations in the journal" in out
+
+
+def test_the_unmeasured_lane_is_reported_and_never_checked(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("engine-contracts", [40_000_000_000])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    assert "no constant — deliberately unmeasured" in out
+    assert _unit("engine-contracts").note in out
+    assert "40.00 GB" in out
+
+
+@pytest.mark.parametrize("name", ["build-parent", "replay-absorb"])
+def test_footprint_pools_no_constant_books_are_reported_and_never_checked(tmp_path, capsys, name):
+    """run_build's own process and the string replay's settle-memo absorbs record their peak footprints under units of their own, and only their own rows read them. No constant books either, so `--check` passes at any reading and the row reports the figure."""
+    assert _unit(name).constant is None
+    assert [unit.name for unit in cb.UNITS if name in unit.pool_units] == [name]
+    path = _journal(tmp_path, [_pool(name, [40_000_000_000])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 0
+    block = out.split(f"{name}  (no constant")[1].split("\n\n")[0]
+    assert "max 40.00 GB" in block
+    assert _unit(name).note in block
+
+
+def test_tolerance_admits_a_peak_that_only_just_exceeds_the_constant(tmp_path, capsys):
+    peak = int(CONSTANTS["font-suite"] * 1.05)
+    path = _journal(tmp_path, [_pool("font-suite", [peak])])
+    assert _main(path, "--host", HOST, "--check") == 1
+    capsys.readouterr()
+    assert _main(path, "--host", HOST, "--check", "--tolerance", "0.1") == 0
+
+
+def test_a_missing_journal_reads_as_nothing_measured_rather_than_an_error(tmp_path, capsys):
+    code, out = _run(capsys, tmp_path / "absent.ndjson", "--check")
+    assert code == 0
+    assert "nothing measured" in out
+
+
+def test_the_report_states_the_width_each_constant_implies_here(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2])])
+    _, out = _run(capsys, path)
+    assert "width here" in out
+    assert "GB each out of" in out
+
+
+def test_the_width_clauses_answer_for_the_machine_and_the_tree_they_are_given(tmp_path, capsys):
+    """`render_rows` takes the machine's memory, its cores, and the source tree as arguments, so this test checks the width arithmetic against a stated machine and a fixture tree instead of the machine and checkout running the test. The conformance sweep's second width is beside the corpus build's one process, 10 GB in the tree, which keeps its core, so on twelve cores the sweep is capped at 11 beside 10 GB, and on six cores at 5. The kernel's whole wave, the memo, the tree's 3 settlement configurations' parked products, 2 delta slots and default's fold preparation, comes to 29 GB, below the rendezvous, where the 3 configurations' products read back take 10 GB each, so the build books 30 GB, which fits the 40 GB the reserve leaves of 48 GB, so all three run at once; of 36 GB the reserve leaves 28 GB, so the wave divides the 18 GB left beside the memo and the parked products by a delta slot, capped at the 2 deltas, for 26 GB. The tree's 13 GB from-scratch peak, less a parked product in place of a delta's slot, leaves the 48 GB machine room for both deltas beside `default`, where the start, 39 GB for `default` and both of them, binds over the wave's 35 GB, so both start, booked at 39 GB, though one alone would book 41 GB, its start holding the tree's 28 GB uncapped peak for `default`, whose memo the other delta reads, beside its own 13 GB: the count is the largest that fits, not the last before the first that misses. On the 36 GB machine, whose width leaves room to start only one, that one would book 41 GB where the reserve leaves 28 GB, so none starts."""
+    tree = tmp_path / "tree"
+    (tree / "engine" / "tools").mkdir(parents=True)
+    (tree / "engine" / "tools" / "artifact_cycle.py").write_text(
+        f"{cb.CORPUS_BUILD_NAME} = 10_000_000_000\n",
+        encoding="utf-8",
+    )
+    (tree / "engine" / "pipeline").mkdir(parents=True)
+    (tree / "engine" / "pipeline" / "kernel_exec.py").write_text(
+        f"{cb.KERNEL_DELTA_NAME} = 8_000_000_000\n{cb.KERNEL_MEMO_NAME} = 4_000_000_000\n"
+        f"{cb.KERNEL_PARKED_NAME} = 2_000_000_000\n{cb.KERNEL_PREPARATION_NAME} = 3_000_000_000\n"
+        f"{cb.KERNEL_SCRATCH_NAME} = 13_000_000_000\n{cb.KERNEL_UNCAPPED_NAME} = 28_000_000_000\n"
+        f"{cb.KERNEL_READ_BACK_NAME} = 10_000_000_000\n",
+        encoding="utf-8",
+    )
+    (tree / cb.CONFORM_SOURCE).write_text(
+        'SETTLEMENT_CONFIGS = ("a", "b", "c")\nOVERLAY_CONFIGS = ("d",)\nCOSMETIC_CONFIGS = ()\n',
+        encoding="utf-8",
+    )
+    rows = cb.build_rows(
+        [], {}, constants=CONSTANTS, host=HOST, recent=20, tolerance=0.0, constant_commit_times={}
+    )
+    out = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=12, root=tree))
+    assert "48.00 GB total" in out
+    assert (
+        "its delta wave runs all 3 settlement configurations at once, booked at 30.00 GB of the 40.00 GB the reserve leaves of 48.00 GB ("
+        in out
+    )
+    assert "every width is booked at no less than the rendezvous, 30.00 GB (READ_BACK_FOLD_BYTES" in out
+    assert (
+        "it starts at most 2 of the heaviest deltas from scratch beside default, in whole tiers, booked at 39.00 GB"
+        in out
+    )
+    narrow = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=36_000_000_000, cores=12, root=tree))
+    assert (
+        "its delta wave runs 2 at 8.00 GB each out of 36.00 GB total, less a reserve of 8.00 GB, less 10.00 GB co-resident, capped at 2 ("
+        in narrow
+    )
+    assert "it starts no delta from scratch beside default" in narrow
+    assert (
+        "the font suite takes the cores this process may run on (12) by hand and the gate lane's share (6) under a cycle whose build lane runs, not the division"
+        in out
+    )
+    sweep_block = out.split("\nconform-sweep  ")[1].split("\n\n")[0]
+    sweep_width = next(line for line in sweep_block.splitlines() if line.startswith("  width here: "))
+    idle, beside = sweep_width.split(" with the build lane idle, and ")
+    assert idle.endswith("capped at 12")
+    assert (
+        "less 10.00 GB co-resident, capped at 11 beside the corpus build's one process (CORPUS_BUILD_BYTES)"
+        in beside
+    )
+    replay = memory_budget.describe_fit(CONSTANTS["replay-walk"], cap=3, total_bytes=48_000_000_000)
+    assert f"a bare run_build walks {replay}, nothing co-resident" in out
+    deep = memory_budget.describe_fit(CONSTANTS["deep-replay-walk"], cap=12, total_bytes=48_000_000_000)
+    assert f"`make replay-deep` walks {deep}, one unit a crate process" in out
+    land_block = out.split("\nland  ")[1].split("\n\n")[0]
+    assert "it is below CORPUS_BUILD_BYTES (10.00 GB), what the build-lane step before it holds" in land_block
+    small = "\n".join(cb.render_rows(rows, host=HOST, total_bytes=48_000_000_000, cores=6, root=tree))
+    small_block = small.split("\nconform-sweep  ")[1].split("\n\n")[0]
+    small_width = next(line for line in small_block.splitlines() if line.startswith("  width here: "))
+    _idle, small_beside = small_width.split(" with the build lane idle, and ")
+    assert "capped at 5 beside the corpus build's one process" in small_beside
+
+
+def test_a_check_that_cannot_run_exits_apart_from_one_that_tripped(tmp_path, capsys, monkeypatch):
+    """The cycle treats exit 1 as a measured overrun and prints a diff of the constants. A renamed constant makes the tool raise, and that failure must exit 2 so the cycle does not report it as an overrun."""
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("conftest.py defines no FONT_SUITE_WORKER_BYTES")
+
+    monkeypatch.setattr(cb, "read_constants", boom)
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] // 2])])
+    assert _main(path, "--host", HOST, "--check") == 2
+    assert "FONT_SUITE_WORKER_BYTES" in capsys.readouterr().err
+
+
+def test_an_overrun_that_only_just_clears_the_constant_never_reads_as_no_overrun(tmp_path, capsys):
+    """The margin is rounded to a whole percent, so a peak just past its constant would print "by 0%" beside a failing exit. The report prints "by less than 1%" instead."""
+    peak = int(CONSTANTS["font-suite"] * 1.003) + 1
+    path = _journal(tmp_path, [_pool("font-suite", [peak])])
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    assert "by less than 1%" in out
+    assert "by 0%" not in out
+
+
+def test_the_default_view_never_exits_nonzero(tmp_path, capsys):
+    path = _journal(tmp_path, [_pool("font-suite", [CONSTANTS["font-suite"] * 2])])
+    code, out = _run(capsys, path)
+    assert code == 0
+    assert "OVERRUN" in out
+
+
+def _run_record(host, *, cores, total, at="2026-08-20T12:00:00Z", run=None):
+    return {
+        "format": "ams-cycle-timings/1",
+        "kind": "run",
+        "run": run or f"run-{host}-{at}",
+        "host": host,
+        "cpu_count": cores,
+        "mem_total_bytes": total,
+        "finished_at": at,
+    }
+
+
+def _block(out, name):
+    return next(block for block in out.split("\n\n") if block.startswith(f"{name}  "))
+
+
+def _proposal(block):
+    return next(line for line in block.splitlines() if line.startswith("  proposal  : "))
+
+
+def test_a_proposal_is_the_highest_reading_times_its_headroom_rounded_up_to_the_quantum():
+    assert cb.proposed_constant(525_000_000, 1.25, 10_000_000) == 660_000_000
+    assert cb.proposed_constant(670_000_000, 1.25, 100_000_000) == 900_000_000
+    assert cb.proposed_constant(4_010_000_000, 1.25, 1_000_000_000) == 6_000_000_000
+    assert cb.proposed_constant(240_000_000, 1.25, 100_000_000) == 300_000_000
+    assert cb.proposed_constant(280_000_000, 1.0, 100_000_000) == 300_000_000
+
+
+def test_each_units_rule_is_the_one_its_constants_comment_states():
+    """A unit's `headroom` and `quantum` restate the rule its constant's comment sets it by, and no test of the arithmetic reads them, so a typo here would propose values no comment argues for. The kernel-build row is the one checked constant without a rule."""
+    assert {unit.name: (unit.headroom, unit.quantum) for unit in cb.UNITS if unit.constant is not None} == {
+        "font-suite": (1.0, 100_000_000),
+        "kernel-build": (None, None),
+        "replay-walk": (1.25, 100_000_000),
+        "conform-sweep": (1.25, 100_000_000),
+        "land": (1.25, 100_000_000),
+        "corpus-build": (1.25, 100_000_000),
+        "deep-replay-walk": (1.25, 100_000_000),
+    }
+
+
+def test_a_reading_that_has_used_the_headroom_proposes_a_raise_before_any_overrun(tmp_path, capsys):
+    """A peak at the constant fits it, so `--check` passes, but the constant's rule would set it higher from that peak: the row proposes the raised value, marked as headroom used. A peak whose product with the headroom still fits proposes nothing. No peak proposes a value at or below the constant."""
+    unit = _unit("replay-walk")
+    assert unit.headroom is not None and unit.quantum is not None
+    constant = CONSTANTS["replay-walk"]
+    used = _journal(tmp_path, [_pool("replay-walk", [constant])])
+    code, out = _run(capsys, used, "--check")
+    assert code == 0
+    proposal = _proposal(_block(out, "replay-walk"))
+    raised = cb.proposed_constant(constant, unit.headroom, unit.quantum)
+    assert raised > constant
+    assert proposal.startswith(
+        f"  proposal  : REPLAY_PEAK_BYTES at {cb.format_gb(raised)} GB (max {cb.format_gb(constant)} GB × 1.25, rounded up to a multiple of 0.10 GB), headroom used, not yet an overrun; width here at {cb.format_gb(raised)} GB: "
+    )
+    assert "though one has used its headroom" in out
+    roomy = _journal(tmp_path, [_pool("replay-walk", [constant * 4 // 5])])
+    _, out = _run(capsys, roomy)
+    assert "proposal" not in out
+    for fraction in (0.5, 0.8, 0.81, 1.0, 1.3):
+        rows = cb.build_rows(
+            [_pool("replay-walk", [int(constant * fraction)])],
+            {},
+            constants=CONSTANTS,
+            host=HOST,
+            recent=20,
+            tolerance=0.0,
+            constant_commit_times={},
+        )
+        row = next(row for row in rows if row.unit.name == "replay-walk")
+        assert row.proposal is None or row.proposal > constant
+
+
+def test_the_kernel_build_row_proposes_no_value_and_names_the_constants_to_re_measure(tmp_path, capsys):
+    """The kernel-build row reads the whole table build, which the kernel constants bound together, so no reading of it sets any of them, and an overrun there proposes no value and names what to re-measure."""
+    path = _journal(tmp_path, [_step("build", CONSTANTS["kernel-build"] * 2)])
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    proposal = _proposal(_block(out, "kernel-build"))
+    assert proposal.startswith("  proposal  : no value — ")
+    assert cb.KERNEL_DELTA_NAME in proposal and "DEFAULT_MEMO_BYTES" in proposal
+    assert f"{cb.KERNEL_PARKED_NAME} and {cb.KERNEL_READ_BACK_NAME} together" in proposal
+    assert " GB" not in proposal
+
+
+def test_a_fleet_survey_states_the_proposals_width_on_each_host_in_the_window(tmp_path, capsys):
+    """Under `--host all` the proposal repeats the width clause for each host with a reading in the window, from the cores and memory that host's newest run record states, and says so when no run record states them."""
+    constant = CONSTANTS["replay-walk"]
+    third = "third.local"
+    path = _journal(
+        tmp_path,
+        [
+            _run_record(HOST, cores=8, total=16_000_000_000, at="2026-08-01T00:00:00Z"),
+            _run_record(HOST, cores=10, total=34_359_738_368, at="2026-08-02T00:00:00Z"),
+            _run_record(OTHER, cores=18, total=51_539_607_552),
+            _pool("replay-walk", [constant]),
+            _pool("replay-walk", [constant // 2], host=OTHER),
+            _pool("replay-walk", [constant // 2], host=third),
+        ],
+    )
+    assert _main(path, "--host", "all") == 0
+    lines = _block(capsys.readouterr().out, "replay-walk").splitlines()
+    at = next(line for line in lines if line.startswith("  proposal  : ")).split(" at ")[1].split(" (")[0]
+    assert f"  on {HOST} (10 cores, 34.36 GB) at {at}: " in "\n".join(lines)
+    assert f"  on {OTHER} (18 cores, 51.54 GB) at {at}: " in "\n".join(lines)
+    ours = next(line for line in lines if line.startswith(f"  on {HOST} "))
+    assert "out of 34.36 GB total" in ours
+    assert f"  on {third}: no run record from this host states its cores and memory" in lines
+
+
+def test_the_cycle_quotes_the_proposal_of_a_tripped_row_and_never_of_one_that_only_used_its_headroom(
+    tmp_path, capsys
+):
+    from engine.tools import artifact_cycle as ac
+
+    path = _journal(
+        tmp_path,
+        [
+            _pool("conform-sweep", [CONSTANTS["conform-sweep"] * 2]),
+            _pool("replay-walk", [CONSTANTS["replay-walk"]]),
+        ],
+    )
+    code, out = _run(capsys, path, "--check")
+    assert code == 1
+    quoted = [match[1] for line in out.splitlines() if (match := ac._TRIPPED_PROPOSAL.match(line))]
+    assert quoted == [_proposal(_block(out, "conform-sweep")).removeprefix("  proposal  : ")]
+    assert quoted[0].startswith("CONFORM_SWEEP_UNIT_BYTES at ")

@@ -1,0 +1,223 @@
+{
+ "format": "ams-review-manifest/2",
+ "mode": "table-diff",
+ "generated_at": "2026-11-26T00:00:00Z",
+ "repo_head": "fixture",
+ "inputs_fingerprint": {
+  "snapshot": "fixture-snapshot",
+  "tables": "fixture-tables",
+  "font_inputs": "fixture-font-inputs",
+  "review_code": "fixture-review-code",
+  "static": "fixture-static"
+ },
+ "source": {
+  "snapshot": "var/keep/review-snapshot/fixture",
+  "new": "engine/out/build"
+ },
+ "baseline": {
+  "commit": "fixture",
+  "taken_at": "2026-11-25T00:00:00Z",
+  "digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "present": true
+ },
+ "fonts": {
+  "before": {
+   "file": "fonts/before.otf",
+   "family": "AMS Review Before",
+   "source": "var/keep/review-snapshot/fixture/Senior-Regular.otf",
+   "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+   "upem": 550
+  },
+  "after": {
+   "file": "fonts/after.otf",
+   "family": "AMS Review After",
+   "source": "engine/out/build/Senior-Regular.otf",
+   "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+   "upem": 550
+  }
+ },
+ "alphabet": {
+  "migrated": 44,
+  "total": 44
+ },
+ "configs": [
+  "default",
+  "ss03",
+  "ss04",
+  "ss05",
+  "ss03+ss05",
+  "ss07",
+  "ss08"
+ ],
+ "feature_descriptions": {
+  "ss02": "allow \u00b7I\u00b7Tea to join at the Short height",
+  "ss03": "let letters join to a full-size \u00b7Tea at the x-height",
+  "ss04": "allow \u00b7It to join at the baseline on both sides",
+  "ss05": "allow \u00b7Tea to join at the baseline on both sides",
+  "ss06": "use gapped \u00b7Owe (doesn\u2019t connect at the top)",
+  "ss07": "allow \u00b7Owe\u00b7Day to join at the x-height again",
+  "ss08": "write \u00b7Key\u00b7Utter\u00b7May as The Manual does: no join after \u00b7Key, then the alternate \u00b7Utter",
+  "ss10": "suppress all joins for the wrapped letter(s)"
+ },
+ "batch_size": 5,
+ "human_unit_ids": [
+  "u-AZd95bckcbg",
+  "u-MG7BYctpZgY",
+  "u-BzEBRDeYbuP",
+  "u-MZiMjJpq1Tt",
+  "u-51MZrbcA5zc",
+  "u-LtadFU2dmvz"
+ ],
+ "totals": {
+  "units": 9,
+  "rows": 15,
+  "batches": 2
+ },
+ "machine_approved": {
+  "units": 1,
+  "rows": 4,
+  "method": "Shaped with uharfbuzz in both fixture fonts, kern-neutral, under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, placed, sorted, and compared.",
+  "by_class": {
+   "settlement": 1
+  },
+  "checks": {
+   "ink_identical": {
+    "units": 1,
+    "rows": 1,
+    "method": "Shaped with uharfbuzz in both fixture fonts, kern-neutral, under every config in the unit's set; outlines decomposed with fontTools DecomposingRecordingPen, placed, sorted, and compared."
+   },
+   "picture_identical": {
+    "units": 0,
+    "rows": 0,
+    "method": "Not ink-identical, but both fixture fonts fill exactly the same pixel-grid cells under every config in the unit's set; only which glyph owns each pixel differs."
+   }
+  }
+ },
+ "table_rows": {
+  "default": {
+   "settlement": {
+    "changed": 2
+   },
+   "joins": {
+    "added": 2,
+    "removed": 2
+   },
+   "letters": 3,
+   "texts": 120
+  }
+ },
+ "font_changes": {
+  "glyphs": {
+   "outline": 2
+  },
+  "kern": {
+   "changed": 1
+  }
+ },
+ "classes": [
+  {
+   "id": "joins",
+   "title": "Joins",
+   "summary": "Two settled cells meet differently: a pair the accepted build joins or breaks is gone, a new pair appears, or a pair's junction or extension moves.",
+   "section": "open-questions",
+   "no_verdict": false,
+   "why": "A join row is the junction and extension the tables give two adjacent cells. Each unit is one changed row with a text that holds the pair side by side in the font of each side the row exists on.",
+   "unit_count": 3,
+   "row_count": 6,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/joins.json"
+   ],
+   "batches": [
+    0
+   ]
+  },
+  {
+   "id": "settlement",
+   "title": "Settlement",
+   "summary": "A letter settles to a different cell than in the accepted build after the same neighbor, or its rules changed with nothing visible.",
+   "section": "open-questions",
+   "no_verdict": false,
+   "why": "Each unit is one substitution, a letter after its left neighbor settling to another cell, found by shaping the certificates of the letter's rules and every text of at most three letters that holds it in both fonts. A letter whose rules changed and that no such text shows differently is a unit of its own, machine-approved when every candidate draws alike.",
+   "unit_count": 2,
+   "row_count": 4,
+   "machine_approved_count": 1,
+   "machine_checks": {
+    "ink_identical": 1,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/settlement.json"
+   ],
+   "batches": [
+    0
+   ]
+  },
+  {
+   "id": "glyphs",
+   "title": "Glyphs",
+   "summary": "A glyph draws differently than in the accepted build: its outline, its advance and sidebearing, or its cursive anchors moved, with the tables unchanged.",
+   "section": "open-questions",
+   "no_verdict": false,
+   "why": "Each unit is one glyph both fonts have whose drawing differs, shown in the shortest certificate that settles to it, else its code point alone, else a kerning-inventory text that holds it. Glyphs outside Quikscript are listed under the group non-quikscript.",
+   "unit_count": 2,
+   "row_count": 2,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/glyphs.json"
+   ],
+   "batches": [
+    0,
+    1
+   ]
+  },
+  {
+   "id": "kerning",
+   "title": "Kerning",
+   "summary": "A facing pair is kerned by another value than in the accepted build; judged in the kerning view.",
+   "section": "no-review-needed",
+   "no_verdict": true,
+   "why": "Each unit is one facing pair whose kern value moved, drawn with kerning on in its kerning-inventory text. Kern values are authored and judged in the kerning view (the header's Kerning button), so these take no verdict here.",
+   "unit_count": 1,
+   "row_count": 1,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/kerning.json"
+   ],
+   "batches": []
+  },
+  {
+   "id": "provenance-only",
+   "title": "Provenance only",
+   "summary": "A letter's rules credit other records and settle as before; nothing to judge.",
+   "section": "no-review-needed",
+   "no_verdict": true,
+   "why": "These letters' settlement rows keep their keys, outcomes and joint flags and differ only in the records they name, so no text renders differently.",
+   "unit_count": 1,
+   "row_count": 2,
+   "machine_approved_count": 0,
+   "machine_checks": {
+    "ink_identical": 0,
+    "picture_identical": 0
+   },
+   "shards": [
+    "units/provenance-only.json"
+   ],
+   "batches": []
+  }
+ ],
+ "build_command": "uv run python -m engine.review.build",
+ "serve_command": "uv run python -m engine.review.serve"
+}

@@ -1,4 +1,4 @@
-"""When the namer dot (·) starts a word whose first letter is Short, it drops one pixel so it is centered on that letter. The substitution is in `calt` and exists only in the proportional fonts (Senior and Junior). Mono keeps Departure Mono's single dot. `emit_gsub.namer_dot_lookup` in rebuild/pipeline/emit_gsub.py writes the lookup, and `build_family` writes Junior's copy of it."""
+"""When the namer dot (·) starts a word whose first letter is Short, it drops one pixel so it is centered on that letter. The substitution is in `calt` and exists only in the proportional fonts (Senior and Junior). Mono keeps Departure Mono's single dot. `emit_gsub.namer_dot_lookup` in engine/pipeline/emit_gsub.py writes the lookup, and `build_family` writes Junior's copy of it."""
 
 from functools import cache
 from pathlib import Path

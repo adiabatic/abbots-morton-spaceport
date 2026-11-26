@@ -1,0 +1,1712 @@
+"""Tests for spec_load: the checked-in spec loads with predicate-class and group memberships that match a re-derivation from the raw YAML, schema validation preserves the closed vocabulary and YAML types, and errors carry file, path, and line."""
+
+import itertools
+import json
+import textwrap
+import warnings
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+import yaml
+
+from engine.pipeline import conform, fixtures, model, spec_load
+from engine.pipeline.model import Condition, PolicyRecord
+from engine.pipeline.spec_load import SpecError, SpecWarning, load_default_spec, load_spec
+
+MINI_SPEC = fixtures.mini_spec()
+
+MINIMAL_REGISTRY = textwrap.dedent("""\
+    heights: {baseline: 0, x-height: 5, y6: 6, top: 8}
+    boundary_tokens:
+      space: {codepoint: 0x0020, splits_runs: true}
+    features:
+      ss04: {kind: capability, description: "test capability"}
+    predicate_classes:
+      can-enter-at-baseline: {can_enter_at: baseline}
+    families:
+      qsDay: {codepoint: 0xE653}
+      qsMay: {codepoint: 0xE665}
+      qsIt: {codepoint: 0xE670}
+    """)
+
+MINIMAL_RUNE = textwrap.dedent("""\
+    rune: qsIt
+    codepoint: 0xE670
+    ductus:
+      sole: |
+        A vertical stroke.
+    stances:
+      sole:
+        motion: sole
+        bitmap:
+        - "#"
+        - "#"
+        - "#"
+        - "#"
+        - "#"
+        - "#"
+        surface:
+          entries:
+            baseline: {x: 0}
+          exits:
+            baseline: {x: 1, unjoined: safe}
+    """)
+
+
+def write_spec(
+    tmp_path: Path, rune_texts: dict[str, str], registry: str = MINIMAL_REGISTRY
+) -> tuple[Path, Path]:
+    runes_dir = tmp_path / "runes"
+    runes_dir.mkdir(exist_ok=True)
+    for name, text in rune_texts.items():
+        (runes_dir / f"{name}.yaml").write_text(text)
+    registry_path = tmp_path / "script.yaml"
+    registry_path.write_text(registry)
+    return runes_dir, registry_path
+
+
+def load_tmp_spec(tmp_path: Path, rune_texts: dict[str, str], registry: str = MINIMAL_REGISTRY):
+    runes_dir, registry_path = write_spec(tmp_path, rune_texts, registry)
+    return load_spec(runes_dir, registry_path, spec_load.DEFAULT_SCHEMA_DIR)
+
+
+def load_tmp_error(tmp_path: Path, rune_texts: dict[str, str], registry: str = MINIMAL_REGISTRY) -> SpecError:
+    with pytest.raises(SpecError) as caught:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SpecWarning)
+            load_tmp_spec(tmp_path, rune_texts, registry)
+    return caught.value
+
+
+@pytest.fixture(scope="module")
+def spec():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        return load_default_spec()
+
+
+def test_loads_the_rune_files(spec):
+    assert set(spec.runes) == {path.stem for path in spec_load.DEFAULT_RUNES_DIR.glob("*.yaml")}
+    assert set(spec.runes["qsMay"].stances) == {"loop", "grounded-loop"}
+    assert set(spec.runes["qsTea"].stances) == {"full", "half"}
+    assert spec.runes["qsTea"].stances["half"].traits == ("half",)
+    assert spec.runes["qsPea"].stances["half"].traits == ("half",)
+    assert spec.runes["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
+    assert spec.runes["qsTea_qsOy"].codepoint is None
+    assert spec.runes["qsIt"].mono is not None
+    assert spec.runes["qsTea_qsOy"].notes is not None
+
+
+def test_ductus_prose_survives_loading(tmp_path):
+    prose = "- Either written from top to bottom or bottom to top."
+    text = MINIMAL_RUNE.replace("A vertical stroke.", prose)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        loaded = load_tmp_spec(tmp_path, {"qsIt": text})
+    assert loaded.runes["qsIt"].ductus["sole"].strip() == prose
+
+
+def test_registry_contents(spec):
+    registry = spec.registry
+    assert registry.heights == {"baseline": 0, "x-height": 5, "y6": 6, "top": 8}
+    assert registry.boundary_tokens["zwnj"].codepoint == 0x200C
+    assert registry.boundary_tokens["namer-dot"].splits_runs is False
+    assert registry.features["ss10"].kind == "taste"
+    assert registry.features["ss08"].kind == "taste" and registry.features["ss08"].overlay is None
+    assert registry.interactions == (("ss03", "ss05"),)
+    assert registry.families["qsOoze"].codepoint == 0xE67E
+    assert registry.families["qsTea_qsOy"].sequence == ("qsTea", "qsOy")
+
+
+def _resolved_stance_satisfies(expression: dict, rune: model.Rune, stance: model.Stance) -> bool:
+    if "can_enter_at" in expression:
+        row = stance.surface.entries.get(expression["can_enter_at"])
+        return row is not None and row.selectable
+    if "can_exit_at" in expression:
+        return expression["can_exit_at"] in stance.surface.exits
+    if "trait" in expression:
+        return expression["trait"] in stance.traits
+    if "height_class" in expression:
+        if rune.sequence is not None:
+            return False
+        shapes = {"tall": (9, 0), "short": (6, 0), "deep": (9, -3)}
+        return (len(stance.bitmap.rows), stance.bitmap.y_offset) == shapes[expression["height_class"]]
+    if "stroke_at" in expression:
+        for wanted, rows in (
+            (expression["stroke_at"].get("entry"), stance.surface.entries),
+            (expression["stroke_at"].get("exit"), stance.surface.exits),
+        ):
+            if wanted is not None and not any(row.stroke == wanted for row in rows.values()):
+                return False
+        return True
+    if "all" in expression:
+        return all(_resolved_stance_satisfies(sub, rune, stance) for sub in expression["all"])
+    if "union" in expression:
+        return any(_resolved_stance_satisfies(sub, rune, stance) for sub in expression["union"])
+    raise ValueError(f"unsupported predicate-class expression {expression!r}")
+
+
+def test_predicate_class_membership(spec):
+    declared = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())["predicate_classes"]
+    assert set(spec.registry.predicate_classes) == set(declared)
+    for class_name, expression in declared.items():
+        derived = {
+            rune.name
+            for rune in spec.runes.values()
+            if any(_resolved_stance_satisfies(expression, rune, stance) for stance in rune.stances.values())
+        }
+        assert spec.registry.predicate_classes[class_name] == derived, class_name
+
+
+def test_group_resolution(spec):
+    for path in sorted(spec_load.DEFAULT_RUNES_DIR.glob("*.yaml")):
+        raw = yaml.safe_load(path.read_text())
+        raw_groups = ((raw.get("policy") or {}).get("groups")) or {}
+        resolved = spec.runes[raw["rune"]].policy.groups
+        assert set(resolved) == set(raw_groups), raw["rune"]
+        for group_name, group in raw_groups.items():
+            members: set[str] = set()
+            for atom in group.get("union") or ():
+                families = spec_load._as_tuple(atom.get("family"))
+                members.update(families)
+                members.update(
+                    name
+                    for name, rune in spec.runes.items()
+                    if rune.sequence and rune.sequence[-1] in families
+                )
+                for klass in spec_load._as_tuple(atom.get("class")):
+                    members.update(spec.registry.predicate_classes[klass])
+            for atom in group.get("minus") or ():
+                if atom.get("trait") or atom.get("stance"):
+                    continue
+                members.difference_update(spec_load._as_tuple(atom.get("family")))
+                for klass in spec_load._as_tuple(atom.get("class")):
+                    members.difference_update(spec.registry.predicate_classes[klass])
+            assert resolved[group_name] == members, f"{raw['rune']}.{group_name}"
+
+
+def test_group_qualifier_warning(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          groups:
+            qualified-vetoes:
+              union: [{family: qsDay, trait: half}, family: qsMay]
+        """)
+    with pytest.warns(SpecWarning, match="family grain"):
+        load_tmp_spec(tmp_path, {"qsIt": text})
+
+
+def test_provenance_and_record_parsing(spec):
+    index, refuse = next(
+        (index, record)
+        for index, record in enumerate(spec.runes["qsIt"].policy.refuse)
+        if record.entry == "x-height" and record.when.left == Condition(family=("qsIt",))
+    )
+    assert refuse.kind == "refuse"
+    assert refuse.provenance.file == "glyph_data/runes/qsIt.yaml"
+    assert refuse.provenance.path == f"policy.refuse[{index}]"
+    assert any(
+        record.exit == "x-height" and record.by == 1 and record.when.self_entry == "live"
+        for record in spec.runes["qsMay"].policy.extend
+    )
+    assert any(
+        record.entry == "x-height"
+        and record.by == 1
+        and record.when.left == Condition(family=("qsPea", "qsTea", "qsHe", "qsOut_qsTea"))
+        for record in spec.runes["qsJai"].policy.contract
+    )
+
+
+def test_scope_condition_parsing(spec):
+    row = spec.runes["qsPea"].stances["half"].surface.exits["x-height"]
+    assert row.ink_y == 6
+    assert row.stub is not None and row.stub.cols == (3,) and row.stub.inks_when == "joined"
+    excepted = {Condition(family=(name,)) for name in ("qsTea", "qsDay", "qsFee", "qsYe", "qsNo", "qsOwe")}
+    assert any(
+        cond.klass == ("can-enter-at-x-height",) and set(cond.except_) == excepted for cond in row.scope
+    )
+    top = spec.runes["qsTea"].stances["half"].surface.entries["top"]
+    assert top.selectable is True
+    grounded = spec.runes["qsMay"].stances["grounded-loop"].surface.entries["x-height"]
+    assert grounded.joined is None and grounded.joined_x is None
+    assert grounded.x == 2
+    assert grounded.stub is not None and grounded.stub.cols == (3,) and grounded.stub.inks_when == "unjoined"
+
+
+def test_unlock_parsing(spec):
+    unlocks = spec.runes["qsIt"].stances["sole"].surface.unlocks
+    baseline_ss04 = [
+        unlock
+        for unlock in unlocks
+        if unlock.feature == "ss04"
+        and unlock.pairing is not None
+        and unlock.pairing.entry == "baseline"
+        and unlock.pairing.exit == "baseline"
+        and unlock.when is not None
+        and unlock.when.left is not None
+    ]
+    assert any(
+        not unlock.when.left.family and Condition(family=("qsCheer",)) in unlock.when.left.except_
+        for unlock in baseline_ss04
+    )
+    assert any(
+        unlock.when.left.family == ("qsCheer",)
+        and unlock.when.right is not None
+        and Condition(family=("qsThaw",)) in unlock.when.right.except_
+        for unlock in baseline_ss04
+    )
+
+
+def test_forbidden_stance_id(tmp_path):
+    text = MINIMAL_RUNE.replace("sole", "before-day")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("pen motions" in issue.message for issue in error.issues)
+    assert any("stances.before-day" in issue.path for issue in error.issues)
+
+
+def test_lone_stance_must_be_sole(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          sole: |
+            A vertical stroke.
+        stances:
+          bar:
+            motion: sole
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "single-stance rune must name its only stance 'sole'" in issue.message for issue in error.issues
+    )
+    assert any("stances.bar" in issue.path for issue in error.issues)
+
+
+def test_sole_stance_reserved_for_single_stance_rune(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          full: |
+            A vertical stroke.
+          grounded: |
+            Another vertical stroke.
+        stances:
+          full:
+            motion: full
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+          sole:
+            motion: grounded
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("reserved for the only stance" in issue.message for issue in error.issues)
+    assert any("stances.sole" in issue.path for issue in error.issues)
+
+
+def test_lone_motion_must_be_sole(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          bar: |
+            A vertical stroke.
+        stances:
+          sole:
+            motion: bar
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "single-motion ductus must name its only motion 'sole'" in issue.message for issue in error.issues
+    )
+    assert any("ductus.bar" in issue.path for issue in error.issues)
+
+
+def test_sole_motion_reserved_for_single_motion_ductus(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          full: |
+            A vertical stroke.
+          sole: |
+            Another vertical stroke.
+        stances:
+          full:
+            motion: full
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+          grounded:
+            motion: sole
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("reserved for the only motion" in issue.message for issue in error.issues)
+    assert any("ductus.sole" in issue.path for issue in error.issues)
+
+
+def test_dangling_motion(tmp_path):
+    text = MINIMAL_RUNE.replace("motion: sole", "motion: pole")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("not in the ductus" in issue.message for issue in error.issues)
+
+
+def test_realized_motion_without_stance(tmp_path):
+    text = MINIMAL_RUNE.replace("ductus:\n", "ductus:\n  pole: |\n    Another stroke.\n")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("ductus parity" in issue.message for issue in error.issues)
+
+
+def test_refuse_right_then_rejected(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {right: {family: qsDay, then: {family: qsMay}}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "right.then is forbidden" in issue.message and "decidable one position to the left" in issue.message
+        for issue in error.issues
+    )
+
+
+def test_right_chain_two_hops_accepted(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when: {right: {family: qsDay, then: {family: qsMay, then: {family: qsIt}}}}
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right:
+                family: [qsDay, qsMay]
+                except: [{family: qsDay, then: {family: qsMay, then: {family: qsIt}}}]
+        """)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": text})
+    prefer = spec.runes["qsIt"].policy.prefer
+    right = prefer[0].when.right
+    assert right is not None
+    second = right.then
+    assert second is not None
+    third = second.then
+    assert third is not None
+    assert third.family == ("qsIt",)
+
+    excepting = prefer[1].when.right
+    assert excepting is not None
+    second = excepting.except_[0].then
+    assert second is not None
+    third = second.then
+    assert third is not None
+    assert third.family == ("qsIt",)
+
+
+def test_right_chain_three_hops_accepted(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right: {family: qsDay, then: {family: qsMay, then: {family: qsIt, then: {family: qsDay}}}}
+        """)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": text})
+    right = spec.runes["qsIt"].policy.prefer[0].when.right
+    assert right is not None
+    second = right.then
+    assert second is not None
+    third = second.then
+    assert third is not None
+    fourth = third.then
+    assert fourth is not None
+    assert fourth.family == ("qsDay",)
+
+
+def test_right_chain_four_hops_rejected(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right: {family: qsDay, then: {family: qsMay, then: {family: qsIt, then: {family: qsDay, then: {family: qsMay}}}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "at most three letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        for issue in error.issues
+    )
+
+
+def test_right_chain_hops_carried_by_except_count_toward_the_cap(tmp_path):
+    rejected = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right:
+                family: qsDay
+                then:
+                  family: qsMay
+                  except: [{family: qsMay, then: {family: qsIt, then: {family: qsDay, then: {family: qsMay}}}}]
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": rejected})
+    assert any(
+        "at most three letters past" in issue.message and "policy.prefer[0].when.right" in issue.path
+        for issue in error.issues
+    )
+    accepted = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - cell: {exit: none}
+            over: {exit: baseline}
+            when:
+              right:
+                family: qsDay
+                then:
+                  family: qsMay
+                  except: [{family: qsMay, then: {family: qsIt, then: {family: qsDay}}}]
+        """)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": accepted})
+    right = spec.runes["qsIt"].policy.prefer[0].when.right
+    assert right is not None
+    second = right.then
+    assert second is not None
+    third = second.except_[0].then
+    assert third is not None
+    fourth = third.then
+    assert fourth is not None
+    assert fourth.family == ("qsDay",)
+
+
+def _right_then_chain(reach: int) -> dict:
+    node: dict = {"family": "qsIt"}
+    for _ in range(reach):
+        node = {"family": "qsDay", "then": node}
+    return node
+
+
+def _rune_with_right_chain(reach: int) -> str:
+    policy = {
+        "policy": {
+            "prefer": [
+                {
+                    "cell": {"exit": "none"},
+                    "over": {"exit": "baseline"},
+                    "when": {"right": _right_then_chain(reach)},
+                }
+            ]
+        }
+    }
+    return MINIMAL_RUNE + yaml.safe_dump(policy, sort_keys=False)
+
+
+def test_right_chain_cap_tracks_the_window_constant(tmp_path):
+    assert model.RIGHT_CHAIN_CAP == model.RIGHT_WINDOW_SLOTS - 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        spec = load_tmp_spec(tmp_path, {"qsIt": _rune_with_right_chain(model.RIGHT_CHAIN_CAP)})
+    assert spec.runes["qsIt"].policy.prefer[0].when.right is not None
+    error = load_tmp_error(tmp_path, {"qsIt": _rune_with_right_chain(model.RIGHT_CHAIN_CAP + 1)})
+    expected_word = spec_load._CAP_WORDS[model.RIGHT_CHAIN_CAP]
+    assert any(
+        f"at most {expected_word} letters past" in issue.message
+        and "policy.prefer[0].when.right" in issue.path
+        for issue in error.issues
+    )
+
+
+def test_unknown_family(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {right: {family: qsBogus}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("unknown family 'qsBogus'" in issue.message for issue in error.issues)
+
+
+def test_unknown_class(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {right: {class: never-defined}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("unknown class 'never-defined'" in issue.message for issue in error.issues)
+
+
+def test_closed_when_vocabulary(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {left2: {family: qsDay}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "unknown key 'left2'" in issue.message and "closed vocabulary" in issue.message
+        for issue in error.issues
+    )
+
+
+def test_unlock_requires_exactly_one_grant(tmp_path):
+    text = MINIMAL_RUNE.replace(
+        "      exits:\n",
+        "      unlocks:\n      - {feature: ss04, entry: baseline, exit: baseline}\n      exits:\n",
+    )
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("exactly one" in issue.message for issue in error.issues)
+
+
+def test_absolute_prefer_requires_why(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - {stance: sole, mode: absolute, when: {left: {family: qsDay}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("'why'" in issue.message for issue in error.issues)
+
+
+@pytest.mark.parametrize(
+    "record",
+    ["{stance: sole, over: {exit: baseline}}", "{over: {exit: baseline}}", "{stance: sole, over: ~}"],
+)
+def test_prefer_over_requires_a_cell(tmp_path, record):
+    text = MINIMAL_RUNE + textwrap.dedent(f"""\
+        policy:
+          prefer:
+          - {record}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        issue.path == "policy.prefer[0].cell" and issue.message == "missing required key 'cell'"
+        for issue in error.issues
+    )
+    assert any(
+        issue.path == "policy.prefer[0].over"
+        and issue.line is not None
+        and "over: takes effect only beside a cell: and needs one" in issue.message
+        for issue in error.issues
+    )
+
+
+def test_trait_qualified_except_atom_rejected(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {right: {family: qsDay, except: [{family: qsMay, trait: half}]}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("trait" in issue.message and "not representable" in issue.message for issue in error.issues)
+
+
+def test_run_splitting_boundaries_not_addressable_in_when(tmp_path):
+    """Checks that `is: zwnj` and `is: space` fail the schema's boundaryValue enum, so no record can treat letters beside a space or ZWNJ differently from the same letters at a text edge. conform.check_split_buffer checks the same property in the shaped output. The namer dot does not split runs and stays addressable."""
+    for kind in ("zwnj", "space"):
+        text = MINIMAL_RUNE + textwrap.dedent(f"""\
+            policy:
+              refuse:
+              - {{exit: baseline, when: {{left: {{is: {kind}}}}}}}
+            """)
+        error = load_tmp_error(tmp_path, {"qsIt": text})
+        enum_issues = [issue.message for issue in error.issues if f"got '{kind}'" in issue.message]
+        assert enum_issues, kind
+        assert all("'namer-dot'" in message for message in enum_issues), kind
+
+
+def test_codepoint_must_match_registry(tmp_path):
+    text = MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: 0xE671")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("disagrees with the registry" in issue.message for issue in error.issues)
+
+
+def test_ambiguous_extend_target(tmp_path):
+    text = textwrap.dedent("""\
+        rune: qsIt
+        codepoint: 0xE670
+        ductus:
+          bar: |
+            A vertical stroke.
+          pole: |
+            Another vertical stroke.
+        stances:
+          bar:
+            motion: bar
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+          pole:
+            motion: pole
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+        policy:
+          extend:
+          - {exit: baseline, by: 1, when: {right: {family: qsDay}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("refuse-to-guess" in issue.message for issue in error.issues)
+
+
+def test_errors_carry_lines_and_collect(tmp_path):
+    text = MINIMAL_RUNE.replace("motion: sole", "motion: pole") + textwrap.dedent("""\
+        policy:
+          refuse:
+          - {exit: baseline, when: {right: {family: qsBogus}}}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert len(error.issues) >= 2
+    refusal_line = text.splitlines().index("  - {exit: baseline, when: {right: {family: qsBogus}}}") + 1
+    family_issue = next(issue for issue in error.issues if "qsBogus" in issue.message)
+    assert family_issue.line == refusal_line
+    assert family_issue.file.endswith("qsIt.yaml")
+
+
+def test_duplicate_groups_flagged_across_files(tmp_path):
+    group_block = textwrap.dedent("""\
+        policy:
+          groups:
+            small-set: {union: [{family: qsDay}]}
+        """)
+    may_text = textwrap.dedent("""\
+        rune: qsMay
+        codepoint: 0xE665
+        ductus:
+          sole: |
+            A loop.
+        stances:
+          sole:
+            motion: sole
+            bitmap: ["#", "#", "#", "#", "#", "#"]
+            surface:
+              exits:
+                baseline: {x: 1, unjoined: safe}
+        """)
+    with pytest.warns(SpecWarning, match="identical membership"):
+        load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE + group_block, "qsMay": may_text + group_block})
+
+
+def test_resolve_tiebreak_form_still_rejected(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          resolve:
+          - {pick: {stance: sole}, why: Recorded tie-break.}
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any("not yet implemented" in issue.message for issue in error.issues)
+
+
+def test_rune_name_must_match_file_stem(tmp_path):
+    error = load_tmp_error(tmp_path, {"qsDay": MINIMAL_RUNE})
+    assert any("does not match its file name" in issue.message for issue in error.issues)
+
+
+BROKEN_DOCUMENTS = (
+    MINIMAL_RUNE.replace("rune: qsIt\n", ""),
+    MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: 0xE670\nsequence: [qsIt, qsDay]"),
+    MINIMAL_RUNE.replace("sole", "before-day"),
+    MINIMAL_RUNE.replace("{x: 0}", "{x: 0, anchor: 3}"),
+    MINIMAL_RUNE + "policy:\n  refuse:\n  - {exit: baseline, when: {left2: {family: qsDay}}}\n",
+    MINIMAL_RUNE
+    + "policy:\n  refuse:\n  - {exit: baseline, when: {right: {family: qsDay, then: {family: qsMay}}}}\n",
+    MINIMAL_RUNE + "policy:\n  prefer:\n  - {stance: sole, mode: absolute, when: {word: final}}\n",
+)
+
+
+def test_checked_in_documents_pass_schema_validation():
+    validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "rune.schema.json")
+    for path in sorted(spec_load.DEFAULT_RUNES_DIR.glob("*.yaml")):
+        document = yaml.safe_load(path.read_text())
+        assert not validator.check(document), path
+    script_document = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())
+    script_validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "script.schema.json")
+    assert not script_validator.check(script_document)
+
+
+def test_schema_validator_rejects_broken_documents():
+    validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "rune.schema.json")
+    for text in BROKEN_DOCUMENTS:
+        assert validator.check(yaml.safe_load(text)), text
+
+
+def test_schema_errors_collect_registry_and_rune_locations(tmp_path):
+    it = MINIMAL_RUNE.replace("codepoint: 0xE670", "codepoint: wrong")
+    may = MINIMAL_RUNE.replace("rune: qsIt", "rune: qsMay").replace("{x: 0}", "{x: 0, anchor: 3}")
+    registry = MINIMAL_REGISTRY.replace("x-height: 5", "x-height: wrong")
+    error = load_tmp_error(tmp_path, {"qsIt": it, "qsMay": may}, registry)
+    expected = {
+        ("script.yaml", "heights.x-height", 1),
+        ("qsIt.yaml", "codepoint", 2),
+        ("qsMay.yaml", "stances.sole.surface.entries.baseline.anchor", 18),
+    }
+    actual = {(Path(issue.file).name, issue.path, issue.line) for issue in error.issues}
+    assert expected <= actual
+    assert all(issue.message for issue in error.issues)
+
+
+def test_schema_missing_required_key_names_the_child(tmp_path):
+    text = MINIMAL_RUNE.replace("    motion: sole\n", "")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == "stances.sole.motion")
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == text.splitlines().index("  sole:", 6) + 1
+
+
+def test_schema_property_name_error_names_the_child_and_its_line(tmp_path):
+    text = MINIMAL_RUNE.replace("ductus:\n", "ductus:\n  Invalid: Another stroke.\n")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == "ductus.Invalid")
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == 4
+
+
+@pytest.mark.parametrize("key", ["true", "yes", "17", "+1", "1.5"])
+def test_non_string_yaml_keys_are_structured_errors_at_the_source_line(tmp_path, key):
+    text = MINIMAL_RUNE.replace("      entries:\n", f"      entries:\n        {key}: {{x: 0}}\n")
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    line = text.splitlines().index(f"        {key}: {{x: 0}}") + 1
+    issues = [issue for issue in error.issues if issue.line == line]
+    assert issues
+    assert all(Path(issue.file).name == "qsIt.yaml" for issue in issues)
+    assert any(issue.path == f"stances.sole.surface.entries.{key}" for issue in issues)
+
+
+@pytest.mark.parametrize("key", ["true", "17"])
+@pytest.mark.parametrize("placement", ["root", "stances", "ductus"])
+def test_non_string_yaml_keys_do_not_reach_the_shallow_linter(tmp_path, key, placement):
+    if placement == "root":
+        inserted = f"{key}: wrong"
+        text = MINIMAL_RUNE + inserted + "\n"
+        key_path = key
+    elif placement == "stances":
+        inserted = f'  {key}: {{motion: sole, bitmap: ["#"]}}'
+        text = MINIMAL_RUNE.replace("stances:\n", f"stances:\n{inserted}\n")
+        key_path = f"stances.{key}"
+    else:
+        inserted = f"  {key}: Another stroke."
+        text = MINIMAL_RUNE.replace("ductus:\n", f"ductus:\n{inserted}\n")
+        key_path = f"ductus.{key}"
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == key_path)
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == text.splitlines().index(inserted) + 1
+
+
+@pytest.mark.parametrize("key", ["[]", "{}"])
+def test_complex_yaml_keys_collect_source_locations_across_malformed_files(tmp_path, key):
+    it = MINIMAL_RUNE + f"? {key}\n: wrong\n"
+    may = MINIMAL_RUNE.replace("rune: qsIt", "rune: qsMay").replace(
+        "      entries:\n", f"      entries:\n        ? {key}\n        : {{x: 0}}\n"
+    )
+    error = load_tmp_error(tmp_path, {"qsIt": it, "qsMay": may})
+    expected = {
+        ("qsIt.yaml", key, it.splitlines().index(f"? {key}") + 1),
+        (
+            "qsMay.yaml",
+            f"stances.sole.surface.entries.{key}",
+            may.splitlines().index(f"        ? {key}") + 1,
+        ),
+    }
+    actual = {(Path(issue.file).name, issue.path, issue.line) for issue in error.issues}
+    assert expected <= actual
+
+
+def test_yaml_merge_keys_preserve_valid_rune_mapping_values(tmp_path):
+    text = MINIMAL_RUNE.replace("baseline: {x: 1, unjoined: safe}", "baseline: {<<: {x: 1}, unjoined: safe}")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SpecWarning)
+        loaded = load_tmp_spec(tmp_path, {"qsIt": text})
+    assert loaded.runes["qsIt"].stances["sole"].surface.exits["baseline"].x == 1
+
+
+def test_yaml_value_tag_key_reports_a_closed_vocabulary_error(tmp_path):
+    text = MINIMAL_RUNE + "=: wrong\n"
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    issue = next(issue for issue in error.issues if issue.path == "=")
+    assert Path(issue.file).name == "qsIt.yaml"
+    assert issue.line == text.splitlines().index("=: wrong") + 1
+
+
+@pytest.mark.parametrize("value", [True, False, 1.0, 1.5, "1"])
+def test_schema_integer_type_rejects_non_python_integers(value):
+    validator = spec_load._SchemaValidator({"type": "integer"}, "synthetic.schema.json")
+    assert validator.check(value)
+    assert not validator.check(1)
+
+
+@pytest.mark.parametrize("value", [True, 1.0])
+def test_schema_root_reference_preserves_strict_integer_validation(value):
+    validator = spec_load._SchemaValidator(
+        {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "integer",
+            "$defs": {"root": {"$ref": "#"}},
+        },
+        "synthetic.schema.json",
+    ).for_definition("root")
+    assert not validator.check(1)
+    assert validator.check(value)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"maximum": 10},
+        {"$defs": {"unused": {"format": "uri"}}},
+        {"properties": {"name": {"default": "name"}}},
+        {"patternProperties": {"^name": {"typo": True}}},
+        {"items": {"type": "integer", "maximum": 10}},
+        {"if": {"required": ["flag"]}, "then": {"else": {"type": "string"}}},
+    ],
+)
+def test_schema_vocabulary_is_checked_before_any_document(schema):
+    with pytest.raises(ValueError, match="unsupported JSON Schema keyword"):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+@pytest.mark.parametrize("expected_type", ["number", "null", ["integer", "string"]])
+def test_schema_type_vocabulary_is_closed(expected_type):
+    with pytest.raises(ValueError, match="unsupported.*type"):
+        spec_load._SchemaValidator({"type": expected_type}, "synthetic.schema.json")
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"$schema": "http://json-schema.org/draft-07/schema#"},
+        {"$defs": {"unused": {"$id": "https://example.invalid/child.schema.json"}}},
+        {"properties": {"value": {"$schema": "https://json-schema.org/draft/2020-12/schema"}}},
+    ],
+)
+def test_schema_validation_dialect_and_reference_scope_are_fixed(schema):
+    with pytest.raises(ValueError):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+def test_schema_member_names_are_not_schema_keywords():
+    names = ("type", "title", "description", "$id", "default", "otherwise")
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {name: {"$ref": f"#/$defs/{name}"} for name in names},
+        "$defs": {name: {"type": "integer"} for name in names},
+    }
+    validator = spec_load._SchemaValidator(schema, "synthetic.schema.json")
+    assert not validator.check({name: 1 for name in names})
+    assert validator.check({"description": "wrong"})
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "#/$defs/missing",
+        "#/properties/missing",
+        "#named-anchor",
+        "#%2F%24defs%2Fvalue",
+        "other.schema.json#/$defs/value",
+        "https://example.invalid/schema.json#/$defs/value",
+        "file:///schema.json#/$defs/value",
+    ],
+)
+def test_schema_references_must_resolve_locally_at_construction(reference):
+    schema = {"$defs": {"value": {"type": "integer"}, "unused": {"$ref": reference}}}
+    with pytest.raises(ValueError, match="ref|reference"):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"required": ["value"], "$ref": "#/required/0"},
+        {"allOf": [{"$ref": "other.schema.json#/$defs/value"}]},
+        {"anyOf": [{"$ref": "#/$defs/missing"}, {"type": "integer"}]},
+    ],
+)
+def test_schema_reference_guard_visits_combinators_and_rejects_data_targets(schema):
+    with pytest.raises(ValueError, match="ref|reference"):
+        spec_load._SchemaValidator(schema, "synthetic.schema.json")
+
+
+def test_schema_closed_pattern_properties_report_each_unknown_child():
+    validator = spec_load._SchemaValidator(
+        {
+            "type": "object",
+            "patternProperties": {"^allowed-": {"type": "integer"}},
+            "additionalProperties": False,
+        },
+        "synthetic.schema.json",
+    )
+    errors = validator.check({"allowed-value": 1, "unexpected": 2, "another": 3})
+    assert {path for path, _message in errors} == {"unexpected", "another"}
+    assert len(errors) == 2
+
+
+def test_schema_property_name_combinator_reports_the_invalid_child():
+    validator = spec_load._SchemaValidator(
+        {"type": "object", "propertyNames": {"anyOf": [{"pattern": "^allowed-"}, {"const": "other"}]}},
+        "synthetic.schema.json",
+    )
+    assert not validator.check({"allowed-value": 1, "other": 2})
+    assert {path for path, _message in validator.check({"unexpected": 1})} == {"unexpected"}
+
+
+def test_schema_local_json_pointers_resolve_escaped_names_and_non_definition_paths():
+    schema = {
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "pattern": "^valid$"},
+            "copy": {"$ref": "#/properties/source"},
+            "escaped": {"$ref": "#/$defs/slash~1name~0"},
+            "encoded": {"$ref": "#/$defs/%73lash~1name~0"},
+        },
+        "$defs": {"slash/name~": {"type": "integer"}},
+    }
+    validator = spec_load._SchemaValidator(schema, "synthetic.schema.json")
+    assert not validator.check({"copy": "valid", "escaped": 1, "encoded": 2})
+    paths = {
+        path for path, _message in validator.check({"copy": "wrong", "escaped": "wrong", "encoded": "wrong"})
+    }
+    assert paths == {"copy", "escaped", "encoded"}
+    assert not validator.for_definition("slash/name~").check(1)
+    assert validator.for_definition("slash/name~").check("wrong")
+
+
+def test_schema_reference_siblings_and_standard_value_equality():
+    validator = spec_load._SchemaValidator(
+        {"$defs": {"positive": {"type": "integer", "minimum": 1}}, "$ref": "#/$defs/positive", "const": 2},
+        "synthetic.schema.json",
+    )
+    assert not validator.check(2)
+    assert validator.check(1)
+    assert validator.check(0)
+    assert spec_load._SchemaValidator({"const": True}, "synthetic.schema.json").check(1)
+    assert spec_load._SchemaValidator({"enum": [1]}, "synthetic.schema.json").check(True)
+
+
+@pytest.mark.parametrize(
+    ("schema", "valid", "invalid"),
+    [
+        ({"anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^x$"}]}, "x", "y"),
+        ({"oneOf": [{"type": "integer"}, {"minimum": 1}]}, -1, 1),
+        ({"allOf": [{"type": "integer"}, {"minimum": 1}]}, 1, 0),
+        ({"type": "integer", "not": {"const": 1}}, 2, 1),
+        (
+            {"type": "object", "if": {"required": ["flag"]}, "then": {"required": ["value"]}},
+            {"flag": True, "value": 1},
+            {"flag": True},
+        ),
+    ],
+)
+def test_schema_combinators_and_conditions_apply_standard_validation(schema, valid, invalid):
+    validator = spec_load._SchemaValidator(schema, "synthetic.schema.json")
+    assert not validator.check(valid)
+    assert validator.check(invalid)
+
+
+def test_schema_loader_shares_unchanged_validation_and_reloads_changed_bytes(tmp_path):
+    schema_path = tmp_path / "synthetic.schema.json"
+    schema_path.write_text(json.dumps({"type": "integer"}))
+    first = spec_load._load_schema(tmp_path, schema_path.name)
+    assert spec_load._load_schema(tmp_path, schema_path.name) is first
+    schema_path.write_text(json.dumps({"type": "string"}))
+    second = spec_load._load_schema(tmp_path, schema_path.name)
+    assert second is not first
+    assert second.check(1)
+    assert not second.check("value")
+    schema_path.write_text(json.dumps({"type": "integer"}))
+    assert spec_load._load_schema(tmp_path, schema_path.name) is first
+
+
+def test_schema_loader_records_each_schema_read_even_when_validation_is_cached(tmp_path, monkeypatch):
+    schema_path = tmp_path / "synthetic.schema.json"
+    schema_path.write_text(json.dumps({"type": "integer"}))
+    first = spec_load._load_schema(tmp_path, schema_path.name)
+    original = Path.read_text
+    reads: list[Path] = []
+
+    def record_read(path: Path, *args, **kwargs) -> str:
+        reads.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", record_read)
+    assert spec_load._load_schema(tmp_path, schema_path.name) is first
+    assert schema_path in reads
+
+
+def test_ligature_transparency_expands_left_facing_family_lists(spec):
+    """A family in an entry from-scope or a when.left also matches every registered ligature whose sequence ends in it. Toward-scopes, when.right, and except: lists stay literal, and a ligature's predicate-class membership comes from its own surface. `specificity.rs`'s `a_ligature_family_name_ranks_as_an_ordinary_family` tests that a literal ligature name still outranks an expanded list that contains it."""
+    half_from = spec.runes["qsPea"].stances["half"].surface.entries["x-height"].scope
+    utter_cond = next(cond for cond in half_from if "qsUtter" in cond.family)
+    assert "qsDay_qsUtter" in utter_cond.family
+    assert "qsSee_qsUtter" in utter_cond.family
+
+    alt_from = spec.runes["qsUtter"].stances["alternate"].surface.entries["x-height"].scope
+    alt_utter_cond = next(cond for cond in alt_from if "qsUtter" in cond.family)
+    assert set(alt_utter_cond.family) >= {"qsUtter", "qsDay_qsUtter", "qsSee_qsUtter"}
+
+    follower_prefer = next(
+        record for record in spec.runes["qsIt"].policy.prefer if record.id == "withhold-before-no-after-oy"
+    )
+    assert follower_prefer.when.left is not None
+    assert set(follower_prefer.when.left.family) == {"qsOy", "qsTea_qsOy"}
+    assert follower_prefer.when.right is not None and follower_prefer.when.right.family == ("qsNo",)
+
+    tea_half_from = spec.runes["qsTea"].stances["half"].surface.entries["x-height"].scope
+    assert any(atom.family == ("qsDay_qsUtter",) for cond in tea_half_from for atom in cond.except_)
+
+    assert any(
+        record.when.right is not None
+        and "qsZoo" in record.when.right.family
+        and "qsThey_qsZoo" not in record.when.right.family
+        for record in spec.runes["qsPea"].policy.refuse
+    )
+
+    classes = spec.registry.predicate_classes
+    assert "qsSee_qsUtter" not in classes.get("can-exit-at-baseline", frozenset())
+    assert "qsTea_qsOy" in classes.get("can-exit-at-baseline", frozenset())
+
+
+def _policy_records(spec):
+    for rune_name, rune in spec.runes.items():
+        for kind in ("refuse", "prefer", "extend", "contract", "resolve"):
+            for index, record in enumerate(getattr(rune.policy, kind)):
+                yield f"{rune_name}.{kind}[{index}]", record
+
+
+def _except_entries(condition, found):
+    """Appends to `found` every (parent, except entry) pair under one condition, through its then: hops and each entry's own chain."""
+    if condition is None:
+        return found
+    for atom in condition.except_:
+        found.append((condition, atom))
+        _except_entries(atom, found)
+    return _except_entries(condition.then, found)
+
+
+def test_every_except_entry_names_only_its_parents_families(spec):
+    """Checks that every except: entry anywhere in a live record's left or right condition, including one under a then: hop or inside another entry's chain, names only families from its parent's family list when the parent has one. An except: entry tests its parent's slot, so a family its parent does not name can never change what the record matches. engine.rs's `an_except_entry_carrying_a_chain_walks_the_same_tail` and `an_except_entry_carrying_a_four_hop_chain_walks_the_same_tail` test the matcher on entries that carry their own chain over synthetic specs, and `test_right_chain_hops_carried_by_except_count_toward_the_cap` tests that such a chain counts against RIGHT_CHAIN_CAP."""
+    pairs = [
+        (f"{name} {side}", parent, atom)
+        for name, record in _policy_records(spec)
+        for side, condition in (("left", record.when.left), ("right", record.when.right))
+        for parent, atom in _except_entries(condition, [])
+    ]
+    assert any(
+        parent.family for _name, parent, _atom in pairs
+    ), "no live except: entry sits under a parent that names families, so this test checks nothing"
+    for name, parent, atom in pairs:
+        assert not parent.family or set(atom.family) <= set(parent.family), name
+
+
+def test_resolve_record_slice_validation(tmp_path):
+    tiebreak_form = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          resolve:
+          - at: {right: {family: qsDay}}
+            pick: {exit: baseline}
+            why: x
+        """)
+    assert "not yet implemented" in str(load_tmp_error(tmp_path, {"qsIt": tiebreak_form}))
+
+    dangling = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          resolve:
+          - against: {rune: qsIt, id: no-such}
+            when: {right: {family: qsDay}}
+            pick: {exit: baseline}
+            why: x
+        """)
+    assert "no record with id" in str(load_tmp_error(tmp_path, {"qsIt": dangling}))
+
+    duplicate = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          refuse:
+          - id: dup
+            when: {right: {family: qsDay}}
+          - id: dup
+            when: {right: {family: qsMay}}
+        """)
+    assert "already used" in str(load_tmp_error(tmp_path, {"qsIt": duplicate}))
+
+
+def test_resolve_when_references_are_checked(tmp_path):
+    text = MINIMAL_RUNE + textwrap.dedent("""\
+        policy:
+          prefer:
+          - id: target
+            stance: sole
+            when: {right: {family: qsDay}}
+            why: x
+          resolve:
+          - against: {rune: qsIt, id: target}
+            when: {right: {class: never-defined}}
+            pick: {exit: baseline}
+            why: x
+        """)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(
+        "unknown class 'never-defined'" in issue.message and "policy.resolve[0].when.right" in issue.path
+        for issue in error.issues
+    )
+
+
+class TestStructureDigest:
+    def test_stable_over_an_unchanged_spec(self):
+        assert spec_load.spec_structure_digest(MINI_SPEC) == spec_load.spec_structure_digest(MINI_SPEC)
+
+    def test_moves_when_the_alphabet_shrinks(self):
+        smaller = replace(
+            MINI_SPEC, runes={name: MINI_SPEC.runes[name] for name in list(MINI_SPEC.runes)[:-1]}
+        )
+        assert spec_load.spec_structure_digest(smaller) != spec_load.spec_structure_digest(MINI_SPEC)
+
+    def test_moves_when_a_predicate_class_gains_a_member(self):
+        classes = dict(MINI_SPEC.registry.predicate_classes)
+        name, members = next(iter(classes.items()))
+        classes[name] = frozenset(members | {"qsSole"})
+        widened = replace(MINI_SPEC, registry=replace(MINI_SPEC.registry, predicate_classes=classes))
+        assert spec_load.spec_structure_digest(widened) != spec_load.spec_structure_digest(MINI_SPEC)
+
+
+class TestRuneClosure:
+    def test_every_rune_closes_over_itself(self):
+        closure = spec_load.rune_closure(MINI_SPEC)
+        assert set(closure) == set(MINI_SPEC.runes)
+        assert all(name in names for name, names in closure.items())
+
+    def test_a_resolve_against_reference_joins_the_closure(self):
+        target = sorted(MINI_SPEC.runes)[0]
+        owner = sorted(MINI_SPEC.runes)[1]
+        rune = MINI_SPEC.runes[owner]
+        record = PolicyRecord(kind="resolve", against=(target, None))
+        patched = replace(rune, policy=replace(rune.policy, resolve=(record,)))
+        spec = replace(MINI_SPEC, runes={**MINI_SPEC.runes, owner: patched})
+        baseline = spec_load.rune_closure(MINI_SPEC)
+        assert spec_load.rune_closure(spec)[owner] == baseline[owner] | baseline[target]
+
+
+def _unlocked(stance: model.Stance, features: frozenset[str]) -> model.Stance:
+    """Returns the stance with every unlock whose feature is in `features` applied to its rows, as the engine reads them: an unlocked entry height becomes a selectable row whether or not one is declared, an unlocked exit height becomes a row where none is declared, and a pairing unlock changes no row."""
+    entries = dict(stance.surface.entries)
+    exits = dict(stance.surface.exits)
+    for unlock in stance.surface.unlocks:
+        if unlock.feature not in features:
+            continue
+        if unlock.entry is not None:
+            declared = entries.get(unlock.entry)
+            entries[unlock.entry] = (
+                replace(declared, selectable=True)
+                if declared is not None
+                else model.SurfaceRow(height=unlock.entry, x=0)
+            )
+        if unlock.exit is not None and unlock.exit not in exits:
+            exits[unlock.exit] = model.SurfaceRow(height=unlock.exit, x=0)
+    return replace(stance, surface=replace(stance.surface, entries=entries, exits=exits))
+
+
+def _capability_powerset(spec: model.ResolvedSpec) -> list[frozenset[str]]:
+    features = spec_load.capability_features(spec)
+    return [
+        frozenset(subset)
+        for size in range(len(features) + 1)
+        for subset in itertools.combinations(features, size)
+    ]
+
+
+def _configurations(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Maps each acceptance configuration's token, and the token for each subset of the capability features, to its feature set."""
+    configurations = {config: conform.features_for_config(config) for config in conform.ACCEPTANCE_CONFIGS}
+    for subset in _capability_powerset(spec):
+        configurations.setdefault("+".join(sorted(subset)) or "default", subset)
+    return configurations
+
+
+def _feature_conditioned_records(spec: model.ResolvedSpec) -> list[tuple[str, str, PolicyRecord]]:
+    return [
+        (rune.name, kind, record)
+        for rune in spec.runes.values()
+        for kind in ("refuse", "prefer", "extend", "contract", "resolve")
+        for record in getattr(rune.policy, kind)
+        if record.when.feature is not None
+    ]
+
+
+def _unlocking_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Per feature, the runes some stance of which carries an unlock gated on it."""
+    by_feature: dict[str, set[str]] = {}
+    for rune in spec.runes.values():
+        for stance in rune.stances.values():
+            for unlock in stance.surface.unlocks:
+                by_feature.setdefault(unlock.feature, set()).add(rune.name)
+    return {feature: frozenset(runes) for feature, runes in by_feature.items()}
+
+
+def _feature_scoped_runes(spec: model.ResolvedSpec) -> dict[str, frozenset[str]]:
+    """Per feature, the runes a configuration that includes it can change: the runes that unlock it plus the runes that own a record conditioned on it. A window that contains none of a configuration's runes settles as it does under `default`."""
+    scoped = {feature: set(runes) for feature, runes in _unlocking_runes(spec).items()}
+    for rune_name, _kind, record in _feature_conditioned_records(spec):
+        assert record.when.feature is not None
+        scoped.setdefault(record.when.feature, set()).add(rune_name)
+    return {feature: frozenset(runes) for feature, runes in scoped.items()}
+
+
+def _scoped_under(spec: model.ResolvedSpec, features: frozenset[str]) -> frozenset[str]:
+    """The runes one configuration can change: those with an unlock or a policy record whose feature is in `features`."""
+    return frozenset(
+        rune.name
+        for rune in spec.runes.values()
+        if any(
+            unlock.feature in features
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        )
+        or any(
+            record.when.feature in features
+            for kind in ("refuse", "prefer", "extend", "contract", "resolve")
+            for record in getattr(rune.policy, kind)
+        )
+    )
+
+
+class TestConfigurationBlindness:
+    """Tests that a stylistic set can change only unlock rows and feature-conditioned policy records, so everything else the engine reads is identical under every configuration. A configuration-delta enumeration depends on this. `test_ss03_and_ss05_are_the_sets_the_guard_verdict_map_depends_on` in engine/test_settle.py tests the same property for the formation guard."""
+
+    def test_predicate_class_membership_is_identical_under_every_configuration(self, spec):
+        """`_evaluate_predicate_classes` reads only declared rows, never unlocks. This test checks that applying the active unlocks, under each acceptance configuration and each subset of the capability features, derives the same classes. A configuration can change one stance's surface (qsTea.full gains an x-height entry under ss03), but classes are sets of runes and qsTea.half already declares that row, so no rune's membership changes. The test fails if an unlock gives a rune a height that none of its stances declares."""
+        declared = yaml.safe_load(spec_load.DEFAULT_REGISTRY_PATH.read_text())["predicate_classes"]
+        everything = frozenset(spec_load.capability_features(spec))
+        assert any(
+            _unlocked(stance, everything) != stance
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+        ), "the fold has to move some stance for the pin to be able to fail"
+        for label, features in _configurations(spec).items():
+            for class_name, expression in declared.items():
+                derived = {
+                    rune.name
+                    for rune in spec.runes.values()
+                    if any(
+                        _resolved_stance_satisfies(expression, rune, _unlocked(stance, features))
+                        for stance in rune.stances.values()
+                    )
+                }
+                assert derived == spec.registry.predicate_classes[class_name], (label, class_name)
+
+    def test_feature_conditions_live_on_unlock_rows_and_on_refuse_extend_and_prefer_records_only(self, spec):
+        """Checks that refuse, extend and prefer are the only record kinds that read a feature, that an unlock's own `when:` never names one (its `feature` is the condition), and that every feature named anywhere is registered. The extend records are the by-1 x-height extensions toward ·Tea under ss03, such as ·Fee's, and the one prefer is ·Key's break before ·Utter·May under ss08. `Condition` has no feature field, so a scope (`from:`, `toward:`) or a left or right condition cannot read one."""
+        conditioned = _feature_conditioned_records(spec)
+        assert {kind for _rune, kind, _record in conditioned} == {"refuse", "extend", "prefer"}
+        assert {record.when.feature for _rune, kind, record in conditioned if kind == "prefer"} == {"ss08"}
+        extends = {
+            (rune_name, record.exit, record.by, record.when.right.family if record.when.right else ())
+            for rune_name, kind, record in conditioned
+            if kind == "extend"
+        }
+        assert ("qsFee", "x-height", 1, ("qsTea",)) in extends
+        assert {record.when.feature for _rune, kind, record in conditioned if kind == "extend"} == {"ss03"}
+        assert not any(
+            unlock.when is not None and unlock.when.feature is not None
+            for rune in spec.runes.values()
+            for stance in rune.stances.values()
+            for unlock in stance.surface.unlocks
+        )
+        named = {record.when.feature for _rune, _kind, record in conditioned} | set(_unlocking_runes(spec))
+        assert named <= set(spec.registry.features)
+        assert not hasattr(Condition(), "feature")
+
+    def test_every_feature_gated_record_restricts_a_slot_to_a_rune_its_feature_renames(self, spec):
+        """`make conform-deep` shapes ss03, ss05 and ss03+ss05 only over the texts that name ·Tea, ss04 only over the texts that name ·It, ss07 only over the texts that name ·Owe, and ss08 only over the texts that name ·Key or ·Utter, the owners of the records gated on that policy-only set, the runes each renames (`deep_sweep.sweep_triggers`), because in a text without that rune they settle and shape as `default` does. That holds while every record gated on a feature restricts a slot of its window to a rune the feature renames (`conform.unconfined_feature_records`). The sweep checks it at plan time and shapes every text of a configuration that fails it; this pins it on the real spec, so a record that breaks it fails here instead of slowing the sweep."""
+        assert _feature_conditioned_records(spec)
+        for config in conform.SETTLEMENT_CONFIGS:
+            assert conform.unconfined_feature_records(spec, config) == (), config
+        assert {config: conform.renamed_runes(spec, config) for config in conform.SETTLEMENT_CONFIGS} == {
+            "default": frozenset(),
+            "ss03": {"qsTea"},
+            "ss04": {"qsIt"},
+            "ss05": {"qsTea"},
+            "ss03+ss05": {"qsTea"},
+            "ss07": {"qsOwe"},
+            "ss08": {"qsKey", "qsUtter"},
+        }
+
+    def test_a_feature_condition_names_one_feature(self):
+        """A `when.feature` is one tag, not a list: the schema's `featureTag` is a string, so no record can apply only when two sets are both on. That is why the runes a joint configuration can change are the union of the runes its members can change."""
+        schema = json.loads((spec_load.DEFAULT_SCHEMA_DIR / "rune.schema.json").read_text())
+        assert schema["$defs"]["featureTag"]["type"] == "string"
+        assert schema["$defs"]["when"]["properties"]["feature"] == {"$ref": "#/$defs/featureTag"}
+        assert schema["$defs"]["unlock"]["properties"]["feature"]["$ref"] == "#/$defs/featureTag"
+
+    def test_each_interaction_is_covered_by_the_union_of_its_members_unlocking_runes(self, spec):
+        """`features.interactions` in glyph_data/script.yaml names the set combinations the acceptance matrix enumerates together. For each one, every member is a capability feature some rune unlocks, the joint token is an acceptance configuration, the runes the joint configuration can change are the union of the runes each member can change, and the members unlock at least one rune in common (qsTea's full stance has both the ss03 x-height entry and the ss05 both-baseline pairing). Conversely, every pair of capability features that unlock a rune in common must be a declared interaction, so the acceptance matrix covers every interacting pair."""
+        unlocking = _unlocking_runes(spec)
+        scoped = _feature_scoped_runes(spec)
+        capability = [tag for tag, info in spec.registry.features.items() if info.kind == "capability"]
+        assert set(spec_load.capability_features(spec)) == set(unlocking) <= set(capability)
+        assert spec.registry.interactions
+        for group in spec.registry.interactions:
+            assert all(member in unlocking for member in group), group
+            token = "+".join(sorted(group))
+            assert token in conform.ACCEPTANCE_CONFIGS
+            assert conform.features_for_config(token) == frozenset(group)
+            assert _scoped_under(spec, frozenset(group)) == frozenset().union(
+                *(scoped[member] for member in group)
+            )
+            assert frozenset.intersection(*(unlocking[member] for member in group)), group
+        for config in conform.ACCEPTANCE_CONFIGS:
+            features = conform.features_for_config(config)
+            assert _scoped_under(spec, features) == frozenset().union(
+                *(scoped.get(feature, frozenset()) for feature in features)
+            ), config
+        interacting = {
+            (first, second)
+            for first, second in itertools.combinations(sorted(unlocking), 2)
+            if unlocking[first] & unlocking[second]
+        }
+        assert {tuple(sorted(group)) for group in spec.registry.interactions} == interacting
+
+
+BITMAP_AXIS_LEFT = textwrap.dedent("""\
+    rune: qsIt
+    codepoint: 0xE670
+    ductus:
+      loop: |
+        A loop.
+      climbing-loop: |
+        A climbing loop.
+    stances:
+      loop:
+        motion: loop
+        bitmap:
+        - "##"
+        - "# "
+        - "# "
+        - "# "
+        - "# "
+        - "# "
+        surface:
+          exits:
+            baseline: {x: 1, unjoined: safe}
+      climbing-loop:
+        motion: climbing-loop
+        bitmap:
+        - " #"
+        - "##"
+        - "# "
+        - "# "
+        - "# "
+        - "# "
+        surface:
+          exits:
+            baseline: {x: 1, unjoined: safe}
+    policy:
+      order: [loop, climbing-loop]
+    """)
+
+
+def _bitmap_axis_follower(left: str) -> str:
+    return textwrap.dedent(f"""\
+        rune: qsDay
+        codepoint: 0xE653
+        ductus:
+          sole: |
+            A stroke.
+        stances:
+          sole:
+            motion: sole
+            bitmap:
+            - "###"
+            - "#  "
+            - "#  "
+            - "#  "
+            - "#  "
+            - "###"
+            bitmaps:
+              shortened-top:
+                bitmap:
+                - " ##"
+                - "#  "
+                - "#  "
+                - "#  "
+                - "#  "
+                - "###"
+            surface:
+              entries:
+                baseline: {{x: 0}}
+        policy:
+          extend:
+          - {{entry: baseline, by: 2, bind: shortened-top, when: {{left: {left}}}}}
+        """)
+
+
+def test_left_bitmap_resolves_to_the_stance_whose_sole_drawing_it_is(tmp_path):
+    loaded = load_tmp_spec(
+        tmp_path,
+        {"qsIt": BITMAP_AXIS_LEFT, "qsDay": _bitmap_axis_follower("{family: qsIt, bitmap: climbing-loop}")},
+    )
+    (record,) = loaded.runes["qsDay"].policy.extend
+    assert record.when.left == Condition(family=("qsIt",), stance=("climbing-loop",))
+    assert record.bind == "shortened-top"
+    spelled_as_stance = load_tmp_spec(
+        tmp_path,
+        {"qsIt": BITMAP_AXIS_LEFT, "qsDay": _bitmap_axis_follower("{family: qsIt, stance: climbing-loop}")},
+    )
+    assert spelled_as_stance.runes["qsDay"].policy.extend == loaded.runes["qsDay"].policy.extend
+
+
+@pytest.mark.parametrize(
+    ("left", "message"),
+    [
+        ("{family: qsIt, bitmap: shortened-top}", "names no stance of qsIt"),
+        ("{class: can-enter-at-baseline, bitmap: climbing-loop}", "needs family: beside it"),
+        ("{family: qsIt, stance: loop, bitmap: climbing-loop}", "name the same axis"),
+        ("{family: qsMay, bitmap: climbing-loop}", "qsMay is not a modeled rune"),
+    ],
+)
+def test_left_bitmap_refuses_what_the_settled_left_cannot_carry(tmp_path, left, message):
+    error = load_tmp_error(tmp_path, {"qsIt": BITMAP_AXIS_LEFT, "qsDay": _bitmap_axis_follower(left)})
+    assert any(message in issue.message for issue in error.issues), error.issues
+    assert any(issue.path == "policy.extend[0].when.left.bitmap" for issue in error.issues)
+
+
+def test_left_bitmap_refuses_a_stance_with_sibling_drawings(tmp_path):
+    with_sibling = BITMAP_AXIS_LEFT.replace(
+        '    - "# "\n    surface:\n      exits:\n        baseline: {x: 1, unjoined: safe}\npolicy:',
+        '    - "# "\n    bitmaps:\n      reaching:\n        bitmap:\n        - " #"\n        - "##"\n        - "# "\n        - "# "\n        - "# "\n        - "##"\n    surface:\n      exits:\n        baseline: {x: 1, unjoined: safe}\npolicy:',
+    )
+    assert with_sibling != BITMAP_AXIS_LEFT
+    error = load_tmp_error(
+        tmp_path,
+        {"qsIt": with_sibling, "qsDay": _bitmap_axis_follower("{family: qsIt, bitmap: climbing-loop}")},
+    )
+    assert any("siblings ['reaching']" in issue.message for issue in error.issues), error.issues
+
+
+PAD_LEFT_POLICY = textwrap.dedent("""\
+    policy:
+      pad_left:
+      - {by: 2, when: {left: {family: qsDay}}}
+    """)
+
+
+def test_pad_left_binds_a_padded_copy_of_the_stance_bitmap_on_its_exit(tmp_path):
+    rune = load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE + PAD_LEFT_POLICY}).runes["qsIt"]
+    (record,) = rune.policy.contract
+    assert (record.stance, record.exit, record.bind, record.by) == ("sole", "baseline", "padded-left-2", None)
+    assert record.provenance is not None and record.provenance.path == "policy.pad_left[0]"
+    assert rune.stances["sole"].bitmaps["padded-left-2"].rows == ("  #",) * 6
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        (
+            "        baseline: {x: 1, unjoined: safe}\n",
+            "        baseline: {x: 1, unjoined: safe}\n        x-height: {x: 1, unjoined: safe}\n",
+            "has exits ['baseline', 'x-height']",
+        ),
+        (
+            "    surface:\n",
+            '    bitmaps:\n      wide:\n        bitmap: ["##"]\n    surface:\n',
+            "may not declare bitmaps:",
+        ),
+    ],
+)
+def test_pad_left_refuses_a_stance_it_cannot_shift_exactly(tmp_path, old, new, message):
+    text = MINIMAL_RUNE.replace(old, new)
+    assert text != MINIMAL_RUNE
+    error = load_tmp_error(tmp_path, {"qsIt": text + PAD_LEFT_POLICY})
+    assert any(message in issue.message for issue in error.issues), error.issues
+
+
+def _kern_errors(record: dict) -> list[tuple[str, str]]:
+    validator = spec_load._load_schema(spec_load.DEFAULT_SCHEMA_DIR, "rune.schema.json").for_definition(
+        "kernRecord"
+    )
+    return validator.check(record)
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"right": {"family": "qsBay"}, "by": -2},
+        {"stance": "flipped", "right": {"family": "qsPea"}, "by": -2},
+        {"stance": "flipped", "right": {"family": "qsTea", "stance": "half"}, "by": -1},
+        {"entry": "none", "right": {"family": ["qsTea", "qsOut_qsTea"]}, "by": 0},
+        {
+            "entry": "baseline",
+            "bitmap": "shortened-top",
+            "right": {"class": "talls"},
+            "by": 1,
+            "why": "A note.",
+        },
+        {"right": {"family": "qsTea", "exit": "none", "bitmap": "padded-left-1"}, "by": -1},
+        {
+            "right": {"class": "can-enter-at-baseline", "except": [{"family": "qsNo"}, {"stance": "half"}]},
+            "by": -1,
+        },
+    ],
+)
+def test_the_kern_schema_accepts_the_documented_forms(record):
+    assert _kern_errors(record) == []
+
+
+@pytest.mark.parametrize(
+    ("record", "message"),
+    [
+        (
+            {"right": {"family": "qsBay"}, "by": -2, "when": {"right": {"family": "qsBay"}}},
+            "unknown key 'when'",
+        ),
+        ({"right": {"family": "qsBay", "then": {"family": "qsTea"}}, "by": -2}, "unknown key 'then'"),
+        ({"right": {"is": "boundary"}, "by": -2}, "unknown key 'is'"),
+        ({"right": {"family": "qsBay"}, "by": -2, "exit": "baseline"}, "unknown key 'exit'"),
+        (
+            {"right": {"family": "qsBay", "except": [{"except": [{"family": "qsTea"}]}]}, "by": -2},
+            "unknown key 'except'",
+        ),
+        ({"right": {"family": "qsBay"}}, "missing required key 'by'"),
+        ({"by": -2}, "missing required key 'right'"),
+        ({"right": {"family": "qsBay"}, "by": 1.5}, "expected integer"),
+        ({"right": {}, "by": -2}, "at least 1 keys"),
+    ],
+)
+def test_the_kern_schema_refuses_what_a_kern_record_cannot_say(record, message):
+    assert any(message in text for _path, text in _kern_errors(record)), _kern_errors(record)
+
+
+def _kerned(*records: str) -> str:
+    return MINIMAL_RUNE + "kern:\n" + "".join(f"- {record}\n" for record in records)
+
+
+def test_kern_records_load_with_their_rune_and_provenance(tmp_path):
+    text = _kerned(
+        "{right: {family: qsIt}, by: -1}",
+        "{stance: sole, entry: none, right: {class: can-enter-at-baseline, except: [{family: qsIt, exit: none}]}, by: 0, why: A note.}",
+    )
+    rune = load_tmp_spec(tmp_path, {"qsIt": text}).runes["qsIt"]
+    first, second = rune.kern.records
+    assert (first.rune, first.right.family, first.by) == ("qsIt", ("qsIt",), -1)
+    assert first.provenance is not None and first.provenance.path == "kern[0]"
+    assert (second.stance, second.entry, second.by, second.why) == ("sole", "none", 0, "A note.")
+    assert second.right.klass == "can-enter-at-baseline"
+    assert second.right.except_ == (model.KernFollower(family=("qsIt",), exit="none"),)
+    assert rune.kern.inherits == {}
+
+
+@pytest.mark.parametrize(
+    ("record", "path", "message"),
+    [
+        ("{stance: loop, right: {family: qsIt}, by: -1}", "kern[0].stance", "unknown stance 'loop'"),
+        ("{bitmap: wide, right: {family: qsIt}, by: -1}", "kern[0].bitmap", "not a bound drawing of qsIt"),
+        ("{right: {family: qsMay}, by: -1}", "kern[0].right.family", "has no rune file"),
+        ("{right: {class: never-defined}, by: -1}", "kern[0].right.class", "unknown class 'never-defined'"),
+        ("{right: {family: qsIt, stance: half}, by: -1}", "kern[0].right.stance", "has a stance 'half'"),
+        (
+            "{right: {family: qsIt, bitmap: wide}, by: -1}",
+            "kern[0].right.bitmap",
+            "not a bound drawing of any follower",
+        ),
+        (
+            "{right: {family: qsIt, except: [{stance: half}]}, by: -1}",
+            "kern[0].right.except[0].stance",
+            "has a stance 'half'",
+        ),
+    ],
+)
+def test_a_kern_record_must_name_what_the_runes_hold(tmp_path, record, path, message):
+    error = load_tmp_error(tmp_path, {"qsIt": _kerned(record)})
+    assert any(issue.path == path and message in issue.message for issue in error.issues), error.issues
+
+
+def test_a_kern_record_may_name_a_padded_copy_a_pad_left_record_makes(tmp_path):
+    text = (
+        MINIMAL_RUNE
+        + PAD_LEFT_POLICY
+        + "kern:\n- {bitmap: padded-left-2, right: {family: qsIt, bitmap: padded-left-2}, by: -1}\n"
+    )
+    (record,) = load_tmp_spec(tmp_path, {"qsIt": text}).runes["qsIt"].kern.records
+    assert record.bitmap == record.right.bitmap == "padded-left-2"
+
+
+def test_kern_is_the_last_key_of_a_rune_file(tmp_path):
+    text = MINIMAL_RUNE.replace("stances:\n", "kern:\n- {right: {family: qsIt}, by: -1}\nstances:\n", 1)
+    error = load_tmp_error(tmp_path, {"qsIt": text})
+    assert any(issue.path == "kern" and "last key" in issue.message for issue in error.issues), error.issues
+
+
+def test_each_ligature_stance_records_the_trailing_stance_it_takes_kern_records_from(spec):
+    assert dict(spec.runes["qsDay_qsUtter"].kern.inherits) == {"full": "mono", "half": "mono"}
+    assert dict(spec.runes["qsThey_qsZoo"].kern.inherits) == {"sole": "half"}
+    assert dict(spec.runes["qsOut_qsTea"].kern.inherits) == {}
+    assert all(not rune.kern.inherits for rune in spec.runes.values() if rune.sequence is None)
+
+
+VARIATION_REGISTRY = MINIMAL_REGISTRY + textwrap.dedent("""\
+    variation_sequences:
+    - {selector: 0xFE00, fonts: [mono, senior], runes: {qsIt: sole}}
+    """)
+
+
+class TestVariationSequences:
+    """The `variation_sequences` registry in glyph_data/script.yaml: one record per selector, naming the fonts that carry its sequences and, per letter, the stance whose unjoined drawing the sequence selects (`run_build.mint_variation_glyphs`)."""
+
+    def test_the_records_load_into_the_registry_and_stay_out_of_the_kernel_dump(self, tmp_path):
+        from engine.pipeline import kernel_io
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", SpecWarning)
+            loaded = load_tmp_spec(tmp_path, {"qsIt": MINIMAL_RUNE}, VARIATION_REGISTRY)
+        assert loaded.registry.variation_sequences == {
+            0xFE00: model.VariationSelector(fonts=("mono", "senior"), runes={"qsIt": "sole"})
+        }
+        assert "variation_sequences" not in kernel_io.registry_payload(loaded.registry)
+
+    def test_a_sequence_names_a_stance_its_rune_declares(self, tmp_path):
+        registry = VARIATION_REGISTRY.replace("{qsIt: sole}", "{qsIt: half}")
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, registry)
+        assert any("qsIt declares no stance 'half'" in issue.message for issue in error.issues)
+
+    def test_a_sequence_starts_from_a_letter_with_a_code_point(self, tmp_path):
+        registry = VARIATION_REGISTRY.replace("{qsIt: sole}", "{qsBay: sole}")
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, registry)
+        assert any("'qsBay' is not a registered letter" in issue.message for issue in error.issues)
+
+    def test_a_selector_is_a_variation_selector_with_one_record(self, tmp_path):
+        outside = VARIATION_REGISTRY.replace("selector: 0xFE00", "selector: 0xFE10")
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, outside)
+        assert any("U+FE10 is not a variation selector" in issue.message for issue in error.issues)
+        twice = VARIATION_REGISTRY + "- {selector: 0xFE00, fonts: [junior], runes: {qsIt: sole}}\n"
+        error = load_tmp_error(tmp_path, {"qsIt": MINIMAL_RUNE}, twice)
+        assert any("U+FE00 has another record" in issue.message for issue in error.issues)
