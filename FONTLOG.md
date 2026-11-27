@@ -114,6 +114,7 @@ How variation selectors and ZWNJ changed:
 - A pixel further apart: `·They | ·Ooze`, `·Fee | ·{Way,Why}`, `·See | ·Why`, `·Zoo | ·Owe`, `·I | ·Ah`, `·Ox | ·Awe`, and `·Owe | ·{Way,Why}`
 - Set a half ·Way that joins onward a pixel closer to most letters before it, and a ·See that joins ·Low, ·At, ·Out, or ·Ooze a pixel closer to the letter before it
 - Set ·Awe a pixel closer to a ·Gay or ·May that the letter before it joins at the x-height (`·Utter ~x~ ·Gay | ·Awe`, `·Fee ~x~ ·May | ·Awe`), and to every ·Gay under `ss10`
+- Set ·Gay a pixel closer to ·Way, ·May, and ·Excite whatever ·Gay goes on to do; 16.000 set it closer only when ·Gay joined the next letter at the baseline (two pixels after ·Way when that join was lengthened), or after an ·Excite joined at the baseline
 - Space the letter after a ligature the way the ligature’s last letter mostly spaces it, where 16.000 left it a pixel away:
   - The ligatures that end in ·Utter: a pixel closer to ·Key, and two pixels closer to ·Way, ·Why, and ·Utter
   - ·Tea+Oy: a pixel closer to ·Llan, ·Eight, ·Awe, and ·Ox, and three pixels closer to ·Pea

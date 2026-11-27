@@ -139,6 +139,7 @@ policy:
   groups: {}
 kern:
 - {right: {family: qsBay}, by: -2}
+- {right: {family: qsGay}, by: -1}
 - {right: {family: qsThaw}, by: -2}
 - {right: {family: qsThey}, by: -1}
 - {right: {family: qsWay}, by: -1}
