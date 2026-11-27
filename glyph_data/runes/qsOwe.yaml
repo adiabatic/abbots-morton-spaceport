@@ -151,3 +151,6 @@ cosmetic:
   - "#   #"
   - "#   #"
   - " ### "  #
+kern:
+- {right: {family: qsBay}, by: -1}
+- {right: {family: qsThaw}, by: -2}

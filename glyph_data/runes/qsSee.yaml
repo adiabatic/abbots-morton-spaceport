@@ -207,3 +207,4 @@ kern:
 - {right: {family: qsAwe}, by: -2}
 - {right: {family: qsOx}, by: -2}
 - {right: {family: qsOy}, by: -1}
+- {right: {family: qsOwe}, by: -1}

@@ -159,3 +159,4 @@ kern:
 - {right: {family: qsWhy}, by: -2}
 - {right: {family: qsLoch}, by: -2}
 - {right: {family: qsOy}, by: -2}
+- {right: {family: qsOwe}, by: -2}
