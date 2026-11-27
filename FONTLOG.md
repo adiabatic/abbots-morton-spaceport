@@ -4,6 +4,119 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ## Changelog
 
+### 17.000
+
+Senior’s joining rules have been rebuilt from scratch on a new engine. The aim was the same font, and mostly it is: no letter looks different on its own, and of the 1,936 two-letter words, 123 are drawn differently. About one in seven three-letter words differs, usually by a single pixel of join length. This is what changed on the way.
+
+Mono is unchanged, and Junior nearly so.
+
+#### All fonts
+
+- Encode ú and ù in Junior and Senior, with the same accents the other accented vowels have (Mono already had them)
+- Build every Bold glyph as one merged outline instead of overlapping rectangles, which should get rid of the holes Windows showed in Bold text; shapes and widths are unchanged
+- Keep the namer dot raised when a ZWNJ sits between it and a Short letter (Junior and Senior)
+- Senior’s files are about five times the size: the OTF goes from 545 KB to 2.8 MB, and the WOFF2 from 120 KB to about 385 KB. Junior’s and Mono’s OTFs are about half their old size.
+
+#### Quikscript Senior — stylistic sets, variation selectors, and ZWNJ
+
+If you set `font-feature-settings` yourself, read this part.
+
+- Remove `ss02`; `·I ~x~ ·Tea` is under `ss03` now
+- `ss03`: draw the full-size ·Tea after an x-height join, so it can join onward at the baseline (`·May ~x~ ·Tea ~b~ ·Day`); 16.000 drew a half ·Tea that ended the chain. Also:
+  - Keep the ·Out+Tea and ·Tea+Oy ligatures instead of breaking them up to make the join
+  - Don’t join `·Owe ~x~ ·Tea`
+  - Stop breaking the join on the other side of the letter before ·Tea (`·Gay ~b~ ·May ~x~ ·Tea`)
+- `ss04`: let ·It join at the baseline on both sides next to nearly any letter (`·Key ~b~ ·It ~b~ ·See`), not just after ·Day or before ·Day, ·Low, and ·Utter. After ·Pea, ·He, ·No, and ·Utter, ·It keeps its x-height entry instead (`·Pea ~x~ ·It ~b~ ·Low`).
+- `ss05`: let ·Tea join at the baseline on both sides after nearly any letter (`·Key ~b~ ·Tea ~b~ ·See`), not just after ·Et
+- `ss06`: the gapped ·Owe joins exactly as the plain ·Owe does; in 16.000 it joined nothing
+- `ss07`: ·Owe keeps the join from the letter before it (`·Fee ~x~ ·Owe ~x~ ·Day`), and `·Owe ~x~ ·Day` is a pixel longer
+- `ss10`: break up every letter, ligatures included; 16.000 left 369 of the two-letter words joined or ligated
+- A letter followed by a variation selector stands apart from both neighbors; 16.000 went on to join the shape it selected
+- Add VS2 after ·Tea for the half ·Tea
+- Treat a ZWNJ as exactly a word boundary: ligatures form after one (`·Pea | ·Tea+Oy`), and a ZWNJ after ·He no longer pulls the next letter into it
+
+#### Quikscript Senior — which letters join
+
+- ·Utter:
+  - When ·Utter could join either neighbor at the baseline, join the letter before it: `·Pea ~b~ ·Utter | ·Exam`, where 16.000 had `·Pea | ·Utter.alt ~b~ ·Exam`. This holds after the letters that join ·Utter at the baseline and before ·Excite, ·Exam, ·Eat, ·At, ·I, ·Ah, ·Out, and ·Ooze.
+  - Before ·May, join both sides: `·Key ~b~ ·Utter ~x~ ·May`. The Manual’s `·Key | ·Utter.alt ~b~ ·May` takes a ZWNJ after ·Key now.
+  - Join `·Utter.alt ~b~ ·Tea`
+  - Let ·Fee, ·May, and ·No join the alternate ·Utter at the x-height when it goes on to join at the baseline (`·May ~x~ ·Utter.alt ~b~ ·Tea`), and let `·Utter ~x~ ·Utter.alt` go on to ·Tea, ·Day, ·No, and ·It
+  - Don’t join `·{Low,At,I,Ah,Foot} ~x~ ·Utter` when ·Utter goes on to join at the baseline
+- ·No:
+  - Join `·{Pea,Tea,He} ~b~ ·No.alt` instead of `·{Pea,Tea,He}.half ~x~ ·No`. ·Pea always does, which costs ·No its join to a following x-height letter (`·Pea ~b~ ·No.alt | ·Jay`); ·Tea and ·He keep the x-height join there.
+  - Join `·No.alt ~b~ ·Tea`, and `·No.alt ~b~ ·Ye` after a baseline join into ·No
+  - Don’t carry a baseline join through ·No.alt into ·Bay, ·They, or ·Way, and don’t join `·See ~b~ ·No.alt`
+  - Give `·No ~x~ ·Oy` priority over a baseline join into ·No: `·Bay | ·No ~x~ ·Oy`
+  - Join ·No and ·Gay whatever follows ·Gay: `·No ~x~ ·Gay ~b~ ·Tea`
+  - Join two ·Nos at the baseline when that lets the word carry on: `·No.alt ~b~ ·No.alt ~b~ ·Tea`
+- ·He:
+  - Join the full ·He to ·Gay, ·See, ·No, and ·Roe at the baseline; 16.000 didn’t join ·Gay or ·See, and joined ·No and ·Roe at the x-height with a half ·He
+  - When ·He could join either neighbor, join the ·Gay or ·See after it: `·Bay | ·He ~b~ ·Gay`
+- ·Gay:
+  - Join `·Gay ~x~ ·Owe`, `·Gay ~b~ ·Ooze`, and `·Ah ~x~ ·Gay`
+  - Don’t join `·Why ~b~ ·Gay`
+  - Take the join from a baseline-exiting letter before ·Gay even when ·No or ·Out follows: `·Bay ~b~ ·Gay ~x~ ·No`, `·Bay ~b~ ·Gay | ·Out`
+  - After ·May, join ·Gay onward instead: `·May | ·Gay ~b~ ·Vie`
+- ·Vie: join `·Vie ~b~ ·Vie` and `·Vie ~b~ ·Exam`; draw ·Vie·Utter as `·Vie ~b~ ·Utter` instead of a ligature (the same pixels, but ·Utter can go on to join ·Tea)
+- ·Owe: join `·Low ~x~ ·Owe`, `·Owe ~x~ ·Llan`, and `·Owe ~x~ ·Oy`
+- ·Pea: join `·{Et,Awe} ~b~ ·Pea`, which used to overlap without joining; join `·Pea ~6~ ·Pea` before more letters (`·Pea ~6~ ·Pea ~x~ ·Zoo`)
+- ·It:
+  - Don’t join `·It ~x~ ·Et` or `·At ~x~ ·It`
+  - Join into ·It at the baseline and out of it at the x-height before ·Zoo and ·No: `·Key ~b~ ·It ~x~ ·Zoo`, where 16.000 had `·Key | ·It ~b~ ·Zoo.half`
+  - Join `·{Tea,He,Owe} ~x~ ·It` when ·It goes on to ·Day, ·I, or ·Utter: `·Tea ~x~ ·It ~b~ ·Day`
+  - Don’t join `·They ~x~ ·It` before ·Day, or `·It ~b~ ·Thaw` after ·Pea, ·Tea, ·Fee, or ·He
+- ·Fee: when ·Fee could join either neighbor at the x-height, join the letter after it (`·I | ·Fee ~x~ ·Day`); join `·May ~x~ ·Fee` after a baseline join into ·May
+- ·They: after ·Utter, let ·They join on at the baseline (`·Utter ~x~ ·They ~b~ ·Day`); after ·I and ·Ah, don’t (`·I ~x~ ·They | ·See`)
+- ·May: prefer `·{They,Roe} ~b~ ·May` to ·May’s join with the next letter (`·Roe ~b~ ·May | ·Thaw`); after ·Utter, enter ·May at the x-height and join on (`·Utter ~x~ ·May ~b~ ·Out`)
+- ·Roe: join `·{Pea,Tea,He,No,Roe} ~b~ ·Roe ~x~ ·{J’ai,Eight,Awe,Ox,Oy}`, where 16.000 joined into ·Roe at the x-height and stopped; after ·Vie, join ·Roe onward instead (`·Vie | ·Roe ~b~ ·Thaw`)
+- ·Tea: keep `·Day ~b~ ·Tea` instead of joining ·Tea onward (`·Day ~b~ ·Tea | ·Vie`); after ·Excite, join ·Tea onward instead (`·Excite | ·Tea ~b~ ·Ah`)
+- ·Out and ·Oy: don’t join into an ·Out that goes on to join at the x-height (`·Out | ·Out ~x~ ·Day`), and don’t join ·Oy onward at the baseline once it has been joined at the x-height (`·Gay ~x~ ·Oy | ·Et`)
+- Ligatures:
+  - Give ·Day+Eat a half-·Day form, so it joins at the baseline wherever ·Day does (`·Bay ~b~ ·Day+Eat`)
+  - Let ·They+Zoo join the next letter the way ·Zoo does (`·They+Zoo ~b~ ·Tea`)
+  - Space the letter after a ligature the way the ligature’s last letter spaces it
+- Stop letters that never joined from touching: `·Ye | ·Gay`, `·Way | ·Fee`, `·Foot | ·Ooze`, and `·Ooze | ·Foot` are a pixel apart now
+
+#### Quikscript Senior — join lengths
+
+- Contract by a pixel:
+  - `·{Pea,Bay,Tea,J’ai,-ing,No.alt,It} ~b~ ·Vie`
+  - `·{Pea,Bay,Tea,Key,Ye,He,-ing,No.alt,It,Et} ~b~ ·May`
+  - `·{Bay,Day,Key,She,Cheer,No.alt,Llan,Awe} ~b~ ·Gay`, and `·Et ~b~ ·Gay` by two
+  - `·{Bay,Day,Key,Vie,She,J’ai,Cheer} ~b~ ·No.alt`
+  - `·{Tea,Vie,J’ai} ~b~ ·-ing` and `·{Day,Vie} ~b~ ·Excite`
+  - `·{Tea,Ye} ~b~ ·Day.half`, `·Key ~b~ ·{Tea,It}`, `·J’ai ~b~ ·{See,Low,Ah}`, and `·See ~b~ ·Low`
+  - `·{Pea,Tea,He}.half ~x~ ·Eight`, `·{Tea,He}.half ~x~ ·{Awe,Ox}`, `·May ~x~ ·Roe`, `·It ~x~ ·Jay`, and `·Ah ~x~ ·{Bay,Fee}`
+- Extend by a pixel: `·Gay ~x~ ·{Ye,Llan}`, `·{At,Foot} ~x~ ·Owe`, `·Owe ~x~ ·{Et,Owe,Foot}`, `·I ~x~ ·They`, and `·-ing ~b~ ·Ye`; extend `·Gay ~x~ ·Jay` by two
+- Take a pixel off ·It’s baseline exit when ·It is entered at the x-height (`·Pea ~x~ ·It ~b~ ·Day`)
+- Take a pixel off ·May’s x-height exit into ·Pea, ·Zoo, ·Cheer, ·Ye, ·Llan, and ·Foot when ·May is entered at the baseline
+
+#### Quikscript Senior — letter shapes
+
+- Draw ·I with its smaller loop after ·May, and both loops smaller in `·Eight ~b~ ·I`; give ·I its regular loop back after ·Roe
+- Draw ·Eight with its smaller loop before ·Tea
+- Keep ·Roe’s far arm at full length when its near arm is lengthened to join: the top arm after ·Jay, ·Eat, and ·Eight, the bottom arm after ·It
+- Drop the stub pixel at ·May’s lower left when ·May is entered at the x-height
+- Close the one-pixel gap in the `·Utter ~x~ ·Utter.alt` join
+
+#### Quikscript Senior — kerning
+
+- A pixel closer: `·They | ·{See,At}`, `·Ye | ·{Fee,She,J’ai}`, `·He | ·-ing`, `·I | ·Why`, `·Oy | ·Eight`, and `·Owe | ·Thaw`; two pixels closer: `·He | ·{They,She,Cheer}`
+- A pixel further apart: `·They | ·Ooze`, `·Fee | ·{Way,Why}`, `·See | ·Why`, `·Zoo | ·Owe`, `·I | ·Ah`, `·Ox | ·Awe`, and `·Owe | ·{Way,Why}`
+- Set a half ·Way that joins onward a pixel closer to most letters before it, and a ·See that joins ·Low, ·At, ·Out, or ·Ooze a pixel closer to the letter before it
+- Stop ·Thaw touching a ·May, ·Utter, or ·Out that goes on to join the next letter
+
+#### Website
+
+- Add a “Type by letter name” box to the demo page: type `·Day·Utter ·No·It` or `day.utter`, tick stylistic sets, and share the result by URL
+- Remove the Kerning page
+
+#### Not really user-facing, but…
+
+- Rename nearly every compiled glyph in Senior, and the alternates in all three fonts (`qsNo.flipped`, `qsUtter.alternate`, `qsOwe.sole.ss06`). This changes the names inside the font files but not how anything renders.
+- Drop the glyphs no text could reach from Junior and Mono, Junior’s thirteen unused ligatures among them
+
 ### 16.000
 
 Great artists edition

@@ -12,13 +12,7 @@
 
 **The deep checks are due.** `make conform-deep ARGS=--status` and `make replay-deep ARGS=--status` say what has moved since each last ran; the cycle's summary prints both statuses.
 
-**`FONTLOG.md` describes the 16.000 fonts.** It changes with a release (HACKING.md § Cutting a release), and the fonts `make all` publishes differ from 16.000's in ways a user sees, which its next entry has to say:
-
-- ss02 is gone and ·I·Tea reaches the x-height under ss03; ·Key·Utter·May joins as `·Key ~b~ ·Utter ~x~ ·May`, where 16.000 wrote The Manual's `·Key | ·Utter.alt ~b~ ·May`, which a ZWNJ after ·Key or an ss10 span around it still writes (`glyph_data/script.yaml`'s `features` holds the sets). README's `## Stylistic sets` list is the authority the review build's `FEATURE_DESCRIPTIONS` and the review app's set colors (`engine/review/static/app.css`) are tested against.
-- In Senior a variation sequence selects its stance's shape unjoined: the selected glyph joins neither neighbor (`doc/engine-design.md` §7).
-- Junior's namer dot stays raised before a ZWNJ, as Senior's does.
-- Junior and Mono drop the glyphs no text reaches, Junior's ligatures among them, and an alternate takes the name Senior gives it (`qsNo.flipped`, `qsUtter.alternate`, `qsOwe.sole.ss06`).
-- Senior's OTF is about five times the size of 16.000's: the 16.000 zip's `AbbotsMortonSpaceportSansSenior-Regular.otf` is 544,552 bytes, and `ls -l site/*.otf` gives the current sizes. `doc/engine-design.md` §7 says where the size comes from.
+**`FONTLOG.md` has a drafted `### 17.000` section, and the version files still say 16.000.** The section describes the fonts as built when it was drafted, so a rune change before the release has to reach it too. The bump-major skill moves `glyph_data/metadata.yaml` and `pyproject.toml` to the heading (HACKING.md § Cutting a release).
 
 **A second checkout needs three steps after it pulls.** Move its untracked `rebuild/out` to `engine/out`, so the build and the cycle find their records; move a verdict store stamped for a review corpus that no longer exists (`verdicts-autosave.json` at the repo root) under `var/keep/`; and run `make review-snapshot-remake`, which installs the accepted snapshot `engine/review-snapshot.json` names.
 
