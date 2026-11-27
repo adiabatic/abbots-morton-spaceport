@@ -85,6 +85,8 @@ When `|` separates two Quikscript letter tokens, or `?` separates a pair that do
 
 So there is no need to write `.!half`, `.!alt`, and so on beside a `|` to assert that one glyph was not chosen because of the other. The checker checks this for letter-to-letter pairs only. Boundary tokens such as `◊space`, `◊ZWNJ`, and escaped punctuation are excluded, because they exist to influence the shape of their neighbors.
 
+`|` keeps this meaning even where the engine does not meet it. Settlement's lookahead reads past a break, so a letter can settle to another shape before a break than it takes alone, and a pin that writes `|` there fails as written instead of being reread: the Manual's `·Utter ~x~ ·May | ·Thaw` is pending for that reason ([Pending pins](#pending-pins)).
+
 ### When the font legitimately leaks across a non-join: `|?|`
 
 A rule may intentionally change a letter because of its neighbor even when the two do not join. In real text such a rule fires only on literal adjacency, so a space or ZWNJ between two words stops it. In a test, `|` inserts no character, because the checker concatenates the code points, so the rule still fires. If the change alters the glyph’s outline or position, the isolation check reports it.
@@ -97,10 +99,10 @@ An element's `data-stylistic-set` (`"03"`, or several separated by spaces) turns
 
 ## Pending pins
 
-A pin the rebuild disagrees with, pending the author's ruling, keeps the author's text and carries `data-expect-pending` with a short reason:
+A pin the engine disagrees with, pending the author's ruling, keeps the author's text and carries `data-expect-pending` with a short reason:
 
 ```html
-<dd data-expect="·Owe ~x~ ·Fee | ·It | ·She ~b~ ·Low" data-expect-pending="the rebuild regroups this as ·Owe | ·Fee ~x~ ·It">…</dd>
+<dd data-expect="·Owe ~x~ ·Fee | ·It | ·She ~b~ ·Low" data-expect-pending="Senior regroups this as ·Owe | ·Fee ~x~ ·It">…</dd>
 ```
 
 The suite reports a pending pin that fails as an expected failure, and fails a pending pin that passes, so the attribute cannot outlive the disagreement it records. The build's pin gate counts pending pins in its summary (`manual_pins_summary.json`) and does not fail on them. `WHATNEXT.md` points at the pins awaiting a ruling; the attribute on each is the list.

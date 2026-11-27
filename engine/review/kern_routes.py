@@ -1,4 +1,4 @@
-"""The review server's kerning routes (engine/KERN-PLAN.md section 6), which the app's kerning view (`#view=kern`, `static/kern-view.js`) reads and writes through:
+"""The review server's kerning routes (doc/kerning-design.md section 6), which the app's kerning view (`#view=kern`, `static/kern-view.js`) reads and writes through:
 
 - `GET /kern/inventory` answers with `engine/out/build/kern-inventory.json` as the build wrote it (`engine/pipeline/kern_inventory.py`), or a 404 whose body says to run the build.
 - `GET /kern` answers with the values the view applies to the inventory's pixels, as one JSON document (`values_payload`, format `VALUES_FORMAT`, checked by `check_values_payload`):
@@ -79,7 +79,7 @@ def file_signature(path: Path) -> Signature:
 
 
 def kern_block_text(text: str) -> str:
-    """Return a rune file's `kern:` block as written: the text from the line that opens with `kern:` to the end of the file, `kern` being the file's last key (engine/KERN-PLAN.md section 2), or the empty string when the file has none."""
+    """Return a rune file's `kern:` block as written: the text from the line that opens with `kern:` to the end of the file, `kern` being the file's last key (doc/kerning-design.md section 2), or the empty string when the file has none."""
     return kern_writer.split_file(text)[1]
 
 

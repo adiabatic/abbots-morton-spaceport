@@ -1,4 +1,4 @@
-"""Accept the table-diff corpus's changes, and remake the accepted snapshot on a machine without it (engine/REVIEW-PLAN.md §2.3).
+"""Accept the table-diff corpus's changes, and remake the accepted snapshot on a machine without it (doc/review-design.md §2.3).
 
 The accept, `uv run python -m engine.review.accept [--apply] [--retake]` (`make review-accept`), makes the build the corpus shows the accepted one. Without `--apply` it is a dry run: it prints every refusal `--apply` would make and what `--apply` would write, writes nothing, and exits 1 when `--apply` would refuse. Its refusals, each with nothing written, in this order:
 

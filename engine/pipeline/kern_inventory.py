@@ -1,4 +1,4 @@
-"""The kern inventory, `kern-inventory.json` (engine/KERN-PLAN.md sections 4 and 6): what the review app's kerning view (`#view=kern`) draws. The view shapes nothing. It draws each witness as squares at the pen positions this module computes, and a kern value is a whole-pixel shift of everything after its junction, which the view applies itself. So the inventory holds no kern value: everything in it follows from the tables and the drawings, a `kern:` edit changes none of it, and the view takes the values from the review server's `GET /kern` (`engine/review/kern_routes.py`).
+"""The kern inventory, `kern-inventory.json` (doc/kerning-design.md sections 4 and 6): what the review app's kerning view (`#view=kern`) draws. The view shapes nothing. It draws each witness as squares at the pen positions this module computes, and a kern value is a whole-pixel shift of everything after its junction, which the view applies itself. So the inventory holds no kern value: everything in it follows from the tables and the drawings, a `kern:` edit changes none of it, and the view takes the values from the review server's `GET /kern` (`engine/review/kern_routes.py`).
 
 `run_build` writes it once read-back has passed, beside `kern-classes.json` (`write_inventory`), and only on a build: a `--kern-only` pass runs the glyph chain without it, and its staged publish leaves the inventory under `engine/out/build` in place. The file is stamped with the tables' stamp (`run_build.tables_inputs`, which hashes the rune files without their `kern` blocks and the pipeline's code, this module included) and the digest of the Manual pages its words come from (`MANUAL_PAGES`). A build whose stamp matches the file's leaves the file as it is and settles nothing; any other writes the file through a staging file renamed over it (`output_sink.replace_output`), so the review server, which reads it from this directory, never reads a torn file. `artifact_cycle.BUILD_ARTIFACT_NAMES` lists it, so a build directory without it is no build a cycle skips. The Manual pages are in no build key, so a page edit reaches the inventory with the next build that runs.
 
@@ -154,7 +154,7 @@ def inventory_stamp(tables_inputs: str, pages: Mapping[str, bytes | None]) -> di
 
 
 def place(slots: Sequence[Slot], records: Mapping[CellId, GlyphRecord]) -> list[int]:
-    """Return each slot's pen position in pixels, as the module docstring says: a join advances by the left glyph's exit anchor less the right glyph's entry anchor, a break by the left glyph's compiled advance, and a ZWNJ by nothing. A join is a pair whose left cell has a live exit, and its right cell then has a live entry (engine/KERN-PLAN.md section 2); a pair that breaks the invariant, or a boundary other than a ZWNJ, raises `KernInventoryError`."""
+    """Return each slot's pen position in pixels, as the module docstring says: a join advances by the left glyph's exit anchor less the right glyph's entry anchor, a break by the left glyph's compiled advance, and a ZWNJ by nothing. A join is a pair whose left cell has a live exit, and its right cell then has a live entry (doc/kerning-design.md section 2); a pair that breaks the invariant, or a boundary other than a ZWNJ, raises `KernInventoryError`."""
     positions: list[int] = []
     pen = 0
     for index, slot in enumerate(slots):
@@ -658,7 +658,7 @@ def text_notation(spec: ResolvedSpec, slots: Sequence[Slot]) -> str:
 
 
 def distinct_drawings(pair: kern.FacingPair, records: Mapping[CellId, GlyphRecord]) -> list[CellPair]:
-    """Return one member of the facing pair for each distinct pair of facing edges among its members (`kern.leading_edge`, `kern.following_edge`), the first in label order: the drawings a side `kern.refine_sides` flags `mixed` puts at one junction, which no record can tell apart (engine/KERN-PLAN.md section 3). A pair with no mixed side has one."""
+    """Return one member of the facing pair for each distinct pair of facing edges among its members (`kern.leading_edge`, `kern.following_edge`), the first in label order: the drawings a side `kern.refine_sides` flags `mixed` puts at one junction, which no record can tell apart (doc/kerning-design.md section 3). A pair with no mixed side has one."""
     seen: dict[tuple, CellPair] = {}
     for left, right in pair.members:
         edges = (kern.leading_edge(records[left]), kern.following_edge(records[right]))

@@ -1,18 +1,19 @@
-# Note-taking and the rebuild logs
+# Note-taking
 
 Git holds the history. A checked-in note is justified only when it records one of three things: what should happen next and the open decisions, a durable design fact, or the user’s rationale. It should not narrate work that is already committed. `AGENTS.md` has the short form of these rules, and this document is the full form.
 
 ## Where each kind of record goes
 
-| Record                                   | Where it goes                                                            |
-| ---------------------------------------- | ------------------------------------------------------------------------ |
-| What should happen next, open decisions  | `WHATNEXT.md`                                                            |
-| A milestone’s design                     | A `*-PLAN.md` under `engine/`, written before the work                   |
-| A durable design fact found mid-work     | The milestone’s PLAN, or `doc/engine-design.md`                          |
-| The user’s rationale for a rune decision | The rune’s `why:` field (never written by an agent)                      |
-| What a change did and why                | The commit message; multiline bodies are fine in this repository         |
-| An in-flight batch’s parked state        | One bounded progress file under `engine/`, deleted when the batch closes |
-| Evidence for a still-open decision       | Beside the tool that reads it, under § Reconnaissance and evidence       |
+| Record                                    | Where it goes                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------ |
+| What should happen next, open decisions   | `WHATNEXT.md`                                                            |
+| A milestone’s design                      | A `*-PLAN.md` under `engine/`, written before the work                   |
+| A durable design fact found mid-work      | The milestone’s PLAN, or the design document that owns the subject       |
+| A built plan’s contracts and design facts | A design document under `doc/` named for its subject, not a `*-PLAN.md`  |
+| The user’s rationale for a rune decision  | The rune’s `why:` field (never written by an agent)                      |
+| What a change did and why                 | The commit message; multiline bodies are fine in this repository         |
+| An in-flight batch’s parked state         | One bounded progress file under `engine/`, deleted when the batch closes |
+| Evidence for a still-open decision        | Checked in only as § Reconnaissance and evidence allows                  |
 
 There is no `*-REPORT.md`. When a milestone is committed, its record is the commit history plus the runes’ `why:` fields. A report that restates counts, gate tallies, and edits duplicates what git already keeps.
 
@@ -29,7 +30,7 @@ It does not list the batch’s commits, because the commit that creates the file
 
 ## Counts and drifting state
 
-A count in prose names the artifact that reports it, not the number. The rebuild measures itself on every cycle, so a number written into a note is out of date after the next cycle. When a fact exists both in prose and in a machine-written file, the prose copy is the one that goes stale. That state is recorded in:
+A count in prose names the artifact that reports it, not the number. The build measures itself on every cycle, so a number written into a note is out of date after the next cycle. When a fact exists both in prose and in a machine-written file, the prose copy is the one that goes stale. That state is recorded in:
 
 - `engine/out/cycle_summary.json` for the last cycle’s record, and the per-gate summaries under `engine/out/build/`
 - `engine/out/review/manifest.json` for corpus totals

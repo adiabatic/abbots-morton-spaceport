@@ -1,4 +1,4 @@
-"""The decision-table and join-table data model, and the readers and digests for the table artifacts the crate writes (engine/M1-PLAN.md §5, Group 2).
+"""The decision-table and join-table data model, and the readers and digests for the table artifacts the crate writes (`doc/engine-design.md` §14.2).
 
 The crate under `engine/kernel-rs` builds both tables and nothing here folds. `src/fixpoint.rs` enumerates the windows. `src/fold.rs` and `src/rulefold.rs` hold the prospect-divergence pass, the per-input rule fold, and the join fold, and `src/artifacts.rs` writes the settlement TSV, the join TSV, and the windows payload. `run_build.build_tables` reads its rules, reachable cells, and join rows back through `read_windows` and `read_join_tsv`. `engine/test_table.py` replays the crate's rules against its rows on the mini fixture as an independent check of the fold, and `gate:conform` checks that the compiled font agrees with settlement.
 

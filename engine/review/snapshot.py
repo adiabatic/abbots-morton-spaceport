@@ -1,4 +1,4 @@
-"""The accepted build that the review corpus's table-diff mode compares an edit against (engine/REVIEW-PLAN.md §2.3). `take` copies one build's tables, rule certificates, Regular font and kern table out of `engine/out/build` into a directory named for its content under `var/keep/review-snapshot/`, and points the `current` file beside it at that directory. `load` reads a snapshot back and refuses one in another format, or with a file that is not the one its `snapshot.json` records.
+"""The accepted build that the review corpus's table-diff mode compares an edit against (doc/review-design.md §2.3). `take` copies one build's tables, rule certificates, Regular font and kern table out of `engine/out/build` into a directory named for its content under `var/keep/review-snapshot/`, and points the `current` file beside it at that directory. `load` reads a snapshot back and refuses one in another format, or with a file that is not the one its `snapshot.json` records.
 
 A snapshot directory holds, for each configuration it covers (the settled configurations, `tablediff.SETTLED_CONFIGS`, for every snapshot `take` writes):
 

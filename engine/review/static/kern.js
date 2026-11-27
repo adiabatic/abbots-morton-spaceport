@@ -1,4 +1,4 @@
-// The kerning view's model (`#view=kern`, engine/KERN-PLAN.md section 6) as pure functions over the build's inventory (`kern-inventory.json`, engine/pipeline/kern_inventory.py) and the server's values (`GET /kern`, engine/review/kern_routes.py). Nothing here shapes text or touches the DOM: a value is a whole-pixel shift of every glyph after its junction, applied to the inventory's pen positions.
+// The kerning view's model (`#view=kern`, doc/kerning-design.md section 6) as pure functions over the build's inventory (`kern-inventory.json`, engine/pipeline/kern_inventory.py) and the server's values (`GET /kern`, engine/review/kern_routes.py). Nothing here shapes text or touches the DOM: a value is a whole-pixel shift of every glyph after its junction, applied to the inventory's pen positions.
 
 export const INVENTORY_FORMAT = 'ams-kern-inventory/1';
 export const VALUES_FORMAT = 'ams-kern-values/1';
@@ -346,7 +346,7 @@ export function stalenessLines(model, values, refreshError = null) {
   return lines;
 }
 
-// Editing (engine/KERN-PLAN.md section 6). A scope names the record an edit sets: the letters scope of two runes is the record naming only the two families, and a facing pair's scope is the record whose keys are its two sides' keys, which is the letters scope when both sides are whole runes. Each lives in the leading rune's file. `edits` maps a scope's key to the view's change not yet confirmed by the server, `{scope, by, why, state}`, `by` null to drop the record.
+// Editing (doc/kerning-design.md section 6). A scope names the record an edit sets: the letters scope of two runes is the record naming only the two families, and a facing pair's scope is the record whose keys are its two sides' keys, which is the letters scope when both sides are whole runes. Each lives in the leading rune's file. `edits` maps a scope's key to the view's change not yet confirmed by the server, `{scope, by, why, state}`, `by` null to drop the record.
 export const SCOPE_FACING = 'facing';
 export const SCOPE_LETTERS = 'letters';
 // The largest |by| a kern record takes: engine/schema/rune.schema.json's bound, which the server's `kern_routes.BY_LIMIT` holds too.
@@ -481,7 +481,7 @@ export function journalLines(values, seenSeq) {
   return lines;
 }
 
-// Carried-over marks (engine/KERN-PLAN.md section 8). A facing pair is carried over and unreviewed while the import set it (`imported.json`), the author has not marked it (`reviewed.json`), and it still has the value the import gave it.
+// Carried-over marks (doc/kerning-design.md section 8). A facing pair is carried over and unreviewed while the import set it (`imported.json`), the author has not marked it (`reviewed.json`), and it still has the value the import gave it.
 export function isCarried(model, values, pairId) {
   const key = model.pairKeys[pairId];
   const entry = values?.imported?.get(key);
@@ -545,7 +545,7 @@ export function carriedTrouble(values) {
   return { stale: carried?.stale?.length ?? 0, error: carried?.error ?? null };
 }
 
-// Relatives (engine/KERN-PLAN.md section 6). A facing pair's junction is every horizontal gap between ink of its two sides on one row or on rows one apart, at a value of 0: the leading glyph's blank from its rightmost ink to its advance plus the following glyph's blank from its pen position to its leftmost ink, so the two letters' side bearings cancel out of it. Two facing pairs are relatives when their junctions are alike once one is left as it is (`same`), has its two sides exchanged (`mirror`, the junction seen in a mirror), is turned upside down (`flip`), or both (`turn`, a half turn). Alike means equal on every gap less than `CLOSE_REACH` pixels looser than the closest one, so ink set well back from the junction, a ligature's second letter's stem among it, counts for nothing. Relatives whose values differ are kerned inconsistently unless the author marks one as apart on purpose (`GET /kern`'s `apart`).
+// Relatives (doc/kerning-design.md section 6). A facing pair's junction is every horizontal gap between ink of its two sides on one row or on rows one apart, at a value of 0: the leading glyph's blank from its rightmost ink to its advance plus the following glyph's blank from its pen position to its leftmost ink, so the two letters' side bearings cancel out of it. Two facing pairs are relatives when their junctions are alike once one is left as it is (`same`), has its two sides exchanged (`mirror`, the junction seen in a mirror), is turned upside down (`flip`), or both (`turn`, a half turn). Alike means equal on every gap less than `CLOSE_REACH` pixels looser than the closest one, so ink set well back from the junction, a ligature's second letter's stem among it, counts for nothing. Relatives whose values differ are kerned inconsistently unless the author marks one as apart on purpose (`GET /kern`'s `apart`).
 export const RELATIONS = ['same', 'mirror', 'flip', 'turn'];
 export const CLOSE_REACH = 3;
 // A near relative's junction differs from the selected one's by at most this many pixels in all, over the gaps within `CLOSE_REACH` of the closer of the two.
@@ -806,7 +806,7 @@ export function nextAfterApart(model, values, valueOf, cursor, facing, keys) {
   return nextSplit(model, splitStanding(model, after, valueOf).pairs, cursor, facing, 1, skip);
 }
 
-// Comparables (engine/KERN-PLAN.md section 6): the facing pairs that share one side with the selected pair and whose other side is shaped like the selected pair's. Two sides are alike when their facing edges, row by row, differ by a constant, the distance each is set back from its glyph's boundary, and by little else: the likeness distance is the pixels left once that constant (`offset`, the median difference) is taken out, plus `MISSING_ROW` for every row only one of them inks. A side counts as shaped like another within one pixel a row of the other's edge.
+// Comparables (doc/kerning-design.md section 6): the facing pairs that share one side with the selected pair and whose other side is shaped like the selected pair's. Two sides are alike when their facing edges, row by row, differ by a constant, the distance each is set back from its glyph's boundary, and by little else: the likeness distance is the pixels left once that constant (`offset`, the median difference) is taken out, plus `MISSING_ROW` for every row only one of them inks. A side counts as shaped like another within one pixel a row of the other's edge.
 export const COMPARE_JUNCTION = 'junction';
 export const COMPARE_LEAD = 'lead';
 export const COMPARE_FOLLOW = 'follow';

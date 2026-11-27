@@ -320,7 +320,7 @@ def test_no_snapshot_builds_a_corpus_with_no_units_over_the_after_font_alone(bui
 
 
 def test_two_builds_of_the_same_inputs_write_the_same_bytes(corpus, builds, tmp_path):
-    """REVIEW-PLAN §6's determinism gate: a second build of the same snapshot and tables writes a byte-identical manifest, shards and sidecars, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`)."""
+    """The determinism gate of doc/review-design.md §6: a second build of the same snapshot and tables writes a byte-identical manifest, shards and sidecars, `generated_at` included, because the stamp is the latest input mtime (`build._generated_at`)."""
     out, _manifest, _shards = corpus
     _accepted, edited, taken = builds
     again = tmp_path / "again"

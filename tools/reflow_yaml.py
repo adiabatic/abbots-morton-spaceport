@@ -78,7 +78,7 @@ def _multiline(node):
 
 
 def _decide_kern(node):
-    """Set a rune's `kern:` block to one flow-style record per line, the form the kern editor writes (engine/KERN-PLAN.md section 6). A record with a comment or a multi-line string falls back to the structural rule."""
+    """Set a rune's `kern:` block to one flow-style record per line, the form the kern editor writes (doc/kerning-design.md section 6). A record with a comment or a multi-line string falls back to the structural rule."""
     if not isinstance(node, CommentedSeq):
         _decide_structurally(node)
         return

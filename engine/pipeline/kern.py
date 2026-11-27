@@ -1,4 +1,4 @@
-"""The kern stage (engine/KERN-PLAN.md sections 2 to 4, `doc/engine-design.md` §12): it resolves the runes' `kern:` records over the pairs of settled cells that do not join, and writes the coverage table `kern.tsv`. `emit_gpos.kern_plan` turns the resolution into the font's `kern` lookup, and the defect gates place each kerned break where the font draws it (`member_values`).
+"""The kern stage (doc/kerning-design.md sections 2 to 4, `doc/engine-design.md` §12): it resolves the runes' `kern:` records over the pairs of settled cells that do not join, and writes the coverage table `kern.tsv`. `emit_gpos.kern_plan` turns the resolution into the font's `kern` lookup, and the defect gates place each kerned break where the font draws it (`member_values`).
 
 `run_build` calls `run_stage` once the tables exist and the cell glyphs are minted, before the defect gates. Its inputs:
 
@@ -8,17 +8,17 @@
 - The letters' ss10 copies (`run_build.mint_raw_glyphs`). Under the isolated overlay nothing forms or joins, so every ordered pair of letters is a break between their copies (`ss10_breaks`). A copy is drawn from its letter's isolated cell (`geometry.isolated_cell`) with its anchors stripped, so the stage treats the copy as that cell: it is a member of the cell's sides, records match it as they match the cell, and its pairs carry each overlay configuration (`overlay_configs`). A copy whose isolated cell has a live exit would break that rule, and raises `KernInternalError`; no rune draws one.
 - The realized glyph records, which give each cell its ink and its advance as `engine/pipeline/font_assembly.py` compiles them: the drawing's width plus `INK_X_OFFSET` blank pixels on each side, less the Senior tightening's pixel (`SENIOR_TIGHTENING`).
 
-**Sides** (KERN-PLAN §3). A rune's leading cells are those on the left of some break, and its following cells those on the right of one. A leading cell's facing edge is, for each bitmap row with ink, the distance from its rightmost ink to its advance edge; a following cell's is, for each such row, the x of its leftmost ink, left bearing included (`leading_edge`, `following_edge`). `refine_sides` splits one rune's cells on one side top down, so every side is named by the record grammar: when every cell has one edge, the rune is one side; otherwise each stance whose cells share an edge is a side; otherwise each far-side state of the stance (the entry state for a leading cell, the exit state for a following cell, a height or `none`) whose cells share an edge is a side; otherwise each bound drawing of that state (the drawing the cell's last `bind` adjustment names, a `padded-left-N` copy among them, or none) is a side. A side whose cells still differ after the last split differs only in an extension, contraction or trim amount, which no record can name, and is flagged `mixed`.
+**Sides** (doc/kerning-design.md §3). A rune's leading cells are those on the left of some break, and its following cells those on the right of one. A leading cell's facing edge is, for each bitmap row with ink, the distance from its rightmost ink to its advance edge; a following cell's is, for each such row, the x of its leftmost ink, left bearing included (`leading_edge`, `following_edge`). `refine_sides` splits one rune's cells on one side top down, so every side is named by the record grammar: when every cell has one edge, the rune is one side; otherwise each stance whose cells share an edge is a side; otherwise each far-side state of the stance (the entry state for a leading cell, the exit state for a following cell, a height or `none`) whose cells share an edge is a side; otherwise each bound drawing of that state (the drawing the cell's last `bind` adjustment names, a `padded-left-N` copy among them, or none) is a side. A side whose cells still differ after the last split differs only in an extension, contraction or trim amount, which no record can name, and is flagged `mixed`.
 
 **Side names** spell the keys a record would use, in brackets after the rune: `qsNo` for the rune as a whole, `qsNo[flipped]` for a stance, `qsGay[sole entry=baseline]` or `qsGay[sole exit=none]` for a state of a stance on the leading or the following side, and `qsTea[half exit=x-height bitmap=padded-left-1]` for a bound drawing. A side split off at the last level with no bound drawing keeps its state's name, so `qsOut_qsTea[sole entry=baseline]` beside `qsOut_qsTea[sole entry=baseline bitmap=low-bend]` is the state's cells less the bound ones.
 
 **Facing pairs.** A facing pair is a leading side and a following side with at least one reachable break between their cells, in any settlement configuration, across a ZWNJ, or under the overlay. `resolve` keeps each one's configurations and its member cell pairs.
 
-**Matching and precedence** (KERN-PLAN §2). A record in rune R's block matches a break when the left cell is R's and fits the record's `stance`, `entry` and `bitmap`, and the right cell fits `right`: its `family` and `class` (a predicate class, or a group of the record's own rune, by the loader's resolved membership), its settled `stance`, its `exit` state and its bound drawing, and none of its `except` entries. A right-facing family is literal, so a ligature follower is named explicitly. A record's match set is every break it matches, the breaks it reaches through an inheriting ligature included. Among the records that match a break, the one whose match set lies inside every other's decides, and values never add. Two matching records with different values whose match sets are equal, or neither of which lies inside the other, are `E-KERN-INCOMPARABLE`; two with one value never conflict, and either may be reported as the decider.
+**Matching and precedence** (doc/kerning-design.md §2). A record in rune R's block matches a break when the left cell is R's and fits the record's `stance`, `entry` and `bitmap`, and the right cell fits `right`: its `family` and `class` (a predicate class, or a group of the record's own rune, by the loader's resolved membership), its settled `stance`, its `exit` state and its bound drawing, and none of its `except` entries. A right-facing family is literal, so a ligature follower is named explicitly. A record's match set is every break it matches, the breaks it reaches through an inheriting ligature included. Among the records that match a break, the one whose match set lies inside every other's decides, and values never add. Two matching records with different values whose match sets are equal, or neither of which lies inside the other, are `E-KERN-INCOMPARABLE`; two with one value never conflict, and either may be reported as the decider.
 
 **Ligature inheritance.** A ligature stance in its `KernBlock.inherits` (the stances `outgoing.stance` maps, explicitly or by default) takes the kern records of the trailing component that name that component stance or no stance and set neither `entry` nor `bitmap`. They apply to the ligature stance's own leading cells and keep their `right`. Every record of the ligature's own block outranks every inherited one: inherited records are consulted at a break only when no own record matches it. A stance that opts out with `outgoing: {exception: …}` inherits nothing. The trailing component's own block is the one read, so a ligature does not pass on what it inherits.
 
-**Errors.** A record that matches no break is `E-KERN-UNMATCHED`, unless none of the runes its `right` can name is in the spec (`_Matcher.nameable`), or the spec is narrowed. A spec holding the whole store holds every family a record can name, so on it the first exemption covers only a record whose `class` has no member among its families, or no member at all when it names none. On a narrowed spec (`model.ResolvedSpec.narrowed`) the stage reports no record unmatched: a small alphabet can lack a cell a record names, or the letters that bring two named cells to one break, and the whole alphabet's build is the one that reports a stale record. `spec_load.load_spec` builds every spec with `narrowed` false, and a full-alphabet build runs on the spec it builds, so a full-alphabet build never takes that exemption. `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE` are collected and raised together as one `KernError`. A facing pair whose member cell pairs resolve to different values is `E-KERN-NARROWER`, raised as a `KernError` of its own once those two are clear: a record that tells apart cells sharing one facing edge is narrower than a facing pair, which KERN-PLAN §3 rules out. The stage raises `E-KERN-INCOMPARABLE` and `E-KERN-NARROWER` on a narrowed spec as on any other.
+**Errors.** A record that matches no break is `E-KERN-UNMATCHED`, unless none of the runes its `right` can name is in the spec (`_Matcher.nameable`), or the spec is narrowed. A spec holding the whole store holds every family a record can name, so on it the first exemption covers only a record whose `class` has no member among its families, or no member at all when it names none. On a narrowed spec (`model.ResolvedSpec.narrowed`) the stage reports no record unmatched: a small alphabet can lack a cell a record names, or the letters that bring two named cells to one break, and the whole alphabet's build is the one that reports a stale record. `spec_load.load_spec` builds every spec with `narrowed` false, and a full-alphabet build runs on the spec it builds, so a full-alphabet build never takes that exemption. `E-KERN-UNMATCHED` and `E-KERN-INCOMPARABLE` are collected and raised together as one `KernError`. A facing pair whose member cell pairs resolve to different values is `E-KERN-NARROWER`, raised as a `KernError` of its own once those two are clear: a record that tells apart cells sharing one facing edge is narrower than a facing pair, which doc/kerning-design.md §3 rules out. The stage raises `E-KERN-INCOMPARABLE` and `E-KERN-NARROWER` on a narrowed spec as on any other.
 
 **`kern.tsv`** has a comment line, a column line, then one row per facing pair: the leading rune, the leading side's name, the following rune, the following side's name, `by` (0 when no record matches), the deciding record's provenance (empty when none, with ` (inherited)` after a record a ligature inherits, and comma-separated when one value comes from several records), the configurations that reach the pair (settlement configurations in table order, then the overlay), and which of the two sides is `mixed` (`leading`, `following`, both joined by a comma, or empty). Rows are sorted by the leading rune in code-point order with each ligature after its lead (`rune_order_key`), then the leading side's name, the following rune and the following side's name. The file is written only when its bytes change (`output_sink.write_output`).
 
@@ -54,7 +54,7 @@ KERN_CLASSES_JSON = "kern-classes.json"
 # The registry's name for the ZWNJ boundary token (glyph_data/script.yaml), which `labels` turns into the `uni200C` label the crate's ZWNJ cells are found by.
 ZWNJ_TOKEN = "zwnj"
 KERN_CLASSES_FORMAT = "ams-kern-classes/2"
-TSV_COMMENT = "# kern table: one row per facing pair (engine/KERN-PLAN.md section 3)"
+TSV_COMMENT = "# kern table: one row per facing pair (doc/kerning-design.md section 3)"
 TSV_COLUMNS = ("leading", "leading_side", "following", "following_side", "by", "record", "configs", "mixed")
 
 LEADING = "leading"
@@ -63,7 +63,7 @@ BREAK = "break"
 INHERITED_MARK = " (inherited)"
 
 INK_X_OFFSET = geometry.INK_X_OFFSET
-SENIOR_TIGHTENING = 1  # engine/pipeline/font_assembly.py trims this many pixels from a Quikscript letter's computed advance (engine/KERN-PLAN.md section 1)
+SENIOR_TIGHTENING = 1  # engine/pipeline/font_assembly.py trims this many pixels from a Quikscript letter's computed advance (doc/kerning-design.md section 1)
 
 Edge = tuple[tuple[int, int], ...]
 CellPair = tuple[CellId, CellId]
@@ -272,7 +272,7 @@ def check_join_rows(
             entry_live = right.entry is not None
             if is_break == exit_live or is_break == entry_live:
                 raise KernInternalError(
-                    f"{config} join row {row.left}\t{row.right}\t{row.junction}: a row is a break exactly when its left cell has no live exit and its right cell has no live entry (engine/KERN-PLAN.md section 2)"
+                    f"{config} join row {row.left}\t{row.right}\t{row.junction}: a row is a break exactly when its left cell has no live exit and its right cell has no live entry (doc/kerning-design.md section 2)"
                 )
             if is_break:
                 configs = breaks.setdefault((left, right), [])
@@ -586,7 +586,7 @@ def _resolve_breaks(
             incomparable[(first, second)] = (
                 f"{first.provenance} {describe(first)} and {second.provenance} {describe(second)} both match "
                 f"{_pair_text(spec, pair, breaks)}{' through ligature inheritance' if from_component else ''} with different values, and {how}; "
-                "narrow one so its breaks lie inside the other's, give both the same value, or remove one (engine/KERN-PLAN.md section 2)"
+                "narrow one so its breaks lie inside the other's, give both the same value, or remove one (doc/kerning-design.md section 2)"
             )
         key = tuple(sorted(candidates, key=order.__getitem__))
         if key not in minimal_of:
@@ -610,7 +610,7 @@ def _resolve_breaks(
         issues.append(
             (
                 "E-KERN-UNMATCHED",
-                f"{record.provenance} {describe(record)} matches no break in any configuration{reach}: every pair it names joins, or the two never meet; remove it or correct what it names (engine/KERN-PLAN.md section 2)",
+                f"{record.provenance} {describe(record)} matches no break in any configuration{reach}: every pair it names joins, or the two never meet; remove it or correct what it names (doc/kerning-design.md section 2)",
             )
         )
     return values, issues
@@ -679,7 +679,7 @@ def _facing_pairs(
             narrower.append(
                 (
                     "E-KERN-NARROWER",
-                    f"the facing pair {lead.name} | {follow.name} resolves to different values across its member breaks ({shown}): a kern record tells apart cells that share one facing edge, and a record may be broader than a facing pair but never narrower; drop the key that tells them apart (engine/KERN-PLAN.md section 3)",
+                    f"the facing pair {lead.name} | {follow.name} resolves to different values across its member breaks ({shown}): a kern record tells apart cells that share one facing edge, and a record may be broader than a facing pair but never narrower; drop the key that tells them apart (doc/kerning-design.md section 3)",
                 )
             )
             continue

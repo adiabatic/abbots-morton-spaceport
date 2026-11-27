@@ -1,4 +1,4 @@
-# Curated sequence set for the CoreText-vs-HarfBuzz smoke harness (M1-PLAN section 5, coretext_smoke).
+# Curated sequence set for the CoreText-vs-HarfBuzz smoke harness (`doc/engine-design.md` §14.2, coretext_smoke).
 # One sequence per line as whitespace-separated hex codepoints; text after "#" is the label.
 # Codepoints: doc/glyph-names.md maps each letter to its codepoint; the others are space 0020, namer dot 00B7, and ZWNJ 200C.
 # The driver runs every line under every configuration in `coretext_smoke.FEATURE_CONFIGURATIONS`.

@@ -1,4 +1,4 @@
-"""Tests for the kern stage, `engine/pipeline/kern.py` (engine/KERN-PLAN.md sections 2 to 4).
+"""Tests for the kern stage, `engine/pipeline/kern.py` (doc/kerning-design.md sections 2 to 4).
 
 Every test loads a small hand-written alphabet through the real loader (`spec_load.load_spec` over YAML written under `tmp_path`) and hands the stage join tables built in the test, so the stage's inputs are exactly the cells each test names and no test reads a live artifact. The glyphs are realized from those cells as `run_build.mint_cell_glyphs` realizes them, named by their cell labels.
 

@@ -1,6 +1,6 @@
-# Rebuild tools
+# Engine tools
 
-Scripts for the rebuild. Run each from the repo root as `uv run python -m engine.tools.<script>`. A script whose docstring gives the `uv run python engine/tools/<script>.py` form also runs that way.
+Scripts for the engine. Run each from the repo root as `uv run python -m engine.tools.<script>`. A script whose docstring gives the `uv run python engine/tools/<script>.py` form also runs that way.
 
 Each script's module docstring says what it does and how to run it.
 
@@ -8,11 +8,11 @@ Start here:
 
 - `artifact_cycle.py` (`make artifact-cycle`; `make review-cycle` runs it and then serves the corpus): the commit-time artifact cycle
 - `verdict_ready.py` (`make verdict-ready`): the checklist that says whether the corpus is ready for a review session
-- `probe.py`: prints the rebuild's settled cells and junctions for one or more codepoint windows, in every configuration
+- `probe.py`: prints the engine's settled cells and junctions for one or more codepoint windows, in every configuration
 - `cycle_timings.py` (`make cycle-timings`): summarizes the recorded step timings and check results
 - `calibrate_budgets.py` (`make job-costs`): checks the checked-in per-worker memory peaks against the peaks recorded in the timings journal
 - `deep_sweep.py` (`make conform-deep`): gate:conform run to a longer maximum length on demand
-- `memory_series.py` (`make memory-series`): measures what the table build or the review corpus build holds and writes at each of several alphabet cuts, one build at a time, into `engine/memory-series.txt`
+- `memory_series.py` (`make memory-series`): measures what the table build, the string replay or the settle-memo absorbs hold and write at each of several alphabet cuts, one build at a time, into `engine/memory-series.txt`
 - `build_fonts.py` (`make all`): publishes the six fonts into `site/`, Mono and Junior built from the runes and Senior copied from the build under `engine/out/build/`, which `--build` runs first when it is stale; the font suite's session runs it without `--build` before it checks the fonts
 - `release_fonts.py` (`make draft-release`): uploads the six fonts in `site/` and their manifest to a draft GitHub release, which a push of the release tag publishes (HACKING.md § Cutting a release); its `verify` subcommand is the release workflow's check of the fonts it downloads
 - `fault_kit.py`: re-injects the fault kit's rows (`engine/perf/faults.yaml`) into its own tree, `var/perf/kit/`, each on its own small alphabet, and checks that their gates still catch them (`doc/perf-check.md`)

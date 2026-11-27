@@ -1,4 +1,4 @@
-"""GSUB emission in the design section 7 shape (M1-PLAN section 5, Group 3).
+"""GSUB emission in the design section 7 shape (`doc/engine-design.md` §14.2).
 
 Lookups are defined in the order they must apply, because definition order fixes their LookupList indices, and both HarfBuzz and CoreText apply lookups from different features in index order.
 

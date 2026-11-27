@@ -1,4 +1,4 @@
-"""Tests for the kern inventory, `engine/pipeline/kern_inventory.py` (engine/KERN-PLAN.md sections 4 and 6).
+"""Tests for the kern inventory, `engine/pipeline/kern_inventory.py` (doc/kerning-design.md sections 4 and 6).
 
 Every test runs over engine/test_kern.py's small hand-written alphabet, loaded through the real loader, with join tables and ZWNJ cells the test names, and settles its texts through a stand-in for the kernel that answers the texts the test lists and refuses the rest, so the witness ladder's choices are the test's. The build's own run of the inventory settles through the kernel and checks every text against HarfBuzz on the compiled font (`check_positions`), which these tests drive through a stand-in shaper. The app's fixture, `engine/review/fixtures/kern-inventory.json`, is a slice of a built inventory, and the last test holds it to the inventory's shape.
 """

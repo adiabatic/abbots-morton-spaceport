@@ -1,6 +1,6 @@
-"""Load the rune files and the script registry into a `ResolvedSpec` (engine/M1-PLAN.md §5, Group 1). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, `kern:` as the file's last key, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, the kern records' reference checks (`_check_kern`), ligature outgoing inheritance, and left-facing ligature expansion.
+"""Load the rune files and the script registry into a `ResolvedSpec` (`doc/engine-design.md` §14.2). Loading runs schema validation, the Python lints (stance and motion naming, the reserved `sole` name, ductus parity, no `right.then` on refusals, no prefer `over:` without a `cell:`, the right-side `then:` chain depth cap, `kern:` as the file's last key, registry and reference checks), left-condition `bitmap:` resolution, predicate-class evaluation, rune-local group resolution, the kern records' reference checks (`_check_kern`), ligature outgoing inheritance, and left-facing ligature expansion.
 
-A rune's `kern:` block becomes its `Rune.kern` (`model.KernBlock`), which the kernel's spec dump leaves out (engine/KERN-PLAN.md §4). Ligature outgoing inheritance records which trailing stance each ligature stance takes its kern records from (`KernBlock.inherits`); `engine/pipeline/kern.py` applies them.
+A rune's `kern:` block becomes its `Rune.kern` (`model.KernBlock`), which the kernel's spec dump leaves out (doc/kerning-design.md §4). Ligature outgoing inheritance records which trailing stance each ligature stance takes its kern records from (`KernBlock.inherits`); `engine/pipeline/kern.py` applies them.
 
 Schema validation uses a cached Draft 2020-12 validator over the JSON Schema files under engine/schema/, with strict YAML integers and a closed schema vocabulary. Every error carries the YAML file, key path, and line. Errors are collected within each loading stage, and a stage that found any raises them together as one SpecError.
 
@@ -75,7 +75,7 @@ _NAMING_RULE = "stance IDs and motion names describe pen motions, never neighbor
 _WINDOW_RULE = "refuse and require records must be decidable one position to the left of the rune they constrain, so right.then is forbidden on them (doc/engine-design.md section 3.3)"
 _OVER_RULE = "a prefer's over: names the candidates its cell: outranks, so over: takes effect only beside a cell: and needs one (doc/engine-design.md section 3.3)"
 _CAP_WORDS = {1: "one", 2: "two", 3: "three", 4: "four"}
-_KERN_LAST_RULE = "kern: is the last key of a rune file, so the kern editor can rewrite the block from its first line to the end of the file without touching anything before it (engine/KERN-PLAN.md sections 2 and 6)"
+_KERN_LAST_RULE = "kern: is the last key of a rune file, so the kern editor can rewrite the block from its first line to the end of the file without touching anything before it (doc/kerning-design.md sections 2 and 6)"
 _CHAIN_RULE = f"a right-side then: chain may reach at most {_CAP_WORDS[RIGHT_CHAIN_CAP]} letters past the immediate right neighbor — the depth-{RIGHT_CHAIN_CAP + 1} window edge, counting hops carried by except: entries (doc/engine-design.md section 3.4)"
 
 
@@ -654,7 +654,7 @@ def _kern_follower(raw: dict) -> KernFollower:
 
 
 def _kern_block(rune_name: str, raw: dict, context: _FileContext) -> KernBlock:
-    """Build a rune's `kern:` records (engine/KERN-PLAN.md §2), each carrying the rune that holds it and its `kern[index]` provenance. The inheritance map is filled in later, by `_inherit_ligature_outgoing`."""
+    """Build a rune's `kern:` records (doc/kerning-design.md §2), each carrying the rune that holds it and its `kern[index]` provenance. The inheritance map is filled in later, by `_inherit_ligature_outgoing`."""
     return KernBlock(
         records=tuple(
             KernRecord(
@@ -1269,7 +1269,7 @@ def _evaluate_predicate_classes(registry_raw: dict, rune_raws: dict[str, dict]) 
 def _check_kern(
     runes: dict[str, Rune], contexts: dict[str, _FileContext], classes: dict[str, frozenset[str]]
 ) -> None:
-    """Check each kern record's references against the built runes (engine/KERN-PLAN.md §2): its `stance` is one of the rune's stances, its `bitmap` is a bound drawing of that stance (of any stance when it names none), a `bitmaps:` sibling or a `padded-left-N` copy a `pad_left` record makes, and its `right:` names only runes that have a rune file, and classes that are predicate classes or the rune's own groups. A `right.stance` must be a stance of at least one follower the record names, and a `right.bitmap` a bound drawing of one of them; an `except:` entry that names no follower of its own is checked against its parent's. Class membership is the loader's own: `classes` and the rune's resolved `policy.groups`."""
+    """Check each kern record's references against the built runes (doc/kerning-design.md §2): its `stance` is one of the rune's stances, its `bitmap` is a bound drawing of that stance (of any stance when it names none), a `bitmaps:` sibling or a `padded-left-N` copy a `pad_left` record makes, and its `right:` names only runes that have a rune file, and classes that are predicate classes or the rune's own groups. A `right.stance` must be a stance of at least one follower the record names, and a `right.bitmap` a bound drawing of one of them; an `except:` entry that names no follower of its own is checked against its parent's. Class membership is the loader's own: `classes` and the rune's resolved `policy.groups`."""
     for name, rune in runes.items():
         context = contexts[name]
         for index, record in enumerate(rune.kern.records):

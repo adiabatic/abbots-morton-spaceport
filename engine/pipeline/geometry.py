@@ -1,4 +1,4 @@
-"""Per-cell bitmap and anchor realization (M1-PLAN section 5, Group 3).
+"""Per-cell bitmap and anchor realization (`doc/engine-design.md` §14.2).
 
 `realize` turns a CellPlan and its adjustments into a GlyphRecord in the design section 3.2 order. The starting drawing is the plan's bitmap binding, which `surface.resolve_cell` takes from an explicit `cells:` row first, then from a side binding, and otherwise leaves as the base bitmap. Stubs are then inked or blanked on each live side. The anchors start at the plan's override x or the stance's declared row x. The adjustment tokens (grammar in `model.parse_adjustment`) then apply in order: `ext` and `con` add or remove connector ink and shift the anchors to match, `trim` removes ink and leaves the anchor where it was, `bind` swaps in another bitmap and re-places both anchors by convention (`entry.x = min_ink_x_at_entry_y`, `exit.x = max_ink_x_at_exit_y + 1`), and `locked` drops the entry anchor. A row's `x_off_convention` flag exempts its own side of E-ANCHOR and no other. A `trim` adjustment exempts the side it trims, because its anchor stays where the pre-trim ink put it.
 

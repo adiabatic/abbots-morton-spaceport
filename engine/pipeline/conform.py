@@ -1,4 +1,4 @@
-"""Conformance gates (M1-PLAN section 5, Group 3): HarfBuzz against the settlement function, and the settle memo the build's walks share.
+"""Conformance gates (`doc/engine-design.md` §14.2): HarfBuzz against the settlement function, and the settle memo the build's walks share.
 
 `run_conformance` runs the conformance sweep. For each settlement configuration it shapes every text of length 1 to the maximum length (`SWEEP_MAX_LENGTH`, 4 by default) over the alphabet and compares the result with settlement: glyph names (`check_glyph_names`), split-buffer equivalence (`check_split_buffer`), zero gaps at joins (`check_join_gaps`), and the advance at every other slot (`check_break_advances`), which must be the glyph's `hmtx` advance plus the kern the build compiled for it and the glyph after it, read from `kern-classes.json` (`KernSides`). This comparison allows no exception, so any divergence is a compiler defect. `Shaper` (engine/pipeline/shapers.py) shapes at the MONOTONE_CHARACTERS cluster level and reads glyph names through TTFont, because HarfBuzz's name API truncates them.
 

@@ -1,4 +1,4 @@
-"""GPOS emission: one cursive lookup for each height in `CURS_HEIGHT_YS` that has anchors (M1-PLAN section 5, Group 3), and the `kern` feature's contextual lookup (engine/KERN-PLAN.md section 5).
+"""GPOS emission: one cursive lookup for each height in `CURS_HEIGHT_YS` that has anchors (`doc/engine-design.md` §14.2), and the `kern` feature's contextual lookup (doc/kerning-design.md section 5).
 
 Each `curs` lookup registers every glyph with an anchor at that height. A glyph that enters or exits at another height gets a NULL anchor on that side. When `spec` is given, every locked copy also gets a NULL/NULL registration at each height where its rune declares an entry row; without `spec` these are skipped and the output says so in a comment. Coordinates are glyph-space pixels × 50, with x shifted by the one-pixel ink offset.
 
@@ -104,7 +104,7 @@ def kern_plan(resolution: KernResolution, glyphs: Mapping[CellId, GlyphRecord]) 
             record = records.get(name)
             if record is not None and record.exit is not None:
                 raise KernPlanError(
-                    f"{name} exits at {record.exit} but a kern record adjusts it as the first glyph of a break; a glyph with a live exit is on no leading side (engine/KERN-PLAN.md section 5)"
+                    f"{name} exits at {record.exit} but a kern record adjusts it as the first glyph of a break; a glyph with a live exit is on no leading side (doc/kerning-design.md section 5)"
                 )
         row = rows[sides[0]]
         for value_index, value in enumerate(sorted({value for value in row.values()})):
@@ -117,7 +117,7 @@ def kern_plan(resolution: KernResolution, glyphs: Mapping[CellId, GlyphRecord]) 
                 if record.entry is not None or record.entry_curs_only is not None:
                     anchor = record.entry if record.entry is not None else record.entry_curs_only
                     raise KernPlanError(
-                        f"{name} carries a cursive entry anchor at {anchor} but follows a kerned break, so the kern lookup would read it after a glyph it adjusts; a `selectable: false` entry row gives every cell of its stance that anchor (`surface.resolve_cell`). Remove the kern records that reach its following side ({following[name].name}), or give the stance's entry row `selectable: true` (engine/KERN-PLAN.md section 5)"
+                        f"{name} carries a cursive entry anchor at {anchor} but follows a kerned break, so the kern lookup would read it after a glyph it adjusts; a `selectable: false` entry row gives every cell of its stance that anchor (`surface.resolve_cell`). Remove the kern records that reach its following side ({following[name].name}), or give the stance's entry row `selectable: true` (doc/kerning-design.md section 5)"
                     )
             if not lead or not follow:
                 continue

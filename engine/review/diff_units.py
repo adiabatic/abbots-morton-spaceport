@@ -1,4 +1,4 @@
-"""The visible changes a table diff makes, and the review units that show them (engine/REVIEW-PLAN.md §2.3).
+"""The visible changes a table diff makes, and the review units that show them (doc/review-design.md §2.3).
 
 A settlement row is a class-compressed rule over hundreds of windows, and one join change re-folds hundreds of rules, so a changed row (`tablediff`) is evidence and never a unit. A unit is one visible change, folded across the configurations it holds under:
 
@@ -15,7 +15,7 @@ A glyph unit's text (`glyph_units`) is the shortest certificate, of either table
 
 Folding (`UnitFinder.units`): a unit's configurations are those its one text shows its change under. Of the texts the unit's configurations found, the one that shows the change under the most of them is taken, the shortest first on a tie, and the configurations it leaves take another text the same way, so every unit's text shows its change under every configuration it lists. Then the units that show the same thing become one (`merge`): join, settlement and glyph units with the same text under the same configurations, which shape to the same runs in both fonts, as a removed join row, its added twin, the substitution at that junction and a glyph redrawn in it do, are one unit that carries all their kinds and rows and stands in the class of its first member by `KIND_PRECEDENCE`: `joins` when any of them is a join row, else `settlement` when any is a cell change, else `glyphs`. Kern units with the same text under the same configurations fold the same way among themselves and with no other kind, since they are drawn with kerning on. Units whose configurations differ stay apart.
 
-`fragment` writes a unit as the corpus's shard JSON (engine/REVIEW-PLAN.md §7.2): the before and after runs, the pair band and highlight from HarfBuzz's clusters, the machine checks (`ink.InkComparator`), the cluster, a digest of the ink deltas the unit's configurations show, so units that show the same pixels share a Queue card, and the id, `unit_ids.unit_id_for` of a digest of what the unit is (`unit_identity`). Shaping is kern-neutral (`ink.kern_neutral`), as everywhere in the corpus, but for a kern unit's, which shapes, compares and draws with kerning on in both fonts (`KernedInkComparator`).
+`fragment` writes a unit as the corpus's shard JSON (doc/review-design.md §7.2): the before and after runs, the pair band and highlight from HarfBuzz's clusters, the machine checks (`ink.InkComparator`), the cluster, a digest of the ink deltas the unit's configurations show, so units that show the same pixels share a Queue card, and the id, `unit_ids.unit_id_for` of a digest of what the unit is (`unit_identity`). Shaping is kern-neutral (`ink.kern_neutral`), as everywhere in the corpus, but for a kern unit's, which shapes, compares and draws with kerning on in both fonts (`KernedInkComparator`).
 """
 
 from __future__ import annotations
@@ -350,7 +350,7 @@ def glyph_changes(before: Path, after: Path) -> list[GlyphChange]:
 
 @dataclass(frozen=True)
 class KernRow:
-    """One row of a `kern.tsv` (engine/KERN-PLAN.md §3): the two runes, the two sides that face each other, the value in pixels, the record that sets it, and the configurations that reach the pair."""
+    """One row of a `kern.tsv` (doc/kerning-design.md §3): the two runes, the two sides that face each other, the value in pixels, the record that sets it, and the configurations that reach the pair."""
 
     leading: str
     leading_side: str

@@ -1,4 +1,4 @@
-"""The design section 9 defect gates over the alphabet (M1-PLAN section 5, Group 3).
+"""The design section 9 defect gates over the alphabet (`doc/engine-design.md` §14.2).
 
 `run_gates` checks the decision and join tables and the realized glyph records before any font exists. Errors fail the build and flags are only reported. Every defect carries a signature. A defect whose signature is in the `allow` set (the reviewed entries of `engine/contact-allow.yaml`) is reported as blessed instead of as an error or flag. The dead-policy check produces lists, not defects, and takes no allow set.
 

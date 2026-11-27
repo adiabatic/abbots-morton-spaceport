@@ -1,4 +1,4 @@
-"""The review corpus's shard layout and its reader of fragments (engine/REVIEW-PLAN.md §1.2, §7.2): the rule the build cuts a class's fragments into parts by (`PartLayout`, `base_part_names`), the order every walk of the corpus takes the classes in (`class_shard_key`), the manifest's identity that the app sidecars are stamped with (`manifest_sha256`), and the walk that reads every fragment back out of the parts (`iter_shard_fragments`).
+"""The review corpus's shard layout and its reader of fragments (doc/review-design.md §1.2, §7.2): the rule the build cuts a class's fragments into parts by (`PartLayout`, `base_part_names`), the order every walk of the corpus takes the classes in (`class_shard_key`), the manifest's identity that the app sidecars are stamped with (`manifest_sha256`), and the walk that reads every fragment back out of the parts (`iter_shard_fragments`).
 
 A class's parts hold its fragments in id order, each a standalone ASCII JSON element between the part's `[`, commas and `PART_CLOSING`, so a part is a JSON array and a fragment's byte span in it parses on its own, which the app's Range reads rely on (`app_index`).
 """

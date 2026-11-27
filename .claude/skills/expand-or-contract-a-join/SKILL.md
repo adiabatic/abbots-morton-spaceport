@@ -1,10 +1,10 @@
 ---
 name: expand-or-contract-a-join
-description: Lengthen or shorten one already-joining rebuild pair by N pixels. Pick one side, add the family to an existing extend or contract list with the same `by` when one matches, probe, and run the gates. Use when the user asks to extend, contract, lengthen, shorten, or add a pixel to a ·X·Y join, or runs /expand-or-contract-a-join. Assume the request is for the rebuild.
+description: Lengthen or shorten one already-joining pair by N pixels. Pick one side, add the family to an existing extend or contract list with the same `by` when one matches, probe, and run the gates. Use when the user asks to extend, contract, lengthen, shorten, or add a pixel to a ·X·Y join, or runs /expand-or-contract-a-join.
 argument-hint: "[·X·Y] [by N] [baseline|x-height]"
 ---
 
-This skill makes a pixel change on one rebuild pair that already joins. The record goes on a rune under `glyph_data/runes/`. Opening a join that currently breaks is a different task.
+This skill makes a pixel change on one pair that already joins. The record goes on a rune under `glyph_data/runes/`. Opening a join that currently breaks is a different task.
 
 `engine/schema/rune.schema.json` (`extendRecord`, `contractRecord`) defines the record shape. Never write `why:` (AGENTS.md). If the named family has more than one variant on the relevant axis, stop and ask before editing (AGENTS.md's letter-name rule).
 
@@ -40,7 +40,7 @@ Do not add `self:` / `then:` / `feature:` guards unless the user scoped the chan
 
 ## 4 — gates and commit
 
-Follow just-verdicted-now-what's steps 4–5, which end with the cycle pass, the commit, and telling the user where the landed corpus is served. `make test` skips itself (`glyph_data/runes/` is exempt). Don't rebuild the review corpus by hand; step 4's pass does.
+Follow just-verdicted-now-what's steps 4–5, which end with the cycle pass, the commit, and telling the user where the landed corpus is served. Step 4's pass reruns `make test` once the build's Senior has changed, and builds the review corpus; don't build it by hand.
 
 `run_build` exits with its gate's result. Green means defects 0/0 and Manual pins clean. The review diff shows the pair's change as a unit for the author's verdict. A new `E-CONTACT` / dangle in `defect_errors` needs a signature in `engine/contact-allow.yaml` in the pattern of that file's existing signatures. When a cell variant already has one (the `qsGay.sole.en-y0.en-con-1` dangle from ·No), reuse that signature instead of copying it.
 

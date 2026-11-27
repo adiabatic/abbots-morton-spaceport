@@ -9,7 +9,7 @@ There are two readings, which the table-diff build (`build.build_table_diff`, th
 - `ink_identical` compares both fonts' sorted placed pieces (`ink_pieces`) under every config.
 - `config_diff` returns the pixel-level delta: the cells only one font paints, read over each font's whole rasterized text and not piece by piece. A change that paints no different pixel (an overlap removed at a junction, a stroke passed to a neighbor) does not appear in it. Its sentinel `IDENTITY_DIFF` (no cell lost or gained, no follower shift) is the only implementation of `picture_identical`, the machine check the build tries on every unit that is not ink-identical. Piece identity implies the sentinel, because `config_diff` returns it before rasterizing anything. A unit's Queue `cluster` is made from the delta digests (`delta_digest`) of its configurations. `engine/test_review_ink.py` checks that the sentinel agrees with the reference picture comparison, `picture_equal` over `run_cells`.
 
-All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement, joins and drawings, and the `kern` lookup stays out of it (engine/KERN-PLAN.md §4), so both fonts shape with `kern` off and neither font's kerning enters a before-and-after comparison. A kern unit, which shows a moved kern value, is the one reading taken with kerning on, through `engine.review.diff_units.KernedInkComparator`.
+All review-corpus shaping is kern-neutral (`kern_neutral`). The corpus compares settlement, joins and drawings, and the `kern` lookup stays out of it (doc/kerning-design.md §4), so both fonts shape with `kern` off and neither font's kerning enters a before-and-after comparison. A kern unit, which shows a moved kern value, is the one reading taken with kerning on, through `engine.review.diff_units.KernedInkComparator`.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def features_for(config: str | None) -> dict[str, bool]:
 
 
 def kern_neutral(features: dict[str, bool] | None) -> dict[str, bool]:
-    """Return the config's features plus `kern: False`, used for both fonts: the corpus compares settlement, joins and drawings, and the `kern` lookup stays out of it (engine/KERN-PLAN.md §4)."""
+    """Return the config's features plus `kern: False`, used for both fonts: the corpus compares settlement, joins and drawings, and the `kern` lookup stays out of it (doc/kerning-design.md §4)."""
     return {**(features or {}), "kern": False}
 
 

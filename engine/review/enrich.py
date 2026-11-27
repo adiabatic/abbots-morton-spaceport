@@ -1,4 +1,4 @@
-"""The review corpus's letter names and the spec it loads (engine/REVIEW-PLAN.md §2.3): each Quikscript code point's family (`LETTERS`), a text's letter-name notation (`notation`, `notation_tokens`) and numeric character references (`text_entities`), and the resolved spec of a checkout (`load_spec`), which spells the new build's rule certificates out."""
+"""The review corpus's letter names and the spec it loads (doc/review-design.md §2.3): each Quikscript code point's family (`LETTERS`), a text's letter-name notation (`notation`, `notation_tokens`) and numeric character references (`text_entities`), and the resolved spec of a checkout (`load_spec`), which spells the new build's rule certificates out."""
 
 from __future__ import annotations
 

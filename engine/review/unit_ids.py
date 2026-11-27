@@ -1,4 +1,4 @@
-"""The review corpus's unit ids (engine/REVIEW-PLAN.md §2.1): a unit's id is `u-` and the first 64 bits of its content key, a sha256 hex digest of what the unit is (`diff_units.unit_identity`), as eleven base58 symbols. The id says nothing about the unit's place in the queue, so the same content has the same id on every corpus it appears on, and a verdict follows its unit across rebuilds by id."""
+"""The review corpus's unit ids (doc/review-design.md §2.1): a unit's id is `u-` and the first 64 bits of its content key, a sha256 hex digest of what the unit is (`diff_units.unit_identity`), as eleven base58 symbols. The id says nothing about the unit's place in the queue, so the same content has the same id on every corpus it appears on, and a verdict follows its unit across rebuilds by id."""
 
 from __future__ import annotations
 

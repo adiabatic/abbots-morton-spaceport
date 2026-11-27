@@ -5,7 +5,7 @@
 - `WHATNEXT.md` is the live frontier: what ought to happen next and the open forks. Read it when a task needs that context.
   - When work lands, edit its state in place and delete what it supersedes. It is never a log.
 
-## Note-taking and the rebuild logs
+## Note-taking
 
 Git holds the history, so a checked-in note earns its place only by recording the live frontier, a durable design fact, or the user’s rationale. `doc/note-taking.md` is the full form of these rules, with the homes each kind of record goes to.
 
@@ -23,60 +23,70 @@ Git holds the history, so a checked-in note earns its place only by recording th
 ## General
 
 - Ask clarifying questions when there are multiple valid ways to do something.
+- Never commit without explicit user approval: show the changes and wait for the go-ahead.
+- No worktrees in this repository unless explicitly asked.
+- When creating a GitHub tracking issue with sub-issues, add the sub-issues in the order that suits the set (priority or dependency order, whichever fits) and do not repeat the list in the tracking issue body; the sub-issue list is the list.
+- Never write a machine's hostname in code, docs, commit messages, or GitHub issues and pull requests. Name a machine by its `doc/fleet.md` row instead ("the M4 Pro Mac mini").
+- `tmp/` is scratch and may be wiped between change sets; `var/` (gitignored too) holds what outlives a run: the cycle's build logs and hand-kept archives under `var/keep/`. Anything that must survive a `tmp/` wipe goes under `var/`.
+
+## The letters and the rune files
+
+- Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `engine/schema/rune.schema.json`: its `mono:` block is the Mono drawing, and its `stances:` are the proportional shapes, each a `bitmap` with its join surface.
+  - Keep `traits: [alt]` and `traits: [half]` when those concepts are real; anything else that distinguishes a stance lives in named bitmaps or policy records.
+- The other glyphs, the metadata and the Latin kern rules are the other `glyph_data/*.yaml` files but one: `glyph_data/script.yaml` is the registry, which holds the variation sequences and stylistic sets.
 - Never write a `why:` in `glyph_data/runes/qs*.yaml`.
   - There, `why:` is the user's rationale in the user's voice, and its durable home: other files may point at a `why:` but never re-narrate it.
   - The rule is scoped exactly that narrowly: the `why:` fields in `engine/contact-allow.yaml` are agent-written.
     - Draft them yourself in the pattern of the surrounding entries; "Human-reviewed" there means the user decides whether the entry belongs, not who drafts the sentence.
   - The allow-list's hash ignores prose, so rewording a `why:` re-runs no gate.
+- Keep family entries in code-point order (qsPea … qsOoze, per `postscript_glyph_names.yaml`) wherever a rune record or a group lists families. Ligatures sort by the lead family, bare lead first.
 - When a request names a letter ("after ·Pea") and the letter has several stances (half/full, alt, …), don't default to the whole letter: enumerate the stances from its rune file (`glyph_data/runes/qsX.yaml`) and ask which subset is meant.
+
+### Adding glyphs
+
+- A glyph added to any YAML under `glyph_data/` that uses a standard PostScript name (not `uniXXXX`) also needs an entry in `postscript_glyph_names.yaml`.
+- Keep all glyphs alphabetized by code point (`uniXXXX`).
+- “Ink” is a filled bitmap pixel — a `#` cell. The cursive-attachment tooling’s vocabulary (a row’s “leftmost-ink column”, “no ink at y=N”, an exit row's `ink_y`) follows from it.
+- Bitmap rows are double-quoted strings, with a bare trailing `#` comment marker on the rows whose glyph-space `y` is 5 and 0; which rows those are depends on `y_offset`.
+
+### Ductus
+
+`ductus` says how a letter is drawn by hand: pen direction, stroke order, where the stroke enters and exits. `notes` records join constraints, never how-to-draw.
+
+- A rune's `ductus:` is its top-level map of motions, one entry each, and every stance names the motion it draws with `motion:`; `spec_load` checks that every motion has a stance and every stance a motion.
+- Several valid drawing orders for one motion go in that motion's prose as `-` bullets (see `qsIt`).
+- A stance gets a motion of its own only when it is drawn differently; ink that changes only at a join is a binding on the same motion (`doc/engine-design.md` §3.1, which also gives the `# DRAFT` sign-off rule for drafted prose). Join constraints are never ductus: they are `pairings` and `unlocks` data.
+
+### Formatting
+
+- `tools/reflow_yaml.py` is the authority on the runes' flow-vs-block style; its docstring states the rule.
+- Reflow after editing; the pass is idempotent, so a second run is a no-op:
+
+  ```sh
+  uv run python tools/reflow_yaml.py                       # every rune
+  uv run python tools/reflow_yaml.py glyph_data/runes/qsMay.yaml
+  ```
+
+- Only the runes are kept in reflowed form, so the tool refuses any other YAML file.
+
+## Joins and ligatures
+
 - A change to a letter's entry does not reach the ligatures that begin with it: a ligature rune (`glyph_data/runes/qsX_qsY.yaml`) keeps its own entry-side records, and right-facing selectors (`toward:`, `when.right`, `then:`) name each ligature explicitly (`doc/engine-design.md` §3.4). Decide for each such ligature whether the change belongs on it too.
   - Make the same change to the ligature without asking when it enters with the letter's own stroke at that height (·Day+Utter.half begins with ·Day.half's foot hook) and it carries a matching record or already appears beside the letter in the selector being changed. Name the ligature in the summary and the commit message.
   - Ask when the ligature enters differently, or when a record or `why:` of its own argues for keeping the difference the change would remove.
   - The exit side mostly spreads by itself: left-facing selectors match every ligature that ends in the named letter, and a ligature inherits its last letter's exit-side records beside its own (`doc/engine-design.md` § Preserved outgoing strokes). Check only that none of the ligature's own records at that height keeps the old behavior.
 - A join change is pair-wide: the two letters that bound the space decide it, never the letter's word position. Never author word-initial, word-final, or isolated special treatment (`word:`, a `self:` guard that only a word edge satisfies, a follower-scoped carve-out) unless The Manual mandates it. A mechanical constraint that happens to exclude a cell (a `bind:` that cannot coexist with an onward exit) is not a treatment, but say so in the commit message.
-- Say what you mean: mannered prose substitutes metaphor and flourish for direct statement ("a dial worth turning" for "a parameter worth varying"), makes the reader work harder, and drags in connotations the writer did not choose. When a literal phrase is available, use it.
+- Lengthening or shortening a join that already happens: the expand-or-contract-a-join skill.
+
+## Testing and gates
+
 - After any glyph or code change, run `make test`. `doc/testing.md` maps every gate to the change it answers for.
-  - `make test-engine` gates anything under `engine/` and `make kernel-gate` a kernel-semantics change. No rebuild test reads a live artifact; the build checks its own tables (the rule certificates among them), so run the build after a rune or pipeline edit.
+  - `make test-engine` gates anything under `engine/` and `make kernel-gate` a kernel-semantics change. No engine test reads a live artifact; the build checks its own tables (the rule certificates among them), so run the build after a rune or pipeline edit.
   - Once a rune edit's build is green, run `make artifact-cycle` without being asked, so the review app's Queue already shows the edit when the user returns to reviewing. Present the cycle's `review diff:` line and the units it counts with the rest of the change.
   - Accept those units with `make review-accept ARGS=--apply` only when the user says so, and commit the `engine/review-snapshot.json` it rewrites with the edit it accepts.
+- Detach any pass that includes the heavy gates (the engine suite and the conform sweep, so any `make artifact-cycle` or `make review-cycle` pass) from the shell's lifetime and watch `var/build-logs/latest/`; `doc/running-long-steps.md` has the recipe, the hung-run traps, and how to stop a pass whole.
 - Codex's sandbox fails one contracts-lane probe test by blocking `sysctl`; rerun it outside the sandbox and never weaken it (`doc/testing.md` names it).
-- Detach any pass that includes the heavy gates (the rebuild suite and the conform sweep, so any `make artifact-cycle` or `make review-cycle` pass) from the shell's lifetime and watch `var/build-logs/latest/`; `doc/running-long-steps.md` has the recipe, the hung-run traps, and how to stop a pass whole.
-- `tmp/` is scratch and may be wiped between change sets; `var/` (gitignored too) holds what outlives a run: the cycle's build logs and hand-kept archives under `var/keep/`. Anything that must survive a `tmp/` wipe goes under `var/`.
-- The table build runs in Rust: `engine/kernel-rs/` is the engine of record, `cargo` is a hard prerequisite beside `uv` for anything that builds tables (the rebuild suite included), and a settlement-semantics change is written once, in the crate. `engine/pipeline/kernel_exec.py` is the kernel interface and its docstring the map of it; `doc/engine-design.md` §14.1 holds the design facts.
-- Never commit without explicit user approval: show the changes and wait for the go-ahead.
-- When creating a GitHub tracking issue with sub-issues, add the sub-issues in the order that suits the set (priority or dependency order, whichever fits) and do not repeat the list in the tracking issue body; the sub-issue list is the list.
-- Never write a machine's hostname in code, docs, commit messages, or GitHub issues and pull requests. Name a machine by its `doc/fleet.md` row instead ("the M4 Pro Mac mini").
-- At a natural commit point, spawn a fresh sub-agent to draft commit-message suggestions and present them for approval.
-- In this repository only: multiline commit messages are fine, though not mandatory, and no worktrees unless explicitly asked.
-- Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
-  - When several letters fill the same slot of a join, consolidate them with braces inside one dot: `` Stop adding a pixel to the `·{Pea,Tea,He} ~x~ ·Eight` join ``, not "the ·Pea, ·Tea or ·He ~x~ ·Eight join".
-  - When a letter and the ligatures that begin with it fill the same slot, brace the tails after the shared lead, with an empty first alternative for the bare letter: `` Contract `·Bay ~b~ ·Vie{,+Utter}` by a pixel ``, not "Contract `·Bay ~b~ ·Vie` and `·Bay ~b~ ·Vie+Utter` by a pixel".
-
-## Workflows
-
-- When using a workflow to do a bunch of things (say, a bunch of GitHub sub-issues), ignore the “don’t commit” instruction and commit at will.
-- Feel free to use worktrees to parallelize work when using a workflow to do a bunch of things.
-- When using workflows to do things, make sure to clean up generated files in between tasks.
-- When using a workflow with multiple steps, add a way for me to signal “gracefully finish the sub-issues you’re working on, but don’t start any more”.
-- Use as many sub-agents as you like in a workflow, but no more than 12 total runnning concurrently at a time (I don’t want to run out of my 5h limit and get paused). Don’t skimp on testing/judging/verifying-type agents. If that means the best idea is to fix sub-issues one at a time, then do that.
-- Don’t forget closing keywords in the body of a commit that’s designed to fix a GitHub Issue.
-
-## Prose style
-
-- Use American English in code and comments, even though The Manual and other parts of the project are British.
-- Capitalize **Tall**, **Deep**, and **Short** wherever they name the height classes of letters (defined under “Specific background information”). Lowercase them only in an ordinary, non-class sense.
-- Never abbreviate "isolated" / "isolation" to "iso" in any casing — in prose, identifiers, dataclass fields, or YAML keys. Spell it out: `isolated_form`, `isolated_left`, "in isolation".
-- Don't hard-wrap comments or docstrings; one long line per paragraph.
-- Write joins between letter names in `data-expect` notation and no other: `~b~` for a baseline join, `~x~` for an x-height join, `|` for a break, `+` for a ligature, stance suffixes on the letter (`·It ~b~ ·Day.half`). `doc/data-expect.md` documents the grammar; `parse_expect` in `engine/validation/expect.py` is the authority.
-  - A bare `~` is not an operator — never write `·Tea~·Utter`. Spell the height out, or when the sentence only means the pair or the junction, say that in prose ("the ·Tea·Utter junction").
-- Always present suggested commit messages and join notation in inline code or fenced code blocks so Markdown preserves every literal character, including tildes.
-  - When presenting several candidate commit messages, give each its own fenced block under a second-level heading that holds only its number in parentheses (`## (1)`, `## (2)`, …), numbered straight through every candidate, with no other label. Any comment on a candidate goes after its block.
-
-## HTML/CSS/JS
-
-- Prefer nested CSS over flat CSS.
-- Prefer for-of loops to `.forEach()`.
-- Use modern range syntax for media/container queries: `(width > 40em)` not `(max-width: 40em)`.
+- The table build runs in Rust: `engine/kernel-rs/` is the engine of record, `cargo` is a hard prerequisite beside `uv` for anything that builds tables (the engine suite included), and a settlement-semantics change is written once, in the crate. `engine/pipeline/kernel_exec.py` is the kernel interface and its docstring the map of it; `doc/engine-design.md` §14.1 holds the design facts.
 
 ## Performance
 
@@ -102,6 +112,49 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Pyright covers the whole Python tree, `engine/` included. Run it bare, with no paths — `[tool.pyright] include` in `pyproject.toml` is the single authority for what is checked.
   - Suppress with `# pyright: ignore[reportSpecificRule]`, always naming the rule. Never `# type: ignore[...]`, which pyright reads as a blanket whole-line suppression.
 
+## HTML/CSS/JS
+
+- Prefer nested CSS over flat CSS.
+- Prefer for-of loops to `.forEach()`.
+- Use modern range syntax for media/container queries: `(width > 40em)` not `(max-width: 40em)`.
+
+## Prose and Markdown style
+
+- Use American English in code and comments, even though The Manual and other parts of the project are British.
+- Say what you mean: mannered prose substitutes metaphor and flourish for direct statement ("a dial worth turning" for "a parameter worth varying"), makes the reader work harder, and drags in connotations the writer did not choose. When a literal phrase is available, use it.
+- Capitalize **Tall**, **Deep**, and **Short** wherever they name the height classes of letters (defined under “Specific background information”). Lowercase them only in an ordinary, non-class sense.
+- Never abbreviate "isolated" / "isolation" to "iso" in any casing — in prose, identifiers, dataclass fields, or YAML keys. Spell it out: `isolated_form`, `isolated_left`, "in isolation".
+- Don't hard-wrap comments or docstrings; one long line per paragraph.
+- Write joins between letter names in `data-expect` notation and no other: `~b~` for a baseline join, `~x~` for an x-height join, `|` for a break, `+` for a ligature, stance suffixes on the letter (`·It ~b~ ·Day.half`). `doc/data-expect.md` documents the grammar; `parse_expect` in `engine/validation/expect.py` is the authority.
+  - A bare `~` is not an operator — never write `·Tea~·Utter`. Spell the height out, or when the sentence only means the pair or the junction, say that in prose ("the ·Tea·Utter junction").
+- Always present suggested commit messages and join notation in inline code or fenced code blocks so Markdown preserves every literal character, including tildes.
+  - When presenting several candidate commit messages, give each its own fenced block under a second-level heading that holds only its number in parentheses (`## (1)`, `## (2)`, …), numbered straight through every candidate, with no other label. Any comment on a candidate goes after its block.
+
+### Markdown documents
+
+- Sentence case for titles.
+- No hard-wrapping: each paragraph or list item is one line.
+- Tables formatted for humans, with lined-up columns.
+- `markdownlint-cli2` must pass; `.markdownlint-cli2.yaml` is the config.
+
+## Commit messages
+
+- At a natural commit point, spawn a fresh sub-agent to draft commit-message suggestions and present them for approval.
+- In this repository only: multiline commit messages are fine, though not mandatory.
+- Commit messages describe the author/reader experience ("Make tables.html store state in the URL, not localStorage") or how the letters look different ("Reduce the half-·He extension at the x-height", "Don't join ·Way·Thaw ever"), never the mechanism.
+  - When several letters fill the same slot of a join, consolidate them with braces inside one dot: `` Stop adding a pixel to the `·{Pea,Tea,He} ~x~ ·Eight` join ``, not "the ·Pea, ·Tea or ·He ~x~ ·Eight join".
+  - When a letter and the ligatures that begin with it fill the same slot, brace the tails after the shared lead, with an empty first alternative for the bare letter: `` Contract `·Bay ~b~ ·Vie{,+Utter}` by a pixel ``, not "Contract `·Bay ~b~ ·Vie` and `·Bay ~b~ ·Vie+Utter` by a pixel".
+- Version bumps: the bump-major and bump-minor skills edit both version files, refresh the lockfile, and open the `FONTLOG.md` heading.
+
+## Workflows
+
+- When using a workflow to do a bunch of things (say, a bunch of GitHub sub-issues), ignore the “don’t commit” instruction and commit at will.
+- Feel free to use worktrees to parallelize work when using a workflow to do a bunch of things.
+- When using workflows to do things, make sure to clean up generated files in between tasks.
+- When using a workflow with multiple steps, add a way for me to signal “gracefully finish the sub-issues you’re working on, but don’t start any more”.
+- Use as many sub-agents as you like in a workflow, but no more than 12 total runnning concurrently at a time (I don’t want to run out of my 5h limit and get paused). Don’t skimp on testing/judging/verifying-type agents. If that means the best idea is to fix sub-issues one at a time, then do that.
+- Don’t forget closing keywords in the body of a commit that’s designed to fix a GitHub Issue.
+
 ## General background information
 
 - “Orthodox” is Quikscript-speak for “English written in the Latin script”.
@@ -112,59 +165,12 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Height classes by bitmap rows: Tall is 9, Short is 6, Deep is 9 with `y_offset: -3`.
 - See @doc/glyph-names.md for the map between a letter’s name (·Pea), PostScript family name (qsPea), and code point (U+E650).
 
-## Adding glyphs
-
-- A glyph added to any YAML under `glyph_data/` that uses a standard PostScript name (not `uniXXXX`) also needs an entry in `postscript_glyph_names.yaml`.
-- Keep all glyphs alphabetized by code point (`uniXXXX`).
-- “Ink” is a filled bitmap pixel — a `#` cell. The cursive-attachment tooling’s vocabulary (a row’s “leftmost-ink column”, “no ink at y=N”, `exit_ink_y`) follows from it.
-- Bitmap rows are double-quoted strings, with a bare trailing `#` comment marker on the rows whose glyph-space `y` is 5 and 0; which rows those are depends on `y_offset`.
-
-## Locations of things
-
-- Each Quikscript letter and ligature is a rune file under `glyph_data/runes/`, whose grammar is `engine/schema/rune.schema.json`: its `mono:` block is the Mono drawing, and its `stances:` are the proportional shapes, each a `bitmap` with its join surface.
-  - Keep `traits: [alt]` and `traits: [half]` when those concepts are real; anything else that distinguishes a stance lives in named bitmaps or policy records.
-- The other glyphs, the metadata and the Latin kern rules are the other `glyph_data/*.yaml` files but one: `glyph_data/script.yaml` is the registry, which holds the variation sequences and stylistic sets.
-
-## Dev-server URLs
+## Dev servers and the review app
 
 - `make serve` runs `tools/serve.py`, serving `site/` on `http://localhost:7293/`.
-- `make review-serve` serves the rebuild review corpus on `http://localhost:7294/`.
+- `make review-serve` serves the review app on `http://localhost:7294/`.
 - When the user asks whether everything is ready to verdict, run `make verdict-ready` — never reason it out from the git log. The app’s banner shows the same status.
 - `make review-cycle` is the hands-off loop: the artifact cycle, then serve (`SERVE=0` or `SERVE=bg` for a caller that must terminate). `make artifact-cycle` is the same verification without the serve, the form for commit time.
   - `doc/review-cycle.md` is the runbook: what a pass skips, which hashes ignore prose, how the server stays up through a pass, the verdict store, the accept, retention, logs, and timings.
   - The cycle builds and serves the table-diff corpus: the accepted snapshot `engine/review-snapshot.json` names against the working tree's build. A green pass ends with a `review diff:` line counting the unaccepted changes, which never fails the pass; `make review-accept ARGS=--apply` accepts them once none is blank or rejected.
-
-## YAML files
-
-### Ductus
-
-`ductus` says how a letter is drawn by hand: pen direction, stroke order, where the stroke enters and exits. `notes` records join constraints, never how-to-draw.
-
-- A rune's `ductus:` is its top-level map of motions, one entry each, and every stance names the motion it draws with `motion:`; `spec_load` checks that every motion has a stance and every stance a motion.
-- Several valid drawing orders for one motion go in that motion's prose as `-` bullets (see `qsIt`).
-- A stance gets a motion of its own only when it is drawn differently; ink that changes only at a join is a binding on the same motion (`engine/M1-PLAN.md` §8). Join constraints are never ductus: they are `pairings` and `unlocks` data.
-
-### Formatting
-
-- `tools/reflow_yaml.py` is the authority on the runes' flow-vs-block style; its docstring states the rule.
-- Reflow after editing; the pass is idempotent, so a second run is a no-op:
-
-  ```sh
-  uv run python tools/reflow_yaml.py                       # every rune
-  uv run python tools/reflow_yaml.py glyph_data/runes/qsMay.yaml
-  ```
-
-- Only the runes are kept in reflowed form, so the tool refuses any other YAML file.
-
-## Procedures that live in skills
-
-- Lengthening or shortening a join that already happens: the expand-or-contract-a-join skill.
-- Version bumps: the bump-major and bump-minor skills edit both version files, refresh the lockfile, and open the `FONTLOG.md` heading.
-- Review sessions: `just-verdicted-now-what` turns a finished review's rejects into rune changes.
-
-## Markdown-document style
-
-- Sentence case for titles.
-- No hard-wrapping: each paragraph or list item is one line.
-- Tables formatted for humans, with lined-up columns.
-- `markdownlint-cli2` must pass; `.markdownlint-cli2.yaml` is the config.
+- After a review session, the just-verdicted-now-what skill turns its rejects into rune changes.

@@ -1,4 +1,4 @@
-"""Cell enumeration and binding resolution (engine/M1-PLAN.md §5, Group 1). Each side's options are its declared rows plus `none`, filtered by pairings, `require`, and unlocks. A cell's bitmap comes from a matching explicit `cells:` binding, else from the side bindings, else the base bitmap, and a `cells:` binding can also override the anchor x positions.
+"""Cell enumeration and binding resolution (`doc/engine-design.md` §14.2). Each side's options are its declared rows plus `none`, filtered by pairings, `require`, and unlocks. A cell's bitmap comes from a matching explicit `cells:` binding, else from the side bindings, else the base bitmap, and a `cells:` binding can also override the anchor x positions.
 
 Pairings constrain two-sided cells only. One-sided and isolated cells always exist unless `require` removes them (doc/engine-design.md §3.2). A mid-word declined exit reaches this module as settlement's `ex-bind-<bitmap>` adjustment and resolves to the exit rows' `unjoined:` binding. The exit-none cell with no adjustment token is the boundary rendering: its exit was never declined, so `unjoined:` bindings do not apply and the base drawing stands.
 """

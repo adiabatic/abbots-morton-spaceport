@@ -1,4 +1,4 @@
-"""The vocabulary the review corpus build, its checker and the corpus's readers share (engine/REVIEW-PLAN.md §2.1, §2.3): the batch size, the review app's sections (`class_section`), the machine checks (`machine_approved`), which units take no verdict (`needs_no_verdict`), and the order a corpus pages its human units in (`triage_key`)."""
+"""The vocabulary the review corpus build, its checker and the corpus's readers share (doc/review-design.md §2.1, §2.3): the batch size, the review app's sections (`class_section`), the machine checks (`machine_approved`), which units take no verdict (`needs_no_verdict`), and the order a corpus pages its human units in (`triage_key`)."""
 
 from __future__ import annotations
 
