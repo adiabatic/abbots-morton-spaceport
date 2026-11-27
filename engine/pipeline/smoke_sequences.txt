@@ -853,7 +853,7 @@ E654 E652 E679            # Key Tea+Oy (break: the ligature takes no entry)
 E654 200C E652            # Key ZWNJ Tea (exit severed)
 00B7 E654                 # namer dot before Tall Key (stays)
 
-# qsGay windows: the Deep crown-and-loop — a short crown bar at the x-height, a zigzag descent to the baseline, and a loop closing below it. Entered at the baseline by nine lefts (onto the reaching drawing) or at the x-height by ·Utter and the ·Utter ligatures (the crown's right pixel retracts); an entry at one height always pairs with the exit at the other. The baseline exit reaches eighteen entryless receivers plus ·Ooze when entered, extending by one toward the seven it reaches for; the x-height exit serves ·J'ai (by two), ·No (by one), ·Eight, ·Awe, ·Ox, and ·Oy, and reaches ·Et only from an entered ·Gay; and the backward baseline join yields whenever a reach-for follower comes next.
+# qsGay windows: the Deep crown-and-loop — a short crown bar at the x-height, a zigzag descent to the baseline, and a loop closing below it. Entered at the baseline by nine lefts (onto the reaching drawing) or at the x-height by ·Utter and the ·Utter ligatures (the crown's right pixel retracts); an entry at one height always pairs with the exit at the other. The baseline exit reaches nineteen entryless receivers, extending by one toward the seven it reaches for; the x-height exit serves ·J'ai (by two), ·No (by one), ·Eight, ·Awe, ·Ox, and ·Oy, and reaches ·Et only from an entered ·Gay; and the backward baseline join yields whenever a reach-for follower comes next.
 E655                      # Gay in isolation
 E651 E655                 # Bay Gay (the baseline entry)
 E653 E655                 # Day Gay (the baseline entry)
@@ -920,7 +920,7 @@ E655 E67A E659            # Gay Utter Vie (Gay's join yields; the alternate Utte
 E655 E67A E652 E653       # Gay Utter Tea Day (the bare Utter breaks, and Tea keeps Day)
 E655 E67B                 # Gay Out (the baseline exit)
 E655 E67B E652            # Gay Out+Tea (the extended exit into the ligature)
-E655 E67E                 # Gay Ooze (break: the entryless exit never reaches Ooze)
+E655 E67E                 # Gay Ooze (the baseline exit)
 E67A E655 E67E            # Utter Gay Ooze (entered at the x-height, Gay serves Ooze at the baseline)
 E655 E65D                 # Gay Jai (the x-height exit, extended by two, into the extended entry)
 E651 E655 E65D            # Bay Gay Jai (entered at the baseline, Gay still reaches Jai at the x-height)

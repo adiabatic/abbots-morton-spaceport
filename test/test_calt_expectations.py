@@ -1117,7 +1117,6 @@ def test_gay_extends_before_selected_targets(target: str, expect: str):
     ("target_base", "target_token"),
     [
         pytest.param("qsExcite", "·Excite", id="excite"),
-        pytest.param("qsOoze", "·Ooze", id="ooze"),
     ],
 )
 def test_gay_nonjoining_targets_do_not_join(target_base, target_token):

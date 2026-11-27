@@ -128,10 +128,6 @@ policy:
   order:
   - sole
   refuse:
-  - exit: baseline
-    when:
-      self: {entry: none}
-      right: {family: qsOoze}
   - exit: x-height
     when:
       self: {entry: none}
