@@ -15,7 +15,7 @@ from engine.pipeline.explain import explain_many
 from engine.pipeline.labels import features_for_config
 from engine.pipeline.spec_load import load_default_spec
 
-CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss07", "ss08", "ss10"]
+CONFIGS = ["default", "ss03", "ss05", "ss03+ss05", "ss04", "ss07", "ss10"]
 USAGE = "usage: uv run python engine/tools/probe.py E6XX:E6XX [E6XX:E6XX:E6XX ...]"
 
 

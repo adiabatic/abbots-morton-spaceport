@@ -47,8 +47,7 @@
   "ss04",
   "ss05",
   "ss03+ss05",
-  "ss07",
-  "ss08"
+  "ss07"
  ],
  "feature_descriptions": {
   "ss03": "let letters join to a full-size \u00b7Tea at the x-height",
@@ -56,16 +55,15 @@
   "ss05": "allow \u00b7Tea to join at the baseline on both sides",
   "ss06": "use gapped \u00b7Owe (doesn\u2019t connect at the top)",
   "ss07": "allow \u00b7Owe\u00b7Day to join at the x-height again",
-  "ss08": "write \u00b7Key\u00b7Utter\u00b7May as The Manual does: no join after \u00b7Key, then the alternate \u00b7Utter",
   "ss10": "suppress all joins for the wrapped letter(s)"
  },
  "batch_size": 5,
  "human_unit_ids": [
   "u-AZd95bckcbg",
   "u-MG7BYctpZgY",
-  "u-BzEBRDeYbuP",
-  "u-MZiMjJpq1Tt",
-  "u-51MZrbcA5zc",
+  "u-MHckzMuQQVX",
+  "u-bKJqWg1X7vM",
+  "u-BNXVnuwKJSL",
   "u-LtadFU2dmvz"
  ],
  "totals": {

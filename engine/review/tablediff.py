@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import IO, Literal, Self
 
 # Restates `conform.SETTLEMENT_CONFIGS`, the configurations the build settles and writes tables for, because importing conform would pull the conformance sweep into the corpus build's import closure; `engine/test_review_tablediff.py` ties the two.
-SETTLED_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07", "ss08")
+SETTLED_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07")
 
 DIFF_BUCKETS = ("added", "removed", "regrouped", "changed", "provenance-only")
 

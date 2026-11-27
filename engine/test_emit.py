@@ -105,14 +105,20 @@ class TestMarkers:
         assert relevant_marker_features(spec, "qsIt") == ("ss04",)
         assert relevant_marker_features(spec, "qsMay") == ()
 
-    def test_a_policy_only_set_marks_the_owners_of_its_gated_records(self):
-        """On the real spec, ss08 is named by no unlock row, so the owners of the records gated on it, ·Key's prefer and ·Utter's refuse, carry its marker. ·May owns a refuse gated on ss03, a set unlock rows name, and that record reads ·Tea's marker instead, so ·May carries none."""
-        from engine.pipeline.spec_load import load_default_spec
+    def test_a_policy_only_set_marks_the_owners_of_its_gated_records(self, spec):
+        """The fixture registers ss08 and no unlock row names it, so gating ·Pea's refuse on ss08 makes ·Pea, the record's owner, carry its marker. Gated on ss03 instead, a set unlock rows name, the record reads ·Tea's marker, so ·Pea carries none."""
+        assert relevant_marker_features(spec, "qsPea") == ()
+        pea = spec.runes["qsPea"]
+        record = pea.policy.refuse[0]
+        assert record.when.feature is None
 
-        real = load_default_spec()
-        assert relevant_marker_features(real, "qsKey") == ("ss08",)
-        assert relevant_marker_features(real, "qsUtter") == ("ss08",)
-        assert relevant_marker_features(real, "qsMay") == ()
+        def gated(feature):
+            when = replace(record.when, feature=feature)
+            policy = replace(pea.policy, refuse=(replace(record, when=when), *pea.policy.refuse[1:]))
+            return replace(spec, runes={**spec.runes, "qsPea": replace(pea, policy=policy)})
+
+        assert relevant_marker_features(gated("ss08"), "qsPea") == ("ss08",)
+        assert relevant_marker_features(gated("ss03"), "qsPea") == ()
 
     def test_marker_names(self):
         assert marker_glyph_name("qsTea", frozenset()) == "qsTea"

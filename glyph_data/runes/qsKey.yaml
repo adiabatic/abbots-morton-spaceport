@@ -51,14 +51,7 @@ policy:
   order:
   - sole
   refuse: []
-  prefer:
-  - cell: {exit: none}
-    over: {exit: baseline}
-    when:
-      right:
-        family: qsUtter
-        then: {family: qsMay}
-      feature: ss08
+  prefer: []
   extend: []
   contract:
   - exit: baseline

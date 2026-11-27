@@ -121,11 +121,6 @@ policy:
         family: qsNo
         joined_at: none
       right: {family: qsMay}
-  - exit: x-height
-    when:
-      left: {family: qsKey}
-      right: {family: qsMay}
-      feature: ss08
   prefer:
   - cell: {exit: none}
     when:

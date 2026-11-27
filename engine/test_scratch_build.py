@@ -16,7 +16,7 @@ class Reached(Exception):
 def test_the_unnarrowed_request_is_the_settlement_set_and_a_named_set_keeps_its_order():
     assert scratch_build.request_configs("") == list(conform.SETTLEMENT_CONFIGS)
     assert scratch_build.request_configs("ss03,default") == ["ss03", "default"]
-    assert scratch_build.request_configs("ss08") == ["ss08"]
+    assert scratch_build.request_configs("ss07") == ["ss07"]
 
 
 def test_an_unknown_configuration_is_refused_before_anything_is_resolved(monkeypatch, tmp_path):
@@ -57,7 +57,7 @@ def test_every_build_is_refused_under_the_live_table_directory(monkeypatch, tmp_
     [
         ([], list(conform.SETTLEMENT_CONFIGS)),
         (["--configs", "default"], ["default"]),
-        (["--configs", "default,ss08"], ["default", "ss08"]),
+        (["--configs", "default,ss07"], ["default", "ss07"]),
     ],
 )
 def test_the_build_takes_the_configurations_the_request_names_and_the_line_reports_them(

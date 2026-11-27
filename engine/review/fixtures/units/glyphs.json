@@ -1,7 +1,7 @@
 [
  {
-  "id": "u-51MZrbcA5zc",
-  "content_key": "17f37401afbd9bb5b1c9dfa2e75416b704c8d359b39cf36bf7cdf9e1b9996a54",
+  "id": "u-BNXVnuwKJSL",
+  "content_key": "3e01452d5772891181e500260ef5afe7e7579b34fd5b66182054b3eed0e1f603",
   "ink_identical": false,
   "picture_identical": false,
   "no_verdict": false,
@@ -20,8 +20,7 @@
    "ss04",
    "ss05",
    "ss03+ss05",
-   "ss07",
-   "ss08"
+   "ss07"
   ],
   "config_note": null,
   "config_gate": null,
@@ -33,8 +32,7 @@
      "ss04",
      "ss05",
      "ss03+ss05",
-     "ss07",
-     "ss08"
+     "ss07"
     ]
    }
   ],
@@ -56,7 +54,7 @@
   "highlight": null,
   "boundary_marks": [],
   "summary": "qsTea, a glyph no text draws, has a different outline than in the accepted build",
-  "explain": "glyphs (outline): qsTea draws a different outline than in the accepted build.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07, ss08\n  text: none; settlement always replaces this glyph",
+  "explain": "glyphs (outline): qsTea draws a different outline than in the accepted build.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07\n  text: none; settlement always replaces this glyph",
   "provenance": []
  },
  {

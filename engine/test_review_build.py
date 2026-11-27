@@ -144,10 +144,10 @@ def test_check_manifest_flags_a_malformed_inputs_fingerprint():
     "human_unit_ids",
     (
         "u-0000",
-        ["u-BzEBRDeYbuP", ["u-MG7BYctpZgY"]],
+        ["u-MHckzMuQQVX", ["u-MG7BYctpZgY"]],
         ["not-a-unit"],
         ["u-0000"],
-        ["u-BzEBRDeYbuP", "u-BzEBRDeYbuP"],
+        ["u-MHckzMuQQVX", "u-MHckzMuQQVX"],
     ),
 )
 def test_check_manifest_flags_malformed_human_unit_ids(human_unit_ids):
@@ -175,9 +175,9 @@ def test_config_note_covers_the_general_gated_excluded_and_fallback_cases():
     full = SETTLED_CONFIGS
     assert _note(full) is None
     assert _note(("ss03", "ss03+ss05")) == "only when ss03 is on"
-    assert _note(("default", "ss04", "ss05", "ss07", "ss08")) == "only when ss03 is off"
-    assert _note(("ss08",)) == "only when ss08 is on"
-    assert _note(("ss04", "ss08")) == "only under: ss04, ss08"
+    assert _note(("default", "ss04", "ss05", "ss07")) == "only when ss03 is off"
+    assert _note(("ss07",)) == "only when ss07 is on"
+    assert _note(("ss04", "ss07")) == "only under: ss04, ss07"
 
 
 def test_a_config_outside_the_roster_reads_as_the_literal_set():
@@ -198,16 +198,16 @@ def test_config_gate_pins_a_narrower_set_than_one_feature_can_describe():
     assert _note(("ss03",)) == "only when ss03 is on and ss05 is off"
     assert _note(("ss05",)) == "only when ss05 is on and ss03 is off"
     assert _note(("ss03+ss05",)) == "only when ss03 is on and ss05 is on"
-    assert _note(("default", "ss04", "ss07", "ss08")) == "only when ss03 is off and ss05 is off"
+    assert _note(("default", "ss04", "ss07")) == "only when ss03 is off and ss05 is off"
 
 
 def test_config_gate_leaves_the_literal_fallback_to_sets_no_conjunction_pins():
-    """The literal fallback remains for a disjunction such as ss04 or ss08, which no conjunction selects, because every conjunction that admits both also admits default, and for a set that needs more constraints than `GATE_CONSTRAINT_CAP`, such as default alone, which only every set off selects."""
-    assert _gate(("ss04", "ss08")) is None
-    assert _note(("ss04", "ss08")) == "only under: ss04, ss08"
+    """The literal fallback remains for a disjunction such as ss04 or ss07, which no conjunction selects, because every conjunction that admits both also admits default, and for a set that needs more constraints than `GATE_CONSTRAINT_CAP`, such as default alone, which only every set off selects. Default with ss03, which every set but ss03 off selects, needs exactly `GATE_CONSTRAINT_CAP` constraints and so gets its gate."""
+    assert _gate(("ss04", "ss07")) is None
+    assert _note(("ss04", "ss07")) == "only under: ss04, ss07"
     assert _gate(("default",)) is None
     assert _note(("default",)) == "only under: default"
-    assert _note(("default", "ss03")) == "only under: default, ss03"
+    assert _note(("default", "ss03")) == "only when ss04 is off and ss05 is off and ss07 is off"
 
 
 def test_config_gate_clauses_carry_their_own_prose_and_the_note_is_their_join():

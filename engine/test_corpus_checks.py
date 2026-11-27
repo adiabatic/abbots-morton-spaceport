@@ -29,7 +29,7 @@ FIXTURES = REPO_ROOT / "engine" / "review" / "fixtures"
 MINI = FIXTURES / "mini"
 MINI_FONT = MINI / "Senior-Regular.otf"
 # A human joins unit with a config gate and a highlight, and another human unit of the same class.
-PLAIN_UNIT = "u-BzEBRDeYbuP"
+PLAIN_UNIT = "u-MHckzMuQQVX"
 OTHER_UNIT = "u-MG7BYctpZgY"
 
 

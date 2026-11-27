@@ -1505,10 +1505,6 @@ details.group {
   --ss-color: light-dark(#0e7a8a, #5fc8d8);
 }
 
-[data-ss="ss08"] {
-  --ss-color: light-dark(#8a6d00, #e6c84f);
-}
-
 [data-ss="ss10"] {
   --ss-color: light-dark(#c43030, #ff7b72);
 }

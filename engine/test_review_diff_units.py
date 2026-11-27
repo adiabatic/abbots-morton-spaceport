@@ -17,7 +17,7 @@ from engine.review.ink import IDENTITY_DIFF
 from engine.test_app_index import check_a_builds_sidecars
 from engine.validation.shaping import ShapeResult, Shaper
 
-CHANGED = ("default", "ss04", "ss05", "ss07", "ss08")
+CHANGED = ("default", "ss04", "ss05", "ss07")
 
 
 def _without_tea_extension(spec):
@@ -289,7 +289,7 @@ def test_a_join_row_no_text_holds_is_a_unit_shown_by_its_notation(builds, tmp_pa
         diff_units.Unit(
             diff_units.JOIN,
             diff_units.JoinChange("a", "b", None, ("x-height", 0)),
-            ("ss08",),
+            ("ss07",),
             None,
             ("added",),
             "",

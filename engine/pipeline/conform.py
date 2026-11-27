@@ -73,7 +73,7 @@ from engine.tools import console
 ZWNJ = "\u200c"
 ZWNJ_SENTINEL = "<zwnj>"
 # The configurations letters settle under. Each has its own settlement table, join table, window enumeration, settle memo, and rule-witness run. One crate `build-tables` process enumerates them all, `default` first and the others as deltas over it or from scratch beside it.
-SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07", "ss08")
+SETTLEMENT_CONFIGS = ("default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07")
 # The isolated-overlay taste configurations (`model.isolated_overlay_active`). Nothing settles under them, so they have no table. The conformance sweep covers them at `OVERLAY_MAX_LENGTH`, relying on read-back's isolation check. `engine/test_conform.py` checks that this tuple matches the registry's `overlay: isolated` features.
 OVERLAY_CONFIGS = ("ss10",)
 # The configurations that hold a cosmetic set (`model.cosmetic_features`), each of which settles as its settlement configuration does (`model.settlement_features`): ss06 as `default`, ss06+ss07 as ss07. A cosmetic set only redraws unjoined shapes after settlement, so these have no table, no settle memo and no review units. The conformance sweep shapes each to `COSMETIC_MAX_LENGTH` against its settlement configuration's stream with the cosmetic copies substituted (`model.cosmetic_renames`), and read-back checks the cosmetic lookups themselves (`readback._check_cosmetic`). `engine/test_conform.py` checks that this tuple is exactly the acceptance configurations that hold a cosmetic set.

@@ -54,107 +54,6 @@
   ]
  },
  {
-  "id": "u-BzEBRDeYbuP",
-  "content_key": "41af5f3aad299a4e09d2955792f388019717dcf7bd899dd8d89b360b22d860ac",
-  "ink_identical": false,
-  "picture_identical": false,
-  "no_verdict": false,
-  "kerning": false,
-  "cluster": "c-0a73f72d",
-  "class": "joins",
-  "group": "qsUtter:qsTea",
-  "row_key": "join qsDay_qsUtter.full.ex-y5 + qsTea.half.en-y5: none -> x-height+0; join qsDay_qsUtter.full.ex-y5 + qsTea.half.en-y5.en-ext-1: x-height+1 -> none; settlement qsTea: qsTea.half.en-y5.en-ext-1 -> qsTea.half.en-y5",
-  "codepoints": "E653:E67A:E652",
-  "text_entities": "&#xE653;&#xE67A;&#xE652;",
-  "notation": "\u00b7Day\u00b7Utter\u00b7Tea",
-  "notation_tokens": [
-   "\u00b7Day",
-   "\u00b7Utter",
-   "\u00b7Tea"
-  ],
-  "configs": [
-   "default",
-   "ss04",
-   "ss05",
-   "ss07",
-   "ss08"
-  ],
-  "config_note": "only when ss03 is off",
-  "config_gate": [
-   {
-    "feature": "ss03",
-    "state": "off",
-    "text": "only when ss03 is off"
-   }
-  ],
-  "render_groups": [
-   {
-    "configs": [
-     "default",
-     "ss04",
-     "ss05",
-     "ss07",
-     "ss08"
-    ]
-   }
-  ],
-  "kinds": [
-   "added",
-   "changed",
-   "removed"
-  ],
-  "before": {
-   "glyphs": [
-    "qsDay_qsUtter.full.ex-y5",
-    "qsTea.half.en-y5.en-ext-1"
-   ],
-   "junctions": [
-    "y5"
-   ]
-  },
-  "after": {
-   "cells": [
-    "qsDay_qsUtter.full.ex-y5",
-    "qsTea.half.en-y5"
-   ],
-   "junctions": [
-    "y5"
-   ],
-   "extensions": [
-    0
-   ]
-  },
-  "diff_positions": [
-   1
-  ],
-  "pair": {
-   "left": 0,
-   "right": 1
-  },
-  "pair_codepoints": [
-   0,
-   2
-  ],
-  "highlight": {
-   "before": {
-    "x_min": 0,
-    "x_max": 500,
-    "advance_total": 500
-   },
-   "after": {
-    "x_min": 0,
-    "x_max": 450,
-    "advance_total": 450
-   }
-  },
-  "boundary_marks": [],
-  "summary": "\u00b7Day+Utter meets \u00b7Tea (qsDay_qsUtter.full.ex-y5 + qsTea.half.en-y5) in a join at the x-height, where the accepted build has no such pair (one picture for 2 join rows and 1 cell change)",
-  "explain": "joins (added, changed, removed): \u00b7Day+Utter meets \u00b7Tea in a join at the x-height, where the accepted build has no such pair.\n  configurations: default, ss04, ss05, ss07, ss08\n  text: \u00b7Day\u00b7Utter\u00b7Tea (a candidate text)",
-  "provenance": [
-   "glyph_data/runes/qsTea.yaml:policy.extend[2]"
-  ]
- },
- {
   "id": "u-MG7BYctpZgY",
   "content_key": "79211e214781709d70c1882e7b5726268851194aca18eac84cc304b2f993b461",
   "ink_identical": false,
@@ -259,6 +158,105 @@
   "explain": "joins (added): \u00b7Tea meets \u00b7Oy in a join at the x-height, where the accepted build has no such pair.\n  configurations: ss03\n  text: \u25caZWNJ \u00b7Tea\u00b7Oy (a candidate text)",
   "provenance": [
    "glyph_data/runes/qsTea.yaml:policy.extend[0]"
+  ]
+ },
+ {
+  "id": "u-MHckzMuQQVX",
+  "content_key": "7948f66a23a4a0caa12ba2108f798549d2e4bad1898e37841dfa1bdc2cca340e",
+  "ink_identical": false,
+  "picture_identical": false,
+  "no_verdict": false,
+  "kerning": false,
+  "cluster": "c-0a73f72d",
+  "class": "joins",
+  "group": "qsUtter:qsTea",
+  "row_key": "join qsDay_qsUtter.full.ex-y5 + qsTea.half.en-y5: none -> x-height+0; join qsDay_qsUtter.full.ex-y5 + qsTea.half.en-y5.en-ext-1: x-height+1 -> none; settlement qsTea: qsTea.half.en-y5.en-ext-1 -> qsTea.half.en-y5",
+  "codepoints": "E653:E67A:E652",
+  "text_entities": "&#xE653;&#xE67A;&#xE652;",
+  "notation": "\u00b7Day\u00b7Utter\u00b7Tea",
+  "notation_tokens": [
+   "\u00b7Day",
+   "\u00b7Utter",
+   "\u00b7Tea"
+  ],
+  "configs": [
+   "default",
+   "ss04",
+   "ss05",
+   "ss07"
+  ],
+  "config_note": "only when ss03 is off",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "off",
+    "text": "only when ss03 is off"
+   }
+  ],
+  "render_groups": [
+   {
+    "configs": [
+     "default",
+     "ss04",
+     "ss05",
+     "ss07"
+    ]
+   }
+  ],
+  "kinds": [
+   "added",
+   "changed",
+   "removed"
+  ],
+  "before": {
+   "glyphs": [
+    "qsDay_qsUtter.full.ex-y5",
+    "qsTea.half.en-y5.en-ext-1"
+   ],
+   "junctions": [
+    "y5"
+   ]
+  },
+  "after": {
+   "cells": [
+    "qsDay_qsUtter.full.ex-y5",
+    "qsTea.half.en-y5"
+   ],
+   "junctions": [
+    "y5"
+   ],
+   "extensions": [
+    0
+   ]
+  },
+  "diff_positions": [
+   1
+  ],
+  "pair": {
+   "left": 0,
+   "right": 1
+  },
+  "pair_codepoints": [
+   0,
+   2
+  ],
+  "highlight": {
+   "before": {
+    "x_min": 0,
+    "x_max": 500,
+    "advance_total": 500
+   },
+   "after": {
+    "x_min": 0,
+    "x_max": 450,
+    "advance_total": 450
+   }
+  },
+  "boundary_marks": [],
+  "summary": "\u00b7Day+Utter meets \u00b7Tea (qsDay_qsUtter.full.ex-y5 + qsTea.half.en-y5) in a join at the x-height, where the accepted build has no such pair (one picture for 2 join rows and 1 cell change)",
+  "explain": "joins (added, changed, removed): \u00b7Day+Utter meets \u00b7Tea in a join at the x-height, where the accepted build has no such pair.\n  configurations: default, ss04, ss05, ss07\n  text: \u00b7Day\u00b7Utter\u00b7Tea (a candidate text)",
+  "provenance": [
+   "glyph_data/runes/qsTea.yaml:policy.extend[2]"
   ]
  }
 ]

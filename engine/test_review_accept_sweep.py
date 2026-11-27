@@ -22,7 +22,7 @@ EDITED_SPEC = _without_tea_extension(fixtures.mini_spec())
 TEA = ""
 JUNCTION_TEXT = ""
 CHANGE = "settlement qsTea: qsTea.half.en-y5.en-ext-1 -> qsTea.half.en-y5"
-CHANGED = ("default", "ss04", "ss05", "ss07", "ss08")
+CHANGED = ("default", "ss04", "ss05", "ss07")
 STAMP = "2026-11-26T09:00:00Z"
 
 
@@ -104,7 +104,7 @@ def test_the_corpus_build_at_its_own_context_with_no_record_is_the_build_it_was(
 def test_the_changed_letters_are_the_ones_the_finder_finds_units_for(builds):
     _accepted, edited, taken, _home = builds
     diffs = list(build.config_diffs(taken, edited, lambda: EDITED_SPEC))
-    assert [diff.config for diff in diffs] == ["default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07", "ss08"]
+    assert [diff.config for diff in diffs] == ["default", "ss03", "ss04", "ss05", "ss03+ss05", "ss07"]
     letters = {diff.config: diff_units.changed_letters(diff.settlement) for diff in diffs}
     assert {config: sorted(changed) for config, (changed, _prov) in letters.items() if changed} == {
         config: ["qsTea"] for config in CHANGED
@@ -474,7 +474,7 @@ def test_the_accept_sweeps_when_no_record_answers_and_refuses_on_finds_the_corpu
     path = repo / sweep_record.RECORD_RELATIVE
     assert _accept(repo, edited) == 1
     out = capsys.readouterr().out
-    assert "accept sweep: 5 tasks" in out and "found 1 change" in out
+    assert f"accept sweep: {len(CHANGED)} tasks" in out and "found 1 change" in out
     assert "the four-letter sweep found 1 change that the Queue does not show" in out
     assert "`make artifact-cycle` adds it to the corpus for verdicts" in out
     assert "nothing written but the four-letter sweep's record" in out
@@ -483,7 +483,7 @@ def test_the_accept_sweeps_when_no_record_answers_and_refuses_on_finds_the_corpu
     assert {config: values for config, values in record["configs"].items() if values} == {
         config: ["E653:E67A:E652"] for config in CHANGED
     }
-    assert record["cost"]["tasks"] == 5 and record["cost"]["width"] >= 1
+    assert record["cost"]["tasks"] == len(CHANGED) and record["cost"]["width"] >= 1
     assert _accept(repo, edited, execute=lambda _tasks, _width: pytest.fail("swept again")) == 1
     assert "holds the sweep of these inputs" in capsys.readouterr().out
     assert _accept(repo, edited, apply=True, execute=lambda _tasks, _width: pytest.fail("swept again")) == 1
@@ -515,7 +515,7 @@ def test_the_apply_sweeps_before_it_takes_the_snapshot(repo, builds, capsys):
     _accepted, edited, _taken, _home = builds
     assert _accept(repo, edited, apply=True) == 1
     out = capsys.readouterr().out
-    assert "accept sweep: 5 tasks" in out and "the Queue does not show" in out
+    assert f"accept sweep: {len(CHANGED)} tasks" in out and "the Queue does not show" in out
     assert "Nothing was written but the four-letter sweep's record" in out
     assert snapshot.read_pointer(repo / snapshot.POINTER_RELATIVE) is None
 

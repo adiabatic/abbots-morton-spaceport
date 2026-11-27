@@ -1839,11 +1839,11 @@ class TestTheMemoryDerivedThreadDefault:
             (19_000_000_000, 2),
             (23_000_000_000, 3),
             (26_500_000_000, 4),
-            (64_000_000_000, 7),
+            (64_000_000_000, CONFIG_COUNT),
         ],
     )
     def test_the_width_follows_the_machine_and_never_falls_below_one(self, total, wanted):
-        """With `DEFAULT_MEMO_BYTES` (1.1 GB) and seven parked products at `PARKED_FOLD_BYTES` (0.3 GB) off the machine, a 19 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (3.4 GB), a 23 GB machine three and a 26.5 GB machine four, the widest whose wave fits even where the rendezvous, seven products read back at `READ_BACK_FOLD_BYTES` (2.9 GB), does not, since every width holds it. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
+        """With `DEFAULT_MEMO_BYTES` (1.1 GB) and one parked product per configuration at `PARKED_FOLD_BYTES` (0.3 GB) off the machine, a 19 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (3.4 GB) and a 23 GB machine three, the widest whose wave fits even where the rendezvous, every configuration's product read back at `READ_BACK_FOLD_BYTES` (2.9 GB), does not, since every width holds it. A 26.5 GB machine, which the rendezvous fits, fits four. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
     def test_the_booking_counts_every_parked_product_and_each_slot_beyond_its_own(self, monkeypatch):
@@ -2388,13 +2388,14 @@ class TestTheReplayStage:
         return walk
 
     def test_each_walk_and_each_absorb_that_answers_records_its_own_peak(self, monkeypatch, tmp_path, capsys):
-        """A full replay records one `replay-walk` observation a configuration, that walk's own crate peak, and one `<config> absorb` observation of the `replay-absorb` record a worker that read its memo whole, its peak footprint, the row `make job-costs` reads it under; an absorb whose memo the crate never wrote warns, records nothing and writes no file, and the other configurations' files move into place. Each walk's `[t]` lines come out tagged with its configuration where they carry no bracket. The workers run as threads, so the stubbed walk and footprint reach them."""
+        """A full replay records one `replay-walk` observation a configuration, that walk's own crate peak, and one `<config> absorb` observation of the `replay-absorb` record a worker that read its memo whole, its peak footprint, the row `make job-costs` reads it under; an absorb whose memo the crate never wrote, here the last configuration's, warns, records nothing and writes no file, and the other configurations' files move into place. Each walk's `[t]` lines come out tagged with its configuration where they carry no bracket. The workers run as threads, so the stubbed walk and footprint reach them."""
         from engine.tools import calibrate_budgets, cycle_timings
 
         self._in_threads(monkeypatch)
         asked: list = []
+        refused = conform.SETTLEMENT_CONFIGS[-1]
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
-        monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked(asked, refused="ss08"))
+        monkeypatch.setattr(kernel_exec, "replay_memo_walk", self._walked(asked, refused=refused))
         monkeypatch.setattr(run_build, "peak_footprint_self_bytes", lambda: 315_000_000)
         digests = {name: f"d-{name}" for name in SPEC.runes}
         inputs = settle_memo_keys.SettleMemoInputs(rune_digests=dict(digests), code="code", data="data")
@@ -2407,16 +2408,16 @@ class TestTheReplayStage:
         ] == [dict.fromkeys(conform.SETTLEMENT_CONFIGS, 400_000_000)]
         absorbs = [record for record in records if record["unit"] == run_build.REPLAY_ABSORB_POOL_UNIT]
         assert [record["worker_peak_rss_bytes"] for record in absorbs] == [
-            {f"{config} absorb": 315_000_000 for config in conform.SETTLEMENT_CONFIGS if config != "ss08"}
+            {f"{config} absorb": 315_000_000 for config in conform.SETTLEMENT_CONFIGS if config != refused}
         ]
         assert [record["worker_reading"] for record in absorbs] == ["footprint"]
         assert any(run_build.REPLAY_ABSORB_POOL_UNIT in unit.pool_units for unit in calibrate_budgets.UNITS)
         memos = conform.settle_memo_files(tmp_path, SPEC, inputs)
         assert [config for config, memo in memos.items() if conform.settle_memo_standing(memo)] == [
-            config for config in conform.SETTLEMENT_CONFIGS if config != "ss08"
+            config for config in conform.SETTLEMENT_CONFIGS if config != refused
         ]
         captured = capsys.readouterr()
-        assert "not absorbed" in captured.out and "replay-windows-ss08.bin" in captured.out
+        assert "not absorbed" in captured.out and f"replay-windows-{refused}.bin" in captured.out
         assert "[t] replay[ss03] 0.1s" in captured.err and "[t] replay_total[ss03] 0.1s" in captured.err
         assert not list(tmp_path.glob("replay-windows-*")) and not list(tmp_path.glob("*.tmp"))
 
@@ -2479,15 +2480,16 @@ class TestTheReplayStage:
     def test_a_narrow_replay_stages_a_file_at_once_while_a_walk_waits_and_a_red_one_removes_it(
         self, monkeypatch, tmp_path
     ):
-        """Below the configuration count a worker whose part is laid out while a walk still waits for a slot writes it at once under its final name, which no head lists, and waits for the verdict holding no part, so the walks running and the parts held never outnumber the width, and a red replay removes every part written that way and commits no head; at the configuration count no worker writes before the verdict, so a red replay writes nothing. The workers run as threads with a disagreement in `ss08`'s walk; at width 1 every worker but the last to take the slot stages early, `ss08`'s own excepted."""
+        """Below the configuration count a worker whose part is laid out while a walk still waits for a slot writes it at once under its final name, which no head lists, and waits for the verdict holding no part, so the walks running and the parts held never outnumber the width, and a red replay removes every part written that way and commits no head; at the configuration count no worker writes before the verdict, so a red replay writes nothing. The workers run as threads with a disagreement in the last configuration's walk; at width 1 every worker but the last to take the slot stages early, the disagreeing walk's own excepted."""
         self._in_threads(monkeypatch)
         monkeypatch.setattr(kernel_exec, "ensure_built", lambda: None)
         monkeypatch.setattr(run_build, "usable_cores", lambda: 64)
         walked = self._walked([])
+        disagreeing = conform.SETTLEMENT_CONFIGS[-1]
 
         def walk(spec_path, out_dir, config, **rest):
-            if config == "ss08":
-                raise kernel_exec.ReplayDisagreement("ss08: a window settles two ways")
+            if config == disagreeing:
+                raise kernel_exec.ReplayDisagreement(f"{disagreeing}: a window settles two ways")
             return walked(spec_path, out_dir, config, **rest)
 
         staged: list = []
@@ -2505,7 +2507,7 @@ class TestTheReplayStage:
         for width, early in ((1, {configs - 2, configs - 1}), (configs, {0})):
             staged.clear()
             replayed = run_build.replay_and_absorb(SPEC, tmp_path, memos, width)
-            assert not replayed.passed and replayed.failure().config == "ss08"
+            assert not replayed.passed and replayed.failure().config == disagreeing
             assert len(staged) in early, width
             assert not list(tmp_path.glob("settle-memo-*")) and not list(tmp_path.glob("*.tmp"))
 

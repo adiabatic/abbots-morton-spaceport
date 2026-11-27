@@ -32,7 +32,7 @@ from engine.tools.peak_rss import format_gb
 from engine.tools.cycle_timings import CycleTimings, PassWrites
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 1.1 GB, seven parked fold products at PARKED_FOLD_BYTES (0.3 GB), DELTA_SLOT_BYTES at 3.4 GB and FOLD_PREPARATION_BYTES at 2.7 GB, the whole wave is booked at 26.3 GB, above the rendezvous's 20.3 GB at READ_BACK_FOLD_BYTES (2.9 GB) a configuration. 32 GB, which leaves 24.0 GB after `memory_budget`'s reserve, fits six slots alone and five beside an eight-core machine's pytest pool; 33.6 GB, which leaves 25.6 GB, fits six beside the twelve-core pool and five beside a stated nine-worker pool; and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
+# Width assertions use stated machine sizes, not the host running the suite. With DEFAULT_MEMO_BYTES at 1.1 GB, a parked fold product per settlement configuration at PARKED_FOLD_BYTES (0.3 GB), DELTA_SLOT_BYTES at 3.4 GB and FOLD_PREPARATION_BYTES at 2.7 GB, the whole wave is booked at 22.6 GB, above the rendezvous's 17.4 GB at READ_BACK_FOLD_BYTES (2.9 GB) a configuration. 32 GB, which leaves 24.0 GB after `memory_budget`'s reserve, fits the whole wave; and 44 GB is `_plan`'s default machine, which the plan and width tests share. Changing a kernel term changes these expectations and can require a different size to keep the memory set aside for the pool visible in a width.
 MACHINE_44_GB = 44_000_000_000
 MACHINE_33_6_GB = 33_600_000_000
 MACHINE_32_GB = 32_000_000_000
@@ -3035,12 +3035,15 @@ def test_the_contracts_pool_is_the_cores_the_corpus_build_leaves():
 
 
 def test_the_plan_names_the_process_of_the_corpus_build_that_will_run(monkeypatch):
-    """The plan's clauses name what they subtract for the corpus build, its one process, so the clause and the width it explains count the same cores."""
+    """The plan's clauses name what they subtract for the corpus build, its one process, so the clause and the width it explains count the same cores. A machine with as many cores as there are acceptance configurations puts the conformance sweep's cap at its floor, so that clause says what the corpus build's process leaves."""
+    from engine.pipeline.conform import ACCEPTANCE_CONFIGS
+
     monkeypatch.delenv("PYTEST_XDIST_AUTO_NUM_WORKERS", raising=False)
-    kw: dict[str, Any] = dict(skip_gates=False, pool_policy="queue", ncores=10, total_bytes=MACHINE_32_GIB)
+    cores = len(ACCEPTANCE_CONFIGS)
+    kw: dict[str, Any] = dict(skip_gates=False, pool_policy="queue", ncores=cores, total_bytes=MACHINE_32_GIB)
     assert ac.contracts_pool_derivation(**kw).endswith(f"less {ac.CORPUS_BUILD_PROCESS}")
     assert ac.conform_job_derivation(**kw, skip_corpus=False).endswith(
-        f"since 10 cores less {ac.CORPUS_BUILD_PROCESS} leave 9"
+        f"since {cores} cores less {ac.CORPUS_BUILD_PROCESS} leave {cores - 1}"
     )
 
 

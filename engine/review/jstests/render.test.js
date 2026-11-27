@@ -416,7 +416,7 @@ test('unitWorklist splits, trims, and drops empties', () => {
 });
 
 test('the units worklist filter keeps only the listed ids and composes with other filters', () => {
-  const unit = fixtureUnit('u-BzEBRDeYbuP');
+  const unit = fixtureUnit('u-MHckzMuQQVX');
   const empty = { class: null, group: null, family: null, config: null, status: null, units: null };
   assert.equal(unitMatchesFilters(unit, { ...empty, units: `other,${unit.id}` }, undefined), true);
   assert.equal(unitMatchesFilters(unit, { ...empty, units: 'u-9990,u-9991' }, undefined), false);
@@ -820,8 +820,8 @@ test('classesInBatch names the classes with units in a batch, batchless classes 
 });
 
 test('copyPreamble names only the unit, codepoints, and notation — the rest is looked up from the shards', () => {
-  const text = copyPreamble(fixtureUnit('u-BzEBRDeYbuP'));
-  assert.match(text, /engine\/out\/review\/ unit u-BzEBRDeYbuP/);
+  const text = copyPreamble(fixtureUnit('u-MHckzMuQQVX'));
+  assert.match(text, /engine\/out\/review\/ unit u-MHckzMuQQVX/);
   assert.match(text, /E653:E67A:E652/);
   assert.match(text, /·Day·Utter·Tea/);
   assert.doesNotMatch(text, /joins/);
@@ -936,11 +936,11 @@ test('searchHaystack folds id, notation, codepoints, class, group, cluster, and 
 
 test('searchHaystack is memoized per unit, so a keystroke folds each row at most once', () => {
   // Rows are immutable once parsed; mutating one here is only a probe for whether the second call refolded it.
-  const unit = { ...fixtureUnit('u-BzEBRDeYbuP') };
+  const unit = { ...fixtureUnit('u-MHckzMuQQVX') };
   const first = searchHaystack(unit);
   unit.notation = '·Nope';
   assert.equal(searchHaystack(unit), first, 'the second call is answered from the cache');
-  const twin = { ...fixtureUnit('u-BzEBRDeYbuP'), notation: '·Nope' };
+  const twin = { ...fixtureUnit('u-MHckzMuQQVX'), notation: '·Nope' };
   assert.notEqual(searchHaystack(twin), first, 'a row the cache has not seen folds on its own');
   assert.ok(searchHaystack(twin).includes('·nope'));
 });
@@ -973,10 +973,10 @@ test('searchUnits matches codepoints with and without the colons', () => {
 
 test('searchUnits matches class, group, and kind, and includes machine-approved units', () => {
   const byClass = searchUnits(allUnits, 'settlement');
-  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-MZiMjJpq1Tt', 'u-i35WcnXw8nb']);
+  assert.deepEqual(byClass.matches.map((unit) => unit.id).sort(), ['u-bKJqWg1X7vM', 'u-i35WcnXw8nb']);
   assert.deepEqual(searchUnits(allUnits, 'qsTea:qsOy').matches.map((unit) => unit.id), ['u-MG7BYctpZgY']);
   const removed = searchUnits(allUnits, 'removed');
-  assert.deepEqual(removed.matches.map((unit) => unit.id).sort(), ['u-AZd95bckcbg', 'u-BzEBRDeYbuP']);
+  assert.deepEqual(removed.matches.map((unit) => unit.id).sort(), ['u-AZd95bckcbg', 'u-MHckzMuQQVX']);
   const changed = searchUnits(allUnits, 'changed');
   assert.equal(changed.matches.find((unit) => unit.id === 'u-i35WcnXw8nb').ink_identical, true, 'a machine-approved unit is still findable');
 });
@@ -986,22 +986,22 @@ test('searchUnits matches a kind of change by its title', () => {
   const fresh = allUnits.map((unit) => ({ ...unit }));
   assert.deepEqual(
     searchUnits(fresh, 'redrawn', 50, titleOf).matches.map((unit) => unit.id).sort(),
-    ['u-51MZrbcA5zc', 'u-LtadFU2dmvz'],
+    ['u-BNXVnuwKJSL', 'u-LtadFU2dmvz'],
   );
   const untitled = allUnits.map((unit) => ({ ...unit }));
   assert.equal(searchUnits(untitled, 'redrawn').total, 0, 'only the title says "redrawn"');
 });
 
 test('searchUnits requires every whitespace-separated token to match (AND)', () => {
-  assert.deepEqual(searchUnits(allUnits, 'tea 200c').matches.map((unit) => unit.id).sort(), ['u-MG7BYctpZgY', 'u-Qn291AdDMtp']);
+  assert.deepEqual(searchUnits(allUnits, 'tea 200c').matches.map((unit) => unit.id).sort(), ['u-4ZwsVeZJXT8', 'u-MG7BYctpZgY']);
   assert.deepEqual(searchUnits(allUnits, 'tea 200c e679').matches.map((unit) => unit.id), ['u-MG7BYctpZgY']);
   assert.equal(searchUnits(allUnits, 'tea low').total, 0);
 });
 
 test('searchUnits ranks an exact id hit ahead of incidental substring hits', () => {
   // Only one fixture unit contains this id. searchScore ranks an exact id match first, so it would stay first even if another unit's haystack contained the id.
-  const { matches } = searchUnits(allUnits, 'u-BzEBRDeYbuP');
-  assert.equal(matches[0].id, 'u-BzEBRDeYbuP');
+  const { matches } = searchUnits(allUnits, 'u-MHckzMuQQVX');
+  assert.equal(matches[0].id, 'u-MHckzMuQQVX');
 });
 
 test('searchUnits caps the matches at the limit but reports the true total', () => {

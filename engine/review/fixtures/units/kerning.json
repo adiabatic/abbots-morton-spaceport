@@ -1,7 +1,7 @@
 [
  {
-  "id": "u-Qn291AdDMtp",
-  "content_key": "8e260b94928b284d0f43f9fa508210ba2e80822ec963b764fd8734cfaadc5cc0",
+  "id": "u-4ZwsVeZJXT8",
+  "content_key": "1554f6ad319a2ceb834323cd9063a436f7cd1178da7c4a99c5a1956213c05e5c",
   "ink_identical": false,
   "picture_identical": false,
   "no_verdict": true,
@@ -24,8 +24,7 @@
    "ss04",
    "ss05",
    "ss03+ss05",
-   "ss07",
-   "ss08"
+   "ss07"
   ],
   "config_note": null,
   "config_gate": null,
@@ -37,8 +36,7 @@
      "ss04",
      "ss05",
      "ss03+ss05",
-     "ss07",
-     "ss08"
+     "ss07"
     ]
    }
   ],
@@ -102,7 +100,7 @@
    }
   ],
   "summary": "\u00b7No before \u00b7Tea is kerned by -1 where the accepted build kerns it by 0",
-  "explain": "kerning (changed): \u00b7No before \u00b7Tea is kerned by -1 where the accepted build kerns it by 0.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07, ss08\n  text: \u00b7No \u25caZWNJ \u00b7Tea (the kerning inventory's witness of the pair)",
+  "explain": "kerning (changed): \u00b7No before \u00b7Tea is kerned by -1 where the accepted build kerns it by 0.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07\n  text: \u00b7No \u25caZWNJ \u00b7Tea (the kerning inventory's witness of the pair)",
   "provenance": [
    "glyph_data/runes/qsNo.yaml:kern[0]"
   ]

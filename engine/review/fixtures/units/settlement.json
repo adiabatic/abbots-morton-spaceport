@@ -1,7 +1,7 @@
 [
  {
-  "id": "u-MZiMjJpq1Tt",
-  "content_key": "7af1b933d48cb4a73d4bfedceb88aac40320e0276dd484d030192d2b24584ae0",
+  "id": "u-bKJqWg1X7vM",
+  "content_key": "cd28ebd50cc6313e124002116eb3d56781d38bce224d6c74197ef1157cbee203",
   "ink_identical": false,
   "picture_identical": false,
   "no_verdict": false,
@@ -24,8 +24,7 @@
    "ss04",
    "ss05",
    "ss03+ss05",
-   "ss07",
-   "ss08"
+   "ss07"
   ],
   "config_note": null,
   "config_gate": null,
@@ -37,8 +36,7 @@
      "ss04",
      "ss05",
      "ss03+ss05",
-     "ss07",
-     "ss08"
+     "ss07"
     ]
    }
   ],
@@ -102,7 +100,7 @@
    }
   ],
   "summary": "\u00b7Excite settles as qsExcite.ex-y0 where the accepted build settles it as qsExcite.ex-y5",
-  "explain": "settlement (changed): \u00b7Excite settles as qsExcite.ex-y0 where the accepted build settles it as qsExcite.ex-y5.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07, ss08\n  text: \u00b7 \u00b7Excite\u00b7Tea (the shortest certificate of its new rules)",
+  "explain": "settlement (changed): \u00b7Excite settles as qsExcite.ex-y0 where the accepted build settles it as qsExcite.ex-y5.\n  configurations: default, ss03, ss04, ss05, ss03+ss05, ss07\n  text: \u00b7 \u00b7Excite\u00b7Tea (the shortest certificate of its new rules)",
   "provenance": [
    "glyph_data/runes/qsExcite.yaml:policy.prefer[1]"
   ]
@@ -129,8 +127,24 @@
    "default",
    "ss04"
   ],
-  "config_note": "only under: default, ss04",
-  "config_gate": null,
+  "config_note": "only when ss03 is off and ss05 is off and ss07 is off",
+  "config_gate": [
+   {
+    "feature": "ss03",
+    "state": "off",
+    "text": "only when ss03 is off"
+   },
+   {
+    "feature": "ss05",
+    "state": "off",
+    "text": "and ss05 is off"
+   },
+   {
+    "feature": "ss07",
+    "state": "off",
+    "text": "and ss07 is off"
+   }
+  ],
   "render_groups": [
    {
     "configs": [
