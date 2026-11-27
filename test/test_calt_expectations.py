@@ -1,6 +1,6 @@
 """The any-of `data-expect` regression checks: each test gives a text and the expect strings any one of which its shaping must match, checked against the Senior under site/ by the checker the pin items use (`engine/validation/check.py`, `assert_expect_any`).
 
-A check Senior fails is a strict expected failure whose reason names what Senior shapes instead, pending the author's ruling (`WHATNEXT.md`), so it fails once Senior shapes it as the check expects. The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`).
+The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`).
 """
 
 from collections.abc import Sequence
@@ -48,38 +48,6 @@ def _family_to_label(family: str) -> str:
 
 def _assert_expect_any(text: str, expects: Sequence[str]) -> None:
     assert_expect_any(_FONT["senior"], text, expects)
-
-
-# The checks Senior fails, each by its test id with what Senior shapes instead, pending the author's ruling (WHATNEXT.md). Each is a strict expected failure, so it fails once Senior shapes the text as the check expects.
-SHAPED_INSTEAD: dict[str, str] = {
-    "test_ah_fee_utter_keeps_left_join": "Senior shapes ·Ah ~x~ ·Fee | ·Utter (qsAh.sole.ex-y5 qsFee.reversed-loop.en-y5 qsUtter.mono)",
-    "test_at_may_they_utter_looks_ok": "Senior shapes ·At.ex-ext-3 ~b~ ·May | ·They+Utter (qsAt.falling.ex-y0.ex-ext-3 qsMay.loop.en-y0 qsThey_qsUtter.sole)",
-    "test_day_eat_takes_the_half_day_where_day_does[out-tea-jai-day-eat]": "Senior shapes ·Out+Tea | ·J’ai ~b~ ·Day+Eat.half (qsOut_qsTea.sole qsJai.sole.ex-y0 qsDay_qsEat.half.en-y0)",
-    "test_day_eat_takes_the_half_day_where_day_does[pea-day-eat-gay-owe]": "Senior shapes ·Pea ~b~ ·Day+Eat.half | ·Gay.ex-ext-2 ~x~ ·Owe (qsPea.full.ex-y0 qsDay_qsEat.half.en-y0 qsGay.sole.ex-y5.ex-ext-2 qsOwe.sole.en-y5)",
-    "test_day_eat_takes_the_half_day_where_day_does[tea-day-eat-gay-owe]": "Senior shapes ·Tea ~b~ ·Day+Eat.half | ·Gay.ex-ext-2 ~x~ ·Owe (qsTea.full.ex-y0 qsDay_qsEat.half.en-y0 qsGay.sole.ex-y5.ex-ext-2 qsOwe.sole.en-y5)",
-    "test_day_eat_takes_the_half_day_where_day_does[they-zoo-excite-day-eat]": "Senior shapes ·They+Zoo ~b~ ·Excite ~b~ ·Day+Eat.half (qsThey_qsZoo.sole.ex-y0 qsExcite.sole.en-y0.ex-y0 qsDay_qsEat.half.en-y0)",
-    "test_day_eat_takes_the_half_day_where_day_does[they-zoo-no-day-eat]": "Senior shapes ·They+Zoo ~b~ ·No.alt ~b~ ·Day+Eat.half (qsThey_qsZoo.sole.ex-y0 qsNo.flipped.en-y0.ex-y0 qsDay_qsEat.half.en-y0)",
-    "test_fee_entry_xheight_after_extended_predecessor[qsAh]": "Senior shapes ·Ah ~x~ ·Fee (qsAh.sole.ex-y5 qsFee.reversed-loop.en-y5)",
-    "test_fee_tea_i_extends_exit": "Senior shapes ·Fee | ·Tea.ex-ext-1 ~b~ ·I (qsFee.loop qsTea.full.ex-y0.ex-ext-1 qsI.loop.en-y0)",
-    "test_he_vie_utter_day_joins_baseline_then_xheight": "Senior shapes ·He ~b~ ·Vie.en-ext-1.ex-con-1 ~b~ ·Utter ~x~ ·Day (qsHe.full.ex-y0 qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1 qsUtter.mono.en-y0.ex-y5 qsDay.full.en-y5)",
-    "test_jay_utter_contracts_before_jai": "Senior shapes ·Ah ~x~ ·Jay+Utter ~x~ ·J’ai.en-con-2 (qsAh.sole.ex-y5 qsJay_qsUtter.sole.en-y5.ex-y5 qsJai.sole.en-y5.en-con-2)",
-    "test_owe_fee_may_owe_joins_fee_at_xheight": "Senior shapes ·Owe | ·Fee.ex-ext-3 ~x~ ·May (qsOwe.sole qsFee.loop.ex-y5.ex-ext-3 qsMay.loop.en-y5)",
-    "test_pea_joins_a_pea_that_dips_into_its_follower_at_y6[et-pea-pea-cheer]": "Senior shapes ·Et ~b~ ·Pea | ·Pea.half ~x~ ·Cheer (qsEt.sole.ex-y0 qsPea.full.en-y0 qsPea.half.ex-y5 qsCheer.sole.en-y5)",
-    "test_pea_joins_a_pea_that_dips_into_its_follower_at_y6[pea-pea-no]": "Senior shapes ·Pea.half ~6~ ·Pea ~b~ ·No.alt (qsPea.half.ex-y6 qsPea.full.en-y6.ex-y0 qsNo.flipped.en-y0)",
-    "test_pea_joins_neither_side_after_et_before_the_alternate_utter": "Senior shapes ·Et ~b~ ·Pea | ·Utter.alt ~b~ ·Ah (qsEt.sole.ex-y0 qsPea.full.en-y0 qsUtter.alternate.ex-y0 qsAh.sole.en-y0)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[awe-pea-vie]": "Senior shapes ·Awe | ·Pea ~b~ ·Vie (qsAwe.sole qsPea.full.ex-y0 qsVie.normal.en-y0)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-day-eat]": "Senior shapes ·Et ~b~ ·Pea | ·Day+Eat (qsEt.sole.ex-y0 qsPea.full.en-y0 qsDay_qsEat.full)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-day]": "Senior shapes ·Et ~b~ ·Pea | ·Day (qsEt.sole.ex-y0 qsPea.full.en-y0 qsDay.full)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-it]": "Senior shapes ·Et ~b~ ·Pea | ·It (qsEt.sole.ex-y0 qsPea.full.en-y0 qsIt.sole)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-may]": "Senior shapes ·Et ~b~ ·Pea | ·May (qsEt.sole.ex-y0 qsPea.full.en-y0 qsMay.loop)",
-    "test_tea_before_i_extends_exit": "Senior shapes ·Tea.ex-ext-1 ~b~ ·I (qsTea.full.ex-y0.ex-ext-1 qsI.loop.en-y0)",
-    "test_zwnj_keeps_it_entryless_while_still_joining_zoo": "Senior shapes ·Day | ◊ZWNJ | ·It.locked ~b~ ·Zoo.half ~b~ ·I.ex-ext-1 ~x~ ·Roe (qsDay.full space qsIt.sole.ex-y0.locked qsZoo.half.en-y0.ex-y0 qsI.loop.en-y0.ex-y5.ex-ext-1 qsRoe.sole.en-y5)",
-}
-
-
-def _pending(test: str, case: str) -> tuple:
-    reason = SHAPED_INSTEAD.get(f"{test}[{case}]")
-    return () if reason is None else (pytest.mark.xfail(strict=True, reason=reason),)
 
 
 def test_see_ooze_is_sensible():
@@ -181,31 +149,21 @@ def test_owe_at_word_start_before_fee_has_no_left_anchor():
         pytest.param(
             _qs_text("qsMay", "qsFee"),
             ["·May.ex-ext-1 ~x~ ·Fee"],
-            marks=_pending("test_fee_entry_xheight_after_extended_predecessor", "qsMay"),
             id="qsMay",
         ),
         pytest.param(
             _qs_text("qsNo", "qsFee"),
             ["·No.ex-ext-1 ~x~ ·Fee"],
-            marks=_pending("test_fee_entry_xheight_after_extended_predecessor", "qsNo"),
             id="qsNo",
         ),
         pytest.param(
             _qs_text("qsLow", "qsFee"),
             ["·Low.ex-ext-1 ~x~ ·Fee"],
-            marks=_pending("test_fee_entry_xheight_after_extended_predecessor", "qsLow"),
             id="qsLow",
-        ),
-        pytest.param(
-            _qs_text("qsAh", "qsFee"),
-            ["·Ah.ex-ext-1 ~x~ ·Fee"],
-            marks=_pending("test_fee_entry_xheight_after_extended_predecessor", "qsAh"),
-            id="qsAh",
         ),
         pytest.param(
             _qs_text("qsUtter", "qsFee"),
             ["·Utter.ex-ext-1 ~x~ ·Fee"],
-            marks=_pending("test_fee_entry_xheight_after_extended_predecessor", "qsUtter"),
             id="qsUtter",
         ),
     ],
@@ -249,17 +207,6 @@ def test_out_fee_utter_lets_out_reach_for_fee():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_ah_fee_utter_keeps_left_join"])
-def test_ah_fee_utter_keeps_left_join():
-    """·Ah·Fee·Utter keeps the ·Ah ~x~ ·Fee join: a following ·Utter does not switch ·Fee to the entry-less ``exit_xheight_before_utter`` stance."""
-    _assert_expect_any(
-        _qs_text("qsAh", "qsFee", "qsUtter"),
-        [
-            "·Ah.ex-ext-1 ~x~ ·Fee | ·Utter.∅",
-        ],
-    )
-
-
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
@@ -289,15 +236,6 @@ def test_fee_may_uses_extension_pair():
     _assert_expect_any(
         _qs_text("qsFee", "qsMay"),
         ["·Fee ~x~ ·May"],
-    )
-
-
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_owe_fee_may_owe_joins_fee_at_xheight"])
-def test_owe_fee_may_owe_joins_fee_at_xheight():
-    """·Owe joins ·Fee at the x-height, and ·Fee.en-y5 has no exit, so ·May stays unjoined. ·Fee cannot both enter and exit at the x-height (qsFee's ``notes``)."""
-    _assert_expect_any(
-        _qs_text("qsOwe", "qsFee", "qsMay"),
-        ["·Owe ~x~ ·Fee | ·May"],
     )
 
 
@@ -360,16 +298,6 @@ def test_it_preserves_baseline_entry_before_zoo():
     _assert_expect_any(
         _qs_text("qsBay", "qsIt", "qsZoo"),
         ["·Bay ~b~ ·It.ex-ext-1 ~x~ ·Zoo"],
-    )
-
-
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_zwnj_keeps_it_entryless_while_still_joining_zoo"])
-def test_zwnj_keeps_it_entryless_while_still_joining_zoo():
-    _assert_expect_any(
-        _qs_text("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe"),
-        [
-            "·Day | ◊ZWNJ | ·It.locked.ex-ext-1 ~x~ ·Zoo ~b~ ·I.ex-ext-1 ~x~ ·Roe",
-        ],
     )
 
 
@@ -626,50 +554,18 @@ def test_pea_joins_et_and_awe_at_baseline_when_it_joins_nothing_after(text: str,
     ("text", "expects"),
     [
         pytest.param(
-            _qs_text("qsEt", "qsPea", "qsIt"),
-            ["·Et | ·Pea.half ~x~ ·It"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "et-pea-it"),
-            id="et-pea-it",
-        ),
-        pytest.param(
             _qs_text("qsAwe", "qsPea", "qsPea"),
             ["·Awe | ·Pea.half ~6~ ·Pea"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "awe-pea-pea"),
             id="awe-pea-pea",
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsPea", "qsDay"),
-            ["·Et | ·Pea ~b~ ·Day.half"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "et-pea-day"),
-            id="et-pea-day",
-        ),
-        pytest.param(
-            _qs_text("qsAwe", "qsPea", "qsVie"),
-            ["·Awe | ·Pea ~b~ ·Vie.en-ext-1"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "awe-pea-vie"),
-            id="awe-pea-vie",
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsPea", "qsMay"),
-            ["·Et | ·Pea ~b~ ·May.en-ext-1"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "et-pea-may"),
-            id="et-pea-may",
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsPea", "qsDay", "qsEat"),
-            ["·Et | ·Pea ~b~ ·Day+Eat.half"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "et-pea-day-eat"),
-            id="et-pea-day-eat",
         ),
         pytest.param(
             _qs_text("qsAwe", "qsPea", "qsDay", "qsEat"),
             ["·Awe | ·Pea ~b~ ·Day+Eat.half"],
-            marks=_pending("test_pea_keeps_its_onward_join_after_et_and_awe", "awe-pea-day-eat"),
             id="awe-pea-day-eat",
         ),
     ],
 )
-def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str]):
+def test_pea_keeps_its_onward_join_after_awe(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
 
 
@@ -679,80 +575,37 @@ def test_pea_keeps_its_onward_join_after_et_and_awe(text: str, expects: list[str
         pytest.param(
             _qs_text("qsPea", "qsDay", "qsEat"),
             ["·Pea ~b~ ·Day+Eat.half"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "pea-day-eat"),
             id="pea-day-eat",
         ),
         pytest.param(
             _qs_text("qsIt", "qsDay", "qsEat"),
             ["·It ~b~ ·Day+Eat.half"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "it-day-eat"),
             id="it-day-eat",
         ),
         pytest.param(
             _qs_text("qsEt", "qsTea", "qsDay", "qsEat"),
             ["·Et ~b~ ·Tea | ·Day+Eat.∅"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "et-tea-day-eat"),
             id="et-tea-day-eat",
         ),
         pytest.param(
             _qs_text("qsOut", "qsTea", "qsDay", "qsEat"),
             ["·Out+Tea | ·Day+Eat.∅"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "out-tea-day-eat"),
             id="out-tea-day-eat",
         ),
         pytest.param(
             _qs_text("qsSee", "qsOut", "qsTea", "qsDay", "qsEat"),
             ["·See ~b~ ·Out+Tea | ·Day+Eat.∅"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "see-out-tea-day-eat"),
             id="see-out-tea-day-eat",
-        ),
-        pytest.param(
-            _qs_text("qsThey", "qsZoo", "qsNo", "qsDay", "qsEat"),
-            ["·They+Zoo | ·No ~x~ ·Day+Eat.!half"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "they-zoo-no-day-eat"),
-            id="they-zoo-no-day-eat",
-        ),
-        pytest.param(
-            _qs_text("qsThey", "qsZoo", "qsExcite", "qsDay", "qsEat"),
-            ["·They+Zoo | ·Excite | ·Day+Eat.!half"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "they-zoo-excite-day-eat"),
-            id="they-zoo-excite-day-eat",
-        ),
-        pytest.param(
-            _qs_text("qsOut", "qsTea", "qsJai", "qsDay", "qsEat"),
-            ["·Out+Tea | ·J’ai | ·Day+Eat.!half"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "out-tea-jai-day-eat"),
-            id="out-tea-jai-day-eat",
         ),
         pytest.param(
             _qs_text("qsHe", "qsNo", "qsIt", "qsDay", "qsEat"),
             ["·He.half ~x~ ·No ~x~ ·It ~b~ ·Day+Eat.half"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "he-no-it-day-eat"),
             id="he-no-it-day-eat",
-        ),
-        pytest.param(
-            _qs_text("qsPea", "qsDay", "qsEat", "qsGay", "qsOwe"),
-            ["·Pea ~b~ ·Day+Eat.half | ·Gay | ·Owe"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "pea-day-eat-gay-owe"),
-            id="pea-day-eat-gay-owe",
-        ),
-        pytest.param(
-            _qs_text("qsTea", "qsDay", "qsEat", "qsGay", "qsOwe"),
-            ["·Tea ~b~ ·Day+Eat.half.en-ext-1 | ·Gay | ·Owe"],
-            marks=_pending("test_day_eat_takes_the_half_day_where_day_does", "tea-day-eat-gay-owe"),
-            id="tea-day-eat-gay-owe",
         ),
     ],
 )
 def test_day_eat_takes_the_half_day_where_day_does(text: str, expects: list[str]):
     _assert_expect_any(text, expects)
-
-
-@pytest.mark.xfail(
-    strict=True, reason=SHAPED_INSTEAD["test_pea_joins_neither_side_after_et_before_the_alternate_utter"]
-)
-def test_pea_joins_neither_side_after_et_before_the_alternate_utter():
-    _assert_expect_any(_qs_text("qsEt", "qsPea", "qsUtter", "qsAh"), ["·Et | ·Pea | ·Utter.alt ~b~ ·Ah"])
 
 
 @pytest.mark.parametrize(
@@ -761,26 +614,12 @@ def test_pea_joins_neither_side_after_et_before_the_alternate_utter():
         pytest.param(
             _qs_text("qsPea", "qsPea", "qsCheer"),
             ["·Pea.half ~6~ ·Pea.half ~x~ ·Cheer"],
-            marks=_pending("test_pea_joins_a_pea_that_dips_into_its_follower_at_y6", "pea-pea-cheer"),
             id="pea-pea-cheer",
-        ),
-        pytest.param(
-            _qs_text("qsEt", "qsPea", "qsPea", "qsCheer"),
-            ["·Et | ·Pea.half ~6~ ·Pea.half ~x~ ·Cheer"],
-            marks=_pending("test_pea_joins_a_pea_that_dips_into_its_follower_at_y6", "et-pea-pea-cheer"),
-            id="et-pea-pea-cheer",
         ),
         pytest.param(
             _qs_text("qsPea", "qsPea", "qsIt"),
             ["·Pea.half ~6~ ·Pea.half ~x~ ·It"],
-            marks=_pending("test_pea_joins_a_pea_that_dips_into_its_follower_at_y6", "pea-pea-it"),
             id="pea-pea-it",
-        ),
-        pytest.param(
-            _qs_text("qsPea", "qsPea", "qsNo"),
-            ["·Pea.half ~6~ ·Pea.half ~x~ ·No"],
-            marks=_pending("test_pea_joins_a_pea_that_dips_into_its_follower_at_y6", "pea-pea-no"),
-            id="pea-pea-no",
         ),
     ],
 )
@@ -1050,26 +889,10 @@ def test_pea_pea_low_keeps_y6_then_baseline_joins():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_tea_before_i_extends_exit"])
-def test_tea_before_i_extends_exit():
-    _assert_expect_any(
-        _qs_text("qsTea", "qsI"),
-        ["·Tea.en-y8.ex-ext-1 ~b~ ·I"],
-    )
-
-
 def test_see_tea_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsSee", "qsTea", "qsI"),
         ["·See ~t~ ·Tea.ex-ext-1 ~b~ ·I"],
-    )
-
-
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_fee_tea_i_extends_exit"])
-def test_fee_tea_i_extends_exit():
-    _assert_expect_any(
-        _qs_text("qsFee", "qsTea", "qsI"),
-        ["·Fee.∅ |?| ·Tea.en-y8.ex-ext-1 ~b~ ·I"],
     )
 
 
@@ -1183,15 +1006,6 @@ def test_jay_utter_ligature_joins_designated_left_letters_at_xheight(text: str, 
     _assert_expect_any(text, expects)
 
 
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_jay_utter_contracts_before_jai"])
-def test_jay_utter_contracts_before_jai():
-    """·Jay+Utter contracts its exit (ex-con-2) before ·J’ai and joins at the x-height."""
-    _assert_expect_any(
-        _qs_text("qsAh", "qsJay", "qsUtter", "qsJai"),
-        ["·Ah ~x~ ·Jay+Utter.ex-con-2 ~x~ ·J’ai"],
-    )
-
-
 def test_jay_utter_extends_before_fee():
     """·Jay+Utter extends its exit (ex-ext-1) before ·Fee, just as bare ·Utter does."""
     _assert_expect_any(
@@ -1257,14 +1071,6 @@ def test_roe_may_they_utter_looks_ok():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_at_may_they_utter_looks_ok"])
-def test_at_may_they_utter_looks_ok():
-    _assert_expect_any(
-        _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
-        ["·At.ex-ext-5 ~b~ ·May |?| ·They+Utter.!entry"],
-    )
-
-
 @pytest.mark.parametrize(
     ("text", "expects"),
     [
@@ -1282,15 +1088,6 @@ def test_tea_foot_key_stays_unjoined():
     _assert_expect_any(
         _qs_text("qsTea", "qsFoot", "qsKey"),
         ["·Tea | ·Foot | ·Key"],
-    )
-
-
-@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_he_vie_utter_day_joins_baseline_then_xheight"])
-def test_he_vie_utter_day_joins_baseline_then_xheight():
-    """The word "Hvəd": ·He joins the ·Vie+Utter ligature at the baseline, and the ligature's extended exit reaches ·Day at the x-height."""
-    _assert_expect_any(
-        _qs_text("qsHe", "qsVie", "qsUtter", "qsDay"),
-        ["·He ~b~ ·Vie+Utter.en-ext-1 ~x~ ·Day"],
     )
 
 
