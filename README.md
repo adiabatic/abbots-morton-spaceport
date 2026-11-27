@@ -163,7 +163,7 @@ It does _not_ work in:
 
 ## Contributing
 
-[`HACKING.md`](./HACKING.md) covers building the fonts, testing them, and reviewing changes. Building needs [uv](https://docs.astral.sh/uv/), Rust’s `cargo`, and about 20 GB of free memory.
+[`HACKING.md`](./HACKING.md) covers building the fonts, testing them, and reviewing changes. Building needs [uv](https://docs.astral.sh/uv/), Rust’s `cargo`, and about 20 GB of free memory. I’m not kidding about the free memory.
 
 If you’re going to be running `git blame` (or just clicking around blame views) in this repo, run this once after cloning:
 

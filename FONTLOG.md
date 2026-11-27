@@ -6,6 +6,10 @@ Much of what goes in a FONTLOG file — other than the changelog — is in the R
 
 ### 17.000
 
+Ridiculously engineered edition
+
+This release is the first one to use a new engine that takes minutes (if not tens of minutes) and ≈16 GB of RAM to build the fonts. Yes, you read that right. Sixteen. Gigabytes. The upshot: it Just Does The Right Thing™ in more cases, and appears to not have bugs like one letter reaching out to join a neighbor with the other letter failing to reciprocate.
+
 Senior’s joining rules have been rebuilt from scratch on a new engine. The aim was the same font, and mostly it is: no letter looks different on its own, and of the 1,936 two-letter words, 123 are drawn differently. About one in seven three-letter words differs, usually by a single pixel of join length. This is what changed on the way.
 
 Mono is unchanged, and Junior nearly so.
@@ -15,25 +19,30 @@ Mono is unchanged, and Junior nearly so.
 - Encode ú and ù in Junior and Senior, with the same accents the other accented vowels have (Mono already had them)
 - Build every Bold glyph as one merged outline instead of overlapping rectangles, which should get rid of the holes Windows showed in Bold text; shapes and widths are unchanged
 - Keep the namer dot raised when a ZWNJ sits between it and a Short letter (Junior and Senior)
-- Senior’s files are about five times the size: the OTF goes from 545 KB to 2.8 MB, and the WOFF2 from 120 KB to about 385 KB. Junior’s and Mono’s OTFs are about half their old size.
 
 #### Quikscript Senior — stylistic sets, variation selectors, and ZWNJ
 
-If you set `font-feature-settings` yourself, read this part.
+If you set `font-feature-settings` yourself, change this:
 
-- Remove `ss02`; `·I ~x~ ·Tea` is under `ss03` now
-- `ss03`: draw the full-size ·Tea after an x-height join, so it can join onward at the baseline (`·May ~x~ ·Tea ~b~ ·Day`); 16.000 drew a half ·Tea that ended the chain. Also:
-  - Keep the ·Out+Tea and ·Tea+Oy ligatures instead of breaking them up to make the join
-  - Don’t join `·Owe ~x~ ·Tea`
-  - Stop breaking the join on the other side of the letter before ·Tea (`·Gay ~b~ ·May ~x~ ·Tea`)
-- `ss04`: let ·It join at the baseline on both sides next to nearly any letter (`·Key ~b~ ·It ~b~ ·See`), not just after ·Day or before ·Day, ·Low, and ·Utter. After ·Pea, ·He, ·No, and ·Utter, ·It keeps its x-height entry instead (`·Pea ~x~ ·It ~b~ ·Low`).
-- `ss05`: let ·Tea join at the baseline on both sides after nearly any letter (`·Key ~b~ ·Tea ~b~ ·See`), not just after ·Et
-- `ss06`: the gapped ·Owe joins exactly as the plain ·Owe does; in 16.000 it joined nothing
-- `ss07`: ·Owe keeps the join from the letter before it (`·Fee ~x~ ·Owe ~x~ ·Day`), and `·Owe ~x~ ·Day` is a pixel longer
-- `ss10`: break up every letter, ligatures included; 16.000 left 369 of the two-letter words joined or ligated
-- A letter followed by a variation selector stands apart from both neighbors; 16.000 went on to join the shape it selected
-- Add VS2 after ·Tea for the half ·Tea
-- Treat a ZWNJ as exactly a word boundary: ligatures form after one (`·Pea | ·Tea+Oy`), and a ZWNJ after ·He no longer pulls the next letter into it
+- Replace `ss02` with `ss03`. `ss02` is gone, and `ss03` now covers the `·I ~x~ ·Tea` join that `ss02` turned on.
+
+How each remaining stylistic set changed:
+
+- `ss03` draws the full-size ·Tea after an x-height join, so ·Tea can go on to join at the baseline (`·May ~x~ ·Tea ~b~ ·Day`); 16.000 drew a half ·Tea that ended the chain. Under `ss03`, also:
+  - The ·Out+Tea and ·Tea+Oy ligatures stay whole instead of breaking up to make the join.
+  - `·Owe ~x~ ·Tea` doesn’t join.
+  - The join on the other side of the letter before ·Tea holds (`·Gay ~b~ ·May ~x~ ·Tea`); 16.000 broke it.
+- `ss04` lets ·It join at the baseline on both sides next to nearly any letter (`·Key ~b~ ·It ~b~ ·See`); 16.000 allowed that only after ·Day or before ·Day, ·Low, and ·Utter. After ·Pea, ·He, ·No, and ·Utter, ·It keeps its x-height entry (`·Pea ~x~ ·It ~b~ ·Low`).
+- `ss05` lets ·Tea join at the baseline on both sides after nearly any letter (`·Key ~b~ ·Tea ~b~ ·See`); 16.000 allowed that only after ·Et.
+- `ss06` opens the top of an ·Owe only when it joins neither neighbor, and changes no joins; in 16.000 the gapped ·Owe joined nothing.
+- `ss07` no longer breaks the join into ·Owe from the letter before it (`·Fee ~x~ ·Owe ~x~ ·Day`), and makes `·Owe ~x~ ·Day` a pixel longer.
+- `ss10` breaks up every letter, ligatures included; 16.000 left 369 of the two-letter words joined or ligated.
+
+How variation selectors and ZWNJ changed:
+
+- A letter followed by a variation selector joins neither neighbor; 16.000 joined the shape the selector picked.
+- VS2 after ·Tea gives the half ·Tea.
+- A ZWNJ acts exactly as a word boundary: ligatures form after one (`·Pea | ·Tea+Oy`), and a ZWNJ after ·He no longer pulls the next letter into ·He.
 
 #### Quikscript Senior — which letters join
 
@@ -115,7 +124,6 @@ If you set `font-feature-settings` yourself, read this part.
 #### Not really user-facing, but…
 
 - Rename nearly every compiled glyph in Senior, and the alternates in all three fonts (`qsNo.flipped`, `qsUtter.alternate`, `qsOwe.sole.ss06`). This changes the names inside the font files but not how anything renders.
-- Drop the glyphs no text could reach from Junior and Mono, Junior’s thirteen unused ligatures among them
 
 ### 16.000
 
