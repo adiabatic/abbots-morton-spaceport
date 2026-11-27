@@ -600,7 +600,7 @@ Each pass is small and testable on its own, with an artifact that can be dumped 
 | `font_assembly`, `glyph_records`      | The generic font assembly both builds call, and the glyph files' records                                                                    |
 | `readback`                            | The post-compile read-back of the written font against the emitters' plan (§10, tier 3)                                                     |
 | `conform`, `witness`, `shapers`       | The HarfBuzz sweep and its settle memo, the witness stage, and the shapers (§10)                                                            |
-| `manual_pins`                         | The pin gate over the three site pages (§10, tier 5)                                                                                        |
+| `manual_pins`                         | The pin gate over `corpus.PIN_PAGES` (§10, tier 5)                                                                                          |
 | `explain`                             | The §6.3 (a) CLI                                                                                                                            |
 | `coretext_smoke`                      | The CoreText-against-HarfBuzz comparison over `smoke_sequences.txt`                                                                         |
 | `run_build`, `run_build_gates`        | The build driver (`uv run python -m engine.pipeline.run_build`) and its gate half; `run_build`'s module docstring gives the stage order     |

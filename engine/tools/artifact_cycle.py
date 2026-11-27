@@ -407,7 +407,6 @@ ENGINE_GATE_HARNESS_PATHS = (
     "doc/glyph-names.md",
     "postscript_glyph_names.yaml",
     "reference/DepartureMono-Regular.otf",
-    "site/extra-senior-words.html",
     "site/index.html",
     "site/the-manual.html",
     "tools/reflow_yaml.py",

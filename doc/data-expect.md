@@ -1,6 +1,6 @@
 # `data-expect` attribute format
 
-The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`site/index.html`, `site/the-manual.html`, and `site/extra-senior-words.html`) describes the expected HarfBuzz shaping output. `parse_expect` in `engine/validation/expect.py` is the grammar's authority, and `engine/validation/check.py` is the checker. The root `conftest.py` collects each attribute as a pytest item and checks it against the fonts in `site/`, which the session publishes first; the build's pin gate (`engine/pipeline/manual_pins.py`) checks the same pins against the font it has just compiled. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
+The `data-expect` attribute on `<td>`, `<span>`, and `<dd>` elements in the test corpus HTML files (`PIN_PAGES` in `engine/validation/corpus.py`) describes the expected HarfBuzz shaping output. `parse_expect` in `engine/validation/expect.py` is the grammar's authority, and `engine/validation/check.py` is the checker. The root `conftest.py` collects each attribute as a pytest item and checks it against the fonts in `site/`, which the session publishes first; the build's pin gate (`engine/pipeline/manual_pins.py`) checks the same pins against the font it has just compiled. Text is shaped with the Senior Sans font, except text inside a `force-junior` span, which is shaped with the Junior font and checked for glyph identity only.
 
 The `data-expect-noncanonically` attribute has the same syntax and test behavior as `data-expect`. It marks Senior Quikscript joins that are worth testing but do not appear in Read’s manual.
 
@@ -85,7 +85,7 @@ When `|` separates two Quikscript letter tokens, or `?` separates a pair that do
 
 So there is no need to write `.!half`, `.!alt`, and so on beside a `|` to assert that one glyph was not chosen because of the other. The checker checks this for letter-to-letter pairs only. Boundary tokens such as `◊space`, `◊ZWNJ`, and escaped punctuation are excluded, because they exist to influence the shape of their neighbors.
 
-`|` keeps this meaning even where the engine does not meet it. Settlement's lookahead reads past a break, so a letter can settle to another shape before a break than it takes alone, and a pin that writes `|` there fails as written instead of being reread: the Manual's `·Utter ~x~ ·May | ·Thaw` is pending for that reason ([Pending pins](#pending-pins)).
+`|` keeps this meaning even where the engine does not meet it. Settlement's lookahead reads past a break, so a letter can settle to another shape before a break than it takes alone, and a pin that writes `|` there fails as written instead of being reread. Such a pin is pending until the author rules on it ([Pending pins](#pending-pins)), or writes `|?|` (the next section) once the author accepts the change, as the Manual's `·Utter ~x~ ·May |?| ·Thaw` does.
 
 ### When the font legitimately leaks across a non-join: `|?|`
 
@@ -102,10 +102,10 @@ An element's `data-stylistic-set` (`"03"`, or several separated by spaces) turns
 A pin the engine disagrees with, pending the author's ruling, keeps the author's text and carries `data-expect-pending` with a short reason:
 
 ```html
-<dd data-expect="·Owe ~x~ ·Fee | ·It | ·She ~b~ ·Low" data-expect-pending="Senior regroups this as ·Owe | ·Fee ~x~ ·It">…</dd>
+<span data-expect="·Utter ~x~ ·May | ·Thaw" data-expect-pending="settlement reads across the break: ·May takes another shape beside ·Thaw than alone">…</span>
 ```
 
-The suite reports a pending pin that fails as an expected failure, and fails a pending pin that passes, so the attribute cannot outlive the disagreement it records. The build's pin gate counts pending pins in its summary (`manual_pins_summary.json`) and does not fail on them. `WHATNEXT.md` points at the pins awaiting a ruling; the attribute on each is the list.
+The suite reports a pending pin that fails as an expected failure, and fails a pending pin that passes, so the attribute cannot outlive the disagreement it records. The build's pin gate counts pending pins in its summary (`manual_pins_summary.json`) and does not fail on them. The attribute on each is the list of pins awaiting a ruling, and `WHATNEXT.md` points at them while any remains.
 
 ## Duplicates
 

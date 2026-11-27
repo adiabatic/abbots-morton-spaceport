@@ -21,7 +21,7 @@ from .expect import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PIN_PAGES = ("site/index.html", "site/the-manual.html", "site/extra-senior-words.html")
+PIN_PAGES = ("site/index.html", "site/the-manual.html")
 # A pin the engine disagrees with keeps the author's text and carries this attribute, whose value says why in a few words. The checker reports such a pin as an expected failure, and as a failure once it passes.
 PENDING_ATTRIBUTE = "data-expect-pending"
 

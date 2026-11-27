@@ -1,6 +1,6 @@
-"""The pin gate: checks every `data-expect` pin of the three pages (`corpus.PIN_PAGES`) against the built font through the checker the font suite uses (`engine/validation/check.py`), and reports each failure.
+"""The pin gate: checks every `data-expect` pin of the pin pages (`corpus.PIN_PAGES`) against the built font through the checker the font suite uses (`engine/validation/check.py`), and reports each failure.
 
-The pages are the repository's transcription of what The Manual requires letters to look like (`site/the-manual.html`, and `site/index.html`, which quotes it) and a supplementary word list (`site/extra-senior-words.html`). The root conftest checks the same pins against the fonts it publishes under `site/` with the same function (`check.check_pin`), so the suite and this gate agree on every pin they both check. `run_build` fails the build on any failure, when no pin is in scope, or when a pin in scope was not checked (`run_build_gates.manual_pin_gate_failure`). There is no waiver list. A failure means either the rune data breaks a requirement (fix the runes) or the pin mistranscribes it (fix the pin).
+The pages are the repository's transcription of what The Manual requires letters to look like (`site/the-manual.html`, and `site/index.html`, which quotes it). The root conftest checks the same pins against the fonts it publishes under `site/` with the same function (`check.check_pin`), so the suite and this gate agree on every pin they both check. `run_build` fails the build on any failure, when no pin is in scope, or when a pin in scope was not checked (`run_build_gates.manual_pin_gate_failure`). There is no waiver list. A failure means either the rune data breaks a requirement (fix the runes) or the pin mistranscribes it (fix the pin).
 
 A pin the engine disagrees with pending the author's ruling carries `corpus.PENDING_ATTRIBUTE`. The gate counts such a pin in its summary and does not fail on it, whether it fails as expected or passes; the suite fails on a pending pin that passes, so the mark cannot go stale. A pin the vocabulary or the grammar rejects (`check.UnknownModifier`, a token that does not fit the text) fails the gate whether or not it is pending.
 
@@ -80,7 +80,7 @@ def _line(pin: corpus.Pin, text: str) -> str:
 
 
 def run_gate(font_path: Path, spec: ResolvedSpec, root: Path = REPO_ROOT) -> ManualPinReport:
-    """Check every pin of the three pages under `root` against the font at `font_path` and its glyph-facts sidecar (`check.glyph_facts_path`), leaving out what the module docstring lists."""
+    """Check every pin of the pin pages under `root` against the font at `font_path` and its glyph-facts sidecar (`check.glyph_facts_path`), leaving out what the module docstring lists."""
     report = ManualPinReport()
     alphabet = migrated_alphabet(spec)
     fonts: dict[str, check.CheckFont | None] = {

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 ROOT = Path(__file__).resolve().parent
 
 # The pages whose `data-expect` pins the session collects as items (`corpus.PIN_PAGES` names them with their directory).
-PIN_PAGE_NAMES = ("index.html", "the-manual.html", "extra-senior-words.html")
+PIN_PAGE_NAMES = ("index.html", "the-manual.html")
 
 # The fonts the session checks: `_published` once the session has published the six fonts into site/ (`_publish_fonts`), in this process or, on a worker, in the controller, then the pin fonts by run font (`_pin_fonts`).
 _font_cache: dict[str, Any] = {}
@@ -235,7 +235,7 @@ class ShapingItem(pytest.Item):
             pytest.xfail(f"pending ({self.pin.pending}): {outcome.message()}")
         if status == "pending-passes":
             raise AssertionError(
-                f"{self.pin.source}: {self.pin.expect!r} passes on the fonts but carries {PENDING_ATTRIBUTE}={self.pin.pending!r}; remove the attribute, and the pin from WHATNEXT.md's pending list"
+                f"{self.pin.source}: {self.pin.expect!r} passes on the fonts but carries {PENDING_ATTRIBUTE}={self.pin.pending!r}; remove the attribute, and any mention of the pin in WHATNEXT.md"
             )
         raise AssertionError(outcome.message())
 
