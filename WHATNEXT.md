@@ -12,9 +12,9 @@
 
 **The deep checks are due.** `make conform-deep ARGS=--status` and `make replay-deep ARGS=--status` say what has moved since each last ran; the cycle's summary prints both statuses.
 
-**The public documents describe the 16.000 fonts.** `README.md` and `FONTLOG.md` change only with a release (HACKING.md § Cutting a release), and the fonts `make all` publishes differ from 16.000's in ways a user sees:
+**`FONTLOG.md` describes the 16.000 fonts.** It changes with a release (HACKING.md § Cutting a release), and the fonts `make all` publishes differ from 16.000's in ways a user sees, which its next entry has to say:
 
-- ss02 is gone, and README's ss08 bullet still calls it a set only the rebuilt font has (`glyph_data/script.yaml`'s `features` holds the sets). README's `## Stylistic sets` list is the authority the review build's `FEATURE_DESCRIPTIONS` and the review app's set colors (`engine/review/static/app.css`) are tested against, so the edit that drops ss02 there updates them in the same commit.
+- ss02 is gone and ·I·Tea reaches the x-height under ss03; ·Key·Utter·May is written as The Manual writes it only under ss08, where 16.000 wrote it so by default (`glyph_data/script.yaml`'s `features` holds the sets). README's `## Stylistic sets` list is the authority the review build's `FEATURE_DESCRIPTIONS` and the review app's set colors (`engine/review/static/app.css`) are tested against.
 - In Senior a variation sequence selects its stance's shape unjoined: the selected glyph joins neither neighbor (`doc/engine-design.md` §7).
 - Junior's namer dot stays raised before a ZWNJ, as Senior's does.
 - Junior and Mono drop the glyphs no text reaches, Junior's ligatures among them, and an alternate takes the name Senior gives it (`qsNo.flipped`, `qsUtter.alternate`, `qsOwe.sole.ss06`).

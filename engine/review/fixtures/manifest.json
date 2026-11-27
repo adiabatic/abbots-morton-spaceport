@@ -51,7 +51,6 @@
   "ss08"
  ],
  "feature_descriptions": {
-  "ss02": "allow \u00b7I\u00b7Tea to join at the Short height",
   "ss03": "let letters join to a full-size \u00b7Tea at the x-height",
   "ss04": "allow \u00b7It to join at the baseline on both sides",
   "ss05": "allow \u00b7Tea to join at the baseline on both sides",

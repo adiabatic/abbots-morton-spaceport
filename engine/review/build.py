@@ -117,7 +117,6 @@ def _generated_at(*inputs: Path) -> str:
 
 
 FEATURE_DESCRIPTIONS = {
-    "ss02": "allow ·I·Tea to join at the Short height",
     "ss03": "let letters join to a full-size ·Tea at the x-height",
     "ss04": "allow ·It to join at the baseline on both sides",
     "ss05": "allow ·Tea to join at the baseline on both sides",

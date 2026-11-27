@@ -124,7 +124,9 @@ The Bold variant is a half-pixel rightward overstrike of the Regular — every �
 
 ## Variation selectors
 
-In order to properly transcribe [The Manual][tm], I needed a way to force the display of alternate ·Utter and ·No. I also needed a way to force the display of a half-·Way. I settled on using [variation selectors][vs] instead of dedicating extra code points to get this sort of behavior in a vacuum. If you put VS1 (U+FE00) after an ·Utter or ·No, you’ll get the alternate look. If you put VS2 (U+FE01) after ·Way (at least), you’ll get a half-·Way instead.
+In order to properly transcribe [The Manual][tm], I needed a way to force the display of alternate ·Utter and ·No. I also needed a way to force the display of a half-·Way. I settled on using [variation selectors][vs] instead of dedicating extra code points to get this sort of behavior in a vacuum. If you put VS1 (U+FE00) after an ·Utter or ·No, you’ll get the alternate look. If you put VS2 (U+FE01) after ·Way/·Pea/·Tea/·Day/·He/·Why/·Zoo in Sans Senior, you’ll get the half version instead.
+
+For what it’s worth, variation selectors suppress joins on either side of a letter.
 
 [tm]: ./reference/Quikscript%20Manual.pdf
 [vs]: https://en.wikipedia.org/wiki/Variant_form_(Unicode)
@@ -133,14 +135,13 @@ In order to properly transcribe [The Manual][tm], I needed a way to force the di
 
 In order to exactly match the contents of [The Manual][tm] without peppering the HTML with zero-width joiners everywhere, I decided to add a number of OpenType stylistic sets to turn on and off behavior that only happened sometimes. They are:
 
-- `ss02`: allow ·I·Tea to join at the Short height
 - `ss03`: allow ·Tea to be joined to at the x-height as a full-size ·Tea (it stays full — descending to the baseline — when a following letter joins it there; otherwise the half ·Tea)
 - `ss04`: allow ·It to join at the baseline on both sides at once, whatever the neighbors
 - `ss05`: allow ·Tea to join at the baseline on both sides at once, whatever the neighbors
 - `ss06`: use gapped ·Owe (doesn’t connect at the top)
-- `ss07`: allow ·Owe·Day to join at the x-height again (the default shaping breaks the pair, including when ·Day is the start of a ligature like ·Day+Utter or ·Day+Eat)
-- `ss08`: write ·Key·Utter·May as The Manual does, `·Key | ·Utter.alt ~b~ ·May` (only the rebuilt font has this set; the released font writes ·Key·Utter·May this way without the set). Don’t combine it with ss03, ss04 or ss05: together they can break joins next to any ·Key or ·Utter, not only in ·Key·Utter·May
-- `ss10`: show the wrapped letter(s) unjoined: no joins and no ligatures (·Day·Utter stays two letters), each letter in its standalone shape — beats interspersing ZWNJs between letters of a word
+- `ss07`: allow ·Owe·Day to join at the x-height
+- `ss08`: write ·Key·Utter·May as The Manual does, `·Key | ·Utter.alt ~b~ ·May`. Don’t combine it with ss03, ss04 or ss05: together they can break joins next to any ·Key or ·Utter, not only in ·Key·Utter·May
+- `ss10`: break up all letters — no joins and no ligatures. More convenient than sprinkling ZWNJs.
 
 **I make no guarantees that I’m going to keep these stylistic sets the same over multiple releases of this font**. If you use these yourself and upgrade your Abbots Morton Spaceport font files ever, you’ll need to read the FONTLOG to see if I’ve rejiggered any of these.
 
@@ -162,6 +163,8 @@ It does _not_ work in:
 - Microsoft Word 365 (as of February 18, 2026)
 
 ## Contributing
+
+[`HACKING.md`](./HACKING.md) covers building the fonts, testing them, and reviewing changes. Building needs [uv](https://docs.astral.sh/uv/), Rust’s `cargo`, and about 20 GB of free memory.
 
 If you’re going to be running `git blame` (or just clicking around blame views) in this repo, run this once after cloning:
 

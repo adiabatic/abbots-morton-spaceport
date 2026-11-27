@@ -1485,10 +1485,6 @@ details.group {
 }
 
 /* The color for each stylistic set, keyed on data-ss alone so that every element naming a set can use it: the config-gate chips below, the .explain-ss mentions in the explain panel, and the type preview's sets popover and toggle. */
-[data-ss="ss02"] {
-  --ss-color: light-dark(#1f6feb, #6cb6ff);
-}
-
 [data-ss="ss03"] {
   --ss-color: light-dark(#b35900, #ffb86b);
 }
