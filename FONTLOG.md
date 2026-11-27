@@ -84,7 +84,6 @@ How variation selectors and ZWNJ changed:
 - Ligatures:
   - Give ·Day+Eat a half-·Day form, so it joins at the baseline wherever ·Day does (`·Bay ~b~ ·Day+Eat`)
   - Let ·They+Zoo join the next letter the way ·Zoo does (`·They+Zoo ~b~ ·Tea`)
-  - Space the letter after a ligature the way the ligature’s last letter spaces it
 - Stop letters that never joined from touching: `·Ye | ·Gay`, `·Way | ·Fee`, `·Foot | ·Ooze`, and `·Ooze | ·Foot` are a pixel apart now
 
 #### Quikscript Senior — join lengths
@@ -114,6 +113,12 @@ How variation selectors and ZWNJ changed:
 - A pixel closer: `·They | ·{See,At}`, `·Ye | ·{Fee,She,J’ai}`, `·He | ·-ing`, `·I | ·Why`, `·Oy | ·Eight`, and `·Owe | ·Thaw`; two pixels closer: `·He | ·{They,She,Cheer}`
 - A pixel further apart: `·They | ·Ooze`, `·Fee | ·{Way,Why}`, `·See | ·Why`, `·Zoo | ·Owe`, `·I | ·Ah`, `·Ox | ·Awe`, and `·Owe | ·{Way,Why}`
 - Set a half ·Way that joins onward a pixel closer to most letters before it, and a ·See that joins ·Low, ·At, ·Out, or ·Ooze a pixel closer to the letter before it
+- Set ·Awe a pixel closer to a ·Gay or ·May that the letter before it joins at the x-height (`·Utter ~x~ ·Gay | ·Awe`, `·Fee ~x~ ·May | ·Awe`), and to every ·Gay under `ss10`
+- Space the letter after a ligature the way the ligature’s last letter mostly spaces it, where 16.000 left it a pixel away:
+  - The ligatures that end in ·Utter: a pixel closer to ·Key, and two pixels closer to ·Way, ·Why, and ·Utter
+  - ·Tea+Oy: a pixel closer to ·Llan, ·Eight, ·Awe, and ·Ox, and three pixels closer to ·Pea
+  - ·They+Zoo: a pixel closer to ·Key, ·Llan, ·Et, and a ·Ye that joins the next letter, and two pixels closer to ·Pea, ·Eight, ·Awe, ·Ox, and ·Oy
+  - ·Out+Tea: a pixel closer to ·Vie
 - Stop ·Thaw touching a ·May, ·Utter, or ·Out that goes on to join the next letter
 
 #### Website
