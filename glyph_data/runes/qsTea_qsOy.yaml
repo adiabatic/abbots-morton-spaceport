@@ -88,6 +88,8 @@ policy:
       This is the `oy-it-baseline` grouping, but for ·Tea+Oy.
   groups: {}
 kern:
+- {right: {family: qsWay, stance: half}, by: -1}
+- {right: {family: qsNo, stance: loop}, by: -1}
 - {right: {family: qsEt}, by: 0}
 - {right: {family: qsAwe}, by: -1}
 - {right: {family: qsOx}, by: -1}

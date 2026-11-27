@@ -240,3 +240,5 @@ policy:
       - {family: qsI}
       - {family: qsAh}
       - {family: qsUtter}
+kern:
+- {stance: loop, entry: x-height, right: {family: qsAwe}, by: -1}
