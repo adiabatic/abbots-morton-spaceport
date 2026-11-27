@@ -6,7 +6,7 @@ The version is the `version` scalar of glyph_data/metadata.yaml as written (`16.
 
 - the version is missing or not of the form X.YYY;
 - the working tree is not clean (an untracked file counts, since the build reads the tree), or HEAD is on no branch of origin as last fetched, so the tag would name a commit the remote does not have;
-- the six fonts in site/ are not what `make all` publishes for the tree (`fonts_staleness`): the rebuild's Senior is not current (`build_fonts.senior_staleness`, the check `make all` builds on), site/'s Senior is not its copy, or site/'s Mono and Junior are not the bytes a build of them into a scratch directory writes. The command never builds; `make all` does;
+- the six fonts in site/ are not what `make all` publishes for the tree (`fonts_staleness`): the build's Senior is not current (`build_fonts.senior_staleness`, the check `make all` builds on), site/'s Senior is not its copy, or site/'s Mono and Junior are not the bytes a build of them into a scratch directory writes. The command never builds; `make all` does;
 - a font's version (`head.fontRevision` and name ID 5, read to three decimals) is not the metadata's;
 - FONTLOG.md has no `### <version>` section with text in it, read as the workflow's `awk` reads it for the release notes (`changelog_section`);
 - a published release for the tag exists, the tag is on origin, or a local tag of that name names another commit.
@@ -170,10 +170,10 @@ def font_version(path: Path) -> str:
 
 
 def fonts_staleness(root: Path = REPO_ROOT) -> str | None:
-    """Why the six fonts in `root`'s site/ are not what `make all` publishes for the tree on disk, or None when they are: the rebuild's Senior is current and site/'s Senior is its copy, and site/'s Mono and Junior hold the bytes a build of them writes now, which builds into a scratch directory so that a dry run writes nothing."""
+    """Why the six fonts in `root`'s site/ are not what `make all` publishes for the tree on disk, or None when they are: the build's Senior is current and site/'s Senior is its copy, and site/'s Mono and Junior hold the bytes a build of them writes now, which builds into a scratch directory so that a dry run writes nothing."""
     reason = build_fonts.senior_staleness(root)
     if reason is not None:
-        return f"the rebuild's Senior is not current: {reason}"
+        return f"the build's Senior is not current: {reason}"
     expected = {
         build_family.font_file_name("senior", style): fingerprint.file_sha256(
             root / build_fonts.BUILD_OUT / source

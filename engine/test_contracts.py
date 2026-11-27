@@ -1,4 +1,4 @@
-"""Tests for the live-artifact guard in `engine/conftest.py`: which paths count as live artifacts, which test files the guard governs, and, in a child pytest, that a rebuild test reading a live artifact fails. The child runs in a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled, so an in-process run would leave its hook in place for every test after it."""
+"""Tests for the live-artifact guard in `engine/conftest.py`: which paths count as live artifacts, which test files the guard governs, and, in a child pytest, that an engine test reading a live artifact fails. The child runs in a subprocess because the guard is a `sys.addaudithook`, which cannot be uninstalled, so an in-process run would leave its hook in place for every test after it."""
 
 import os
 from pathlib import Path
@@ -122,7 +122,7 @@ class TestGuardEndToEnd:
 
 
 def _mixed_child(pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, *args: str):
-    """Collect a synthetic engine/ and font-test tree through the plugin, retaining the live-path boundary so live reads are guarded only in the rebuild file."""
+    """Collect a synthetic engine/ and font-test tree through the plugin, retaining the live-path boundary so live reads are guarded only in the engine file."""
     monkeypatch.setenv("PYTHONPATH", str(REPO_ROOT))
     pytester.makeconftest("""
 from pathlib import Path
@@ -137,7 +137,7 @@ contracts.ENGINE_DIR = contracts.REPO_ROOT / "engine"
             "test/test_font": f"""
 from pathlib import Path
 
-def test_live_read_is_outside_the_rebuild_guard():
+def test_live_read_is_outside_the_engine_guard():
     try:
         Path({str(REPO_ROOT / "engine" / "out" / "review" / "manifest.json")!r}).read_bytes()
     except FileNotFoundError:
@@ -168,7 +168,7 @@ class TestCollectionModes:
             ((".",), 2),
         ],
     )
-    def test_collection_guards_the_rebuild_tests_and_leaves_the_font_test_alone(
+    def test_collection_guards_the_engine_tests_and_leaves_the_font_test_alone(
         self,
         pytester: pytest.Pytester,
         monkeypatch: pytest.MonkeyPatch,
@@ -179,13 +179,13 @@ class TestCollectionModes:
         result.assert_outcomes(passed=passed, failed=1)
         result.stdout.fnmatch_lines(["*ContractsLaneViolation*"])
 
-    def test_a_selection_file_deselects_and_records_only_the_rebuild_items(
+    def test_a_selection_file_deselects_and_records_only_the_engine_items(
         self, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ):
         selection = tmp_path / "selection.json"
         sidecar = tmp_path / "closures.json"
         engine_id = "engine/test_contract.py::test_bare_live_read"
-        font_id = "test/test_font.py::test_live_read_is_outside_the_rebuild_guard"
+        font_id = "test/test_font.py::test_live_read_is_outside_the_engine_guard"
         contracts_closure.write_selection(selection, [engine_id, font_id])
         result = _mixed_child(
             pytester,

@@ -116,7 +116,7 @@ def test_parse_line_agrees_with_the_journal_on_a_timing_line(line):
     "line",
     [
         "",
-        "wrote 12 standing-approval verdicts",
+        "wrote 12 units",
         "[t] build_tables",
         "[t] build_tables 243.1",
         "[t]  243.1s",

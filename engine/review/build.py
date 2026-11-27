@@ -18,7 +18,7 @@ import subprocess
 import sys
 import urllib.request
 import warnings
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import combinations
@@ -78,7 +78,7 @@ def _sha256(path: Path) -> str:
 
 
 def _alphabet_meta() -> dict:
-    """Return the migration progress shown on the corpus chip. `migrated` counts the letters the build's alphabet (`alphabet.ALPHABET`) holds without its boundary tokens, which is the set of letters that have runes under glyph_data/runes/. `total` counts the whole Quikscript alphabet."""
+    """Return the alphabet count shown on the corpus chip. `migrated` counts the letters the build's alphabet (`alphabet.ALPHABET`) holds without its boundary tokens, which is the set of letters that have runes under glyph_data/runes/. `total` counts the whole Quikscript alphabet."""
     return {"migrated": len(ALPHABET & set(LETTERS)), "total": len(LETTERS)}
 
 

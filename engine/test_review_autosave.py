@@ -286,7 +286,7 @@ def test_the_namer_dots_stand_in_refuses_a_font_it_cannot_patch(tmp_path):
 
 
 def test_the_namer_dots_stand_in_keeps_the_dot_lowering_that_reads_the_next_letter(tmp_path):
-    """The rebuild lowers the namer dot before a Short letter by a rule that reads the letter after the dot (`emit_gsub.namer_dot_lookup`). Chromium ends a shaping run at U+00B7, so in the app the dot alone would be shaped and drawn unlowered; the stand-in keeps the sample in one run, so the rule sees the follower. This fails once the dot's form no longer depends on the letter after it, when the run split changes nothing and the stand-in has nothing left to keep."""
+    """Senior lowers the namer dot before a Short letter by a rule that reads the letter after the dot (`emit_gsub.namer_dot_lookup`). Chromium ends a shaping run at U+00B7, so in the app the dot alone would be shaped and drawn unlowered; the stand-in keeps the sample in one run, so the rule sees the follower. This fails once the dot's form no longer depends on the letter after it, when the run split changes nothing and the stand-in has nothing left to keep."""
     lookup = namer_dot_lookup("periodcentered", "periodcentered.lowered", ["qsPea"])
     feature = "\n".join(lookup.lines) + f"\nfeature calt {{ lookup {lookup.name}; }} calt;"
     source = _dot_font(

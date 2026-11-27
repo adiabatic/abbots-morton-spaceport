@@ -327,7 +327,7 @@ class TestWhenTheCheckIsJoined:
         """The font suite's session publishes the fonts it checks through `engine.tools.build_fonts`, which refuses a stale Senior and names the build command. The session then fails with that message before any worker starts, and abandons the check rather than waiting on it."""
         check = _FakeCheck(0)
         self._begin(monkeypatch, check)
-        refusal = "build_fonts: the rebuild's Senior is not current: run_build has no green build on record. Build it with `uv run python -m engine.pipeline.run_build`"
+        refusal = "build_fonts: the build's Senior is not current: run_build has no green build on record. Build it with `uv run python -m engine.pipeline.run_build`"
 
         def fake_run(argv, cwd, check, env, **_capture):
             if "engine.tools.build_fonts" in argv:

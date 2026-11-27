@@ -1,4 +1,4 @@
-"""The build's alphabet: the code points of the migrated letters and the three boundary tokens (`0x0020` space, `0x00B7` namer dot, `0x200C` ZWNJ).
+"""The build's alphabet: the code points of the letters with rune files and the three boundary tokens (`0x0020` space, `0x00B7` namer dot, `0x200C` ZWNJ).
 
 `ALPHABET` is the set written out below. While the alphabet switch (`spec_load.RUNES_ENV`) is set, it is instead the alphabet of the spec `spec_load.load_default_spec` narrows to, computed when this module is imported, so every module that imports the name takes the narrowed set.
 """

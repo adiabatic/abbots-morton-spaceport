@@ -16,14 +16,13 @@ dev = [
     "pytest>=8.0.0",
     "pytest-xdist>=3.6.1",
     "livereload>=2.7.1",
-    "memray>=1.20.0",
     "pyright>=1.1.408",
     "pre-commit>=4.6.0",
     "ruamel.yaml>=0.18.0",
 ]
 
 [tool.pytest.ini_options]
-# The default run skips `slow` tests. `make test-engine-slow` runs the rebuild suite's slow tests.
+# The default run skips `slow` tests. `make test-engine-slow` runs the engine suite's slow tests.
 markers = ["slow: expensive deep sweeps, excluded from the default test run"]
 addopts = "-m 'not slow'"
 # `test/` holds the Python suite and `site/` the data-expect HTML corpora that the root `conftest.py` collects as shaping tests.

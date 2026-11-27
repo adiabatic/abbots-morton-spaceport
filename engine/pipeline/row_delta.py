@@ -4,21 +4,17 @@ For an output named `<name>`, its file name (`windows-default.tsv.gz`), the dire
 
 - The head, `<name>.head`, one JSON document: the output's generation, its content generation, its stamps, and every part with its size and sha256 on disk, its rows and its row bytes (the rows' uncompressed bytes), beside what a part records only when it holds one: the stamp and family keys a settle memo part was settled under (`Part.settled`). It is renamed into place last, so it is the single commit point. Parts are referenced only from the head: a part no head lists, left by a failed pass, is ignored by every reader and deleted by the next writer (`remove_unlisted`), and a generation the head no longer names is deleted once the head that replaced it is in place (`commit`). A staging file a writer killed mid-write leaves under a part's name, which no later part takes, is deleted by the windows rows' next writer before it writes (`remove_staging`).
 - The base, `<name>.<gen>.base`: the output's own file byte for byte, its inline header and stamps included. The head's stamps override the inline ones, so a pass that moves a stamp and changes no row writes the head alone.
-- Segments, `<name>.<gen>.<n>.delta`, numbered from 1 within their generation, at most one a writer step. A segment is gzipped lines: a header naming the format, the output, the generation, the segment's number and, for an output that merges by key, `"merge": "key"` (`segment_header`), then rows, each an upsert or a tombstone of one row in the base's own row encoding. A row in a later part supersedes every earlier part's row at its place or key: an upsert replaces it, and a tombstone removes it.
+- Segments, `<name>.<gen>.<n>.delta`, numbered from 1 within their generation, at most one a writer step. A segment is gzipped lines: a header naming the format, the output, the generation, the segment's number and how it merges (`segment_header`), then rows, each an upsert or a tombstone of one row in the base's own row encoding. A row in a later part supersedes every earlier part's row at its key: an upsert replaces it, and a tombstone removes it.
 
-An output merges its parts one of three ways, which its head names (`Head.merge`) and every segment header repeats, so a reader refuses a segment written for another (`HeadError`).
-
-By place (`MERGE_PLACE`, the format's default), for an output whose base need not be in key order; no output in the tree merges this way. A writer names every row it supersedes by its place: a row whose content changed is an upsert at its own place, a row removed is a tombstone at its place, and a row that moves is a tombstone at its old place and an upsert at its new one. Every row has a place (`Place`): base row `i` is `(i, "")`, and a segment row names the base row it follows and a fraction after it, `(i, f)` with `f` above `""`, or `(-1, f)` before the first. A writer cuts as many places as a run of rows needs between two others, and a segment's rows are sorted by place. A place indexes its generation's base, so a segment is a positional encoding: its header names its generation and number, and a reader refuses a segment whose generation is not the head's or whose number is not its place in the head's list (`HeadError`), so a reader that pairs an old head with a refolded base fails loudly instead of misplacing rows.
-
-Readers (`merge_placed`) merge the base and the segments as streams by place, and never hold a merged view: each part is read once, front to back, so a reader holds a buffer a part. At each place the row of the latest part that has one there is live, unless it is a tombstone.
+An output merges its parts one of two ways, which its head names (`Head.merge`) and every segment header repeats, so a reader refuses a segment written for the other (`HeadError`). A segment's rows index its generation's base, so its header also names its generation and number, and a reader refuses a segment whose generation is not the head's or whose number is not its place in the head's list (`HeadError`): a reader that pairs an old head with a refolded base fails loudly instead of merging rows against the wrong base.
 
 By key (`MERGE_KEY`), the windows rows', whose base is in key order with one row a key, as the crate writes them. A segment's rows are in key order too: `+\t<row>` upserts a row at its key and `-\t<key>` removes the row at a key, where a key is a row's leading fields, as the output defines them. The crate's `build-tables` merges a configuration's rows against its previous parts and writes only the rows that differ, and its `replay-emitted` walks the merged rows (`engine/kernel-rs/src/row_merge.rs`); here `merge_keyed` merges them for a materialized form. At each key the row of the latest part that has one there is live, unless it is a tombstone, and a part whose keys do not strictly ascend is refused: by the crate's merge at every row, and by `merge_keyed` at every row of a segment and at a base's rows up to its last change. A reader opens every part the head lists when it reads the head (`open_parts`), so a later writer's deletes cannot reach it, since an open descriptor survives the unlink. `open_parts` checks each part's size against the head, as a reader that seeks needs, and with `sha256=True` its digest too, as the writer that merges a part and `perf_fingerprint` do, since they read every byte anyway.
 
-By probe (`MERGE_PROBE`), the settle memos', whose parts are binary files a reader maps rather than gzipped lines, so they go through neither stream merge nor `write_part` (`write_plain_part` writes them). Each part carries its own probe index, and a segment its blocked Bloom filter (`bloom_filter`, 10 bits a key in 64-byte blocks, keyed on the 64-bit hash every part's index already uses, so one hash serves every part) and its dead bitmaps, a bit a row of each earlier part it drops rows of, each naming that part's generation and number, which a reader refuses when the generation is not the head's. A reader probes the segments newest first, filter and then index, then the base, and the newest live row at a window wins. The head records, for the base and every segment, the stamp and the family keys its rows were settled under (`Part.settled`, a `PartStamp`), holding each distinct keys map once in its `family_keys` with each part naming it by place, so a reader marks a part's rows stale against that part's own keys; a head whose parts record nothing writes neither field, so the windows rows' heads read as they did before. `conform`'s module docstring and `conform._MemoStore` state the rest of the layout and the reader.
+By probe (`MERGE_PROBE`), the settle memos', whose parts are binary files a reader maps rather than gzipped lines, so they go through neither stream merge nor `write_part` (`write_plain_part` writes them). Each part carries its own probe index, and a segment its blocked Bloom filter (`bloom_filter`, 10 bits a key in 64-byte blocks, keyed on the 64-bit hash every part's index already uses, so one hash serves every part) and its dead bitmaps, a bit a row of each earlier part it drops rows of, each naming that part's generation and number, which a reader refuses when the generation is not the head's. A reader probes the segments newest first, filter and then index, then the base, and the newest live row at a window wins. The head records, for the base and every segment, the stamp and the family keys its rows were settled under (`Part.settled`, a `PartStamp`), holding each distinct keys map once in its `family_keys` with each part naming it by place, so a reader marks a part's rows stale against that part's own keys; a head whose parts record nothing, the windows rows', writes neither field. `conform`'s module docstring and `conform._MemoStore` state the rest of the layout and the reader.
 
-The materialized form of an output is its head, base and segments merged and re-serialized into the base's layout under the head's stamps: what a writer of the whole file would have written at this content. A fold writes it as the next generation's base, and the acceptance bar's fingerprint reads it (#618's decision 48).
+The materialized form of an output is its head, base and segments merged and re-serialized into the base's layout under the head's stamps: what a writer of the whole file would have written at this content. A fold writes it as the next generation's base, and `perf_fingerprint` reads it.
 
-Two rules decide when a writer writes a new base instead of a segment. The share rule: a segment that would pass half its base's row bytes, or a pass whose stamps say every row is re-derived, as an output names them, writes a new base directly. The fold (`fold_due`): when a head's segments' row bytes reach the base's or their count reaches the output's cap (`SEGMENT_CAP`), the next writer writes the materialized form as the next generation's base. Either way no segment follows the new base in that pass. The windows rows and the settle memos take the fold alone and neither half of the share rule (#618's decisions 74 and 75): a table build re-derives every row cold and a full replay refills every settle memo row, so each writes a segment of the rows that differ on every pass, a letter batch, a structure-stamp move and a crate edit included, whatever its size, and each output's route is decided from its head before its writer writes anything, never from a count of what the writer writes. A settle memo's segment is one a writer step, so a pass whose full replay refills a memo and whose gate:conform absorbs into it writes two.
+Two rules decide when a writer writes a new base instead of a segment. The share rule: a segment that would pass half its base's row bytes, or a pass whose stamps say every row is re-derived, as an output names them, writes a new base directly. The fold (`fold_due`): when a head's segments' row bytes reach the base's or their count reaches the output's cap (`SEGMENT_CAP`), the next writer writes the materialized form as the next generation's base. Either way no segment follows the new base in that pass. The windows rows and the settle memos take the fold alone and neither half of the share rule (#618's decisions 74 and 75): a table build re-derives every row cold and a full replay refills every settle memo row, so each writes a segment of the rows that differ on every pass, an alphabet change, a structure-stamp move and a crate edit included, whatever its size, and each output's route is decided from its head before its writer writes anything, never from a count of what the writer writes. A settle memo's segment is one a writer step, so a pass whose full replay refills a memo and whose gate:conform absorbs into it writes two.
 
 At most one output folds a pass (`claim_fold`), so the largest fold a pass writes is one base. The pass is the artifact cycle's run (`CYCLE_RUN_ENV`, which every process of a pass inherits), whose claim is one small file in the cycle's directory (`cycle_paths.CYCLE_VAR`, `cycle_paths.FOLD_CLAIM_NAME`) holding the run and the output that holds it, or, outside a cycle, the process, which holds its claim in memory, one for each cycle directory it names, so a test's own directory starts with none. An output whose fold is due and that does not hold the claim writes a segment and waits for a later pass, up to `FOLD_OVERRUN` segments past its cap (`fold_forced`), where it folds whether or not another output folded that pass.
 
@@ -48,10 +44,9 @@ from engine.tools import cycle_paths
 
 HEAD_FORMAT = "ams-row-delta-head/1"
 SEGMENT_FORMAT = "ams-row-delta-segment/1"
-MERGE_PLACE = "place"
 MERGE_KEY = "key"
 MERGE_PROBE = "probe"
-_MERGES = (MERGE_PLACE, MERGE_KEY, MERGE_PROBE)
+_MERGES = (MERGE_KEY, MERGE_PROBE)
 # The segment cap for every output in this format (#618's decision 53): the windows rows and the settle memos, counted one an absorb. A reader holds one stream or one mapping a segment, and at 16 the folds add 0.160 to 0.399 GB to a rune edit at 45 runes, where caps of 8 would add 0.270 to 0.433.
 SEGMENT_CAP = 16
 # How many segments past its cap an output whose fold is due waits for the pass's one fold before it folds anyway (#618's decision 53): six outputs reaching the cap on one pass fold on six successive passes, the last at its cap plus five.
@@ -72,8 +67,6 @@ _WORD = (1 << 64) - 1
 _BITS_OF_BYTE = tuple(bytes((value >> bit) & 1 for bit in range(8)) for value in range(256))
 _GATHER = 0x0102040810204080
 _BIT_OF = bytes(1 << bit for bit in range(8))
-
-Place = tuple[int, str]
 
 
 class Sink(Protocol):
@@ -143,15 +136,15 @@ class Part:
 
 @dataclass(frozen=True)
 class Head:
-    """One output's head: see the module docstring. `merge` is how its parts merge, `MERGE_PLACE`, `MERGE_KEY` or `MERGE_PROBE`, written into the head only for an output that does not merge by place, so a head by place reads as it did before outputs merged another way. `family_keys` holds each distinct family keys map its parts record (`Part.settled`) once, written only when a part records one."""
+    """One output's head: see the module docstring. `merge` is how its parts merge, `MERGE_KEY` or `MERGE_PROBE`. `family_keys` holds each distinct family keys map its parts record (`Part.settled`) once, written only when a part records one."""
 
     output: str
     generation: int
     content: int
     stamps: dict
     base: Part
-    segments: tuple[Part, ...] = ()
-    merge: str = MERGE_PLACE
+    segments: tuple[Part, ...]
+    merge: str
     family_keys: tuple[dict, ...] = ()
 
     @property
@@ -179,9 +172,8 @@ class Head:
             "stamps": self.stamps,
             "base": self.base.document(),
             "segments": [part.document() for part in self.segments],
+            "merge": self.merge,
         }
-        if self.merge != MERGE_PLACE:
-            document["merge"] = self.merge
         if self.family_keys:
             document["family_keys"] = [dict(keys) for keys in self.family_keys]
         return document
@@ -249,7 +241,7 @@ def parse_head(raw: bytes, output: str) -> Head:
         generation, content = int(document["generation"]), int(document["content"])
     except KeyError, TypeError, ValueError:
         raise HeadError(f"{name} names no generation") from None
-    merge = document.get("merge", MERGE_PLACE)
+    merge = document.get("merge")
     if merge not in _MERGES:
         raise HeadError(f"{name} merges its parts by {merge!r}")
     family_keys = document.get("family_keys", [])
@@ -401,27 +393,15 @@ def write_part(
     return written["part"]
 
 
-@dataclass(frozen=True, slots=True)
-class Row:
-    """One segment row: its operation (`UPSERT` or `TOMBSTONE`), its place, and its payload, a row in the base's encoding with its newline (a tombstone's payload need only name the row it removes, since the merge reads its place)."""
-
-    op: bytes
-    place: Place
-    payload: bytes
-
-
-def _parse_row(line: bytes) -> Row:
-    op, anchor, fraction, payload = line.split(b"\t", 3)
-    if op not in (UPSERT, TOMBSTONE):
-        raise ValueError(f"a segment row's operation is {op!r}")
-    return Row(op, (int(anchor), fraction.decode("ascii")), payload)
-
-
-def segment_header(output: str, generation: int, number: int, merge: str = MERGE_PLACE) -> bytes:
-    """Return a segment's header line: its format, output, generation and number, and `"merge": "key"` for a segment that merges by key."""
-    header: dict = {"format": SEGMENT_FORMAT, "output": output, "generation": generation, "segment": number}
-    if merge != MERGE_PLACE:
-        header["merge"] = merge
+def segment_header(output: str, generation: int, number: int, merge: str) -> bytes:
+    """Return a segment's header line: its format, output, generation and number, and how it merges."""
+    header = {
+        "format": SEGMENT_FORMAT,
+        "output": output,
+        "generation": generation,
+        "segment": number,
+        "merge": merge,
+    }
     return (json.dumps(header) + "\n").encode()
 
 
@@ -442,9 +422,9 @@ def check_segment_header(line: bytes, output: str, generation: int, number: int,
             f"{output} lists segment {number} of generation {generation}, whose header names segment "
             f"{header.get('segment')} of generation {header.get('generation')}"
         )
-    if header.get("merge", MERGE_PLACE) != merge:
+    if header.get("merge") != merge:
         raise HeadError(
-            f"{output} merges by {merge}, and segment {number}'s header says it merges by {header.get('merge', MERGE_PLACE)}"
+            f"{output} merges by {merge}, and segment {number}'s header says it merges by {header.get('merge')}"
         )
 
 
@@ -557,15 +537,6 @@ def gzipped_header(stream: gzip.GzipFile, output: str, number: int) -> bytes:
         raise HeadError(f"segment {number} of {output} is not a gzipped segment: {error}") from None
 
 
-def segment_rows(handle: BinaryIO, output: str, generation: int, number: int) -> Iterator[Row]:
-    """Yield one segment's rows from an open handle, from its start, after checking its header names `output`, `generation` and `number` and a merge by place. A header that names another, a merge by key or by probe among them, raises `HeadError`, and so does a segment that is not gzipped."""
-    handle.seek(0)
-    with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
-        check_segment_header(gzipped_header(stream, output, number), output, generation, number, MERGE_PLACE)
-        for line in stream:
-            yield _parse_row(line)
-
-
 def _keyed_rows(lines: Iterable[bytes], output: str, number: int) -> Iterator[tuple[bytes, bytes]]:
     for line in lines:
         op, tab, payload = line.partition(b"\t")
@@ -577,34 +548,11 @@ def _keyed_rows(lines: Iterable[bytes], output: str, number: int) -> Iterator[tu
 def keyed_segment_rows(
     handle: BinaryIO, output: str, generation: int, number: int
 ) -> Iterator[tuple[bytes, bytes]]:
-    """Yield one segment's rows of a merge by key from an open handle, from its start, each as its operation and its payload with its newline (a row for an upsert, a key for a tombstone), after checking its header names `output`, `generation`, `number` and a merge by key. A header that names another, a merge by place or by probe among them, raises `HeadError`, and so does a segment that is not gzipped."""
+    """Yield one segment's rows of a merge by key from an open handle, from its start, each as its operation and its payload with its newline (a row for an upsert, a key for a tombstone), after checking its header names `output`, `generation`, `number` and a merge by key. A header that names another, a merge by probe among them, raises `HeadError`, and so does a segment that is not gzipped."""
     handle.seek(0)
     with gzip.GzipFile(fileobj=handle, mode="rb") as stream:
         check_segment_header(gzipped_header(stream, output, number), output, generation, number, MERGE_KEY)
         yield from _keyed_rows(stream, output, number)
-
-
-def merge_placed(
-    base_rows: Callable[[], Iterator[bytes]], segments: Sequence[Callable[[], Iterator[Row]]]
-) -> Iterator[tuple[Place, bytes]]:
-    """Yield the live rows of a base and its segments in place order, each with its place: the materialized order. `base_rows` yields the base's rows without its header line, and each of `segments` opens one segment's rows from its start, oldest first. Each part is read once, as a stream. At each place the row of the latest part that has one there is live, and a tombstone there yields nothing."""
-
-    def base() -> Iterator[tuple[Place, int, bytes, bytes]]:
-        for index, payload in enumerate(base_rows()):
-            yield (index, ""), 0, UPSERT, payload
-
-    def segment(number: int, rows: Iterator[Row]) -> Iterator[tuple[Place, int, bytes, bytes]]:
-        for row in rows:
-            yield row.place, number, row.op, row.payload
-
-    streams = [base(), *(segment(number, rows()) for number, rows in enumerate(segments, start=1))]
-    held: tuple[Place, int, bytes, bytes] | None = None
-    for item in heapq.merge(*streams):
-        if held is not None and held[0] != item[0] and held[2] == UPSERT:
-            yield held[0], held[3]
-        held = item
-    if held is not None and held[2] == UPSERT:
-        yield held[0], held[3]
 
 
 def merge_keyed(
@@ -682,7 +630,7 @@ _process_claims: dict[Path, str] = {}
 
 
 def claim_fold(output: str) -> bool:
-    """Claim the pass's one fold for `output` and return whether `output` holds it: True when no other output claimed it this pass, or `output` did, and False when another did. Under a cycle the claim is the file `cycle_paths.FOLD_CLAIM_NAME` in `cycle_paths.CYCLE_VAR`, holding the run (`CYCLE_RUN_ENV`) and the output, written through `output_sink.replace_output`; a claim another run left counts as none. Outside a cycle the process holds it, one claim for each cycle directory, which the rebuild suite points into each test's own directory (`engine/conftest.py`). Each writer claims once it knows its fold is due and before it writes, the windows rows before the crate starts (`run_build.build_tables`)."""
+    """Claim the pass's one fold for `output` and return whether `output` holds it: True when no other output claimed it this pass, or `output` did, and False when another did. Under a cycle the claim is the file `cycle_paths.FOLD_CLAIM_NAME` in `cycle_paths.CYCLE_VAR`, holding the run (`CYCLE_RUN_ENV`) and the output, written through `output_sink.replace_output`; a claim another run left counts as none. Outside a cycle the process holds it, one claim for each cycle directory, which the engine suite points into each test's own directory (`engine/conftest.py`). Each writer claims once it knows its fold is due and before it writes, the windows rows before the crate starts (`run_build.build_tables`)."""
     directory = cycle_paths.CYCLE_VAR
     run = os.environ.get(CYCLE_RUN_ENV)
     if not run:
@@ -703,13 +651,11 @@ def _part_pattern(output: str) -> re.Pattern[str]:
     return re.compile(rf"{re.escape(output)}\.\d+\.(?:base|\d+\.delta)")
 
 
-def remove_matching(
-    directory: Path, pattern: re.Pattern[str], listed: Collection[str] = (), *, links: bool = True
-) -> list[str]:
-    """Delete every file under `directory` whose whole name `pattern` matches and `listed` does not hold, and return their names: the parts no head lists, or the staging files a killed writer left, of an output whose names one pattern covers. With `links` false, a symbolic link is left where it is."""
+def remove_matching(directory: Path, pattern: re.Pattern[str], listed: Collection[str] = ()) -> list[str]:
+    """Delete every file under `directory` whose whole name `pattern` matches and `listed` does not hold, and return their names: the parts no head lists, or the staging files a killed writer left, of an output whose names one pattern covers."""
     removed = []
     for path in sorted(Path(directory).iterdir()):
-        if pattern.fullmatch(path.name) and path.name not in listed and (links or not path.is_symlink()):
+        if pattern.fullmatch(path.name) and path.name not in listed:
             path.unlink(missing_ok=True)
             removed.append(path.name)
     return removed
@@ -726,10 +672,10 @@ def staging_pattern(names: re.Pattern[str]) -> re.Pattern[str]:
     return re.compile(rf"(?:{names.pattern}){re.escape(output_sink.STAGING_SUFFIX)}")
 
 
-def remove_staging(directory: Path, output: str, *, links: bool = True) -> list[str]:
-    """Delete every staging file of `output`'s parts and head under `directory` (the name with `output_sink.STAGING_SUFFIX` added) and return their names. Only a writer killed while it filled one leaves it, and a part's name carries its generation and number, so no later part may take that name and replace it. A writer calls this before it writes anything of `output`, while no other writer of `output` runs, as the windows rows' plan does (`run_build._route_of`). With `links` false, a symbolic link at a staging name is left: no writer leaves one, since a writer opens its staging name to fill it, and the memory series puts one there to route a part or a head to the null device (`memory_series.null_routes`)."""
+def remove_staging(directory: Path, output: str) -> list[str]:
+    """Delete every staging file of `output`'s parts and head under `directory` (the name with `output_sink.STAGING_SUFFIX` added) and return their names. Only a writer killed while it filled one leaves it, and a part's name carries its generation and number, so no later part may take that name and replace it. A writer calls this before it writes anything of `output`, while no other writer of `output` runs, as the windows rows' plan does (`run_build._route_of`)."""
     names = re.compile(rf"{_part_pattern(output).pattern}|{re.escape(head_name(output))}")
-    return remove_matching(directory, staging_pattern(names), links=links)
+    return remove_matching(directory, staging_pattern(names))
 
 
 def commit(directory: Path, head: Head) -> list[str]:

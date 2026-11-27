@@ -5,7 +5,6 @@
   "terminal.integrated.fontSize": 11,
 
   "[html]": { "editor.wordBasedSuggestions": "off" },
-  "tinymist.fontPaths": ["${workspaceFolder}/test"],
 
   "yaml.maxItemsComputed": 6000,
   "yaml.schemas": {

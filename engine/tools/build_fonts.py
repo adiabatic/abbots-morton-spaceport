@@ -1,6 +1,6 @@
 """Publish the six shipped fonts, Mono, Junior and Senior in Regular and Bold, into site/ under their shipped file names (`uv run python -m engine.tools.build_fonts`, which `make all` runs with `--build`). The font suite's session publishes through the same function before it collects, without `--build`.
 
-Mono and Junior come from the rune files and the non-Quikscript glyph files (`build_family.build_mono_and_junior`), which need no settlement table, so they build while the tables are stale or absent. Senior is the rebuild's own build: the command copies engine/out/build/Senior-Regular.otf and Senior-Bold.otf, and before it writes anything it refuses with `StaleSeniorError`, naming the build command, when either is missing or no longer the build of its inputs (`senior_staleness`). `--build` runs that build first (`RUN_BUILD_COMMAND`) when the Senior is not current, and refuses only when the build fails. The glyph-facts sidecar the `data-expect` checker reads stays beside the build under engine/out/build (`glyph_facts.FILE_NAME`), so site/, which the deploy uploads whole, holds only what the site serves. The staleness decision reads run_build's own records:
+Mono and Junior come from the rune files and the non-Quikscript glyph files (`build_family.build_mono_and_junior`), which need no settlement table, so they build while the tables are stale or absent. Senior is run_build's build: the command copies engine/out/build/Senior-Regular.otf and Senior-Bold.otf, and before it writes anything it refuses with `StaleSeniorError`, naming the build command, when either is missing or no longer the build of its inputs (`senior_staleness`). `--build` runs that build first (`RUN_BUILD_COMMAND`) when the Senior is not current, and refuses only when the build fails. The glyph-facts sidecar the `data-expect` checker reads stays beside the build under engine/out/build (`glyph_facts.FILE_NAME`), so site/, which the deploy uploads whole, holds only what the site serves. The staleness decision reads run_build's own records:
 
 - the run_build green record (`cycle_paths.BUILD_GREEN`) must hold every line of the run_build skip key (`artifact_cycle.run_build_skip_lines`) as it reads on disk, a comparison-side line aside (`artifact_cycle.comparison_side_label`), since no font reads one;
 - the Stage A record must be present (`fingerprint.read_stage_a`), since a build deletes it before its first write under engine/out/build and writes it back only once its gates pass, so its absence means a build that wrote there stopped or failed since the green one.
@@ -23,7 +23,7 @@ from engine.pipeline.compile_font import FontSourceError
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SITE_DIR = REPO_ROOT / "site"
 FONTS = ("mono", "junior", "senior")
-# The rebuild's Senior by style, as run_build writes it (`run_build.OUT_DIR`, `run_build.BOLD_FONT`).
+# The build's Senior by style, as run_build writes it (`run_build.OUT_DIR`, `run_build.BOLD_FONT`).
 BUILD_OUT = Path("engine") / "out" / "build"
 SENIOR_SOURCES = {"Regular": "Senior-Regular.otf", "Bold": "Senior-Bold.otf"}
 RUN_BUILD_MODULE = "engine.pipeline.run_build"
@@ -35,7 +35,7 @@ class StaleSeniorError(Exception):
 
 
 def senior_staleness(root: Path = REPO_ROOT) -> str | None:
-    """Why the rebuild's Senior under `root`'s engine/out/build is not the build of the inputs on disk, or None when it is (the module docstring gives the test)."""
+    """Why the build's Senior under `root`'s engine/out/build is not the build of the inputs on disk, or None when it is (the module docstring gives the test)."""
     from engine.tools import cycle_paths
     from engine.tools.artifact_cycle import (
         capped_labels,
@@ -71,7 +71,7 @@ def require_current_senior(root: Path = REPO_ROOT) -> None:
     reason = senior_staleness(root)
     if reason is not None:
         raise StaleSeniorError(
-            f"the rebuild's Senior is not current: {reason}. Build it with `{RUN_BUILD_COMMAND}`, or with `make all`, which runs it and publishes the fonts (a `make artifact-cycle` pass runs it too)"
+            f"the build's Senior is not current: {reason}. Build it with `{RUN_BUILD_COMMAND}`, or with `make all`, which runs it and publishes the fonts (a `make artifact-cycle` pass runs it too)"
         )
 
 
@@ -81,7 +81,7 @@ def build_stale_senior(root: Path = REPO_ROOT) -> None:
     if reason is None:
         return
     print(
-        f"build_fonts: the rebuild's Senior is not current ({reason}); building it with `{RUN_BUILD_COMMAND}`"
+        f"build_fonts: the build's Senior is not current ({reason}); building it with `{RUN_BUILD_COMMAND}`"
     )
     sys.stdout.flush()
     returncode = subprocess.run([sys.executable, "-m", RUN_BUILD_MODULE], cwd=root, check=False).returncode
@@ -99,7 +99,7 @@ def _copy_if_changed(source: Path, path: Path) -> None:
 
 
 def _copy_senior(out_dir: Path, root: Path) -> list[Path]:
-    """Copy the rebuild's Senior, Regular and Bold, into `out_dir` under the shipped file names, leaving a file that already holds the same bytes alone, as the Mono and Junior builds do, so a server's watch on the fonts sees only a real change, and return their paths."""
+    """Copy the build's Senior, Regular and Bold, into `out_dir` under the shipped file names, leaving a file that already holds the same bytes alone, as the Mono and Junior builds do, so a server's watch on the fonts sees only a real change, and return their paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []
     for style, source in SENIOR_SOURCES.items():
@@ -123,7 +123,7 @@ def build(out_dir: Path, fonts: Sequence[str] = FONTS, root: Path = REPO_ROOT) -
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m engine.tools.build_fonts",
-        description="Publish the shipped fonts into site/: Mono and Junior from the rune files and the glyph files, and Senior from the rebuild's build under engine/out/build.",
+        description="Publish the shipped fonts into site/: Mono and Junior from the rune files and the glyph files, and Senior from run_build's build under engine/out/build.",
     )
     parser.add_argument(
         "--build",

@@ -1,6 +1,6 @@
 """The any-of `data-expect` regression checks: each test gives a text and the expect strings any one of which its shaping must match, checked against the Senior under site/ by the checker the pin items use (`engine/validation/check.py`, `assert_expect_any`).
 
-A check the rebuilt Senior fails is a strict expected failure whose reason names what the rebuild shapes instead, pending the author's ruling (`WHATNEXT.md`), so it fails once the rebuild shapes it as the check expects. The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`).
+A check Senior fails is a strict expected failure whose reason names what Senior shapes instead, pending the author's ruling (`WHATNEXT.md`), so it fails once Senior shapes it as the check expects. The root conftest publishes the fonts into site/ at the start of the session (`pin_fonts`).
 """
 
 from collections.abc import Sequence
@@ -50,35 +50,35 @@ def _assert_expect_any(text: str, expects: Sequence[str]) -> None:
     assert_expect_any(_FONT["senior"], text, expects)
 
 
-# The checks the rebuilt Senior fails, each by its test id with what the rebuild shapes instead, pending the author's ruling (WHATNEXT.md). Each is a strict expected failure, so it fails once the rebuild shapes the text as the check expects.
-REBUILD_SHAPES: dict[str, str] = {
-    "test_ah_fee_utter_keeps_left_join": "the rebuild shapes ·Ah ~x~ ·Fee | ·Utter (qsAh.sole.ex-y5 qsFee.reversed-loop.en-y5 qsUtter.mono)",
-    "test_at_may_they_utter_looks_ok": "the rebuild shapes ·At.ex-ext-3 ~b~ ·May | ·They+Utter (qsAt.falling.ex-y0.ex-ext-3 qsMay.loop.en-y0 qsThey_qsUtter.sole)",
-    "test_day_eat_takes_the_half_day_where_day_does[out-tea-jai-day-eat]": "the rebuild shapes ·Out+Tea | ·J’ai ~b~ ·Day+Eat.half (qsOut_qsTea.sole qsJai.sole.ex-y0 qsDay_qsEat.half.en-y0)",
-    "test_day_eat_takes_the_half_day_where_day_does[pea-day-eat-gay-owe]": "the rebuild shapes ·Pea ~b~ ·Day+Eat.half | ·Gay.ex-ext-2 ~x~ ·Owe (qsPea.full.ex-y0 qsDay_qsEat.half.en-y0 qsGay.sole.ex-y5.ex-ext-2 qsOwe.sole.en-y5)",
-    "test_day_eat_takes_the_half_day_where_day_does[tea-day-eat-gay-owe]": "the rebuild shapes ·Tea ~b~ ·Day+Eat.half | ·Gay.ex-ext-2 ~x~ ·Owe (qsTea.full.ex-y0 qsDay_qsEat.half.en-y0 qsGay.sole.ex-y5.ex-ext-2 qsOwe.sole.en-y5)",
-    "test_day_eat_takes_the_half_day_where_day_does[they-zoo-excite-day-eat]": "the rebuild shapes ·They+Zoo ~b~ ·Excite ~b~ ·Day+Eat.half (qsThey_qsZoo.sole.ex-y0 qsExcite.sole.en-y0.ex-y0 qsDay_qsEat.half.en-y0)",
-    "test_day_eat_takes_the_half_day_where_day_does[they-zoo-no-day-eat]": "the rebuild shapes ·They+Zoo ~b~ ·No.alt ~b~ ·Day+Eat.half (qsThey_qsZoo.sole.ex-y0 qsNo.flipped.en-y0.ex-y0 qsDay_qsEat.half.en-y0)",
-    "test_fee_entry_xheight_after_extended_predecessor[qsAh]": "the rebuild shapes ·Ah ~x~ ·Fee (qsAh.sole.ex-y5 qsFee.reversed-loop.en-y5)",
-    "test_fee_tea_i_extends_exit": "the rebuild shapes ·Fee | ·Tea.ex-ext-1 ~b~ ·I (qsFee.loop qsTea.full.ex-y0.ex-ext-1 qsI.loop.en-y0)",
-    "test_he_vie_utter_day_joins_baseline_then_xheight": "the rebuild shapes ·He ~b~ ·Vie.en-ext-1.ex-con-1 ~b~ ·Utter ~x~ ·Day (qsHe.full.ex-y0 qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1 qsUtter.mono.en-y0.ex-y5 qsDay.full.en-y5)",
-    "test_jay_utter_contracts_before_jai": "the rebuild shapes ·Ah ~x~ ·Jay+Utter ~x~ ·J’ai.en-con-2 (qsAh.sole.ex-y5 qsJay_qsUtter.sole.en-y5.ex-y5 qsJai.sole.en-y5.en-con-2)",
-    "test_owe_fee_may_owe_joins_fee_at_xheight": "the rebuild shapes ·Owe | ·Fee.ex-ext-3 ~x~ ·May (qsOwe.sole qsFee.loop.ex-y5.ex-ext-3 qsMay.loop.en-y5)",
-    "test_pea_joins_a_pea_that_dips_into_its_follower_at_y6[et-pea-pea-cheer]": "the rebuild shapes ·Et ~b~ ·Pea | ·Pea.half ~x~ ·Cheer (qsEt.sole.ex-y0 qsPea.full.en-y0 qsPea.half.ex-y5 qsCheer.sole.en-y5)",
-    "test_pea_joins_a_pea_that_dips_into_its_follower_at_y6[pea-pea-no]": "the rebuild shapes ·Pea.half ~6~ ·Pea ~b~ ·No.alt (qsPea.half.ex-y6 qsPea.full.en-y6.ex-y0 qsNo.flipped.en-y0)",
-    "test_pea_joins_neither_side_after_et_before_the_alternate_utter": "the rebuild shapes ·Et ~b~ ·Pea | ·Utter.alt ~b~ ·Ah (qsEt.sole.ex-y0 qsPea.full.en-y0 qsUtter.alternate.ex-y0 qsAh.sole.en-y0)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[awe-pea-vie]": "the rebuild shapes ·Awe | ·Pea ~b~ ·Vie (qsAwe.sole qsPea.full.ex-y0 qsVie.normal.en-y0)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-day-eat]": "the rebuild shapes ·Et ~b~ ·Pea | ·Day+Eat (qsEt.sole.ex-y0 qsPea.full.en-y0 qsDay_qsEat.full)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-day]": "the rebuild shapes ·Et ~b~ ·Pea | ·Day (qsEt.sole.ex-y0 qsPea.full.en-y0 qsDay.full)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-it]": "the rebuild shapes ·Et ~b~ ·Pea | ·It (qsEt.sole.ex-y0 qsPea.full.en-y0 qsIt.sole)",
-    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-may]": "the rebuild shapes ·Et ~b~ ·Pea | ·May (qsEt.sole.ex-y0 qsPea.full.en-y0 qsMay.loop)",
-    "test_tea_before_i_extends_exit": "the rebuild shapes ·Tea.ex-ext-1 ~b~ ·I (qsTea.full.ex-y0.ex-ext-1 qsI.loop.en-y0)",
-    "test_zwnj_keeps_it_entryless_while_still_joining_zoo": "the rebuild shapes ·Day | ◊ZWNJ | ·It.locked ~b~ ·Zoo.half ~b~ ·I.ex-ext-1 ~x~ ·Roe (qsDay.full space qsIt.sole.ex-y0.locked qsZoo.half.en-y0.ex-y0 qsI.loop.en-y0.ex-y5.ex-ext-1 qsRoe.sole.en-y5)",
+# The checks Senior fails, each by its test id with what Senior shapes instead, pending the author's ruling (WHATNEXT.md). Each is a strict expected failure, so it fails once Senior shapes the text as the check expects.
+SHAPED_INSTEAD: dict[str, str] = {
+    "test_ah_fee_utter_keeps_left_join": "Senior shapes ·Ah ~x~ ·Fee | ·Utter (qsAh.sole.ex-y5 qsFee.reversed-loop.en-y5 qsUtter.mono)",
+    "test_at_may_they_utter_looks_ok": "Senior shapes ·At.ex-ext-3 ~b~ ·May | ·They+Utter (qsAt.falling.ex-y0.ex-ext-3 qsMay.loop.en-y0 qsThey_qsUtter.sole)",
+    "test_day_eat_takes_the_half_day_where_day_does[out-tea-jai-day-eat]": "Senior shapes ·Out+Tea | ·J’ai ~b~ ·Day+Eat.half (qsOut_qsTea.sole qsJai.sole.ex-y0 qsDay_qsEat.half.en-y0)",
+    "test_day_eat_takes_the_half_day_where_day_does[pea-day-eat-gay-owe]": "Senior shapes ·Pea ~b~ ·Day+Eat.half | ·Gay.ex-ext-2 ~x~ ·Owe (qsPea.full.ex-y0 qsDay_qsEat.half.en-y0 qsGay.sole.ex-y5.ex-ext-2 qsOwe.sole.en-y5)",
+    "test_day_eat_takes_the_half_day_where_day_does[tea-day-eat-gay-owe]": "Senior shapes ·Tea ~b~ ·Day+Eat.half | ·Gay.ex-ext-2 ~x~ ·Owe (qsTea.full.ex-y0 qsDay_qsEat.half.en-y0 qsGay.sole.ex-y5.ex-ext-2 qsOwe.sole.en-y5)",
+    "test_day_eat_takes_the_half_day_where_day_does[they-zoo-excite-day-eat]": "Senior shapes ·They+Zoo ~b~ ·Excite ~b~ ·Day+Eat.half (qsThey_qsZoo.sole.ex-y0 qsExcite.sole.en-y0.ex-y0 qsDay_qsEat.half.en-y0)",
+    "test_day_eat_takes_the_half_day_where_day_does[they-zoo-no-day-eat]": "Senior shapes ·They+Zoo ~b~ ·No.alt ~b~ ·Day+Eat.half (qsThey_qsZoo.sole.ex-y0 qsNo.flipped.en-y0.ex-y0 qsDay_qsEat.half.en-y0)",
+    "test_fee_entry_xheight_after_extended_predecessor[qsAh]": "Senior shapes ·Ah ~x~ ·Fee (qsAh.sole.ex-y5 qsFee.reversed-loop.en-y5)",
+    "test_fee_tea_i_extends_exit": "Senior shapes ·Fee | ·Tea.ex-ext-1 ~b~ ·I (qsFee.loop qsTea.full.ex-y0.ex-ext-1 qsI.loop.en-y0)",
+    "test_he_vie_utter_day_joins_baseline_then_xheight": "Senior shapes ·He ~b~ ·Vie.en-ext-1.ex-con-1 ~b~ ·Utter ~x~ ·Day (qsHe.full.ex-y0 qsVie.swept-out.en-y0.ex-y0.en-ext-1.ex-con-1 qsUtter.mono.en-y0.ex-y5 qsDay.full.en-y5)",
+    "test_jay_utter_contracts_before_jai": "Senior shapes ·Ah ~x~ ·Jay+Utter ~x~ ·J’ai.en-con-2 (qsAh.sole.ex-y5 qsJay_qsUtter.sole.en-y5.ex-y5 qsJai.sole.en-y5.en-con-2)",
+    "test_owe_fee_may_owe_joins_fee_at_xheight": "Senior shapes ·Owe | ·Fee.ex-ext-3 ~x~ ·May (qsOwe.sole qsFee.loop.ex-y5.ex-ext-3 qsMay.loop.en-y5)",
+    "test_pea_joins_a_pea_that_dips_into_its_follower_at_y6[et-pea-pea-cheer]": "Senior shapes ·Et ~b~ ·Pea | ·Pea.half ~x~ ·Cheer (qsEt.sole.ex-y0 qsPea.full.en-y0 qsPea.half.ex-y5 qsCheer.sole.en-y5)",
+    "test_pea_joins_a_pea_that_dips_into_its_follower_at_y6[pea-pea-no]": "Senior shapes ·Pea.half ~6~ ·Pea ~b~ ·No.alt (qsPea.half.ex-y6 qsPea.full.en-y6.ex-y0 qsNo.flipped.en-y0)",
+    "test_pea_joins_neither_side_after_et_before_the_alternate_utter": "Senior shapes ·Et ~b~ ·Pea | ·Utter.alt ~b~ ·Ah (qsEt.sole.ex-y0 qsPea.full.en-y0 qsUtter.alternate.ex-y0 qsAh.sole.en-y0)",
+    "test_pea_keeps_its_onward_join_after_et_and_awe[awe-pea-vie]": "Senior shapes ·Awe | ·Pea ~b~ ·Vie (qsAwe.sole qsPea.full.ex-y0 qsVie.normal.en-y0)",
+    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-day-eat]": "Senior shapes ·Et ~b~ ·Pea | ·Day+Eat (qsEt.sole.ex-y0 qsPea.full.en-y0 qsDay_qsEat.full)",
+    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-day]": "Senior shapes ·Et ~b~ ·Pea | ·Day (qsEt.sole.ex-y0 qsPea.full.en-y0 qsDay.full)",
+    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-it]": "Senior shapes ·Et ~b~ ·Pea | ·It (qsEt.sole.ex-y0 qsPea.full.en-y0 qsIt.sole)",
+    "test_pea_keeps_its_onward_join_after_et_and_awe[et-pea-may]": "Senior shapes ·Et ~b~ ·Pea | ·May (qsEt.sole.ex-y0 qsPea.full.en-y0 qsMay.loop)",
+    "test_tea_before_i_extends_exit": "Senior shapes ·Tea.ex-ext-1 ~b~ ·I (qsTea.full.ex-y0.ex-ext-1 qsI.loop.en-y0)",
+    "test_zwnj_keeps_it_entryless_while_still_joining_zoo": "Senior shapes ·Day | ◊ZWNJ | ·It.locked ~b~ ·Zoo.half ~b~ ·I.ex-ext-1 ~x~ ·Roe (qsDay.full space qsIt.sole.ex-y0.locked qsZoo.half.en-y0.ex-y0 qsI.loop.en-y0.ex-y5.ex-ext-1 qsRoe.sole.en-y5)",
 }
 
 
 def _pending(test: str, case: str) -> tuple:
-    reason = REBUILD_SHAPES.get(f"{test}[{case}]")
+    reason = SHAPED_INSTEAD.get(f"{test}[{case}]")
     return () if reason is None else (pytest.mark.xfail(strict=True, reason=reason),)
 
 
@@ -249,7 +249,7 @@ def test_out_fee_utter_lets_out_reach_for_fee():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_ah_fee_utter_keeps_left_join"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_ah_fee_utter_keeps_left_join"])
 def test_ah_fee_utter_keeps_left_join():
     """·Ah·Fee·Utter keeps the ·Ah ~x~ ·Fee join: a following ·Utter does not switch ·Fee to the entry-less ``exit_xheight_before_utter`` stance."""
     _assert_expect_any(
@@ -292,7 +292,7 @@ def test_fee_may_uses_extension_pair():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_owe_fee_may_owe_joins_fee_at_xheight"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_owe_fee_may_owe_joins_fee_at_xheight"])
 def test_owe_fee_may_owe_joins_fee_at_xheight():
     """·Owe joins ·Fee at the x-height, and ·Fee.en-y5 has no exit, so ·May stays unjoined. ·Fee cannot both enter and exit at the x-height (qsFee's ``notes``)."""
     _assert_expect_any(
@@ -363,7 +363,7 @@ def test_it_preserves_baseline_entry_before_zoo():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_zwnj_keeps_it_entryless_while_still_joining_zoo"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_zwnj_keeps_it_entryless_while_still_joining_zoo"])
 def test_zwnj_keeps_it_entryless_while_still_joining_zoo():
     _assert_expect_any(
         _qs_text("qsDay", ZWNJ, "qsIt", "qsZoo", "qsI", "qsRoe"),
@@ -749,7 +749,7 @@ def test_day_eat_takes_the_half_day_where_day_does(text: str, expects: list[str]
 
 
 @pytest.mark.xfail(
-    strict=True, reason=REBUILD_SHAPES["test_pea_joins_neither_side_after_et_before_the_alternate_utter"]
+    strict=True, reason=SHAPED_INSTEAD["test_pea_joins_neither_side_after_et_before_the_alternate_utter"]
 )
 def test_pea_joins_neither_side_after_et_before_the_alternate_utter():
     _assert_expect_any(_qs_text("qsEt", "qsPea", "qsUtter", "qsAh"), ["·Et | ·Pea | ·Utter.alt ~b~ ·Ah"])
@@ -1050,7 +1050,7 @@ def test_pea_pea_low_keeps_y6_then_baseline_joins():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_tea_before_i_extends_exit"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_tea_before_i_extends_exit"])
 def test_tea_before_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsTea", "qsI"),
@@ -1065,7 +1065,7 @@ def test_see_tea_i_extends_exit():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_fee_tea_i_extends_exit"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_fee_tea_i_extends_exit"])
 def test_fee_tea_i_extends_exit():
     _assert_expect_any(
         _qs_text("qsFee", "qsTea", "qsI"),
@@ -1184,7 +1184,7 @@ def test_jay_utter_ligature_joins_designated_left_letters_at_xheight(text: str, 
     _assert_expect_any(text, expects)
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_jay_utter_contracts_before_jai"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_jay_utter_contracts_before_jai"])
 def test_jay_utter_contracts_before_jai():
     """·Jay+Utter contracts its exit (ex-con-2) before ·J’ai and joins at the x-height."""
     _assert_expect_any(
@@ -1258,7 +1258,7 @@ def test_roe_may_they_utter_looks_ok():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_at_may_they_utter_looks_ok"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_at_may_they_utter_looks_ok"])
 def test_at_may_they_utter_looks_ok():
     _assert_expect_any(
         _qs_text("qsAt", "qsMay", "qsThey", "qsUtter"),
@@ -1286,7 +1286,7 @@ def test_tea_foot_key_stays_unjoined():
     )
 
 
-@pytest.mark.xfail(strict=True, reason=REBUILD_SHAPES["test_he_vie_utter_day_joins_baseline_then_xheight"])
+@pytest.mark.xfail(strict=True, reason=SHAPED_INSTEAD["test_he_vie_utter_day_joins_baseline_then_xheight"])
 def test_he_vie_utter_day_joins_baseline_then_xheight():
     """The word "Hvəd": ·He joins the ·Vie+Utter ligature at the baseline, and the ligature's extended exit reaches ·Day at the x-height."""
     _assert_expect_any(

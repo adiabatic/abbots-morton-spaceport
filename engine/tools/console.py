@@ -14,7 +14,7 @@ Every line a child prints goes to that step's log, in arrival order, with stderr
 
 This module imports nothing else from the repo. The pipeline and the review build import it to print the protocol, so anything it imported would be in their import closures too, and an edit to `cycle_timings` or a width module would reach code that cannot depend on it. So `cycle_timings` imports `INNER_LINE` from here, and `fmt_rss` repeats the gigabyte divisor instead of importing `peak_rss`. `engine/test_console.py` checks the divisor matches and that this module has no repo imports.
 
-With `log_dir=None`, a `CycleConsole` does no `mkdir`, `open`, or symlink, so the driver's tests can build one without touching the repo; the rebuild suite's contracts lane audits every read and write against the live trees. In that mode a step's lines are kept in memory so a failure dump can replay them. With a log directory, they are read back from disk, so a full cycle's output never has to fit in the driver's memory.
+With `log_dir=None`, a `CycleConsole` does no `mkdir`, `open`, or symlink, so the driver's tests can build one without touching the repo; the engine suite's contracts lane audits every read and write against the live trees. In that mode a step's lines are kept in memory so a failure dump can replay them. With a log directory, they are read back from disk, so a full cycle's output never has to fit in the driver's memory.
 
 Every writer takes `file=None` and every `CycleConsole` takes `out=None`, meaning `sys.stdout` at the time the line is written. `CycleConsole.start` replaces `sys.stdout` and `sys.stderr` with tees into `terminal.log` so bare `print` calls reach the copy, and a stream bound earlier would bypass the tee.
 """

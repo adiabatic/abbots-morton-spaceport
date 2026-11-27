@@ -1,6 +1,6 @@
 """Settlement tests over three kinds of spec: the mini spec (`fixtures.mini_spec`, a hand transcription of rune data for a few letters), synthetic specs for ranking stages the real records do not exercise (`fixtures.synthetic_spec`, `fixtures.prospect_spec`), and the loaded rune YAML (`load_default_spec`) for records the mini spec does not transcribe, such as the round-1 verdict records. Every window settles in the crate. Each table of windows below is settled by one guard sweep and one `kernel_exec.settle_sequences` call, so the module costs a few kernel invocations instead of one per row. A test that asks for a window its table does not list gets a KeyError.
 
-Rows marked AUTHORED-DATA FINDING assert what the authored rune data does where it differs from the old font. They are divergence-ledger material, not kernel bugs.
+Rows marked AUTHORED-DATA FINDING assert what the authored rune data does where it differs from the old font. They record the runes' behavior for the author to rule on, not kernel bugs.
 """
 
 import itertools

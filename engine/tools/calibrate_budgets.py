@@ -93,7 +93,7 @@ UNITS: tuple[Unit, ...] = (
         pool_units=("engine-contracts",),
         step_names=(),
         step_caveat="",
-        note="The rebuild suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the corpus build's process leaves, less gate:make-test's pool, which holds the gate lane's share (`memory_budget.split_cores`), under the overlap policy on a pass that runs that gate beside the build lane (`artifact_cycle.contracts_pool_width`) — and nothing divides the machine's memory by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to set it from is already on the record rather than a measurement someone still has to go and take.",
+        note="The engine suite's width is a count of cores — a hand run takes every core this process may actually run on, and the cycle hands it the cores the corpus build's process leaves, less gate:make-test's pool, which holds the gate lane's share (`memory_budget.split_cores`), under the overlap policy on a pass that runs that gate beside the build lane (`artifact_cycle.contracts_pool_width`) — and nothing divides the machine's memory by a per-worker cost to reach either: no test in it reads a live build artifact, so no worker holds a working set worth bounding, and there is nothing here to calibrate. The observations are collected and reported anyway, so that if the suite ever grows a memory-derived width the figure to set it from is already on the record rather than a measurement someone still has to go and take.",
     ),
     Unit(
         name="kernel-build",
@@ -675,7 +675,7 @@ def _width_clause(unit: Unit, constant_bytes: int, *, total_bytes: int, cores: i
     if unit.name == "replay-walk":
         configs = _settlement_config_count(root / CONFORM_SOURCE)
         fit = memory_budget.describe_fit(constant_bytes, cap=min(configs, cores), total_bytes=total_bytes)
-        return f"a bare run_build walks {fit}, nothing co-resident since the table build's process has exited, each walk of a full replay beside the absorb worker that reads its window memo, which the constant books with it; a gated cycle takes gate:make-test's pool off the machine's memory first (`artifact_cycle.replay_threads_budget`)"
+        return f"a bare run_build walks {fit}, nothing co-resident since the table build's process has exited, each walk of a full replay beside the absorb worker that reads its window memo, which the constant books with it, and a cycle's replay the same, since gate:make-test starts after run_build (`artifact_cycle.replay_threads_budget`)"
     if unit.name == "deep-replay-walk":
         fit = memory_budget.describe_fit(constant_bytes, cap=cores, total_bytes=total_bytes)
         return f"`make replay-deep` walks {fit}, one unit a crate process, each one settlement configuration over the texts ending in one symbol (`deep_replay.replay_threads`)"

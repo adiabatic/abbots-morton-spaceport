@@ -99,7 +99,7 @@ class TestTheWidthsAlreadyOnRecord:
 
     @pytest.mark.parametrize("total", SPELLINGS_OF_32_GB)
     def test_subtracting_the_font_pool_gives_the_width_the_32_gb_machine_shipped(self, total: int):
-        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because a cycle runs the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. `kernel_threads_budget` in `engine/tools/artifact_cycle.py` makes this subtraction in the shipped code, estimating the pool at `make_test_pool_width` workers (the gate lane's share of the cores), not ten, so this test keeps the recorded fact with its own constants. The live `kernel_exec.kernel_threads_default` is not asserted, because it is the running machine's solo width and differs between machines."""
+        """The second recorded fact: with the font suite's ten co-resident workers subtracted, because the cycle the issue measured ran the fan-out beside a pytest pool, the same formula returns 2 on the same 32 GB machine. The shipped cycle subtracts no pytest pool from the table build's width (`kernel_threads_budget` in `engine/tools/artifact_cycle.py`), since gate:make-test starts once the build gate has passed, so this test keeps the recorded fact with its own constants. The live `kernel_exec.kernel_threads_default` is not asserted, because it is the running machine's solo width and differs between machines."""
         assert (
             memory_budget.how_many_fit(
                 KERNEL_CONFIG_BYTES,
@@ -172,7 +172,7 @@ class TestWhatDashNAutoResolvesTo:
         monkeypatch: pytest.MonkeyPatch,
         total: str,
     ):
-        """No rebuild worker reads a live artifact, and font-suite workers are small enough that cores limit their pool before memory does."""
+        """No engine-suite worker reads a live artifact, and font-suite workers are small enough that cores limit their pool before memory does."""
         monkeypatch.setenv("AMS_TOTAL_MEMORY_BYTES", total)
         monkeypatch.setattr(memory_budget, "usable_cores", lambda: 7)
         assert root_hook.pytest_xdist_auto_num_workers(pytestconfig) == 7

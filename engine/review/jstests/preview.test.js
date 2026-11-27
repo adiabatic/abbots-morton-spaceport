@@ -117,7 +117,7 @@ test('stylisticSetsOf finds no sets in a font without them', () => {
   assert.deepEqual(stylisticSetsOf(fontWithFeatures({})), []);
 });
 
-test('stylisticSetsOf reads a real rebuild font, including through a view that starts partway into its buffer', async () => {
+test('stylisticSetsOf reads a real Senior font, including through a view that starts partway into its buffer', async () => {
   const font = await readFile(new URL('../fixtures/mini/Senior-Regular.otf', import.meta.url));
   const sets = stylisticSetsOf(font);
   const padded = new Uint8Array(font.length + 7);

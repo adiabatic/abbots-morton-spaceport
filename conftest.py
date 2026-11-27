@@ -51,7 +51,7 @@ def _is_engine_only(config: pytest.Config) -> bool:
 
 
 def _publish_fonts() -> None:
-    """Publish the six fonts the font suite checks into site/ through engine/tools/build_fonts.py's command in a child, which writes nothing when the fonts on disk already hold the bytes. It is a child because that module reaches engine.pipeline, which no import of this file may (`TestTheConftestsStayLeaves` in engine/test_contracts_closure.py). A session never starts a table build, so the command runs without `--build`: when the rebuild's Senior is stale it refuses, naming the build command, and the session fails with its message."""
+    """Publish the six fonts the font suite checks into site/ through engine/tools/build_fonts.py's command in a child, which writes nothing when the fonts on disk already hold the bytes. It is a child because that module reaches engine.pipeline, which no import of this file may (`TestTheConftestsStayLeaves` in engine/test_contracts_closure.py). A session never starts a table build, so the command runs without `--build`: when the build's Senior is stale it refuses, naming the build command, and the session fails with its message."""
     result = subprocess.run(
         [sys.executable, "-m", "engine.tools.build_fonts"],
         cwd=ROOT,
@@ -95,7 +95,7 @@ def pytest_configure(config: pytest.Config) -> None:
 FONT_SUITE_WORKER_BYTES = 400_000_000
 
 
-# Returns the machine's usable cores for `-n auto` everywhere in the repo: the cores this process may run on, counting the affinity mask and any cgroup CPU quota, which os.cpu_count() ignores. A font-suite worker costs only FONT_SUITE_WORKER_BYTES, so the cores limit that pool before memory does. No rebuild-suite worker reads a live build artifact (engine/conftest.py's audit guard checks this), so `uv run pytest engine/`, a single rebuild test file, a mixed `pytest engine/ test/`, and `pytest .` all get the same width. memory_budget is imported inside the hook because every pytest run loads this file but only runs that request `-n auto` call the hook. This firstresult hook overrides xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so this hook reads the variable itself. The variable overrides the default in every collection mode.
+# Returns the machine's usable cores for `-n auto` everywhere in the repo: the cores this process may run on, counting the affinity mask and any cgroup CPU quota, which os.cpu_count() ignores. A font-suite worker costs only FONT_SUITE_WORKER_BYTES, so the cores limit that pool before memory does. No engine-suite worker reads a live build artifact (engine/conftest.py's audit guard checks this), so `uv run pytest engine/`, a single engine test file, a mixed `pytest engine/ test/`, and `pytest .` all get the same width. memory_budget is imported inside the hook because every pytest run loads this file but only runs that request `-n auto` call the hook. This firstresult hook overrides xdist's own, which is where PYTEST_XDIST_AUTO_NUM_WORKERS is normally read, so this hook reads the variable itself. The variable overrides the default in every collection mode.
 def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
     override = os.environ.get("PYTEST_XDIST_AUTO_NUM_WORKERS")
     if override:

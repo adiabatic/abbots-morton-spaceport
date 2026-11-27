@@ -1,6 +1,6 @@
 """The fonts the font suite checks: the six under site/ that `engine/tools/build_fonts.py` publishes, which the root conftest publishes at the start of a session that collects the suite and reads here, and the glyph-facts sidecar the `data-expect` checker reads for the Senior, which stays beside the build under engine/out/build. gate:make-test's key hashes what they are published from (`artifact_cycle.make_test_font_lines`).
 
-The module imports nothing from the repo, so the root conftest can name the fonts without adding engine.pipeline to every rebuild test's closure (`engine.tools.cycle_paths` explains why that matters). The names restate `build_fonts.SITE_DIR`, `build_family.font_file_name` and `glyph_facts.FILE_NAME`, and engine/test_build_fonts.py holds them to those.
+The module imports nothing from the repo, so the root conftest can name the fonts without adding engine.pipeline to every engine test's closure (`engine.tools.cycle_paths` explains why that matters). The names restate `build_fonts.SITE_DIR`, `build_family.font_file_name` and `glyph_facts.FILE_NAME`, and engine/test_build_fonts.py holds them to those.
 """
 
 from __future__ import annotations

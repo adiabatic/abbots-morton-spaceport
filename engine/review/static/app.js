@@ -3655,7 +3655,7 @@ function renderChrome() {
   const alphabet = document.createElement('td');
   if (alphabetLabel !== null) {
     alphabet.textContent = alphabetLabel;
-    alphabet.title = 'Letters migrated to the rebuild engine, against the whole Quikscript alphabet — the corpus is built over the migrated ones.';
+    alphabet.title = 'Letters with rune files, against the whole Quikscript alphabet — the corpus is built over these.';
   }
   const unitsHeading = document.createElement('th');
   unitsHeading.scope = 'col';

@@ -1,4 +1,4 @@
-"""Shared fixtures for the rebuild suite, and the guard that keeps every test in it off live build artifacts.
+"""Shared fixtures for the engine suite, and the guard that keeps every test in it off live build artifacts.
 
 Every test reads only checked-in inputs and what it builds itself, so the suite runs at full xdist width. The builds check their own artifacts (the §7 contract check for the review corpus, `run_build.run_rule_witnesses` for the tables' rule certificates), so no test needs to read `engine/out/`. The root conftest resolves `-n auto` to every usable core and honors `PYTEST_XDIST_AUTO_NUM_WORKERS` for every collection mode.
 
@@ -46,7 +46,7 @@ GREEN_RECORDS = (
 ENGINE_DIR = Path(__file__).resolve().parent
 # Collection skips the kernel crate, whose target/ tree is nearly every entry the walk would otherwise visit, and the build output; `engine/test_contracts.py` pins the list. Every visited entry costs each xdist worker a `collect_ignore_glob` lookup that misses on each conftest, since none defines it, and on CPython 3.13+ a module attribute miss formats its error through getcwd() when sys.path[0] is empty, as it is in xdist's `python -c` workers, so without these entries the walk is most of a narrowed run's fixed startup cost.
 collect_ignore = ["kernel-rs", "out"]
-# The live trees: engine/out/, all of tmp/ and var/, the fonts `engine/tools/build_fonts.py` publishes under site/ (each named `AbbotsMortonSpaceport…`), the root verdicts-* stores, and the rebuild gate's exempt prefixes, minus `_EXEMPT_SOURCE`. The gate exempts engine/review/jstests/ (the JS suite) and engine/contact-allow.yaml (read only by the defect gate) only because it has no reason to hash them. Those two are checked-in source, which a contracts test may read. A test that needs a scratch directory takes `tmp_path`.
+# The live trees: engine/out/, all of tmp/ and var/, the fonts `engine/tools/build_fonts.py` publishes under site/ (each named `AbbotsMortonSpaceport…`), the root verdicts-* stores, and the engine gate's exempt prefixes, minus `_EXEMPT_SOURCE`. The gate exempts engine/review/jstests/ (the JS suite) and engine/contact-allow.yaml (read only by the defect gate) only because it has no reason to hash them. Those two are checked-in source, which a contracts test may read. A test that needs a scratch directory takes `tmp_path`.
 _EXEMPT_SOURCE = ("engine/review/jstests/", "engine/contact-allow.yaml")
 _FORBIDDEN = tuple(
     os.path.join(str(REPO_ROOT), rel)
@@ -204,7 +204,7 @@ def _audit(event: str, args: tuple[object, ...]) -> None:
                 path = os.fsdecode(arg)  # pyright: ignore[reportArgumentType]
                 _guard.violations.append((event, path))
                 raise ContractsLaneViolation(
-                    f"{_guard.nodeid} is a rebuild-suite test but reached a live build artifact: {event} on {path}. "
+                    f"{_guard.nodeid} is an engine-suite test but reached a live build artifact: {event} on {path}. "
                     f"A claim about live build output belongs in the build itself (a run_build stage or a corpus check), "
                     f"and a test that only needed *a* directory should build one under `tmp_path`."
                 )
@@ -326,7 +326,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def pytest_configure(config: pytest.Config) -> None:
     global _guard_installed
     os.environ.pop(cycle_timings.OUTPUT_COUNTS_ENV, None)
-    config.pluginmanager.register(_FixtureRecorder(), "rebuild-fixture-recorder")
+    config.pluginmanager.register(_FixtureRecorder(), "engine-fixture-recorder")
     if _guard_installed:
         return
     _guard_installed = True
@@ -442,7 +442,7 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]):
         report.outcome = "failed"
         report.longrepr = "\n".join(
             [
-                f"{item.nodeid} is a rebuild-suite test but reached a live build artifact:",
+                f"{item.nodeid} is an engine-suite test but reached a live build artifact:",
                 *(f"  {event} on {path}" for event, path in pending),
                 "A claim about live build output belongs in the build itself, never in this suite.",
             ]
@@ -456,13 +456,13 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     Every cycle stage resolves its paths at call time, so a test that forgets to redirect one still passes while the repo gains or loses a file. The fixture is autouse and lives here so that every module under engine/ gets it, including modules written later. Each patch is a default: a test that wants the real behavior patches over it, because the test's own monkeypatch is applied after this one.
 
-    The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in engine/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass. The cycle directory (`cycle_paths.CYCLE_VAR`) is redirected because `main` takes the pass lock there and creates a scratch directory under it, and a real pass holds that lock while the rebuild suite runs as its child, so a test driving `main` against the live one would wait on its own parent.
+    The green records in `GREEN_RECORDS` and the cycle summary are redirected because a test driving `_run_cycle` over mocked stages would otherwise leave a record in engine/out that the next real cycle reads as a pass. The build-log root is redirected because `main` creates a run directory and a `latest` symlink under it, which the next reader would take for the newest real pass. The cycle directory (`cycle_paths.CYCLE_VAR`) is redirected because `main` takes the pass lock there and creates a scratch directory under it, and a real pass holds that lock while the engine suite runs as its child, so a test driving `main` against the live one would wait on its own parent.
 
     The timings journal (`cycle_timings.JOURNAL`) is redirected because most of its writers are not the cycle. run_build records its pool records there, so a test that runs one of its pools would record a fixture's peaks as measurements of the real build, which `make job-costs` reports beside the `*_BYTES` constants. Every evaluated check records its outcome there too, so a test driving either gate wrapper or run_build's CLI would add a stubbed suite's outcome to what `make cycle-timings --by-outcome` reports. `record_pool` and `record_check` read the constant at call time, so this redirect reaches every writer. The suite's own pool record is unaffected, because the root conftest writes it on the controller from `pytest_terminal_summary`, after every fixture is torn down.
 
-    `cycle_timings.CYCLE_RUN_ENV` (AMS_CYCLE_RUN) is removed from the environment, because run_build's CLI and the make-test gate wrapper skip recording their check line when it is set. It can come from outside, because the rebuild suite runs as a cycle child and inherits a real pass's run id, or from inside, because `artifact_cycle.main` sets it on this process and it would stay set for whatever test the xdist worker runs next. `setenv` comes before `delenv` so that `delenv` cannot raise on an absent variable and so that teardown restores the variable's original state, removing any value the test set. A test that wants to be a cycle's child sets the variable itself.
+    `cycle_timings.CYCLE_RUN_ENV` (AMS_CYCLE_RUN) is removed from the environment, because run_build's CLI and the make-test gate wrapper skip recording their check line when it is set. It can come from outside, because the engine suite runs as a cycle child and inherits a real pass's run id, or from inside, because `artifact_cycle.main` sets it on this process and it would stay set for whatever test the xdist worker runs next. `setenv` comes before `delenv` so that `delenv` cannot raise on an absent variable and so that teardown restores the variable's original state, removing any value the test set. A test that wants to be a cycle's child sets the variable itself.
 
-    `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures among them. A rebuild suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
+    `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures among them. An engine suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
 
     Three steps delete stale artifacts before rebuilding them: the unlink of run_build's three summaries and of gate:conform's summary, each just before its subprocess spawns, and the retention pass. Redirecting the constants covers the unlinks. Retention prunes the build logs under `cycle_paths.BUILD_LOGS_ROOT`, which the redirect covers, and it is switched off as well (`cycle_paths.RETENTION_ENABLED`), so `_finish` records a retention result with no lines and a test reaching a green finish with `record_greens` set prunes nothing. A test that wants the real retention calls `artifact_cycle.run_retention` with a plan whose `artifact_cycle.ROOT` points somewhere disposable, and a test asserting that `_finish` reaches retention sets the switch back on and patches `run_retention`. The readiness checklist is switched off the same way (`cycle_paths.READINESS_ENABLED`), because it reads the served corpus and the root autosave; a test asserting that `_finish` prints it sets the switch and patches `readiness_block`. The reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus is switched off too (`cycle_paths.REVIEW_RELOAD_ENABLED`), because it goes to the live port and would reload the reviewer's open tabs.
 

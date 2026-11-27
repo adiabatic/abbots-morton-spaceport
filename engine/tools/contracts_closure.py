@@ -23,12 +23,7 @@ from pathlib import Path
 from typing import Literal
 
 from engine.tools.closure_record import (
-    HERMETIC_GIT_SUBCOMMANDS,
-    IGNORED_PREFIXES,
-    KERNEL_BINARY,
-    KERNEL_MANIFEST,
     KERNEL_PREFIX,
-    SELECTION_FORMAT,
     SIDECAR_FORMAT,
     hermetic_child,
     kernel_child,

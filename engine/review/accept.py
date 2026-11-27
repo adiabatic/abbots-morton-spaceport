@@ -53,12 +53,10 @@ from engine.review.verdict_store import (  # noqa: E402
 )
 from engine.tools import store_guards  # noqa: E402
 
-CORPUS = ROOT / "engine" / "out" / "review"
 KEEP = Path("var") / "keep" / "review-accept"
 KEPT_STORE = "store.json.gz"
 REMAKE_WORK = ROOT / "var" / "cycle" / "snapshot-remake"
 REMAKE_CARGO_TARGET = ROOT / "engine" / "kernel-rs" / "target" / "snapshot-remake"
-UV_CACHE = ROOT / ".uv-cache"
 RETAKE_REMEDY = "make review-accept ARGS='--apply --retake'"
 # The verdicts that stand between a human unit and the accept: a blank (no record) counts too, and so does a skip.
 OPEN_VERDICTS = ("skip", "reject", "neither")

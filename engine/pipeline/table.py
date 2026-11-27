@@ -608,7 +608,7 @@ def _table_digest_parts(decision: DecisionTable, joins: JoinTable, rows: Iterabl
 
 @dataclass(frozen=True)
 class FixpointProduct:
-    """Everything one configuration's fixpoint produces that a fold reads: the key-sorted transition stream, the deep-class map its class tokens resolve through, the provenance pointers the engine fired while tabulating, and the cells the stream settles into. `joint` on these rows is the trace's `joint_tiebreak` alone, because the prospect-divergence pass runs later, in the crate's fold. `cells` is computed at class grain, which equals the expanded set because a class row's members share its settled fields. `kernel_exec.enumerate_transitions` returns one. No build or tool uses this type, because the crate folds the product it already holds; only the rebuild tests read it."""
+    """Everything one configuration's fixpoint produces that a fold reads: the key-sorted transition stream, the deep-class map its class tokens resolve through, the provenance pointers the engine fired while tabulating, and the cells the stream settles into. `joint` on these rows is the trace's `joint_tiebreak` alone, because the prospect-divergence pass runs later, in the crate's fold. `cells` is computed at class grain, which equals the expanded set because a class row's members share its settled fields. `kernel_exec.enumerate_transitions` returns one. No build or tool uses this type, because the crate folds the product it already holds; only the engine tests read it."""
 
     config: str
     transitions: tuple[Transition, ...]

@@ -9,7 +9,7 @@ import pytest
 from engine.pipeline import build_family, compile_font, emit_gpos, geometry, pack_gsub, readback, run_build
 from engine.pipeline.fixtures import mini_spec
 from engine.pipeline.model import CellId, CellPlan, GlyphRecord
-from engine.pipeline.spec_load import REPO_ROOT, load_default_spec
+from engine.pipeline.spec_load import load_default_spec
 from engine.tools import console
 
 NAME_IDS = (0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 19)

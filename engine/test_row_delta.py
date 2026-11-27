@@ -1,11 +1,10 @@
-"""Tests for the segment format, engine/pipeline/row_delta.py, whose module docstring states the format: the head as the single commit point and its integrity checks, the parts no head lists, the positional encoding's generation check, and the merge readers stream. The segments by place here are written in the test (`_placed_segment`), line for line as the review crate writes the unit store's."""
+"""Tests for the segment format, engine/pipeline/row_delta.py, whose module docstring states the format: the head as the single commit point and its integrity checks, the parts no head lists, the segment header's generation check, and the keyed merge readers stream. The keyed segments here are written in the test (`_keyed_segment`), line for line as the crate's `build-tables` writes the windows rows'."""
 
 from __future__ import annotations
 
 import gzip
 import itertools
 import json
-import os
 import operator
 from pathlib import Path
 
@@ -26,154 +25,10 @@ def _base(directory: Path, rows: list[bytes], generation: int = 0) -> row_delta.
     return row_delta.write_part(directory, row_delta.base_name(OUTPUT, generation), fill)
 
 
-def _placed_line(row: row_delta.Row) -> bytes:
-    """A segment row by place as its line: the operation, the place's base row and fraction, and the payload, tab-separated."""
-    anchor, fraction = row.place
-    return row.op + b"\t" + str(anchor).encode() + b"\t" + fraction.encode() + b"\t" + row.payload
-
-
-def _placed_segment(
-    directory: Path, generation: int, number: int, rows: list[row_delta.Row]
-) -> row_delta.Part:
-    """Write segment `number` of `generation` from `rows`, in place order, under a header that merges by place."""
-
-    def fill(stream) -> tuple[int, int]:
-        stream.write(row_delta.segment_header(OUTPUT, generation, number))
-        lines = [_placed_line(row) for row in rows]
-        for line in lines:
-            stream.write(line)
-        return len(lines), sum(map(len, lines))
-
-    return row_delta.write_part(directory, row_delta.segment_name(OUTPUT, generation, number), fill)
-
-
-def _materialized(directory: Path) -> list[tuple[row_delta.Place, bytes]]:
-    head = row_delta.read_head(directory, OUTPUT)
-    assert head is not None
-    with row_delta.open_parts(directory, head, sha256=True) as opened:
-
-        def base_rows():
-            opened.handles[0].seek(0)
-            with gzip.GzipFile(fileobj=opened.handles[0], mode="rb") as stream:
-                next(stream)
-                yield from stream
-
-        generation = head.generation
-        segments = [
-            (lambda handle=handle, number=number: row_delta.segment_rows(handle, OUTPUT, generation, number))
-            for number, handle in enumerate(opened.handles[1:], start=1)
-        ]
-        return list(row_delta.merge_placed(base_rows, segments))
-
-
-def test_readers_merge_the_base_and_segments_by_place_and_a_later_part_supersedes_a_place(tmp_path):
-    """The merge yields the live rows in place order, each part read once as a stream: at each place the row of the latest part that has one there is live, and a tombstone there removes it. An upsert at a base row's own place replaces it there, and a row that moves is a tombstone at its old place and an upsert at its new one."""
-    rows = [b"a1\n", b"b1\n", b"c1\n", b"d1\n"]
-    segments = [
-        [
-            row_delta.Row(row_delta.UPSERT, (-1, "i"), b"e1\n"),
-            row_delta.Row(row_delta.TOMBSTONE, (0, ""), b"a\n"),
-            row_delta.Row(row_delta.UPSERT, (1, ""), b"b2\n"),
-            row_delta.Row(row_delta.TOMBSTONE, (2, ""), b"c\n"),
-            row_delta.Row(row_delta.UPSERT, (3, "i"), b"a2\n"),
-        ],
-        [
-            row_delta.Row(row_delta.UPSERT, (-1, "i"), b"e2\n"),
-            row_delta.Row(row_delta.TOMBSTONE, (3, ""), b"d\n"),
-            row_delta.Row(row_delta.UPSERT, (3, "r"), b"f1\n"),
-        ],
-    ]
-    expected = [
-        [((-1, "i"), b"e1\n"), ((1, ""), b"b2\n"), ((3, ""), b"d1\n"), ((3, "i"), b"a2\n")],
-        [((-1, "i"), b"e2\n"), ((1, ""), b"b2\n"), ((3, "i"), b"a2\n"), ((3, "r"), b"f1\n")],
-    ]
-    head = row_delta.Head(OUTPUT, 0, 0, {}, _base(tmp_path, rows))
-    row_delta.commit(tmp_path, head)
-    assert _materialized(tmp_path) == [((index, ""), row) for index, row in enumerate(rows)]
-    for number, (segment, materialized) in enumerate(zip(segments, expected, strict=True), start=1):
-        part = _placed_segment(tmp_path, 0, number, segment)
-        assert (part.rows, part.rows_bytes) == (len(segment), sum(map(len, map(_placed_line, segment))))
-        head = row_delta.with_segment(head, part, {"pass": number})
-        row_delta.commit(tmp_path, head)
-        assert _materialized(tmp_path) == materialized
-    assert head.content == 2 and head.identity == f"{OUTPUT}@2"
-
-
-def test_a_reader_refuses_a_part_that_is_not_the_one_its_head_records(tmp_path):
-    """The head records each part's size and sha256. A reader that seeks checks the size, and one that reads every byte checks the sha256 too, so a part rewritten under its head, whatever its size, is refused rather than read."""
-    base = _base(tmp_path, [b"a1\n", b"b1\n"])
-    head = row_delta.Head(OUTPUT, 0, 0, {}, base)
-    row_delta.commit(tmp_path, head)
-    path = tmp_path / base.name
-    raw = path.read_bytes()
-    with row_delta.open_parts(tmp_path, head, sha256=True):
-        pass
-    path.write_bytes(raw + b"\0")
-    with pytest.raises(row_delta.HeadError, match="bytes its head records"):
-        row_delta.open_parts(tmp_path, head)
-    path.write_bytes(raw[:-1] + bytes([raw[-1] ^ 1]))
-    with row_delta.open_parts(tmp_path, head):
-        pass
-    with pytest.raises(row_delta.HeadError, match="sha256"):
-        row_delta.open_parts(tmp_path, head, sha256=True)
-    path.unlink()
-    with pytest.raises(row_delta.HeadError, match="missing"):
-        row_delta.open_parts(tmp_path, head)
-
-
-def test_a_part_no_head_lists_is_ignored_and_the_next_writer_deletes_it(tmp_path):
-    """A failed pass can leave a written part that no head lists: a segment or a base of the next generation. A reader opens only the parts its head lists, and the next commit deletes every part of the output the new head does not list, the older generation's among them, and leaves a staging file, which is its writer's to delete before it writes (`remove_staging`). A link at a staging name is no writer's leftover, since a writer opens its staging name to fill it, but a route the memory series puts there to the null device, so the units index's writer, which asks for that, leaves it, and every other writer deletes it as before."""
-    base = _base(tmp_path, [b"a1\n"])
-    head = row_delta.Head(OUTPUT, 0, 0, {}, base)
-    row_delta.commit(tmp_path, head)
-    stray = _placed_segment(tmp_path, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a9\n")])
-    _base(tmp_path, [b"z1\n"], generation=1)
-    (tmp_path / f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial").write_bytes(b"")
-    assert _materialized(tmp_path) == [((0, ""), b"a1\n")]
-    following = _base(tmp_path, [b"b1\n"], generation=1)
-    removed = row_delta.commit(tmp_path, row_delta.Head(OUTPUT, 1, 1, {}, following))
-    assert removed == sorted([base.name, stray.name])
-    assert sorted(path.name for path in tmp_path.iterdir()) == sorted(
-        [row_delta.head_name(OUTPUT), following.name, f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial"]
-    )
-    assert _materialized(tmp_path) == [((0, ""), b"b1\n")]
-    route = tmp_path / f"{row_delta.base_name(OUTPUT, 2)}.partial"
-    route.symlink_to(os.devnull)
-    assert row_delta.remove_staging(tmp_path, OUTPUT, links=False) == [
-        f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial"
-    ]
-    assert route.is_symlink()
-    assert row_delta.remove_staging(tmp_path, OUTPUT) == [route.name]
-    assert not route.is_symlink()
-
-
-def test_a_segment_whose_header_names_another_generation_is_refused(tmp_path):
-    """A segment's places index its generation's base, so its header names the generation and its number, and a reader refuses a segment the head lists under another, as when an old head is paired with a refolded base, instead of placing its rows against the wrong base."""
-    base = _base(tmp_path, [b"a1\n", b"b1\n"])
-    forged = _placed_segment(tmp_path, 1, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a2\n")])
-    listed = row_delta.segment_name(OUTPUT, 0, 1)
-    (tmp_path / forged.name).rename(tmp_path / listed)
-    head = row_delta.Head(OUTPUT, 0, 0, {}, base, (row_delta.Part(listed, forged.size, forged.sha256, 1, 9),))
-    row_delta.commit(tmp_path, head)
-    with pytest.raises(row_delta.HeadError, match="generation 1"):
-        _materialized(tmp_path)
-    document = json.loads(row_delta.head_path(tmp_path, OUTPUT).read_text())
-    document["segments"][0]["name"] = row_delta.segment_name(OUTPUT, 1, 1)
-    row_delta.head_path(tmp_path, OUTPUT).write_text(json.dumps(document))
-    with pytest.raises(row_delta.HeadError, match="as segment 1 of generation 0"):
-        row_delta.read_head(tmp_path, OUTPUT)
-
-
-def test_the_fold_is_due_once_the_segments_reach_the_base_or_the_cap(monkeypatch):
-    """The fold is due once the segments' row bytes reach the base's or their count reaches the cap."""
-    base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 10, 100)
-    segment = row_delta.Part(row_delta.segment_name(OUTPUT, 0, 1), 1, "", 1, 10)
-    assert not row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base))
-    assert not row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base, (segment,) * 9))
-    assert row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base, (segment,) * 10))
-    assert row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base, (segment,) * 3), cap=3)
-    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 2)
-    assert row_delta.fold_due(row_delta.Head(OUTPUT, 0, 0, {}, base, (segment,) * 2))
+def _head(
+    generation: int, content: int, base: row_delta.Part, segments: tuple[row_delta.Part, ...] = ()
+) -> row_delta.Head:
+    return row_delta.Head(OUTPUT, generation, content, {}, base, segments, row_delta.MERGE_KEY)
 
 
 def _keyed_segment(directory: Path, number: int, rows: list[bytes], generation: int = 0) -> row_delta.Part:
@@ -194,50 +49,108 @@ def _tombstone_key(payload: bytes) -> list[bytes]:
     return payload.rstrip(b"\n").split(b"\t")
 
 
+def _materialized(directory: Path) -> list[bytes]:
+    head = row_delta.read_head(directory, OUTPUT)
+    assert head is not None
+    with row_delta.open_parts(directory, head, sha256=True) as opened:
+        opened.handles[0].seek(0)
+        with gzip.GzipFile(fileobj=opened.handles[0], mode="rb") as stream:
+            next(stream)
+            segments = [
+                row_delta.keyed_segment_rows(handle, OUTPUT, head.generation, number)
+                for number, handle in enumerate(opened.handles[1:], start=1)
+            ]
+            return list(row_delta.merge_keyed(stream, segments, _key, _tombstone_key))
+
+
+def test_a_reader_refuses_a_part_that_is_not_the_one_its_head_records(tmp_path):
+    """The head records each part's size and sha256. A reader that seeks checks the size, and one that reads every byte checks the sha256 too, so a part rewritten under its head, whatever its size, is refused rather than read."""
+    base = _base(tmp_path, [b"a\t1\n", b"b\t1\n"])
+    head = _head(0, 0, base)
+    row_delta.commit(tmp_path, head)
+    path = tmp_path / base.name
+    raw = path.read_bytes()
+    with row_delta.open_parts(tmp_path, head, sha256=True):
+        pass
+    path.write_bytes(raw + b"\0")
+    with pytest.raises(row_delta.HeadError, match="bytes its head records"):
+        row_delta.open_parts(tmp_path, head)
+    path.write_bytes(raw[:-1] + bytes([raw[-1] ^ 1]))
+    with row_delta.open_parts(tmp_path, head):
+        pass
+    with pytest.raises(row_delta.HeadError, match="sha256"):
+        row_delta.open_parts(tmp_path, head, sha256=True)
+    path.unlink()
+    with pytest.raises(row_delta.HeadError, match="missing"):
+        row_delta.open_parts(tmp_path, head)
+
+
+def test_a_part_no_head_lists_is_ignored_and_the_next_writer_deletes_it(tmp_path):
+    """A failed pass can leave a written part that no head lists: a segment or a base of the next generation. A reader opens only the parts its head lists, and the next commit deletes every part of the output the new head does not list, the older generation's among them, and leaves a staging file, which is its writer's to delete before it writes (`remove_staging`)."""
+    base = _base(tmp_path, [b"a\t1\n"])
+    head = _head(0, 0, base)
+    row_delta.commit(tmp_path, head)
+    stray = _keyed_segment(tmp_path, 1, [b"+\ta\t9\n"])
+    _base(tmp_path, [b"z\t1\n"], generation=1)
+    (tmp_path / f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial").write_bytes(b"")
+    assert _materialized(tmp_path) == [b"a\t1\n"]
+    following = _base(tmp_path, [b"b\t1\n"], generation=1)
+    removed = row_delta.commit(tmp_path, _head(1, 1, following))
+    assert removed == sorted([base.name, stray.name])
+    assert sorted(path.name for path in tmp_path.iterdir()) == sorted(
+        [row_delta.head_name(OUTPUT), following.name, f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial"]
+    )
+    assert _materialized(tmp_path) == [b"b\t1\n"]
+    assert row_delta.remove_staging(tmp_path, OUTPUT) == [f"{row_delta.segment_name(OUTPUT, 0, 2)}.partial"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == sorted(
+        [row_delta.head_name(OUTPUT), following.name]
+    )
+
+
+def test_a_segment_whose_header_names_another_generation_is_refused(tmp_path):
+    """A segment's rows index its generation's base, so its header names the generation and its number, and a reader refuses a segment the head lists under another, as when an old head is paired with a refolded base, instead of merging its rows against the wrong base."""
+    base = _base(tmp_path, [b"a\t1\n", b"b\t1\n"])
+    forged = _keyed_segment(tmp_path, 1, [b"+\ta\t2\n"], generation=1)
+    listed = row_delta.segment_name(OUTPUT, 0, 1)
+    (tmp_path / forged.name).rename(tmp_path / listed)
+    head = _head(0, 0, base, (row_delta.Part(listed, forged.size, forged.sha256, 1, 7),))
+    row_delta.commit(tmp_path, head)
+    with pytest.raises(row_delta.HeadError, match="generation 1"):
+        _materialized(tmp_path)
+    document = json.loads(row_delta.head_path(tmp_path, OUTPUT).read_text())
+    document["segments"][0]["name"] = row_delta.segment_name(OUTPUT, 1, 1)
+    row_delta.head_path(tmp_path, OUTPUT).write_text(json.dumps(document))
+    with pytest.raises(row_delta.HeadError, match="as segment 1 of generation 0"):
+        row_delta.read_head(tmp_path, OUTPUT)
+
+
+def test_the_fold_is_due_once_the_segments_reach_the_base_or_the_cap(monkeypatch):
+    """The fold is due once the segments' row bytes reach the base's or their count reaches the cap."""
+    base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 10, 100)
+    segment = row_delta.Part(row_delta.segment_name(OUTPUT, 0, 1), 1, "", 1, 10)
+    assert not row_delta.fold_due(_head(0, 0, base))
+    assert not row_delta.fold_due(_head(0, 0, base, (segment,) * 9))
+    assert row_delta.fold_due(_head(0, 0, base, (segment,) * 10))
+    assert row_delta.fold_due(_head(0, 0, base, (segment,) * 3), cap=3)
+    monkeypatch.setattr(row_delta, "SEGMENT_CAP", 2)
+    assert row_delta.fold_due(_head(0, 0, base, (segment,) * 2))
+
+
 def test_a_keyed_merge_lets_the_latest_part_win_at_each_key_and_says_so_in_every_header(tmp_path):
     """Parts that merge by key: the head and every segment header say so, a segment's rows are upserts and tombstones in key order, and the merge yields the live rows in key order, the latest part's row winning at each key, a tombstone removing it, and a key no earlier part holds added. Keys compare field by field, so `a\\tb` sorts before `ab`, as the crate sorts them, and a segment out of key order is refused."""
     base_rows = [b"a\tb\t1\n", b"ab\t\t1\n", b"c\tc\t1\n"]
     base = _base(tmp_path, base_rows)
     first = _keyed_segment(tmp_path, 1, [b"+\ta\tb\t2\n", b"-\tc\tc\n", b"+\td\td\t2\n"])
     second = _keyed_segment(tmp_path, 2, [b"+\ta\tb\t3\n", b"+\tc\tc\t3\n", b"-\td\td\n", b"-\tz\tz\n"])
-    head = row_delta.Head(OUTPUT, 0, 2, {}, base, (first, second), row_delta.MERGE_KEY)
+    head = _head(0, 2, base, (first, second))
     row_delta.commit(tmp_path, head)
     assert json.loads(row_delta.head_path(tmp_path, OUTPUT).read_text())["merge"] == "key"
     read = row_delta.read_head(tmp_path, OUTPUT)
     assert read is not None and read == head
-    with row_delta.open_parts(tmp_path, read, sha256=True) as opened:
-        opened.handles[0].seek(0)
-        with gzip.GzipFile(fileobj=opened.handles[0], mode="rb") as stream:
-            next(stream)
-            segments = [
-                row_delta.keyed_segment_rows(handle, OUTPUT, 0, number)
-                for number, handle in enumerate(opened.handles[1:], start=1)
-            ]
-            merged = list(row_delta.merge_keyed(stream, segments, _key, _tombstone_key))
-    assert merged == [b"a\tb\t3\n", b"ab\t\t1\n", b"c\tc\t3\n"]
+    assert _materialized(tmp_path) == [b"a\tb\t3\n", b"ab\t\t1\n", b"c\tc\t3\n"]
     backwards = [(row_delta.UPSERT, b"b\tb\t1\n"), (row_delta.UPSERT, b"a\ta\t1\n")]
     with pytest.raises(ValueError, match="out of key order"):
         list(row_delta.merge_keyed(iter(base_rows), [backwards], _key, _tombstone_key))
-
-
-def test_a_segment_of_the_other_kind_of_merge_is_refused(tmp_path):
-    """A head's merge, by place or by key, is repeated in each segment's header, so a reader refuses a segment written for the other: a placed segment under a keyed head, and a keyed one read as placed. A head by place writes no `merge` field, so the unit store's head reads as it did before outputs merged by key."""
-    base = _base(tmp_path, [b"a\ta\t1\n"])
-    placed = _placed_segment(tmp_path, 0, 1, [row_delta.Row(row_delta.UPSERT, (0, ""), b"a\ta\t2\n")])
-    keyed = row_delta.Head(OUTPUT, 0, 1, {}, base, (placed,), row_delta.MERGE_KEY)
-    row_delta.commit(tmp_path, keyed)
-    with row_delta.open_parts(tmp_path, keyed) as opened:
-        with pytest.raises(
-            row_delta.HeadError, match="merges by key, and segment 1's header says it merges by place"
-        ):
-            list(row_delta.keyed_segment_rows(opened.handles[1], OUTPUT, 0, 1))
-    assert "merge" not in row_delta.Head(OUTPUT, 0, 0, {}, base).document()
-    by_key = _keyed_segment(tmp_path, 1, [b"+\ta\ta\t2\n"])
-    with open(tmp_path / by_key.name, "rb") as handle:
-        with pytest.raises(
-            row_delta.HeadError, match="merges by place, and segment 1's header says it merges by key"
-        ):
-            list(row_delta.segment_rows(handle, OUTPUT, 0, 1))
 
 
 def test_one_output_folds_a_pass_and_one_at_its_overrun_folds_anyway(monkeypatch, tmp_path):
@@ -261,18 +174,14 @@ def test_one_output_folds_a_pass_and_one_at_its_overrun_folds_anyway(monkeypatch
     assert not row_delta.claim_fold("windows-ss03.tsv.gz")
     base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "", 10, 1000)
     segment = row_delta.Part(row_delta.segment_name(OUTPUT, 0, 1), 1, "", 1, 10)
-    waiting = row_delta.Head(
-        OUTPUT, 0, 0, {}, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN - 1)
-    )
+    waiting = _head(0, 0, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN - 1))
     assert row_delta.fold_due(waiting) and not row_delta.fold_forced(waiting)
-    at_overrun = row_delta.Head(
-        OUTPUT, 0, 0, {}, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN)
-    )
+    at_overrun = _head(0, 0, base, (segment,) * (row_delta.SEGMENT_CAP + row_delta.FOLD_OVERRUN))
     assert row_delta.fold_forced(at_overrun)
 
 
-def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_reads_as_before(tmp_path):
-    """A head over parts that record what they were settled under, the settle memos', holds each distinct family keys map once and each part its stamp and the place of its keys, and reads back as it was written; a head whose parts record nothing writes neither field, so the unit store's and the windows rows' heads read and write as before. A part naming keys the head does not hold is refused."""
+def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_writes_neither(tmp_path):
+    """A head over parts that record what they were settled under, the settle memos', holds each distinct family keys map once and each part its stamp and the place of its keys, and reads back as it was written; a head whose parts record nothing, the windows rows', writes neither field. A part naming keys the head does not hold is refused."""
     base = row_delta.Part(row_delta.base_name(OUTPUT, 0), 1, "a", 10, 140)
     segments = tuple(row_delta.Part(row_delta.segment_name(OUTPUT, 0, n), 1, "b", 1, 14) for n in (1, 2, 3))
     plain = row_delta.Head(OUTPUT, 0, 2, {"stamp": "s"}, base, segments, row_delta.MERGE_PROBE)
@@ -298,7 +207,7 @@ def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_reads_as_
         new,
     ]
 
-    unstamped = row_delta.Head(OUTPUT, 0, 0, {}, base, segments[:1])
+    unstamped = _head(0, 0, base, segments[:1])
     assert "family_keys" not in unstamped.document()
     assert set(unstamped.document()["base"]) == {"name", "size", "sha256", "rows", "rows_bytes"}
     row_delta.commit(tmp_path, unstamped)
@@ -310,8 +219,8 @@ def test_a_head_records_each_parts_stamp_and_keys_and_one_without_them_reads_as_
         row_delta.read_head(tmp_path, OUTPUT)
 
 
-def test_a_segment_that_merges_by_probe_is_refused_by_both_stream_readers(tmp_path):
-    """A settle memo's head names the probe merge, which `read_head` accepts, and every segment header repeats it, so neither stream reader reads one as its own kind: the merge by place and the merge by key both refuse a header that names the probe merge."""
+def test_a_segment_of_the_other_merge_and_a_head_that_names_none_are_refused(tmp_path):
+    """A settle memo's head names the probe merge, which `read_head` accepts, and every segment header repeats it, so the keyed stream reader refuses a header that names the probe merge. A head names how its parts merge, so a head document without a `merge` is refused."""
     probing = row_delta.write_part(
         tmp_path,
         row_delta.segment_name(OUTPUT, 0, 1),
@@ -321,10 +230,6 @@ def test_a_segment_that_merges_by_probe_is_refused_by_both_stream_readers(tmp_pa
     )
     with open(tmp_path / probing.name, "rb") as handle:
         with pytest.raises(
-            row_delta.HeadError, match="merges by place, and segment 1's header says it merges by probe"
-        ):
-            list(row_delta.segment_rows(handle, OUTPUT, 0, 1))
-        with pytest.raises(
             row_delta.HeadError, match="merges by key, and segment 1's header says it merges by probe"
         ):
             list(row_delta.keyed_segment_rows(handle, OUTPUT, 0, 1))
@@ -332,6 +237,11 @@ def test_a_segment_that_merges_by_probe_is_refused_by_both_stream_readers(tmp_pa
     row_delta.commit(tmp_path, row_delta.Head(OUTPUT, 0, 0, {}, base, (probing,), row_delta.MERGE_PROBE))
     read = row_delta.read_head(tmp_path, OUTPUT)
     assert read is not None and read.merge == row_delta.MERGE_PROBE
+    document = json.loads(row_delta.head_path(tmp_path, OUTPUT).read_text())
+    del document["merge"]
+    row_delta.head_path(tmp_path, OUTPUT).write_text(json.dumps(document))
+    with pytest.raises(row_delta.HeadError, match="merges its parts by None"):
+        row_delta.read_head(tmp_path, OUTPUT)
 
 
 def test_the_bloom_filter_has_no_false_negatives_and_about_its_designed_false_positive_rate():

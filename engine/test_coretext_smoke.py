@@ -86,7 +86,7 @@ def test_a_second_identical_smoke_leaves_its_summary_in_place(monkeypatch, tmp_p
 
 
 def test_a_run_drawn_from_an_installed_font_of_the_same_name_fails(monkeypatch, tmp_path, capsys):
-    """The rebuild's Senior has the PostScript name of the released Senior, which a reviewer may have installed. A run CoreText draws from a font whose `head.checkSumAdjustment` is not the file's fails even though its PostScript name is the expected one, and so does a run whose font gives no `head` table."""
+    """The build's Senior has the PostScript name of the released Senior, which a reviewer may have installed. A run CoreText draws from a font whose `head.checkSumAdjustment` is not the file's fails even though its PostScript name is the expected one, and so does a run whose font gives no `head` table."""
     _smoke(monkeypatch, tmp_path, _coretext_from(CHECKSUM + 1))
     assert coretext_smoke.main() == 1
     assert "an installed font with the same PostScript name" in capsys.readouterr().out

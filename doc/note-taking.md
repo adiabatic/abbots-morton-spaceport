@@ -12,7 +12,7 @@ Git holds the history. A checked-in note is justified only when it records one o
 | The user’s rationale for a rune decision | The rune’s `why:` field (never written by an agent)                      |
 | What a change did and why                | The commit message; multiline bodies are fine in this repository         |
 | An in-flight batch’s parked state        | One bounded progress file under `engine/`, deleted when the batch closes |
-| Evidence for a still-open decision       | `engine/evidence/` under the rules in its `README.md`                    |
+| Evidence for a still-open decision       | Beside the tool that reads it, under § Reconnaissance and evidence       |
 
 There is no `*-REPORT.md`. When a milestone is committed, its record is the commit history plus the runes’ `why:` fields. A report that restates counts, gate tallies, and edits duplicates what git already keeps.
 

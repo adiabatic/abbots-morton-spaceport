@@ -3,7 +3,6 @@ globs:
 
 ignores:
   - ".venv/**"
-  - "node_modules/**"
   - ".uv-cache/**"
   - "tmp/**"
   - "var/**"

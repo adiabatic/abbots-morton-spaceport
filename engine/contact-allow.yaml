@@ -1,5 +1,5 @@
 # Reviewed signatures of defect-gate findings that are accepted as correct (doc/engine-design.md §9). `run_build` loads the `signature` of every entry, and engine/pipeline/defects.py reports a finding whose signature is listed here as blessed instead of as an error. Each signature has the form defects.py builds for its gate: `contact:<left glyph>:<right glyph>:y<row>` or `:overlap` (E-CONTACT), `dangle:` (E-DANGLE), `unrealized:` (E-UNREALIZED), `anchor:` (E-ANCHOR), or `band:` (E-EXTENSION-BAND).
-# Most entries are E-CONTACT off-anchor contacts that the old font also draws on a join it also makes; an entry's `baseline row` names the window where the old font showed that join. The gate reports every off-junction row where a pair's ink sits side by side as its own `contact:…:y<row>` finding, whether or not the pair also overlaps, so a pair that touches at several rows needs one signature for each. The file is human-reviewed, and no pipeline step writes it. Nothing reports an entry whose finding no longer occurs.
+# Most entries are E-CONTACT off-anchor contacts that the old font also draws on a join it also makes. The old font is the Senior that `glyph_data/quikscript.yaml` built before the rune files replaced it, and an entry's `baseline row` or `baseline rows` names, by its code points (`E679:E670`), a window of the baseline tables, the record of what that font shaped for every text of up to four letters, where it showed that join. The font, its YAML, the baseline extractor (`rebuild/baseline/`) and the tables' format are in git history at commit `d23c0a87`. The gate reports every off-junction row where a pair's ink sits side by side as its own `contact:…:y<row>` finding, whether or not the pair also overlaps, so a pair that touches at several rows needs one signature for each. The file is human-reviewed, and no pipeline step writes it. Nothing reports an entry whose finding no longer occurs.
 # Agents write the `why:` fields in this file; the rule that only the user writes `why:` covers glyph_data/runes/qs*.yaml alone. Match the wording of the neighboring entries. The user reviews whether a signature belongs, not who wrote its `why:`.
 
 - signature: contact:qsOy.sole.ex-y0:qsIt.sole.en-y0:y1
@@ -112,7 +112,7 @@
 - signature: contact:qsPea.half.ex-y6.locked:qsPea.half.en-y6.ex-y6:y7
   why: ZWNJ-locked copy; the chain continues.
 
-# The old font joins ·It·(Day+Utter) at the baseline, into the half ligature (baseline row E670:E653:E67A, junctions y0,lig). These signatures are for an x-height join into the full ligature, where ·It's bar runs beside the ligature's ·Day downstroke on every row from y0 to y4. qsIt refuses its x-height exit before ·Day and ·Day+Utter, so the rebuild does not make this join either, and these entries match no current finding.
+# The old font joins ·It·(Day+Utter) at the baseline, into the half ligature (baseline row E670:E653:E67A, junctions y0,lig). These signatures are for an x-height join into the full ligature, where ·It's bar runs beside the ligature's ·Day downstroke on every row from y0 to y4. qsIt refuses its x-height exit before ·Day and ·Day+Utter, so the engine does not make this join either, and these entries match no current finding.
 - signature: contact:qsIt.sole.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-bind-pulled-back:y1
 - signature: contact:qsIt.sole.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y1
 - signature: contact:qsIt.sole.en-y0.ex-y5:qsDay_qsUtter.full.en-y5.ex-y5.ex-ext-1:y0
@@ -156,7 +156,7 @@
 - signature: contact:qsIt.sole.en-y5.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsIt.sole.en-y5.ex-y0:qsUtter.mono.en-y0:y1
 
-# The rebuild joins grounded-loop ·May to the half ·Day·Utter ligature at the baseline, a join the old font does not make (it joins ·May·(Day+Utter) at the x-height, as in the next block). ·May's descender and the ligature's ·Day descender sit side by side below the baseline.
+# The engine joins grounded-loop ·May to the half ·Day·Utter ligature at the baseline, a join the old font does not make (it joins ·May·(Day+Utter) at the x-height, as in the next block). ·May's descender and the ligature's ·Day descender sit side by side below the baseline.
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-bind-pulled-back:y-2
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-2
 - signature: contact:qsMay.grounded-loop.en-y5.ex-y0.en-ext-1:qsDay_qsUtter.half.en-y0.ex-y5.ex-ext-1:y-1
@@ -302,7 +302,7 @@
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsPea.full.en-y5.ex-y0.en-ext-1:qsUtter.mono.en-y0.ex-y5.ex-ext-1:y1
 
-# ·It·It joined at the baseline, with the left ·It entered at the baseline under ss04. The left ·It has no exit extension, so the two bars stand in adjacent columns and touch on every row above the junction, y1 through y5. With `ex-ext-1` the connector moves the next bar one column right, and the bars do not touch. qsIt refuses every ·It·It join, so the rebuild does not draw this pair and these entries match no current finding.
+# ·It·It joined at the baseline, with the left ·It entered at the baseline under ss04. The left ·It has no exit extension, so the two bars stand in adjacent columns and touch on every row above the junction, y1 through y5. With `ex-ext-1` the connector moves the next bar one column right, and the bars do not touch. qsIt refuses every ·It·It join, so the engine does not draw this pair and these entries match no current finding.
 - signature: contact:qsIt.sole.en-y0.ex-y0:qsIt.sole.en-y0:y1
 - signature: contact:qsIt.sole.en-y0.ex-y0:qsIt.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
@@ -726,9 +726,9 @@
 - signature: contact:qsTea.full.en-y5.ex-y0:qsRoe.sole.en-y0:y5
   why: Under ss03 an x-height exiter carries ·Tea's full bar down past the x-height and on into ·Roe at the baseline (ss03 baseline row E658:E652:E668, junctions y5,y0). ·Roe's upper arm starts in the column beside the bar at y5, the off-junction contact the old font draws there.
 - signature: contact:qsTea.full.en-y0.ex-y0:qsRoe.sole.en-y0:y5
-  why: The ss05 counterpart of the off-junction contact above (·Et·Tea·Roe, both baseline joins unlocked); the baseline-entered full bar has the same ink at y5. ·Roe's baseline entry contraction applies only when ·Roe exits onward, so a ·Roe with no exit is not contracted onto the bar. In the rebuild, a ·Roe with no exit after ·Tea takes qsRoe's one-pixel baseline entry extension instead, which leaves a blank column between the bar and the upper arm, so neither of these two entries matches a current finding.
+  why: The ss05 counterpart of the off-junction contact above (·Et·Tea·Roe, both baseline joins unlocked); the baseline-entered full bar has the same ink at y5. ·Roe's baseline entry contraction applies only when ·Roe exits onward, so a ·Roe with no exit is not contracted onto the bar. In the engine, a ·Roe with no exit after ·Tea takes qsRoe's one-pixel baseline entry extension instead, which leaves a blank column between the bar and the upper arm, so neither of these two entries matches a current finding.
 
-# ·It·Et and ·Low·Et join at the x-height in the old font (baseline rows E670:E672 and E667:E672, junction y5). The exiter's riser at y4 is one column left of ·Et's descending left edge, the same off-junction contact as the ·Low·Day and ·Low·It block above with ·Et as the follower. ·It's riser is a straight bar, so it touches ·Et at y3 as well. There is one signature per exiter variant (bare, entered, ZWNJ-locked), per ·Et exit variant, and per touching row; the onward baseline exit does not move the entry column. The entry-extended ·Et never follows these exiters, because qsEt extends its entry only after ·Pea, ·Tea, and ·He. qsIt refuses its x-height exit before ·Et, so the rebuild makes no ·It·Et join and the ·It entries match no current finding.
+# ·It·Et and ·Low·Et join at the x-height in the old font (baseline rows E670:E672 and E667:E672, junction y5). The exiter's riser at y4 is one column left of ·Et's descending left edge, the same off-junction contact as the ·Low·Day and ·Low·It block above with ·Et as the follower. ·It's riser is a straight bar, so it touches ·Et at y3 as well. There is one signature per exiter variant (bare, entered, ZWNJ-locked), per ·Et exit variant, and per touching row; the onward baseline exit does not move the entry column. The entry-extended ·Et never follows these exiters, because qsEt extends its entry only after ·Pea, ·Tea, and ·He. qsIt refuses its x-height exit before ·Et, so the engine makes no ·It·Et join and the ·It entries match no current finding.
 - signature: contact:qsIt.sole.ex-y5:qsEt.sole.en-y5:y4
 - signature: contact:qsIt.sole.ex-y5:qsEt.sole.en-y5:y3
   why: The pair in the `:y4` signature above also touches at y3, off the junction row.
@@ -1904,7 +1904,7 @@
 - signature: contact:qsGay.sole.ex-y5.locked:qsJay_qsUtter.sole.en-y5.ex-y5.ex-ext-1:y0
   why: The pair in the `:overlap` signature above also touches at y0, off the junction row.
 
-# ·It entered and exiting at the baseline under ss04, after ·Jay: ·It enters at the baseline off ·Jay's tick, and its bar stands beside ·Jay's slanted right side over several rows. The bar touches it at y3 and y4 on every form, and each form has a signature at both rows. Under ss04 the rebuild joins ·Jay·It only through the `ex-ext-1` ·Jay forms, whose connector leaves a blank column before the bar, so these entries match no current finding. The old font draws the same join under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A). At default the pair breaks and no contact arises.
+# ·It entered and exiting at the baseline under ss04, after ·Jay: ·It enters at the baseline off ·Jay's tick, and its bar stands beside ·Jay's slanted right side over several rows. The bar touches it at y3 and y4 on every form, and each form has a signature at both rows. Under ss04 the engine joins ·Jay·It only through the `ex-ext-1` ·Jay forms, whose connector leaves a blank column before the bar, so these entries match no current finding. The old font draws the same join under ss04 (baseline rows E65F:E670:E653 and E65F:E670:E67A). At default the pair breaks and no contact arises.
 - signature: contact:qsJay.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y0:y3
 - signature: contact:qsJay.sole.en-y5.ex-y0:qsIt.sole.en-y0.ex-y0:y4
   why: The pair in the `:y3` signature above also touches at y4, off the junction row.
@@ -1966,7 +1966,7 @@
 - signature: dangle:qsGay.sole.locked:exit:x-height
   why: The ZWNJ-locked copy of ·Gay's crown terminal; identical drawing.
 
-# These signatures are for a ·Gay ~x~ ·J'ai junction that extends only ·Gay's x-height exit, by two. That puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2. The contact is off-anchor because the junction is at y=5. The old font extends both sides by two (qsGay's `extend_exit_before` and qsJai's `extend_entry_after` in quikscript.yaml), which leaves a blank column between the loop and the curl (baseline rows E655:E65D and E655:E65D:E67A). qsGay extends its x-height exit by three before ·J'ai and ·J'ai+Utter, which draws the old font's composite, so the rebuild does not make this junction and these entries match no current finding. There is one signature per entry, exit, and lock variant on either side.
+# These signatures are for a ·Gay ~x~ ·J'ai junction that extends only ·Gay's x-height exit, by two. That puts the two Deep descenders side by side: the right side of ·Gay's loop abuts ·J'ai's descender curl at y=-2. The contact is off-anchor because the junction is at y=5. The old font extends both sides by two (qsGay's `extend_exit_before` and qsJai's `extend_entry_after` in quikscript.yaml), which leaves a blank column between the loop and the curl (baseline rows E655:E65D and E655:E65D:E67A). qsGay extends its x-height exit by three before ·J'ai and ·J'ai+Utter, which draws the old font's composite, so the engine does not make this junction and these entries match no current finding. There is one signature per entry, exit, and lock variant on either side.
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5:y-2
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5.ex-y0:y-2
 - signature: contact:qsGay.sole.en-y0.ex-y5.ex-ext-2:qsJai.sole.en-y5.ex-y0.ex-ext-1:y-2
@@ -2017,7 +2017,7 @@
 - signature: contact:qsThey.sole.ex-y5.locked:qsIt.sole.en-y5.ex-y0:y4
 - signature: contact:qsThey.sole.ex-y5.locked:qsIt.sole.en-y5.ex-y0.ex-ext-1:y4
 
-# Entered ·They lifts its hook to the baseline anchor from y=-1. Before a Deep follower whose foot also sits below the baseline (half-·Day or the half ·Day+Utter ligature), the hook's last pixel and that descender stand side by side one row under the y0 junction. The old font draws this off-junction contact in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A, whose composites are pixel-identical to the rebuild's). The gate checks each entry variant against each follower variant separately; all show the same off-junction contact.
+# Entered ·They lifts its hook to the baseline anchor from y=-1. Before a Deep follower whose foot also sits below the baseline (half-·Day or the half ·Day+Utter ligature), the hook's last pixel and that descender stand side by side one row under the y0 junction. The old font draws this off-junction contact in every such window (baseline rows E676:E657:E653 and E676:E657:E653:E67A, whose composites are pixel-identical to the engine's). The gate checks each entry variant against each follower variant separately; all show the same off-junction contact.
 - signature: contact:qsThey.sole.en-y5.ex-y0:qsDay.half.en-y0:y-1
 - signature: contact:qsThey.sole.en-y5.ex-y0:qsDay.half.en-y0.ex-y0:y-1
 - signature: contact:qsThey.sole.en-y5.ex-y0:qsDay_qsUtter.half.en-y0:y-1
@@ -2039,7 +2039,7 @@
 - signature: dangle:qsThey_qsUtter.sole.locked:exit:x-height
   why: The ZWNJ-locked copy of the ligature's crown terminal; identical drawing.
 
-# The old font's `en-ext-1` on ·They after ·I adds its pixel on ·I's own last column, so its `·I ~x~ ·They` and `·I ~x~ ·They+Utter` abut with no connector and draw this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The old font draws this off-junction contact in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A), and the rebuild's `·I ~x~ ·They+Utter` composite is pixel-identical to it. Before an unligated ·They, qsI extends its x-height exit by one, which leaves a blank column at y3, so the entries whose right cell is a qsThey.sole cell match no current finding. The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately.
+# The old font's `en-ext-1` on ·They after ·I adds its pixel on ·I's own last column, so its `·I ~x~ ·They` and `·I ~x~ ·They+Utter` abut with no connector and draw this composite: ·I's loop, which swings back left below the x-height, stands one column from ·They's down-stroke at y3, two rows under the y5 junction. The old font draws this off-junction contact in every ·I·They and ·I·They+Utter window (baseline rows E675:E657 and E675:E657:E67A), and the engine's `·I ~x~ ·They+Utter` composite is pixel-identical to it. Before an unligated ·They, qsI extends its x-height exit by one, which leaves a blank column at y3, so the entries whose right cell is a qsThey.sole cell match no current finding. The gate checks each ·I stance, entry, and lock variant against each entered ·They and ligature cell separately.
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.sole.en-y5:y3
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey.sole.en-y5.ex-y0:y3
 - signature: contact:qsI.loop.en-y0.ex-y5:qsThey_qsUtter.sole.en-y5:y3
@@ -2291,7 +2291,7 @@
 - signature: dangle:qsWay_qsUtter.sole:exit:x-height
   why: The ·Way·Utter ligature's crown terminal (·Utter's nub at y5), drawn unconditionally in the old font; the declined exit keeps it.
 
-# ·Way's x-height exit against a follower whose x-height entry starts a downstroke, the off-junction contact of the ·Low·Day, ·Low·It, and ·Low·Et blocks above with ·Way as the exiter. ·Way·Day, ·Way·Day·Utter, ·Way·Et, and ·Way·It join at the x-height in the old font (baseline rows E661:E653, E661:E653:E67A, E661:E672, and E661:E670, junction y5). The top of ·Way's stroke is upright for two rows, so its pixel at y4 is one column left of the follower's downstroke; the old font places the same anchors with no adjustment, and those composites are pixel-identical to the rebuild's. ·Way has no entry, so it has no entered or ZWNJ-locked variant. There is one signature per follower variant; the follower's onward exits, its exit extension, and ·Et's exit contraction before ·May do not move its entry column.
+# ·Way's x-height exit against a follower whose x-height entry starts a downstroke, the off-junction contact of the ·Low·Day, ·Low·It, and ·Low·Et blocks above with ·Way as the exiter. ·Way·Day, ·Way·Day·Utter, ·Way·Et, and ·Way·It join at the x-height in the old font (baseline rows E661:E653, E661:E653:E67A, E661:E672, and E661:E670, junction y5). The top of ·Way's stroke is upright for two rows, so its pixel at y4 is one column left of the follower's downstroke; the old font places the same anchors with no adjustment, and those composites are pixel-identical to the engine's. ·Way has no entry, so it has no entered or ZWNJ-locked variant. There is one signature per follower variant; the follower's onward exits, its exit extension, and ·Et's exit contraction before ·May do not move its entry column.
 - signature: contact:qsWay.full.ex-y5:qsDay.full.en-y5:y4
 - signature: contact:qsWay.full.ex-y5:qsDay.full.en-y5.ex-y0:y4
 - signature: contact:qsWay.full.ex-y5:qsDay_qsUtter.full.en-y5:y4
@@ -2304,7 +2304,7 @@
 - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0:y4
 - signature: contact:qsWay.full.ex-y5:qsIt.sole.en-y5.ex-y0.ex-ext-1:y4
 
-# ·He's baseline entry sits on the foot of its stem, so a Short left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: the bowl or tail beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature), the off-junction contact of the ·Ye block above. The old font places the same anchors with no adjustment (baseline rows E67E:E662, E678:E662, E679:E662, E652:E679:E662), and those composites are pixel-identical to the rebuild's. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
+# ·He's baseline entry sits on the foot of its stem, so a Short left letter joining at the baseline puts its last column against the stem, and the two bodies stand side by side above the junction: the bowl or tail beside the stem at y1 (·Ox, and ·Oy with no entry) or at y1 and y2 (·Ooze, the entered ·Oy, and the ·Tea·Oy ligature), the off-junction contact of the ·Ye block above. The old font places the same anchors with no adjustment (baseline rows E67E:E662, E678:E662, E679:E662, E652:E679:E662), and those composites are pixel-identical to the engine's. There is one signature per left entry, adjustment, and lock variant and per touching row; the junction is identical in all of them.
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsHe.full.en-y0:y1
 - signature: contact:qsOoze.sole.en-y0.ex-y0:qsHe.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
@@ -2327,7 +2327,7 @@
 - signature: contact:qsTea_qsOy.sole.ex-y0:qsHe.full.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
 
-# ·He's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the junction: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2. The old font places the same anchors with no adjustment (baseline rows E662:E67A, E662:E67B, E662:E67E, E662:E67B:E652), and those composites are pixel-identical to the rebuild's. There is one signature per ·He lock variant, per follower exit variant, and per touching row; the junction is identical in all of them.
+# ·He's baseline exit is one column right of its stem, so a baseline follower's left edge stands beside the stem where it rises from the junction: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out, and the ·Out·Tea ligature at y1 and y2. The old font places the same anchors with no adjustment (baseline rows E662:E67A, E662:E67B, E662:E67E, E662:E67B:E652), and those composites are pixel-identical to the engine's. There is one signature per ·He lock variant, per follower exit variant, and per touching row; the junction is identical in all of them.
 - signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0:y1
 - signature: contact:qsHe.full.ex-y0:qsOoze.sole.en-y0:y2
   why: The pair in the `:y1` signature above also touches at y2, off the junction row.
@@ -2411,7 +2411,7 @@
 - signature: contact:qsWay.full.ex-y5:qsLlan.sole.en-y5:y4
 - signature: contact:qsWay.full.ex-y5:qsLlan.sole.en-y5.ex-y0:y4
 
-# ·Eat's baseline entry starts a vertical two rows tall at its left edge, so a predecessor whose stroke rises vertically into the baseline junction stands one column from it at y1: the bar of ·Tea, ·It or the full ·Pea, the tail of ·Ox, ·Oy or ·Tea+Oy, ·Ooze's right leg, the stem of ·Ye or ·He, and the right stroke of ·Eat, ·Day+Eat or ·See+Eat. The old font joins each of these pairs at the baseline (baseline rows E652:E671, E670:E671, E650:E671, E678:E671, E679:E671, E652:E679:E671, E67E:E671, E660:E671, E662:E671, E671:E671, E653:E671:E671 and E65A:E671:E671, junction y0) and places the same anchors with no adjustment, so those composites are pixel-identical to the rebuild's. There is one signature per predecessor variant and per ·Eat cell; entry, lock and onward-exit adjustments do not move the off-junction contact.
+# ·Eat's baseline entry starts a vertical two rows tall at its left edge, so a predecessor whose stroke rises vertically into the baseline junction stands one column from it at y1: the bar of ·Tea, ·It or the full ·Pea, the tail of ·Ox, ·Oy or ·Tea+Oy, ·Ooze's right leg, the stem of ·Ye or ·He, and the right stroke of ·Eat, ·Day+Eat or ·See+Eat. The old font joins each of these pairs at the baseline (baseline rows E652:E671, E670:E671, E650:E671, E678:E671, E679:E671, E652:E679:E671, E67E:E671, E660:E671, E662:E671, E671:E671, E653:E671:E671 and E65A:E671:E671, junction y0) and places the same anchors with no adjustment, so those composites are pixel-identical to the engine's. There is one signature per predecessor variant and per ·Eat cell; entry, lock and onward-exit adjustments do not move the off-junction contact.
 - signature: contact:qsDay_qsEat.full.en-y5.ex-y0:qsEat.sole.en-y0.ex-y0.ex-ext-1:y1
 - signature: contact:qsDay_qsEat.full.en-y5.ex-y0:qsEat.sole.en-y0.ex-y0:y1
 - signature: contact:qsDay_qsEat.full.en-y5.ex-y0:qsEat.sole.en-y0:y1
@@ -2527,7 +2527,7 @@
 - signature: contact:qsYe.loop.ex-y0:qsEat.sole.en-y0.ex-y0:y1
 - signature: contact:qsYe.loop.ex-y0:qsEat.sole.en-y0:y1
 
-# ·Eat's baseline exit is one column right of its vertical right stroke, which ·Day+Eat and ·See+Eat end in too, so a baseline follower's left edge stands beside that stroke where it rises from the junction: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out and the ·Out+Tea ligature at y1 and y2, as beside ·Ye's and ·He's stems above. The old font joins each of these pairs at the baseline (baseline rows E671:E67A, E671:E67B, E671:E67E, E671:E67B:E652, E653:E671:E67A, E653:E671:E67B, E653:E671:E67E, E65A:E671:E67A and E65A:E671:E67E, junction y0), and those composites are pixel-identical to the rebuild's. There is one signature per exiter variant, per follower variant and per touching row.
+# ·Eat's baseline exit is one column right of its vertical right stroke, which ·Day+Eat and ·See+Eat end in too, so a baseline follower's left edge stands beside that stroke where it rises from the junction: ·Utter and the normal ·Out at y1, and ·Ooze, the swept-up ·Out and the ·Out+Tea ligature at y1 and y2, as beside ·Ye's and ·He's stems above. The old font joins each of these pairs at the baseline (baseline rows E671:E67A, E671:E67B, E671:E67E, E671:E67B:E652, E653:E671:E67A, E653:E671:E67B, E653:E671:E67E, E65A:E671:E67A and E65A:E671:E67E, junction y0), and those composites are pixel-identical to the engine's. There is one signature per exiter variant, per follower variant and per touching row.
 - signature: contact:qsDay_qsEat.full.en-y5.ex-y0:qsOoze.sole.en-y0.ex-y0:y1
 - signature: contact:qsDay_qsEat.full.en-y5.ex-y0:qsOoze.sole.en-y0.ex-y0:y2
 - signature: contact:qsDay_qsEat.full.en-y5.ex-y0:qsOoze.sole.en-y0:y1
@@ -2641,7 +2641,7 @@
 - signature: contact:qsSee_qsEat.sole.ex-y0:qsUtter.mono.en-y0.ex-y5:y1
 - signature: contact:qsSee_qsEat.sole.ex-y0:qsUtter.mono.en-y0:y1
 
-# ·Day+Eat enters as ·Day+Utter does: the full ligature at the x-height with ·Day's downstroke, and the half at the baseline with ·Day's foot hook. These are the blessed contacts of ·At, ·Low and ·Way against the full ·Day and ·Day+Utter, and of ·Zoo, ·They, ·They+Zoo and the grounded-loop ·May against the half ·Day and ·Day+Utter (the blocks above), with ·Day+Eat as the follower. The old font draws `·{At,Low,Way} ~x~ ·Day+Eat`, `·Zoo ~b~ ·Day+Eat.half` and `·{I,Ah} ~x~ ·They ~b~ ·Day+Eat.half` (baseline rows E674:E653:E671, E667:E653:E671, E661:E653:E671, E65B:E653:E671 and E675:E657:E653:E671); the joins from ·They+Zoo and the grounded-loop ·May into the half ligature are the rebuild's, as into the half ·Day+Utter. There is one signature per predecessor variant, per ligature cell and per touching row; the ligature's onward exit leaves its entry ink where it is.
+# ·Day+Eat enters as ·Day+Utter does: the full ligature at the x-height with ·Day's downstroke, and the half at the baseline with ·Day's foot hook. These are the blessed contacts of ·At, ·Low and ·Way against the full ·Day and ·Day+Utter, and of ·Zoo, ·They, ·They+Zoo and the grounded-loop ·May against the half ·Day and ·Day+Utter (the blocks above), with ·Day+Eat as the follower. The old font draws `·{At,Low,Way} ~x~ ·Day+Eat`, `·Zoo ~b~ ·Day+Eat.half` and `·{I,Ah} ~x~ ·They ~b~ ·Day+Eat.half` (baseline rows E674:E653:E671, E667:E653:E671, E661:E653:E671, E65B:E653:E671 and E675:E657:E653:E671); the joins from ·They+Zoo and the grounded-loop ·May into the half ligature are the engine's, as into the half ·Day+Utter. There is one signature per predecessor variant, per ligature cell and per touching row; the ligature's onward exit leaves its entry ink where it is.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y3
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsEat.full.en-y5.ex-y0.ex-ext-1:y4
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsDay_qsEat.full.en-y5.ex-y0:y3
@@ -2712,7 +2712,7 @@
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsDay_qsEat.half.en-y0.ex-y0:y-1
 - signature: contact:qsZoo.half.en-y0.ex-y0:qsDay_qsEat.half.en-y0:y-1
 
-# ·Foot's x-height entry starts a vertical three rows tall at its left edge, y3 through y5, so a predecessor whose stroke rises vertically into the x-height junction stands one column from it: the rising ·At's right stroke and ·It's bar at y3 and y4, and ·Low's, ·They's and the full ·Way's rising strokes at y4. The old font joins each of these pairs at the x-height (baseline rows E674:E67D, E670:E67D, E667:E67D, E657:E67D and E661:E67D, junction y5) and places the same anchors with no adjustment, so those composites are pixel-identical to the rebuild's. There is one signature per predecessor variant, per ·Foot cell and per touching row; entry, lock and onward-exit adjustments do not move the off-junction contact.
+# ·Foot's x-height entry starts a vertical three rows tall at its left edge, y3 through y5, so a predecessor whose stroke rises vertically into the x-height junction stands one column from it: the rising ·At's right stroke and ·It's bar at y3 and y4, and ·Low's, ·They's and the full ·Way's rising strokes at y4. The old font joins each of these pairs at the x-height (baseline rows E674:E67D, E670:E67D, E667:E67D, E657:E67D and E661:E67D, junction y5) and places the same anchors with no adjustment, so those composites are pixel-identical to the engine's. There is one signature per predecessor variant, per ·Foot cell and per touching row; entry, lock and onward-exit adjustments do not move the off-junction contact.
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsFoot.sole.en-y5.ex-y5.ex-ext-1:y3
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsFoot.sole.en-y5.ex-y5.ex-ext-1:y4
 - signature: contact:qsAt.rising.en-y0.ex-y5.en-ext-1:qsFoot.sole.en-y5.ex-y5:y3
@@ -2780,7 +2780,7 @@
 - signature: contact:qsWay.full.ex-y5:qsFoot.sole.en-y5.ex-y5:y4
 - signature: contact:qsWay.full.ex-y5:qsFoot.sole.en-y5:y4
 
-# ·Foot's x-height exit is one column right of its vertical right arm, y3 through y5, so an x-height follower whose left edge drops vertically from the junction stands beside it: the full ·Day's downstroke, which the full ·Day+Eat and ·Day+Utter enter with too, ·Et's left side, ·It's bar and a second ·Foot's left arm at y3 and y4, and ·Llan's left side at y4. The old font joins each of these pairs at the x-height (baseline rows E67D:E653, E67D:E653:E671, E67D:E653:E67A, E67D:E672, E67D:E670, E67D:E67D and E67D:E66A, junction y5), and those composites are pixel-identical to the rebuild's. There is one signature per ·Foot variant, per follower variant and per touching row.
+# ·Foot's x-height exit is one column right of its vertical right arm, y3 through y5, so an x-height follower whose left edge drops vertically from the junction stands beside it: the full ·Day's downstroke, which the full ·Day+Eat and ·Day+Utter enter with too, ·Et's left side, ·It's bar and a second ·Foot's left arm at y3 and y4, and ·Llan's left side at y4. The old font joins each of these pairs at the x-height (baseline rows E67D:E653, E67D:E653:E671, E67D:E653:E67A, E67D:E672, E67D:E670, E67D:E67D and E67D:E66A, junction y5), and those composites are pixel-identical to the engine's. There is one signature per ·Foot variant, per follower variant and per touching row.
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0.ex-con-1:y3
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0.ex-con-1:y4
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsDay.full.en-y5.ex-y0:y3
@@ -2960,7 +2960,7 @@
 - signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5:y3
 - signature: contact:qsFoot.sole.ex-y5:qsTea.full.en-y5:y4
 
-# ·Exam's left column carries ink at y4 and y5 above its baseline entry, so the grounded ·May, whose x-height stroke ends in the rightmost column of its top row, touches ·Exam's top-left corner at y5 when the two join at the baseline. The old font joins this pair at the baseline (baseline rows E665:E66C and 200C:E665:E66C, junction y0) with the same bitmap and anchors (`qsMay.ex-y0` exits at x=4 and ·Exam enters at x=0), so the composite is pixel-identical to the rebuild's. There is one signature per ·May variant; the lock does not move the off-junction contact.
+# ·Exam's left column carries ink at y4 and y5 above its baseline entry, so the grounded ·May, whose x-height stroke ends in the rightmost column of its top row, touches ·Exam's top-left corner at y5 when the two join at the baseline. The old font joins this pair at the baseline (baseline rows E665:E66C and 200C:E665:E66C, junction y0) with the same bitmap and anchors (`qsMay.ex-y0` exits at x=4 and ·Exam enters at x=0), so the composite is pixel-identical to the engine's. There is one signature per ·May variant; the lock does not move the off-junction contact.
 - signature: contact:qsMay.grounded-loop.ex-y0.locked:qsExam.sole.en-y0:y5
 - signature: contact:qsMay.grounded-loop.ex-y0:qsExam.sole.en-y0:y5
 
@@ -2972,7 +2972,7 @@
 - signature: dangle:qsOwe.sole:exit:x-height
   why: ·Owe's closed ring, whose top ends at x=3 and turns down the right side; the old font draws it whether or not the exit joins.
 
-# A doubled ·Owe joined at the x-height sets the second ring's left column (x=0) directly beside the first ring's right column (x=4), because ·Owe exits at x=5 and enters at x=0, so the two rings touch side by side on y1–y3 below the junction at y5. The old font joins ·Owe·Owe at the x-height (baseline row E67C:E67C, junction y5) with the same bitmaps and anchors (`qsOwe.ex-y5` exits at x=5, `qsOwe.en-y5` enters at x=0), so the composite is pixel-identical to the rebuild's. There is one signature per entry, exit-extension and lock variant of the two sides.
+# A doubled ·Owe joined at the x-height sets the second ring's left column (x=0) directly beside the first ring's right column (x=4), because ·Owe exits at x=5 and enters at x=0, so the two rings touch side by side on y1–y3 below the junction at y5. The old font joins ·Owe·Owe at the x-height (baseline row E67C:E67C, junction y5) with the same bitmaps and anchors (`qsOwe.ex-y5` exits at x=5, `qsOwe.en-y5` enters at x=0), so the composite is pixel-identical to the engine's. There is one signature per entry, exit-extension and lock variant of the two sides.
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y1
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y2
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
@@ -3010,7 +3010,7 @@
 - signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5:y2
 - signature: contact:qsOwe.sole.ex-y5:qsOwe.sole.en-y5:y3
 
-# ·Owe joined to ·Et at the x-height sets ·Et's left side directly beside ·Owe's right column at y3. The old font joins this pair at the x-height (baseline row E67C:E672, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Owe and ·Et variant.
+# ·Owe joined to ·Et at the x-height sets ·Et's left side directly beside ·Owe's right column at y3. The old font joins this pair at the x-height (baseline row E67C:E672, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the engine's. There is one signature per ·Owe and ·Et variant.
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsEt.sole.en-y5.ex-y0.ex-con-1:y3
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsEt.sole.en-y5.ex-y0:y3
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsEt.sole.en-y5:y3
@@ -3021,7 +3021,7 @@
 - signature: contact:qsOwe.sole.ex-y5:qsEt.sole.en-y5.ex-y0:y3
 - signature: contact:qsOwe.sole.ex-y5:qsEt.sole.en-y5:y3
 
-# ·Owe joined to ·Foot at the x-height sets ·Foot's left side directly beside ·Owe's right column at y3. The old font joins this pair at the x-height (baseline row E67C:E67D, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Owe and ·Foot variant.
+# ·Owe joined to ·Foot at the x-height sets ·Foot's left side directly beside ·Owe's right column at y3. The old font joins this pair at the x-height (baseline row E67C:E67D, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the engine's. There is one signature per ·Owe and ·Foot variant.
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsFoot.sole.en-y5.ex-y5:y3
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsFoot.sole.en-y5:y3
 - signature: contact:qsOwe.sole.ex-y5.locked:qsFoot.sole.en-y5.ex-y5:y3
@@ -3029,7 +3029,7 @@
 - signature: contact:qsOwe.sole.ex-y5:qsFoot.sole.en-y5.ex-y5:y3
 - signature: contact:qsOwe.sole.ex-y5:qsFoot.sole.en-y5:y3
 
-# ·Foot joined to ·Owe at the x-height sets ·Owe's left column directly beside ·Foot's right side at y3. The old font joins this pair at the x-height (baseline row E67D:E67C, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the rebuild's. There is one signature per ·Foot and ·Owe variant.
+# ·Foot joined to ·Owe at the x-height sets ·Owe's left column directly beside ·Foot's right side at y3. The old font joins this pair at the x-height (baseline row E67D:E67C, junction y5) with the same bitmaps and anchors, so the composite is pixel-identical to the engine's. There is one signature per ·Foot and ·Owe variant.
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-1:y3
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5.ex-ext-2:y3
 - signature: contact:qsFoot.sole.en-y5.ex-y5.en-ext-1:qsOwe.sole.en-y5.ex-y5:y3
@@ -3047,7 +3047,7 @@
 - signature: contact:qsFoot.sole.ex-y5:qsOwe.sole.en-y5.ex-y5:y3
 - signature: contact:qsFoot.sole.ex-y5:qsOwe.sole.en-y5:y3
 
-# Under ss07, ·Owe joined to ·Day at the x-height sets ·Day's left side directly beside ·Owe's right column on y1–y3 below the junction at y5, and ·Day+Utter and ·Day+Eat begin with the same ·Day stroke. The old font joins these under ss07 (baseline rows E67C:E653, E67C:E653:E67A and E67C:E653:E671 in ss07, junction y5, `qsOwe.ex-y5.before-day`) with the same bitmaps and anchors, so each composite is pixel-identical to the rebuild's. There is one signature per ·Owe and ·Day variant.
+# Under ss07, ·Owe joined to ·Day at the x-height sets ·Day's left side directly beside ·Owe's right column on y1–y3 below the junction at y5, and ·Day+Utter and ·Day+Eat begin with the same ·Day stroke. The old font joins these under ss07 (baseline rows E67C:E653, E67C:E653:E67A and E67C:E653:E671 in ss07, junction y5, `qsOwe.ex-y5.before-day`) with the same bitmaps and anchors, so each composite is pixel-identical to the engine's. There is one signature per ·Owe and ·Day variant.
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y1
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y2
 - signature: contact:qsOwe.sole.en-y5.ex-y5:qsDay.full.en-y5.ex-y0.ex-con-1:y3

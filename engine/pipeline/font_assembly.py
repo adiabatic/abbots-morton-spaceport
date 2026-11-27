@@ -1,6 +1,6 @@
-"""Assemble one pixel font from glyph records with fontTools' FontBuilder: the generic font assembly the rebuild's builds call, `engine/pipeline/compile_font.py` for Senior and `engine/pipeline/build_family.py` for Mono and Junior.
+"""Assemble one pixel font from glyph records with fontTools' FontBuilder: the generic font assembly the engine's builds call, `engine/pipeline/compile_font.py` for Senior and `engine/pipeline/build_family.py` for Mono and Junior.
 
-`build_font` takes a font's records (`glyph_records.GlyphData`, as `load_glyph_data` reads the glyph files and the rebuild hands in its own beside them) and a variant, `mono`, `junior` or `senior`, and returns the unsaved TTFont: the glyph order and cmap, the outlines and metrics, the name, OS/2, post, gasp and head tables, and the layout. Mono bundles Departure Mono's glyphs and copies its GDEF, GSUB and GPOS. Junior and Senior compile the Latin `kern`, `ccmp` and `mark` features the records give, then the caller's Quikscript feature code (`quikscript_fea`), and Senior trims a pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening).
+`build_font` takes a font's records (`glyph_records.GlyphData`, as `load_glyph_data` reads the glyph files and the Senior compile hands in the runes' own beside them) and a variant, `mono`, `junior` or `senior`, and returns the unsaved TTFont: the glyph order and cmap, the outlines and metrics, the name, OS/2, post, gasp and head tables, and the layout. Mono bundles Departure Mono's glyphs and copies its GDEF, GSUB and GPOS. Junior and Senior compile the Latin `kern`, `ccmp` and `mark` features the records give, then the caller's Quikscript feature code (`quikscript_fea`), and Senior trims a pixel from the advance of every glyph whose name starts with `qs` or `uniE6` (the Senior tightening).
 
 Each glyph's outline is the union of one rectangle per filled pixel, traced into contours that neither overlap nor share an edge, with outer contours counter-clockwise and holes clockwise (`union_contours`). Bold draws each pixel's rectangle 1.5 pixels wide, extended half a pixel to the right. The pixel grid, advance widths, kerning, and anchors are the same as Regular.
 """
@@ -42,7 +42,7 @@ def load_postscript_glyph_names() -> dict[str, int]:
 
 # The top-level keys a glyph file's document may carry.
 _GLYPH_FILE_KEYS = frozenset({"metadata", "glyphs", "kerning"})
-# The YAML files in glyph_data/ that are not glyph files: the rebuild's registry, which engine/pipeline/spec_load.py reads (`DEFAULT_REGISTRY_PATH`). A directory load leaves them out by name, as `fingerprint.font_data_paths` does.
+# The YAML files in glyph_data/ that are not glyph files: the registry, which engine/pipeline/spec_load.py reads (`DEFAULT_REGISTRY_PATH`). A directory load leaves them out by name, as `fingerprint.font_data_paths` does.
 NON_GLYPH_FILE_NAMES = frozenset({"script.yaml"})
 
 

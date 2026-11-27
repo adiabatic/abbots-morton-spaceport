@@ -110,17 +110,13 @@ def table_build_booking_bytes(
 
 
 def kernel_threads_default(
-    *,
-    configs: int,
-    coresident_bytes: float = 0,
-    total_bytes: int | None = None,
-    from_scratch: bool = False,
+    *, configs: int, total_bytes: int | None = None, from_scratch: bool = False
 ) -> int:
-    """The number of table-build worker slots this machine has memory for, for a build of `configs` configurations: the widest width up to `configs` whose `table_build_booking_bytes` fits the machine's memory, less the reserve `memory_budget` states and less `coresident_bytes`, floored at one. `AMS_KERNEL_THREADS` overrides the arithmetic whenever it is set. Each slot runs one delta configuration, and `default`'s fold preparation takes one of them when the wave starts. So the width is `configs` when the whole wave fits, with `default`'s preparation in a slot of its own; otherwise it is `memory_budget.how_many_fit` over `DELTA_SLOT_BYTES`, with `DEFAULT_MEMO_BYTES` and a `PARKED_FOLD_BYTES` per configuration taken off first, capped at the delta count, where the preparation's slot passes to a delta once the preparation ends. `from_scratch` is for a build in which every configuration enumerates from scratch (a set without `default`, which `run_build.build_tables` passes it for, or `default_memo_sharing=False`): its divisor is `SCRATCH_PEAK_BYTES` less `PARKED_FOLD_BYTES`, capped at `configs`. A stated `AMS_KERNEL_THREADS` below the configuration count still parks every configuration's product and reads every one back at the rendezvous, so a width of one does not bound the peak near one delta. The rendezvous (`READ_BACK_FOLD_BYTES` for each configuration) is the same at every width, so a machine whose memory it does not fit fits no width's booking, and the division still gives that machine the widest width whose wave fits below the configuration count, since a narrower one holds the same rendezvous.
+    """The number of table-build worker slots this machine has memory for, for a build of `configs` configurations: the widest width up to `configs` whose `table_build_booking_bytes` fits the machine's memory, less the reserve `memory_budget` states, floored at one. `AMS_KERNEL_THREADS` overrides the arithmetic whenever it is set. Each slot runs one delta configuration, and `default`'s fold preparation takes one of them when the wave starts. So the width is `configs` when the whole wave fits, with `default`'s preparation in a slot of its own; otherwise it is `memory_budget.how_many_fit` over `DELTA_SLOT_BYTES`, with `DEFAULT_MEMO_BYTES` and a `PARKED_FOLD_BYTES` per configuration taken off first, capped at the delta count, where the preparation's slot passes to a delta once the preparation ends. `from_scratch` is for a build in which every configuration enumerates from scratch (a set without `default`, which `run_build.build_tables` passes it for, or `default_memo_sharing=False`): its divisor is `SCRATCH_PEAK_BYTES` less `PARKED_FOLD_BYTES`, capped at `configs`. A stated `AMS_KERNEL_THREADS` below the configuration count still parks every configuration's product and reads every one back at the rendezvous, so a width of one does not bound the peak near one delta. The rendezvous (`READ_BACK_FOLD_BYTES` for each configuration) is the same at every width, so a machine whose memory it does not fit fits no width's booking, and the division still gives that machine the widest width whose wave fits below the configuration count, since a narrower one holds the same rendezvous.
 
     A stated width is floored at one and not capped here, because the configuration count and the usable cores are not memory facts. `run_build._table_build_threads` and the cycle's `artifact_cycle.kernel_threads_budget` apply those caps; this module cannot name `conform.SETTLEMENT_CONFIGS`, since `conform` imports it. A value that is not a bare count (a typo, a `GB` suffix, an empty variable) raises instead of falling back to the arithmetic. `AMS_TOTAL_MEMORY_BYTES` ignores such a value, because it only reproduces another machine. This variable is what someone sets to keep a build out of swap, and a width they did not ask for defeats that. `total_bytes` is a keyword so a test can compute the width for an invented machine. The alternative, `importlib.reload`, re-runs module scope, resets `_BUILT` and deletes the live `_SPEC_DUMPS` directories under a caller still holding a `spec_path`. `configs` comes from the caller for the same reason, so no width is computed at import.
 
-    `coresident_bytes` is for a caller that runs the fan-out beside something else: the artifact cycle, whose pytest pool runs for the whole table build. Those bytes come off the machine with the reserve, so the width fits the machine the fan-out will run on. `AMS_KERNEL_THREADS` still overrides it, because nothing derived here may narrow a stated width. A bare `run_build` has nothing beside it and passes `0`. Callers use this function instead of calling `how_many_fit` themselves, which would duplicate the override branch.
+    Nothing runs beside the fan-out, a cycle's table build included, since gate:make-test starts only once the build gate has passed. Callers use this function instead of calling `how_many_fit` themselves, which would duplicate the override branch.
     """
     stated = os.environ.get("AMS_KERNEL_THREADS")
     if stated is not None:
@@ -131,7 +127,7 @@ def kernel_threads_default(
                 f"AMS_KERNEL_THREADS={stated!r} is not a width: it takes a bare decimal count of configurations to hold in flight, and leaving it unset is what asks for the width this machine's own memory derives."
             ) from None
     total = memory_budget.total_memory_bytes() if total_bytes is None else int(total_bytes)
-    usable = total - memory_budget.os_reserve_bytes(total_bytes=total) - max(0, int(coresident_bytes))
+    usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
     if not from_scratch and table_build_booking_bytes(configs, configs=configs) <= usable:
         return configs
     per_slot, cap = (
@@ -139,25 +135,20 @@ def kernel_threads_default(
     )
     return memory_budget.how_many_fit(
         per_slot,
-        coresident_bytes=DEFAULT_MEMO_BYTES + configs * PARKED_FOLD_BYTES + coresident_bytes,
+        coresident_bytes=DEFAULT_MEMO_BYTES + configs * PARKED_FOLD_BYTES,
         cap=cap,
         total_bytes=total,
     )
 
 
 def deltas_from_scratch(
-    width: int,
-    *,
-    configs: int,
-    coresident_bytes: float = 0,
-    total_bytes: int | None = None,
-    from_scratch: bool = False,
+    width: int, *, configs: int, total_bytes: int | None = None, from_scratch: bool = False
 ) -> int:
-    """At most how many of the deltas a table build of `configs` configurations at `width` worker slots enumerates from scratch beside `default`, the `scratch_beside_default` `run_build.build_tables` passes `build_table_files`. The crate takes them heaviest first (`fanout::delta_worklist`), so the count is all this decides: it is the largest count, up to the delta count and one less than `width`, at which the build's booking (`table_build_booking_bytes`) fits the machine's memory, less the reserve `memory_budget` states and less `coresident_bytes`. Every count is tried, not only those below the first that misses, because the booking can fall at the last one: while a delta is left to read `default`'s memo, `default`'s start books `UNCAPPED_SCRATCH_PEAK_BYTES`, and with every delta from scratch it books one `SCRATCH_PEAK_BYTES` instead, so every delta can fit where one fewer does not. The crate starts them only in whole tiers of equal unlocking-rune count up to that bound (`fanout::scratch_tiers`), because a delta left tied with one taken still runs after `default` as long as the one taken would have, while `default` enumerates more slowly beside them; where it starts fewer, the booking at this count errs high. The width is decided first and never narrowed by this, so a machine whose width memory sets runs every delta over `default`'s memo unless what that width leaves over holds the from-scratch peaks. The count trades memory and CPU for wall time, since a delta enumerated from scratch traces all of its windows instead of waiting for `default`'s memo, and memory alone decides it (`SCRATCH_PEAK_BYTES` gives the measured trade). A stated width is judged the same way. A from-scratch build has nothing to start beside `default`, so it answers zero. `coresident_bytes` and `total_bytes` mean what they mean for `kernel_threads_default`."""
+    """At most how many of the deltas a table build of `configs` configurations at `width` worker slots enumerates from scratch beside `default`, the `scratch_beside_default` `run_build.build_tables` passes `build_table_files`. The crate takes them heaviest first (`fanout::delta_worklist`), so the count is all this decides: it is the largest count, up to the delta count and one less than `width`, at which the build's booking (`table_build_booking_bytes`) fits the machine's memory, less the reserve `memory_budget` states. Every count is tried, not only those below the first that misses, because the booking can fall at the last one: while a delta is left to read `default`'s memo, `default`'s start books `UNCAPPED_SCRATCH_PEAK_BYTES`, and with every delta from scratch it books one `SCRATCH_PEAK_BYTES` instead, so every delta can fit where one fewer does not. The crate starts them only in whole tiers of equal unlocking-rune count up to that bound (`fanout::scratch_tiers`), because a delta left tied with one taken still runs after `default` as long as the one taken would have, while `default` enumerates more slowly beside them; where it starts fewer, the booking at this count errs high. The width is decided first and never narrowed by this, so a machine whose width memory sets runs every delta over `default`'s memo unless what that width leaves over holds the from-scratch peaks. The count trades memory and CPU for wall time, since a delta enumerated from scratch traces all of its windows instead of waiting for `default`'s memo, and memory alone decides it (`SCRATCH_PEAK_BYTES` gives the measured trade). A stated width is judged the same way. A from-scratch build has nothing to start beside `default`, so it answers zero. `coresident_bytes` and `total_bytes` mean what they mean for `kernel_threads_default`."""
     if from_scratch:
         return 0
     total = memory_budget.total_memory_bytes() if total_bytes is None else int(total_bytes)
-    usable = total - memory_budget.os_reserve_bytes(total_bytes=total) - max(0, int(coresident_bytes))
+    usable = total - memory_budget.os_reserve_bytes(total_bytes=total)
     return max(
         (
             count
@@ -183,10 +174,10 @@ def describe_kernel_threads(*, configs: int, total_bytes: int | None = None) -> 
     )
 
 
-def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | None = None) -> int:
+def replay_threads_default(*, total_bytes: int | None = None) -> int:
     """The number of settlement configurations the string replay walks at once, as far as memory decides: on a full replay how many walk processes run beside their absorb workers, and on a narrowed one how many walks its one crate process runs. `AMS_REPLAY_THREADS` overrides the arithmetic whenever it is set. Otherwise `memory_budget.how_many_fit` divides the machine's memory, less the reserve that policy states, by `REPLAY_PEAK_BYTES`, floored at one. Nothing else is subtracted: a replay loads one settlement TSV and builds its own engine after the `build-tables` process has exited, so no `default` memo is alive. The configuration-count and usable-core caps are applied by `run_build._replay_threads` and the cycle's `artifact_cycle.replay_threads_budget`, because this module cannot name `conform.SETTLEMENT_CONFIGS`, since `conform` imports it. A stated width is floored at one and not capped here, and a value that is not a bare count raises, for the same reason as with `AMS_KERNEL_THREADS`.
 
-    `coresident_bytes` is for a caller that runs the replay beside something else: the artifact cycle, whose pytest pool runs for the whole build step. `total_bytes` is a keyword so a test can compute the width for an invented machine. On every fleet machine (`doc/fleet.md`) the configuration count is smaller than the memory answer, with or without the pool subtracted, so the memory term only matters on a smaller machine.
+    `total_bytes` is a keyword so a test can compute the width for an invented machine. On every fleet machine (`doc/fleet.md`) the configuration count is smaller than the memory answer, so the memory term only matters on a smaller machine.
     """
     stated = os.environ.get("AMS_REPLAY_THREADS")
     if stated is not None:
@@ -196,9 +187,7 @@ def replay_threads_default(*, coresident_bytes: float = 0, total_bytes: int | No
             raise RuntimeError(
                 f"AMS_REPLAY_THREADS={stated!r} is not a width: it takes a bare decimal count of settlement configurations to replay at once, and leaving it unset is what asks for the width this machine's own memory derives."
             ) from None
-    return memory_budget.how_many_fit(
-        REPLAY_PEAK_BYTES, coresident_bytes=coresident_bytes, total_bytes=total_bytes
-    )
+    return memory_budget.how_many_fit(REPLAY_PEAK_BYTES, total_bytes=total_bytes)
 
 
 # How long a crate call that answers in seconds or minutes at any alphabet size is waited for before `_run_kernel` kills it: `enumerate-configs`, which only the tests run, `settle-cases`, `guard-sweep`, `replay-emitted`, `cargo build`, and the first run after it. A limit is there to stop a crate that has hung, not to bound a slow one, and a call it kills records nothing. So `build-tables` and `replay-strings`, whose time grows with the alphabet, derive their limits from it at the call (`build_tables_timeout`, `replay_timeout`), and neither waits less than this.
@@ -1861,7 +1850,7 @@ def guard_sweep(spec: ResolvedSpec) -> FormationGuard:
 
 
 def guard_sweep_under(spec: ResolvedSpec, features: frozenset[str]) -> FormationGuard:
-    """The section 5.7 guard verdicts as one configuration alone produces them, with the same keys as `guard_sweep`'s. Every call is a crate invocation, with no memo, because nothing that ships reads per-configuration verdicts. The rebuild tests call it once per configuration to compare each configuration's verdicts with the quantified ones."""
+    """The section 5.7 guard verdicts as one configuration alone produces them, with the same keys as `guard_sweep`'s. Every call is a crate invocation, with no memo, because nothing that ships reads per-configuration verdicts. The engine tests call it once per configuration to compare each configuration's verdicts with the quantified ones."""
     spec_path = _spec_dump(spec)
     ensure_built()
     return _guard_verdicts(spec, spec_path, "+".join(sorted(features)) or "default")

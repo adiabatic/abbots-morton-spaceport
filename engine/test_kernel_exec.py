@@ -1127,8 +1127,10 @@ class TestTheKernelInvocation:
         labels = [phase["label"] for phase in ct.parse_inner_timings("\n".join(run_build._build_phase_lines))]
         assert "enumerate[default]" in labels and labels[-1] == "kernel_build_tables"
 
-    def test_the_records_code_digest_keeps_through_a_letter_batch_and_moves_with_the_crate(self, tmp_path):
-        """Every letter batch adds its code point to `alphabet.ALPHABET`, and a batch can touch a gate such as `conform`, so the record's `code` keeps through both edits, or no build before a batch could pair with the first build after it. An edit to the crate's code moves it."""
+    def test_the_records_code_digest_keeps_through_an_alphabet_change_and_moves_with_the_crate(
+        self, tmp_path
+    ):
+        """A letter added to the alphabet adds its code point to `alphabet.ALPHABET`, and the same commit can touch a gate such as `conform`, so the record's `code` keeps through both edits, or no build before the change could pair with the first build after it. An edit to the crate's code moves it."""
         pipeline = tmp_path / "engine" / "pipeline"
         source = tmp_path / "engine" / "kernel-rs" / "src"
         pipeline.mkdir(parents=True)
@@ -1844,16 +1846,6 @@ class TestTheMemoryDerivedThreadDefault:
         """With `DEFAULT_MEMO_BYTES` (1.1 GB) and seven parked products at `PARKED_FOLD_BYTES` (0.3 GB) off the machine, a 19 GB machine fits two delta slots at `DELTA_SLOT_BYTES` (3.4 GB), a 23 GB machine three and a 26.5 GB machine four, the widest whose wave fits even where the rendezvous, seven products read back at `READ_BACK_FOLD_BYTES` (2.9 GB), does not, since every width holds it. A machine too small for one delta gets one, and a 64 GB machine fits the whole wave, every configuration at once, which is as wide as the width goes."""
         assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=total) == wanted
 
-    def test_a_coresident_pool_comes_off_the_machine_before_it_is_divided(self):
-        """`coresident_bytes` is memory used by something running beside the fan-out, such as the artifact cycle's pytest pool. It comes off the machine with the reserve, so 3 GB beside a 35 GB machine leaves too little for the whole wave's 26.3 GB booking, and the wave drops the slot of its own that `default`'s fold preparation takes. It defaults to zero because a bare run_build runs alone."""
-        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=35_000_000_000) == 7
-        assert (
-            kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=3_000_000_000, total_bytes=35_000_000_000
-            )
-            == 6
-        )
-
     def test_the_booking_counts_every_parked_product_and_each_slot_beyond_its_own(self, monkeypatch):
         """Each configuration keeps its prepared fold product parked until every configuration has parked, so every width books one `PARKED_FOLD_BYTES` per configuration beside `DEFAULT_MEMO_BYTES`. Each delta slot books `DELTA_SLOT_BYTES` beyond its own product, up to the delta count, and only a width above the delta count books the slot that runs `default`'s fold preparation alone, at `FOLD_PREPARATION_BYTES`. Every configuration then reads its product back at the rendezvous whatever the width, so no width books less than `READ_BACK_FOLD_BYTES` per configuration: with that term set so the rendezvous lies midway between the narrowest wave and the widest, the narrow widths, a from-scratch build's among them, book the rendezvous and the wide ones their wave. Below the whole wave, the width is the division by `DELTA_SLOT_BYTES` after the memo and the parked products come off the machine."""
         fixed = kernel_exec.DEFAULT_MEMO_BYTES + CONFIG_COUNT * kernel_exec.PARKED_FOLD_BYTES
@@ -1954,12 +1946,14 @@ class TestTheMemoryDerivedThreadDefault:
             1, configs=CONFIG_COUNT, scratch_beside_default=deltas
         ) == kernel_exec.table_build_booking_bytes(1, configs=CONFIG_COUNT)
         roomy = 1_000_000_000_000
-        usable = roomy - memory_budget.os_reserve_bytes(total_bytes=roomy)
         whole = kernel_exec.table_build_booking_bytes(CONFIG_COUNT, configs=CONFIG_COUNT)
+        just_the_wave = next(
+            total
+            for total in range(whole, 2 * whole, 1_000_000)
+            if total - memory_budget.os_reserve_bytes(total_bytes=total) >= whole
+        )
         assert (
-            kernel_exec.deltas_from_scratch(
-                CONFIG_COUNT, configs=CONFIG_COUNT, coresident_bytes=usable - whole, total_bytes=roomy
-            )
+            kernel_exec.deltas_from_scratch(CONFIG_COUNT, configs=CONFIG_COUNT, total_bytes=just_the_wave)
             == 0
         )
         assert kernel_exec.deltas_from_scratch(2, configs=2, total_bytes=roomy, from_scratch=True) == 0
@@ -1996,15 +1990,10 @@ class TestTheMemoryDerivedThreadDefault:
         with pytest.raises(Reached):
             run_build.build_tables(SPEC, tmp_path, inputs=STAMP, configs=configs)
 
-    def test_a_stated_width_outranks_coresident_memory_too(self, monkeypatch):
-        """A stated `AMS_KERNEL_THREADS` is used as given even when `coresident_bytes` would narrow the derived width."""
+    def test_a_stated_width_outranks_a_machine_too_small_for_it(self, monkeypatch):
+        """A stated `AMS_KERNEL_THREADS` is used as given even on a machine whose memory derives a narrower width."""
         monkeypatch.setenv("AMS_KERNEL_THREADS", "4")
-        assert (
-            kernel_exec.kernel_threads_default(
-                configs=CONFIG_COUNT, coresident_bytes=60_000_000_000, total_bytes=64_000_000_000
-            )
-            == 4
-        )
+        assert kernel_exec.kernel_threads_default(configs=CONFIG_COUNT, total_bytes=4_000_000_000) == 4
 
 
 class TestTheStringReplay:

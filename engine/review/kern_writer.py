@@ -61,7 +61,6 @@ SETTLING_EVENTS = (
     "cancelled",
 )  # the events that close a pending request
 OWN_KEYS = ("stance", "entry", "bitmap")
-FOLLOWER_KEYS = ("family", "class", "stance", "exit", "bitmap")
 NARROWING_FOLLOWER_KEYS = ("stance", "exit", "bitmap")
 LETTERS = "letters"
 FACING = "facing"

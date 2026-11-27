@@ -134,7 +134,9 @@ def test_the_read_whole_sweep_sees_a_wrapped_read(tmp_path):
 
 def test_no_engine_module_hashes_a_file_it_read_whole():
     closure = artifact_cycle.engine_gate_closure_files(REPO_ROOT)
-    assert closure is not None, "the rebuild closure needs git, and without it there is nothing to sweep"
+    assert (
+        closure is not None
+    ), "the engine suite's closure needs git, and without it there is nothing to sweep"
     modules = [
         rel
         for rel in closure
@@ -312,7 +314,7 @@ KERNED_RUNE = textwrap.dedent("""\
 
 
 def test_a_kern_edit_moves_only_the_rune_s_kern_line_and_the_suite_closure(tmp_path):
-    """A rune's `kern:` block reaches no table or settlement, so `rune_file_digest` leaves it out and every key built from it stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_build skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The rebuild suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
+    """A rune's `kern:` block reaches no table or settlement, so `rune_file_digest` leaves it out and every key built from it stays put: the tables' stamp, the `data` component and Stage A. It reaches the run_build skip key through the rune's kern line alone (`kern_lines`), which is the one label that moves, so the cycle reads the edit as a kern-only rebuild (`artifact_cycle.kern_only_rebuild`). The engine suite's closure hashes the whole document (`rune_document_digest`). Rewording a kern record's `why` moves nothing."""
     root = _fake_repo(tmp_path)
     rune = root / "glyph_data" / "runes" / "qsPea.yaml"
     rune.write_text(KERNED_RUNE)
@@ -911,7 +913,7 @@ def test_a_docstring_edit_moves_no_code_keyed_component(tmp_path):
 
 
 def test_the_gate_closures_stay_raw_through_a_docstring_edit(tmp_path):
-    """The rebuild-lane closure and gate:make-test's closure hash files raw, because test fixtures and the closure tests read source text. So a docstring-only edit that moves no fingerprint component still moves each lane key and the make-test key. One edited file is in each closure: a pipeline module is in the lane closure but not in gate:make-test's (`make_test_exempt` excludes engine/), and a tools/ module is in gate:make-test's closure. The fake repo is a git repo because both closures are listed with `git ls-files`."""
+    """The engine suite's closure and gate:make-test's closure hash files raw, because test fixtures and the closure tests read source text. So a docstring-only edit that moves no fingerprint component still moves each lane key and the make-test key. One edited file is in each closure: a pipeline module is in the lane closure but not in gate:make-test's (`make_test_exempt` excludes engine/), and a tools/ module is in gate:make-test's closure. The fake repo is a git repo because both closures are listed with `git ls-files`."""
     root = _fake_repo(tmp_path)
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     (root / "Makefile").write_text("all:\n\t@true\ntest:\n\t@true\n")

@@ -39,7 +39,7 @@ from .shaping import ShapeResult, Shaper, first_glyph_covering, last_glyph_cover
 
 GLYPH_FACTS_FORMAT = "ams-glyph-facts/1"
 GLYPH_FACTS_SUFFIX = ".glyph-facts.json"
-# A pin's `space` token stands for a space or a ZWNJ (`expect.LOZENGE_MAP`), and the rebuild's fonts give a ZWNJ its own glyph.
+# A pin's `space` token stands for a space or a ZWNJ (`expect.LOZENGE_MAP`), and the engine's fonts give a ZWNJ its own glyph.
 BOUNDARY_GLYPH_EQUIVALENTS = {"space": frozenset({"space", "uni200C"})}
 TRAITS = frozenset({"half", "alt"})
 # The modifier vocabulary, one line per form, as `modifier_holds` reads it.

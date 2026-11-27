@@ -1,4 +1,4 @@
-"""Print the rebuild's settlement of codepoint windows in every configuration: each window's settled cells and the junctions between them.
+"""Print the engine's settlement of codepoint windows in every configuration: each window's settled cells and the junctions between them.
 Usage: uv run python engine/tools/probe.py E653:E666:E652 [E652:E67A ...]
 
 Every argument is a window. All windows go through one `explain_many` call across the acceptance configurations, so the explainer's warm-up is paid once per process. The output is one `=== window X ===` block per argument, in argument order, and each block is what that window prints when probed alone.

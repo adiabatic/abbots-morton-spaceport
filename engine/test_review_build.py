@@ -24,7 +24,6 @@ from engine.review.build import (
     _write_json,
     _write_shard,
     check_manifest,
-    check_output_dir,
     check_shards,
     check_unit,
     config_badge,

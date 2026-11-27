@@ -1,4 +1,4 @@
-"""Tests for the rebuild suite's self-skipping wrapper (`engine/tools/engine_gate.py`): it skips on a matching green record, only a green run whose closure did not change writes a record, a red run deletes the record it contradicts, and every run, a skip included, writes one check line to the timings journal under the lane's pool name."""
+"""Tests for the engine suite's self-skipping wrapper (`engine/tools/engine_gate.py`): it skips on a matching green record, only a green run whose closure did not change writes a record, a red run deletes the record it contradicts, and every run, a skip included, writes one check line to the timings journal under the lane's pool name."""
 
 import json
 
@@ -85,7 +85,7 @@ def test_a_hard_failure_records_nothing_and_names_the_test(green_store, monkeypa
     _suite_stub(monkeypatch, (3, HARD_STDOUT))
     assert rg.main([]) == 3
     assert ac.read_green_record(green_store) is None
-    assert "hard rebuild failure (contracts): engine/test_settle.py::test_x" in capsys.readouterr().out
+    assert "hard engine-suite failure (contracts): engine/test_settle.py::test_x" in capsys.readouterr().out
 
 
 def test_a_forced_hard_failure_deletes_the_contradicted_record(green_store, monkeypatch):

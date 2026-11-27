@@ -1,4 +1,4 @@
-"""The glyph-facts sidecar the build writes beside the rebuild's Senior (`Senior.glyph-facts.json`): for every glyph the glyph chain mints, the facts its name does not carry, which the `data-expect` checker reads (`engine/validation/check.py`, `read_glyph_facts`).
+"""The glyph-facts sidecar the build writes beside the build's Senior (`Senior.glyph-facts.json`): for every glyph the glyph chain mints, the facts its name does not carry, which the `data-expect` checker reads (`engine/validation/check.py`, `read_glyph_facts`).
 
 - `traits`: the stance's `traits` (`half`, `alt`), for a cell, the variation glyph of a stance, and a cosmetic copy of a cell; and the isolated cell's, for the bare cmap glyph and its copies, which draw that cell.
 - `bitmap`: the `bitmaps:` sibling the cell draws, as `surface.resolve_cell` binds it (`reaches-way-back` for the cells of ·Utter's `alternate` that enter), and the isolated cell's for the raw glyphs. A cosmetic copy draws its cosmetic record's drawing, so it has none.

@@ -637,7 +637,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
             check="engine-contracts",
             outcome="red",
             status="FAILED (2 unexplained)",
-            failures=["rebuild suite: 2 unexplained failure(s)"],
+            failures=["engine suite: 2 unexplained failure(s)"],
             failed_ids=["engine/test_a.py::test_x", "engine/test_b.py::test_y"],
         ),
         run="abc123def456",
@@ -650,7 +650,7 @@ def test_record_check_carries_the_parent_and_the_cost_when_given_them(tmp_path):
     assert entry["check"] == "engine-contracts"
     assert entry["outcome"] == "red"
     assert entry["status"] == "FAILED (2 unexplained)"
-    assert entry["failures"] == ["rebuild suite: 2 unexplained failure(s)"]
+    assert entry["failures"] == ["engine suite: 2 unexplained failure(s)"]
     assert entry["failed_ids"] == ["engine/test_a.py::test_x", "engine/test_b.py::test_y"]
     assert entry["run"] == "abc123def456"
     assert entry["argv"] == ["uv", "run", "pytest", "engine/"]

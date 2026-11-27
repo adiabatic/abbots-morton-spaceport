@@ -245,27 +245,28 @@ test('explainRuns is lossless over synthetic dumps, including back-to-back and b
   }
 });
 
+// explain-samples.json holds the explain text of three units of a real table-diff corpus, the one engine/test_review_diff_units.py builds from two builds of the mini fixture spec, as `diff_units._explain` writes it.
 test('explainRuns is lossless over real build explain strings and finds their every stylistic set', () => {
   const seen = new Set();
-  let mentionless = 0;
   for (const sample of explainSamples) {
-    const runs = assertLosslessRuns(sample.explain, `${sample.id} (${sample.shard})`);
+    const runs = assertLosslessRuns(sample.explain, `${sample.id} (${sample.class})`);
     const sets = setRuns(runs);
-    if (sets.length === 0) mentionless += 1;
     for (const run of sets) seen.add(run.set);
     assert.deepEqual(sets.map((run) => run.set), sample.explain.match(/ss\d\d/gu) ?? [], `${sample.id} marked a different set list than it spells`);
   }
-  assert.ok(mentionless > 0, 'the samples must include a dump with no stylistic set at all');
   assert.ok(seen.size > 1, 'the samples must exercise more than one stylistic set');
   for (const set of seen) assert.ok(manifest.feature_descriptions[set], `${set} is marked but has no gloss to hover`);
 });
 
-test('the real samples cover both places the engine names a set: the header config and an unlock note', () => {
-  const headers = explainSamples.filter((sample) => /^sequence .* config ss\d\d/mu.test(sample.explain));
-  const notes = explainSamples.filter((sample) => /^ {2}note: unlocked by ss\d\d$/mu.test(sample.explain));
-  assert.ok(headers.length > 0, 'the samples must exercise a set named on the header line');
-  assert.ok(notes.length > 0, 'the samples must exercise an "unlocked by" note');
-  for (const sample of [...headers, ...notes]) {
+test('the real samples cover both places the explain names a set: the configurations line and a changed-rows heading', () => {
+  const headings = (text) => [...text.matchAll(/^ {2}[\w+]+(?:, [\w+]+)*:$/gmu)].map((match) => match[0]);
+  const lines = explainSamples.filter((sample) => /^ {2}configurations: .*ss\d\d/mu.test(sample.explain));
+  const rows = explainSamples.filter((sample) => headings(sample.explain).some((heading) => /ss\d\d/u.test(heading)));
+  const combined = explainSamples.filter((sample) => /ss\d\d\+ss\d\d/u.test(sample.explain));
+  assert.ok(lines.length > 0, 'the samples must exercise a set named on the configurations line');
+  assert.ok(rows.length > 0, 'the samples must exercise a set named on a changed-rows heading');
+  assert.ok(combined.length > 0, 'the samples must exercise a combination of sets');
+  for (const sample of [...lines, ...rows, ...combined]) {
     assert.ok(setRuns(explainRuns(sample.explain)).length > 0, `${sample.id} names a set that went unmarked`);
   }
 });

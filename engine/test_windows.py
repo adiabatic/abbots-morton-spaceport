@@ -429,7 +429,7 @@ class TestTheSegments:
     def test_an_alphabet_move_writes_a_segment_whatever_its_size_and_the_next_build_folds(
         self, tmp_path, capsys
     ):
-        """A letter batch re-derives every row, and the windows rows still take a segment (#618's decision 74): a build of the whole fixture over the narrowed one's rows writes a segment whose row bytes pass its base's, with no size test (decision 75). Those row bytes make the fold due, so the next build, of the same spec, folds one configuration, the first in configuration order, whose base is then the materialized form, while the rest, whose rows come out the same, write their heads alone and wait."""
+        """An alphabet change re-derives every row, and the windows rows still take a segment (#618's decision 74): a build of the whole fixture over the narrowed one's rows writes a segment whose row bytes pass its base's, with no size test (decision 75). Those row bytes make the fold due, so the next build, of the same spec, folds one configuration, the first in configuration order, whose base is then the materialized form, while the rest, whose rows come out the same, write their heads alone and wait."""
         out_dir = tmp_path / "tables"
         run_build.build_tables(NARROW, out_dir, inputs="fp-narrow")
         capsys.readouterr()
@@ -547,7 +547,9 @@ def test_every_reader_of_a_tables_head_goes_through_the_one_reader():
     from engine.tools import artifact_cycle
 
     closure = artifact_cycle.engine_gate_closure_files(REPO_ROOT)
-    assert closure is not None, "the rebuild closure needs git, and without it there is nothing to sweep"
+    assert (
+        closure is not None
+    ), "the engine suite's closure needs git, and without it there is nothing to sweep"
     modules = [
         relative
         for relative in closure

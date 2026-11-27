@@ -16,7 +16,7 @@ from pathlib import Path
 
 from engine.pipeline import fingerprint, run_build, settle_memo_keys
 from engine.test_review_code_closure import BUILD_ENTRY_MODULES as CORPUS_ENTRY_MODULES
-from engine.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES, reachable_modules
+from engine.test_review_code_closure import WIDTH_AND_TELEMETRY_MODULES
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PIPELINE = REPO_ROOT / "engine" / "pipeline"

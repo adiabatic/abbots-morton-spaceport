@@ -1,6 +1,6 @@
 """Tests for the settle memo's keys in engine/pipeline/settle_memo_keys.py: the whole-memo stamp, the per-family keys, and the staleness mask a reader builds over them.
 
-No test here depends on a glyph, so none needs the live build. The rune tree, schema, and registry are copied from the mini bundle into a tmp root that each test may edit, and the spec is `fixtures.mini_spec()`. Like every rebuild test, these must not read `engine/out/`.
+No test here depends on a glyph, so none needs the live build. The rune tree, schema, and registry are copied from the mini bundle into a tmp root that each test may edit, and the spec is `fixtures.mini_spec()`. Like every engine test, these must not read `engine/out/`.
 
 A per-family key covers only the routes that stay inside one rune file. Every route that crosses the registry (a predicate class gaining a member, a rune-local group, a ligature's declared sequence, a capability unlock, the registry's families and heights, the engine's settlement flags) must move the stamp instead. `specificity::family_set` expands a `class:` reference to its full member set and `compare_axes` ranks two records by whether each axis set of one is a subset of the other's, so a rune joining or leaving a class can change the settlement of a window that names no such rune. Each route is checked to move its own named stamp line and no other.
 """

@@ -23,7 +23,6 @@ The widest offset inside a packed subtable is not gated, because it is not headr
 
 from __future__ import annotations
 
-import json
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,7 +39,7 @@ from engine.pipeline.emit_gpos import (
     Registration,
     value_lookup_name,
 )
-from engine.pipeline.emit_gsub import GsubPlan, SettleRule
+from engine.pipeline.emit_gsub import GsubPlan
 from engine.pipeline.model import cosmetic_copy_name
 
 MAX_DIVERGENCES = 50

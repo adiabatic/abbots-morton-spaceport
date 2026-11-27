@@ -260,10 +260,10 @@ REFUSALS = {
     "an unpushed HEAD": (None, {"branches": "origin/HEAD\n"}, "is on no branch of origin"),
     "stale fonts": (
         lambda root, mp: mp.setattr(
-            release_fonts, "fonts_staleness", lambda at: "the rebuild's Senior is not current: x"
+            release_fonts, "fonts_staleness", lambda at: "the build's Senior is not current: x"
         ),
         {},
-        "the rebuild's Senior is not current: x; run `make all`",
+        "the build's Senior is not current: x; run `make all`",
     ),
     "a font of another version": (
         lambda root, mp: _font(root / "site" / "AbbotsMortonSpaceportSansJunior-Bold.otf", 16.0),
@@ -362,7 +362,7 @@ class TestTheFontsCurrency:
     def test_a_stale_senior_build_is_the_reason(self, build_root):
         (build_root / build_fonts.BUILD_OUT / fingerprint.STAGE_A_FILENAME).unlink()
         assert (release_fonts.fonts_staleness(build_root) or "").startswith(
-            "the rebuild's Senior is not current: engine/out/build holds no Stage A record"
+            "the build's Senior is not current: engine/out/build holds no Stage A record"
         )
 
 

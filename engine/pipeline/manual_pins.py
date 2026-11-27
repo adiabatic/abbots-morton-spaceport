@@ -2,11 +2,11 @@
 
 The pages are the repository's transcription of what The Manual requires letters to look like (`site/the-manual.html`, and `site/index.html`, which quotes it) and a supplementary word list (`site/extra-senior-words.html`). The root conftest checks the same pins against the fonts it publishes under `site/` with the same function (`check.check_pin`), so the suite and this gate agree on every pin they both check. `run_build` fails the build on any failure, when no pin is in scope, or when a pin in scope was not checked (`run_build_gates.manual_pin_gate_failure`). There is no waiver list. A failure means either the rune data breaks a requirement (fix the runes) or the pin mistranscribes it (fix the pin).
 
-A pin the rebuild disagrees with pending the author's ruling carries `corpus.PENDING_ATTRIBUTE`. The gate counts such a pin in its summary and does not fail on it, whether it fails as expected or passes; the suite fails on a pending pin that passes, so the mark cannot go stale. A pin the vocabulary or the grammar rejects (`check.UnknownModifier`, a token that does not fit the text) fails the gate whether or not it is pending.
+A pin the engine disagrees with pending the author's ruling carries `corpus.PENDING_ATTRIBUTE`. The gate counts such a pin in its summary and does not fail on it, whether it fails as expected or passes; the suite fails on a pending pin that passes, so the mark cannot go stale. A pin the vocabulary or the grammar rejects (`check.UnknownModifier`, a token that does not fit the text) fails the gate whether or not it is pending.
 
 What the gate leaves out, each counted in the summary with its reason (`skipped`):
 
-- A Junior run (`force-junior`): the build compiles Senior only, and the suite checks Junior runs against the rebuilt Junior.
+- A Junior run (`force-junior`): the build compiles Senior only, and the suite checks Junior runs against the built Junior.
 - A pin with a Quikscript letter the spec's alphabet leaves out, which only the alphabet switch (`spec_load.RUNES_ENV`) does. Such pins are counted per missing letter (`blocked_by`, `sole_blocker`), so a narrowed build's summary shows which letters keep which pins out.
 """
 
@@ -25,7 +25,7 @@ from engine.validation import check, corpus
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PS_NAMES_PATH = REPO_ROOT / "postscript_glyph_names.yaml"
 QUIKSCRIPT_CODEPOINTS = range(0xE650, 0xE680)
-JUNIOR_SKIP_REASON = "the build compiles Senior only; make test checks Junior runs against the rebuilt Junior"
+JUNIOR_SKIP_REASON = "the build compiles Senior only; make test checks Junior runs against the built Junior"
 
 
 @dataclass
