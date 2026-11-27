@@ -1,14 +1,20 @@
 name: Build and Deploy
 
 # The fonts are built on the author's machine, because the Senior's table build needs more memory than a hosted runner has, and this workflow publishes them: it needs no Rust and builds no table. HACKING.md § Cutting a release gives the order.
+# A rehearsal is a manual run with `rehearse` set and `tag` naming a draft that `make draft-release ARGS='--rehearse --apply'` uploaded for a rehearsal/ tag. It runs what a tag push runs, short of the two steps with a public effect: it finds the draft by listing the releases, downloads the fonts and checks them against fonts.json and the commit it runs on, makes the WOFF2s, assembles the site and uploads it as the Pages artifact, uploads the release files, extracts the version's FONTLOG.md section as the release notes, builds the zip, attaches it to the draft by the draft's id and reads the draft back. Only a tag push exercises the push trigger, the Pages deployment and the PATCH that publishes the draft: a rehearsal never runs the deploy job or the publish step, and leaves its draft a draft.
 on:
-  # A site-only redeploy: the pages at the ref it runs on, with the fonts of a published release.
+  # A site-only redeploy: the pages at the ref it runs on, with the fonts of a published release. With `rehearse`, a rehearsal of the release path instead (above), which deploys nothing.
   workflow_dispatch:
     inputs:
       tag:
-        description: "The release whose fonts the site serves, such as release/16.000 (default: the latest published release)"
+        description: "The release whose fonts the site serves, such as release/16.000 (default: the latest published release); with rehearse, the rehearsal draft's tag, which `make draft-release ARGS='--rehearse --apply'` prints"
         required: false
         default: ""
+      rehearse:
+        description: "Rehearse the release path on the rehearsal draft the tag names, deploying nothing and publishing nothing"
+        type: boolean
+        required: false
+        default: false
   # Release tags are named release/<version>. `make draft-release ARGS=--apply` uploads the fonts and fonts.json to a draft release for the tag before the tag is pushed, and the release job publishes that draft.
   push:
     tags:
@@ -20,14 +26,17 @@ permissions:
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
+# Allow only one concurrent deployment. A rehearsal deploys nothing and takes a group of its own, so that it neither waits on a deployment nor displaces one pending in the pages group.
 concurrency:
-  group: "pages"
+  group: ${{ inputs.rehearse == true && 'rehearsal' || 'pages' }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # "true" in a rehearsal, which takes the tag push's branches of the steps below; "false" on a tag push and a redeploy.
+      REHEARSE: ${{ inputs.rehearse == true }}
     outputs:
       version: ${{ steps.release.outputs.version }}
       release_id: ${{ steps.release.outputs.release_id }}
@@ -48,7 +57,7 @@ jobs:
       - name: Type check
         run: uv run pyright
 
-      # GET /releases/tags/{tag} answers only for a published release, so a tag push finds its draft by listing the releases, drafts among them, and matching tag_name. A draft's tag_name need not exist as a tag: the draft keeps it when the tag is pushed, and the tag joins the release when it is published.
+      # GET /releases/tags/{tag} answers only for a published release, so a tag push finds its draft by listing the releases, drafts among them, and matching tag_name. A draft's tag_name need not exist as a tag: the draft keeps it when the tag is pushed, and the tag joins the release when it is published. A rehearsal finds its draft the same way, by the rehearsal/<version>-<commit> tag it is given, which it refuses when it is a release tag.
       - name: Find the release that holds the fonts
         id: release
         env:
@@ -56,8 +65,32 @@ jobs:
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
-            tag="${GITHUB_REF#refs/tags/}"
+          if [ "$GITHUB_EVENT_NAME" = push ] || [ "$REHEARSE" = true ]; then
+            if [ "$GITHUB_EVENT_NAME" = push ]; then
+              tag="${GITHUB_REF#refs/tags/}"
+              version="${tag#release/}"
+              upload="Upload the fonts with \`make draft-release ARGS=--apply\` on the tagged commit, which replaces any draft for the tag. It refuses while the tag is on origin, so delete the tag there first (git push origin :refs/tags/$tag) and push it again after the upload."
+            else
+              case "$INPUT_TAG" in
+                release/*)
+                  echo "::error::A rehearsal never runs on a release tag, and $INPUT_TAG is one. Pass the rehearsal/ tag that \`make draft-release ARGS='--rehearse --apply'\` prints."
+                  exit 1
+                  ;;
+                rehearsal/*) ;;
+                *)
+                  echo "::error::A rehearsal runs on the rehearsal/ tag that \`make draft-release ARGS='--rehearse --apply'\` prints, and '$INPUT_TAG' is not one."
+                  exit 1
+                  ;;
+              esac
+              tag="$INPUT_TAG"
+              rest="${tag#rehearsal/}"
+              version="${rest%%-*}"
+              if ! [[ "$version" =~ ^[0-9]+\.[0-9]{3}$ ]]; then
+                echo "::error::$tag names no version of the form X.YYY after rehearsal/."
+                exit 1
+              fi
+              upload="Upload the fonts with \`make draft-release ARGS='--rehearse --apply'\` on the commit this run checks out, which replaces any draft for its tag."
+            fi
             gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
               --jq ".[] | select(.tag_name == \"$tag\") | [.id, .draft] | @tsv" > matches.tsv
             if grep -q $'\tfalse$' matches.tsv; then
@@ -67,7 +100,7 @@ jobs:
             drafts=$(awk -F'\t' '$2 == "true" { print $1 }' matches.tsv)
             count=$(printf '%s' "$drafts" | grep -c . || true)
             if [ "$count" -ne 1 ]; then
-              echo "::error::Found $count draft releases for $tag, not one. Upload the fonts with \`make draft-release ARGS=--apply\` on the tagged commit, which replaces any draft for the tag. It refuses while the tag is on origin, so delete the tag there first (git push origin :refs/tags/$tag) and push it again after the upload."
+              echo "::error::Found $count draft releases for $tag, not one. $upload"
               exit 1
             fi
             release_id="$drafts"
@@ -81,15 +114,16 @@ jobs:
               echo "::error::There is no published release for $tag."
               exit 1
             fi
+            version="${tag#release/}"
           fi
           echo "Taking the fonts from release $release_id ($tag)."
           {
             echo "tag=$tag"
-            echo "version=${tag#release/}"
+            echo "version=$version"
             echo "release_id=$release_id"
           } >> "$GITHUB_OUTPUT"
 
-      # A release from `make draft-release` carries the six OTFs and fonts.json. A published release from before it carries only abbots-morton-spaceport-<version>.zip, which holds the six OTFs under the names the site loads from 12.000 on, so a redeploy can take its fonts from 12.000 or later.
+      # A release from `make draft-release` carries the six OTFs and fonts.json. A published release from before it carries only abbots-morton-spaceport-<version>.zip, which holds the six OTFs under the names the site loads from 12.000 on, so a redeploy can take its fonts from 12.000 or later. A rehearsal, like a tag push, takes no fonts from a zip.
       - name: Download the fonts
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,7 +142,7 @@ jobs:
               *.otf | fonts.json) download "$id" "fonts/$name" ;;
             esac
           done < assets.tsv
-          if [ ! -e fonts/fonts.json ] && [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ ! -e fonts/fonts.json ] && [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$REHEARSE" != true ]; then
             zip_id=$(awk -F'\t' -v name="abbots-morton-spaceport-$VERSION.zip" '$2 == name { print $1 }' assets.tsv)
             if [ -n "$zip_id" ]; then
               download "$zip_id" release.zip
@@ -117,12 +151,12 @@ jobs:
           fi
           ls -l fonts
 
-      # On a tag push the fonts must be the ones fonts.json records for the tagged commit; `engine/tools/release_fonts.py`'s module docstring gives the checks.
+      # On a tag push and in a rehearsal the fonts must be the ones fonts.json records for the commit the run checked out; `engine/tools/release_fonts.py`'s module docstring gives the checks.
       - name: Check the fonts
         env:
           VERSION: ${{ steps.release.outputs.version }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
+          if [ "$GITHUB_EVENT_NAME" = push ] || [ "$REHEARSE" = true ]; then
             uv run python -m engine.tools.release_fonts verify fonts --version "$VERSION" --commit "$GITHUB_SHA"
           else
             uv run python -m engine.tools.release_fonts verify fonts --version "$VERSION"
@@ -150,13 +184,14 @@ jobs:
           font.save('site/DepartureMono-Regular.woff2')
           "
 
+      # In a rehearsal the artifact is the run's own, which no job deploys.
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - name: Upload font files for release
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' || inputs.rehearse == true
         uses: actions/upload-artifact@v7
         with:
           name: font-files
@@ -168,6 +203,8 @@ jobs:
 
   deploy:
     needs: build
+    # A rehearsal never deploys the site.
+    if: inputs.rehearse != true
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -179,7 +216,11 @@ jobs:
 
   release:
     needs: [build, deploy]
-    if: github.event_name == 'push'
+    # A tag push publishes once the site is deployed. A rehearsal, whose deploy job never runs, attaches the zip to its draft and stops short of the publish.
+    if: >-
+      !cancelled() && needs.build.result == 'success' &&
+      ((github.event_name == 'push' && needs.deploy.result == 'success') ||
+      (inputs.rehearse == true && startsWith(inputs.tag, 'rehearsal/') && needs.deploy.result == 'skipped'))
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.build.outputs.version }}
@@ -207,8 +248,8 @@ jobs:
           rmdir fonts
           zip -r "../abbots-morton-spaceport-$VERSION.zip" .
 
-      # The zip goes up by the draft's id, which the build job found; a rerun after a failed publish replaces the zip it attached.
-      - name: Attach the zip and publish the release
+      # The zip goes up by the draft's id, which the build job found; a rerun after a failed publish replaces the zip it attached, and so does a rerun of a rehearsal's release job.
+      - name: Attach the zip
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -224,5 +265,44 @@ jobs:
             -H "Content-Type: application/zip" \
             --data-binary "@$zip" \
             "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$zip"
+
+      # Where a tag push publishes, a rehearsal reads its draft back: still a draft under a rehearsal/ tag, holding one asset of the zip's name, size and digest.
+      - name: Check the rehearsal's draft
+        if: inputs.rehearse == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          zip="abbots-morton-spaceport-$VERSION.zip"
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '[.tag_name, .draft] | @tsv' > release.tsv
+          IFS=$'\t' read -r tag draft < release.tsv
+          if [ "$draft" != true ] || [ "${tag#rehearsal/}" = "$tag" ]; then
+            echo "::error::The release $RELEASE_ID ($tag, draft: $draft) is not a rehearsal draft."
+            exit 1
+          fi
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+            --jq '.[] | [.name, .size, (.digest // "")] | @tsv' > assets.tsv
+          cat assets.tsv
+          found=$(awk -F'\t' -v name="$zip" '$1 == name' assets.tsv)
+          count=$(printf '%s' "$found" | grep -c . || true)
+          if [ "$count" -ne 1 ]; then
+            echo "::error::The draft $tag holds $count assets named $zip, not one."
+            exit 1
+          fi
+          size=$(wc -c < "$zip" | tr -d ' ')
+          digest="sha256:$(sha256sum "$zip" | cut -d ' ' -f 1)"
+          IFS=$'\t' read -r _ asset_size asset_digest <<< "$found"
+          if [ "$asset_size" != "$size" ] || { [ -n "$asset_digest" ] && [ "$asset_digest" != "$digest" ]; }; then
+            echo "::error::The draft's $zip is $asset_size bytes with the digest '$asset_digest', not $size bytes with $digest."
+            exit 1
+          fi
+          echo "The draft $tag holds $zip ($size bytes, $digest) and is still a draft, on run attempt $GITHUB_RUN_ATTEMPT."
+
+      - name: Publish the release
+        if: github.event_name == 'push' && inputs.rehearse != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
             -F draft=false -f make_latest=true -F body=@notes.md --jq .html_url

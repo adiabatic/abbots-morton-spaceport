@@ -41,6 +41,16 @@ The fonts are built here and GitHub publishes them: the Senior's table build nee
 
 Running the workflow by hand from the Actions page redeploys the site with the fonts of the latest published release, or of the release its `tag` input names (`release/12.000` or later).
 
+### Rehearsing the release path
+
+A rehearsal runs the workflow's GitHub steps on the tip of `master` without deploying the site, publishing a release or pushing a tag, so it needs no new version. It refuses what a release refuses, but for the refusals that only protect a release (a published release for the version, the version's `FONTLOG.md` section, the version's tags), which it prints as `relaxed`, and it needs HEAD to be the tip of a branch of origin, since the run checks that tip out.
+
+1. `make draft-release ARGS='--rehearse --apply'` uploads the six fonts and `fonts.json` through the release's own calls to a draft for `rehearsal/<version>-<commit>`, a tag the workflow's push trigger never matches. Bare `ARGS=--rehearse` is its dry run.
+2. Run the command it prints, `gh workflow run deploy.yml --ref master -f rehearse=true -f tag=rehearsal/<version>-<commit>`, and follow the run with `gh run watch`. Once it has passed, re-running its `release` job (`gh run rerun <run-id> --job <job-id>`, with the job's id from `gh run view <run-id> --json jobs`) replaces the zip the first attempt attached, as a rerun after a failed publish does.
+3. `make draft-release ARGS='--rehearse --delete --apply'` deletes the rehearsal drafts, each only once it reads back as a draft whose tag starts with `rehearsal/`. Bare `ARGS='--rehearse --delete'` lists them.
+
+The run proves what a tag push does on GitHub short of its public effects: that the workflow's token lists the draft, that the fonts download by asset id and match `fonts.json` and the commit the run checks out, the WOFF2 conversion, the assembled site (the run's `github-pages` artifact, which GitHub keeps for a day) and the release files (`font-files`), the release notes from `FONTLOG.md`, the zip, and its upload to the draft by the draft's id. It cannot prove the tag push's trigger, the Pages deployment or the `PATCH` that publishes the draft, which run only on a tag push, so the first release is still their first run.
+
 ## WIP word highlighting
 
 `site/the-manual.html` is the only JavaScript consumer of `site/wip.json`. On load it fetches that file, parses it as a JSON array of strings, and adds the `.wip` class from `site/shared.css` to matching entries in the manual. If the file is missing, empty, or malformed, the code silently does nothing.

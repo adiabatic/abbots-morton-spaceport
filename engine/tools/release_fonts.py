@@ -1,4 +1,4 @@
-"""Upload the six fonts in site/ to a draft GitHub release, which a push of the release tag publishes (`uv run python -m engine.tools.release_fonts [--apply]`, `make draft-release`).
+"""Upload the six fonts in site/ to a draft GitHub release, which a push of the release tag publishes (`uv run python -m engine.tools.release_fonts [--rehearse] [--delete] [--apply]`, `make draft-release`).
 
 The fonts are built on the author's machine, because the Senior's table build needs more memory than a GitHub-hosted runner has (`make job-costs` reports what it holds), and CI publishes them. This command uploads them with a manifest to a draft release for the tag `release/<version>`; pushing that tag runs .github/workflows/deploy.yml, which finds the draft, checks the fonts it downloads (`verify`, below), makes the WOFF2s, deploys the site, attaches the release zip and publishes the draft. HACKING.md § Cutting a release gives the order of the whole release.
 
@@ -12,6 +12,8 @@ The version is the `version` scalar of glyph_data/metadata.yaml as written (`16.
 - a published release for the tag exists, the tag is on origin, or a local tag of that name names another commit.
 
 A draft release for the tag may exist, and `--apply` deletes it. `--apply` then creates the draft release for the tag, targeting HEAD's commit, titled with the tag and with the FONTLOG section as its notes, uploads the six OTFs from site/ and `fonts.json` (`MANIFEST_FORMAT`: the commit, the version, and each font's file name, size and sha256), and checks the draft's assets against what it uploaded by name, size and, where GitHub reports it, digest. It never tags or pushes: it prints the two commands that finish the release, `git tag release/<version> <commit>` and `git push origin release/<version>`. Every `git` and `gh` call goes through `run_command`, which the tests replace.
+
+`--rehearse` is the rehearsal form, which exercises the workflow's GitHub steps with no public effect. It makes the same checks and the same calls, and uploads the same six fonts and manifest, to a draft release for the tag `rehearsal/<version>-<commit>` (`REHEARSAL_PREFIX` and the first `SHORT_COMMIT` hex digits of HEAD), titled and noted as a rehearsal that is safe to delete. The workflow's tag push takes only `release/*` tags, and the draft's tag is never created, so no push can publish it. It relaxes the refusals that exist only to protect a release, printing each one it relaxes as `relaxed`: a published release for the version, the FONTLOG.md section, and the version's tag on origin or here; it replaces only a draft for its own tag. It keeps every other refusal and adds one: HEAD must be the tip of a branch of origin as last fetched, because the rehearsal run checks out that branch's tip and checks fonts.json's commit against it. In place of the two finishing commands it prints the `gh workflow run` command that starts the workflow's rehearsal on that branch (`rehearsal_run_command`), and it never starts it. `--rehearse --delete` lists the rehearsal drafts, and with `--apply` deletes each one after reading it back by id as a draft whose tag starts with `REHEARSAL_PREFIX` (`rehearsal_problem`), so it never deletes a published release or a release whose tag starts with `release/`.
 
 `uv run python -m engine.tools.release_fonts verify DIR --version V [--commit SHA]` is the workflow's check of the fonts it downloaded into DIR: the six OTFs under their shipped names and no other OTF, and, when DIR holds `fonts.json`, the manifest's format, version and commit (when `--commit` is given) and each font's size and sha256. With `--commit`, as on a tag push, a missing manifest is an error; without it, as on a redeploy from a release that predates the manifest, a DIR without `fonts.json` is checked by its file names alone.
 """
@@ -41,15 +43,22 @@ FONTLOG = Path("FONTLOG.md")
 SITE = Path("site")
 REMOTE = "origin"
 TAG_PREFIX = "release/"
+REHEARSAL_PREFIX = "rehearsal/"
+SHORT_COMMIT = 12
 MANIFEST_NAME = "fonts.json"
 MANIFEST_FORMAT = "ams-release-fonts/1"
 MAKE_TARGET = "make draft-release"
 APPLY_COMMAND = f"{MAKE_TARGET} ARGS=--apply"
+REHEARSE_APPLY_COMMAND = f"{MAKE_TARGET} ARGS='--rehearse --apply'"
+REHEARSE_DELETE_COMMAND = f"{MAKE_TARGET} ARGS='--rehearse --delete --apply'"
+WORKFLOW_FILE = "deploy.yml"
 VERSION_FORM = re.compile(r"\d+\.\d{3}")
 NAME_ID_5_FORM = re.compile(r"Version (\d+(?:\.\d+)?)")
 RELEASES_ENDPOINT = "repos/{owner}/{repo}/releases"
 RELEASE_FIELDS = ".[] | {id, tag_name, draft, html_url} | @json"
+ONE_RELEASE_FIELDS = "{id, tag_name, draft, html_url} | @json"
 ASSET_FIELDS = ".[] | {name, size, digest} | @json"
+OK, REFUSE, RELAXED = "ok", "REFUSE", "relaxed"
 
 
 @dataclass(frozen=True)
@@ -86,33 +95,60 @@ class FontFile:
 class Draft:
     id: int
     url: str
+    tag: str
 
 
 @dataclass
 class Release:
-    """What `--apply` would upload and replace, and the checks that decide whether it may."""
+    """What `--apply` would upload and replace, and the checks that decide whether it may. With `rehearsal` set, the upload goes to the rehearsal tag and the release-only refusals are relaxed."""
 
     version: str | None = None
     commit: str | None = None
     notes: str | None = None
+    rehearsal: bool = False
+    branch: str | None = None
     fonts: list[FontFile] = field(default_factory=list)
     drafts: list[Draft] = field(default_factory=list)
     tagged_locally: bool = False
-    checks: list[tuple[bool, str]] = field(default_factory=list)
+    checks: list[tuple[str, str]] = field(default_factory=list)
 
     @property
-    def tag(self) -> str:
+    def release_tag(self) -> str:
         return f"{TAG_PREFIX}{self.version}"
 
     @property
+    def tag(self) -> str:
+        """The tag of the draft `--apply` makes: the release tag, or in a rehearsal `rehearsal/<version>-<commit>`."""
+        if not self.rehearsal:
+            return self.release_tag
+        return f"{REHEARSAL_PREFIX}{self.version}-{(self.commit or '')[:SHORT_COMMIT]}"
+
+    @property
+    def title(self) -> str:
+        if not self.rehearsal:
+            return self.tag
+        return f"Rehearsal of {self.release_tag} at {(self.commit or '')[:SHORT_COMMIT]} (safe to delete)"
+
+    @property
+    def apply_command(self) -> str:
+        return REHEARSE_APPLY_COMMAND if self.rehearsal else APPLY_COMMAND
+
+    @property
     def refusals(self) -> list[str]:
-        return [text for passed, text in self.checks if not passed]
+        return [text for status, text in self.checks if status == REFUSE]
 
     def ok(self, text: str) -> None:
-        self.checks.append((True, text))
+        self.checks.append((OK, text))
 
     def refuse(self, text: str) -> None:
-        self.checks.append((False, text))
+        self.checks.append((REFUSE, text))
+
+    def refuse_release(self, text: str, relaxed: str) -> None:
+        """A refusal that exists only to protect a release: a rehearsal records `relaxed` in its place, which says why it goes on."""
+        if self.rehearsal:
+            self.checks.append((RELAXED, relaxed))
+        else:
+            self.refuse(text)
 
 
 def release_font_names() -> list[str]:
@@ -255,6 +291,24 @@ def _check_tree(release: Release, runner: Runner) -> None:
         )
     else:
         release.ok(f"HEAD ({release.commit[:12]}) is on {', '.join(on_remote)}")
+    if release.rehearsal:
+        _check_branch_tip(release, runner)
+
+
+def _check_branch_tip(release: Release, runner: Runner) -> None:
+    """A rehearsal run is a manual run on a branch, which checks out the branch's tip and checks fonts.json's commit against it, so HEAD must be that tip."""
+    assert release.commit is not None
+    tips = runner(["git", "branch", "--remotes", "--points-at", release.commit, "--format=%(refname:short)"])
+    at_tip = [
+        line for line in tips.stdout.split() if line.startswith(f"{REMOTE}/") and line != f"{REMOTE}/HEAD"
+    ]
+    if tips.returncode != 0 or not at_tip:
+        release.refuse(
+            f"HEAD ({release.commit[:12]}) is the tip of no branch of {REMOTE} as last fetched, and the rehearsal run checks fonts.json's commit against the tip of the branch it runs on; push HEAD, or rehearse from a branch tip"
+        )
+        return
+    release.branch = at_tip[0].removeprefix(f"{REMOTE}/")
+    release.ok(f"HEAD is the tip of {at_tip[0]}, the branch the rehearsal run checks out")
 
 
 def _check_fonts(release: Release, root: Path) -> None:
@@ -284,57 +338,87 @@ def _check_fonts(release: Release, root: Path) -> None:
 
 def _check_fontlog(release: Release, root: Path) -> None:
     assert release.version is not None
+    relaxed = "; a rehearsal's draft carries a rehearsal note instead, but the run's changelog step reads the section and fails without it"
     try:
         text = (root / FONTLOG).read_text(encoding="utf-8")
     except OSError:
-        release.refuse("FONTLOG.md is missing, and the workflow takes the release notes from it")
+        release.refuse_release(
+            "FONTLOG.md is missing, and the workflow takes the release notes from it",
+            f"FONTLOG.md is missing{relaxed}",
+        )
         return
     section = changelog_section(text, release.version)
     heading = f"`### {release.version}`"
     if section is None:
-        release.refuse(
-            f"FONTLOG.md has no {heading} heading, which the workflow takes the release notes from; the bump-minor and bump-major skills open one"
+        release.refuse_release(
+            f"FONTLOG.md has no {heading} heading, which the workflow takes the release notes from; the bump-minor and bump-major skills open one",
+            f"FONTLOG.md has no {heading} heading{relaxed}",
         )
     elif not section.strip():
-        release.refuse(f"FONTLOG.md's {heading} section is empty, and it becomes the release notes")
+        release.refuse_release(
+            f"FONTLOG.md's {heading} section is empty, and it becomes the release notes",
+            f"FONTLOG.md's {heading} section is empty{relaxed}",
+        )
     else:
         release.notes = section
         lines = len([line for line in section.splitlines() if line.strip()])
         release.ok(f"FONTLOG.md's {heading} section holds {lines} lines of release notes")
 
 
+def _drafts_for(releases: list[dict], tag: str) -> list[Draft]:
+    return [
+        Draft(int(entry["id"]), str(entry.get("html_url", "")), tag)
+        for entry in releases
+        if entry.get("tag_name") == tag and entry.get("draft")
+    ]
+
+
+def _replaced(release: Release) -> str:
+    if not release.drafts:
+        return ""
+    return f"; --apply replaces the draft {', '.join(str(draft.id) for draft in release.drafts)}"
+
+
 def _check_release_and_tag(release: Release, runner: Runner) -> None:
-    tag = release.tag
+    """The release tag's checks, which a rehearsal relaxes, and in a rehearsal its own tag's: a rehearsal replaces only the drafts for its own tag."""
+    tag = release.release_tag
     releases = list_releases(runner)
     published: list[dict] = []
     if isinstance(releases, str):
         release.refuse(releases)
     else:
         published = [entry for entry in releases if entry.get("tag_name") == tag and not entry.get("draft")]
-        release.drafts = [
-            Draft(int(entry["id"]), str(entry.get("html_url", "")))
-            for entry in releases
-            if entry.get("tag_name") == tag and entry.get("draft")
-        ]
+        release.drafts = _drafts_for(releases, release.tag)
         if published:
-            release.refuse(
-                f"{tag} is already a published release ({published[0].get('html_url', '')}); bump the version with the bump-minor or bump-major skill"
+            url = published[0].get("html_url", "")
+            release.refuse_release(
+                f"{tag} is already a published release ({url}); bump the version with the bump-minor or bump-major skill",
+                f"{tag} is already a published release ({url}); a rehearsal uploads to {release.tag} and leaves it alone",
             )
         else:
-            replaced = (
-                f"; --apply replaces the draft {', '.join(str(d.id) for d in release.drafts)}"
-                if release.drafts
-                else ""
-            )
-            release.ok(f"no published release for {tag}{replaced}")
+            release.ok(f"no published release for {tag}{'' if release.rehearsal else _replaced(release)}")
+        if release.rehearsal:
+            rehearsed = [
+                entry for entry in releases if entry.get("tag_name") == release.tag and not entry.get("draft")
+            ]
+            if rehearsed:
+                release.refuse(
+                    f"{release.tag} is a published release ({rehearsed[0].get('html_url', '')}), and a rehearsal's release is a draft; delete it on GitHub"
+                )
+            else:
+                release.ok(f"no published release for {release.tag}{_replaced(release)}")
+    never = "a rehearsal never tags or pushes"
     remote = runner(["git", "ls-remote", "--tags", REMOTE, f"refs/tags/{tag}"])
     if remote.returncode != 0:
         release.refuse(f"`git ls-remote {REMOTE}` failed ({_first_line(remote)})")
     elif remote.stdout.strip() and published:
-        release.refuse(f"the tag {tag} is already on {REMOTE}")
+        release.refuse_release(
+            f"the tag {tag} is already on {REMOTE}", f"the tag {tag} is on {REMOTE}; {never}"
+        )
     elif remote.stdout.strip():
-        release.refuse(
-            f"the tag {tag} is already on {REMOTE} and its release is not published; re-run its failed workflow from the Actions page, or delete the tag there (`git push {REMOTE} :refs/tags/{tag}`), upload again and push it again"
+        release.refuse_release(
+            f"the tag {tag} is already on {REMOTE} and its release is not published; re-run its failed workflow from the Actions page, or delete the tag there (`git push {REMOTE} :refs/tags/{tag}`), upload again and push it again",
+            f"the tag {tag} is on {REMOTE} and its release is not published; {never}",
         )
     else:
         release.ok(f"{REMOTE} has no tag {tag}")
@@ -342,16 +426,19 @@ def _check_release_and_tag(release: Release, runner: Runner) -> None:
     named = local.stdout.strip() if local.returncode == 0 else ""
     if named and named != release.commit:
         remedy = "" if published else f"; delete it with `git tag -d {tag}`"
-        release.refuse(f"the local tag {tag} names {named[:12]}, not HEAD{remedy}")
+        release.refuse_release(
+            f"the local tag {tag} names {named[:12]}, not HEAD{remedy}",
+            f"the local tag {tag} names {named[:12]}, not HEAD; {never}",
+        )
     elif named:
         release.tagged_locally = True
         release.ok(f"the local tag {tag} names HEAD")
 
 
-def prepare(root: Path = REPO_ROOT, runner: Runner = run_command) -> Release:
-    """Run every check `--apply` makes, and gather what it would upload and replace."""
+def prepare(root: Path = REPO_ROOT, runner: Runner = run_command, rehearsal: bool = False) -> Release:
+    """Run every check `--apply` makes, and gather what it would upload and replace; with `rehearsal`, for the rehearsal draft."""
     root = Path(root)
-    release = Release(version=metadata_version(root))
+    release = Release(version=metadata_version(root), rehearsal=rehearsal)
     if release.version is None or not VERSION_FORM.fullmatch(release.version):
         release.refuse(
             f"glyph_data/metadata.yaml's version is {release.version!r}, not of the form X.YYY that names the tag and the FONTLOG.md heading"
@@ -362,7 +449,22 @@ def prepare(root: Path = REPO_ROOT, runner: Runner = run_command) -> Release:
     if release.version is not None:
         _check_fontlog(release, root)
         _check_release_and_tag(release, runner)
+    if rehearsal:
+        release.notes = rehearsal_notes(release)
     return release
+
+
+def rehearsal_notes(release: Release) -> str:
+    """The rehearsal draft's body, in place of the FONTLOG section a release carries."""
+    return (
+        f"A rehearsal of the release path for {release.release_tag}, uploaded by `{REHEARSE_APPLY_COMMAND}` from commit {release.commit}. It is safe to delete, and `{REHEARSE_DELETE_COMMAND}` deletes it.\n\n"
+        f"It stays a draft: its tag is not a release tag, so no push runs the release on it, and the workflow's rehearsal attaches the zip to it without publishing it.\n"
+    )
+
+
+def rehearsal_run_command(release: Release) -> str:
+    """The command that starts the workflow's rehearsal on the rehearsal draft, on the branch whose tip is HEAD."""
+    return f"gh workflow run {WORKFLOW_FILE} --ref {release.branch} -f rehearse=true -f tag={release.tag}"
 
 
 def create_argv(release: Release, root: Path, manifest: Path, notes: Path) -> list[str]:
@@ -376,7 +478,7 @@ def create_argv(release: Release, root: Path, manifest: Path, notes: Path) -> li
         "--target",
         release.commit,
         "--title",
-        release.tag,
+        release.title,
         "--notes-file",
         str(notes),
         *(str(root / SITE / font.name) for font in release.fonts),
@@ -386,6 +488,8 @@ def create_argv(release: Release, root: Path, manifest: Path, notes: Path) -> li
 
 def finishing_commands(release: Release) -> list[str]:
     assert release.commit is not None
+    if release.rehearsal:
+        return [rehearsal_run_command(release)]
     tag = [] if release.tagged_locally else [f"git tag {release.tag} {release.commit}"]
     return [*tag, f"git push {REMOTE} {release.tag}"]
 
@@ -435,6 +539,8 @@ def uploaded_problems(release: Release, manifest: FontFile, runner: Runner) -> l
 def apply(release: Release, root: Path = REPO_ROOT, runner: Runner = run_command) -> None:
     """Replace any draft release for the tag with a new one holding the six fonts and the manifest, and check what GitHub holds. Raises `ReleaseError` at the first failed call, leaving whatever it had made."""
     assert release.commit is not None and release.version is not None and release.notes is not None
+    assert all(draft.tag == release.tag for draft in release.drafts)
+    assert not release.rehearsal or release.tag.startswith(REHEARSAL_PREFIX)
     with tempfile.TemporaryDirectory(prefix="release-fonts-") as scratch:
         manifest_path = Path(scratch) / MANIFEST_NAME
         manifest_path.write_text(
@@ -459,7 +565,7 @@ def apply(release: Release, root: Path = REPO_ROOT, runner: Runner = run_command
     problems = uploaded_problems(release, manifest, runner)
     if problems:
         raise ReleaseError(
-            f"the draft release does not hold what was uploaded: {'; '.join(problems)}. Run `{APPLY_COMMAND}` again, which replaces the draft"
+            f"the draft release does not hold what was uploaded: {'; '.join(problems)}. Run `{release.apply_command}` again, which replaces the draft"
         )
     print(f"the draft release holds the six fonts and {MANIFEST_NAME}, by name, size and digest")
 
@@ -468,8 +574,13 @@ def plan_lines(release: Release) -> list[str]:
     """What `--apply` does, in order, for the dry run to print."""
     assert release.commit is not None and release.version is not None
     lines = [f"  delete the draft release {draft.id} ({draft.url})" for draft in release.drafts]
+    notes = (
+        "a note that says it is a rehearsal and safe to delete"
+        if release.rehearsal
+        else f"FONTLOG.md's `### {release.version}` section"
+    )
     lines.append(
-        f"  create the draft release {release.tag}, targeting {release.commit}, titled {release.tag}, with FONTLOG.md's `### {release.version}` section as its notes"
+        f"  create the draft release {release.tag}, targeting {release.commit}, titled {release.title}, with {notes} as its notes"
     )
     lines.append("  upload to it:")
     lines += [f"    {SITE / font.name}" for font in release.fonts]
@@ -479,6 +590,65 @@ def plan_lines(release: Release) -> list[str]:
     ]
     lines.append("  check the draft's assets against what it uploaded, by name, size and digest")
     return lines
+
+
+def rehearsal_problem(entry: dict) -> str | None:
+    """Why a release, as the API lists it, is not a rehearsal draft that `--rehearse --delete` may delete, or None when it is one."""
+    tag = str(entry.get("tag_name", ""))
+    if tag.startswith(TAG_PREFIX):
+        return f"its tag {tag} is a release tag"
+    if not tag.startswith(REHEARSAL_PREFIX):
+        return f"its tag {tag} does not start with {REHEARSAL_PREFIX}"
+    if entry.get("draft") is not True:
+        return f"{tag} is a published release"
+    return None
+
+
+def _read_release(release_id: int, runner: Runner) -> dict | str:
+    reading = runner(["gh", "api", f"{RELEASES_ENDPOINT}/{release_id}", "--jq", ONE_RELEASE_FIELDS])
+    if reading.returncode != 0:
+        return f"`gh api` could not read the release {release_id} ({_first_line(reading)})"
+    try:
+        entry = json.loads(reading.stdout)
+    except ValueError:
+        return f"`gh api` read the release {release_id} in a form this command does not read"
+    if not isinstance(entry, dict) or entry.get("id") != release_id:
+        return f"`gh api` read another release in place of {release_id}"
+    return entry
+
+
+def delete_rehearsals(apply: bool, runner: Runner = run_command) -> int:
+    """List the rehearsal drafts, and with `apply` delete each one after reading it back by id as a rehearsal draft (`rehearsal_problem`). A release under the rehearsal prefix that is published is kept and fails the run."""
+    mode = "deleting" if apply else f"a dry run, which deletes nothing; {REHEARSE_DELETE_COMMAND} deletes"
+    print(f"release_fonts: {mode} the draft releases whose tag starts with {REHEARSAL_PREFIX}")
+    releases = list_releases(runner)
+    if isinstance(releases, str):
+        print(f"release_fonts: {releases}", file=sys.stderr)
+        return 1
+    found = [entry for entry in releases if str(entry.get("tag_name", "")).startswith(REHEARSAL_PREFIX)]
+    if not found:
+        print(f"  there is no release whose tag starts with {REHEARSAL_PREFIX}")
+    status = 0
+    for entry in found:
+        release_id, named = int(entry["id"]), f"{entry.get('tag_name')} ({entry.get('html_url', '')})"
+        problem = rehearsal_problem(entry)
+        if problem is None and apply:
+            current = _read_release(release_id, runner)
+            problem = current if isinstance(current, str) else rehearsal_problem(current)
+        if problem is not None:
+            print(f"  keep    {named}: {problem}; only a release read back as a rehearsal draft is deleted")
+            status = 1
+            continue
+        if not apply:
+            print(f"  delete  {named}")
+            continue
+        deleted = runner(["gh", "api", "--method", "DELETE", f"{RELEASES_ENDPOINT}/{release_id}"])
+        if deleted.returncode != 0:
+            print(f"  FAILED  {named}: could not delete it ({_first_line(deleted)})")
+            status = 1
+        else:
+            print(f"  deleted {named}")
+    return status
 
 
 def verify_fonts(directory: Path, version: str, commit: str | None = None) -> list[str]:
@@ -540,7 +710,7 @@ def _verify_main(argv: list[str]) -> int:
         for problem in problems:
             print(f"release_fonts verify: {problem}", file=sys.stderr)
         remedy = (
-            f"the release does not hold the fonts `{APPLY_COMMAND}` uploads for this commit; run it on the tagged commit, which replaces the draft release"
+            f"the release does not hold the fonts `{APPLY_COMMAND}` uploads for this commit; run it on the tagged commit, which replaces the draft release (in a rehearsal, run `{REHEARSE_APPLY_COMMAND}` on the commit the run checks out)"
             if args.commit is not None
             else f"a redeploy takes its fonts from a release `{MAKE_TARGET}` made, or from an older one whose zip holds the six fonts under these names (release/12.000 and later)"
         )
@@ -560,13 +730,34 @@ def main(argv: Sequence[str] | None = None, root: Path = REPO_ROOT, runner: Runn
         description="Upload the six fonts in site/ and fonts.json to a draft GitHub release for the version in glyph_data/metadata.yaml; without --apply, a dry run.",
     )
     parser.add_argument("--apply", action="store_true", help="replace the draft release and upload the fonts")
+    parser.add_argument(
+        "--rehearse",
+        action="store_true",
+        help=f"upload to a rehearsal draft ({REHEARSAL_PREFIX}<version>-<commit>), which no push publishes, relaxing the refusals that only protect a release",
+    )
+    parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="with --rehearse, delete the rehearsal drafts instead (a dry run without --apply)",
+    )
     args = parser.parse_args(argv)
-    release = prepare(root, runner)
-    mode = "" if args.apply else "a dry run, which writes nothing; ARGS=--apply makes the draft release. "
+    if args.delete and not args.rehearse:
+        parser.error("--delete deletes only rehearsal drafts, so it needs --rehearse")
+    if args.delete:
+        return delete_rehearsals(args.apply, runner)
+    release = prepare(root, runner, rehearsal=args.rehearse)
+    if args.rehearse:
+        mode = (
+            "a rehearsal; "
+            if args.apply
+            else f"a rehearsal's dry run, which writes nothing; {REHEARSE_APPLY_COMMAND} makes the rehearsal draft. "
+        )
+    else:
+        mode = "" if args.apply else "a dry run, which writes nothing; ARGS=--apply makes the draft release. "
     named = f"version {release.version}, tag {release.tag}" if release.version else "no version"
     print(f"release_fonts: {mode}{named}, commit {release.commit or 'none'}")
-    for passed, line in release.checks:
-        print(f"  {'ok' if passed else 'REFUSE':<8}{line}")
+    for status, line in release.checks:
+        print(f"  {status:<8}{line}")
     if release.refusals:
         print(f"release_fonts: {'refused' if args.apply else '--apply would refuse'}; nothing was written")
         return 1
@@ -580,10 +771,16 @@ def main(argv: Sequence[str] | None = None, root: Path = REPO_ROOT, runner: Runn
         except ReleaseError as error:
             print(f"release_fonts: {error}", file=sys.stderr)
             return 1
-    then = "Then finish" if not args.apply else "Finish"
-    print(
-        f"{then} the release with these; the tag's push runs .github/workflows/deploy.yml, which publishes it:"
-    )
+    if args.rehearse:
+        start = "Then start" if not args.apply else "Start"
+        print(
+            f"{start} the rehearsal run with the command below, which this command never runs; the run deploys nothing and leaves the draft a draft, and `{REHEARSE_DELETE_COMMAND}` deletes the rehearsal drafts afterward:"
+        )
+    else:
+        then = "Then finish" if not args.apply else "Finish"
+        print(
+            f"{then} the release with these; the tag's push runs .github/workflows/deploy.yml, which publishes it:"
+        )
     for command in finishing_commands(release):
         print(f"  {command}")
     return 0

@@ -1,12 +1,15 @@
-"""Tests for `engine/tools/release_fonts.py`, the upload of the six fonts to a draft GitHub release: each refusal, over a synthetic root and a stand-in for `run_command` that answers the tool's `git` and `gh` calls from state the test sets; the call sequence `--apply` makes and the manifest and notes it uploads; the check of what the draft holds afterward; the currency check of the fonts in site/; the release notes read as the workflow's `awk` reads them; the workflow's `verify` of the fonts it downloads; and the workflow's calls of the tool, from .github/workflows/deploy.yml."""
+"""Tests for `engine/tools/release_fonts.py`, the upload of the six fonts to a draft GitHub release: each refusal, over a synthetic root and a stand-in for `run_command` that answers the tool's `git` and `gh` calls from state the test sets; the call sequence `--apply` makes and the manifest and notes it uploads; the check of what the draft holds afterward; the rehearsal form's relaxed and kept refusals, its tag and its calls, and the guards of its cleanup; the currency check of the fonts in site/; the release notes read as the workflow's `awk` reads them; the workflow's `verify` of the fonts it downloads; and what .github/workflows/deploy.yml shares with the tool, the guards that keep a rehearsal from deploying or publishing among it."""
 
 from __future__ import annotations
 
+import fnmatch
 import json
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
+import yaml
 from fontTools.fontBuilder import FontBuilder
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 
@@ -20,6 +23,10 @@ VERSION = "16.001"
 TAG = f"release/{VERSION}"
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 OTHER_COMMIT = "fedcba9876543210fedcba9876543210fedcba98"
+REHEARSAL_TAG = f"rehearsal/{VERSION}-{COMMIT[:12]}"
+REHEARSAL_TITLE = f"Rehearsal of {TAG} at {COMMIT[:12]} (safe to delete)"
+RUN_COMMAND = f"gh workflow run deploy.yml --ref master -f rehearse=true -f tag={REHEARSAL_TAG}"
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "deploy.yml"
 FONTLOG = f"""# Fontlog
 
 ## Changelog
@@ -70,21 +77,24 @@ def root(tmp_path, monkeypatch) -> Path:
 
 
 class FakeGitHub:
-    """Answers each `git` and `gh` call the tool makes from the state a test sets, and records the calls. `gh release create` reads the files it is given, as gh uploads them, and adds a draft holding them, less any name in `drop`."""
+    """Answers each `git` and `gh` call the tool makes from the state a test sets, and records the calls. `gh release create` reads the files it is given, as gh uploads them, and adds a draft holding them, less any name in `drop`. `branches` answers `git branch --contains` and `tips` answers `git branch --points-at`, in git's short form, where origin/HEAD reads `origin`. A read of one release by id answers from `reread` when it names the id, as when the release has changed since the listing."""
 
     def __init__(
         self,
         releases: Sequence[dict] = (),
         dirty: str = "",
-        branches: str = "origin/HEAD\norigin/master\n",
+        branches: str = "origin\norigin/master\n",
+        tips: str = "origin\norigin/master\n",
         remote_tag: str = "",
         local_tag: str = "",
         failing: Sequence[str] = (),
         drop: Sequence[str] = (),
+        reread: dict[int, dict] | None = None,
     ):
         self.releases = [dict(entry) for entry in releases]
-        self.dirty, self.branches, self.remote_tag, self.local_tag = dirty, branches, remote_tag, local_tag
-        self.failing, self.drop = tuple(failing), tuple(drop)
+        self.dirty, self.branches, self.tips = dirty, branches, tips
+        self.remote_tag, self.local_tag = remote_tag, local_tag
+        self.failing, self.drop, self.reread = tuple(failing), tuple(drop), dict(reread or {})
         self.calls: list[list[str]] = []
         self.uploaded: dict[str, bytes] = {}
         self.notes = ""
@@ -100,7 +110,9 @@ class FakeGitHub:
                 return Completed(0, self.dirty, "")
             case ["git", "rev-parse", "--verify", "HEAD^{commit}"]:
                 return Completed(0, f"{COMMIT}\n", "")
-            case ["git", "branch", "--remotes", *_]:
+            case ["git", "branch", "--remotes", "--points-at", *_]:
+                return Completed(0, self.tips, "")
+            case ["git", "branch", "--remotes", "--contains", *_]:
                 return Completed(0, self.branches, "")
             case ["git", "ls-remote", *_]:
                 return Completed(0, f"{self.remote_tag}\trefs/tags/{TAG}\n" if self.remote_tag else "", "")
@@ -114,6 +126,13 @@ class FakeGitHub:
                 return Completed(0, "".join(f"{line}\n" for line in lines), "")
             case ["gh", "api", "--paginate", *_]:
                 return Completed(0, "".join(f"{json.dumps(entry)}\n" for entry in self.releases), "")
+            case ["gh", "api", endpoint, "--jq", _] if not endpoint.startswith("-"):
+                wanted = int(endpoint.rsplit("/", 1)[1])
+                listed = {entry["id"]: entry for entry in self.releases}
+                entry = self.reread.get(wanted, listed.get(wanted))
+                if entry is None:
+                    return Completed(1, "", "HTTP 404: Not Found")
+                return Completed(0, f"{json.dumps(entry)}\n", "")
             case ["gh", "api", "--method", "DELETE", endpoint]:
                 gone = int(endpoint.rsplit("/", 1)[1])
                 self.releases = [entry for entry in self.releases if entry["id"] != gone]
@@ -148,6 +167,8 @@ def _kind(call: list[str]) -> str:
     if call[:2] == ["gh", "api"]:
         if "--method" in call:
             return f"gh api {call[call.index('--method') + 1]}"
+        if call[2] != "--paginate":
+            return "gh api release"
         return "gh api assets" if "/assets" in call[3] else "gh api releases"
     return " ".join(call[:3] if call[:2] == ["gh", "release"] else call[:2])
 
@@ -321,6 +342,245 @@ def test_each_refusal_stops_apply_before_any_write_and_fails_the_dry_run(case, r
         assert f"  git push origin {TAG}" not in out.splitlines()
 
 
+def _status_lines(out: str, status: str) -> list[str]:
+    prefix = f"  {status:<8}"
+    return [line[len(prefix) :] for line in out.splitlines() if line.startswith(prefix)]
+
+
+class TestTheRehearsal:
+    def test_a_dry_run_relaxes_each_release_only_refusal_and_prints_the_run_command(self, root, capsys):
+        """The state of a version already released, with its FONTLOG section gone, refuses a release four times; a rehearsal prints each of the four as relaxed, plans the rehearsal draft, ends with the `gh workflow run` command, and writes nothing."""
+        (root / "FONTLOG.md").write_text(FONTLOG.replace(f"### {VERSION}", "### 16.002"))
+        state = {
+            "releases": [{"id": 9, "tag_name": TAG, "draft": False, "html_url": "u9"}],
+            "remote_tag": OTHER_COMMIT,
+            "local_tag": OTHER_COMMIT,
+        }
+        assert release_fonts.main([], root=root, runner=FakeGitHub(**state)) == 1
+        assert len(_status_lines(capsys.readouterr().out, "REFUSE")) == 4
+        github = FakeGitHub(**state)
+        assert release_fonts.main(["--rehearse"], root=root, runner=github) == 0
+        out = capsys.readouterr().out
+        assert _status_lines(out, "REFUSE") == []
+        relaxed = _status_lines(out, "relaxed")
+        assert [line.split(";")[0] for line in relaxed] == [
+            f"FONTLOG.md has no `### {VERSION}` heading",
+            f"{TAG} is already a published release (u9)",
+            f"the tag {TAG} is on origin",
+            f"the local tag {TAG} names {OTHER_COMMIT[:12]}, not HEAD",
+        ]
+        assert "HEAD is the tip of origin/master, the branch the rehearsal run checks out" in out
+        assert out.startswith("release_fonts: a rehearsal's dry run, which writes nothing; ")
+        assert f"version {VERSION}, tag {REHEARSAL_TAG}, commit {COMMIT}" in out
+        assert (
+            f"create the draft release {REHEARSAL_TAG}, targeting {COMMIT}, titled {REHEARSAL_TITLE}," in out
+        )
+        assert out.rstrip().endswith(f"\n  {RUN_COMMAND}")
+        assert github.writes() == []
+
+    def test_apply_uploads_the_release_files_to_a_rehearsal_draft_through_the_release_calls(
+        self, root, capsys
+    ):
+        """`--rehearse --apply` makes the release's calls plus the branch-tip check, replaces only the draft for its own tag, and uploads the six fonts and the same manifest a release uploads to a draft titled and noted as a rehearsal; it tags, pushes and starts nothing, and prints the command that starts the run."""
+        github = FakeGitHub(
+            releases=[
+                {"id": 5, "tag_name": TAG, "draft": False, "html_url": "u5"},
+                {"id": 7, "tag_name": TAG, "draft": True, "html_url": "u7"},
+                {"id": 8, "tag_name": REHEARSAL_TAG, "draft": True, "html_url": "u8"},
+            ],
+            remote_tag=OTHER_COMMIT,
+        )
+        assert release_fonts.main(["--rehearse", "--apply"], root=root, runner=github) == 0
+        assert [_kind(call) for call in github.calls] == [
+            "git status",
+            "git rev-parse",
+            "git branch",
+            "git branch",
+            "gh api releases",
+            "git ls-remote",
+            "git rev-parse",
+            "gh api DELETE",
+            "gh release create",
+            "gh api releases",
+            "gh api assets",
+        ]
+        delete, create = github.writes()
+        assert delete == ["gh", "api", "--method", "DELETE", "repos/{owner}/{repo}/releases/8"]
+        assert create[:10] == [
+            "gh",
+            "release",
+            "create",
+            REHEARSAL_TAG,
+            "--draft",
+            "--target",
+            COMMIT,
+            "--title",
+            REHEARSAL_TITLE,
+            "--notes-file",
+        ]
+        assert create[11:-1] == [str(root / "site" / name) for name in release_fonts.release_font_names()]
+        assert github.uploaded[release_fonts.MANIFEST_NAME].decode() == release_fonts.manifest_text(
+            COMMIT, VERSION, _site_fonts(root)
+        )
+        assert "rehearsal" in github.notes and "safe to delete" in github.notes
+        assert release_fonts.REHEARSE_DELETE_COMMAND in github.notes
+        assert {entry["id"] for entry in github.releases if entry["tag_name"] == TAG} == {5, 7}
+        out = capsys.readouterr().out
+        assert out.rstrip().endswith(f"\n  {RUN_COMMAND}")
+        assert not any(
+            call[:2] in (["git", "tag"], ["git", "push"], ["gh", "workflow"]) for call in github.calls
+        )
+
+    def test_the_rehearsal_tag_is_never_a_release_tag(self, root):
+        release = release_fonts.prepare(root, FakeGitHub(), rehearsal=True)
+        assert re.fullmatch(rf"rehearsal/{re.escape(VERSION)}-[0-9a-f]{{12}}", release.tag)
+        assert release.tag == REHEARSAL_TAG and release.release_tag == TAG
+        assert not fnmatch.fnmatch(release.tag, f"{release_fonts.TAG_PREFIX}*")
+        assert not release_fonts.REHEARSAL_PREFIX.startswith(release_fonts.TAG_PREFIX)
+        assert not release_fonts.TAG_PREFIX.startswith(release_fonts.REHEARSAL_PREFIX)
+
+    def test_a_draft_for_the_release_tag_is_left_alone(self, root):
+        github = FakeGitHub(releases=[{"id": 7, "tag_name": TAG, "draft": True, "html_url": "u7"}])
+        release = release_fonts.prepare(root, github, rehearsal=True)
+        assert release.drafts == [] and release.refusals == []
+
+
+REHEARSAL_REFUSALS = {
+    "a dirty tree": (None, {"dirty": "?? new.yaml\n"}, "the working tree is not clean (new.yaml)"),
+    "an unpushed HEAD": (
+        None,
+        {"branches": "origin\n", "tips": "origin\n"},
+        "is on no branch of origin",
+    ),
+    "a HEAD behind its branch": (
+        None,
+        {"tips": ""},
+        "is the tip of no branch of origin as last fetched, and the rehearsal run checks fonts.json's commit",
+    ),
+    "stale fonts": (
+        lambda root, mp: mp.setattr(
+            release_fonts, "fonts_staleness", lambda at: "Mono and Junior do not build: x"
+        ),
+        {},
+        "Mono and Junior do not build: x; run `make all`",
+    ),
+    "a font of another version": (
+        lambda root, mp: _font(root / "site" / "AbbotsMortonSpaceportMono-Regular.otf", 16.0),
+        {},
+        "AbbotsMortonSpaceportMono-Regular.otf carries 16.000",
+    ),
+    "a version not of the form X.YYY": (
+        lambda root, mp: _set_version(root, "16.0"),
+        {},
+        "version is '16.0', not of the form X.YYY",
+    ),
+    "gh unable to list the releases": (
+        None,
+        {"failing": ["gh api --paginate"]},
+        "`gh api` could not list the releases (HTTP 401: Bad credentials)",
+    ),
+    "a published release for the rehearsal tag": (
+        None,
+        {"releases": [{"id": 9, "tag_name": REHEARSAL_TAG, "draft": False, "html_url": "u9"}]},
+        f"{REHEARSAL_TAG} is a published release (u9), and a rehearsal's release is a draft",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REHEARSAL_REFUSALS))
+def test_a_rehearsal_keeps_each_refusal_that_keeps_it_faithful(case, root, monkeypatch, capsys):
+    """The refusals that make the rehearsal run the release's own run stay refusals, before any write, in the dry run and under `--apply` alike."""
+    edit, state, refusal = REHEARSAL_REFUSALS[case]
+    if edit is not None:
+        edit(root, monkeypatch)
+    for argv in (["--rehearse"], ["--rehearse", "--apply"]):
+        github = FakeGitHub(**state)
+        assert release_fonts.main(argv, root=root, runner=github) == 1
+        out = capsys.readouterr().out
+        assert any(refusal in line for line in _status_lines(out, "REFUSE")), out
+        assert "nothing was written" in out
+        assert github.writes() == []
+        assert "gh workflow run" not in out
+
+
+class TestTheRehearsalCleanup:
+    RELEASES = (
+        {"id": 5, "tag_name": TAG, "draft": False, "html_url": "u5"},
+        {"id": 7, "tag_name": TAG, "draft": True, "html_url": "u7"},
+        {"id": 8, "tag_name": REHEARSAL_TAG, "draft": True, "html_url": "u8"},
+        {"id": 9, "tag_name": f"rehearsal/{VERSION}-{OTHER_COMMIT[:12]}", "draft": True, "html_url": "u9"},
+        {"id": 11, "tag_name": "v1", "draft": True, "html_url": "u11"},
+    )
+
+    def test_a_dry_run_lists_the_rehearsal_drafts_and_deletes_nothing(self, capsys):
+        github = FakeGitHub(releases=self.RELEASES)
+        assert release_fonts.main(["--rehearse", "--delete"], runner=github) == 0
+        assert _status_lines(capsys.readouterr().out, "delete") == [
+            f"{REHEARSAL_TAG} (u8)",
+            f"rehearsal/{VERSION}-{OTHER_COMMIT[:12]} (u9)",
+        ]
+        assert github.writes() == [] and [_kind(call) for call in github.calls] == ["gh api releases"]
+
+    def test_apply_deletes_each_rehearsal_draft_after_reading_it_back(self, capsys):
+        github = FakeGitHub(releases=self.RELEASES)
+        assert release_fonts.main(["--rehearse", "--delete", "--apply"], runner=github) == 0
+        assert [_kind(call) for call in github.calls] == [
+            "gh api releases",
+            "gh api release",
+            "gh api DELETE",
+            "gh api release",
+            "gh api DELETE",
+        ]
+        assert [call[-1] for call in github.writes()] == [
+            "repos/{owner}/{repo}/releases/8",
+            "repos/{owner}/{repo}/releases/9",
+        ]
+        assert {entry["id"] for entry in github.releases} == {5, 7, 11}
+        assert len(_status_lines(capsys.readouterr().out, "deleted")) == 2
+
+    def test_a_published_rehearsal_and_one_published_since_the_listing_are_kept(self, capsys):
+        published = {"id": 10, "tag_name": "rehearsal/16.000-aaaaaaaaaaaa", "draft": False, "html_url": "u10"}
+        github = FakeGitHub(
+            releases=[*self.RELEASES, published],
+            reread={9: {**self.RELEASES[3], "draft": False}},
+        )
+        assert release_fonts.main(["--rehearse", "--delete", "--apply"], runner=github) == 1
+        assert [call[-1] for call in github.writes()] == ["repos/{owner}/{repo}/releases/8"]
+        kept = _status_lines(capsys.readouterr().out, "keep")
+        assert [line.split(":")[0] for line in kept] == [
+            f"rehearsal/{VERSION}-{OTHER_COMMIT[:12]} (u9)",
+            "rehearsal/16.000-aaaaaaaaaaaa (u10)",
+        ]
+        assert all("is a published release" in line for line in kept)
+
+    @pytest.mark.parametrize(
+        "entry, problem",
+        [
+            ({"tag_name": TAG, "draft": True}, f"its tag {TAG} is a release tag"),
+            ({"tag_name": "v1", "draft": True}, "its tag v1 does not start with rehearsal/"),
+            ({"tag_name": REHEARSAL_TAG, "draft": False}, f"{REHEARSAL_TAG} is a published release"),
+            ({"tag_name": REHEARSAL_TAG}, f"{REHEARSAL_TAG} is a published release"),
+            ({"tag_name": REHEARSAL_TAG, "draft": True}, None),
+        ],
+    )
+    def test_only_a_draft_under_the_rehearsal_prefix_may_be_deleted(self, entry, problem):
+        assert release_fonts.rehearsal_problem(entry) == problem
+
+    def test_a_failed_listing_or_reread_deletes_nothing(self, capsys):
+        for failing in (["gh api --paginate"], ["gh api repos/"]):
+            github = FakeGitHub(releases=self.RELEASES, failing=failing)
+            assert release_fonts.main(["--rehearse", "--delete", "--apply"], runner=github) == 1
+            assert github.writes() == []
+        capsys.readouterr()
+
+    def test_delete_needs_rehearse(self, capsys):
+        github = FakeGitHub(releases=self.RELEASES)
+        with pytest.raises(SystemExit):
+            release_fonts.main(["--delete", "--apply"], runner=github)
+        assert github.calls == []
+        assert "--delete deletes only rehearsal drafts" in capsys.readouterr().err
+
+
 class TestTheFontsCurrency:
     @pytest.fixture
     def build_root(self, tmp_path, monkeypatch) -> Path:
@@ -430,7 +690,8 @@ class TestTheWorkflowsCheck:
         assert release_fonts.verify_fonts(downloaded, VERSION, COMMIT) == ["fonts.json is missing"]
         assert release_fonts.verify_fonts(downloaded, VERSION) == []
         assert release_fonts.main(["verify", str(downloaded), "--version", VERSION, "--commit", COMMIT]) == 1
-        assert release_fonts.APPLY_COMMAND in capsys.readouterr().err
+        err = capsys.readouterr().err
+        assert release_fonts.APPLY_COMMAND in err and release_fonts.REHEARSE_APPLY_COMMAND in err
 
     def test_the_workflow_runs_this_check_and_names_the_upload_target(self):
         """.github/workflows/deploy.yml cannot run here, so this holds the names it shares with the tool: the tag pattern, the manifest's name, the `verify` call against the tagged commit, and the make target its errors name."""
@@ -442,3 +703,69 @@ class TestTheWorkflowsCheck:
         )
         assert release_fonts.MANIFEST_NAME in workflow
         assert release_fonts.APPLY_COMMAND in workflow
+
+
+def _workflow() -> dict:
+    document = yaml.safe_load(WORKFLOW.read_text())
+    # YAML 1.1 reads the bare key `on` as the boolean true.
+    document["on"] = document.pop(True, document.get("on"))
+    return document
+
+
+class TestTheWorkflowsRehearsal:
+    def test_the_run_command_names_the_workflow_and_its_inputs(self, root):
+        """The command the rehearsal prints starts this workflow with inputs it declares, and the workflow reads the version out of the tag the tool makes as the tool wrote it."""
+        github = FakeGitHub()
+        release = release_fonts.prepare(root, github, rehearsal=True)
+        command = release_fonts.rehearsal_run_command(release)
+        assert command == RUN_COMMAND
+        assert (WORKFLOW.parent / release_fonts.WORKFLOW_FILE) == WORKFLOW
+        inputs = _workflow()["on"]["workflow_dispatch"]["inputs"]
+        assert inputs["rehearse"] == {
+            "description": inputs["rehearse"]["description"],
+            "type": "boolean",
+            "required": False,
+            "default": False,
+        }
+        words = command.split()
+        fields = dict(pair.split("=", 1) for flag, pair in zip(words, words[1:]) if flag == "-f")
+        assert fields == {"rehearse": "true", "tag": REHEARSAL_TAG} and set(fields) <= set(inputs)
+        text = WORKFLOW.read_text()
+        assert f"{release_fonts.REHEARSAL_PREFIX}*) ;;" in text
+        assert 'rest="${tag#rehearsal/}"' in text and 'version="${rest%%-*}"' in text
+        assert REHEARSAL_TAG.removeprefix(release_fonts.REHEARSAL_PREFIX).split("-")[0] == VERSION
+        assert release_fonts.REHEARSE_APPLY_COMMAND in text
+
+    def test_a_rehearsal_can_neither_deploy_nor_publish(self):
+        """A rehearsal is a manual run with `rehearse` true: the deploy job and the publish step each require `rehearse` false, the publish step a tag push too, nothing else deploys or publishes, and a release tag is refused."""
+        workflow = _workflow()
+        jobs = workflow["jobs"]
+        assert jobs["deploy"]["if"] == "inputs.rehearse != true"
+        deploying = [
+            name
+            for name, job in jobs.items()
+            for step in job["steps"]
+            if "deploy-pages" in step.get("uses", "")
+        ]
+        assert deploying == ["deploy"]
+        publishing = [
+            step
+            for job in jobs.values()
+            for step in job["steps"]
+            if "draft=false" in step.get("run", "") or "PATCH" in step.get("run", "")
+        ]
+        assert [step["if"] for step in publishing] == [
+            "github.event_name == 'push' && inputs.rehearse != true"
+        ]
+        release_if = " ".join(jobs["release"]["if"].split())
+        assert "(github.event_name == 'push' && needs.deploy.result == 'success')" in release_if
+        assert (
+            "(inputs.rehearse == true && startsWith(inputs.tag, 'rehearsal/') && needs.deploy.result == 'skipped')"
+            in release_if
+        )
+        assert (
+            "'rehearsal'" in workflow["concurrency"]["group"]
+            and "'pages'" in workflow["concurrency"]["group"]
+        )
+        find = next(step["run"] for step in jobs["build"]["steps"] if step.get("id") == "release")
+        assert find.index("release/*)") < find.index("rehearsal/*) ;;") < find.index('tag="$INPUT_TAG"')
