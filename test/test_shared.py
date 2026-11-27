@@ -89,3 +89,23 @@ def test_mono_preview_resets_to_regular_weight():
         check=True,
         cwd=ROOT,
     )
+
+
+def test_site_type_preview_module_is_the_review_apps():
+    """The site cannot import from `engine/`, so `site/type-preview.js` is a copy of the review app's `preview.js`, whose tests are `engine/review/jstests/preview.test.js`. Edit the review app's file and copy it over."""
+    site_copy = ROOT / "site" / "type-preview.js"
+    review_module = ROOT / "engine" / "review" / "static" / "preview.js"
+    assert site_copy.read_bytes() == review_module.read_bytes()
+
+
+def test_overview_page_describes_the_readmes_stylistic_sets():
+    """The Overview page's preview box describes each stylistic set by hand, in shorter wording than README's "Stylistic sets" section, so only the list of sets is compared. Adding or removing a set in the README fails this test until the page's rows change with it."""
+    import re
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## Stylistic sets", 1)[1].split("\n## ", 1)[0]
+    readme_sets = re.findall(r"^- `(ss\d+)`:", section, re.MULTILINE)
+    assert readme_sets, "no `ssNN` bullets found under README's Stylistic sets heading"
+    page = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+    page_sets = re.findall(r'<label><input type="checkbox" value="(ss\d+)">', page)
+    assert page_sets == readme_sets

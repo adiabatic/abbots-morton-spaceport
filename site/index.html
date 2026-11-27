@@ -67,12 +67,189 @@
       }
     }
 
+    .type-preview {
+      .type-preview-entry {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+
+      button {
+        padding: 0.25em 0.75em;
+        font: inherit;
+        white-space: nowrap;
+        color: light-dark(#fff, #1a1a1a);
+        background: light-dark(#0066cc, #4a9eff);
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+
+        &:hover {
+          background: light-dark(#0055aa, #6ab0ff);
+        }
+      }
+
+      input[type="text"] {
+        flex: 1 1 14ch;
+        min-width: 0;
+
+        /* In a narrow panel the box takes a row of its own, and the two buttons share the next. */
+        @container (width < 40ch) {
+          flex-basis: 100%;
+        }
+        padding: 0.25em 0.5em;
+        font: inherit;
+        color: inherit;
+        background: light-dark(#fff, #1a1a1a);
+        border: 1px solid light-dark(#ccc, #444);
+        border-radius: 4px;
+      }
+
+      fieldset {
+        margin: 0.75rem 0 0;
+        padding: 0;
+        border: none;
+      }
+
+      legend {
+        padding: 0;
+      }
+
+      /* One row per stylistic set: the checkbox, then the set's name and what it does, which wraps under itself and never under the checkbox. */
+      label {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0 1ch;
+        align-items: baseline;
+        margin-top: 0.25rem;
+        cursor: pointer;
+
+        &[hidden] {
+          display: none;
+        }
+      }
+
+      .type-preview-set-name {
+        color: light-dark(#0066cc, #4a9eff);
+      }
+
+      #type-preview-render {
+        min-height: 1.5em;
+        font-size: calc(var(--font-size) * 2);
+        margin-top: 0.5rem;
+        overflow-wrap: anywhere;
+      }
+
+      #type-preview-hint {
+        margin: 0.5rem 0 0;
+        color: light-dark(#aa3333, #ff8888);
+      }
+    }
+
   </style>
   <script type="module">
     import { initToggles } from './shared.js';
+    import { parsePreview, stylisticSetsOf } from './type-preview.js';
 
     const pangramBox = document.querySelector('#sample-text').closest('.panel');
     pangramBox.style.minHeight = pangramBox.offsetHeight + 'px';
+
+    const typeInput = document.getElementById('type-preview-input');
+    const typeRender = document.getElementById('type-preview-render');
+    const typeHint = document.getElementById('type-preview-hint');
+    const typeSets = document.getElementById('type-preview-sets');
+    const setsByFontFile = new Map();
+    let shownFontFile = null;
+
+    // The hash holds the typed text and the stylistic sets asked for, so a reload or a bookmark shows the same preview. A set stays asked for while the font in use lacks it, and comes back on with a font that has it.
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    const wantedSets = new Set(hashParams.getAll('ss'));
+    typeInput.value = hashParams.get('type') ?? '';
+
+    function writeHash() {
+      const params = new URLSearchParams();
+      if (typeInput.value.trim() !== '') params.set('type', typeInput.value);
+      for (const set of [...wantedSets].sort()) params.append('ss', set);
+      const hash = params.toString();
+      history.replaceState(null, '', hash === '' ? location.pathname + location.search : `#${hash}`);
+    }
+
+    function renderTypePreview() {
+      const { text, unknown } = parsePreview(typeInput.value);
+      typeRender.textContent = text;
+      typeHint.hidden = unknown.length === 0;
+      typeHint.textContent = unknown.length === 0 ? '' : `Not a letter name: ${unknown.join(', ')}`;
+    }
+
+    function applySets() {
+      const on = [];
+      for (const box of typeSets.querySelectorAll('input:checked')) on.push(`"${box.value}" 1`);
+      typeRender.style.fontFeatureSettings = on.length > 0 ? on.join(', ') : 'normal';
+    }
+
+    // Offers the stylistic sets the font in use declares, read from the font file itself: the page's row for each set it describes, and a row with only the name for a set it does not.
+    async function offerSets(fontFile) {
+      shownFontFile = fontFile;
+      let load = setsByFontFile.get(fontFile);
+      if (!load) {
+        load = fetch(fontFile)
+          .then((response) => (response.ok ? response.arrayBuffer() : Promise.reject(new Error(String(response.status)))))
+          .then(stylisticSetsOf)
+          .catch(() => []);
+        setsByFontFile.set(fontFile, load);
+      }
+      const sets = await load;
+      if (fontFile !== shownFontFile) return;
+      for (const row of typeSets.querySelectorAll('label.undescribed')) row.remove();
+      const described = new Set();
+      for (const row of typeSets.querySelectorAll('label')) {
+        const box = row.querySelector('input');
+        described.add(box.value);
+        row.hidden = !sets.includes(box.value);
+        box.checked = !row.hidden && wantedSets.has(box.value);
+      }
+      for (const set of sets) {
+        if (described.has(set)) continue;
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.value = set;
+        box.checked = wantedSets.has(set);
+        const name = document.createElement('span');
+        name.className = 'type-preview-set-name';
+        name.textContent = set;
+        const row = document.createElement('label');
+        row.className = 'undescribed';
+        row.append(box, name);
+        typeSets.append(row);
+      }
+      typeSets.hidden = sets.length === 0;
+      applySets();
+    }
+
+    function typedTextChanged() {
+      renderTypePreview();
+      writeHash();
+    }
+
+    typeInput.addEventListener('input', typedTextChanged);
+
+    // Each button types its text where the caret is, which is the end of the box until the reader moves it, and hands the caret back.
+    for (const button of document.querySelectorAll('.type-preview-entry button')) {
+      button.addEventListener('click', () => {
+        typeInput.setRangeText(button.dataset.insert, typeInput.selectionStart, typeInput.selectionEnd, 'end');
+        typeInput.focus();
+        typedTextChanged();
+      });
+    }
+
+    typeSets.addEventListener('change', (event) => {
+      if (event.target.checked) wantedSets.add(event.target.value);
+      else wantedSets.delete(event.target.value);
+      applySets();
+      writeHash();
+    });
+
+    renderTypePreview();
 
     initToggles({
       sizeToggle: 'size-toggle',
@@ -81,7 +258,10 @@
       levelToggle: 'level-toggle',
       weightToggle: 'weight-toggle',
       titleEl: 'h1',
-      onApply: (state) => { document.title = state.fontTitle; },
+      onApply: (state) => {
+        document.title = state.fontTitle;
+        offerSets(`${state.fontTitle.replaceAll(' ', '')}-Regular.otf`);
+      },
     });
   </script>
 </head>
@@ -126,6 +306,27 @@
                      ·   ·.
       </p>
     </div>
+  </section>
+
+  <h2>Type by letter name</h2>
+  <p>Join letter names with middots or plain dots, and put spaces between words; the buttons type a middot and ◊ZWNJ for you. Write ◊ZWNJ between two letters for a zero-width non-joiner, as in ·They·It◊ZWNJ·Day. Pasted Quikscript shows as it is.</p>
+  <section class="panel type-preview">
+    <div class="type-preview-entry">
+      <input type="text" id="type-preview-input" placeholder="·Day·Utter ·No·It" aria-label="Letter names to show in the font" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button type="button" data-insert="·" title="Add a middot">·</button>
+      <button type="button" data-insert="◊ZWNJ" title="Add a zero-width non-joiner">◊ZWNJ</button>
+    </div>
+    <div class="sample" id="type-preview-render"></div>
+    <p id="type-preview-hint" hidden></p>
+    <fieldset id="type-preview-sets" hidden>
+      <legend>Stylistic sets</legend>
+      <label><input type="checkbox" value="ss03"><span><span class="type-preview-set-name">ss03</span> Let letters join a full-size ·Tea at the x-height</span></label>
+      <label><input type="checkbox" value="ss04"><span><span class="type-preview-set-name">ss04</span> Let ·It join at the baseline on both sides at once</span></label>
+      <label><input type="checkbox" value="ss05"><span><span class="type-preview-set-name">ss05</span> Let ·Tea join at the baseline on both sides at once</span></label>
+      <label><input type="checkbox" value="ss06"><span><span class="type-preview-set-name">ss06</span> Draw an ·Owe that joins neither neighbor with a gap at the top</span></label>
+      <label><input type="checkbox" value="ss07"><span><span class="type-preview-set-name">ss07</span> Let ·Owe join a following ·Day at the x-height</span></label>
+      <label><input type="checkbox" value="ss10"><span><span class="type-preview-set-name">ss10</span> Break up all letters: no joins and no ligatures</span></label>
+    </fieldset>
   </section>
 
   <h2>Every Quikscript character</h2>
