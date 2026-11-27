@@ -2,7 +2,7 @@
 
 Each component is a SHA-256 over sorted lines that hold no mtimes, so two builds of the same inputs produce the same value. The lines are `label\\tdigest` pairs over file contents. The corpus manifest's `generated_at` is mtime-based and identifies a corpus build, so that exported verdicts and sidecars can be matched to it. It cannot tell whether the corpus matches the sources on disk; these fingerprints can.
 
-run_build records the Stage A components (`data`, `pipeline_code`) in `engine/out/build/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_build_gates._settle_stage_a`), so a record matches the sources on disk only beside the artifacts of a passing run over them (`artifact_cycle.stage_a_current`). The review corpus carries `TABLE_DIFF_COMPONENTS` (`table_diff_values`), whose `tables` component the build copies from the windows heads of the build it compares.
+run_build records the Stage A components (`data`, `pipeline_code`) in `engine/out/build/inputs_fingerprint.json`, beside the alphabet token while the alphabet switch is set (`stage_a`). A build or a `--gates-only` pass deletes that record immediately before its first write there, and writes back the values it captured before reading its inputs only once its gates pass (`run_build_gates._settle_stage_a`), so a record matches the sources on disk only beside the artifacts of a passing run over them (`artifact_cycle.stage_a_current`). The review corpus carries `TABLE_DIFF_COMPONENTS` (`table_diff_values`), whose `tables` component the build copies from the windows heads of the build it compares, and whose `accept_sweep` component names the record of the accept's four-letter sweep it was built with.
 
 `tables_value` is the source stamp a serialized window enumeration carries, so the conformance sweep can tell whether the tables on disk were built from the sources on disk. It covers only what the table fixpoint and the font compile read. Its data half, `data_value`, hashes each rune file without its `kern` block (`rune_file_digest`), which the kernel's spec dump leaves out too. Its code half, `table_code_paths`, leaves out the comparison-side code `COMPARISON_CODE_MODULES` names. That code runs only in the gates that check the tables and font a build has written, so editing it re-runs them over the enumeration on disk instead of discarding it. engine/test_build_code_closure.py checks that the build never reaches the comparison modules.
 
@@ -45,7 +45,7 @@ FORMAT = "ams-inputs-fingerprint/2"
 _SAFE_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 STAGE_A_COMPONENTS = ("data", "pipeline_code")
 # The inputs fingerprint of a table-diff corpus (`table_diff_values`), which compares a snapshot of the accepted build with a build and reads no site font.
-TABLE_DIFF_COMPONENTS = ("snapshot", "tables", "font_inputs", "review_code", "static")
+TABLE_DIFF_COMPONENTS = ("snapshot", "tables", "font_inputs", "review_code", "static", "accept_sweep")
 STAGE_A_FILENAME = "inputs_fingerprint.json"
 
 
@@ -129,6 +129,7 @@ def pipeline_code_paths(repo_root: Path) -> list[Path]:
 REVIEW_NON_BUILD_MODULES = frozenset(
     {
         "accept.py",
+        "accept_sweep.py",
         "serve.py",
         "verdict_store.py",
         "status.py",
@@ -141,7 +142,7 @@ REVIEW_NON_BUILD_MODULES = frozenset(
 
 
 def review_code_paths(repo_root: Path) -> list[Path]:
-    """Return engine/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports, so an edit the build cannot execute does not make the corpus stale. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus into place and carries the store onto it. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `engine/out/build` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. engine/test_review_code_closure.py checks this set in both directions against the import graph of build.py."""
+    """Return engine/review/*.py without `REVIEW_NON_BUILD_MODULES`, the modules the corpus build never imports, so an edit the build cannot execute does not make the corpus stale. serve.py is the dev server and verdict_store.py the store it keeps; status.py is the readiness check, store_lock.py the lock every writer of the verdict store holds, and landing.py moves a pass's corpus into place and carries the store onto it. accept.py accepts a table-diff corpus's changes by taking a new snapshot of the accepted build, and remakes a missing snapshot, and accept_sweep.py runs the accept's four-letter sweep and writes its record, which the build reads through sweep_record.py. kern_routes.py is the server's kerning routes and kern_writer.py the block writer and journal they write through, which read `engine/out/build` and the rune files, write the rune files' `kern:` blocks and `var/kern/`, and touch nothing of the corpus. engine/test_review_code_closure.py checks this set in both directions against the import graph of build.py."""
     return sorted(
         path
         for path in (Path(repo_root) / "engine" / "review").glob("*.py")
@@ -670,8 +671,10 @@ def font_inputs_value(repo_root: Path) -> str:
     return digest_lines(font_data_lines(root) + kern_lines(root))
 
 
-def table_diff_values(repo_root: Path, snapshot_record: Path | None, tables: str | None) -> dict:
-    """Return the table-diff corpus's inputs fingerprint (`TABLE_DIFF_COMPONENTS`): `snapshot`, the sha256 of the record of the snapshot it compares against (`engine/review/snapshot.py`), None with no snapshot; `tables`, the tables' stamp, which the build copies from the windows heads of the build it compares and the readiness check recomputes from the sources (`run_build.tables_inputs`); `font_inputs` (`font_inputs_value`); `review_code`, the review modules the build runs (`review_code_paths`); and `static`, the app's files (`static_paths`)."""
+def table_diff_values(
+    repo_root: Path, snapshot_record: Path | None, tables: str | None, *, accept_sweep: str
+) -> dict:
+    """Return the table-diff corpus's inputs fingerprint (`TABLE_DIFF_COMPONENTS`): `snapshot`, the sha256 of the record of the snapshot it compares against (`engine/review/snapshot.py`), None with no snapshot; `tables`, the tables' stamp, which the build copies from the windows heads of the build it compares and the readiness check recomputes from the sources (`run_build.tables_inputs`); `font_inputs` (`font_inputs_value`); `review_code`, the review modules the build runs (`review_code_paths`); `static`, the app's files (`static_paths`); and `accept_sweep`, which the caller gives: the digest of the accept's four-letter sweep record that applies to these inputs, or its fixed value when none applies or the one that applies found nothing (`engine/review/sweep_record.py`'s `component`)."""
     root = Path(repo_root)
     record = Path(snapshot_record) if snapshot_record is not None else None
     return {
@@ -680,6 +683,7 @@ def table_diff_values(repo_root: Path, snapshot_record: Path | None, tables: str
         "font_inputs": font_inputs_value(root),
         "review_code": hash_paths(root, review_code_paths(root)),
         "static": hash_paths(root, static_paths(root)),
+        "accept_sweep": accept_sweep,
     }
 
 

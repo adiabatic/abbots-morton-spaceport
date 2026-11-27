@@ -73,10 +73,11 @@ def _rel(repo_root, path) -> str:
 
 
 def table_diff_inputs(repo_root, snapshot_home=None, build_out=None) -> dict:
-    """Return the table-diff components the sources and the current snapshot give now (`fingerprint.table_diff_values`): the record of the snapshot `current` names under `snapshot_home`, by default `var/keep/review-snapshot` under `repo_root`, and the tables' stamp the sources give (`run_build.tables_inputs`), or with `build_out` the stamp the windows heads of the build there carry (`snapshot.tables_stamp`), which is what a build over it would copy, the artifact cycle's question when it decides whether to skip the corpus build. The two modules are imported here, at the call, so the server loads them only when it first answers /status."""
-    from engine.review import snapshot
+    """Return the table-diff components the sources and the current snapshot give now (`fingerprint.table_diff_values`): the record of the snapshot `current` names under `snapshot_home`, by default `var/keep/review-snapshot` under `repo_root`, the tables' stamp the sources give (`run_build.tables_inputs`), or with `build_out` the stamp the windows heads of the build there carry (`snapshot.tables_stamp`), which is what a build over it would copy, the artifact cycle's question when it decides whether to skip the corpus build, and the accept sweep's record under `repo_root` that applies to the snapshot, that stamp and the Senior-Regular.otf in `build_out`, by default engine/out/build (`sweep_record.component_for`). The modules are imported here, at the call, so the server loads them only when it first answers /status."""
+    from engine.review import diff_units, snapshot, sweep_record
 
-    home = Path(snapshot_home) if snapshot_home is not None else Path(repo_root) / SNAPSHOT_HOME
+    root = Path(repo_root)
+    home = Path(snapshot_home) if snapshot_home is not None else root / SNAPSHOT_HOME
     directory = snapshot.current(home)
     if build_out is not None:
         tables = snapshot.tables_stamp(Path(build_out))
@@ -84,10 +85,20 @@ def table_diff_inputs(repo_root, snapshot_home=None, build_out=None) -> dict:
         from engine.pipeline import run_build
 
         tables = run_build.tables_inputs()
+    record = directory / snapshot.RECORD_NAME if directory is not None else None
+    built = Path(build_out) if build_out is not None else root / "engine" / "out" / "build"
     return fingerprint.table_diff_values(
-        Path(repo_root),
-        directory / snapshot.RECORD_NAME if directory is not None else None,
+        root,
+        record,
         tables,
+        accept_sweep=sweep_record.component_for(
+            root / sweep_record.RECORD_RELATIVE,
+            record,
+            tables,
+            built / snapshot.FONT_NAME,
+            diff_units.SWEEP_CONTEXT,
+            diff_units.ACCEPT_SWEEP_CONTEXT,
+        ),
     )
 
 
@@ -130,6 +141,14 @@ def _freshness_check(
             if stale
             else f"These components cannot be verified until the next build records them: {', '.join(hard)}."
         )
+        if "accept_sweep" in stale:
+            from engine.review import sweep_record
+
+            detail += (
+                " The corpus was built with an accept-sweep record that no longer applies."
+                if current.get("accept_sweep") == sweep_record.NO_FINDS
+                else " The accept's four-letter sweep found changes this corpus does not show, which a corpus build adds."
+            )
         return {"level": "fail", "detail": detail, "remedy": artifact_cycle_remedy, "components": components}
     fonts = manifest.get("fonts")
     after_record = fonts.get("after") if isinstance(fonts, dict) else None

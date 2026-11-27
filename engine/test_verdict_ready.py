@@ -15,7 +15,14 @@ from engine.tools import verdict_ready
 
 STAMP = "2026-07-17T20:24:44Z"
 OTHER_STAMP = "2026-07-10T00:00:00Z"
-FP = {"snapshot": "s", "tables": "t", "font_inputs": "f", "review_code": "r", "static": "x"}
+FP = {
+    "snapshot": "s",
+    "tables": "t",
+    "font_inputs": "f",
+    "review_code": "r",
+    "static": "x",
+    "accept_sweep": "a",
+}
 HUMAN = ["u-1", "u-2", "u-3"]
 AFTER_FONT_BYTES = b"OTTO-after"
 OTHER_FONT_BYTES = b"OTTO-newer"

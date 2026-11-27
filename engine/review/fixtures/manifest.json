@@ -8,7 +8,8 @@
   "tables": "fixture-tables",
   "font_inputs": "fixture-font-inputs",
   "review_code": "fixture-review-code",
-  "static": "fixture-static"
+  "static": "fixture-static",
+  "accept_sweep": "fixture-accept-sweep"
  },
  "source": {
   "snapshot": "var/keep/review-snapshot/fixture",

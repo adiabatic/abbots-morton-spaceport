@@ -1,14 +1,17 @@
 """Accept the table-diff corpus's changes, and remake the accepted snapshot on a machine without it (doc/review-design.md §2.3).
 
-The accept, `uv run python -m engine.review.accept [--apply] [--retake]` (`make review-accept`), makes the build the corpus shows the accepted one. Without `--apply` it is a dry run: it prints every refusal `--apply` would make and what `--apply` would write, writes nothing, and exits 1 when `--apply` would refuse. Its refusals, each with nothing written, in this order:
+The accept, `uv run python -m engine.review.accept [--apply] [--retake]` (`make review-accept`), makes the build the corpus shows the accepted one. Without `--apply` it is a dry run: it prints every refusal `--apply` would make and what `--apply` would write, writes nothing but the four-letter sweep's record (below), and exits 1 when `--apply` would refuse. Its refusals, each with nothing written but that record, in this order:
 
 - the corpus under engine/out/review is not a table-diff corpus, which alone holds changes against the accepted snapshot;
 - `make verdict-ready`'s blocking checks fail (`store_guards.readiness_refusal`), among them the snapshot row and the freshness of the corpus against the sources;
 - the corpus does not show engine/out/build: its after font is not Senior-Regular.otf byte for byte, or its `tables` component is not the stamp of that build's windows heads (`snapshot.tables_stamp`);
 - a pass holds the artifact cycle's pass lock (taken without waiting and held to the end, `store_guards.pass_lock`);
+- the four-letter sweep's record for the current inputs holds changes the corpus was not built with (`accept_sweep.refusal`), which the next `make artifact-cycle` adds to the corpus;
 - a human unit of the corpus is blank, skipped, rejected or neither.
 
-`--apply`, holding the pass lock and the store's lock (`landing.locked`, the path every writer of the store but the review server's saves takes, so it runs while the review server listens, which answers a save made meanwhile with a retryable 503), checks the verdicts again, then:
+Once the refusals before it are clear, the accept, dry run and `--apply` alike, holds the pass lock and runs the four-letter sweep (`engine/review/accept_sweep.py`) when no record answers for the current inputs: every text of at most four letters that holds a letter whose rules changed, split across processes, which writes what it finds that no candidate of the corpus build shows to var/review/accept-sweep.json (`engine/review/sweep_record.py`). A record that already answers is read instead, so a second accept over the same inputs sweeps nothing. While a refusal before it stands, the dry run only reads the record. `--retake` skips the sweep with the verdict checks.
+
+`--apply`, holding the pass lock and then the store's lock (`landing.locked`, the path every writer of the store but the review server's saves takes, so it runs while the review server listens, which answers a save made meanwhile with a retryable 503), checks the verdicts again, then:
 
 1. takes a snapshot of engine/out/build (`snapshot.take`, into a staging directory under var/keep/review-snapshot renamed into place, keeping the snapshot it replaces as the previous one);
 2. writes the tracked pointer, engine/review-snapshot.json, naming it (`snapshot.write_pointer`), which goes into the commit with the edit it accepts, so the commit that last changed the pointer is the one the snapshot stands for (`snapshot.pointer_commit`);
@@ -36,6 +39,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -52,6 +56,9 @@ from engine.review.verdict_store import (  # noqa: E402
     write_store,
 )
 from engine.tools import store_guards  # noqa: E402
+
+if TYPE_CHECKING:
+    from engine.review.accept_sweep import Outcome
 
 KEEP = Path("var") / "keep" / "review-accept"
 KEPT_STORE = "store.json.gz"
@@ -169,13 +176,31 @@ def span_line(manifest: Mapping | None, standing: Standing | None, root: Path) -
     return line
 
 
+def sweep_line(swept: Outcome | None, retake: bool) -> str:
+    """The plan's line for the four-letter sweep: what its record for these inputs found, that it runs once the refusals clear, or that `--retake` skips it. `swept` is the sweep's `accept_sweep.Outcome`, None when it did not run and no record answers for the inputs."""
+    if retake:
+        return "skip the four-letter sweep, as --retake skips the verdict checks"
+    if swept is None or swept.record is None:
+        return "run the four-letter sweep once the refusals below clear, and refuse while it finds a change the corpus does not show"
+    from engine.review import accept_sweep
+
+    return f"take the four-letter sweep's record {swept.path.name}, which found {accept_sweep.summary(swept.record)}"
+
+
 def plan_lines(
-    store: Path, tables: Path, home: Path, pointer: Path, standing: Standing | None, stamp: str | None
+    store: Path,
+    tables: Path,
+    home: Path,
+    pointer: Path,
+    standing: Standing | None,
+    stamp: str | None,
+    sweep: str | None = None,
 ) -> list[str]:
-    """What `--apply` writes, in its order."""
+    """What `--apply` checks and writes, in its order: `sweep` is the four-letter sweep's line (`sweep_line`)."""
     previous = snapshot.current(home)
     records = sum(1 for verdict in (standing.verdicts.values() if standing else ()) if verdict is not None)
     return [
+        *([sweep] if sweep else []),
         f"take a snapshot of {tables} (tables {snapshot.tables_stamp(tables)}) into {home}, make it current"
         + (f", and keep {previous.name} as the previous one" if previous is not None else ""),
         f"write {pointer} naming it",
@@ -217,6 +242,13 @@ def tables_current(tables: Path) -> bool:
     return snapshot.tables_stamp(tables) == run_build.tables_inputs()
 
 
+def default_sweep(*, store: Path, tables: Path, home: Path, run: bool = True) -> Outcome:
+    """The four-letter sweep over the current snapshot under `home` and the build in `tables`, with its record beside `store` (`accept_sweep.ensure`); with `run` unset it only reads the record that answers for these inputs."""
+    from engine.review import accept_sweep
+
+    return accept_sweep.ensure(store=store, tables=tables, home=home, run=run)
+
+
 def run(
     *,
     store: Path,
@@ -230,8 +262,11 @@ def run(
     stamped: Callable[[Path], bool] = tables_current,
     take: Callable[..., snapshot.Snapshot] = snapshot.take,
     tell: Callable[[Path, str], bool] = tell_open_tabs,
+    sweep: Callable[..., Outcome] | None = None,
 ) -> int:
-    """Run the accept of the corpus at `corpus` into `home` and `pointer` from the build in `tables`, clearing `store`: the dry run, or with `apply` the accept. `readiness` is `make verdict-ready`'s answer without the server row, `stamped` whether the build's tables carry the sources' stamp (the retake's check), `take` takes the snapshot, and `tell` tells the open review tabs to reload onto the emptied store (`tell_open_tabs`)."""
+    """Run the accept of the corpus at `corpus` into `home` and `pointer` from the build in `tables`, clearing `store`: the dry run, or with `apply` the accept. `readiness` is `make verdict-ready`'s answer without the server row, `stamped` whether the build's tables carry the sources' stamp (the retake's check), `take` takes the snapshot, `tell` tells the open review tabs to reload onto the emptied store (`tell_open_tabs`), and `sweep(run=…)` is the four-letter sweep (`default_sweep`), which returns an `accept_sweep.Outcome` and with `run=False` only reads the record for the current inputs."""
+    if sweep is None:
+        sweep = functools.partial(default_sweep, store=store, tables=tables, home=home)
     if readiness is None:
         from engine.tools import verdict_ready
 
@@ -267,9 +302,14 @@ def run(
             mismatch = match_refusal(manifest, tables)
             if mismatch is not None:
                 refusals.append(mismatch)
+    swept: Outcome | None = None
     if not apply:
         if holder(store_guards.pass_lock_path_for(store)) is not None:
             refusals.append(store_guards.pass_refusal(store))
+        if not retake:
+            swept, refusal = _dry_sweep(sweep, store, manifest, blocked=bool(refusals))
+            if refusal is not None:
+                refusals.append(refusal)
         standing: Standing | None = None
         try:
             standing = read_standing(store, human)
@@ -280,11 +320,20 @@ def run(
         if retake:
             print(span_line(manifest, standing, store.parent))
         print("--apply would:")
-        for line in plan_lines(store, tables, home, pointer, standing, stamp):
+        for line in plan_lines(store, tables, home, pointer, standing, stamp, sweep_line(swept, retake)):
             print(f"  {line}")
         for refusal in refusals:
             print(f"ERROR: --apply would refuse: {refusal}.")
-        print("dry run: nothing written; `make review-accept ARGS=--apply` writes the accept")
+        wrote = swept is not None and swept.swept
+        print(
+            "dry run: nothing written"
+            + (
+                f" but the four-letter sweep's record, {swept.path}, which the corpus build reads"
+                if swept is not None and wrote
+                else ""
+            )
+            + "; `make review-accept ARGS=--apply` writes the accept"
+        )
         return 1 if refusals else 0
     try:
         if refusals:
@@ -292,13 +341,25 @@ def run(
         if not isinstance(stamp, str):
             raise Refused(f"the corpus {corpus} names no generated_at")
         with store_guards.pass_lock(store):
+            if not retake:
+                from engine.review import accept_sweep
+
+                try:
+                    swept = sweep()
+                except accept_sweep.SweepError as error:
+                    raise Refused(str(error)) from None
+                refusal = accept_sweep.refusal(manifest, swept)
+                if refusal is not None:
+                    raise Refused(refusal)
             with landing.locked(store):
                 standing = read_standing(store, human)
                 if retake:
                     print(span_line(manifest, standing, store.parent))
                 elif (verdicts := standing.refusal()) is not None:
                     raise Refused(verdicts)
-                for line in plan_lines(store, tables, home, pointer, standing, stamp):
+                for line in plan_lines(
+                    store, tables, home, pointer, standing, stamp, sweep_line(swept, retake)
+                ):
                     print(line)
                 try:
                     taken = take(tables, home)
@@ -320,8 +381,34 @@ def run(
         message = store_guards.pass_refusal(store)
     except Refused as refused:
         message = str(refused)
-    print(f"ERROR: {message}. Nothing was written.")
+    print(
+        f"ERROR: {message}. Nothing was written"
+        + (f" but the four-letter sweep's record, {swept.path}" if swept is not None and swept.swept else "")
+        + "."
+    )
     return 1
+
+
+def _dry_sweep(
+    sweep: Callable[..., Outcome], store: Path, manifest: Mapping, *, blocked: bool
+) -> tuple[Outcome | None, str | None]:
+    """The dry run's four-letter sweep: with the refusals so far `blocked`, only the record that answers for the current inputs, else the sweep itself, holding the pass lock, so no pass starts while its pool runs; then the refusal the record makes, if any (`accept_sweep.refusal`). Returns the sweep's outcome, None when no record answers, and the refusal."""
+    from engine.review import accept_sweep
+
+    swept: Outcome | None = None
+    try:
+        if blocked:
+            swept = sweep(run=False)
+        else:
+            with store_guards.pass_lock(store):
+                swept = sweep()
+    except LockBusy:
+        return None, store_guards.pass_refusal(store)
+    except accept_sweep.SweepError as error:
+        return None, str(error)
+    if swept is not None and swept.record is None:
+        swept = None
+    return swept, accept_sweep.refusal(manifest, swept)
 
 
 # --- the remake ------------------------------------------------------------------------

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from engine.pipeline import compile_font, emit_gpos, emit_gsub, fixtures, run_build
-from engine.review import app_index, build, diff_units, snapshot, tablediff, unit_ids
+from engine.review import app_index, build, diff_units, snapshot, sweep_record, tablediff, unit_ids
 from engine.review.enrich import LETTERS
 from engine.review.ink import IDENTITY_DIFF
 from engine.test_app_index import check_a_builds_sidecars
@@ -641,6 +641,7 @@ def test_the_manifest_carries_the_table_diff_fingerprint(corpus, builds):
     assert tuple(fp) == fingerprint.TABLE_DIFF_COMPONENTS
     assert fp["snapshot"] == fingerprint.file_sha256(taken.directory / snapshot.RECORD_NAME)
     assert fp["tables"] == "fp-edited"
+    assert fp["accept_sweep"] == sweep_record.NO_FINDS
     for broken, phrase in (
         ({"inputs_fingerprint": {**fp, "fonts": "x"}}, "table-diff input components"),
         ({"inputs_fingerprint": {**fp, "snapshot": None}}, "a hash exactly when a snapshot is present"),

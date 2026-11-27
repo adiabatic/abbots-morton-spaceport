@@ -18,7 +18,7 @@ import subprocess
 import sys
 import urllib.request
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import lru_cache
 from itertools import combinations
@@ -27,7 +27,7 @@ from typing import BinaryIO
 
 from engine.pipeline import fingerprint, output_sink, spec_load, table
 from engine.pipeline.alphabet import ALPHABET
-from engine.review import app_index, diff_units, shards, snapshot, tablediff, unit_ids
+from engine.review import app_index, diff_units, shards, snapshot, sweep_record, tablediff, unit_ids
 from engine.review.audit import (
     BATCH_SIZE,
     MACHINE_CHECKS,
@@ -386,9 +386,13 @@ def _new_certificates(
     return [(rule.input_glyph, certificate.text) for rule, certificate in zip(decision.rules, certificates)]
 
 
-def _diff_inputs(accepted: snapshot.Snapshot | None, new_dir: Path, after_font: Path) -> list[Path]:
-    """The files a table-diff build reads, whose latest modification time is its `generated_at`: the snapshot's record, the new build's tables and windows heads, its font, its kern table and its kerning inventory."""
+def _diff_inputs(
+    accepted: snapshot.Snapshot | None, new_dir: Path, after_font: Path, sweep: Path | None = None
+) -> list[Path]:
+    """The files a table-diff build reads, whose latest modification time is its `generated_at`: the snapshot's record, the new build's tables and windows heads, its font, its kern table and its kerning inventory, and `sweep`, the accept sweep's record when one with finds applies, whose texts add units."""
     paths = [after_font, new_dir / snapshot.KERN_SOURCE, new_dir / "kern-inventory.json"]
+    if sweep is not None:
+        paths.append(sweep)
     if accepted is not None:
         paths.append(accepted.directory / snapshot.RECORD_NAME)
     for config in tablediff.SETTLED_CONFIGS:
@@ -411,18 +415,27 @@ class FontChanges:
         return {"glyphs": dict(sorted(self.glyphs.items())), "kern": dict(sorted(self.kern.items()))}
 
 
-def table_diff_units(
-    accepted: snapshot.Snapshot,
-    new_dir: Path,
-    fonts: diff_units.Fonts,
-    spec=None,
-    repo_root: Path = REPO_ROOT,
-    font_changes: FontChanges | None = None,
-) -> tuple[list[diff_units.Unit], dict[str, diff_units.ConfigCounts]]:
-    """Diff every settled configuration's tables in `accepted` against `new_dir`'s and find the units that show the changes (`diff_units.UnitFinder`), then the glyph bucket, the glyphs the two fonts draw differently (`diff_units.glyph_units`), and the kern bucket, the facing pairs whose value moved between the two `kern.tsv` (`diff_units.kern_units`), and merge them all (`diff_units.merge`). A configuration whose two tables hold the same bytes on both sides is passed over unparsed. The spec, which spells the new build's certificates out, is loaded from `repo_root` only when some configuration's rows changed. A glyph unit's certificates are the snapshot's in every configuration, and the new build's in each configuration whose rows changed; in one whose tables did not move they are the snapshot's. `font_changes`, when given, is filled with the counts of the two buckets."""
-    finder: diff_units.UnitFinder | None = None
-    new_outcomes: dict[str, list[tuple[str, tuple[int, ...] | None]]] = {}
-    inventory = diff_units.load_inventory(new_dir / "kern-inventory.json")
+@dataclass(frozen=True)
+class ConfigDiff:
+    """One settled configuration's row diff between a snapshot and a build (`config_diffs`): its changed settlement and join rows, and the certificates of both tables' rules, each an (input label, certificate text) pair per rule in rule order, the build's only when a settlement row changed. `new_outcomes` pairs each of the build's rules' outcome with its certificate's text, for the glyph bucket, and is empty where `new_certificates` is."""
+
+    config: str
+    settlement: list[tablediff.SettlementDiffEntry]
+    joins: list[tablediff.JoinDiffEntry]
+    old_certificates: list[tuple[str, tuple[int, ...] | None]]
+    new_certificates: list[tuple[str, tuple[int, ...] | None]]
+    new_outcomes: list[tuple[str, tuple[int, ...] | None]]
+
+
+def load_quiet_spec(repo_root: Path = REPO_ROOT):
+    """The spec under `repo_root`, loaded with its warnings suppressed, as the build loads it (`doc/review-design.md` §1.3)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return load_spec(repo_root)
+
+
+def config_diffs(accepted: snapshot.Snapshot, new_dir: Path, spec_of) -> Iterator[ConfigDiff]:
+    """Diff every settled configuration's tables in `accepted` against `new_dir`'s and yield each configuration whose rows changed (`ConfigDiff`). A configuration whose two tables hold the same bytes on both sides is passed over unparsed. `spec_of()` gives the spec, which spells the new build's certificates out, and is called only for a configuration whose rows changed. The corpus build (`table_diff_units`) and the accept's sweep (`engine/review/accept_sweep.py`) read the same diffs."""
     for config in tablediff.SETTLED_CONFIGS:
         new_settlement = new_dir / f"settlement-{config}.tsv"
         new_joins = new_dir / f"joins-{config}.tsv"
@@ -447,14 +460,7 @@ def table_diff_units(
         )
         if not settlement_entries and not join_entries:
             continue
-        if finder is None:
-            if spec is None:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    spec = load_spec(repo_root)
-            finder = diff_units.UnitFinder(
-                spec, fonts, tablediff.SETTLED_CONFIGS, diff_units.inventory_texts(inventory)
-            )
+        spec = spec_of()
         old_certificates = accepted.certificates(config)
         if len(old_certificates) != len(old_rows):
             raise SystemExit(
@@ -465,18 +471,57 @@ def table_diff_units(
             if settlement_entries
             else []
         )
-        if new_certificates:
-            new_outcomes[config] = [
-                (value.outcome, text) for value, (_label, text) in zip(new_rows.values(), new_certificates)
-            ]
+        new_outcomes = [
+            (value.outcome, text) for value, (_label, text) in zip(new_rows.values(), new_certificates)
+        ]
+        old_pairs = [(key.input, certificate.text) for key, certificate in zip(old_rows, old_certificates)]
+        del old_rows, new_rows, old_certificates
+        yield ConfigDiff(config, settlement_entries, join_entries, old_pairs, new_certificates, new_outcomes)
+        del settlement_entries, join_entries, old_pairs, new_certificates, new_outcomes
+
+
+def table_diff_units(
+    accepted: snapshot.Snapshot,
+    new_dir: Path,
+    fonts: diff_units.Fonts,
+    spec=None,
+    repo_root: Path = REPO_ROOT,
+    font_changes: FontChanges | None = None,
+    *,
+    context: int = diff_units.SWEEP_CONTEXT,
+    extra_texts: Mapping[str, Sequence[str]] | None = None,
+) -> tuple[list[diff_units.Unit], dict[str, diff_units.ConfigCounts]]:
+    """Diff every settled configuration's tables in `accepted` against `new_dir`'s (`config_diffs`) and find the units that show the changes (`diff_units.UnitFinder`, with `context` letters of context around a changed letter and each configuration's `extra_texts` beside the certificates), then the glyph bucket, the glyphs the two fonts draw differently (`diff_units.glyph_units`), and the kern bucket, the facing pairs whose value moved between the two `kern.tsv` (`diff_units.kern_units`), and merge them all (`diff_units.merge`). The spec is loaded from `repo_root` only when some configuration's rows changed. A glyph unit's certificates are the snapshot's in every configuration, and the new build's in each configuration whose rows changed; in one whose tables did not move they are the snapshot's. `font_changes`, when given, is filled with the counts of the two buckets."""
+    finder: diff_units.UnitFinder | None = None
+    new_outcomes: dict[str, list[tuple[str, tuple[int, ...] | None]]] = {}
+    inventory = diff_units.load_inventory(new_dir / "kern-inventory.json")
+    loaded = [spec]
+
+    def spec_of():
+        if loaded[0] is None:
+            loaded[0] = load_quiet_spec(repo_root)
+        return loaded[0]
+
+    for diff in config_diffs(accepted, new_dir, spec_of):
+        if finder is None:
+            finder = diff_units.UnitFinder(
+                spec_of(),
+                fonts,
+                tablediff.SETTLED_CONFIGS,
+                diff_units.inventory_texts(inventory),
+                context,
+            )
+        if diff.new_outcomes:
+            new_outcomes[diff.config] = diff.new_outcomes
         finder.add_config(
-            config,
-            settlement_entries,
-            join_entries,
-            [(key.input, certificate.text) for key, certificate in zip(old_rows, old_certificates)],
-            new_certificates,
+            diff.config,
+            diff.settlement,
+            diff.joins,
+            diff.old_certificates,
+            diff.new_certificates,
+            (extra_texts or {}).get(diff.config, ()),
         )
-        del old_rows, new_rows, settlement_entries, join_entries
+        del diff
 
     changed_glyphs = diff_units.glyph_changes(accepted.font, fonts.paths[1])
     extra: list[diff_units.Unit] = []
@@ -536,8 +581,11 @@ def build_table_diff(
     repo_root: Path = REPO_ROOT,
     batch_size: int = BATCH_SIZE,
     static_dir: Path = STATIC_DIR,
+    sweep_path: Path | None = None,
+    context: int = diff_units.SWEEP_CONTEXT,
+    accept_context: int = diff_units.ACCEPT_SWEEP_CONTEXT,
 ) -> dict:
-    """Build the table-diff corpus into `out_dir`: the accepted build in `snapshot_dir` (a snapshot, `engine/review/snapshot.py`) against the build in `new_dir`, its tables, windows heads, `Senior-Regular.otf` (or `after_font`), `kern.tsv` and kerning inventory, and return the manifest. Each unit is one visible change (`diff_units`), in one of `diff_units.CLASSES`, shaped in the snapshot's font as before and the new build's as after. An empty diff gives a corpus with no units, and so does a `snapshot_dir` of None, the build of a machine with no snapshot, whose manifest's `baseline` says no snapshot is present and whose before font is the after font, so the app shell and the kerning view still boot. The manifest's `configs` is every settled configuration, the universe every unit's config badge is resolved against, `table_rows` counts each configuration's changed rows and `font_changes` the redrawn glyphs and moved kern pairs (`FontChanges`), `baseline.commit` is the commit the snapshot stands for (`snapshot.pointer_commit`), and `inputs_fingerprint` is `fingerprint.table_diff_values` over the snapshot's record and the tables' stamp of `new_dir` (`snapshot.tables_stamp`). The written corpus is checked with `check_shards` before the build returns."""
+    """Build the table-diff corpus into `out_dir`: the accepted build in `snapshot_dir` (a snapshot, `engine/review/snapshot.py`) against the build in `new_dir`, its tables, windows heads, `Senior-Regular.otf` (or `after_font`), `kern.tsv` and kerning inventory, and return the manifest. Each unit is one visible change (`diff_units`), in one of `diff_units.CLASSES`, shaped in the snapshot's font as before and the new build's as after, found with `context` letters of context around each changed letter. `sweep_path` is where the accept's sweep writes its record (`engine/review/sweep_record.py`; the command passes the checkout's, and None reads none): when the record there is the one for these inputs, swept at `accept_context` beside this `context`, each configuration's texts it found are candidates beside the certificates, and the units they show are units like any other. An empty diff gives a corpus with no units, and so does a `snapshot_dir` of None, the build of a machine with no snapshot, whose manifest's `baseline` says no snapshot is present and whose before font is the after font, so the app shell and the kerning view still boot. The manifest's `configs` is every settled configuration, the universe every unit's config badge is resolved against, `table_rows` counts each configuration's changed rows and `font_changes` the redrawn glyphs and moved kern pairs (`FontChanges`), `baseline.commit` is the commit the snapshot stands for (`snapshot.pointer_commit`), and `inputs_fingerprint` is `fingerprint.table_diff_values` over the snapshot's record, the tables' stamp of `new_dir` (`snapshot.tables_stamp`) and the sweep record that applies (`sweep_record.component`). The written corpus is checked with `check_shards` before the build returns."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     new_dir = Path(new_dir)
@@ -551,10 +599,30 @@ def build_table_diff(
             raise SystemExit(str(error)) from None
     before_font = accepted.font if accepted is not None else after_font
     font_digests = {"before": _sha256(before_font), "after": _sha256(after_font)}
+    tables_stamp = snapshot.tables_stamp(new_dir)
+    swept = sweep_record.applicable(
+        sweep_path,
+        sweep_record.key_for(
+            accepted.digest if accepted is not None else None,
+            tables_stamp,
+            font_digests["after"],
+            context,
+            accept_context,
+        ),
+    )
     fonts = diff_units.Fonts(before_font, after_font)
     font_changes = FontChanges()
     units, counts = (
-        table_diff_units(accepted, new_dir, fonts, spec, repo_root, font_changes)
+        table_diff_units(
+            accepted,
+            new_dir,
+            fonts,
+            spec,
+            repo_root,
+            font_changes,
+            context=context,
+            extra_texts=sweep_record.texts(swept),
+        )
         if accepted is not None
         else ([], {})
     )
@@ -651,12 +719,17 @@ def build_table_diff(
     manifest = {
         "format": MANIFEST_FORMAT,
         "mode": MODE,
-        "generated_at": _generated_at(*_diff_inputs(accepted, new_dir, after_font)),
+        "generated_at": _generated_at(
+            *_diff_inputs(
+                accepted, new_dir, after_font, sweep_path if sweep_record.has_finds(swept) else None
+            )
+        ),
         "repo_head": _repo_head(repo_root),
         "inputs_fingerprint": fingerprint.table_diff_values(
             repo_root,
             accepted.directory / snapshot.RECORD_NAME if accepted is not None else None,
-            snapshot.tables_stamp(new_dir),
+            tables_stamp,
+            accept_sweep=sweep_record.component(swept),
         ),
         "source": {
             "snapshot": None if accepted is None else _relative(accepted.directory, repo_root),
@@ -712,7 +785,12 @@ def build_table_diff(
     console.say(
         f"review.build table-diff: {len(units)} units against "
         + (f"the snapshot {accepted.digest[:12]}" if accepted is not None else "no snapshot")
-        + f"; {shaped} texts shaped in {seconds:.1f}s",
+        + f"; {shaped} texts shaped in {seconds:.1f}s"
+        + (
+            f", {sum(map(len, sweep_record.texts(swept).values()))} of them the accept sweep's ({sweep_path})"
+            if sweep_record.has_finds(swept)
+            else ""
+        ),
         file=sys.stderr,
     )
     return manifest
@@ -1435,6 +1513,7 @@ def main(argv: list[str] | None = None) -> None:
         args.snapshot if args.snapshot is not None else snapshot.current(),
         args.new_dir,
         batch_size=args.batch_size,
+        sweep_path=REPO_ROOT / sweep_record.RECORD_RELATIVE,
     )
     totals = manifest["totals"]
     print(

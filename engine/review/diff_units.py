@@ -9,7 +9,9 @@ A settlement row is a class-compressed rule over hundreds of windows, and one jo
 - A glyph unit is one glyph both fonts have that draws differently (`GlyphChange`, `glyph_changes`): its decomposed outline, its advance and left sidebearing, or its cursive anchors (`fingerprint.glyph_facts`, the anchors without the lookup each sits in). A bitmap, anchor or advance edit leaves the settlement and join tables as they were, so only this bucket shows it. A glyph only one font has is the row diff's business: a stance rename shows there as removed and added rows whose drawings match, which the ink check approves. The glyphs outside Quikscript count too, a Latin glyph's edit being as visible as a letter's.
 - A kern unit is one facing pair whose kern value moved (`KernChange`, `kern_changes`), from the snapshot's `kern.tsv` against the new build's by (leading side, following side), where a pair one table lacks has no value. It is drawn with kerning on (`Unit.kerning`, the fragment's `kerning`) and takes no verdict: the kerning view (`#view=kern`) is where kern values are authored and judged.
 
-Finding the texts, one configuration at a time (`UnitFinder.add_config`): a letter whose rows changed there (by its spelling, so a `.noentry` input is its letter, `spelling`) takes as candidates the certificates of its old rules (from the snapshot) and of its new rules (from the new windows head), and every text of at most three letters, boundary tokens among them, that holds it (the input sweep, `sweep_texts`). Each candidate is shaped in both fonts with kern off under the configuration, shortest first, and every position where the glyph that starts a cluster differs gives a substitution (`substitutions`), whichever letter is there. A join row takes the shortest text whose runs hold its two cells side by side in the font of each side the row exists on, from the shaped candidates, the kerning inventory's texts, the shortest candidate prefix that settles its left cell followed by its right letter and one more token or none (`UnitFinder._extended_texts`), and a bounded search: the two letters with a letter, a ZWNJ, a space, a namer dot or nothing on each side (`pair_texts`). A row no text is found for is a unit with no text. A context that needs more than three letters can be missed; diffing the window rows themselves is the sound fix.
+Finding the texts, one configuration at a time (`UnitFinder.add_config`): a letter whose rows changed there (by its spelling, so a `.noentry` input is its letter, `spelling`) takes as candidates the certificates of its old rules (from the snapshot) and of its new rules (from the new windows head), and every text of at most three letters, boundary tokens among them, that holds it (the input sweep, `sweep_texts`, at `SWEEP_CONTEXT` letters of context), beside the texts the accept's four-letter sweep found under the configuration, when its record applies (`extra_texts`, `engine/review/sweep_record.py`). Each candidate is shaped in both fonts with kern off under the configuration, shortest first, and every position where the glyph that starts a cluster differs gives a substitution (`substitutions`), whichever letter is there. A join row takes the shortest text whose runs hold its two cells side by side in the font of each side the row exists on, from the shaped candidates, the kerning inventory's texts, the shortest candidate prefix that settles its left cell followed by its right letter and one more token or none (`UnitFinder._extended_texts`), and a bounded search: the two letters with a letter, a ZWNJ, a space, a namer dot or nothing on each side (`pair_texts`). A row no text is found for is a unit with no text.
+
+The accept's sweep (`engine/review/accept_sweep.py`) runs one task a configuration and changed letter (`sweep_finds`): the letter's certificates and every text of at most four letters that holds it (`ACCEPT_SWEEP_CONTEXT`), shaped as above, keeping each cell change only a text longer than the corpus build's reach shows and the shortest such text, and the shortest longer text whose ink differs with every glyph name alike. The merge (`merge_sweep_finds`) keeps, by configuration, what no task's corpus-build candidates show, so a record with finds names changes the corpus does not show. A change that only a context longer than four letters shows can still be missed; diffing the window rows themselves is the sound fix.
 
 A glyph unit's text (`glyph_units`) is the shortest certificate, of either table, whose rule settles to the glyph, shaped in the font of its side; else a code point the font maps to the glyph, alone, the one text a glyph outside Quikscript has; else the shortest kerning-inventory text that holds it. Each is taken only once a run of it holds the glyph, and the unit lists every configuration under which a run of it does. A glyph none of them holds is a unit with no text. A kern unit's text is the kerning inventory's witness of its pair (`pairs`, in `kern.tsv` order), or for a pair the new table lacks, the two letters alone.
 
@@ -25,7 +27,7 @@ import itertools
 import json
 import re
 import time
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Container, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -50,8 +52,11 @@ from engine.validation.shaping import ShapeResult, Shaper, first_glyph_covering,
 EDGE = "#EDGE"
 BOUNDARY_GLYPHS = frozenset({"space", "uni200C", "periodcentered"})
 BOUNDARY_KINDS = {0x0020: "space", 0x00B7: "namer-dot", 0x200C: "zwnj"}
-# Letters of context around the letter a sweep text holds: with the letter itself, at most three.
+# Letters of context around the letter a sweep text holds (`sweep_texts`): the corpus build's sweep, at most three letters with the letter itself, and the accept's sweep (`engine/review/accept_sweep.py`), at most four, which looks only for what the corpus build's cannot show (`sweep_finds`).
 SWEEP_CONTEXT = 2
+ACCEPT_SWEEP_CONTEXT = 3
+# How many texts one accept-sweep task returns whose ink differs with every glyph name alike (`sweep_finds`): the corpus build takes only the first such text that holds a letter whose rules changed as that letter's evidence (`UnitFinder.add_config`).
+ACCEPT_SWEEP_QUIET_TEXTS = 1
 # How many of a change's shortest texts the fold tries before it takes the best of them.
 FOLD_CANDIDATES = 16
 # How many changed rows of one letter and configuration an explain panel lists before it counts the rest, and how many labels of one context slot it writes.
@@ -169,13 +174,26 @@ def spelling(spec: ResolvedSpec, label: str) -> tuple[int, ...] | None:
     return tuple(values)
 
 
-def sweep_texts(alphabet: Sequence[str], spelled: str) -> Iterator[str]:
-    """Every text that holds `spelled` with at most `SWEEP_CONTEXT` letters of the alphabet around it, boundary tokens among them, shortest first."""
-    for total in range(SWEEP_CONTEXT + 1):
+def sweep_layers(
+    alphabet: Sequence[str], spelled: str, context: int = SWEEP_CONTEXT
+) -> Iterator[tuple[int, str]]:
+    """Every text that holds `spelled` with at most `context` letters of the alphabet around it, boundary tokens among them, with how many it holds, fewest first."""
+    for total in range(context + 1):
         for left in range(total + 1):
             for before in itertools.product(alphabet, repeat=left):
                 for after in itertools.product(alphabet, repeat=total - left):
-                    yield "".join(before) + spelled + "".join(after)
+                    yield total, "".join(before) + spelled + "".join(after)
+
+
+def sweep_texts(alphabet: Sequence[str], spelled: str, context: int = SWEEP_CONTEXT) -> Iterator[str]:
+    """Every text that holds `spelled` with at most `context` letters of the alphabet around it, boundary tokens among them, shortest first (`sweep_layers`)."""
+    for _total, text in sweep_layers(alphabet, spelled, context):
+        yield text
+
+
+def sweep_size(symbols: int, context: int = SWEEP_CONTEXT) -> int:
+    """How many texts `sweep_layers` yields over an alphabet of `symbols` tokens: `total + 1` placements of each of the `symbols ** total` contexts of each size up to `context`, a text two placements spell alike counted twice."""
+    return sum((total + 1) * symbols**total for total in range(context + 1))
 
 
 def pair_texts(alphabet: Sequence[str], left: str, right: str) -> Iterator[str]:
@@ -633,8 +651,36 @@ class ConfigCounts:
         }
 
 
+def changed_letters(
+    settlement: Iterable[tablediff.SettlementDiffEntry],
+) -> tuple[dict[str, set[str]], set[str]]:
+    """The letters one configuration's settlement row diff changed, by rune (the input's `base_label`, so a `.noentry` input is its letter), each with the buckets its rows changed in, and the letters with a row that changed only the records it credits, some of which may have other changed rows too. `UnitFinder.add_config` finds the units of these letters, and the accept's sweep (`engine/review/accept_sweep.py`) sweeps the same letters further."""
+    changed: dict[str, set[str]] = {}
+    provenance: set[str] = set()
+    for entry in settlement:
+        rune = base_label(entry.key.input)
+        if entry.bucket == "provenance-only":
+            provenance.add(rune)
+        else:
+            changed.setdefault(rune, set()).add(entry.bucket)
+    return changed, provenance
+
+
+def rune_certificates(
+    runes: Container[str], *tables: Iterable[tuple[str, tuple[int, ...] | None]]
+) -> dict[str, set[str]]:
+    """The certificate texts of every rule whose input is one of `runes`, by rune, from each table's (input label, certificate text) pairs, a rule with an empty certificate left out."""
+    found: dict[str, set[str]] = {}
+    for pairs in tables:
+        for label, values in pairs:
+            rune = base_label(label)
+            if values and rune in runes:
+                found.setdefault(rune, set()).add("".join(map(chr, values)))
+    return found
+
+
 class UnitFinder:
-    """Collect one diff's visible changes a configuration at a time (`add_config`) and fold them into units (`units`). `universe` is every configuration the corpus can list, in the order units list theirs. `inventory` maps a configuration to the kerning inventory's texts under it, each as its text and its glyph names in the new font."""
+    """Collect one diff's visible changes a configuration at a time (`add_config`) and fold them into units (`units`). `universe` is every configuration the corpus can list, in the order units list theirs. `inventory` maps a configuration to the kerning inventory's texts under it, each as its text and its glyph names in the new font. `context` is how many letters of context the input sweep puts around a changed letter (`sweep_texts`)."""
 
     def __init__(
         self,
@@ -642,12 +688,14 @@ class UnitFinder:
         fonts: Fonts,
         universe: Sequence[str],
         inventory: Mapping[str, Sequence[tuple[str, tuple[str, ...]]]] | None = None,
+        context: int = SWEEP_CONTEXT,
     ) -> None:
         self.spec = spec
         self.fonts = fonts
         self.universe = tuple(universe)
         self.alphabet = spec_alphabet(spec)
         self.inventory = inventory or {}
+        self.context = context
         self.counts: dict[str, ConfigCounts] = {}
         self._substitutions: dict[CellChange, dict[str, _Shortest]] = {}
         self._lefts: dict[CellChange, set[tuple[str, str]]] = {}
@@ -669,10 +717,11 @@ class UnitFinder:
         config: str,
         settlement: Sequence[tablediff.SettlementDiffEntry],
         joins: Sequence[tablediff.JoinDiffEntry],
-        old_certificates: Iterable[tuple[str, tuple[int, ...] | None]] = (),
-        new_certificates: Iterable[tuple[str, tuple[int, ...] | None]] = (),
+        old_certificates: Sequence[tuple[str, tuple[int, ...] | None]] = (),
+        new_certificates: Sequence[tuple[str, tuple[int, ...] | None]] = (),
+        extra_texts: Iterable[str] = (),
     ) -> ConfigCounts:
-        """Find the changes of one configuration's row diff. `old_certificates` and `new_certificates` are each table's (input label, certificate text) pairs, one per rule."""
+        """Find the changes of one configuration's row diff. `old_certificates` and `new_certificates` are each table's (input label, certificate text) pairs, one per rule. `extra_texts` are candidates beside the certificates and the input sweep: the texts the accept's sweep found under this configuration (`engine/review/sweep_record.py`), which show changes the input sweep's context is too short for."""
         start = time.perf_counter()
         shaped = self.fonts.shaped
         counts = self.counts.setdefault(config, ConfigCounts())
@@ -683,43 +732,32 @@ class UnitFinder:
         for entry in joins:
             counts.joins[entry.bucket] = counts.joins.get(entry.bucket, 0) + 1
 
-        changed: dict[str, set[str]] = {}
-        provenance: set[str] = set()
+        changed, provenance = changed_letters(settlement)
         for entry in settlement:
-            rune = base_label(entry.key.input)
-            self._rows.setdefault(rune, {}).setdefault(config, []).append(entry)
-            if entry.bucket == "provenance-only":
-                provenance.add(rune)
-            else:
-                changed.setdefault(rune, set()).add(entry.bucket)
+            self._rows.setdefault(base_label(entry.key.input), {}).setdefault(config, []).append(entry)
         for rune, buckets in changed.items():
             self._bucket_kinds.setdefault(rune, {})[config] = buckets
         counts.letters = len(changed)
 
-        certificates: dict[str, set[str]] = {}
+        certificates = rune_certificates(changed, old_certificates, new_certificates)
         new_shortest: dict[str, str] = {}
-        for side, pairs in (("old", old_certificates), ("new", new_certificates)):
-            for label, values in pairs:
-                if not values:
-                    continue
-                rune = base_label(label)
+        for label, values in new_certificates:
+            rune = base_label(label)
+            if values and rune in provenance:
                 text = "".join(map(chr, values))
-                if rune in changed:
-                    certificates.setdefault(rune, set()).add(text)
-                if side == "new" and rune in provenance:
-                    best = new_shortest.get(rune)
-                    if best is None or (len(text), text) < (len(best), best):
-                        new_shortest[rune] = text
+                best = new_shortest.get(rune)
+                if best is None or (len(text), text) < (len(best), best):
+                    new_shortest[rune] = text
 
         words = {rune: word for rune in changed if (word := self._spelled(rune)) is not None}
-        texts: set[str] = set()
+        texts: set[str] = set(extra_texts)
         owners: dict[str, set[str]] = {}
         for rune, values in certificates.items():
             texts.update(values)
             for text in values:
                 owners.setdefault(text, set()).add(rune)
         for word in words.values():
-            texts.update(sweep_texts(self.alphabet, word))
+            texts.update(sweep_texts(self.alphabet, word, self.context))
 
         wanted_before = {(entry.key.left, entry.key.right) for entry in joins if entry.old is not None}
         wanted_after = {(entry.key.left, entry.key.right) for entry in joins if entry.new is not None}
@@ -1039,6 +1077,121 @@ class UnitFinder:
 
 def _join_sort_key(change: JoinChange) -> tuple:
     return (change.left, change.right, repr(change.old), repr(change.new))
+
+
+# --- the accept's sweep ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SweepFinds:
+    """What one task of the accept's sweep saw (`sweep_finds`): its configuration, its letter's rune and spelling, and how many texts it shaped; of the candidates the corpus build shapes for the letter too, the cell changes they show (`seen`), the runes their substitutions name (`substituted`), and the spellings of the configuration's changed letters that a candidate whose ink differs with every glyph name alike holds (`unattributed`); then, of the longer texts, each cell change no such candidate of the task shows, with the shortest text that shows it (`cells`), and the shortest whose ink differs with every glyph name alike (`quiet`, at most `ACCEPT_SWEEP_QUIET_TEXTS`). `peak_bytes` is the peak footprint of the process that ran it, 0 when unread."""
+
+    config: str
+    rune: str
+    word: str
+    texts: int
+    seen: frozenset[CellChange]
+    substituted: frozenset[str]
+    unattributed: frozenset[str]
+    cells: Mapping[CellChange, str]
+    quiet: tuple[str, ...]
+    peak_bytes: int = 0
+
+
+def sweep_finds(
+    fonts: Fonts,
+    config: str,
+    rune: str,
+    word: str,
+    alphabet: Sequence[str],
+    *,
+    words: Iterable[str] = (),
+    certificates: Iterable[str] = (),
+    ordinary_context: int = SWEEP_CONTEXT,
+    context: int = ACCEPT_SWEEP_CONTEXT,
+) -> SweepFinds:
+    """One task of the accept's sweep: shape in both fonts under `config`, kern-neutral, the letter's certificates and every text that holds its spelling `word` with at most `context` letters of the alphabet around it, fewest first (`sweep_layers`), and return what they show (`SweepFinds`). The certificates and the texts with at most `ordinary_context` letters of context are the corpus build's candidates for the letter (`UnitFinder.add_config`), and the longer texts are the ones its sweep cannot reach. `words` are the spellings of every letter whose rules changed under the configuration, the letters the corpus build credits a text whose ink differs with every glyph name alike to. The texts are made as they are shaped and never held as a list, so a task holds two shapers, their outlines and what it found."""
+    seen: set[CellChange] = set()
+    substituted: set[str] = set()
+    unattributed: set[str] = set()
+    longer: dict[CellChange, str] = {}
+    quiet: list[str] = []
+    attributable = tuple(dict.fromkeys(words))
+    shaped = 0
+
+    def candidates() -> Iterator[tuple[bool, str]]:
+        for text in certificates:
+            yield True, text
+        for total, text in sweep_layers(alphabet, word, context):
+            yield total <= ordinary_context, text
+
+    for ordinary, text in candidates():
+        before, after = fonts.runs(text, config)
+        shaped += 1
+        for _position, substitution in substitutions(text, before, after):
+            cell = CellChange.of(substitution)
+            if ordinary:
+                seen.add(cell)
+                substituted.update((base_label(substitution.old), base_label(substitution.new)))
+                continue
+            known = longer.get(cell)
+            if known is None or (len(text), text) < (len(known), known):
+                longer[cell] = text
+        if before.names == after.names and not fonts.runs_alike(before, after):
+            if ordinary:
+                unattributed.update(spelled for spelled in attributable if spelled in text)
+            elif text not in quiet:
+                quiet = sorted([*quiet, text], key=lambda found: (len(found), found))[
+                    :ACCEPT_SWEEP_QUIET_TEXTS
+                ]
+    return SweepFinds(
+        config,
+        rune,
+        word,
+        shaped,
+        frozenset(seen),
+        frozenset(substituted),
+        frozenset(unattributed),
+        {cell: text for cell, text in sorted(longer.items()) if cell not in seen},
+        tuple(quiet),
+    )
+
+
+@dataclass(frozen=True, order=True)
+class SweepFind:
+    """One change the accept's sweep found under one configuration that no candidate of the corpus build shows there: the shortest text that shows it, and what it is, as a row key names it: `settlement <rune>: <old> -> <new>` for a cell change, `quiet <rune>` for a letter that text draws with different ink and every glyph name alike."""
+
+    text: str
+    change: str
+
+
+def merge_sweep_finds(finds: Iterable[SweepFinds]) -> dict[str, list[SweepFind]]:
+    """Merge the accept sweep's tasks into what the corpus build's candidates do not show, by configuration, each configuration's finds shortest text first, then in code-point order, then by change, whatever order the tasks finished in. A cell change that some task's corpus-build candidates show under the configuration is shown already; each other one takes the shortest text any task found it in. A letter's quiet text stands only where no corpus-build candidate shows a substitution of the letter or holds its spelling in a text that draws with different ink and every glyph name alike, either of which the corpus build would take as the letter's evidence, and no cell change found here substitutes the letter."""
+    by_config: dict[str, list[SweepFinds]] = {}
+    for found in finds:
+        by_config.setdefault(found.config, []).append(found)
+    merged: dict[str, list[SweepFind]] = {}
+    for config, group in sorted(by_config.items()):
+        seen = frozenset().union(*(found.seen for found in group))
+        substituted = frozenset().union(*(found.substituted for found in group))
+        unattributed = frozenset().union(*(found.unattributed for found in group))
+        cells: dict[CellChange, str] = {}
+        for found in group:
+            for cell, text in found.cells.items():
+                known = cells.get(cell)
+                if cell not in seen and (known is None or (len(text), text) < (len(known), known)):
+                    cells[cell] = text
+        moved = {base_label(name) for cell in cells for name in (cell.old, cell.new)}
+        entries = {
+            SweepFind(text, f"settlement {cell.rune}: {cell.old} -> {cell.new}")
+            for cell, text in cells.items()
+        }
+        for found in group:
+            if found.rune in substituted or found.rune in moved or found.word in unattributed:
+                continue
+            entries.update(SweepFind(text, f"quiet {found.rune}") for text in found.quiet)
+        merged[config] = sorted(entries, key=lambda entry: (len(entry.text), entry.text, entry.change))
+    return merged
 
 
 # --- the glyph and kern buckets ------------------------------------------------------
