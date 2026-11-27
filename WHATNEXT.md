@@ -6,8 +6,6 @@
 
 **A real release is the first run of three steps of the release path.** A rehearsal (HACKING.md § Rehearsing the release path) runs the rest against GitHub: the upload to a draft, the workflow finding and downloading it, the manifest check, the WOFF2s, the site and release artifacts, the zip attached to the draft and replaced on a rerun, and the type check on the runner. It cannot run the tag-push trigger, the Pages deployment, or the request that publishes the draft, so the next release is their first run.
 
-**`FONTLOG.md` has a drafted `### 17.000` section, and the version files still say 16.000.** The section describes the fonts as built when it was drafted, so a rune change before the release has to reach it too. The bump-major skill moves `glyph_data/metadata.yaml` and `pyproject.toml` to the heading (HACKING.md § Cutting a release).
-
 **A second checkout needs three steps after it pulls.** Move its untracked `rebuild/out` to `engine/out`, so the build and the cycle find their records; move a verdict store stamped for a review corpus that no longer exists (`verdicts-autosave.json` at the repo root) under `var/keep/`; and run `make review-snapshot-remake`, which installs the accepted snapshot `engine/review-snapshot.json` names.
 
 ## Open forks
