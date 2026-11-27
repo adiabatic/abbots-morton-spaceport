@@ -149,14 +149,53 @@ policy:
   groups: {}
 kern:
 - {right: {family: qsBay}, by: -2}
+- {right: {family: qsTea_qsOy}, by: -2}
+- {right: {family: qsDay}, by: -2}
+- {right: {family: qsDay_qsEat}, by: -2}
+- {right: {family: qsDay_qsUtter}, by: -2}
 - {right: {family: qsGay}, by: -3}
+- {right: {family: qsThey}, by: -2}
+- {right: {family: qsThey_qsZoo}, by: -2}
+- {right: {family: qsThey_qsUtter}, by: -2}
 - {right: {family: qsFee}, by: -2}
+- {right: {family: qsVie}, by: -2}
 - {right: {family: qsSee}, by: -1}
 - {right: {family: qsSee, stance: curled-over}, by: -2}
 - {right: {family: qsSee, stance: normal}, by: -2}
+- {right: {family: qsSee_qsEat}, by: -2}
+- {right: {family: qsZoo}, by: -2}
+- {right: {family: qsShe}, by: -2}
+- {right: {family: qsJai}, by: -2}
+- {right: {family: qsJai_qsUtter}, by: -2}
+- {right: {family: qsCheer}, by: -2}
+- {right: {family: qsJay}, by: -2}
+- {right: {family: qsJay_qsUtter}, by: -2}
 - {right: {family: qsWay}, by: -2}
 - {right: {family: qsWay, stance: half}, by: -3}
+- {right: {family: qsWay_qsUtter}, by: -2}
 - {right: {family: qsWhy}, by: -2}
+- {right: {family: qsWhy_qsUtter}, by: -2}
+- {right: {family: qsIng}, by: -1}
+- {right: {family: qsMay}, by: -2}
+- {right: {family: qsNo}, by: -2}
+- {right: {family: qsLow}, by: -2}
+- {right: {family: qsRoe}, by: -2}
 - {right: {family: qsLoch}, by: -2}
+- {right: {family: qsLlan}, by: -2}
+- {right: {family: qsExam}, by: -2}
+- {right: {family: qsIt}, by: -2}
+- {right: {family: qsEat}, by: -2}
+- {right: {family: qsEt}, by: -2}
+- {right: {family: qsEight}, by: -2}
+- {right: {family: qsAt}, by: -2}
+- {right: {family: qsI}, by: -2}
+- {right: {family: qsAh}, by: -2}
+- {right: {family: qsAwe}, by: -2}
+- {right: {family: qsOx}, by: -2}
 - {right: {family: qsOy}, by: -2}
+- {right: {family: qsUtter}, by: -2}
+- {right: {family: qsOut}, by: -2}
+- {right: {family: qsOut_qsTea}, by: -2}
 - {right: {family: qsOwe}, by: -2}
+- {right: {family: qsFoot}, by: -2}
+- {right: {family: qsOoze}, by: -2}
