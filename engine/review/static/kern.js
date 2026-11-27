@@ -193,13 +193,16 @@ export function pairFromQuery(query, model) {
   return { lead: found[0], follow: found[1] };
 }
 
-// The view's selection from the URL hash's `pair` (`qsNo:qsTea`) and `facing` (a facing pair's key), with the grid cursor at the top left and the first facing pair when the hash names none the inventory has.
-export function selectionFromState(model, pair, facing) {
-  let cursor = { row: 0, col: 0 };
+// The view's selection from the URL hash's `pair` (`qsNo:qsTea`) and `facing` (a facing pair's key), with the grid cursor at the top left and the first facing pair when the hash names none the inventory has. In list mode (`list`, `resolvePairList`'s) a `pair` that is no listed pair the inventory knows gives way to the first listed pair it knows.
+export function selectionFromState(model, pair, facing, list = null) {
+  let cursor = null;
   const [lead, follow] = String(pair ?? '').split(':');
   if (model.runeIndex.has(lead) && model.runeIndex.has(follow)) {
     cursor = { row: model.runeIndex.get(lead), col: model.runeIndex.get(follow) };
   }
+  const first = list?.find((one) => one.cursor)?.cursor;
+  if (first && (!cursor || listedAt(list, cursor) < 0)) cursor = first;
+  cursor ??= { row: 0, col: 0 };
   const entry = runePairAt(model, cursor.row, cursor.col);
   const facingIndex = facing && entry ? entry.pairs.findIndex((id) => model.pairKeys[id] === facing) : -1;
   return { cursor, facing: Math.max(facingIndex, 0) };
@@ -212,6 +215,85 @@ export function stateFromSelection(model, cursor, facingIndex) {
   const entry = runePairAt(model, cursor.row, cursor.col);
   const id = entry?.pairs[facingIndex];
   return { pair: `${lead}:${follow}`, facing: id === undefined ? null : model.pairKeys[id] };
+}
+
+// List mode (doc/kerning-design.md section 6). The URL hash's `pairs` lists pairs of letters to judge, in order, comma-separated, each `lead:follow` by rune name, a ligature named as the inventory names it (`qsDay_qsUtter:qsTea`). Each listed pair is `{name, lead, follow}`, listed once, where it first appears; a token that is not two names around one colon keeps its `name` with `lead` and `follow` null.
+export function parsePairList(text) {
+  const listed = [];
+  const seen = new Set();
+  for (const token of String(text ?? '').split(',')) {
+    const name = token.trim();
+    if (name === '' || seen.has(name)) continue;
+    seen.add(name);
+    const parts = name.split(':');
+    const named = parts.length === 2 && parts[0] !== '' && parts[1] !== '';
+    listed.push({ name, lead: named ? parts[0] : null, follow: named ? parts[1] : null });
+  }
+  return listed;
+}
+
+// The hash's `pairs` for a list, or null for an empty one, which is no list mode.
+export function pairListText(listed) {
+  return listed.length > 0 ? listed.map((one) => one.name).join(',') : null;
+}
+
+// Each listed pair against the inventory: its grid `cursor` and rune pair `entry` when the inventory has both runes, and otherwise a null cursor and entry with `missing`, the names it lacks (the whole token for one that is not `lead:follow`). A listed pair whose entry has no facing pair is two letters that never meet at a break.
+export function resolvePairList(model, listed) {
+  return listed.map((one) => {
+    const missing = one.lead === null ? [one.name] : [...new Set([one.lead, one.follow])].filter((name) => !model.runeIndex.has(name));
+    if (missing.length > 0) return { ...one, cursor: null, entry: null, missing };
+    const cursor = { row: model.runeIndex.get(one.lead), col: model.runeIndex.get(one.follow) };
+    return { ...one, cursor, entry: runePairAt(model, cursor.row, cursor.col), missing };
+  });
+}
+
+// The index of the listed pair at the grid cursor `cursor`, or -1 when no listed pair is there.
+export function listedAt(list, cursor) {
+  return list.findIndex((one) => one.cursor !== null && one.cursor.row === cursor.row && one.cursor.col === cursor.col);
+}
+
+// The cursors of the listed pairs the inventory knows, in the list's order: the cells the mark key's walk visits in list mode.
+export function listCells(list) {
+  return list.filter((one) => one.cursor !== null).map((one) => one.cursor);
+}
+
+// The index of the listed pair the inventory knows `step` places from index `at` (`step` 1 the next, -1 the previous), passing over those it does not know, or null past either end.
+export function stepListed(list, at, step) {
+  for (let index = at + step; index >= 0 && index < list.length; index += step) {
+    if (list[index].cursor !== null) return index;
+  }
+  return null;
+}
+
+const LIST_STEPS = { 'kern-up': -1, 'kern-left': -1, 'kern-down': 1, 'kern-right': 1 };
+
+// The listed pair an arrow key moves to from index `at`: up and left the previous one the inventory knows, down and right the next, held at either end.
+export function moveListCursor(list, at, action) {
+  const step = LIST_STEPS[action];
+  return step ? (stepListed(list, at, step) ?? at) : at;
+}
+
+// Why a listed pair has nothing to draw, or null when it has facing pairs: a token that is not `lead:follow`, a rune the inventory lacks, or two letters that never meet at a break. `unknown` marks the first two.
+export function listedNote(item) {
+  if (item.lead === null) return { unknown: true, text: 'not two letters written lead:follow' };
+  if (item.missing.length > 0) return { unknown: true, text: `the kern inventory has no ${item.missing.join(' or ')}` };
+  if (!hasFacingPairs(item.entry)) return { unknown: false, text: 'never meet at a break' };
+  return null;
+}
+
+// The line above the list: how many pairs of letters it lists, and how many of them the inventory does not know or never meet at a break.
+export function listLine(list) {
+  let unknown = 0;
+  let apart = 0;
+  for (const item of list) {
+    const note = listedNote(item);
+    if (note?.unknown) unknown += 1;
+    else if (note) apart += 1;
+  }
+  const parts = [];
+  if (unknown) parts.push(`${unknown} not in the kern inventory`);
+  if (apart) parts.push(`${apart} whose letters never meet at a break`);
+  return `The link lists ${list.length} pair${list.length === 1 ? '' : 's'} of letters${parts.length ? `, ${parts.join(' and ')}` : ''}.`;
 }
 
 // Each glyph's pen position in a text once every break before it is moved by its facing pair's value. A join's gap is -1 and never moves.
@@ -499,27 +581,37 @@ export function carriedCount(model, values) {
   return count;
 }
 
-// The grid cursor of the next pair of letters, in reading order from `cursor` (`step` 1) or the one before (`step` -1), that still has a carried-over facing pair not reviewed, wrapping round; null when none has one.
-export function nextCarried(model, values, cursor, step) {
+// The grid cursors a walk from `cursor` visits, forward (`step` 1) or back (`step` -1), wrapping round to `cursor` itself last: every cell of the grid in reading order, or with `cells` (list mode's `listCells`) those cells in their order.
+function* walkFrom(model, cursor, step, cells) {
+  if (cells) {
+    const start = cells.findIndex((one) => one.row === cursor.row && one.col === cursor.col);
+    for (let offset = 1; offset <= cells.length; offset += 1) yield cells[(((start + step * offset) % cells.length) + cells.length) % cells.length];
+    return;
+  }
   const size = model.size;
   const total = size * size;
   const start = cursor.row * size + cursor.col;
   for (let offset = 1; offset <= total; offset += 1) {
     const index = (((start + step * offset) % total) + total) % total;
-    const row = Math.floor(index / size);
-    const col = index % size;
-    if (entryCarried(model, values, runePairAt(model, row, col))) return { row, col };
+    yield { row: Math.floor(index / size), col: index % size };
+  }
+}
+
+// The grid cursor of the next pair of letters, in reading order from `cursor` (`step` 1) or the one before (`step` -1), that still has a carried-over facing pair not reviewed, wrapping round; null when none has one. With `cells` the walk visits only those, in their order.
+export function nextCarried(model, values, cursor, step, cells = null) {
+  for (const cell of walkFrom(model, cursor, step, cells)) {
+    if (entryCarried(model, values, runePairAt(model, cell.row, cell.col))) return cell;
   }
   return null;
 }
 
-// Where the mark key moves the selection once it marks the facing-pair keys `marked` reviewed: the next facing pair after `facing` in the same pair of letters that is still carried over, or else the first such facing pair of the next pair of letters that has one, in reading order and wrapping round; null when none is left. It reads `marked` as reviewed already, since the mark's reply has not come back yet.
-export function nextAfterMark(model, values, cursor, facing, marked) {
+// Where the mark key moves the selection once it marks the facing-pair keys `marked` reviewed: the next facing pair after `facing` in the same pair of letters that is still carried over, or else the first such facing pair of the next pair of letters that has one, in reading order (or among `cells`, in list mode) and wrapping round; null when none is left. It reads `marked` as reviewed already, since the mark's reply has not come back yet.
+export function nextAfterMark(model, values, cursor, facing, marked, cells = null) {
   const after = { ...values, reviewed: new Set([...values.reviewed, ...marked]) };
   const here = runePairAt(model, cursor.row, cursor.col);
   const later = here ? here.pairs.findIndex((id, index) => index > facing && isCarried(model, after, id)) : -1;
   if (later >= 0) return { cursor, facing: later };
-  const next = nextCarried(model, after, cursor, 1);
+  const next = nextCarried(model, after, cursor, 1, cells);
   if (!next) return null;
   const entry = runePairAt(model, next.row, next.col);
   return { cursor: next, facing: entry.pairs.findIndex((id) => isCarried(model, after, id)) };

@@ -8,6 +8,8 @@
 //
 // Layout: the facing pairs are listed by second shape (`facingOrder`), under a line naming it when the two letters have several, and only those with the selected pair's second shape are listed in full, the others as one line each; the relatives and comparables are tiles, a small drawing with a name, a line and its buttons, the rest in the tile's tooltip.
 //
+// List mode: with the URL hash's `pairs` (`parsePairList`), the grid pane shows only the listed pairs of letters, in the listed order, one cell each, drawn as the grid draws its cells (`paintCell`), with a line above it that counts them and a button that leaves the list for the whole grid. A listed pair the inventory does not know, or whose letters never meet at a break, keeps its place with a note saying which (`listedNote`), and the cursor passes over the ones the inventory does not know. The arrows, `]` and `[`, up and down past either end of the detail panel, and the mark key's move stay among the listed pairs; any other move to a pair outside the list, the jump box's among them, leaves list mode as a new history entry, so the browser's Back returns to the list.
+//
 // Comparables: the section's three buttons, and `c`, choose what it lists (`view.compare`): the relatives, or the facing pairs with the same second shape whose first shape is like the selected pair's (`comparablesOf` with `COMPARE_LEAD`: every letter shaped like ·Ye before half ·Way), or those with the same first shape and a like second shape. Each row gives how alike the two shapes are, how far apart the pair's ink is where it is closest (`clearanceOf`) against the selected pair's, and buttons that tighten or loosen that pair in place or set it to the selected pair's clearance.
 
 import { formatCount } from './render.js';
@@ -50,6 +52,10 @@ import {
   inventoryRefusal,
   isApart,
   journalLines,
+  listCells,
+  listLine,
+  listedAt,
+  listedNote,
   lettersScope,
   lettersScopeOfPair,
   lettersValue,
@@ -57,6 +63,7 @@ import {
   manualTexts,
   moveFacing,
   moveGridCursor,
+  moveListCursor,
   nearRelativesOf,
   nextAfterApart,
   nextComparison,
@@ -64,10 +71,13 @@ import {
   notInFont,
   pairFromQuery,
   pairLabel,
+  pairListText,
+  parsePairList,
   paneFor,
   reachChip,
   reachText,
   refusalText,
+  resolvePairList,
   relationText,
   relationWord,
   relativesOf,
@@ -85,6 +95,7 @@ import {
   staleAnswer,
   stalenessLines,
   stepInOrder,
+  stepListed,
   stateFromSelection,
   valueForClearance,
   valuesAfterFetch,
@@ -177,13 +188,17 @@ async function postJson(url, body) {
   }
 }
 
-// Create the view in `root`, the app's `#kern` section. `toast` shows a short message; `writeSelection` puts the selection's `pair` and `facing` in the URL hash without moving the page.
+// Create the view in `root`, the app's `#kern` section. `toast` shows a short message; `writeSelection` puts the selection's `pair` and `facing`, and list mode's `pairs`, in the URL hash without moving the page, as a new history entry when its second argument has `push`.
 export function createKernView({ root, toast, writeSelection }) {
   const view = {
     model: null,
     values: null,
     cursor: { row: 0, col: 0 },
     facing: 0,
+    // List mode: the hash's `pairs` as parsed (`listed`) and as it reads (`listText`, null with no list), and the listed pairs resolved against the inventory (`list`, null outside list mode).
+    listed: [],
+    listText: null,
+    list: null,
     scopeMode: SCOPE_FACING,
     loading: null,
     error: null,
@@ -303,10 +318,16 @@ export function createKernView({ root, toast, writeSelection }) {
     bar.append(title, summary, jump);
     const status = el('div', 'kern-status');
     status.setAttribute('role', 'status');
+    const listLineNode = el('p', 'kern-list-line');
+    listLineNode.hidden = true;
+    listLineNode.addEventListener('click', (event) => {
+      if (event.target.closest?.('button[data-action]')?.dataset.action !== 'kern-list-leave') return;
+      leaveList();
+      placeCursor();
+      grid.focus();
+    });
     const grid = el('div', 'kern-grid');
     grid.tabIndex = 0;
-    grid.setAttribute('role', 'grid');
-    grid.setAttribute('aria-label', 'Kerning grid: the leading letter down the side, the following letter across the top; the arrows move the cursor, - and = tighten and loosen the two letters');
     const detail = el('section', 'kern-detail');
     detail.tabIndex = 0;
     detail.setAttribute('aria-label', 'The focused pair of letters; up and down choose a facing pair, left and right tighten and loosen');
@@ -336,8 +357,8 @@ export function createKernView({ root, toast, writeSelection }) {
         view.dom.detail.focus();
       }
     });
-    root.replaceChildren(bar, status, panes, live, swatches);
-    view.dom = { summary, input, status, grid, detail, live, swatches, relatives, rows: [], cursor: null, head: null, scope: buildScopeBox() };
+    root.replaceChildren(bar, status, listLineNode, panes, live, swatches);
+    view.dom = { summary, input, status, listLine: listLineNode, panes, grid, detail, live, swatches, relatives, rows: [], cursor: null, head: null, listRows: [], listCanvases: [], scope: buildScopeBox() };
 
     input.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
@@ -352,6 +373,12 @@ export function createKernView({ root, toast, writeSelection }) {
       grid.focus();
     });
     grid.addEventListener('click', (event) => {
+      const listed = event.target.closest?.('[data-at]');
+      if (listed && view.list) {
+        const item = view.list[Number(listed.dataset.at)];
+        if (item?.cursor) setCursor(item.cursor);
+        return;
+      }
       const canvas = event.target.closest?.('canvas[data-row]');
       if (!canvas || view.cell.width === 0) return;
       setCursor({ row: Number(canvas.dataset.row), col: Math.floor(event.offsetX / view.cell.width) });
@@ -411,18 +438,80 @@ export function createKernView({ root, toast, writeSelection }) {
       `${formatCount(doc.pairs.length)} facing pairs over ${formatCount(withPairs)} pairs of letters; ${formatCount(kerned)} kerned` +
       (unbuilt ? `, ${formatCount(unbuilt)} not in the built font yet` : '') +
       (unsent ? `; ${formatCount(unsent)} change${unsent === 1 ? '' : 's'} being written` : '') +
-      (carried ? `; ${formatCount(carried)} carried over from the old font and not reviewed ([ and ] find them)` : '') +
+      (carried ? `; ${formatCount(carried)} carried over from the old font and not reviewed${view.list ? '' : ' ([ and ] find them)'}` : '') +
       (trouble.stale ? `; ${formatCount(trouble.stale)} carried-over or reviewed pair${trouble.stale === 1 ? ' names' : 's name'} a side this build no longer has` : '') +
       (split ? `; ${formatCount(split)} group${split === 1 ? '' : 's'} of matching shape pairs ${split === 1 ? 'is' : 'are'} kerned differently (w and r find them)` : '') +
       '.';
   }
 
-  function renderGrid() {
-    const { model } = view;
+  // The grid pane: the whole grid, or in list mode the listed pairs alone, with the line above it.
+  function renderPane() {
+    const listing = Boolean(view.list);
     view.cell = {
-      width: (gridCellPixels(model) + CELL_SLACK) * GRID_SCALE,
+      width: (gridCellPixels(view.model) + CELL_SLACK) * GRID_SCALE,
       height: CELL_TOP + STAGE_ROWS * GRID_SCALE + CELL_BOTTOM,
     };
+    view.dom.panes.classList.toggle('listing', listing);
+    const grid = view.dom.grid;
+    grid.setAttribute('role', listing ? 'listbox' : 'grid');
+    grid.setAttribute(
+      'aria-label',
+      listing
+        ? 'The listed pairs of letters, in the link’s order; the arrows move the cursor, - and = tighten and loosen the two letters'
+        : 'Kerning grid: the leading letter down the side, the following letter across the top; the arrows move the cursor, - and = tighten and loosen the two letters',
+    );
+    view.dom.listLine.hidden = !listing;
+    if (listing) {
+      const leave = button('Show the whole grid', 'kern-list-leave', 'Leave the list for the grid of every pair of letters, keeping the focused pair; the browser’s Back returns to the list');
+      view.dom.listLine.replaceChildren(el('span', null, listLine(view.list)), ' ', leave);
+      renderList();
+    } else {
+      view.dom.listLine.replaceChildren();
+      renderGrid();
+    }
+  }
+
+  // List mode's pane: one row a listed pair, in the list's order, each its letters' names, its grid cell, and why it has nothing to draw when it has nothing.
+  function renderList() {
+    const list = el('ol', 'kern-list');
+    list.setAttribute('role', 'presentation');
+    list.style.setProperty('--kern-cell-width', `${view.cell.width}px`);
+    list.style.setProperty('--kern-cell-height', `${view.cell.height}px`);
+    const rows = [];
+    const canvases = [];
+    for (const [at, item] of view.list.entries()) {
+      const row = el('li', 'kern-list-row');
+      row.dataset.at = String(at);
+      const note = listedNote(item);
+      let label;
+      if (item.cursor) {
+        row.setAttribute('role', 'option');
+        row.setAttribute('aria-selected', 'false');
+        label = el('span', 'kern-list-label', `${view.model.doc.runes[item.cursor.row].label}${view.model.doc.runes[item.cursor.col].label}`);
+      } else {
+        row.classList.add('unknown');
+        label = el('code', 'kern-list-label', item.name);
+      }
+      label.title = item.name;
+      const canvas = el('canvas', 'kern-list-canvas');
+      row.append(label, canvas);
+      if (note) row.append(el('span', `kern-list-note${note.unknown ? ' unknown' : ''}`, note.text));
+      list.append(row);
+      rows.push(row);
+      canvases.push(canvas);
+    }
+    view.dom.grid.replaceChildren(list);
+    view.dom.rows = [];
+    view.dom.cursor = null;
+    view.dom.head = null;
+    view.dom.listRows = rows;
+    view.dom.listCanvases = canvases;
+    paintRows();
+    placeCursor(false);
+  }
+
+  function renderGrid() {
+    const { model } = view;
     const inner = el('div', 'kern-grid-inner');
     inner.style.setProperty('--kern-cell-width', `${view.cell.width}px`);
     inner.style.setProperty('--kern-cell-height', `${view.cell.height}px`);
@@ -451,72 +540,90 @@ export function createKernView({ root, toast, writeSelection }) {
     view.dom.rows = rows;
     view.dom.cursor = cursor;
     view.dom.head = head;
+    view.dom.listRows = [];
+    view.dom.listCanvases = [];
     paintRows();
     placeCursor(false);
   }
 
   function paintRows() {
     stand();
+    if (view.list) {
+      for (const [at, item] of view.list.entries()) paintCell(cellContext(view.dom.listCanvases[at], view.cell.width), 0, item.entry);
+      return;
+    }
     for (const row of view.dom.rows.keys()) paintRow(row);
   }
 
-  function paintRow(row) {
-    const { model, colors, cell } = view;
-    const canvas = view.dom.rows[row];
-    const width = cell.width * model.size;
-    const context = sizedContext(canvas, width, cell.height);
+  // A canvas `width` wide and a cell high, set up for a cell's text.
+  function cellContext(canvas, width) {
+    const context = sizedContext(canvas, width, view.cell.height);
     context.font = '9px system-ui, sans-serif';
     context.textBaseline = 'alphabetic';
-    for (const col of model.doc.runes.keys()) {
-      const x0 = col * cell.width;
-      context.fillStyle = colors.guide;
-      context.fillRect(x0, 0, 1, cell.height);
-      const entry = runePairAt(model, row, col);
-      const draw = cellDrawList(model, entry, valueOf);
-      if (!draw) continue;
-      paintSquares(context, draw.squares, {
-        scale: GRID_SCALE,
-        originX: x0 + (STAGE_MARGIN - Math.min(draw.minX, 0)) * GRID_SCALE,
-        originY: CELL_TOP,
-        colors,
-        clip: { left: x0 + 1, right: x0 + cell.width },
-      });
-      context.fillStyle = colors.text;
+    return context;
+  }
+
+  function paintRow(row) {
+    const { model, cell } = view;
+    const context = cellContext(view.dom.rows[row], cell.width * model.size);
+    for (const col of model.doc.runes.keys()) paintCell(context, col * cell.width, runePairAt(model, row, col));
+  }
+
+  // One cell at `x0` of a row's canvas, a grid row's or a listed pair's: the rune pair's representative facing pair at its value, the value, `×N` for several facing pairs, the reach chip, the carried-over and kerned-differently marks, and the dashed outline of a value the built font lacks. A rune pair with no facing pair leaves the cell blank.
+  function paintCell(context, x0, entry) {
+    const { model, colors, cell } = view;
+    context.fillStyle = colors.guide;
+    context.fillRect(x0, 0, 1, cell.height);
+    const draw = cellDrawList(model, entry, valueOf);
+    if (!draw) return;
+    paintSquares(context, draw.squares, {
+      scale: GRID_SCALE,
+      originX: x0 + (STAGE_MARGIN - Math.min(draw.minX, 0)) * GRID_SCALE,
+      originY: CELL_TOP,
+      colors,
+      clip: { left: x0 + 1, right: x0 + cell.width },
+    });
+    context.fillStyle = colors.text;
+    context.textAlign = 'left';
+    if (draw.value !== 0) context.fillText(signed(draw.value), x0 + 2, CELL_TOP - 3);
+    if (draw.count > 1) {
+      context.fillStyle = colors.muted;
+      context.textAlign = 'right';
+      context.fillText(`×${draw.count}`, x0 + cell.width - 2, CELL_TOP - 3);
+    }
+    const chip = reachChip(model, entry);
+    if (chip) {
+      context.fillStyle = colors.muted;
       context.textAlign = 'left';
-      if (draw.value !== 0) context.fillText(signed(draw.value), x0 + 2, CELL_TOP - 3);
-      if (draw.count > 1) {
-        context.fillStyle = colors.muted;
-        context.textAlign = 'right';
-        context.fillText(`×${draw.count}`, x0 + cell.width - 2, CELL_TOP - 3);
-      }
-      const chip = reachChip(model, entry);
-      if (chip) {
-        context.fillStyle = colors.muted;
-        context.textAlign = 'left';
-        context.fillText(GRID_CHIPS[chip] ?? chip, x0 + 2, cell.height - 2);
-      }
-      if (entryCarried(model, view.values, entry)) {
-        context.fillStyle = colors.carried;
-        context.textAlign = 'right';
-        context.fillText('old', x0 + cell.width - 2, cell.height - 2);
-      }
-      if (entry.pairs.some((id) => view.split.pairs.has(id))) {
-        context.fillStyle = colors.differs;
-        context.textAlign = 'center';
-        context.font = 'bold 11px system-ui, sans-serif';
-        context.fillText('≠', x0 + cell.width / 2, CELL_TOP - 2);
-        context.font = '9px system-ui, sans-serif';
-      }
-      if (entry.pairs.some((id) => notInFont(model, view.values, id))) {
-        context.strokeStyle = colors.mark;
-        context.setLineDash([3, 2]);
-        context.strokeRect(x0 + 1.5, 1.5, cell.width - 3, cell.height - 3);
-        context.setLineDash([]);
-      }
+      context.fillText(GRID_CHIPS[chip] ?? chip, x0 + 2, cell.height - 2);
+    }
+    if (entryCarried(model, view.values, entry)) {
+      context.fillStyle = colors.carried;
+      context.textAlign = 'right';
+      context.fillText('old', x0 + cell.width - 2, cell.height - 2);
+    }
+    if (entry.pairs.some((id) => view.split.pairs.has(id))) {
+      context.fillStyle = colors.differs;
+      context.textAlign = 'center';
+      context.font = 'bold 11px system-ui, sans-serif';
+      context.fillText('≠', x0 + cell.width / 2, CELL_TOP - 2);
+      context.font = '9px system-ui, sans-serif';
+    }
+    if (entry.pairs.some((id) => notInFont(model, view.values, id))) {
+      context.strokeStyle = colors.mark;
+      context.setLineDash([3, 2]);
+      context.strokeRect(x0 + 1.5, 1.5, cell.width - 3, cell.height - 3);
+      context.setLineDash([]);
     }
   }
 
   function placeCursor(scroll = true) {
+    if (view.list) {
+      const at = listedAt(view.list, view.cursor);
+      for (const [index, row] of view.dom.listRows.entries()) if (row.hasAttribute('aria-selected')) row.setAttribute('aria-selected', String(index === at));
+      if (scroll && at >= 0) view.dom.listRows[at].scrollIntoView({ block: 'nearest' });
+      return;
+    }
     const canvas = view.dom.rows[view.cursor.row];
     if (!canvas || !view.dom.cursor) return;
     const left = canvas.offsetLeft + view.cursor.col * view.cell.width;
@@ -676,8 +783,13 @@ export function createKernView({ root, toast, writeSelection }) {
     return row;
   }
 
+  // Whether list mode has no listed pair the inventory knows to select, so the cursor names no pair.
+  function unlisted() {
+    return Boolean(view.list) && listedAt(view.list, view.cursor) < 0;
+  }
+
   function currentEntry() {
-    return view.model ? runePairAt(view.model, view.cursor.row, view.cursor.col) : null;
+    return view.model && !unlisted() ? runePairAt(view.model, view.cursor.row, view.cursor.col) : null;
   }
 
   function pairKeyOf(entry) {
@@ -735,6 +847,10 @@ export function createKernView({ root, toast, writeSelection }) {
     if (!model) return;
     const typing = document.activeElement === view.dom.scope.noteInput;
     stand();
+    if (unlisted()) {
+      view.dom.detail.replaceChildren(el('p', 'kern-empty', 'No listed pair names two letters the kern inventory has; the list says what it lacks.'));
+      return;
+    }
     const doc = model.doc;
     const lead = doc.runes[view.cursor.row];
     const follow = doc.runes[view.cursor.col];
@@ -789,6 +905,7 @@ export function createKernView({ root, toast, writeSelection }) {
 
   function announce() {
     const { model } = view;
+    if (unlisted()) return;
     const entry = currentEntry();
     const lead = model.doc.runes[view.cursor.row].label;
     const follow = model.doc.runes[view.cursor.col].label;
@@ -797,12 +914,15 @@ export function createKernView({ root, toast, writeSelection }) {
       : `${lead} before ${follow}: no facing pair`;
   }
 
-  function writeState() {
-    writeSelection(stateFromSelection(view.model, view.cursor, view.facing));
+  function writeState({ push = false } = {}) {
+    const selection = unlisted() ? { pair: null, facing: null } : stateFromSelection(view.model, view.cursor, view.facing);
+    writeSelection({ ...selection, pairs: view.list ? pairListText(view.listed) : null }, { push });
   }
 
+  // Move the cursor to a pair of letters, leaving list mode first when the pair is not a listed one.
   function setCursor(cursor) {
     if (!view.model) return;
+    if (view.list && listedAt(view.list, cursor) < 0) leaveList();
     view.cursor = cursor;
     view.facing = 0;
     view.note = null;
@@ -833,6 +953,35 @@ export function createKernView({ root, toast, writeSelection }) {
       renderRelatives();
     }
     writeState();
+  }
+
+  // Leave list mode for the whole grid, keeping the focused pair, as a new history entry, so the browser's Back returns to the list.
+  function leaveList() {
+    view.listed = [];
+    view.listText = null;
+    view.list = null;
+    renderPane();
+    renderStatus();
+    writeState({ push: true });
+  }
+
+  function resolveList() {
+    view.list = view.model && view.listed.length > 0 ? resolvePairList(view.model, view.listed) : null;
+  }
+
+  // Take the hash's `pairs`, and when it lists other pairs than the view holds, draw the grid pane again for them once the inventory is loaded. Whether the list moved.
+  function takeList(pairs) {
+    const listed = parsePairList(pairs);
+    const text = pairListText(listed);
+    if (text === view.listText) return false;
+    view.listed = listed;
+    view.listText = text;
+    if (view.model) {
+      resolveList();
+      renderPane();
+      renderStatus();
+    }
+    return true;
   }
 
   function setScope(mode) {
@@ -1085,7 +1234,8 @@ export function createKernView({ root, toast, writeSelection }) {
     view.seenSeq ??= values.body?.journal?.seq ?? null;
     view.drawn = drawnOf(values.body);
     view.colors = readColors();
-    renderGrid();
+    resolveList();
+    renderPane();
   }
 
   async function load() {
@@ -1103,21 +1253,22 @@ export function createKernView({ root, toast, writeSelection }) {
 
   function applySelection(pair, facing) {
     if (!view.model) return;
-    const chosen = selectionFromState(view.model, pair, facing);
+    const chosen = selectionFromState(view.model, pair, facing, view.list);
     view.cursor = chosen.cursor;
     view.facing = chosen.facing;
     placeCursor();
     renderDetail();
   }
 
-  // Show the view with the selection the URL hash names, loading the inventory the first time.
-  async function show({ pair = null, facing = null } = {}) {
-    view.requested = { pair, facing };
+  // Show the view with the selection and the list of pairs the URL hash names, loading the inventory the first time.
+  async function show({ pair = null, facing = null, pairs = null } = {}) {
+    view.requested = { pair, facing, pairs };
+    const listMoved = takeList(pairs);
     if (!view.loading) view.loading = load();
     await view.loading;
     if (!view.model) return;
     const before = stateFromSelection(view.model, view.cursor, view.facing);
-    if (!view.dom.detail.firstChild || before.pair !== pair || before.facing !== facing) applySelection(pair, facing);
+    if (listMoved || !view.dom.detail.firstChild || before.pair !== pair || before.facing !== facing) applySelection(pair, facing);
     focusFirst();
   }
 
@@ -1193,7 +1344,8 @@ export function createKernView({ root, toast, writeSelection }) {
     if (!view.model) return;
     const entry = currentEntry();
     if (action === 'kern-up' || action === 'kern-down' || action === 'kern-left' || action === 'kern-right') {
-      setCursor(moveGridCursor(view.cursor, action, view.model.size));
+      if (!view.list) setCursor(moveGridCursor(view.cursor, action, view.model.size));
+      else if (!unlisted()) setCursor(view.list[moveListCursor(view.list, listedAt(view.list, view.cursor), action)].cursor);
     } else if (action === 'kern-detail') {
       view.dom.detail.focus();
     } else if (action === 'kern-grid') {
@@ -1201,7 +1353,7 @@ export function createKernView({ root, toast, writeSelection }) {
     } else if (action === 'kern-prev-pair' || action === 'kern-next-pair') {
       const step = action === 'kern-next-pair' ? 1 : -1;
       const at = entry ? stepInOrder(facingOrder(view.model, entry), view.facing, step) : null;
-      if (at === null) jumpCarried(step);
+      if (at === null) moveOn(step);
       else setFacing(at);
     } else if (action === 'kern-jump') {
       view.dom.input.focus();
@@ -1215,7 +1367,7 @@ export function createKernView({ root, toast, writeSelection }) {
     } else if (action === 'kern-review' || action === 'kern-review-toggle') {
       review({ toggle: action === 'kern-review-toggle' });
     } else if (action === 'kern-next-carried' || action === 'kern-prev-carried') {
-      jumpCarried(action === 'kern-next-carried' ? 1 : -1);
+      moveOn(action === 'kern-next-carried' ? 1 : -1);
     } else if (action === 'kern-next-split' || action === 'kern-prev-split') {
       jumpSplit(action === 'kern-next-split' ? 1 : -1);
     } else if (action === 'kern-compare') {
@@ -1571,6 +1723,17 @@ export function createKernView({ root, toast, writeSelection }) {
     box.replaceChildren(...nodes);
   }
 
+  // What `]` and `[` do, and up and down past either end of the detail panel: in list mode, move to the next (`step` 1) or the previous (`step` -1) listed pair, stopping at either end; otherwise, to the next or the previous pair of letters that still has a carried-over facing pair not reviewed.
+  function moveOn(step) {
+    if (!view.list) {
+      jumpCarried(step);
+      return;
+    }
+    const at = stepListed(view.list, listedAt(view.list, view.cursor), step);
+    if (at !== null) setCursor(view.list[at].cursor);
+    else if (!unlisted()) toast(step > 0 ? 'This is the last listed pair of letters' : 'This is the first listed pair of letters');
+  }
+
   // Move the cursor to the next (`step` 1) or the previous (`step` -1) pair of letters that still has a carried-over facing pair not reviewed.
   function jumpCarried(step) {
     const found = nextCarried(view.model, view.values, view.cursor, step);
@@ -1578,7 +1741,7 @@ export function createKernView({ root, toast, writeSelection }) {
     else toast('No pair of letters has a carried-over value left to review');
   }
 
-  // Mark the selected scope's carried-over facing pairs reviewed and move to the next carried-over facing pair (`nextAfterMark`), or take the mark off, staying put, when every one has it. A scope with nothing carried over is left as it is, and the selection moves on all the same.
+  // Mark the selected scope's carried-over facing pairs reviewed and move to the next carried-over facing pair (`nextAfterMark`), among the listed pairs in list mode, or take the mark off, staying put, when every one has it. A scope with nothing carried over is left as it is, and the selection moves on all the same.
   function review({ toggle = false } = {}) {
     const entry = currentEntry();
     const scope = selectedScope();
@@ -1586,9 +1749,10 @@ export function createKernView({ root, toast, writeSelection }) {
     const { post, move } = reviewStep(marks, toggle);
     if (post !== null) enqueue({ kind: 'review', body: { scope: scope.scope, lead: scope.lead, follow: scope.follow, reviewed: post } });
     if (!move) return;
-    const next = nextAfterMark(view.model, view.values, view.cursor, view.facing, marks.imported);
+    const next = nextAfterMark(view.model, view.values, view.cursor, view.facing, marks.imported, view.list ? listCells(view.list) : null);
     if (!next) {
-      toast(post ? 'That was the last carried-over value left to review' : 'No carried-over value is left to review');
+      const where = view.list ? ' among the listed pairs' : '';
+      toast(post ? `That was the last carried-over value left to review${where}` : `No carried-over value is left to review${where}`);
       return;
     }
     if (next.cursor.row !== view.cursor.row || next.cursor.col !== view.cursor.col) setCursor(next.cursor);

@@ -1742,7 +1742,7 @@ async function applyHashState(resume = false) {
     renderedKey = null;
     updateTitle();
     updateProgress();
-    await kernViewOf().show({ pair: state.pair, facing: state.facing });
+    await kernViewOf().show({ pair: state.pair, facing: state.facing, pairs: state.pairs });
     return;
   }
   const queueView = state.view === 'queue';
@@ -1846,10 +1846,11 @@ function kernViewOf() {
   return kernView;
 }
 
-// Put the kerning view's selection in the URL hash without a hashchange, so a reload or a shared link reopens it.
-function writeKernSelection({ pair, facing }) {
-  state = { ...state, pair, facing };
-  history.replaceState(null, '', `#${writeHash(state)}`);
+// Put the kerning view's selection and its list of pairs in the URL hash without a hashchange, so a reload or a shared link reopens it. With `push` it is a new history entry, so the browser's Back returns to the one before, as from leaving list mode for the whole grid.
+function writeKernSelection({ pair, facing, pairs }, { push = false } = {}) {
+  state = { ...state, pair, facing, pairs };
+  if (push) history.pushState(null, '', `#${writeHash(state)}`);
+  else history.replaceState(null, '', `#${writeHash(state)}`);
 }
 
 let toastTimer = null;
@@ -3540,7 +3541,7 @@ function wireEvents() {
   });
   document.getElementById('open-kern').addEventListener('click', () => {
     if (state.view === 'kern') return;
-    location.hash = writeHash({ view: 'kern', pair: state.pair, facing: state.facing });
+    location.hash = writeHash({ view: 'kern', pair: state.pair, facing: state.facing, pairs: state.pairs });
   });
   document.getElementById('jump-unverdicted').addEventListener('click', jumpToFirstUnverdicted);
   document.getElementById('prev-batch').addEventListener('click', () => shiftBatch(-1));

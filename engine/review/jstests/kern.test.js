@@ -39,6 +39,10 @@ import {
   isApart,
   journalLines,
   junctionOf,
+  listCells,
+  listLine,
+  listedAt,
+  listedNote,
   lettersScope,
   lettersValue,
   likenessText,
@@ -47,6 +51,7 @@ import {
   moveFacing,
   stepFacing,
   moveGridCursor,
+  moveListCursor,
   nearRelativesOf,
   nextAfterApart,
   nextComparison,
@@ -54,10 +59,13 @@ import {
   notInFont,
   pairFromQuery,
   pairLabel,
+  pairListText,
+  parsePairList,
   paneFor,
   reachChip,
   reachText,
   refusalText,
+  resolvePairList,
   relationText,
   relationWord,
   relativesIndex,
@@ -76,6 +84,7 @@ import {
   staleAnswer,
   stalenessLines,
   stepInOrder,
+  stepListed,
   stateFromSelection,
   textFocus,
   valueForClearance,
@@ -224,6 +233,88 @@ test('the selection round-trips through the URL hash, and a hash the inventory c
   assert.deepEqual(selectionFromState(model, state.pair, state.facing), { cursor, facing });
   assert.deepEqual(selectionFromState(model, 'qsNope:qsTea', null), { cursor: { row: 0, col: 0 }, facing: 0 });
   assert.deepEqual(selectionFromState(model, 'qsNo:qsTea', 'no such pair'), { cursor, facing: 0 });
+});
+
+// A list of pairs as a link gives it: a rune the fixture lacks, two letters it has, two that never meet at a break, ·No·Tea, and a token that is not lead:follow.
+const listed = resolvePairList(model, parsePairList('qsSeee:qsTea,qsIt:qsNo,qsPea:qsBay,qsNo:qsTea,qsNope'));
+const noTeaCursor = { row: rune('qsNo'), col: rune('qsTea') };
+const itNoCursor = { row: rune('qsIt'), col: rune('qsNo') };
+
+test('a list of pairs is read in its order, each pair once, and a token that is not lead:follow keeps its place', () => {
+  assert.deepEqual(parsePairList(' qsNo:qsTea, qsIt:qsNo,,qsNo:qsTea,qsNope,a:b:c'), [
+    { name: 'qsNo:qsTea', lead: 'qsNo', follow: 'qsTea' },
+    { name: 'qsIt:qsNo', lead: 'qsIt', follow: 'qsNo' },
+    { name: 'qsNope', lead: null, follow: null },
+    { name: 'a:b:c', lead: null, follow: null },
+  ]);
+  assert.deepEqual(parsePairList(null), []);
+  assert.deepEqual(parsePairList(' , '), []);
+  assert.equal(pairListText(parsePairList('qsNo:qsTea,qsIt:qsNo,qsNo:qsTea')), 'qsNo:qsTea,qsIt:qsNo');
+  assert.equal(pairListText([]), null);
+  const text = 'qsSee:qsOwe,qsZoo:qsOwe,qsDay_qsUtter:qsTea';
+  assert.equal(pairListText(parsePairList(text)), text);
+});
+
+test('each listed pair is resolved against the inventory, and one it does not know, or whose letters never meet, says which', () => {
+  assert.deepEqual(
+    listed.map((item) => item.cursor),
+    [null, itNoCursor, { row: rune('qsPea'), col: rune('qsBay') }, noTeaCursor, null],
+  );
+  assert.equal(listed[3].entry, noTea);
+  assert.equal(listed[2].entry, null);
+  assert.deepEqual(listed[0].missing, ['qsSeee']);
+  assert.deepEqual(resolvePairList(model, parsePairList('qsZz:qsZz'))[0].missing, ['qsZz']);
+  assert.deepEqual(
+    listed.map((item) => listedNote(item)),
+    [
+      { unknown: true, text: 'the kern inventory has no qsSeee' },
+      null,
+      { unknown: false, text: 'never meet at a break' },
+      null,
+      { unknown: true, text: 'not two letters written lead:follow' },
+    ],
+  );
+  assert.equal(listLine(listed), 'The link lists 5 pairs of letters, 2 not in the kern inventory and 1 whose letters never meet at a break.');
+  assert.equal(listLine(listed.slice(1, 2)), 'The link lists 1 pair of letters.');
+});
+
+test('the list’s cursor steps over the pairs the inventory does not know, and the arrows hold it at either end', () => {
+  assert.equal(listedAt(listed, noTeaCursor), 3);
+  assert.equal(listedAt(listed, { row: 0, col: 0 }), -1);
+  assert.deepEqual(listCells(listed), [itNoCursor, { row: rune('qsPea'), col: rune('qsBay') }, noTeaCursor]);
+  assert.equal(stepListed(listed, 1, 1), 2);
+  assert.equal(stepListed(listed, 2, 1), 3);
+  assert.equal(stepListed(listed, 3, 1), null);
+  assert.equal(stepListed(listed, 1, -1), null);
+  assert.equal(stepListed(listed, -1, 1), 1);
+  assert.equal(moveListCursor(listed, 1, 'kern-up'), 1);
+  assert.equal(moveListCursor(listed, 1, 'kern-down'), 2);
+  assert.equal(moveListCursor(listed, 2, 'kern-right'), 3);
+  assert.equal(moveListCursor(listed, 3, 'kern-right'), 3);
+  assert.equal(moveListCursor(listed, 3, 'kern-left'), 2);
+  assert.equal(moveListCursor(listed, 2, 'kern-jump'), 2);
+});
+
+test('in list mode the hash’s pair is focused when it is listed, and otherwise the first listed pair the inventory knows', () => {
+  const facing = noTea.pairs.indexOf(flippedHalf);
+  assert.deepEqual(selectionFromState(model, null, null, listed), { cursor: itNoCursor, facing: 0 });
+  assert.deepEqual(selectionFromState(model, 'qsNo:qsTea', 'qsNo[flipped]|qsTea[half exit=x-height]', listed), { cursor: noTeaCursor, facing });
+  assert.deepEqual(selectionFromState(model, 'qsTea:qsTea', null, listed), { cursor: itNoCursor, facing: 0 });
+  assert.deepEqual(selectionFromState(model, 'qsNope:qsTea', null, listed), { cursor: itNoCursor, facing: 0 });
+  const unknown = resolvePairList(model, parsePairList('qsSeee:qsTea'));
+  assert.deepEqual(selectionFromState(model, 'qsNo:qsTea', null, unknown), { cursor: noTeaCursor, facing: 0 });
+});
+
+test('in list mode the mark key moves among the listed pairs alone', () => {
+  const facing = noTea.pairs.indexOf(flippedHalf);
+  const cells = listCells(listed);
+  assert.deepEqual(nextCarried(model, values, itNoCursor, 1, cells), noTeaCursor);
+  assert.deepEqual(nextCarried(model, values, noTeaCursor, 1, cells), noTeaCursor);
+  assert.equal(nextCarried(model, values, itNoCursor, 1, [itNoCursor]), null);
+  assert.equal(nextCarried(model, values, itNoCursor, -1, []), null);
+  assert.deepEqual(nextAfterMark(model, values, itNoCursor, 0, [], cells), { cursor: noTeaCursor, facing });
+  assert.equal(nextAfterMark(model, values, itNoCursor, 0, [], [itNoCursor]), null);
+  assert.deepEqual(nextAfterMark(model, values, itNoCursor, 0, []), { cursor: noTeaCursor, facing });
 });
 
 test('a value shifts every glyph after its break, and a join never moves', () => {
