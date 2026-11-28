@@ -2,12 +2,12 @@
 
 A snapshot directory holds, for each configuration it covers (the settled configurations, `tablediff.SETTLED_CONFIGS`, for every snapshot `take` writes):
 
-- `settlement-<config>.tsv.gz` and `joins-<config>.tsv.gz`, the build's two tables, gzipped with no name or time in the gzip header, so one table always gives the same bytes;
+- `settlement-<config>.tsv.gz` and `joins-<config>.tsv.gz`, the build's two tables, gzipped with no name or time in the gzip header, so one table always gives the same bytes from one build of zlib, and other bytes from another, such as zlib-ng;
 - `certificates-<config>.ndjson.gz`, one line per settlement rule in rule order, `{"rule": i, "text": [code points], "under": null}`: the text of the certificate the crate wrote beside the rule, read from the configuration's windows head through `table.read_windows_head`, the one reader of a table's head, and spelled out over the spec the build was loaded from (`certificate_text`). A guard rule's certificate settles under another configuration (`GUARD_MARKER`), which `under` names.
 
-and once: `Senior-Regular.otf`, the Regular font the tables shipped in, `kern.tsv.gz`, the build's kern table, and `snapshot.json`. That record holds the format, the digest, when the snapshot was taken (`taken_at`), the tables' stamp (the `inputs` stamp every configuration's windows head records), the configurations, the directory it was taken from, and each file's sha256 and size.
+and once: `Senior-Regular.otf`, the Regular font the tables shipped in, `kern.tsv.gz`, the build's kern table, and `snapshot.json`. That record holds the format, the digest, when the snapshot was taken (`taken_at`), the tables' stamp (the `inputs` stamp every configuration's windows head records), the configurations, the directory it was taken from, and the sha256 and length of each file's content (`_content`): a gzipped file's unpacked bytes, and any other file's own. The packed bytes are recorded nowhere, because the zlib that packs them decides them.
 
-The digest is the sha256 of the format, the tables' stamp, the configurations and each file's sha256, written as canonical JSON (`_digest`). It leaves out when the snapshot was taken and where from, so the same build taken again, in this checkout or in a tree exported from a commit, gives the same digest, and its first `DIGEST_NAME_LENGTH` hex digits name the directory. `take` keeps the snapshot it writes and the one `current` named before it, and deletes any older snapshot directory under the home; `install` does the same for a snapshot taken elsewhere, which the remake (`engine/review/accept.py`) takes in an exported tree.
+The digest is the sha256 of the format, the tables' stamp, the configurations and each file's content sha256, written as canonical JSON (`_digest`). It leaves out when the snapshot was taken and where from, so the same build taken again, in this checkout, in a tree exported from a commit, or on a machine whose Python links another zlib, gives the same digest, and its first `DIGEST_NAME_LENGTH` hex digits name the directory. `take` keeps the snapshot it writes and the one `current` named before it, and deletes any older snapshot directory under the home; `install` does the same for a snapshot taken elsewhere, which the remake (`engine/review/accept.py`) takes in an exported tree.
 
 The tracked pointer, `engine/review-snapshot.json` (`POINTER_PATH`), names the accepted snapshot: `{format, snapshot_format, digest, taken_at}` (`pointer_record`). It records no commit. The accept (`engine/review/accept.py`) writes it before the author commits, and the pointer's change goes into the commit with the edit it accepts, so the commit a snapshot stands for is the last commit that changed the pointer (`pointer_commit`), and a build of that commit remakes the snapshot.
 
@@ -32,11 +32,12 @@ import subprocess
 import sys
 import tempfile
 import warnings
+import zlib
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from engine.pipeline import fingerprint, table
+from engine.pipeline import table
 from engine.pipeline.model import ResolvedSpec
 from engine.review import tablediff
 from engine.review.enrich import load_spec
@@ -47,7 +48,7 @@ DEFAULT_HOME = REPO_ROOT / "var" / "keep" / "review-snapshot"
 POINTER_RELATIVE = "engine/review-snapshot.json"
 POINTER_PATH = REPO_ROOT / POINTER_RELATIVE
 
-SNAPSHOT_FORMAT = "ams-review-snapshot/4"
+SNAPSHOT_FORMAT = "ams-review-snapshot/5"
 POINTER_FORMAT = "ams-review-snapshot-pointer/1"
 RECORD_NAME = "snapshot.json"
 # A one-line file beside the snapshot directories naming the current one; a plain file, written by rename, so a reader never sees half a name and the home copies or archives as ordinary files.
@@ -155,8 +156,19 @@ def _rule_inputs(path: Path) -> list[str]:
     return inputs
 
 
+def _content(path: Path) -> tuple[str, int]:
+    """The sha256 and the length of a snapshot file's content: its unpacked bytes for a gzipped file, one whose name ends in `.gz`, and its own bytes for any other. A snapshot's record and digest rest on these, so they are the same whichever zlib packed the file. Raises what the read raises for a gzipped file that does not unpack."""
+    digest = hashlib.sha256()
+    length = 0
+    with gzip.open(path, "rb") if path.name.endswith(".gz") else open(path, "rb") as reader:
+        while chunk := reader.read(_COPY_CHUNK):
+            digest.update(chunk)
+            length += len(chunk)
+    return digest.hexdigest(), length
+
+
 def _digest(record: dict) -> str:
-    """The snapshot's digest: the sha256 of its format, tables' stamp, configurations and each file's sha256 as canonical JSON. When it was taken and from where are left out, so one build gives one digest wherever it is taken."""
+    """The snapshot's digest: the sha256 of its format, tables' stamp, configurations and each file's content sha256 (`_content`) as canonical JSON. When it was taken and from where are left out, and so is how each file was packed, so one build gives one digest wherever it is taken."""
     canonical = {
         "format": record.get("format"),
         "tables_stamp": record.get("tables_stamp"),
@@ -177,7 +189,7 @@ def utc_now() -> str:
 
 @dataclass(frozen=True)
 class Snapshot:
-    """One snapshot directory that `load` has checked: every file the record names is there with the sha256 and size it records, and the record's digest is its own."""
+    """One snapshot directory that `load` has checked: every file the record names is there with the content it records, and the record's digest is its own."""
 
     directory: Path
     record: dict
@@ -254,7 +266,7 @@ ABSENT_BASELINE = {"commit": None, "taken_at": None, "digest": None, "present": 
 
 
 def load(directory: Path) -> Snapshot:
-    """Read the snapshot in `directory` and check it: the record is in `SNAPSHOT_FORMAT`, every file it names is there with its sha256 and size, every configuration it lists has its three files, the font and the kern table are there, and the digest is the record's own. Raises `SnapshotError` naming what is wrong."""
+    """Read the snapshot in `directory` and check it: the record is in `SNAPSHOT_FORMAT`, every file it names is there and its content has the sha256 and length recorded (`_content`), every configuration it lists has its three files, the font and the kern table are there, and the digest is the record's own. Raises `SnapshotError` naming what is wrong."""
     directory = Path(directory)
     try:
         record = json.loads((directory / RECORD_NAME).read_text(encoding="utf-8"))
@@ -282,7 +294,11 @@ def load(directory: Path) -> Snapshot:
         path = directory / name
         if not path.is_file():
             raise SnapshotError(f"{path} is missing")
-        if path.stat().st_size != entry.get("bytes") or fingerprint.file_sha256(path) != entry.get("sha256"):
+        try:
+            content = _content(path)
+        except OSError, EOFError, zlib.error:
+            content = None
+        if content != (entry.get("sha256"), entry.get("bytes")):
             raise SnapshotError(f"{path} is not the file {RECORD_NAME} records")
     if record.get("digest") != _digest(record):
         raise SnapshotError(f"{directory / RECORD_NAME}'s digest is not the digest of what it records")
@@ -384,7 +400,7 @@ def take(
             "configs": list(configs),
             "source": _relative(tables_dir, repo_root),
             "files": {
-                path.name: {"sha256": fingerprint.file_sha256(path), "bytes": path.stat().st_size}
+                path.name: dict(zip(("sha256", "bytes"), _content(path)))
                 for path in sorted(staging.iterdir())
             },
         }

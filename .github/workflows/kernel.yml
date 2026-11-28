@@ -21,9 +21,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The crate's fmt, clippy and test gate. It runs on macOS because that is what the fleet builds on.
+  # The crate's fmt, clippy and test gate, on each platform the fleet builds on (doc/fleet.md). One platform's failure leaves the other's run to finish, so a run says which of them fail.
   gate:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 

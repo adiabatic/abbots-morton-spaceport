@@ -3,6 +3,7 @@
 The build directory is a real table build of the pipeline's mini fixture spec (`run_build.build_tables`, which writes the tables and each configuration's windows head), with the frozen mini bundle's font and a small kern table copied beside it: a snapshot copies the font and the kern table and reads neither.
 """
 
+import gzip
 import json
 import shutil
 import subprocess
@@ -158,6 +159,24 @@ def test_load_refuses_another_format_a_changed_file_and_a_digest_that_is_not_its
         snapshot.load(broken(record_edit(lambda record: record.update(tables_stamp="fp-other"))))
     with pytest.raises(snapshot.SnapshotError, match="names none of"):
         snapshot.load(broken(record_edit(lambda record: record["files"].pop(snapshot.FONT_NAME))))
+
+
+def test_a_snapshot_another_zlib_packed_reads_and_has_the_same_digest(taken, tmp_path):
+    """The record and the digest rest on each file's unpacked bytes, so a snapshot whose gzipped files another zlib packed, here the same bytes packed at another level, is the same snapshot. A gzipped file that unpacks to other bytes is not the file the record names."""
+    copy = tmp_path / "repacked"
+    shutil.copytree(taken.directory, copy)
+    repacked = 0
+    for path in copy.glob("*.gz"):
+        packed = path.read_bytes()
+        again = gzip.compress(gzip.decompress(packed), compresslevel=1, mtime=0)
+        repacked += again != packed
+        path.write_bytes(again)
+    assert repacked
+    assert snapshot.load(copy).record == taken.record
+    kern = copy / snapshot.KERN_NAME
+    kern.write_bytes(gzip.compress(gzip.decompress(kern.read_bytes()) + b"\n", mtime=0))
+    with pytest.raises(snapshot.SnapshotError, match="is not the file"):
+        snapshot.load(copy)
 
 
 def test_current_names_nothing_for_a_missing_or_stray_pointer(tmp_path):

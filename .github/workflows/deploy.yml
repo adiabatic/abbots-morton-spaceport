@@ -55,7 +55,7 @@ jobs:
           uv pip install brotli  # for woff2 conversion
 
       - name: Type check
-        run: uv run pyright
+        run: make typecheck
 
       # GET /releases/tags/{tag} answers only for a published release, so a tag push finds its draft by listing the releases, drafts among them, and matching tag_name. A draft's tag_name need not exist as a tag: the draft keeps it when the tag is pushed, and the tag joins the release when it is published. A rehearsal finds its draft the same way, by the rehearsal/<version>-<commit> tag it is given, which it refuses when it is a release tag.
       - name: Find the release that holds the fonts

@@ -1,4 +1,4 @@
-"""The paths the artifact cycle, the gate wrappers, and the interactive entry points write to or delete, the two green-finish switches, and the review-reload switch, in a module that imports nothing from the repo.
+"""The paths the artifact cycle, the gate wrappers, and the interactive entry points write to or delete, the two green-finish switches, the review-reload switch, and the snapshot-install switch, in a module that imports nothing from the repo.
 
 The paths are the green records each keyed stage skips on, the cycle summary, the run_build and conform summaries the driver unlinks before it spawns those steps, the build-log root each pass creates a run directory under, and the cycle's own directory, `CYCLE_VAR`, which holds the pass lock, each pass's scratch directory, and the pass's fold claim (`FOLD_CLAIM_NAME`, `row_delta.claim_fold`), which says which output held as a base and segments folds this pass. The autouse fixture `_redirect_cycle_writes` in `engine/conftest.py` points them under `tmp_path` for every engine test, except the deep sweep and deep replay green records, which the tests that use them redirect. Writers read them as `cycle_paths.BUILD_GREEN` at call time, never through a copy bound at import or in a default argument, so the redirect reaches every write. `ENGINE_GATE_EXEMPT_PREFIXES` is here because the same conftest derives its forbidden trees from it.
 
@@ -7,6 +7,8 @@ The module imports nothing from the repo because `closure_of` in `engine.tools.c
 `RETENTION_ENABLED` and `READINESS_ENABLED` switch off the two green-finish stages whose targets come from the live tree, not from a path here. The retention pass prunes the build-log runs, and the readiness checklist reads the served corpus and the root autosave. The engine suite sets both to False so a test that reaches a green finish leaves the live repo alone. `_finish` in `artifact_cycle` reads both at call time, so a test that checks either stage sets its switch back to True and patches the callable.
 
 `REVIEW_RELOAD_ENABLED` switches off the reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus (`artifact_cycle._broadcast_review_reload`). The port is the live one, so the engine suite sets it to False, and a test mocking those steps cannot reload the reviewer's open tabs. A test that checks the reload sets it back to True and patches `artifact_cycle.force_reload`.
+
+`SNAPSHOT_INSTALL_ENABLED` switches off the remake a pass starts with on a machine that lacks the accepted snapshot (`artifact_cycle.install_accepted_snapshot`), which reads the live tree's pointer and git history and runs a whole table build. The engine suite sets it to False, and a test that checks the install calls that function with its parts patched.
 """
 
 from __future__ import annotations
@@ -44,3 +46,4 @@ ENGINE_GATE_EXEMPT_PREFIXES = (
 RETENTION_ENABLED = True
 READINESS_ENABLED = True
 REVIEW_RELOAD_ENABLED = True
+SNAPSHOT_INSTALL_ENABLED = True

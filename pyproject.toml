@@ -38,8 +38,7 @@ target-version = ["py314"]
 
 [tool.pyright]
 pythonVersion = "3.14"
-# The fleet builds on macOS, and the fault kit and the launchd launcher call Darwin-only APIs (`select.kqueue`), so the release workflow's type check on a Linux runner checks the same platform a local run does.
-pythonPlatform = "Darwin"
+# No `pythonPlatform`: the type check (`engine/tools/pyright_gate.py`, which `make typecheck` runs) reads the tree once per platform the fleet builds on, and a bare `uv run pyright` reads the view of the machine it runs on.
 typeCheckingMode = "standard"
 include = ["tools", "test", "conftest.py", "engine"]
 stubPath = "typings"

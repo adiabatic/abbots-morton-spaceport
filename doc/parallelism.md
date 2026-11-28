@@ -2,6 +2,8 @@
 
 Every fan-out width in this repository is computed from the machine it runs on: total physical memory, clamped by any cgroup limit, minus a reserve, divided by a measured per-unit peak, capped by any non-memory bound, and floored at one. `engine/tools/memory_budget.py` implements that arithmetic and documents the policy, including why the budget never reads free or available memory. Each per-unit cost is a named `*_BYTES` constant at the call site that uses it, and the comment or docstring there records the measurements behind it and explains the width it implies, so a number and its justification stay in one file. `doc/fleet.md` lists the machines and is the key for reading host-tagged output.
 
+The arithmetic is the same on macOS and Linux: `memory_budget.py` reads total memory, and on Linux any cgroup memory limit and CPU quota, and `peak_rss.py` reads a process's peaks from whichever source the platform has. Every `*_BYTES` constant is measured on a Mac. The tools that measure them in full (the write meter, the memory series and the fault kit) are Mac-only, and `doc/fleet.md` § What is Mac-only says what a Linux run does without each and what its peak readings leave out.
+
 ## The memory-bound fan-outs
 
 Each fan-out below defines its per-unit cost where its width is computed.

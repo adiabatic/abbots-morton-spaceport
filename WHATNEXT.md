@@ -2,7 +2,7 @@
 
 ## Before the next release
 
-**A second checkout needs three steps after it pulls.** Move its untracked `rebuild/out` to `engine/out`, so the build and the cycle find their records; move a verdict store stamped for a review corpus that no longer exists (`verdicts-autosave.json` at the repo root) under `var/keep/`; and run `make review-snapshot-remake`, which installs the accepted snapshot `engine/review-snapshot.json` names.
+**A second checkout needs two steps after it pulls.** Move its untracked `rebuild/out` to `engine/out`, so the build and the cycle find their records, and move a verdict store stamped for a review corpus that no longer exists (`verdicts-autosave.json` at the repo root) under `var/keep/`. Its next pass installs the accepted snapshot `engine/review-snapshot.json` names by itself.
 
 ## Open forks
 

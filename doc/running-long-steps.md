@@ -2,7 +2,7 @@
 
 A full `make artifact-cycle` pass takes longer than ten minutes. An agent harness caps a foreground shell command at about ten minutes and can kill a backgrounded one whatever its progress, which stops the cycle partway through a gate. A bare build is shorter, and the heavy gates (the engine suite and the conform sweep) add a few minutes to a `make review-cycle` pass. Run any pass that includes the heavy gates detached from the tool's lifetime. `make cycle-timings ARGS='--by-step'` records what each step costs on this machine (`doc/fleet.md` names the machines); read it before choosing a watcher's timeout and before deciding a run is hung.
 
-Low Power Mode, which `pmset -g` reports as `powermode 1`, slows every step. Each run line and check line records the power mode it ran in, `--by-step` gives each mode rows of their own in its `power` column (`unrecorded` holds the lines that predate the field), and the default view's run header names any mode but normal, so check the mode with `pmset -g` and read that mode's rows before quoting a finish time from past timings. A progress estimate made across a switch runs early too: the deep sweep prices each queued unit at the rate its finished units ran at (`SweepProgress` in `engine/tools/deep_sweep.py`), so after a switch into Low Power Mode its finish time keeps moving later until the queued units have run under it.
+Low Power Mode, which `pmset -g` reports as `powermode 1`, slows every step. Each run line and check line records the power mode it ran in, `--by-step` gives each mode rows of their own in its `power` column (`unrecorded` holds the lines that predate the field), and the default view's run header names any mode but normal, so check the mode with `pmset -g` and read that mode's rows before quoting a finish time from past timings. A Linux machine's mode is its power profile, which `powerprofilesctl get` names: `power-saver` is recorded as low power, `balanced` as normal and `performance` as high power (`cycle_timings.POWER_PROFILE_MODES`). A progress estimate made across a switch runs early too: the deep sweep prices each queued unit at the rate its finished units ran at (`SweepProgress` in `engine/tools/deep_sweep.py`), so after a switch into Low Power Mode its finish time keeps moving later until the queued units have run under it.
 
 ## Detach
 
@@ -16,11 +16,13 @@ pid=$!
 
 If the tool harness kills the shell's process group when the command returns, launch the command in a new session with `subprocess.Popen(..., start_new_session=True)` through `uv run python`, with standard input disconnected and output redirected to the log. `nohup` ignores hangup signals but does not create a new session.
 
+Linux has no `caffeinate`. Run the pass there under `nohup` alone, or under `setsid nohup` for a session of its own, on a machine that does not suspend when idle. `systemd-inhibit --what=idle:sleep` would hold the machine awake, but logind refuses it to an SSH session (`Interactive authentication required`).
+
 A Python wrapper that calls the build guards its entry point with `if __name__ == "__main__":`, because multiprocessing spawn workers import the wrapper and otherwise start the build again.
 
 ## Launching the fault kit and the memory series
 
-`engine/tools/job_launch.py` runs a command as a one-shot launchd job. Launchd gives the job a resource coalition of its own, which every process the command starts joins, so the write meter (`engine/tools/write_meter.py`) counts the job's writes and no one else's. It is the launcher for the fault kit (`make fault-kit`, `doc/perf-check.md`) and the memory series (`make memory-series`, `engine/tools/memory_series.py`). A cycle pass never launches through it: it runs where it is started, and the `nohup caffeinate -i …` recipe above is how to detach one.
+`engine/tools/job_launch.py` runs a command as a one-shot launchd job. Launchd gives the job a resource coalition of its own, which every process the command starts joins, so the write meter (`engine/tools/write_meter.py`) counts the job's writes and no one else's. It is the launcher for the fault kit (`make fault-kit`, `doc/perf-check.md`) and the memory series (`make memory-series`, `engine/tools/memory_series.py`). A cycle pass never launches through it: it runs where it is started, and the `nohup caffeinate -i …` recipe above is how to detach one. Launchd is macOS's, so on Linux the launcher exits 125 saying so, and neither `make fault-kit` nor `make memory-series` runs there (`doc/fleet.md` § What is Mac-only).
 
 ```zsh
 uv run python -m engine.tools.job_launch --kind KIND --log tmp/KIND.log -- COMMAND …

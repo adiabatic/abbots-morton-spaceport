@@ -110,6 +110,7 @@ Git holds the history, so a checked-in note earns its place only by recording th
 - Fan-out widths derive from the box at run time; `engine/tools/memory_budget.py` is the authority on the arithmetic and `doc/parallelism.md` maps each width to its constant, its call site, and the environment variable that overrides it — never edit the checked-in values for a one-off run.
 - IMPORTANT: After any Python change, run `make prettier`.
 - Pyright covers the whole Python tree, `engine/` included. Run it bare, with no paths — `[tool.pyright] include` in `pyproject.toml` is the single authority for what is checked.
+  - A bare run reads only the view of the platform it runs on, and skips the branch of a `sys.platform` test that another platform takes. `make typecheck` and the gates read the macOS and the Linux view (`engine/tools/pyright_gate.py`).
   - Suppress with `# pyright: ignore[reportSpecificRule]`, always naming the rule. Never `# type: ignore[...]`, which pyright reads as a blanket whole-line suppression.
 
 ## HTML/CSS/JS

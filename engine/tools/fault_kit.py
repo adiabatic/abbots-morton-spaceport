@@ -43,7 +43,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1051,6 +1051,30 @@ class WriteStop:
         return f"the coalition wrote {self.bytes} B of its {WRITE_CAP_BYTES} B cap, past the {WRITE_WATERMARK_BYTES} B watermark, {self.seconds:.1f} s into the run, so the gate stopped and killed its other members (pids {pids})"
 
 
+def _ticks(seconds: float) -> Generator[None]:
+    """Yield once every `seconds`, for as long as the caller asks. Darwin wakes a sleep or a timed wait up to half its length late, so a 0.02 s wait would poll every 0.03 s; there the ticks come from a kqueue timer marked `NOTE_CRITICAL`, which the kernel never coalesces. Elsewhere a sleep wakes on time."""
+    if sys.platform == "darwin":
+        clock = kernel_events.kqueue()
+        try:
+            tick = kernel_events.kevent(
+                1,
+                filter=kernel_events.KQ_FILTER_TIMER,
+                flags=kernel_events.KQ_EV_ADD | kernel_events.KQ_EV_ENABLE,
+                fflags=_NOTE_USECONDS | _NOTE_CRITICAL,
+                data=round(seconds * 1_000_000),
+            )
+            clock.control([tick], 0)
+            while True:
+                clock.control(None, 1)
+                yield
+        finally:
+            clock.close()
+    else:
+        while True:
+            time.sleep(seconds)
+            yield
+
+
 def lineage(reading: write_meter.WriteReading) -> frozenset[int]:
     """The reader's pid and its chain of parents among the reading's members: the processes the meter gate never stops."""
     parents = {member.pid: member.ppid for member in reading.members}
@@ -1126,19 +1150,8 @@ class WriteGate:
 
     def _poll(self) -> None:
         last_at, last_written = self.first.at, 0
-        clock = kernel_events.kqueue()
-        try:
-            # Darwin wakes a sleep or a timed wait up to half its length late, so a 0.02 s wait polls every 0.03 s; the kernel never coalesces a NOTE_CRITICAL timer.
-            tick = kernel_events.kevent(
-                1,
-                filter=kernel_events.KQ_FILTER_TIMER,
-                flags=kernel_events.KQ_EV_ADD | kernel_events.KQ_EV_ENABLE,
-                fflags=_NOTE_USECONDS | _NOTE_CRITICAL,
-                data=round(WRITE_POLL_S * 1_000_000),
-            )
-            clock.control([tick], 0)
-            while True:
-                clock.control(None, 1)
+        with contextlib.closing(_ticks(WRITE_POLL_S)) as ticks:
+            for _tick in ticks:
                 if self._finished.is_set():
                     return
                 reading = self._meter(False)
@@ -1153,8 +1166,6 @@ class WriteGate:
                 if written >= WRITE_WATERMARK_BYTES:
                     self._stop(written, reading)
                     return
-        finally:
-            clock.close()
 
     def _stop(self, written: int, reading: write_meter.WriteReading) -> None:
         """SIGSTOP every live member but the spared ones, scanning again until a scan finds none left running, record them, SIGKILL them, and raise the stop in the main thread unless `halt` has begun."""

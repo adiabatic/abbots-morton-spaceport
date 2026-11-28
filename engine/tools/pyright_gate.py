@@ -2,13 +2,17 @@
 
 The check's input closure is every `.py` and `.pyi` file under the `include`, `extraPaths` and `stubPath` of `[tool.pyright]` in pyproject.toml, tracked or untracked but not ignored, plus pyproject.toml, which holds the checker's settings, and uv.lock, which pins the checker and the packages it resolves imports against. uv.lock is hashed by its dependency pins (`engine.tools.lock_digest`), because the project's own block names nothing pyright resolves. The sources are hashed raw, because a `# pyright: ignore` comment changes the result, and so is pyproject.toml, so a version bump, which rewrites it, reruns the check. Nothing else pyright reads can change through an edit in this repository. A rune, glyph or Markdown edit, or a verdict, leaves the closure unchanged, so the suite that such an edit re-runs has no type check ahead of it. The green record (`cycle_paths.PYRIGHT_GREEN`) is written only after a passing run whose closure still matches the one it checked, and a failing run whose closure matches the record deletes the record. `AMS_RUN_PYRIGHT=1` requests the check subject to the skip, and `AMS_RUN_PYRIGHT=force`, which the make targets set for `FORCE=1`, runs it regardless. Without git there is no closure to key on, so the check runs and records nothing.
 
+The check is one run of this module (`ARGV`, which `make typecheck` runs too), and it type-checks the tree once per platform the fleet builds on (`PLATFORMS`, `check_platforms`). Pyright decides a `sys.platform` test statically and leaves the branch another platform takes unchecked, so one platform's view never reads the other's code: the macOS view skips what only a Linux run reaches, and the Linux view skips the launchd launcher's and the kqueue timer's branches. pyproject.toml sets no `pythonPlatform`, so a bare `uv run pyright` checks the view of the machine it runs on.
+
 The root conftest calls this module from two hooks. In an xdist controller, `pytest_configure` starts the check before the workers spawn. A run that publishes the fonts waits for the check there, beside the publish, so a type error fails the run before any test starts. An engine-only run, which is what `make test-engine` starts, publishes nothing and defers the check, and `pytest_sessionfinish` joins it. The check then runs beside the xdist pool, and a failure is reported as a nonzero exit after the suite, printed below the pytest summary. If the run was interrupted, that hook abandons the check (`Check.abandon`) instead of evaluating it, because the Ctrl-C that stopped the suite also stopped pyright. Because the conftest imports this module, its repo imports are limited to the leaf modules `cycle_paths`, `green_record` and `lock_digest`. The conftest's static import closure is added to every engine test's closure, so importing the cycle driver here would add the whole pipeline to it (`engine.tools.cycle_paths` explains why that matters).
 """
 
 from __future__ import annotations
 
+import signal
 import subprocess
 import sys
+import threading
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -30,7 +34,10 @@ from engine.tools.lock_digest import lock_digest
 
 PYRIGHT_ENV = "AMS_RUN_PYRIGHT"
 FORCE = "force"
-ARGV = ["uv", "run", "pyright"]
+ARGV = ["uv", "run", "python", "-m", "engine.tools.pyright_gate"]
+PYRIGHT = ["uv", "run", "pyright"]
+# The platforms whose view of the tree the check reads, by the names pyright's `--pythonplatform` takes: the ones the fleet builds on (`doc/fleet.md`).
+PLATFORMS = ("Darwin", "Linux")
 CONFIG_PATHS = ("pyproject.toml", "uv.lock")
 LOCK_PATH = "uv.lock"
 SOURCE_SUFFIXES = (".py", ".pyi")
@@ -157,3 +164,45 @@ def conclude(root: Path, before: str | None, returncode: int) -> str:
     record_green(record, before)
     where = record.relative_to(root) if record.is_relative_to(root) else record
     return f"pyright: green — closure fingerprint recorded in {where}"
+
+
+def check_platforms(root: Path = ROOT) -> int:
+    """Type-check the tree under each platform in `PLATFORMS` and return 0 when every view passed, or the first failing view's exit code. The views run at once, each a `uv run pyright --pythonplatform <platform>`, and each one's output is printed whole under a line naming its view, in `PLATFORMS` order. A SIGTERM, which `Check.abandon` sends, ends the views before this process exits; off the main thread, where no handler can be installed, it ends only this process."""
+
+    def stop(_signum: int, _frame: object) -> None:
+        raise SystemExit(128 + signal.SIGTERM)
+
+    main_thread = threading.current_thread() is threading.main_thread()
+    previous = signal.signal(signal.SIGTERM, stop) if main_thread else None
+    views: list[tuple[str, subprocess.Popen[str]]] = []
+    status = 0
+    try:
+        for platform in PLATFORMS:
+            views.append(
+                (
+                    platform,
+                    subprocess.Popen(
+                        [*PYRIGHT, "--pythonplatform", platform],
+                        cwd=root,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                    ),
+                )
+            )
+        for platform, view in views:
+            output, _ = view.communicate()
+            print(f"pyright, the {platform} view:\n{output}", end="", flush=True)
+            status = status or view.returncode
+    finally:
+        for _platform, view in views:
+            if view.poll() is None:
+                view.terminate()
+                view.wait()
+        if main_thread:
+            signal.signal(signal.SIGTERM, signal.SIG_DFL if previous is None else previous)
+    return status
+
+
+if __name__ == "__main__":
+    raise SystemExit(check_platforms())

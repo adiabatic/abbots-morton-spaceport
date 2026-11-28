@@ -63,10 +63,11 @@ _FORBIDDEN_TREES = frozenset(prefix.rstrip(os.sep) for prefix in _FORBIDDEN if p
 _ROOT_PREFIX = str(REPO_ROOT) + os.sep
 # Events whose first argument is a path the process reads, which the closure records. os.scandir and os.listdir are checked for violations but not recorded, because a listing changes only when an input is added or removed, and that diff runs the whole suite.
 _READ_EVENTS = frozenset(("open", "shutil.copyfile", "shutil.copytree", "shutil.move"))
-# Every way this interpreter starts a child that the hook can see. Only a subprocess.Popen argv is passed to `closure_record.hermetic_child` and `kernel_child`, so the os.* events always mark the item's inputs untraced.
+# Every way this interpreter starts a child that the hook can see. The events in `_ARGV_EVENTS` carry the child's argv as their second argument, which is passed to `closure_record.hermetic_child` and `kernel_child`; every other os.* event marks the item's inputs untraced. `subprocess` raises both of them for one child where it starts the child through `os.posix_spawn`, as it does on Linux for a child with no working directory of its own, so the second event has to classify the child as the first did.
 _SPAWN_EVENTS = frozenset(
     ("subprocess.Popen", "os.fork", "os.forkpty", "os.posix_spawn", "os.exec", "os.spawn", "os.system")
 )
+_ARGV_EVENTS = frozenset(("subprocess.Popen", "os.posix_spawn"))
 _AUDITED_EVENTS = frozenset(
     (
         "open",
@@ -215,7 +216,7 @@ def _audit(event: str, args: tuple[object, ...]) -> None:
                 if _pending_imports:
                     _attribute_import_read(rel)
     elif event in _SPAWN_EVENTS:
-        argv = args[1] if event == "subprocess.Popen" and len(args) > 1 else None
+        argv = args[1] if event in _ARGV_EVENTS and len(args) > 1 else None
         if closure_record.hermetic_child(argv):
             return
         if closure_record.kernel_child(argv):
@@ -464,7 +465,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
 
     `cycle_timings.OUTPUT_COUNTS_ENV` (AMS_OUTPUT_COUNTS) is removed the same way, and `pytest_configure` removes it before any fixture runs, the session fixtures among them. An engine suite a cycle runs inherits the pass's counts file, which is under var/cycle/, so a test's write through `output_sink`'s helper would count toward the pass and trip the guard; `artifact_cycle.main` sets it on this process too.
 
-    The power mode that run and check lines record (`cycle_timings.power_mode`) is pinned to null, because reading it spawns `pmset` and a spawn marks the item's inputs untraced (`_audit`). The mode is read once per process, so without the pin the item marked would be whichever one first wrote a run or check line in its worker, and which items the contracts lane can skip would depend on the order the tests ran in. A test that reads the mode patches `cycle_timings._power_mode_read` back to an empty list.
+    The power mode that run and check lines record (`cycle_timings.power_mode`) is pinned to null, because reading it spawns a command (`pmset`, and `powerprofilesctl` where that gives no mode) and a spawn marks the item's inputs untraced (`_audit`). The mode is read once per process, so without the pin the item marked would be whichever one first wrote a run or check line in its worker, and which items the contracts lane can skip would depend on the order the tests ran in. A test that reads the mode patches `cycle_timings._power_mode_read` back to an empty list.
 
     Three steps delete stale artifacts before rebuilding them: the unlink of run_build's three summaries and of gate:conform's summary, each just before its subprocess spawns, and the retention pass. Redirecting the constants covers the unlinks. Retention prunes the build logs under `cycle_paths.BUILD_LOGS_ROOT`, which the redirect covers, and it is switched off as well (`cycle_paths.RETENTION_ENABLED`), so `_finish` records a retention result with no lines and a test reaching a green finish with `record_greens` set prunes nothing. A test that wants the real retention calls `artifact_cycle.run_retention` with a plan whose `artifact_cycle.ROOT` points somewhere disposable, and a test asserting that `_finish` reaches retention sets the switch back on and patches `run_retention`. The readiness checklist is switched off the same way (`cycle_paths.READINESS_ENABLED`), because it reads the served corpus and the root autosave; a test asserting that `_finish` prints it sets the switch and patches `readiness_block`. The reload the cycle sends to a listening review server after an assets refresh or a pass that moved the served corpus is switched off too (`cycle_paths.REVIEW_RELOAD_ENABLED`), because it goes to the live port and would reload the reviewer's open tabs.
 
@@ -483,6 +484,7 @@ def _redirect_cycle_writes(monkeypatch, tmp_path):
     monkeypatch.setattr(cycle_paths, "CYCLE_VAR", tmp_path / "cycle")
     monkeypatch.setattr(cycle_paths, "RETENTION_ENABLED", False)
     monkeypatch.setattr(cycle_paths, "READINESS_ENABLED", False)
+    monkeypatch.setattr(cycle_paths, "SNAPSHOT_INSTALL_ENABLED", False)
     monkeypatch.setattr(cycle_paths, "REVIEW_RELOAD_ENABLED", False)
     monkeypatch.setattr(cycle_timings, "JOURNAL", tmp_path / "cycle-timings.ndjson")
     monkeypatch.setattr(cycle_timings, "_power_mode_read", [None])

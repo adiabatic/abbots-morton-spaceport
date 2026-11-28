@@ -32,7 +32,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -71,10 +71,13 @@ PASS_WRITE_CEILING_BYTES: dict[str, int | None] = {
 }
 CEILING_PASSES = 3
 UNCLASSIFIED = "unclassified"
-# The command that prints this Mac's power settings, its `powermode` line among them (`power_mode`), and how long `_pmset_text` waits for it.
+# The command that prints a Mac's power settings, its `powermode` line among them (`power_mode`), and how long `_pmset_text` and `_power_profile_text` wait for their commands.
 PMSET = ("/usr/bin/pmset", "-g")
 PMSET_TIMEOUT_S = 10.0
-# The name the reports give each power mode `pmset -g` states (`power_label`); a mode not named here prints as `powermode <n>`.
+# The command that prints the power profile power-profiles-daemon holds on a Linux machine, and the power mode each profile is recorded as (`parse_power_profile`).
+POWER_PROFILE = ("powerprofilesctl", "get")
+POWER_PROFILE_MODES = {"balanced": 0, "power-saver": 1, "performance": 2}
+# The name the reports give each power mode (`power_label`); a mode not named here prints as `powermode <n>`.
 POWER_MODES = {0: "normal", 1: "low power", 2: "high power"}
 _POWER_MODE_LINE = re.compile(r"^[ \t]*powermode[ \t]+(\d+)\b", re.MULTILINE)
 
@@ -154,7 +157,7 @@ READBACK_FIGURES = tuple(name for name in READBACK_TOKENS if name != "commit")
 _JOURNAL_LOCK = threading.Lock()
 _pool_warn_state: list[bool] = [False]
 _check_warn_state: list[bool] = [False]
-# This process's power mode once `power_mode` has read it: empty until the first call, then the one reading every later call returns. engine/conftest.py pins it to null for every engine test, because reading it spawns `pmset`.
+# This process's power mode once `power_mode` has read it: empty until the first call, then the one reading every later call returns. engine/conftest.py pins it to null for every engine test, because reading it spawns a command.
 _power_mode_read: list[int | None] = []
 _POWER_MODE_LOCK = threading.Lock()
 
@@ -163,14 +166,24 @@ def _utc_stamp() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _pmset_text() -> str | None:
-    """Return what `pmset -g` (`PMSET`) prints, or None when the command is missing, fails, or does not finish within `PMSET_TIMEOUT_S`, as on a machine without it or in a sandbox that blocks it."""
+def _command_text(argv: Sequence[str]) -> str | None:
+    """Return what the command prints, or None when it is missing, fails, or does not finish within `PMSET_TIMEOUT_S`."""
     try:
         return subprocess.run(
-            list(PMSET), capture_output=True, text=True, check=True, timeout=PMSET_TIMEOUT_S
+            list(argv), capture_output=True, text=True, check=True, timeout=PMSET_TIMEOUT_S
         ).stdout
     except OSError, subprocess.SubprocessError:
         return None
+
+
+def _pmset_text() -> str | None:
+    """Return what `pmset -g` (`PMSET`) prints, or None when the command is missing, fails, or does not finish within `PMSET_TIMEOUT_S`, as on a machine without it or in a sandbox that blocks it."""
+    return _command_text(PMSET)
+
+
+def _power_profile_text() -> str | None:
+    """Return what `powerprofilesctl get` (`POWER_PROFILE`) prints, or None when the command is missing, fails, or does not finish within `PMSET_TIMEOUT_S`, as on a Mac or on a Linux machine without power-profiles-daemon."""
+    return _command_text(POWER_PROFILE)
 
 
 def parse_power_mode(text: str | None) -> int | None:
@@ -179,11 +192,19 @@ def parse_power_mode(text: str | None) -> int | None:
     return int(found.group(1)) if found else None
 
 
+def parse_power_profile(text: str | None) -> int | None:
+    """Return the power mode a `powerprofilesctl get` text stands for (`POWER_PROFILE_MODES`): 0 for `balanced`, 1 for `power-saver`, and 2 for `performance`, so a Linux machine's lines group with a Mac's in the same mode. The result is None when the text is not one of those profiles."""
+    return POWER_PROFILE_MODES.get((text or "").strip())
+
+
 def power_mode() -> int | None:
-    """Return this Mac's power mode (`parse_power_mode` over `_pmset_text`), or None when it cannot be read. The command runs once per process, at the first call, and every later call returns that reading, so a cycle pass's run line and its check lines record one mode and no line spawns a command of its own. Run lines and check lines record it as `power_mode`, because Low Power Mode slows every step and timings taken in two modes do not compare."""
+    """Return this machine's power mode, or None when it cannot be read: what `pmset -g` states on a Mac (`parse_power_mode` over `_pmset_text`), and otherwise the mode of the power profile a Linux machine holds (`parse_power_profile` over `_power_profile_text`). The second command runs only when the first gives no mode. The reading is taken once per process, at the first call, and every later call returns it, so a cycle pass's run line and its check lines record one mode and no line spawns a command of its own. Run lines and check lines record it as `power_mode`, because a low power mode slows every step and timings taken in two modes do not compare."""
     with _POWER_MODE_LOCK:
         if not _power_mode_read:
-            _power_mode_read.append(parse_power_mode(_pmset_text()))
+            mode = parse_power_mode(_pmset_text())
+            if mode is None:
+                mode = parse_power_profile(_power_profile_text())
+            _power_mode_read.append(mode)
         return _power_mode_read[0]
 
 

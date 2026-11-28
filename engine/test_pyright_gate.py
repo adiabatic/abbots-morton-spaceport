@@ -1,6 +1,7 @@
 """Tests for the pyright check's self-skip in `engine/tools/pyright_gate.py`: which files its closure covers, when a matching green record skips the check before anything spawns, and what a finished check records. The spawn is stubbed, because the suite's own pyright run is the real check. engine/conftest.py's autouse fixture redirects every green record under tmp_path."""
 
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -426,3 +427,16 @@ def test_the_closure_reads_the_lock_by_its_dependency_pins_and_every_source_raw(
     (root / "uv.lock").write_text(_GATE_LOCK)
     (root / "src" / "a.py").write_text("a = 1  # pyright: ignore[reportUnknownRule]\n")
     assert pg.closure_fingerprint(root) != key
+
+
+def test_the_check_reads_every_platforms_view_and_fails_when_one_view_does(monkeypatch, capsys, tmp_path):
+    """Each platform in `PLATFORMS` gets a run of its own, named on pyright's `--pythonplatform`, and its output is printed whole under its view's line, in `PLATFORMS` order. One failing view fails the check with that view's exit code."""
+    script = "import sys; print('read as', sys.argv[-1]); raise SystemExit(3 if sys.argv[-1] == sys.argv[1] else 0)"
+    monkeypatch.setattr(pg, "PYRIGHT", [sys.executable, "-c", script, "Linux"])
+    assert pg.check_platforms(tmp_path) == 3
+    assert capsys.readouterr().out == (
+        "pyright, the Darwin view:\nread as Darwin\npyright, the Linux view:\nread as Linux\n"
+    )
+    monkeypatch.setattr(pg, "PYRIGHT", [sys.executable, "-c", script, "neither"])
+    assert pg.check_platforms(tmp_path) == 0
+    assert pg.PLATFORMS == ("Darwin", "Linux")

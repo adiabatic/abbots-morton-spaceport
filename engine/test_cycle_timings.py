@@ -414,6 +414,45 @@ def test_power_mode_reads_what_pmset_prints(monkeypatch):
     assert ct.power_mode() == 2
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        pytest.param("balanced\n", 0, id="balanced"),
+        pytest.param("power-saver\n", 1, id="power-saver"),
+        pytest.param("performance\n", 2, id="performance"),
+        pytest.param("quiet\n", None, id="another-profile"),
+        pytest.param("", None, id="empty"),
+        pytest.param(None, None, id="no-text"),
+    ],
+)
+def test_parse_power_profile_reads_the_profile_as_a_power_mode(text, expected):
+    """A Linux machine's power profile is recorded as the mode a Mac in the matching state records, so the reports group the two machines' lines by the same names; a profile outside the three has no mode."""
+    assert ct.parse_power_profile(text) == expected
+
+
+def test_power_mode_reads_the_power_profile_where_pmset_gives_no_mode(monkeypatch):
+    """A machine without `pmset` reads its mode from `powerprofilesctl get`, and a machine with neither command reads none."""
+    monkeypatch.setattr(ct, "_pmset_text", lambda: None)
+    monkeypatch.setattr(ct, "POWER_PROFILE", (sys.executable, "-c", "print('power-saver')"))
+    monkeypatch.setattr(ct, "_power_mode_read", [])
+    assert ct._power_profile_text() == "power-saver\n"
+    assert ct.power_mode() == 1
+    monkeypatch.setattr(ct, "POWER_PROFILE", (sys.executable, "-c", "raise SystemExit(1)"))
+    monkeypatch.setattr(ct, "_power_mode_read", [])
+    assert ct._power_profile_text() is None
+    assert ct.power_mode() is None
+
+
+def test_power_mode_asks_for_no_power_profile_once_pmset_gives_a_mode(monkeypatch):
+    def unasked():
+        raise AssertionError("pmset gave a mode, so the profile is not read")
+
+    monkeypatch.setattr(ct, "_pmset_text", lambda: PMSET_TEXT)
+    monkeypatch.setattr(ct, "_power_profile_text", unasked)
+    monkeypatch.setattr(ct, "_power_mode_read", [])
+    assert ct.power_mode() == 1
+
+
 def test_power_mode_runs_pmset_once_per_process_and_only_run_and_check_lines_carry_it(tmp_path, monkeypatch):
     """The first call reads the mode and every later call returns that reading, so a pass's run line and its check lines record one mode and no line spawns a command of its own. A step line takes its run line's mode and a pool line has no use for it, so neither carries the field. engine/conftest.py pins the reading for every other test, because a spawn marks a test's inputs untraced."""
     calls: list[None] = []
@@ -446,6 +485,7 @@ def test_a_power_mode_that_cannot_be_read_is_recorded_as_null(tmp_path, monkeypa
     """A run or check line whose mode could not be read records the field as null, which the reports keep apart from a line that predates the field."""
     monkeypatch.setattr(ct, "_power_mode_read", [])
     monkeypatch.setattr(ct, "_pmset_text", lambda: None)
+    monkeypatch.setattr(ct, "_power_profile_text", lambda: None)
     path = tmp_path / "j.ndjson"
     ct.record_check(_check_result(), path=path)
     ct.CycleTimings(path).finish({})

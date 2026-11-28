@@ -594,7 +594,6 @@ def test_the_gate_refuses_a_run_whose_first_reading_is_not_in_the_own_basis(tmp_
     assert _git(repo, "status", "--porcelain") == ""
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="the gate polls on a Darwin kqueue timer")
 def test_a_gated_run_records_its_writes_with_swap_beside_the_cap_and_never_in_it(tmp_path):
     repo, _ = _clone(tmp_path)
     manifest = _fault_manifest(tmp_path, repo)
@@ -636,7 +635,6 @@ def _gone(pid: int) -> bool:
     return False
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="the gate polls on a Darwin kqueue timer")
 def test_the_gate_stops_and_kills_every_member_but_the_kit_and_its_parent_at_the_watermark(
     tmp_path, monkeypatch
 ):
@@ -681,7 +679,6 @@ def test_the_gate_stops_and_kills_every_member_but_the_kit_and_its_parent_at_the
     assert (repo / "engine" / "out" / "build" / "effect.txt").read_text() == "clean\n"
 
 
-@pytest.mark.skipif(sys.platform != "darwin", reason="the gate polls on a Darwin kqueue timer")
 def test_a_poll_that_fails_stops_the_run(tmp_path):
     repo, head = _clone(tmp_path)
     manifest = _fault_manifest(tmp_path, repo, [sys.executable, "-c", "import time; time.sleep(30)"])

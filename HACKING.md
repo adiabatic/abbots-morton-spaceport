@@ -6,7 +6,7 @@
 make all
 ```
 
-`make all` publishes the six fonts into `site/` (`engine/tools/build_fonts.py`): Mono and Junior built from the rune files and the other glyph files, and Senior copied from run_build's build under `engine/out/build/`, which it runs first when that build is stale. Dependencies are managed with `uv` and defined in `pyproject.toml`. The Senior's table build runs in the Rust crate under `engine/kernel-rs/`, so the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`: without it you cannot build Senior, settle a window, or run the engine suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it.
+`make all` publishes the six fonts into `site/` (`engine/tools/build_fonts.py`): Mono and Junior built from the rune files and the other glyph files, and Senior copied from run_build's build under `engine/out/build/`, which it runs first when that build is stale. Dependencies are managed with `uv` and defined in `pyproject.toml`. The Senior's table build runs in the Rust crate under `engine/kernel-rs/`, so the tree needs a Rust toolchain (`cargo`, from [rustup](https://rustup.rs)) besides `uv`: without it you cannot build Senior, settle a window, or run the engine suite. `make kernel-build` builds the crate in release mode, and the pipeline builds it before it first runs it. On Linux cargo also needs the system's C toolchain to link with (`cc`; Debian's `build-essential`), and the review cycle finds its server with `lsof`. `doc/fleet.md` § What is Mac-only says which tools a Linux machine goes without.
 
 `make serve` serves `site/` on `http://localhost:7293/` and reloads the open pages when a font changes.
 

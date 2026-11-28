@@ -3983,12 +3983,65 @@ def main(argv: list[str] | None = None) -> int:
         return _run_pass(args)
 
 
+def missing_accepted_snapshot(root: Path | None = None, home: Path | None = None) -> tuple[str, str] | None:
+    """Return the accepted snapshot's digest and the commit whose build remakes it when this machine lacks that snapshot and a remake can install it, and None otherwise. The machine lacks it when the tracked pointer reads and names a snapshot in this checkout's format, and the snapshot current under `home` is missing, does not read, or is another one: the three states the readiness checklist answers with `make review-snapshot-remake` (`status._snapshot_check`). A remake can install it when the pointer on disk is the one the last commit to change it holds (`snapshot.last_pointer_commit`), since the remake builds that commit; a pointer an accept has written and nobody has committed names a snapshot taken here, which no commit remakes yet."""
+    from engine.review import snapshot
+
+    root = ROOT if root is None else root
+    try:
+        pointer = snapshot.read_pointer(root / snapshot.POINTER_RELATIVE)
+    except snapshot.SnapshotError:
+        return None
+    if pointer is None or pointer.get("snapshot_format") != snapshot.SNAPSHOT_FORMAT:
+        return None
+    digest = str(pointer["digest"])
+    directory = snapshot.current(snapshot.DEFAULT_HOME if home is None else home)
+    if directory is not None:
+        try:
+            if snapshot.load(directory).digest == digest:
+                return None
+        except snapshot.SnapshotError:
+            pass
+    commit = snapshot.last_pointer_commit(root)
+    if commit is None:
+        return None
+    try:
+        committed = snapshot.pointer_at(commit, root)
+    except snapshot.SnapshotError:
+        return None
+    return (digest, commit) if committed.get("digest") == digest else None
+
+
+def install_accepted_snapshot(*, dry_run: bool = False) -> None:
+    """Install the accepted snapshot on a machine that lacks it (`missing_accepted_snapshot`), as a pass's first act once its recovery is done, so the pass builds its corpus against the snapshot and can end ready on a fresh clone and after a pull that brings another machine's accept. It runs the remake (`engine.review.accept.remake`, which `make review-snapshot-remake` runs too) under the pass lock this pass holds: the build of the commit that accepted the snapshot, a whole table build, alone, before the pass plans anything or starts a gate. A remake that refuses prints why, and the pass goes on against whatever snapshot is current, which the readiness checklist reports with its remedy. A dry run prints what a pass would do and builds nothing. The engine suite switches it off (`cycle_paths.SNAPSHOT_INSTALL_ENABLED`)."""
+    if not cycle_paths.SNAPSHOT_INSTALL_ENABLED:
+        return
+    missing = missing_accepted_snapshot()
+    if missing is None:
+        return
+    digest, commit = missing
+    lacks = f"This machine lacks the accepted snapshot, {digest[:12]}"
+    if dry_run:
+        print(f"{lacks}; a pass first remakes it from a build of {commit[:12]}, the commit that accepted it.")
+        return
+    from engine.review import accept
+
+    print(
+        f"{lacks}, so this pass first remakes it from a build of {commit[:12]}, the commit that accepted it.",
+        flush=True,
+    )
+    if accept.remake(revision=commit, pass_held=True) != 0:
+        print("The accepted snapshot is not installed, so the pass goes on without it.", flush=True)
+
+
 def _run_pass(args: argparse.Namespace, *, recover: bool = True) -> int:
-    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`)."""
+    """Resolve the plan for the parsed arguments and run it, or print it on a dry run. `main` runs it under the pass lock (`pass_lock`), except a dry run that found the lock held, which passes `recover=False` and leaves what earlier passes left to the pass that holds it. Recovery runs first, in order: a `.superseded` tree (`recover_superseded_corpus`), then the run directories and counts files (`sweep_run_dirs`), then an unfinished `review.next` (`recover_next_corpus`). A pass that is not a staging one then installs the accepted snapshot when the machine lacks it (`install_accepted_snapshot`), before anything is planned."""
     recovered = recover_superseded_corpus(delete=not args.dry_run) if recover else None
     if recover and not args.dry_run:
         sweep_run_dirs()
     kept_next = recover_next_corpus(delete=not args.dry_run) if recover else None
+    if recover and args.review_out is None:
+        install_accepted_snapshot(dry_run=args.dry_run)
     first_run = not (REVIEW_OUT / "manifest.json").exists()
 
     skip_make_test = False

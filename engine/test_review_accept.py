@@ -16,7 +16,8 @@ from engine.pipeline import fingerprint, fixtures, run_build
 from engine.review import accept, snapshot
 from engine.review.store_lock import hold_flock, holder, lock_path_for
 from engine.review.verdict_store import AUTOSAVE_NAME
-from engine.tools import store_guards
+from engine.tools import artifact_cycle as ac
+from engine.tools import cycle_paths, store_guards
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MINI_FONT = REPO_ROOT / "engine" / "review" / "fixtures" / "mini" / "Senior-Regular.otf"
@@ -277,7 +278,9 @@ def pointed(tmp_path, built):
     return root, taken
 
 
-def _remake(root: Path, home: Path, built: Path, source: Path | None = None) -> int:
+def _remake(
+    root: Path, home: Path, built: Path, source: Path | None = None, *, pass_held: bool = False
+) -> int:
     """Run the remake with an export that makes an empty tree and a build that takes a snapshot of `source`, the mini build unless another is named, as the tree's own build and snapshot would."""
 
     def export(_revision: str, tree: Path) -> None:
@@ -293,7 +296,66 @@ def _remake(root: Path, home: Path, built: Path, source: Path | None = None) -> 
         repo_root=root,
         export=export,
         build=build,
+        pass_held=pass_held,
     )
+
+
+def test_a_remake_under_a_pass_that_holds_the_lock_takes_none(pointed, built, tmp_path, capsys):
+    """A cycle pass that starts with the remake holds the pass lock itself, which a remake refuses while anyone holds it. Told the caller holds it (`pass_held`), the remake installs the snapshot without taking it."""
+    root, taken = pointed
+    with hold_flock(store_guards.pass_lock_path_for(root / AUTOSAVE_NAME)):
+        assert _remake(root, tmp_path / "refused", built) == 1
+        assert "a pass holds" in capsys.readouterr().out
+        assert _remake(root, tmp_path / "home", built, pass_held=True) == 0
+    current = snapshot.current(tmp_path / "home")
+    assert current is not None and snapshot.load(current).digest == taken.digest
+
+
+def test_a_pass_finds_the_accepted_snapshot_missing_only_where_a_remake_can_install_it(
+    pointed, built, tmp_path
+):
+    """The machine lacks the accepted snapshot when none is current, or another one is, and a remake can install it only while the pointer on disk is the committed one, since the remake builds that commit."""
+    root, taken = pointed
+    home = tmp_path / "home"
+    commit = _git(root, "rev-parse", "HEAD")
+    assert ac.missing_accepted_snapshot(root, home) == (taken.digest, commit)
+    assert _remake(root, home, built) == 0
+    assert ac.missing_accepted_snapshot(root, home) is None
+    other = tmp_path / "other-build"
+    shutil.copytree(built, other)
+    (other / "kern.tsv").write_text("# another kern table\n", encoding="utf-8")
+    another = snapshot.take(other, home, spec=SPEC)
+    assert ac.missing_accepted_snapshot(root, home) == (taken.digest, commit)
+    snapshot.write_pointer(another, root / snapshot.POINTER_RELATIVE)
+    assert ac.missing_accepted_snapshot(root, home) is None
+    assert ac.missing_accepted_snapshot(root, tmp_path / "empty-home") is None
+    (root / snapshot.POINTER_RELATIVE).unlink()
+    assert ac.missing_accepted_snapshot(root, home) is None
+
+
+def test_a_pass_remakes_a_missing_accepted_snapshot_under_its_own_lock_and_a_dry_run_only_says_so(
+    monkeypatch, capsys
+):
+    """A pass on a machine that lacks the accepted snapshot runs the remake of the pointer's commit, telling it the pass lock is held; a dry run names what a pass would do and builds nothing; a machine that has the snapshot, and the engine suite's switch, run no remake."""
+    remakes: list[dict] = []
+    monkeypatch.setattr(accept, "remake", lambda **arguments: remakes.append(arguments) or 0)
+    monkeypatch.setattr(ac, "missing_accepted_snapshot", lambda: ("d" * 64, "c" * 40))
+    ac.install_accepted_snapshot()
+    assert remakes == [] and capsys.readouterr().out == ""
+    monkeypatch.setattr(cycle_paths, "SNAPSHOT_INSTALL_ENABLED", True)
+    ac.install_accepted_snapshot(dry_run=True)
+    assert remakes == []
+    assert "a pass first remakes it from a build of cccccccccccc" in capsys.readouterr().out
+    ac.install_accepted_snapshot()
+    assert remakes == [{"revision": "c" * 40, "pass_held": True}]
+    assert "lacks the accepted snapshot, dddddddddddd" in capsys.readouterr().out
+    monkeypatch.setattr(accept, "remake", lambda **arguments: 1)
+    ac.install_accepted_snapshot()
+    assert "the pass goes on without it" in capsys.readouterr().out
+    monkeypatch.setattr(ac, "missing_accepted_snapshot", lambda: None)
+    monkeypatch.setattr(accept, "remake", lambda **arguments: remakes.append(arguments) or 0)
+    ac.install_accepted_snapshot()
+    assert len(remakes) == 1 and capsys.readouterr().out == ""
 
 
 def test_the_remake_builds_the_pointers_commit_and_installs_the_snapshot_once_its_digest_matches(

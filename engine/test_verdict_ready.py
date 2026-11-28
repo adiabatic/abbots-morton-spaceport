@@ -68,7 +68,7 @@ def write_snapshot(repo: Path, *, current: bool = True) -> str:
         "configs": [],
         "source": "engine/out/build",
         "files": {
-            path.name: {"sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "bytes": path.stat().st_size}
+            path.name: dict(zip(("sha256", "bytes"), snapshot._content(path)))
             for path in sorted(staging.iterdir())
         },
     }

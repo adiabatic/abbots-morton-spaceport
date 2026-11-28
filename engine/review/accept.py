@@ -20,7 +20,7 @@ Once the refusals before it are clear, the accept, dry run and `--apply` alike, 
 
 `--retake` skips the verdict refusals and the readiness and corpus refusals, for a snapshot-format bump, which leaves no snapshot this checkout reads, and for a snapshot no build of its commit remakes, both of which leave the snapshot row failing and the corpus stale. It checks instead that engine/out/build's tables carry the stamp the sources on disk give (`run_build.tables_inputs`), so the snapshot is of this tree's build, and it prints the span it accepts unreviewed: the commit the old snapshot stands for, or that none is known, and the corpus's counts when it can read them.
 
-The remake, `uv run python -m engine.review.accept remake [--rev REV] [--home DIR]` (`make review-snapshot-remake`), installs the snapshot the pointer names on a clone or machine without it. It reads the pointer at `--rev`, by default the last commit that changed it (`snapshot.last_pointer_commit`); a snapshot under the home that already holds the pointer's digest is made current with no build. Otherwise, holding the pass lock, it exports that revision's tree with `git archive` into var/cycle/snapshot-remake/tree (no worktree, and no `.git`: the build names no commit it cannot read, `run_build.head_commit` answering None there), runs that tree's own build there (`build`, run_build's table build and glyph chain, then that tree's `engine.review.snapshot take` into a scratch home beside it), and installs the result (`snapshot.install`) once its digest is the pointer's. The children run with `UV_CACHE_DIR` at this checkout's uv cache, and with `CARGO_TARGET_DIR`, and the tree's `engine/kernel-rs/target` linked to it, at `REMAKE_CARGO_TARGET` inside this checkout's crate target, so the crate's dependencies compile once across remakes and the tree's crate never replaces this checkout's own binary, at `target/release`. A digest that is not the pointer's is reported with `make review-accept ARGS='--apply --retake'` as the remedy, and the work directory is left for inspection; a pass deletes it.
+The remake, `uv run python -m engine.review.accept remake [--rev REV] [--home DIR]` (`make review-snapshot-remake`), installs the snapshot the pointer names on a clone or machine without it; a cycle pass on such a machine starts with it (`artifact_cycle.install_accepted_snapshot`). It reads the pointer at `--rev`, by default the last commit that changed it (`snapshot.last_pointer_commit`); a snapshot under the home that already holds the pointer's digest is made current with no build. Otherwise, holding the pass lock, it exports that revision's tree with `git archive` into var/cycle/snapshot-remake/tree (no worktree, and no `.git`: the build names no commit it cannot read, `run_build.head_commit` answering None there), runs that tree's own build there (`build`, run_build's table build and glyph chain, then that tree's `engine.review.snapshot take` into a scratch home beside it), and installs the result (`snapshot.install`) once its digest is the pointer's. The children run with `UV_CACHE_DIR` at this checkout's uv cache, and with `CARGO_TARGET_DIR`, and the tree's `engine/kernel-rs/target` linked to it, at `REMAKE_CARGO_TARGET` inside this checkout's crate target, so the crate's dependencies compile once across remakes and the tree's crate never replaces this checkout's own binary, at `target/release`. A digest that is not the pointer's is reported with `make review-accept ARGS='--apply --retake'` as the remedy, and the work directory is left for inspection; a pass deletes it.
 
 `uv run python -m engine.review.accept build --out DIR` is the remake's build, which it runs inside the exported tree: the tables of the tree's sources stamped as a full run stamps them, and the glyph chain over them, which writes Senior-Regular.otf and kern.tsv.
 """
@@ -28,6 +28,7 @@ The remake, `uv run python -m engine.review.accept remake [--rev REV] [--home DI
 from __future__ import annotations
 
 import argparse
+import contextlib
 import functools
 import gzip
 import json
@@ -475,8 +476,9 @@ def remake(
     repo_root: Path = ROOT,
     export: Callable[[str, Path], None] | None = None,
     build: Callable[[Path, Path, Path], None] | None = None,
+    pass_held: bool = False,
 ) -> int:
-    """Install the snapshot the pointer at `revision` names (the module docstring). `export(revision, tree)` writes the tree and `build(tree, out, scratch_home)` builds and snapshots it; both default to the real ones. The pass lock is the one beside `store`."""
+    """Install the snapshot the pointer at `revision` names (the module docstring). `pass_held` says the caller holds the pass lock, as the cycle pass that starts with a remake does (`artifact_cycle.install_accepted_snapshot`), so the remake does not take it. `export(revision, tree)` writes the tree and `build(tree, out, scratch_home)` builds and snapshots it; both default to the real ones. The pass lock is the one beside `store`."""
     started = time.perf_counter()
     try:
         revision = revision or snapshot.last_pointer_commit(repo_root)
@@ -501,7 +503,7 @@ def remake(
                 f"remake: {home} already holds {digest[:12]}, the snapshot {revision[:12]}'s pointer names; it is current"
             )
             return 0
-        with store_guards.pass_lock(store):
+        with contextlib.nullcontext() if pass_held else store_guards.pass_lock(store):
             shutil.rmtree(work, ignore_errors=True)
             tree, out, scratch_home = work / "tree", work / "out", work / "home"
             print(f"remake: exporting {revision[:12]} into {tree}", flush=True)

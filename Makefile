@@ -6,8 +6,9 @@ all:
 	cmp -s reference/DepartureMono-Regular.otf site/DepartureMono-Regular.otf || cp reference/DepartureMono-Regular.otf site/
 	cd site && typst compile --font-path . print.typ
 
+# The type check, once per platform the fleet builds on (engine/tools/pyright_gate.py's `PLATFORMS`), whatever the green record says.
 typecheck:
-	uv run pyright
+	uv run python -m engine.tools.pyright_gate
 
 prettier:
 	uv run black -q .
@@ -24,8 +25,9 @@ test-engine:
 test-engine-slow:
 	uv run pytest engine/ -m slow -n auto --dist worksteal
 
-# Runs the font suite on one L2 cluster of the slowest performance level, leaving the other cores free. `taskpolicy -b` runs the process tree at background priority, which the scheduler (not the documented `taskpolicy` contract) confines to one L2 cluster of the slowest performance level. `hw.perflevel0` is the fastest level and each later one is slower, so the slowest is the last, `hw.nperflevels - 1`. On a chip with efficiency cores that level is the efficiency cores; when the level spans several clusters, the tree gets one of them, and the scheduler may move the whole tree to another during a run. So the width is that level's `logicalcpu` divided by its cluster count, which is its `cpusperl2` when the level is made of whole clusters and never more than its `logicalcpu`. The recipe reads no level name and no fixed level index, so the same line holds on chips with two or three performance levels. `-n auto` would return every core the process may run on, because on Darwin it cannot see that confinement, and would oversubscribe the cluster. Memory does not limit this width, so don't derive it from a memory budget.
+# macOS only. Runs the font suite on one L2 cluster of the slowest performance level, leaving the other cores free. `taskpolicy -b` runs the process tree at background priority, which the scheduler (not the documented `taskpolicy` contract) confines to one L2 cluster of the slowest performance level. `hw.perflevel0` is the fastest level and each later one is slower, so the slowest is the last, `hw.nperflevels - 1`. On a chip with efficiency cores that level is the efficiency cores; when the level spans several clusters, the tree gets one of them, and the scheduler may move the whole tree to another during a run. So the width is that level's `logicalcpu` divided by its cluster count, which is its `cpusperl2` when the level is made of whole clusters and never more than its `logicalcpu`. The recipe reads no level name and no fixed level index, so the same line holds on chips with two or three performance levels. `-n auto` would return every core the process may run on, because on Darwin it cannot see that confinement, and would oversubscribe the cluster. Memory does not limit this width, so don't derive it from a memory budget.
 test-slowly:
+	@command -v taskpolicy >/dev/null || { echo 'make test-slowly needs macOS: it confines the suite with taskpolicy and sizes it from sysctl hw.perflevel*.' >&2; exit 1; }
 	AMS_RUN_PYRIGHT=1 taskpolicy -b uv run pytest test/ site/ -n $$(l=$$(( $$(sysctl -n hw.nperflevels) - 1 )); c=$$(sysctl -n hw.perflevel$$l.logicalcpu); k=$$(sysctl -n hw.perflevel$$l.cpusperl2); echo $$(( c / ((c + k - 1) / k) ))) --dist worksteal
 
 print-job: all
@@ -87,7 +89,7 @@ verdict-ready:
 review-accept:
 	uv run python -m engine.review.accept $(ARGS)
 
-# Installs the snapshot engine/review-snapshot.json names on a machine without it, from a build of the commit that last changed the pointer: `git archive` of that commit into var/cycle/snapshot-remake/, that tree's own table build, glyph chain and snapshot, holding the pass lock; it runs the whole table build, so never beside a gate. ARGS takes --rev and --home; engine/review/accept.py's module docstring gives the rest.
+# Installs the snapshot engine/review-snapshot.json names on a machine without it, as a cycle pass does by itself before it plans, from a build of the commit that last changed the pointer: `git archive` of that commit into var/cycle/snapshot-remake/, that tree's own table build, glyph chain and snapshot, holding the pass lock; it runs the whole table build, so never beside a gate. ARGS takes --rev and --home; engine/review/accept.py's module docstring gives the rest.
 review-snapshot-remake:
 	uv run python -m engine.review.accept remake $(ARGS)
 
